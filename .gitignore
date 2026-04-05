@@ -12,6 +12,7 @@ vendor/
 .claude/
 .vscode/
 
+
 # Test artifacts
 test-results/
 playwright-report/
@@ -32,3 +33,5 @@ Thumbs.db
 /test2/
 /test3/
 CLAUDE.md
+
+.harness/
