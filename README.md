@@ -10,12 +10,20 @@ Each `.out` (outliner) and `.md` (markdown) file also works standalone — but t
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/raggbal?label=Sponsor)
 
-**New: Redesigned for simplicity. **![assets/images/1772631963888.png](assets/images/1772631963888.png)
-**New: Action Palette (Cmd+/ / Ctrl+/)**
-![assets/images/1772632052456.png](assets/images/1772632052456.png)
+## Visual
+### Outliner Editor
+The Outliner Editor can be used by first adding a Note (any folder) from Fractal Notes in the VSCode Activity Bar.
+The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.![assets/images/1775404974903.png](assets/images/1775404974903.png)
 
-<!-- TODO: Add Outliner mode screenshot -->
-<!-- TODO: Add Notes manager screenshot -->
+### Side Panel Markdown Editor
+Each node in the outliner can easily embed a Markdown file as a page using the `@page` command. Nodes with an attached page display a page icon, and pressing Cmd+Enter opens the Markdown editor in the side panel.
+![assets/images/1775405114239.png](assets/images/1775405114239.png)
+
+### Markdown Editor (Standalone)
+The Markdown editor can be launched in standalone mode from the side panel. The functionality is the same, but standalone mode offers the advantage of a larger editing area. It can also be set as the default Markdown editor, allowing you to edit any Markdown file with the Fractal Markdown editor.
+![assets/images/1772631963888.png](assets/images/1772631963888.png)
+**Action Palette (Cmd+/ / Ctrl+/)**
+![assets/images/1772632052456.png](assets/images/1772632052456.png)
 
 ## 🎬 Demo (gif)
 
