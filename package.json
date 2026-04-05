@@ -1,0 +1,391 @@
+{
+  "name": "fractal",
+  "displayName": "Fractal - Markdown & Outline Editor",
+  "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
+  "version": "0.195.607",
+  "publisher": "imaken",
+  "author": "imaken",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raggbal/fractal"
+  },
+  "bugs": {
+    "url": "https://github.com/raggbal/fractal/issues"
+  },
+  "homepage": "https://github.com/raggbal/fractal#readme",
+  "sponsor": {
+    "url": "https://github.com/sponsors/raggbal"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Notebooks",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "wysiwyg",
+    "editor",
+    "outliner",
+    "notebook",
+    "note",
+    "live preview",
+    "mermaid",
+    "table",
+    "rich text",
+    "dynalist",
+    "typora"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fractal-notes",
+          "title": "Fractal Notes",
+          "icon": "media/notes-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "fractal-notes": [
+        {
+          "id": "notesExplorer",
+          "name": "Notes Folders"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fractal.openEditor",
+        "title": "Open with Fractal Editor",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.addNotesFolder",
+        "title": "Add Notes Folder",
+        "category": "Fractal",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fractal.removeNotesFolder",
+        "title": "Remove Notes Folder",
+        "category": "Fractal",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "fractal.openNotesFolder",
+        "title": "Open Notes Folder",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.exportToPdf",
+        "title": "Export to PDF",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.insertTable",
+        "title": "Insert Table",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.insertToc",
+        "title": "Insert Table of Contents",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.openAsText",
+        "title": "Open as Text Editor",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.toggleSourceMode",
+        "title": "Toggle Source Mode",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.compareAsText",
+        "title": "Compare as Text",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.undo",
+        "title": "Undo",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.redo",
+        "title": "Redo",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.scopeIn",
+        "title": "Scope Into Node",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.scopeOut",
+        "title": "Clear Scope",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.newOutliner",
+        "title": "New Outliner File",
+        "category": "Fractal"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "fractal.editor",
+        "displayName": "Fractal",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          },
+          {
+            "filenamePattern": "*.markdown"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "fractal.outliner",
+        "displayName": "Fractal Outliner",
+        "selector": [
+          {
+            "filenamePattern": "*.out"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "configuration": {
+      "title": "Fractal",
+      "properties": {
+        "fractal.theme": {
+          "type": "string",
+          "enum": [
+            "github",
+            "sepia",
+            "night",
+            "dark",
+            "minimal",
+            "perplexity",
+            "things"
+          ],
+          "default": "things",
+          "description": "Editor theme"
+        },
+        "fractal.fontSize": {
+          "type": "number",
+          "default": 14,
+          "description": "Base font size in pixels"
+        },
+        "fractal.imageDefaultDir": {
+          "type": "string",
+          "default": "",
+          "description": "Default directory for saving images. Uses the same directory as the Markdown file when empty. Accepts absolute (/path/to/dir) or relative (./images, images/) paths."
+        },
+        "fractal.forceRelativeImagePath": {
+          "type": "boolean",
+          "default": false,
+          "description": "Always insert image paths as relative paths, even when imageDefaultDir is an absolute path."
+        },
+        "fractal.outlinerImageDefaultDir": {
+          "type": "string",
+          "default": "./images",
+          "description": "Default directory for saving outliner node images. Uses relative path from .out file. Can be overridden per-file via imageDir field in .out JSON."
+        },
+        "fractal.language": {
+          "type": "string",
+          "enum": [
+            "default",
+            "en",
+            "ja",
+            "zh-TW",
+            "zh-CN",
+            "ko",
+            "es",
+            "fr"
+          ],
+          "default": "default",
+          "description": "UI language. 'default' uses VS Code's display language."
+        },
+        "fractal.outlinerPageDir": {
+          "type": "string",
+          "default": "./pages",
+          "description": "Outliner page files directory. Relative to .out file or absolute path."
+        },
+        "fractal.outlinerPageTitle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show page title input above the search bar in Outliner."
+        },
+        "fractal.toolbarMode": {
+          "type": "string",
+          "enum": [
+            "full",
+            "simple"
+          ],
+          "default": "simple",
+          "description": "Toolbar display mode. 'full' shows all buttons. 'simple' shows only undo/redo and utility buttons (use Cmd+/ for other operations)."
+        },
+        "fractal.linkOpenMode": {
+          "type": "string",
+          "enum": [
+            "sidePanel",
+            "tab"
+          ],
+          "default": "sidePanel",
+          "description": "How to open linked Markdown files. 'sidePanel' opens in a Notion-style side peek panel. 'tab' opens in a new editor tab."
+        },
+        "fractal.enableDebugLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging in the editor. Useful for troubleshooting."
+        },
+        "fractal.s3AccessKeyId": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Access Key ID for S3 sync"
+        },
+        "fractal.s3SecretAccessKey": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Secret Access Key for S3 sync"
+        },
+        "fractal.s3Region": {
+          "type": "string",
+          "default": "us-east-1",
+          "description": "AWS Region for S3 sync (e.g., ap-northeast-1)"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "fractal.insertTable",
+          "when": "resourceLangId == markdown",
+          "group": "fractal"
+        },
+        {
+          "command": "fractal.insertToc",
+          "when": "resourceLangId == markdown",
+          "group": "fractal"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "fractal.openAsText",
+          "when": "resourceLangId == markdown",
+          "group": "navigation@99"
+        },
+        {
+          "command": "fractal.compareAsText",
+          "when": "resourceLangId == markdown",
+          "group": "3_compare"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "fractal.openAsText",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "fractal.addNotesFolder",
+          "when": "view == notesExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fractal.removeNotesFolder",
+          "when": "view == notesExplorer",
+          "group": "inline"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "fractal.undo",
+        "key": "ctrl+z",
+        "mac": "cmd+z",
+        "when": "activeCustomEditorId == 'fractal.editor'"
+      },
+      {
+        "command": "fractal.redo",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
+        "when": "!editorTextFocus"
+      },
+      {
+        "command": "fractal.redo",
+        "key": "ctrl+y",
+        "mac": "cmd+y",
+        "when": "!editorTextFocus"
+      },
+      {
+        "command": "fractal.toggleSourceMode",
+        "key": "ctrl+.",
+        "mac": "cmd+.",
+        "when": "activeCustomEditorId == 'fractal.editor'"
+      },
+      {
+        "command": "fractal.openAsText",
+        "key": "ctrl+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "activeCustomEditorId == 'fractal.editor'"
+      },
+      {
+        "command": "fractal.scopeOut",
+        "key": "ctrl+shift+]",
+        "mac": "cmd+shift+]",
+        "when": "activeCustomEditorId == 'fractal.outliner'"
+      },
+      {
+        "command": "fractal.scopeIn",
+        "key": "ctrl+]",
+        "mac": "cmd+]",
+        "when": "activeCustomEditorId == 'fractal.outliner'"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "test:build": "node test/build-standalone.js",
+    "test:e2e": "npm run test:build && playwright test",
+    "test:e2e:ui": "npm run test:build && playwright test --ui",
+    "test:serve": "npx serve test/html -p 3000",
+    "build:locales": "node build-locales.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.1",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "jsdom": "^27.4.0",
+    "serve": "^14.2.5",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "katex": "^0.16.9",
+    "mermaid": "^10.6.0",
+    "turndown": "^7.2.2",
+    "turndown-plugin-gfm": "^1.0.2"
+  }
+}

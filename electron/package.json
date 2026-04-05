@@ -1,0 +1,147 @@
+{
+  "name": "fractal-desktop",
+  "version": "0.195.607",
+  "description": "Fractal — WYSIWYG Markdown editor for desktop",
+  "main": "out/main.js",
+  "author": {
+    "name": "imaken",
+    "email": "imaken@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/raggbal/fractal",
+  "license": "MIT",
+  "scripts": {
+    "compile": "cd .. && npm run compile && cd electron && tsc -p . && node ../scripts/copy-vendor.js",
+    "start": "npm run compile && ELECTRON_RUN_AS_NODE= electron .",
+    "build:mac": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --mac",
+    "build:win": "npm run compile && ELECTRON_RUN_AS_NODE= electron-builder --win"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.3.0"
+  },
+  "build": {
+    "appId": "com.imaken.fractal",
+    "productName": "Fractal",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../src/webview",
+        "to": "webview",
+        "filter": [
+          "editor.js",
+          "editor-utils.js",
+          "styles.css",
+          "outliner.js",
+          "outliner-model.js",
+          "outliner-search.js",
+          "outliner.css"
+        ]
+      },
+      {
+        "from": "../vendor",
+        "to": "vendor"
+      },
+      {
+        "from": "../out/locales",
+        "to": "locales",
+        "filter": ["*.js"]
+      },
+      {
+        "from": "../out/shared",
+        "to": "out/shared",
+        "filter": [
+          "editor-body-html.js",
+          "notes-body-html.js",
+          "notes-file-panel.js",
+          "notes-file-manager.js",
+          "notes-message-handler.js",
+          "notes-host-bridge.js",
+          "markdown-import.js",
+          "outliner-clipboard-store.js"
+        ]
+      },
+      {
+        "from": "../out/notes-s3-sync.js",
+        "to": "out/notes-s3-sync.js"
+      }
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "fileAssociations": [
+        {
+          "ext": [
+            "md",
+            "markdown"
+          ],
+          "name": "Markdown Document",
+          "role": "Editor"
+        },
+        {
+          "ext": ["out"],
+          "name": "Outliner Document",
+          "role": "Editor"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "fileAssociations": [
+        {
+          "ext": "md",
+          "name": "Markdown Document"
+        },
+        {
+          "ext": "out",
+          "name": "Outliner Document"
+        }
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Office",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "fileAssociations": [
+        {
+          "ext": "md",
+          "name": "Markdown Document",
+          "mimeType": "text/markdown"
+        },
+        {
+          "ext": "out",
+          "name": "Outliner Document",
+          "mimeType": "application/x-outliner"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
