@@ -1,4 +1,4 @@
-<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal - Note App for VS Code
+<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal - Markdown & Outliner Editor VS Code
 =
 
 A note app that lives in your VS Code Activity Bar. Add folders, organize outlines, write markdown pages — all without leaving the editor. Fractal combines a **Dynalist-like outliner** and a **Typora-like WYSIWYG markdown editor** into a single, integrated note-taking experience with Daily Notes, full-text search, and S3 cloud sync. The markdown editor is **AI-friendly** — edit visually while AI assistants (Claude Code, Cursor, etc.) modify the same file in real-time, with your edits and AI's edits coexisting safely.
