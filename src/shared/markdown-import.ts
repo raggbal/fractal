@@ -20,6 +20,11 @@ export interface ImportedMdFile {
     pageId: string;
 }
 
+export interface ImportMdOptions {
+    /** H1 の代わりに使用するタイトル。指定時は H1 抽出をスキップする */
+    title?: string;
+}
+
 // ────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────
@@ -30,12 +35,14 @@ export interface ImportedMdFile {
  * @param sourcePath  元の .md ファイルのフルパス
  * @param pageDir     ページファイルの保存先ディレクトリ
  * @param imageDir    画像ファイルのコピー先ディレクトリ
+ * @param options     オプション（タイトル指定など）
  * @returns インポート結果（タイトル、変換後コンテンツ、pageId）
  */
 export function importMdFile(
     sourcePath: string,
     pageDir: string,
-    imageDir: string
+    imageDir: string,
+    options?: ImportMdOptions
 ): ImportedMdFile | null {
     // ファイル読み込み
     let rawContent: string;
@@ -45,8 +52,8 @@ export function importMdFile(
         return null;
     }
 
-    // H1 抽出
-    const title = extractH1Title(rawContent);
+    // タイトル: オプション指定があればそれを使用、なければ H1 抽出
+    const title = options?.title ?? extractH1Title(rawContent);
 
     // プレーンテキスト正規化
     let content = normalizeMarkdownPlainText(rawContent);
@@ -76,11 +83,12 @@ export function importMdFile(
 export function importMdFiles(
     filePaths: string[],
     pageDir: string,
-    imageDir: string
+    imageDir: string,
+    options?: ImportMdOptions
 ): ImportedMdFile[] {
     const results: ImportedMdFile[] = [];
     for (const fp of filePaths) {
-        const result = importMdFile(fp, pageDir, imageDir);
+        const result = importMdFile(fp, pageDir, imageDir, options);
         if (result) {
             results.push(result);
         }
