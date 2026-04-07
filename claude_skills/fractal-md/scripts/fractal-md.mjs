@@ -18,6 +18,9 @@
  *
  *   # 一括登録
  *   node scripts/fractal-md.mjs --note path/to/note.out --md "docs/*.md" --group-name "リサーチ結果"
+ *
+ *   # 新規アウトライナー（.outファイル）を作成し outline.note のトップレベルに追加
+ *   node scripts/fractal-md.mjs --create-outliner "タイトル" --notes-dir /path/to/notes
  */
 
 import fs from 'node:fs';
@@ -236,6 +239,8 @@ function parseArgs(argv) {
         groupName: null,
         text: null,
         position: 'child', // 'child' or 'after'
+        createOutliner: null,
+        notesDir: null,
     };
 
     let i = 2; // skip node, script
@@ -261,6 +266,12 @@ function parseArgs(argv) {
             case '--text':
                 args.text = argv[++i];
                 break;
+            case '--create-outliner':
+                args.createOutliner = argv[++i];
+                break;
+            case '--notes-dir':
+                args.notesDir = argv[++i];
+                break;
             case '--position':
                 args.position = argv[++i];
                 if (args.position !== 'child' && args.position !== 'after') {
@@ -273,6 +284,11 @@ function parseArgs(argv) {
                 process.exit(1);
         }
         i++;
+    }
+
+    // --create-outliner モードは --note 不要
+    if (args.createOutliner !== null) {
+        return args;
     }
 
     if (!args.note) {
@@ -435,8 +451,83 @@ function insertNode(data, node, targetNodeId, position = 'child', childPosition 
 
 // --- メイン処理 ---
 
+// --- 新規アウトライナー作成 ---
+
+function generateOutlineId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function createOutliner(title, notesDir) {
+    const mainFolder = path.resolve(notesDir || process.cwd());
+    if (!fs.existsSync(mainFolder) || !fs.statSync(mainFolder).isDirectory()) {
+        console.error(`Error: notes directory not found: ${mainFolder}`);
+        process.exit(1);
+    }
+
+    const id = generateOutlineId();
+    const filePath = path.join(mainFolder, `${id}.out`);
+    const pageDirRel = `./${id}`;
+    const pageDirAbs = path.join(mainFolder, id);
+
+    const firstNodeId = generateNodeId();
+    const data = {
+        title: title || 'Untitled',
+        pageDir: pageDirRel,
+        rootIds: [firstNodeId],
+        nodes: {
+            [firstNodeId]: {
+                id: firstNodeId,
+                parentId: null,
+                children: [],
+                text: '',
+                tags: [],
+                isPage: false,
+                pageId: null,
+                collapsed: false,
+                checked: null,
+                subtext: '',
+            },
+        },
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.mkdirSync(pageDirAbs, { recursive: true });
+
+    // outline.note 構造を更新（あれば）
+    const notePath = path.join(mainFolder, 'outline.note');
+    let structure;
+    if (fs.existsSync(notePath)) {
+        try {
+            structure = JSON.parse(fs.readFileSync(notePath, 'utf-8'));
+        } catch {
+            structure = null;
+        }
+    }
+    if (!structure || typeof structure !== 'object') {
+        structure = { version: 1, rootIds: [], items: {} };
+    }
+    structure.items = structure.items || {};
+    structure.rootIds = structure.rootIds || [];
+    structure.items[id] = { type: 'file', id, title: title || 'Untitled' };
+    if (!structure.rootIds.includes(id)) {
+        structure.rootIds.unshift(id);
+    }
+    fs.writeFileSync(notePath, JSON.stringify(structure, null, 2), 'utf-8');
+
+    console.log(`\u2705 Outliner created: "${title}"`);
+    console.log(`   File:     ${filePath}`);
+    console.log(`   Pages:    ${pageDirAbs}`);
+    console.log(`   Registered in ${notePath}`);
+}
+
 async function main() {
     const args = parseArgs(process.argv);
+
+    // === 新規アウトライナー作成モード ===
+    if (args.createOutliner !== null) {
+        createOutliner(args.createOutliner, args.notesDir);
+        return;
+    }
 
     // .out パス解決
     let notePath = args.note;
