@@ -6445,6 +6445,34 @@ class EditorInstance {
                 // If so, merge with the last li of that sibling list instead of parent li
                 // Note: Empty li items are handled by the existing logic (convert to paragraph)
                 if (isAtBeginning && isNestedList && !liElement.previousElementSibling && !isEmptyItem) {
+                    // Task list special case: if the current li has a checkbox and the cursor
+                    // is right after it, backspace should strip the checkbox (convert task→bullet),
+                    // NOT merge into the parent li. This matches the sibling-above case where
+                    // browser default handles it the same way.
+                    const currentCheckbox = liElement.querySelector(':scope > input[type="checkbox"]');
+                    if (currentCheckbox) {
+                        e.preventDefault();
+                        currentCheckbox.remove();
+                        // Strip the leading formatting space (" b" → "b") from the first text node
+                        const firstChild = liElement.firstChild;
+                        if (firstChild && firstChild.nodeType === 3) {
+                            firstChild.textContent = firstChild.textContent.replace(/^\s+/, '');
+                        }
+                        // Place cursor at the start of the li's text
+                        const cbRange = document.createRange();
+                        const cbTarget = liElement.firstChild;
+                        if (cbTarget && cbTarget.nodeType === 3) {
+                            cbRange.setStart(cbTarget, 0);
+                        } else {
+                            cbRange.setStart(liElement, 0);
+                        }
+                        cbRange.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(cbRange);
+                        syncMarkdownSync();
+                        return;
+                    }
+
                     const parentLi = list.parentNode;
 
                     // Check for previous sibling list within the same parent li
