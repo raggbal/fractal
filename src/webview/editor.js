@@ -8841,53 +8841,73 @@ class EditorInstance {
          * Unified handler for both nested and top-level empty li
          */
         function handleEmptyLi(context) {
-            const { liElement, list, nestedLists, precedingSiblings, followingSiblings, sel } = context;
-            
-            logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'followingSiblings:', followingSiblings.length, 'nestedLists:', nestedLists.length);
-            
-            // Remove nested lists from li first (save them for later)
+            const { liElement, list, nestedLists, precedingSiblings, sel } = context;
+
+            logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'nestedLists:', nestedLists.length);
+
+            // Find the visually previous element to move cursor to
+            const visualPrev = findVisuallyPreviousElement(liElement);
+
+            // No previous element at all (top-level first empty li)
+            // → escape the list by converting to a paragraph (legacy behavior)
+            if (!visualPrev) {
+                const savedNestedLists = [];
+                for (const nl of nestedLists) {
+                    nl.remove();
+                    savedNestedLists.push(nl);
+                }
+                liElement.remove();
+
+                const p = document.createElement('p');
+                p.innerHTML = '<br>';
+                if (list.children.length === 0) {
+                    list.replaceWith(p);
+                } else {
+                    list.before(p);
+                }
+                let insertAfter = p;
+                for (const nl of savedNestedLists) {
+                    insertAfter.after(nl);
+                    insertAfter = nl;
+                }
+                setCursorToEnd(p);
+                return true;
+            }
+
+            // There IS a previous element → merge behavior:
+            // delete the empty li and move cursor to end of the previous element.
+            // Preserve nested lists of the empty li by re-homing them onto visualPrev
+            // (if it's a li) or after it (if it's not).
             const savedNestedLists = [];
             for (const nl of nestedLists) {
                 nl.remove();
                 savedNestedLists.push(nl);
             }
-            
-            // Remove the li
+
             liElement.remove();
-            
-            // Create paragraph
-            const p = document.createElement('p');
-            p.innerHTML = '<br>';
-            
-            // Insert paragraph based on position
-            if (list.children.length === 0) {
-                // List is now empty - replace it with paragraph
-                list.replaceWith(p);
-            } else if (precedingSiblings.length === 0) {
-                // First item - insert paragraph before list
-                list.before(p);
-            } else if (followingSiblings.length === 0) {
-                // Last item - insert paragraph after list
-                list.after(p);
-            } else {
-                // Middle item - split list
-                const newList = document.createElement(list.tagName);
-                for (const fs of followingSiblings) {
-                    newList.appendChild(fs);
+
+            // Clean up empty parent list if we just removed its last child
+            if (list && list.parentNode && list.children.length === 0) {
+                list.remove();
+            }
+
+            if (visualPrev.tagName?.toLowerCase() === 'li') {
+                // Append saved nested lists as children of the previous li
+                // (this keeps them attached at a reasonable nesting level)
+                for (const nl of savedNestedLists) {
+                    visualPrev.appendChild(nl);
                 }
-                list.after(p);
-                p.after(newList);
+                setCursorToEndOfLi(visualPrev);
+            } else {
+                // Non-li previous (e.g. a paragraph) — place nested lists after it
+                let insertAfter = visualPrev;
+                for (const nl of savedNestedLists) {
+                    insertAfter.after(nl);
+                    insertAfter = nl;
+                }
+                setCursorToEnd(visualPrev);
             }
-            
-            // Always insert saved nested lists after paragraph (as independent lists)
-            // The nesting/merging will happen on the 2nd Backspace
-            let insertAfter = p;
-            for (const nl of savedNestedLists) {
-                insertAfter.after(nl);
-                insertAfter = nl;
-            }
-            
-            setCursorToEnd(p);
+
             return true;
         }
         
