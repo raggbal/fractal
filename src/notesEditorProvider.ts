@@ -164,13 +164,22 @@ export class NotesEditorProvider {
                 const uri = vscode.Uri.file(filePath);
                 vscode.commands.executeCommand('vscode.openWith', uri, 'fractal.editor');
             },
-            openPageInSidePanel: async (filePath: string, lineNumber?: number) => {
+            openPageInSidePanel: async (filePath: string, lineNumber?: number, query?: string, occurrence?: number) => {
                 if (!fs.existsSync(filePath)) {
                     vscode.window.showWarningMessage(`Page file not found: ${filePath}`);
                     return;
                 }
                 await sidePanel.openFile(filePath);
-                if (lineNumber !== undefined) {
+                // キーワードベースのジャンプを優先（行番号は表示HTMLとずれて失敗するため）
+                if (query) {
+                    setTimeout(() => {
+                        panel.webview.postMessage({
+                            type: 'scrollToText',
+                            text: query,
+                            occurrence: occurrence || 0,
+                        });
+                    }, 500);
+                } else if (lineNumber !== undefined) {
                     setTimeout(() => {
                         panel.webview.postMessage({
                             type: 'scrollToLine',

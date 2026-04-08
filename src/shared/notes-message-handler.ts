@@ -22,7 +22,7 @@ export interface NotesPlatformActions {
     /** .md ファイルをエディタで開く (Electron: createWindow, VSCode: vscode.openWith) */
     openFileInEditor(filePath: string): void;
     /** サイドパネルでページを開く (lineNumber指定時はスクロール) */
-    openPageInSidePanel(filePath: string, lineNumber?: number): void;
+    openPageInSidePanel(filePath: string, lineNumber?: number, query?: string, occurrence?: number): void;
     /** 画像挿入ダイアログ表示 */
     requestInsertImage(sidePanelFilePath: string): void;
     /** パネル折り畳み状態を永続化 */
@@ -645,18 +645,19 @@ export function handleNotesMessage(
             }
             sendFileListWithStructure(fileManager, sender, mdOutFilePath);
 
-            // .outをアウトライナに表示
+            // .outをアウトライナに表示し、該当ノードへジャンプ
             sender.postMessage({
                 type: 'updateData',
                 data: mdOutData,
                 fileChangeId: fileManager.getFileChangeId(),
+                jumpToNodeId: pageNodeId,
             });
 
             // サイドパネルでページを開く（lineNumber付き）
             if (pageNodeId) {
                 const pagePath = fileManager.getPageFilePath(message.pageId);
                 if (platform.openPageInSidePanel) {
-                    platform.openPageInSidePanel(pagePath, message.lineNumber);
+                    platform.openPageInSidePanel(pagePath, message.lineNumber, message.query, message.occurrence);
                 }
             }
             break;

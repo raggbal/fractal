@@ -279,9 +279,14 @@ function createNotesPlatformActions(win: BrowserWindow): Record<string, unknown>
         openFileInEditor: (filePath: string) => {
             createWindow(filePath);
         },
-        openPageInSidePanel: (filePath: string, _lineNumber?: number) => {
+        openPageInSidePanel: (filePath: string, _lineNumber?: number, query?: string, occurrence?: number) => {
             if (fs.existsSync(filePath)) {
                 openInSidePanel(win, filePath);
+                if (query) {
+                    setTimeout(() => {
+                        win.webContents.send('host-message', { type: 'scrollToText', text: query, occurrence: occurrence || 0 });
+                    }, 500);
+                }
             }
         },
         requestInsertImage: async (sidePanelFilePath: string) => {

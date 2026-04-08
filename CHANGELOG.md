@@ -5,6 +5,29 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.619] - 2026-04-08
+
+### Fixed
+- Notes Search: Markdown jump now works for ALL result types — outline node jump, side-panel open, and in-page keyword scroll all work end-to-end
+- Notes Search: Fixed false "未リンクページ" results that were unjumpable; results now only include pages owned by the outline's nodes
+- Notes Search: Closing the side panel no longer resets the outliner cursor to the top node
+- Notes Search: Keyword jump now works inside markdown links `[text](url)` (URL part is ignored)
+- Notes Search: Image syntax `![alt](url)` is excluded from search to keep occurrence indices consistent
+- Notes Search: Multi-hit markdown files now correctly jump to the Nth occurrence (not always the first)
+
+### Changed
+- Notes Search: Markdown jump uses keyword-based DOM TreeWalker scrolling instead of raw line numbers (works for tables, lists, and inline-formatted lines)
+- Notes Search: Markdown result headers fall back to `node.text → first heading → pageId prefix` when node text is empty
+
+## [0.195.612] - 2026-04-07
+
+### Fixed
+- Notes Search: Clicking a result now correctly scrolls the target node to the center, even for image-heavy nodes
+
+### Changed
+- Notes Search: Results are now grouped into "Outliner results" and "Markdown results" sections with themed colors
+- Notes Search: Markdown results now show the parent node name (e.g. `OutlineTitle / NodeName`) instead of the page id
+
 ## [0.195.607] - 2026-04-05
 
 ### Added

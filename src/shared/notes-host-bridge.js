@@ -184,13 +184,15 @@
             flushOutlinerSync();
             api.postMessage({ type: 'notesJumpToNode', fileId: fileId, nodeId: nodeId });
         },
-        jumpToMdPage: function(outFileId, pageId, lineNumber) {
+        jumpToMdPage: function(outFileId, pageId, lineNumber, query, occurrence) {
             flushOutlinerSync();
             api.postMessage({
                 type: 'notesJumpToMdPage',
                 outFileId: outFileId,
                 pageId: pageId,
                 lineNumber: lineNumber,
+                query: query,
+                occurrence: occurrence,
             });
         },
         openMdFileExternal: function(filePath) {

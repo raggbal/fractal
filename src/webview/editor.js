@@ -13572,6 +13572,9 @@ class EditorInstance {
         } else if (message.type === 'scrollToLine') {
             // Scroll to a specific line number in the document
             scrollToLine(message.lineNumber);
+        } else if (message.type === 'scrollToText') {
+            // Scroll to the Nth occurrence of a text query (keyword-based jump)
+            scrollToText(message.text, message.occurrence || 0);
         } else if (message.type === 'pasteText') {
             // Paste text relayed from main webview (side panel can't receive paste events directly)
             logger.log('pasteText received from main webview');
@@ -14057,6 +14060,92 @@ class EditorInstance {
         setTimeout(function() {
             targetBlock.style.backgroundColor = origBg;
         }, 2000);
+    }
+
+    // --- scrollToText: キーワード検索ベースのジャンプ ---
+    // 行番号ではなくテキスト検索で一致箇所を探す。
+    // テーブル行・リスト・インライン装飾行など、生Markdownと
+    // レンダ後HTMLでズレが出るケースを根本回避する。
+    function scrollToText(query, occurrence) {
+        if (!query) return;
+        var skipCount = Math.max(0, occurrence | 0);
+        // .md を表示しているのは通常サイドパネル。サイドパネルが
+        // 開いていればそちらの editor、無ければメイン editor を対象にする。
+        var rootEditor = null;
+        if (typeof sidePanelInstance !== 'undefined' && sidePanelInstance && sidePanelInstance.container) {
+            rootEditor = sidePanelInstance.container.querySelector('.editor');
+        }
+        if (!rootEditor) rootEditor = editor;
+        if (!rootEditor) return;
+
+        var needle = String(query).toLowerCase();
+        if (!needle) return;
+
+        // テキストノードを走査して N 番目の一致を探す（同一テキストノード内の複数ヒットも数える）
+        var walker = document.createTreeWalker(rootEditor, NodeFilter.SHOW_TEXT, null);
+        var hitNode = null;
+        var hitOffset = -1;
+        var seen = 0;
+        var node;
+        outer: while ((node = walker.nextNode())) {
+            var text = (node.nodeValue || '').toLowerCase();
+            var from = 0;
+            while (true) {
+                var idx = text.indexOf(needle, from);
+                if (idx < 0) break;
+                if (seen === skipCount) {
+                    hitNode = node;
+                    hitOffset = idx;
+                    break outer;
+                }
+                seen++;
+                from = idx + needle.length;
+            }
+        }
+        // N 番目が見つからない場合は最初のヒットにフォールバック
+        if (!hitNode && skipCount > 0) {
+            var w2 = document.createTreeWalker(rootEditor, NodeFilter.SHOW_TEXT, null);
+            var n2;
+            while ((n2 = w2.nextNode())) {
+                var i2 = (n2.nodeValue || '').toLowerCase().indexOf(needle);
+                if (i2 >= 0) { hitNode = n2; hitOffset = i2; break; }
+            }
+        }
+        if (!hitNode) return;
+
+        // 一致位置を含むブロック要素を取得（スクロール対象）
+        var hitEl = hitNode.parentElement;
+        var blockEl = hitEl;
+        while (blockEl && blockEl.parentElement && blockEl.parentElement !== rootEditor) {
+            blockEl = blockEl.parentElement;
+        }
+        if (!blockEl) blockEl = hitEl;
+
+        // Range を使ってより精密にスクロール（テーブル内セルなど）
+        try {
+            var range = document.createRange();
+            range.setStart(hitNode, hitOffset);
+            range.setEnd(hitNode, hitOffset + needle.length);
+            var rect = range.getBoundingClientRect();
+            // ブロックレベルでセンターに寄せる
+            blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 一致箇所まわりのインライン要素も短時間ハイライト
+            if (hitEl && hitEl !== blockEl) {
+                var origInlineBg = hitEl.style.backgroundColor;
+                hitEl.style.transition = 'background-color 0.3s';
+                hitEl.style.backgroundColor = 'rgba(255, 200, 0, 0.55)';
+                setTimeout(function() { hitEl.style.backgroundColor = origInlineBg; }, 2500);
+            }
+            void rect;
+        } catch (e) {
+            blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // ブロック全体も淡くハイライト
+        var origBg = blockEl.style.backgroundColor;
+        blockEl.style.transition = 'background-color 0.3s';
+        blockEl.style.backgroundColor = 'rgba(255, 200, 0, 0.25)';
+        setTimeout(function() { blockEl.style.backgroundColor = origBg; }, 2500);
     }
 
     let externalChangeToast = null;

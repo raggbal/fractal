@@ -172,10 +172,21 @@ function generateNotesFilePanelHtml(options) {
             border-color: var(--vscode-focusBorder, #007acc); opacity: 1;
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
+        .file-panel-search-section { margin-bottom: 6px; }
+        .file-panel-search-section-title {
+            padding: 6px 10px 4px; font-size: 11px; font-weight: 700;
+            color: var(--vscode-textLink-foreground, #007acc);
+            border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
+            text-transform: none; letter-spacing: 0.02em;
+        }
         .file-panel-search-file-group { margin-bottom: 4px; }
         .file-panel-search-file-header {
-            padding: 4px 12px; font-size: 11px; font-weight: 600; opacity: 0.7;
+            padding: 4px 12px; font-size: 11px; font-weight: 600;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            color: var(--vscode-symbolIcon-classForeground, #d19a66);
+        }
+        .file-panel-search-file-header.is-md {
+            color: var(--vscode-symbolIcon-classForeground, #d19a66);
         }
         .file-panel-search-match {
             padding: 4px 12px 4px 20px; font-size: 12px; cursor: pointer;

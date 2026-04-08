@@ -679,10 +679,46 @@ var notesFilePanel = (function() {
         bridge.search(query, searchOptions);
     }
 
+    var searchSectionOut = null;
+    var searchSectionMd = null;
+    var searchSectionOutBody = null;
+    var searchSectionMdBody = null;
+    var searchSectionOutTitle = null;
+    var searchSectionMdTitle = null;
+    var searchCountOut = 0;
+    var searchCountMd = 0;
+
+    function buildSearchSection(label) {
+        var section = document.createElement('div');
+        section.className = 'file-panel-search-section';
+        section.style.display = 'none';
+        var title = document.createElement('div');
+        title.className = 'file-panel-search-section-title';
+        title.textContent = label;
+        var body = document.createElement('div');
+        section.appendChild(title);
+        section.appendChild(body);
+        return { section: section, body: body, title: title };
+    }
+
     function onSearchStart(searchId) {
         currentSearchId = searchId;
         searchTotalCount = 0;
-        if (searchResultsEl) searchResultsEl.innerHTML = '';
+        searchCountOut = 0;
+        searchCountMd = 0;
+        if (searchResultsEl) {
+            searchResultsEl.innerHTML = '';
+            var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
+            var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            searchSectionOut = outSec.section;
+            searchSectionOutBody = outSec.body;
+            searchSectionOutTitle = outSec.title;
+            searchSectionMd = mdSec.section;
+            searchSectionMdBody = mdSec.body;
+            searchSectionMdTitle = mdSec.title;
+            searchResultsEl.appendChild(searchSectionOut);
+            searchResultsEl.appendChild(searchSectionMd);
+        }
         if (searchCountEl) searchCountEl.textContent = i18n.notesSearching || 'Searching...';
     }
 
@@ -690,16 +726,22 @@ var notesFilePanel = (function() {
         if (searchId !== currentSearchId) return;
         if (!searchResultsEl || !searchInputEl) return;
 
+        var isMd = fileResult.fileType === 'md';
+        var parentBody = isMd ? searchSectionMdBody : searchSectionOutBody;
+        var parentSection = isMd ? searchSectionMd : searchSectionOut;
+        if (!parentBody) return;
+        parentSection.style.display = '';
+
         var groupEl = document.createElement('div');
         groupEl.className = 'file-panel-search-file-group';
 
         var headerEl = document.createElement('div');
-        headerEl.className = 'file-panel-search-file-header';
+        headerEl.className = 'file-panel-search-file-header' + (isMd ? ' is-md' : '');
         headerEl.textContent = fileResult.fileTitle + ' (' + fileResult.matches.length + ')';
         groupEl.appendChild(headerEl);
 
         var query = searchInputEl.value.trim();
-        fileResult.matches.forEach(function(match) {
+        fileResult.matches.forEach(function(match, matchIdx) {
             var matchEl = document.createElement('div');
             matchEl.className = 'file-panel-search-match';
             matchEl.innerHTML = highlightSearchText(match.lineText, query);
@@ -714,7 +756,7 @@ var notesFilePanel = (function() {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
-                        bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0);
+                        bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0, query, matchIdx);
                     } else if (fileResult.mdFilePath && bridge.openMdFileExternal) {
                         bridge.openMdFileExternal(fileResult.mdFilePath);
                     }
@@ -722,9 +764,16 @@ var notesFilePanel = (function() {
             });
             groupEl.appendChild(matchEl);
             searchTotalCount++;
+            if (isMd) searchCountMd++; else searchCountOut++;
         });
 
-        searchResultsEl.appendChild(groupEl);
+        parentBody.appendChild(groupEl);
+
+        // セクションタイトルに件数反映
+        var outBase = i18n.notesSearchOutlinerResults || 'Outlinerの検索結果';
+        var mdBase = i18n.notesSearchMarkdownResults || 'Markdownの検索結果';
+        if (searchSectionOutTitle) searchSectionOutTitle.textContent = outBase + ' (' + searchCountOut + ')';
+        if (searchSectionMdTitle) searchSectionMdTitle.textContent = mdBase + ' (' + searchCountMd + ')';
     }
 
     function onSearchEnd(searchId) {

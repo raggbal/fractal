@@ -3397,8 +3397,18 @@ var Outliner = (function() {
             setTimeout(function() {
                 el.classList.remove('outliner-search-jump-highlight');
             }, 2000);
+            // focus without re-scrolling (preserve scrollIntoView center position,
+            // important for image-heavy nodes where focus target ≠ visual center)
+            var textEl = el.querySelector('.outliner-text');
+            if (textEl) {
+                setFocusedNode(nodeId);
+                try { textEl.focus({ preventScroll: true }); }
+                catch (e) { textEl.focus(); }
+                setCursorToEnd(textEl);
+            }
+        } else {
+            focusNode(nodeId);
         }
-        focusNode(nodeId);
     }
 
     function updateBreadcrumb() {
@@ -4065,9 +4075,10 @@ var Outliner = (function() {
         if (sidePanelOriginNodeId) {
             focusNode(sidePanelOriginNodeId);
             sidePanelOriginNodeId = null;
-        } else {
-            focusFirstVisibleNode();
         }
+        // else: サイドパネルを開いた経緯が不明な場合（検索ジャンプ等）は
+        // 現在のフォーカスを保持する。先頭ノードへ戻すと検索結果からの
+        // ジャンプ位置が失われるため。
     }
 
     function renderSidePanelToc(toc) {
@@ -4614,6 +4625,12 @@ var Outliner = (function() {
                 case 'scrollToLine':
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({ type: 'scrollToLine', lineNumber: msg.lineNumber });
+                    }
+                    break;
+
+                case 'scrollToText':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({ type: 'scrollToText', text: msg.text, occurrence: msg.occurrence });
                     }
                     break;
 

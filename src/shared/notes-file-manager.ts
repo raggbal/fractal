@@ -43,6 +43,7 @@ export interface SearchResult {
     parentOutFileId?: string;  // pages .md の場合、親.outのfileId
     pageId?: string;           // pages .md の場合、pageId
     mdFilePath?: string;       // ルート直下.mdのフルパス
+    parentNodeText?: string;   // pages .md の場合、ページが紐づくノード名
 }
 
 export interface SearchMatch {
@@ -814,7 +815,12 @@ export class NotesFileManager {
             }
         } catch { /* skip */ }
 
-        // 3. 各 .out の pages ディレクトリ内 .md
+        // 3. 各 .out の所有ページ(.md)のみを検索
+        // pageDir は複数 outline で共有されるケースがあるため、
+        // ディレクトリ内の全 .md を列挙すると他 outline 所有ページまで
+        // 拾って「未リンクページ」や重複ヒットの原因になる。
+        // よって outline の nodes を走査し、pageId を持つノードに対応する
+        // .md だけを検索する。
         for (const outFile of outFiles) {
             try {
                 const outPath = path.join(this.mainFolderPath, outFile);
@@ -823,15 +829,35 @@ export class NotesFileManager {
                     ? path.resolve(path.dirname(outPath), outData.pageDir)
                     : path.join(this.mainFolderPath, 'pages');
                 if (!fs.existsSync(pDir)) continue;
-                const pageMds = fs.readdirSync(pDir).filter(f => f.endsWith('.md'));
-                for (const pm of pageMds) {
-                    const pageId = pm.replace(/\.md$/, '');
+                const outTitle = outData.title || outFile;
+                const outFileId = outFile.replace(/\.out$/, '');
+                for (const [, n] of Object.entries(outData.nodes || {})) {
+                    const nn = n as any;
+                    if (!nn || !nn.pageId) continue;
+                    const pageId = String(nn.pageId);
+                    const mdPath = path.join(pDir, `${pageId}.md`);
+                    if (!fs.existsSync(mdPath)) continue;
+                    // 表示名フォールバック: (1) node.text → (2) .md先頭見出し → (3) pageId先頭8文字
+                    let label = (nn.text || '').trim();
+                    if (!label) {
+                        try {
+                            const mdHead = fs.readFileSync(mdPath, 'utf8').split('\n').slice(0, 20);
+                            for (const ln of mdHead) {
+                                const hm = ln.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+                                if (hm) { label = hm[1].trim(); break; }
+                            }
+                        } catch { /* skip */ }
+                    }
+                    if (!label) label = pageId.substring(0, 8);
+                    const nodeText = label;
+                    const displayTitle = `${outTitle} / ${label}`;
                     this.searchMdFile(
-                        path.join(pDir, pm),
-                        pm, `${outData.title || outFile}/${pm}`,
+                        mdPath,
+                        `${pageId}.md`, displayTitle,
                         regex, onResult,
-                        outFile.replace(/\.out$/, ''),
+                        outFileId,
                         pageId,
+                        nodeText,
                     );
                 }
             } catch { /* skip */ }
@@ -846,14 +872,23 @@ export class NotesFileManager {
         onResult: (result: SearchResult) => void,
         parentOutFileId?: string,
         pageId?: string,
+        parentNodeText?: string,
     ): void {
         try {
             const content = fs.readFileSync(filePath, 'utf8');
             const lines = content.split('\n');
             const matches: SearchMatch[] = [];
             for (let i = 0; i < lines.length; i++) {
+                // DOMレンダ後のテキストノードと occurrence を一致させるため
+                // markdown 構文を正規化してから検索する:
+                //   - 画像 ![alt](url) は丸ごと削除（レンダ後 <img> は text node を持たない）
+                //   - リンク [text](url) は text 部分のみ残す（url は href 属性になる）
+                const normalized = lines[i]
+                    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+                    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+                    .substring(0, 200);
                 const lineMatches: SearchMatch[] = [];
-                this.findMatches(lines[i].substring(0, 200), regex, 'content', undefined, lineMatches);
+                this.findMatches(normalized, regex, 'content', undefined, lineMatches);
                 for (const m of lineMatches) {
                     m.lineNumber = i;
                     matches.push(m);
@@ -865,6 +900,7 @@ export class NotesFileManager {
                     parentOutFileId,
                     pageId,
                     mdFilePath: parentOutFileId ? undefined : filePath,
+                    parentNodeText,
                 });
             }
         } catch { /* skip */ }
