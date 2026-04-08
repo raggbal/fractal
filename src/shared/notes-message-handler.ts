@@ -5,6 +5,32 @@ import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 
 /**
+ * Markdown 本文から画像参照の相対パスを抽出する。
+ * - `![alt](path)` シンタックス
+ * - `<img src="path">` HTMLタグ
+ * http(s):// / data: は除外（ローカルファイルのみ対象）
+ */
+function extractMarkdownImagePaths(md: string): string[] {
+    const results = new Set<string>();
+    const push = (p: string): void => {
+        if (!p) return;
+        const trimmed = p.trim().replace(/^<|>$/g, '');
+        if (!trimmed) return;
+        if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+        if (trimmed.startsWith('/')) return; // 絶対パスはスキップ
+        // クエリ/フラグメント除去
+        const cleaned = trimmed.split(/[?#]/)[0];
+        if (cleaned) results.add(cleaned);
+    };
+    const mdRegex = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = mdRegex.exec(md)) !== null) push(m[1]);
+    const htmlRegex = /<img\s+[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    while ((m = htmlRegex.exec(md)) !== null) push(m[1]);
+    return Array.from(results);
+}
+
+/**
  * Webview へのメッセージ送信インターフェース
  * VSCode: panel.webview.postMessage()
  * Electron: win.webContents.send('host-message', ...)
@@ -201,6 +227,21 @@ export function handleNotesMessage(
             const crossDestPath = path.join(crossDestDir, `${message.newPageId}.md`);
             if (fs.existsSync(crossSourcePath)) {
                 fs.copyFileSync(crossSourcePath, crossDestPath);
+                // .md 本文から参照される画像も併せてコピー。
+                // node.images に無い「本文埋め込み画像」を取りこぼさないため。
+                try {
+                    const mdContent = fs.readFileSync(crossSourcePath, 'utf8');
+                    const imgRefs = extractMarkdownImagePaths(mdContent);
+                    for (const relPath of imgRefs) {
+                        const srcImg = path.resolve(clipData.sourcePagesDirPath, relPath);
+                        const destImg = path.resolve(crossDestDir, relPath);
+                        if (srcImg === destImg) continue;
+                        if (!fs.existsSync(srcImg)) continue;
+                        const destImgDir = path.dirname(destImg);
+                        if (!fs.existsSync(destImgDir)) fs.mkdirSync(destImgDir, { recursive: true });
+                        if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
+                    }
+                } catch { /* skip image copy errors */ }
             }
             break;
         }

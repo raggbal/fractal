@@ -7,6 +7,26 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 
+/** .md 本文から参照画像の相対パスを抽出 (http/data/absolute は除外) */
+function extractMarkdownImagePaths(md: string): string[] {
+    const results = new Set<string>();
+    const push = (p: string): void => {
+        if (!p) return;
+        const trimmed = p.trim().replace(/^<|>$/g, '');
+        if (!trimmed) return;
+        if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+        if (trimmed.startsWith('/')) return;
+        const cleaned = trimmed.split(/[?#]/)[0];
+        if (cleaned) results.add(cleaned);
+    };
+    const mdRegex = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = mdRegex.exec(md)) !== null) push(m[1]);
+    const htmlRegex = /<img\s+[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    while ((m = htmlRegex.exec(md)) !== null) push(m[1]);
+    return Array.from(results);
+}
+
 /**
  * OutlinerProvider — .out ファイル用 Custom Text Editor Provider
  *
@@ -217,6 +237,21 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             const crossDest = this.getPageFilePath(document, message.newPageId);
                             if (fs.existsSync(crossSrc)) {
                                 fs.copyFileSync(crossSrc, crossDest);
+                                // .md 本文から参照される画像も併せてコピー
+                                try {
+                                    const mdContent = fs.readFileSync(crossSrc, 'utf8');
+                                    const crossDestDir = path.dirname(crossDest);
+                                    const imgRefs = extractMarkdownImagePaths(mdContent);
+                                    for (const relPath of imgRefs) {
+                                        const srcImg = path.resolve(clipData.sourcePagesDirPath, relPath);
+                                        const destImg = path.resolve(crossDestDir, relPath);
+                                        if (srcImg === destImg) continue;
+                                        if (!fs.existsSync(srcImg)) continue;
+                                        const destImgDir = path.dirname(destImg);
+                                        if (!fs.existsSync(destImgDir)) fs.mkdirSync(destImgDir, { recursive: true });
+                                        if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
+                                    }
+                                } catch { /* skip image copy errors */ }
                             }
                         }
                         break;

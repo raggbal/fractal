@@ -31,13 +31,23 @@ export class OutlinerClipboardStore {
 
     static get(plainText: string): ClipboardData | null {
         if (!this.data) return null;
-        if (this.data.plainText !== plainText) return null;
+        // plainText の完全一致は OS クリップボード経由の改行正規化等で
+        // 壊れやすいため、シングルトン保持の最新データをそのまま返す。
+        // paste 側は先に HTML メタデータ (crossMeta) の存在を確認済みで、
+        // このメソッドが呼ばれる時点で stored data は同一コピー操作のもの。
+        // 念のため trim 後一致でも許容する。
+        if (this.data.plainText === plainText) return this.data;
+        if (this.data.plainText.trim() === (plainText || '').trim()) return this.data;
         return this.data;
     }
 
     static consumeIfCut(plainText: string): void {
-        if (this.data?.plainText === plainText && this.data.isCut) {
-            this.data = null;
+        if (!this.data) return;
+        if (
+            this.data.plainText === plainText ||
+            this.data.plainText.trim() === (plainText || '').trim()
+        ) {
+            if (this.data.isCut) this.data = null;
         }
     }
 }
