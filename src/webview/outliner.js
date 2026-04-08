@@ -2084,12 +2084,23 @@ var Outliner = (function() {
                                 }
                             }
                         } else {
-                            // 一番上の選択ノードがindent不可（前に兄弟なし）ならスキップ
-                            var topNode = model.getNode(sortedIds[0]);
-                            var topInfo = topNode ? model._getSiblingInfo(sortedIds[0]) : null;
-                            if (topInfo && topInfo.index > 0) {
-                                for (var ti = 0; ti < sortedIds.length; ti++) {
-                                    if (model.indentNode(sortedIds[ti])) { anyMoved = true; }
+                            // Tab: 選択ルート（親が選択外のノード）のみindent。子は親に追従。
+                            // Shift+Tab (outdent) 側と対称な挙動にして、兄弟が連続indentで
+                            // 深くネストされていく問題を防ぐ。
+                            var indentRootIds = [];
+                            for (var si2 = 0; si2 < sortedIds.length; si2++) {
+                                var sn2 = model.getNode(sortedIds[si2]);
+                                if (!sn2) { continue; }
+                                if (!sn2.parentId || !selectedNodeIds.has(sn2.parentId)) {
+                                    indentRootIds.push(sortedIds[si2]);
+                                }
+                            }
+                            // 一番上の選択ルートがindent不可（前に兄弟なし）ならスキップ
+                            var topRootNode = indentRootIds.length > 0 ? model.getNode(indentRootIds[0]) : null;
+                            var topRootInfo = topRootNode ? model._getSiblingInfo(indentRootIds[0]) : null;
+                            if (topRootInfo && topRootInfo.index > 0) {
+                                for (var ti = 0; ti < indentRootIds.length; ti++) {
+                                    if (model.indentNode(indentRootIds[ti])) { anyMoved = true; }
                                 }
                             }
                         }
@@ -2447,16 +2458,44 @@ var Outliner = (function() {
             return;
         }
 
-        // 現在のテキストを前半に更新
-        model.updateText(node.id, beforeText);
-
-        // 後半で新ノード作成
+        // Enter は常に兄弟として挿入する（子ノードが存在しても）。
+        // カーソル先頭 (offset===0) かつ現ノードに text がある場合は、
+        // 「空ノードを前に挿入し、現ノード(テキスト+子)はそのまま」の挙動にする。
+        // これにより `|a` / `- b(child)` で Enter すると
+        //   - ↵
+        //   - a
+        //     - b
+        // となり、a が子ノードに追い出される旧バグを回避。
         var newNode;
-        if (node.children && node.children.length > 0 && !node.collapsed) {
-            // 子持ち＆展開中: 子リストの先頭に挿入
-            newNode = model.addNodeAtStart(node.id, afterText);
+        if (offset === 0 && text.length > 0) {
+            // 現ノードは変更せず、前に空ノードを挿入
+            var siblings = node.parentId
+                ? (model.getNode(node.parentId) || {}).children || []
+                : model.rootIds;
+            var idxInSiblings = siblings.indexOf(node.id);
+            if (idxInSiblings <= 0) {
+                newNode = model.addNodeAtStart(node.parentId, '');
+            } else {
+                newNode = model.addNode(node.parentId, siblings[idxInSiblings - 1], '');
+            }
         } else {
+            // 通常: 現テキストを beforeText に更新し、afterText で兄弟を後ろに作成
+            model.updateText(node.id, beforeText);
             newNode = model.addNode(node.parentId, node.id, afterText);
+            // 現ノードが展開された子を持っていたら、その子を新兄弟へ移す。
+            // これで新ノードは「視覚的にすぐ下の行」に挿入される。
+            //   - a|           - a
+            //     - b    →     - |
+            //                    - b
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                var movingChildren = node.children.slice();
+                for (var mc = 0; mc < movingChildren.length; mc++) {
+                    var childNode = model.getNode(movingChildren[mc]);
+                    if (childNode) { childNode.parentId = newNode.id; }
+                }
+                newNode.children = movingChildren;
+                node.children = [];
+            }
         }
 
         // タスクノードの継承

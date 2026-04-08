@@ -5,6 +5,13 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.621] - 2026-04-08
+
+### Fixed
+- Outliner: Multi-select Tab now preserves relative hierarchy instead of cascading siblings into deeper nesting (symmetric fix to the Shift+Tab fix from 0.195.607)
+- Outliner: Enter on a node with expanded children now inserts a sibling immediately below, transferring the children to the new node (was inserting as a child or below the child subtree)
+- Outliner: Enter at the start of a non-empty node now inserts an empty sibling above, keeping the current node's text and children intact
+
 ## [0.195.619] - 2026-04-08
 
 ### Fixed
