@@ -3028,10 +3028,21 @@ body {
             border-color: var(--vscode-focusBorder, #007acc); opacity: 1;
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
+        .file-panel-search-section { margin-bottom: 6px; }
+        .file-panel-search-section-title {
+            padding: 6px 10px 4px; font-size: 11px; font-weight: 700;
+            color: var(--vscode-textLink-foreground, #007acc);
+            border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
+            text-transform: none; letter-spacing: 0.02em;
+        }
         .file-panel-search-file-group { margin-bottom: 4px; }
         .file-panel-search-file-header {
-            padding: 4px 12px; font-size: 11px; font-weight: 600; opacity: 0.7;
+            padding: 4px 12px; font-size: 11px; font-weight: 600;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            color: var(--vscode-symbolIcon-classForeground, #d19a66);
+        }
+        .file-panel-search-file-header.is-md {
+            color: var(--vscode-symbolIcon-classForeground, #d19a66);
         }
         .file-panel-search-match {
             padding: 4px 12px 4px 20px; font-size: 12px; cursor: pointer;
@@ -10368,6 +10379,34 @@ class EditorInstance {
                 // If so, merge with the last li of that sibling list instead of parent li
                 // Note: Empty li items are handled by the existing logic (convert to paragraph)
                 if (isAtBeginning && isNestedList && !liElement.previousElementSibling && !isEmptyItem) {
+                    // Task list special case: if the current li has a checkbox and the cursor
+                    // is right after it, backspace should strip the checkbox (convert task→bullet),
+                    // NOT merge into the parent li. This matches the sibling-above case where
+                    // browser default handles it the same way.
+                    const currentCheckbox = liElement.querySelector(':scope > input[type="checkbox"]');
+                    if (currentCheckbox) {
+                        e.preventDefault();
+                        currentCheckbox.remove();
+                        // Strip the leading formatting space (" b" → "b") from the first text node
+                        const firstChild = liElement.firstChild;
+                        if (firstChild && firstChild.nodeType === 3) {
+                            firstChild.textContent = firstChild.textContent.replace(/^\s+/, '');
+                        }
+                        // Place cursor at the start of the li's text
+                        const cbRange = document.createRange();
+                        const cbTarget = liElement.firstChild;
+                        if (cbTarget && cbTarget.nodeType === 3) {
+                            cbRange.setStart(cbTarget, 0);
+                        } else {
+                            cbRange.setStart(liElement, 0);
+                        }
+                        cbRange.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(cbRange);
+                        syncMarkdownSync();
+                        return;
+                    }
+
                     const parentLi = list.parentNode;
 
                     // Check for previous sibling list within the same parent li
@@ -12764,53 +12803,73 @@ class EditorInstance {
          * Unified handler for both nested and top-level empty li
          */
         function handleEmptyLi(context) {
-            const { liElement, list, nestedLists, precedingSiblings, followingSiblings, sel } = context;
-            
-            logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'followingSiblings:', followingSiblings.length, 'nestedLists:', nestedLists.length);
-            
-            // Remove nested lists from li first (save them for later)
+            const { liElement, list, nestedLists, precedingSiblings, sel } = context;
+
+            logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'nestedLists:', nestedLists.length);
+
+            // Find the visually previous element to move cursor to
+            const visualPrev = findVisuallyPreviousElement(liElement);
+
+            // No previous element at all (top-level first empty li)
+            // → escape the list by converting to a paragraph (legacy behavior)
+            if (!visualPrev) {
+                const savedNestedLists = [];
+                for (const nl of nestedLists) {
+                    nl.remove();
+                    savedNestedLists.push(nl);
+                }
+                liElement.remove();
+
+                const p = document.createElement('p');
+                p.innerHTML = '<br>';
+                if (list.children.length === 0) {
+                    list.replaceWith(p);
+                } else {
+                    list.before(p);
+                }
+                let insertAfter = p;
+                for (const nl of savedNestedLists) {
+                    insertAfter.after(nl);
+                    insertAfter = nl;
+                }
+                setCursorToEnd(p);
+                return true;
+            }
+
+            // There IS a previous element → merge behavior:
+            // delete the empty li and move cursor to end of the previous element.
+            // Preserve nested lists of the empty li by re-homing them onto visualPrev
+            // (if it's a li) or after it (if it's not).
             const savedNestedLists = [];
             for (const nl of nestedLists) {
                 nl.remove();
                 savedNestedLists.push(nl);
             }
-            
-            // Remove the li
+
             liElement.remove();
-            
-            // Create paragraph
-            const p = document.createElement('p');
-            p.innerHTML = '<br>';
-            
-            // Insert paragraph based on position
-            if (list.children.length === 0) {
-                // List is now empty - replace it with paragraph
-                list.replaceWith(p);
-            } else if (precedingSiblings.length === 0) {
-                // First item - insert paragraph before list
-                list.before(p);
-            } else if (followingSiblings.length === 0) {
-                // Last item - insert paragraph after list
-                list.after(p);
-            } else {
-                // Middle item - split list
-                const newList = document.createElement(list.tagName);
-                for (const fs of followingSiblings) {
-                    newList.appendChild(fs);
+
+            // Clean up empty parent list if we just removed its last child
+            if (list && list.parentNode && list.children.length === 0) {
+                list.remove();
+            }
+
+            if (visualPrev.tagName?.toLowerCase() === 'li') {
+                // Append saved nested lists as children of the previous li
+                // (this keeps them attached at a reasonable nesting level)
+                for (const nl of savedNestedLists) {
+                    visualPrev.appendChild(nl);
                 }
-                list.after(p);
-                p.after(newList);
+                setCursorToEndOfLi(visualPrev);
+            } else {
+                // Non-li previous (e.g. a paragraph) — place nested lists after it
+                let insertAfter = visualPrev;
+                for (const nl of savedNestedLists) {
+                    insertAfter.after(nl);
+                    insertAfter = nl;
+                }
+                setCursorToEnd(visualPrev);
             }
-            
-            // Always insert saved nested lists after paragraph (as independent lists)
-            // The nesting/merging will happen on the 2nd Backspace
-            let insertAfter = p;
-            for (const nl of savedNestedLists) {
-                insertAfter.after(nl);
-                insertAfter = nl;
-            }
-            
-            setCursorToEnd(p);
+
             return true;
         }
         
@@ -17447,6 +17506,9 @@ class EditorInstance {
         } else if (message.type === 'scrollToLine') {
             // Scroll to a specific line number in the document
             scrollToLine(message.lineNumber);
+        } else if (message.type === 'scrollToText') {
+            // Scroll to the Nth occurrence of a text query (keyword-based jump)
+            scrollToText(message.text, message.occurrence || 0);
         } else if (message.type === 'pasteText') {
             // Paste text relayed from main webview (side panel can't receive paste events directly)
             logger.log('pasteText received from main webview');
@@ -17932,6 +17994,92 @@ class EditorInstance {
         setTimeout(function() {
             targetBlock.style.backgroundColor = origBg;
         }, 2000);
+    }
+
+    // --- scrollToText: キーワード検索ベースのジャンプ ---
+    // 行番号ではなくテキスト検索で一致箇所を探す。
+    // テーブル行・リスト・インライン装飾行など、生Markdownと
+    // レンダ後HTMLでズレが出るケースを根本回避する。
+    function scrollToText(query, occurrence) {
+        if (!query) return;
+        var skipCount = Math.max(0, occurrence | 0);
+        // .md を表示しているのは通常サイドパネル。サイドパネルが
+        // 開いていればそちらの editor、無ければメイン editor を対象にする。
+        var rootEditor = null;
+        if (typeof sidePanelInstance !== 'undefined' && sidePanelInstance && sidePanelInstance.container) {
+            rootEditor = sidePanelInstance.container.querySelector('.editor');
+        }
+        if (!rootEditor) rootEditor = editor;
+        if (!rootEditor) return;
+
+        var needle = String(query).toLowerCase();
+        if (!needle) return;
+
+        // テキストノードを走査して N 番目の一致を探す（同一テキストノード内の複数ヒットも数える）
+        var walker = document.createTreeWalker(rootEditor, NodeFilter.SHOW_TEXT, null);
+        var hitNode = null;
+        var hitOffset = -1;
+        var seen = 0;
+        var node;
+        outer: while ((node = walker.nextNode())) {
+            var text = (node.nodeValue || '').toLowerCase();
+            var from = 0;
+            while (true) {
+                var idx = text.indexOf(needle, from);
+                if (idx < 0) break;
+                if (seen === skipCount) {
+                    hitNode = node;
+                    hitOffset = idx;
+                    break outer;
+                }
+                seen++;
+                from = idx + needle.length;
+            }
+        }
+        // N 番目が見つからない場合は最初のヒットにフォールバック
+        if (!hitNode && skipCount > 0) {
+            var w2 = document.createTreeWalker(rootEditor, NodeFilter.SHOW_TEXT, null);
+            var n2;
+            while ((n2 = w2.nextNode())) {
+                var i2 = (n2.nodeValue || '').toLowerCase().indexOf(needle);
+                if (i2 >= 0) { hitNode = n2; hitOffset = i2; break; }
+            }
+        }
+        if (!hitNode) return;
+
+        // 一致位置を含むブロック要素を取得（スクロール対象）
+        var hitEl = hitNode.parentElement;
+        var blockEl = hitEl;
+        while (blockEl && blockEl.parentElement && blockEl.parentElement !== rootEditor) {
+            blockEl = blockEl.parentElement;
+        }
+        if (!blockEl) blockEl = hitEl;
+
+        // Range を使ってより精密にスクロール（テーブル内セルなど）
+        try {
+            var range = document.createRange();
+            range.setStart(hitNode, hitOffset);
+            range.setEnd(hitNode, hitOffset + needle.length);
+            var rect = range.getBoundingClientRect();
+            // ブロックレベルでセンターに寄せる
+            blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 一致箇所まわりのインライン要素も短時間ハイライト
+            if (hitEl && hitEl !== blockEl) {
+                var origInlineBg = hitEl.style.backgroundColor;
+                hitEl.style.transition = 'background-color 0.3s';
+                hitEl.style.backgroundColor = 'rgba(255, 200, 0, 0.55)';
+                setTimeout(function() { hitEl.style.backgroundColor = origInlineBg; }, 2500);
+            }
+            void rect;
+        } catch (e) {
+            blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // ブロック全体も淡くハイライト
+        var origBg = blockEl.style.backgroundColor;
+        blockEl.style.transition = 'background-color 0.3s';
+        blockEl.style.backgroundColor = 'rgba(255, 200, 0, 0.25)';
+        setTimeout(function() { blockEl.style.backgroundColor = origBg; }, 2500);
     }
 
     let externalChangeToast = null;
@@ -22161,16 +22309,16 @@ var Outliner = (function() {
         var intClip = getValidInternalClipboard(clipText);
         var clipNodes = intClip ? intClip.nodes : null;
         var isCutPaste = intClip ? intClip.isCut : false;
-        var sourcePageDir = intClip ? intClip.sourcePageDir : null;
 
         // Priority 2: HTMLクリップボードからcross-outlinerメタデータ抽出
+        var isCrossWebview = false;
         if (!intClip) {
             var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
             var crossMeta = extractOutlinerClipboardMeta(htmlData);
             if (crossMeta && crossMeta.nodes) {
                 clipNodes = crossMeta.nodes;
                 isCutPaste = false; // cross-webviewでは常にコピー扱い
-                sourcePageDir = crossMeta.sourcePageDir || null;
+                isCrossWebview = true;
             }
         }
 
@@ -22196,7 +22344,7 @@ var Outliner = (function() {
                 if (selectedNodeIds.has(flat[di])) { model.removeNode(flat[di]); }
             }
             clearSelection();
-            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, sourcePageDir);
+            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, isCrossWebview);
             return;
         }
 
@@ -22232,15 +22380,15 @@ var Outliner = (function() {
             var sibIdx = siblings.indexOf(nodeId);
             var insertAfterForEmpty = sibIdx > 0 ? siblings[sibIdx - 1] : null;
             model.removeNode(nodeId);
-            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, sourcePageDir);
+            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, isCrossWebview);
         } else {
             // テキストありノード: 現在ノードの後に全行を挿入
-            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, sourcePageDir);
+            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, isCrossWebview);
         }
     }
 
     /** インデント付きテキストからノード階層を構築してモデルに追加 */
-    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, srcPageDir) {
+    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, forceCrossFile) {
         var lines = text.split('\n');
         if (lines.length === 0) { return; }
 
@@ -22323,7 +22471,9 @@ var Outliner = (function() {
             // ページメタデータ・画像復元
             if (clipboardNodes && clipboardNodes[clipNodeIndexMap[n]]) {
                 var clipNode = clipboardNodes[clipNodeIndexMap[n]];
-                var isCrossFile = srcPageDir && srcPageDir !== pageDir;
+                // cross-webview 判定は metadata 由来のフラグ一本。
+                // 相対パス文字列の同一性比較は偶然一致しうるため使わない。
+                var isCrossFile = forceCrossFile;
                 if (clipNode.isPage && clipNode.pageId) {
                     if (isCut) {
                         // カット→ペースト: 元のpageIdをそのまま使う（移動扱い）
@@ -22633,12 +22783,23 @@ var Outliner = (function() {
                                 }
                             }
                         } else {
-                            // 一番上の選択ノードがindent不可（前に兄弟なし）ならスキップ
-                            var topNode = model.getNode(sortedIds[0]);
-                            var topInfo = topNode ? model._getSiblingInfo(sortedIds[0]) : null;
-                            if (topInfo && topInfo.index > 0) {
-                                for (var ti = 0; ti < sortedIds.length; ti++) {
-                                    if (model.indentNode(sortedIds[ti])) { anyMoved = true; }
+                            // Tab: 選択ルート（親が選択外のノード）のみindent。子は親に追従。
+                            // Shift+Tab (outdent) 側と対称な挙動にして、兄弟が連続indentで
+                            // 深くネストされていく問題を防ぐ。
+                            var indentRootIds = [];
+                            for (var si2 = 0; si2 < sortedIds.length; si2++) {
+                                var sn2 = model.getNode(sortedIds[si2]);
+                                if (!sn2) { continue; }
+                                if (!sn2.parentId || !selectedNodeIds.has(sn2.parentId)) {
+                                    indentRootIds.push(sortedIds[si2]);
+                                }
+                            }
+                            // 一番上の選択ルートがindent不可（前に兄弟なし）ならスキップ
+                            var topRootNode = indentRootIds.length > 0 ? model.getNode(indentRootIds[0]) : null;
+                            var topRootInfo = topRootNode ? model._getSiblingInfo(indentRootIds[0]) : null;
+                            if (topRootInfo && topRootInfo.index > 0) {
+                                for (var ti = 0; ti < indentRootIds.length; ti++) {
+                                    if (model.indentNode(indentRootIds[ti])) { anyMoved = true; }
                                 }
                             }
                         }
@@ -22996,16 +23157,44 @@ var Outliner = (function() {
             return;
         }
 
-        // 現在のテキストを前半に更新
-        model.updateText(node.id, beforeText);
-
-        // 後半で新ノード作成
+        // Enter は常に兄弟として挿入する（子ノードが存在しても）。
+        // カーソル先頭 (offset===0) かつ現ノードに text がある場合は、
+        // 「空ノードを前に挿入し、現ノード(テキスト+子)はそのまま」の挙動にする。
+        // これにより `|a` / `- b(child)` で Enter すると
+        //   - ↵
+        //   - a
+        //     - b
+        // となり、a が子ノードに追い出される旧バグを回避。
         var newNode;
-        if (node.children && node.children.length > 0 && !node.collapsed) {
-            // 子持ち＆展開中: 子リストの先頭に挿入
-            newNode = model.addNodeAtStart(node.id, afterText);
+        if (offset === 0 && text.length > 0) {
+            // 現ノードは変更せず、前に空ノードを挿入
+            var siblings = node.parentId
+                ? (model.getNode(node.parentId) || {}).children || []
+                : model.rootIds;
+            var idxInSiblings = siblings.indexOf(node.id);
+            if (idxInSiblings <= 0) {
+                newNode = model.addNodeAtStart(node.parentId, '');
+            } else {
+                newNode = model.addNode(node.parentId, siblings[idxInSiblings - 1], '');
+            }
         } else {
+            // 通常: 現テキストを beforeText に更新し、afterText で兄弟を後ろに作成
+            model.updateText(node.id, beforeText);
             newNode = model.addNode(node.parentId, node.id, afterText);
+            // 現ノードが展開された子を持っていたら、その子を新兄弟へ移す。
+            // これで新ノードは「視覚的にすぐ下の行」に挿入される。
+            //   - a|           - a
+            //     - b    →     - |
+            //                    - b
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                var movingChildren = node.children.slice();
+                for (var mc = 0; mc < movingChildren.length; mc++) {
+                    var childNode = model.getNode(movingChildren[mc]);
+                    if (childNode) { childNode.parentId = newNode.id; }
+                }
+                newNode.children = movingChildren;
+                node.children = [];
+            }
         }
 
         // タスクノードの継承
@@ -23946,8 +24135,18 @@ var Outliner = (function() {
             setTimeout(function() {
                 el.classList.remove('outliner-search-jump-highlight');
             }, 2000);
+            // focus without re-scrolling (preserve scrollIntoView center position,
+            // important for image-heavy nodes where focus target ≠ visual center)
+            var textEl = el.querySelector('.outliner-text');
+            if (textEl) {
+                setFocusedNode(nodeId);
+                try { textEl.focus({ preventScroll: true }); }
+                catch (e) { textEl.focus(); }
+                setCursorToEnd(textEl);
+            }
+        } else {
+            focusNode(nodeId);
         }
-        focusNode(nodeId);
     }
 
     function updateBreadcrumb() {
@@ -24614,9 +24813,10 @@ var Outliner = (function() {
         if (sidePanelOriginNodeId) {
             focusNode(sidePanelOriginNodeId);
             sidePanelOriginNodeId = null;
-        } else {
-            focusFirstVisibleNode();
         }
+        // else: サイドパネルを開いた経緯が不明な場合（検索ジャンプ等）は
+        // 現在のフォーカスを保持する。先頭ノードへ戻すと検索結果からの
+        // ジャンプ位置が失われるため。
     }
 
     function renderSidePanelToc(toc) {
@@ -25163,6 +25363,12 @@ var Outliner = (function() {
                 case 'scrollToLine':
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({ type: 'scrollToLine', lineNumber: msg.lineNumber });
+                    }
+                    break;
+
+                case 'scrollToText':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({ type: 'scrollToText', text: msg.text, occurrence: msg.occurrence });
                     }
                     break;
 
@@ -25951,10 +26157,46 @@ var notesFilePanel = (function() {
         bridge.search(query, searchOptions);
     }
 
+    var searchSectionOut = null;
+    var searchSectionMd = null;
+    var searchSectionOutBody = null;
+    var searchSectionMdBody = null;
+    var searchSectionOutTitle = null;
+    var searchSectionMdTitle = null;
+    var searchCountOut = 0;
+    var searchCountMd = 0;
+
+    function buildSearchSection(label) {
+        var section = document.createElement('div');
+        section.className = 'file-panel-search-section';
+        section.style.display = 'none';
+        var title = document.createElement('div');
+        title.className = 'file-panel-search-section-title';
+        title.textContent = label;
+        var body = document.createElement('div');
+        section.appendChild(title);
+        section.appendChild(body);
+        return { section: section, body: body, title: title };
+    }
+
     function onSearchStart(searchId) {
         currentSearchId = searchId;
         searchTotalCount = 0;
-        if (searchResultsEl) searchResultsEl.innerHTML = '';
+        searchCountOut = 0;
+        searchCountMd = 0;
+        if (searchResultsEl) {
+            searchResultsEl.innerHTML = '';
+            var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
+            var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            searchSectionOut = outSec.section;
+            searchSectionOutBody = outSec.body;
+            searchSectionOutTitle = outSec.title;
+            searchSectionMd = mdSec.section;
+            searchSectionMdBody = mdSec.body;
+            searchSectionMdTitle = mdSec.title;
+            searchResultsEl.appendChild(searchSectionOut);
+            searchResultsEl.appendChild(searchSectionMd);
+        }
         if (searchCountEl) searchCountEl.textContent = i18n.notesSearching || 'Searching...';
     }
 
@@ -25962,16 +26204,22 @@ var notesFilePanel = (function() {
         if (searchId !== currentSearchId) return;
         if (!searchResultsEl || !searchInputEl) return;
 
+        var isMd = fileResult.fileType === 'md';
+        var parentBody = isMd ? searchSectionMdBody : searchSectionOutBody;
+        var parentSection = isMd ? searchSectionMd : searchSectionOut;
+        if (!parentBody) return;
+        parentSection.style.display = '';
+
         var groupEl = document.createElement('div');
         groupEl.className = 'file-panel-search-file-group';
 
         var headerEl = document.createElement('div');
-        headerEl.className = 'file-panel-search-file-header';
+        headerEl.className = 'file-panel-search-file-header' + (isMd ? ' is-md' : '');
         headerEl.textContent = fileResult.fileTitle + ' (' + fileResult.matches.length + ')';
         groupEl.appendChild(headerEl);
 
         var query = searchInputEl.value.trim();
-        fileResult.matches.forEach(function(match) {
+        fileResult.matches.forEach(function(match, matchIdx) {
             var matchEl = document.createElement('div');
             matchEl.className = 'file-panel-search-match';
             matchEl.innerHTML = highlightSearchText(match.lineText, query);
@@ -25986,7 +26234,7 @@ var notesFilePanel = (function() {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
-                        bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0);
+                        bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0, query, matchIdx);
                     } else if (fileResult.mdFilePath && bridge.openMdFileExternal) {
                         bridge.openMdFileExternal(fileResult.mdFilePath);
                     }
@@ -25994,9 +26242,16 @@ var notesFilePanel = (function() {
             });
             groupEl.appendChild(matchEl);
             searchTotalCount++;
+            if (isMd) searchCountMd++; else searchCountOut++;
         });
 
-        searchResultsEl.appendChild(groupEl);
+        parentBody.appendChild(groupEl);
+
+        // セクションタイトルに件数反映
+        var outBase = i18n.notesSearchOutlinerResults || 'Outlinerの検索結果';
+        var mdBase = i18n.notesSearchMarkdownResults || 'Markdownの検索結果';
+        if (searchSectionOutTitle) searchSectionOutTitle.textContent = outBase + ' (' + searchCountOut + ')';
+        if (searchSectionMdTitle) searchSectionMdTitle.textContent = mdBase + ' (' + searchCountMd + ')';
     }
 
     function onSearchEnd(searchId) {

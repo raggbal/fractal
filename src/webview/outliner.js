@@ -1612,7 +1612,6 @@ var Outliner = (function() {
         var intClip = getValidInternalClipboard(clipText);
         var clipNodes = intClip ? intClip.nodes : null;
         var isCutPaste = intClip ? intClip.isCut : false;
-        var sourcePageDir = intClip ? intClip.sourcePageDir : null;
 
         // Priority 2: HTMLクリップボードからcross-outlinerメタデータ抽出
         var isCrossWebview = false;
@@ -1622,7 +1621,6 @@ var Outliner = (function() {
             if (crossMeta && crossMeta.nodes) {
                 clipNodes = crossMeta.nodes;
                 isCutPaste = false; // cross-webviewでは常にコピー扱い
-                sourcePageDir = crossMeta.sourcePageDir || null;
                 isCrossWebview = true;
             }
         }
@@ -1649,7 +1647,7 @@ var Outliner = (function() {
                 if (selectedNodeIds.has(flat[di])) { model.removeNode(flat[di]); }
             }
             clearSelection();
-            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, sourcePageDir, isCrossWebview);
+            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, isCrossWebview);
             return;
         }
 
@@ -1685,15 +1683,15 @@ var Outliner = (function() {
             var sibIdx = siblings.indexOf(nodeId);
             var insertAfterForEmpty = sibIdx > 0 ? siblings[sibIdx - 1] : null;
             model.removeNode(nodeId);
-            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, sourcePageDir, isCrossWebview);
+            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, isCrossWebview);
         } else {
             // テキストありノード: 現在ノードの後に全行を挿入
-            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, sourcePageDir, isCrossWebview);
+            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, isCrossWebview);
         }
     }
 
     /** インデント付きテキストからノード階層を構築してモデルに追加 */
-    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, srcPageDir, forceCrossFile) {
+    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, forceCrossFile) {
         var lines = text.split('\n');
         if (lines.length === 0) { return; }
 
@@ -1776,11 +1774,9 @@ var Outliner = (function() {
             // ページメタデータ・画像復元
             if (clipboardNodes && clipboardNodes[clipNodeIndexMap[n]]) {
                 var clipNode = clipboardNodes[clipNodeIndexMap[n]];
-                // forceCrossFile: HTML metadata 経由のペースト（別 webview 由来）は
-                // pageDir 文字列が偶然一致しても必ずクロスファイル扱いにする。
-                // pageDir は相対パス ("./pages" など) で保存されるため、別 outliner
-                // でも文字列が同値になりうるので pageDir 比較だけでは判定できない。
-                var isCrossFile = forceCrossFile || (srcPageDir && srcPageDir !== pageDir);
+                // cross-webview 判定は metadata 由来のフラグ一本。
+                // 相対パス文字列の同一性比較は偶然一致しうるため使わない。
+                var isCrossFile = forceCrossFile;
                 if (clipNode.isPage && clipNode.pageId) {
                     if (isCut) {
                         // カット→ペースト: 元のpageIdをそのまま使う（移動扱い）

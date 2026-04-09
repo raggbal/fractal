@@ -3,32 +3,7 @@ import * as path from 'path';
 import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
-
-/**
- * Markdown 本文から画像参照の相対パスを抽出する。
- * - `![alt](path)` シンタックス
- * - `<img src="path">` HTMLタグ
- * http(s):// / data: は除外（ローカルファイルのみ対象）
- */
-function extractMarkdownImagePaths(md: string): string[] {
-    const results = new Set<string>();
-    const push = (p: string): void => {
-        if (!p) return;
-        const trimmed = p.trim().replace(/^<|>$/g, '');
-        if (!trimmed) return;
-        if (/^(https?:|data:|file:)/i.test(trimmed)) return;
-        if (trimmed.startsWith('/')) return; // 絶対パスはスキップ
-        // クエリ/フラグメント除去
-        const cleaned = trimmed.split(/[?#]/)[0];
-        if (cleaned) results.add(cleaned);
-    };
-    const mdRegex = /!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = mdRegex.exec(md)) !== null) push(m[1]);
-    const htmlRegex = /<img\s+[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>/gi;
-    while ((m = htmlRegex.exec(md)) !== null) push(m[1]);
-    return Array.from(results);
-}
+import { extractMarkdownImagePaths } from './markdown-image-utils';
 
 /**
  * Webview へのメッセージ送信インターフェース
