@@ -1690,24 +1690,31 @@ class EditorInstance {
         html = parseInlineCode(html, placeholders, () => placeholderIndex++);
         
         // IMPORTANT: Process images and links SECOND to protect their paths from inline formatting
-        // Images MUST be processed BEFORE links (otherwise link regex matches the [alt](src) part)
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, src) {
-            const resolvedSrc = resolveImagePath(src);
-            const imgHtml = '<img src="' + resolvedSrc + '" alt="' + alt + '" data-markdown-path="' + src + '" style="max-width:100%;">';
-            const placeholder = '\x00IMG' + (placeholderIndex++) + '\x00';
-            placeholders.push({ placeholder, html: imgHtml });
-            return placeholder;
-        });
-        
-        // Links (must be after images)
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, linkText, href) {
-            var linkClass = classifyLinkHref(href);
-            var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-            const linkHtml = '<a href="' + href + '"' + classAttr + '>' + linkText + '</a>';
-            const placeholder = '\x00LINK' + (placeholderIndex++) + '\x00';
-            placeholders.push({ placeholder, html: linkHtml });
-            return placeholder;
-        });
+        // balanced paren 対応 parser で構造化 → end 降順に置換 (index ズレ回避)
+        if (typeof MarkdownLinkParser !== 'undefined') {
+            var mdLinks = MarkdownLinkParser.parseMarkdownLinks(html);
+            // image を先に (end 降順) 処理し、次に link を処理 (image は alt が空でも拾えるので link より優先)
+            var sortedLinks = mdLinks.slice().sort(function(a, b) { return b.end - a.end; });
+            for (var li = 0; li < sortedLinks.length; li++) {
+                var ln = sortedLinks[li];
+                if (ln.kind === 'image') {
+                    // link と違い alt が空でもマッチする
+                    var resolvedSrc = resolveImagePath(ln.url);
+                    var imgHtml = '<img src="' + resolvedSrc + '" alt="' + ln.alt + '" data-markdown-path="' + ln.url + '" style="max-width:100%;">';
+                    var imgPlaceholder = '\x00IMG' + (placeholderIndex++) + '\x00';
+                    placeholders.push({ placeholder: imgPlaceholder, html: imgHtml });
+                    html = html.slice(0, ln.start) + imgPlaceholder + html.slice(ln.end);
+                } else if (ln.kind === 'link' && ln.alt.length > 0) {
+                    // link は空 text を許容しない (旧 regex 挙動踏襲)
+                    var linkClass = classifyLinkHref(ln.url);
+                    var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + '>' + ln.alt + '</a>';
+                    var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
+                    placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
+                    html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
+                }
+            }
+        }
         
         // Now process inline formatting (bold, italic, etc.)
         // Bold + Italic

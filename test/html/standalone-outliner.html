@@ -5093,24 +5093,31 @@ class EditorInstance {
         html = parseInlineCode(html, placeholders, () => placeholderIndex++);
         
         // IMPORTANT: Process images and links SECOND to protect their paths from inline formatting
-        // Images MUST be processed BEFORE links (otherwise link regex matches the [alt](src) part)
-        html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(match, alt, src) {
-            const resolvedSrc = resolveImagePath(src);
-            const imgHtml = '<img src="' + resolvedSrc + '" alt="' + alt + '" data-markdown-path="' + src + '" style="max-width:100%;">';
-            const placeholder = '\x00IMG' + (placeholderIndex++) + '\x00';
-            placeholders.push({ placeholder, html: imgHtml });
-            return placeholder;
-        });
-        
-        // Links (must be after images)
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, linkText, href) {
-            var linkClass = classifyLinkHref(href);
-            var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-            const linkHtml = '<a href="' + href + '"' + classAttr + '>' + linkText + '</a>';
-            const placeholder = '\x00LINK' + (placeholderIndex++) + '\x00';
-            placeholders.push({ placeholder, html: linkHtml });
-            return placeholder;
-        });
+        // balanced paren 対応 parser で構造化 → end 降順に置換 (index ズレ回避)
+        if (typeof MarkdownLinkParser !== 'undefined') {
+            var mdLinks = MarkdownLinkParser.parseMarkdownLinks(html);
+            // image を先に (end 降順) 処理し、次に link を処理 (image は alt が空でも拾えるので link より優先)
+            var sortedLinks = mdLinks.slice().sort(function(a, b) { return b.end - a.end; });
+            for (var li = 0; li < sortedLinks.length; li++) {
+                var ln = sortedLinks[li];
+                if (ln.kind === 'image') {
+                    // link と違い alt が空でもマッチする
+                    var resolvedSrc = resolveImagePath(ln.url);
+                    var imgHtml = '<img src="' + resolvedSrc + '" alt="' + ln.alt + '" data-markdown-path="' + ln.url + '" style="max-width:100%;">';
+                    var imgPlaceholder = '\x00IMG' + (placeholderIndex++) + '\x00';
+                    placeholders.push({ placeholder: imgPlaceholder, html: imgHtml });
+                    html = html.slice(0, ln.start) + imgPlaceholder + html.slice(ln.end);
+                } else if (ln.kind === 'link' && ln.alt.length > 0) {
+                    // link は空 text を許容しない (旧 regex 挙動踏襲)
+                    var linkClass = classifyLinkHref(ln.url);
+                    var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + '>' + ln.alt + '</a>';
+                    var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
+                    placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
+                    html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
+                }
+            }
+        }
         
         // Now process inline formatting (bold, italic, etc.)
         // Bold + Italic
@@ -19095,7 +19102,7 @@ class EditorInstance {
             let pattern = searchTerm;
             if (!useRegex) {
                 // Escape special regex characters
-                pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\__EDITOR_SCRIPT__');
+                pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             }
             if (wholeWord) {
                 pattern = '\\b' + pattern + '\\b';
@@ -19381,6 +19388,173 @@ window.SidePanelHostBridge = SidePanelHostBridge;
 if (!window.__SKIP_EDITOR_AUTO_INIT__) {
     new EditorInstance(document.body, window.hostBridge);
 }
+
+    </script>
+    <script>
+    'use strict';
+/**
+ * Markdown link/image parser (balanced paren 対応)
+ *
+ * 半角 ( ) をネスト対応でバランスカウントし、全角括弧は文字として扱う。
+ * 1 パス O(n)。CommonJS + global 両対応 (webview は global として読み込み)。
+ *
+ * NOTE: このファイルは webview / host 両方から使われる共通モジュール。
+ * 同ロジックの inline 複製が .claude/skills/fractal-md/scripts/fractal-md.mjs
+ * にも存在する。変更時は必ず両方同期すること。
+ */
+(function (root, factory) {
+    if (typeof module === 'object' && module.exports) {
+        module.exports = factory();
+    } else {
+        root.MarkdownLinkParser = factory();
+    }
+}(typeof self !== 'undefined' ? self : this, function () {
+
+    /**
+     * pos 位置の '(' に対応する ')' を探して index を返す。
+     * 見つからなければ -1。半角のみカウント (全角 （） は通常文字)。
+     */
+    function findBalancedClose(text, openPos) {
+        if (text.charAt(openPos) !== '(') return -1;
+        var depth = 0;
+        for (var i = openPos; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (ch === '(') depth++;
+            else if (ch === ')') {
+                depth--;
+                if (depth === 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * text を走査して ![alt](url) / [text](url) を抽出。
+     * Return: Array<{kind: 'image'|'link', alt, url, start, end}>
+     *   start = 先頭 ('!' または '[') の index
+     *   end   = ')' の次の index (exclusive)
+     * ネストした [] は扱わない (現状 editor.js 相当)。
+     */
+    function parseMarkdownLinks(text) {
+        var result = [];
+        if (!text) return result;
+        var len = text.length;
+        var i = 0;
+        while (i < len) {
+            var isImage = false;
+            var tokenStart = -1;
+            var bracketOpen = -1;
+            if (text.charAt(i) === '!' && text.charAt(i + 1) === '[') {
+                isImage = true;
+                tokenStart = i;
+                bracketOpen = i + 1;
+            } else if (text.charAt(i) === '[') {
+                tokenStart = i;
+                bracketOpen = i;
+            } else {
+                i++;
+                continue;
+            }
+            var closeBracket = text.indexOf(']', bracketOpen + 1);
+            if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
+                i++;
+                continue;
+            }
+            var openParen = closeBracket + 1;
+            var closeParen = findBalancedClose(text, openParen);
+            if (closeParen === -1) {
+                i++;
+                continue;
+            }
+            var alt = text.slice(bracketOpen + 1, closeBracket);
+            var url = text.slice(openParen + 1, closeParen);
+            result.push({
+                kind: isImage ? 'image' : 'link',
+                alt: alt,
+                url: url,
+                start: tokenStart,
+                end: closeParen + 1
+            });
+            i = closeParen + 1;
+        }
+        return result;
+    }
+
+    /**
+     * .md 本文から参照される画像のローカル相対パスを抽出。
+     * http/data/file/絶対パスを除外、クエリ/フラグメントを除去。
+     * HTML <img src="..."> もサポート。
+     */
+    var HTML_IMG_RE = /<img\s+[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    function extractImagePaths(md) {
+        var results = [];
+        var seen = Object.create(null);
+        function push(p) {
+            if (!p) return;
+            var trimmed = p.trim().replace(/^<|>$/g, '');
+            if (!trimmed) return;
+            if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+            if (trimmed.charAt(0) === '/') return;
+            var cleaned = trimmed.split(/[?#]/)[0];
+            if (!cleaned || seen[cleaned]) return;
+            seen[cleaned] = true;
+            results.push(cleaned);
+        }
+        var links = parseMarkdownLinks(md || '');
+        for (var i = 0; i < links.length; i++) {
+            if (links[i].kind === 'image') push(links[i].url);
+        }
+        HTML_IMG_RE.lastIndex = 0;
+        var m;
+        while ((m = HTML_IMG_RE.exec(md || '')) !== null) push(m[1]);
+        return results;
+    }
+
+    /**
+     * text[startIndex] から始まる生 URL を balanced paren 対応で検出。
+     * - プロトコルは http:// / https:// のみ
+     * - 空白 / 改行 / タブ / < > " ' で停止
+     * - URL 内で '(' が開いていれば対応する ')' まで含める
+     * - 末尾の句読点 .,;:!? は URL に含めない (depth=0 の場合のみ)
+     * Return: {url, endIndex} / 失敗時 null
+     */
+    var URL_STOP_RE = /[\s<>"']/;
+    var TRAILING_PUNCT_RE = /[.,;:!?]/;
+    function extractUrlWithBalancedParens(text, startIndex) {
+        if (!text) return null;
+        var head = text.slice(startIndex, startIndex + 8).toLowerCase();
+        var proto = null;
+        if (head.indexOf('https://') === 0) proto = 'https://';
+        else if (head.indexOf('http://') === 0) proto = 'http://';
+        if (!proto) return null;
+        var i = startIndex + proto.length;
+        var depth = 0;
+        while (i < text.length) {
+            var ch = text.charAt(i);
+            if (URL_STOP_RE.test(ch)) break;
+            if (ch === '(') { depth++; i++; continue; }
+            if (ch === ')') {
+                if (depth === 0) break;
+                depth--; i++; continue;
+            }
+            i++;
+        }
+        var end = i;
+        while (end > startIndex + proto.length && depth === 0) {
+            var tail = text.charAt(end - 1);
+            if (TRAILING_PUNCT_RE.test(tail)) { end--; } else break;
+        }
+        if (end <= startIndex + proto.length) return null;
+        return { url: text.slice(startIndex, end), endIndex: end };
+    }
+
+    return {
+        parseMarkdownLinks: parseMarkdownLinks,
+        extractImagePaths: extractImagePaths,
+        extractUrlWithBalancedParens: extractUrlWithBalancedParens,
+        findBalancedClose: findBalancedClose
+    };
+}));
 
     </script>
     <script>
@@ -21433,9 +21607,31 @@ var Outliner = (function() {
      */
     function convertUrlsToMarkdownLinks(text) {
         if (!text) { return text; }
-        // 既に [text](url) 形式内にあるURLを避けるため、
-        // ](url) の url 部分と [url] の url 部分にマッチしないよう lookbehind を使用
-        return text.replace(/(?<!\]\()(?<!\[)(https?:\/\/\S+)/g, '[$1]($1)');
+        if (typeof MarkdownLinkParser === 'undefined') { return text; }
+        // balanced paren 対応で 1 パス走査: URL 内の () をネスト追跡、末尾句読点を除外。
+        // 既に Markdown link 内 ([ の直後 or ]( の直後) にある URL はスキップする。
+        var out = '';
+        var i = 0;
+        var len = text.length;
+        while (i < len) {
+            var head = text.slice(i, i + 8).toLowerCase();
+            if (head.indexOf('http://') === 0 || head.indexOf('https://') === 0) {
+                var prevCh = i > 0 ? text.charAt(i - 1) : '';
+                var prev2 = i > 1 ? text.slice(i - 2, i) : '';
+                var inLink = prevCh === '[' || prev2 === '](';
+                if (!inLink) {
+                    var found = MarkdownLinkParser.extractUrlWithBalancedParens(text, i);
+                    if (found) {
+                        out += '[' + found.url + '](' + found.url + ')';
+                        i = found.endIndex;
+                        continue;
+                    }
+                }
+            }
+            out += text.charAt(i);
+            i++;
+        }
+        return out;
     }
 
     /** リンクhrefからリンク種別のCSSクラスを返す */
@@ -21475,19 +21671,44 @@ var Outliner = (function() {
 
         // リンク — Markdownリンクと生URLを一時退避してからタグ変換（URL内の@をタグ化しない）
         var linkPlaceholders = [];
-        // まずMarkdownリンク [text](url) を退避
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
-            var linkClass = classifyLinkHref(url);
-            var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-            var aTag = '<a href="' + url + '"' + classAttr + ' title="' + url + '">' + text + '</a>';
-            linkPlaceholders.push(aTag);
-            return '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
-        });
-        // 次に生URL (https://...) も退避
-        html = html.replace(/https?:\/\/\S+/g, function(match) {
-            linkPlaceholders.push(match);
-            return '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
-        });
+        // まず Markdown リンク [text](url) を balanced paren parser で退避
+        if (typeof MarkdownLinkParser !== 'undefined') {
+            var inlineLinks = MarkdownLinkParser.parseMarkdownLinks(html);
+            // end 降順に置換 (index ズレ回避)
+            var sortedInline = inlineLinks.slice().sort(function(a, b) { return b.end - a.end; });
+            for (var ili = 0; ili < sortedInline.length; ili++) {
+                var il = sortedInline[ili];
+                if (il.kind === 'link' && il.alt.length > 0) {
+                    var ilClass = classifyLinkHref(il.url);
+                    var ilClassAttr = ilClass ? ' class="' + ilClass + '"' : '';
+                    var ilTag = '<a href="' + il.url + '"' + ilClassAttr + ' title="' + il.url + '">' + il.alt + '</a>';
+                    linkPlaceholders.push(ilTag);
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                } else if (il.kind === 'image') {
+                    // image syntax in outliner は通常のテキストとして表示するので退避のみ
+                    linkPlaceholders.push(html.slice(il.start, il.end));
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                }
+            }
+        }
+        // 次に生 URL (https://...) も balanced paren 対応で退避
+        var rawUrlOut = '';
+        var rawUrlI = 0;
+        while (rawUrlI < html.length) {
+            var rawHead = html.slice(rawUrlI, rawUrlI + 8).toLowerCase();
+            if ((rawHead.indexOf('http://') === 0 || rawHead.indexOf('https://') === 0) && typeof MarkdownLinkParser !== 'undefined') {
+                var rawFound = MarkdownLinkParser.extractUrlWithBalancedParens(html, rawUrlI);
+                if (rawFound) {
+                    linkPlaceholders.push(rawFound.url);
+                    rawUrlOut += '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
+                    rawUrlI = rawFound.endIndex;
+                    continue;
+                }
+            }
+            rawUrlOut += html.charAt(rawUrlI);
+            rawUrlI++;
+        }
+        html = rawUrlOut;
 
         // タグ (#tag / @tag) — \w では日本語にマッチしないため Unicode プロパティを使用
         html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');

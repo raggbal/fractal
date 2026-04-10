@@ -20,6 +20,7 @@ const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-searc
 const outlinerCssPath = path.join(__dirname, '../src/webview/outliner.css');
 const stylesPath = path.join(__dirname, '../src/webview/styles.css');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
+const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
 const notesBodyHtmlPath = path.join(__dirname, '../src/shared/notes-body-html.js');
 const notesFilePanelJsPath = path.join(__dirname, '../src/shared/notes-file-panel.js');
@@ -69,6 +70,7 @@ editorScript = editorScript
     .replace('__CONTENT__', `'(unused)'`);
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
+const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
@@ -333,6 +335,9 @@ const html = `<!DOCTYPE html>
     window.__initialFileChangeId = 0;
     </script>
     <script>
+    __LINK_PARSER_SCRIPT__
+    </script>
+    <script>
     __SIDEPANEL_BRIDGE__
     </script>
     <script>
@@ -386,14 +391,17 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-fs.writeFileSync(outputPath, html
-    .replace('__SIDEPANEL_BRIDGE__', sidePanelBridgeScript)
-    .replace('__TEST_HOST_BRIDGE__', testNotesHostBridge)
-    .replace('__EDITOR_UTILS_SCRIPT__', editorUtilsScript)
-    .replace('__EDITOR_SCRIPT__', editorScript)
-    .replace('__OUTLINER_MODEL_SCRIPT__', outlinerModelScript)
-    .replace('__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript)
-    .replace('__OUTLINER_SCRIPT__', outlinerScript)
-    .replace('__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript));
+var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
+var result = html;
+result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
+result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
+result = safeReplace(result, '__TEST_HOST_BRIDGE__', testNotesHostBridge);
+result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
+result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
+result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
+result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
+result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
+result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
+fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

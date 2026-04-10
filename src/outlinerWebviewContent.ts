@@ -35,6 +35,10 @@ export function getOutlinerWebviewContent(
     const editorStyles = fs.readFileSync(stylesPath, 'utf8')
         .replace('__FONT_SIZE__', String(config.fontSize));
 
+    // Load shared markdown link parser (used by both outliner.js and editor.js)
+    const linkParserScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
+
     // Load HostBridge
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
@@ -142,6 +146,9 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${sidePanelBridgeScript}
+    </script>
+    <script nonce="${nonce}">
+        ${linkParserScript}
     </script>
     <script nonce="${nonce}">
         ${hostBridgeScript}

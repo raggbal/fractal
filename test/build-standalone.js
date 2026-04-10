@@ -13,6 +13,7 @@ const path = require('path');
 const editorJsPath = path.join(__dirname, '../src/webview/editor.js');
 const editorUtilsJsPath = path.join(__dirname, '../src/webview/editor-utils.js');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
+const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
 const testHostBridgePath = path.join(__dirname, '../src/shared/test-host-bridge.js');
 const outputPath = path.join(__dirname, 'html/standalone-editor.html');
 
@@ -49,6 +50,7 @@ let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
 
 // 共通ブリッジメソッドを読み込み
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
+const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
 
 // テスト用HostBridgeを読み込み
 const testHostBridgeScript = fs.readFileSync(testHostBridgePath, 'utf-8');
@@ -216,6 +218,9 @@ const html = `<!DOCTYPE html>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>
     <script>
+    __LINK_PARSER_SCRIPT__
+    </script>
+    <script>
     __SIDEPANEL_BRIDGE__
     </script>
     <script>
@@ -230,9 +235,12 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-fs.writeFileSync(outputPath, html
-    .replace('__SIDEPANEL_BRIDGE__', sidePanelBridgeScript)
-    .replace('__TEST_HOST_BRIDGE__', testHostBridgeScript)
-    .replace('__EDITOR_UTILS_SCRIPT__', editorUtilsScript)
-    .replace('__EDITOR_SCRIPT__', editorScript));
+var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
+var result = html;
+result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
+result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
+result = safeReplace(result, '__TEST_HOST_BRIDGE__', testHostBridgeScript);
+result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
+result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
+fs.writeFileSync(outputPath, result);
 console.log('Generated:', outputPath);

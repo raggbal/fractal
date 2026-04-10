@@ -53,6 +53,10 @@ export function getNotesWebviewContent(
     const notesFilePanelScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-file-panel.js'), 'utf8');
 
+    // Load shared markdown link parser (used by outliner.js and editor.js)
+    const linkParserScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
+
     // Load HostBridge (shared + notes)
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
@@ -170,6 +174,7 @@ export function getNotesWebviewContent(
         window.__outlinerImageBaseUri = "${config.documentBaseUri || ''}";
         window.__initialFileChangeId = ${initData.fileChangeId || 0};
     </script>
+    <script nonce="${nonce}">${linkParserScript}</script>
     <script nonce="${nonce}">${sidePanelBridgeScript}</script>
     <script nonce="${nonce}">${notesHostBridgeScript}</script>
     <script nonce="${nonce}">${editorUtilsScript}</script>

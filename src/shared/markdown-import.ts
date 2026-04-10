@@ -228,8 +228,12 @@ function normalizeMultiLineTableCells(text: string): string {
     return result.join('\n');
 }
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mdLinkParser = require('./markdown-link-parser');
+
 /**
  * Markdown 内の画像参照を解析し、画像ファイルをコピーしてパスを書き換える。
+ * balanced paren 対応 (画像ファイル名に () が含まれても正しく parse される)。
  */
 function processImages(
     mdContent: string,
@@ -237,45 +241,42 @@ function processImages(
     imageDir: string,
     pageDir: string
 ): string {
-    // ![alt](path) パターンを検出
-    return mdContent.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt: string, imgPath: string) => {
+    interface ParsedLink { kind: 'image' | 'link'; alt: string; url: string; start: number; end: number; }
+    const links: ParsedLink[] = mdLinkParser.parseMarkdownLinks(mdContent);
+    if (links.length === 0) return mdContent;
+
+    // end 降順に処理すれば index ズレが発生しない
+    const images = links.filter(l => l.kind === 'image').sort((a, b) => b.end - a.end);
+    let result = mdContent;
+    for (const img of images) {
+        const alt = img.alt;
+        const imgPath = img.url;
+        let replacement = `![${alt}](${imgPath})`;
+
         // URL はスキップ
-        if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
-            return `![${alt}](${imgPath})`;
+        if (!(imgPath.startsWith('http://') || imgPath.startsWith('https://'))) {
+            const cleanPath = imgPath.split(/[?#]/)[0];
+            let decodedPath: string;
+            try {
+                decodedPath = decodeURIComponent(cleanPath);
+            } catch {
+                decodedPath = cleanPath;
+            }
+            const absoluteImgPath = path.resolve(sourceDir, decodedPath);
+            if (fs.existsSync(absoluteImgPath)) {
+                if (!fs.existsSync(imageDir)) {
+                    fs.mkdirSync(imageDir, { recursive: true });
+                }
+                const ext = path.extname(absoluteImgPath).toLowerCase().replace('jpeg', 'jpg') || '.png';
+                const newFileName = `image_${Date.now()}_${Math.random().toString(36).slice(2, 6)}${ext}`;
+                const destPath = path.join(imageDir, newFileName);
+                fs.copyFileSync(absoluteImgPath, destPath);
+                const relativePath = path.relative(pageDir, destPath).replace(/\\/g, '/');
+                replacement = `![${alt}](${relativePath})`;
+            }
         }
 
-        // パスにクエリパラメータやフラグメントがある場合は除去
-        const cleanPath = imgPath.split(/[?#]/)[0];
-
-        // URLエンコードをデコード（Notion等のエクスポートで %20 等が使われる）
-        let decodedPath: string;
-        try {
-            decodedPath = decodeURIComponent(cleanPath);
-        } catch {
-            decodedPath = cleanPath;
-        }
-
-        // 元ファイルからの相対パスで解決
-        const absoluteImgPath = path.resolve(sourceDir, decodedPath);
-
-        // ファイルが存在しない場合はそのまま
-        if (!fs.existsSync(absoluteImgPath)) {
-            return `![${alt}](${imgPath})`;
-        }
-
-        // 画像ディレクトリ作成
-        if (!fs.existsSync(imageDir)) {
-            fs.mkdirSync(imageDir, { recursive: true });
-        }
-
-        // リネームしてコピー
-        const ext = path.extname(absoluteImgPath).toLowerCase().replace('jpeg', 'jpg') || '.png';
-        const newFileName = `image_${Date.now()}_${Math.random().toString(36).slice(2, 6)}${ext}`;
-        const destPath = path.join(imageDir, newFileName);
-        fs.copyFileSync(absoluteImgPath, destPath);
-
-        // pageDir からの相対パスに書き換え
-        const relativePath = path.relative(pageDir, destPath).replace(/\\/g, '/');
-        return `![${alt}](${relativePath})`;
-    });
+        result = result.slice(0, img.start) + replacement + result.slice(img.end);
+    }
+    return result;
 }

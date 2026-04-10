@@ -80,6 +80,8 @@ export function getWebviewContent(
     const styles = fs.readFileSync(stylesPath, 'utf8')
         .replace('__FONT_SIZE__', String(safeConfig.fontSize));
 
+    const linkParserScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
     const hostBridgePath = path.join(__dirname, 'shared', 'vscode-host-bridge.js');
@@ -128,6 +130,9 @@ export function getWebviewContent(
     <script src="${mermaidUri}"></script>
     <link rel="stylesheet" href="${katexCssUri}">
     <script src="${katexJsUri}"></script>
+    <script nonce="${nonce}">
+        ${linkParserScript}
+    </script>
     <script nonce="${nonce}">
         ${sidePanelBridgeScript}
     </script>

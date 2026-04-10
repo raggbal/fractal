@@ -1086,9 +1086,31 @@ var Outliner = (function() {
      */
     function convertUrlsToMarkdownLinks(text) {
         if (!text) { return text; }
-        // 既に [text](url) 形式内にあるURLを避けるため、
-        // ](url) の url 部分と [url] の url 部分にマッチしないよう lookbehind を使用
-        return text.replace(/(?<!\]\()(?<!\[)(https?:\/\/\S+)/g, '[$1]($1)');
+        if (typeof MarkdownLinkParser === 'undefined') { return text; }
+        // balanced paren 対応で 1 パス走査: URL 内の () をネスト追跡、末尾句読点を除外。
+        // 既に Markdown link 内 ([ の直後 or ]( の直後) にある URL はスキップする。
+        var out = '';
+        var i = 0;
+        var len = text.length;
+        while (i < len) {
+            var head = text.slice(i, i + 8).toLowerCase();
+            if (head.indexOf('http://') === 0 || head.indexOf('https://') === 0) {
+                var prevCh = i > 0 ? text.charAt(i - 1) : '';
+                var prev2 = i > 1 ? text.slice(i - 2, i) : '';
+                var inLink = prevCh === '[' || prev2 === '](';
+                if (!inLink) {
+                    var found = MarkdownLinkParser.extractUrlWithBalancedParens(text, i);
+                    if (found) {
+                        out += '[' + found.url + '](' + found.url + ')';
+                        i = found.endIndex;
+                        continue;
+                    }
+                }
+            }
+            out += text.charAt(i);
+            i++;
+        }
+        return out;
     }
 
     /** リンクhrefからリンク種別のCSSクラスを返す */
@@ -1128,19 +1150,44 @@ var Outliner = (function() {
 
         // リンク — Markdownリンクと生URLを一時退避してからタグ変換（URL内の@をタグ化しない）
         var linkPlaceholders = [];
-        // まずMarkdownリンク [text](url) を退避
-        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
-            var linkClass = classifyLinkHref(url);
-            var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-            var aTag = '<a href="' + url + '"' + classAttr + ' title="' + url + '">' + text + '</a>';
-            linkPlaceholders.push(aTag);
-            return '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
-        });
-        // 次に生URL (https://...) も退避
-        html = html.replace(/https?:\/\/\S+/g, function(match) {
-            linkPlaceholders.push(match);
-            return '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
-        });
+        // まず Markdown リンク [text](url) を balanced paren parser で退避
+        if (typeof MarkdownLinkParser !== 'undefined') {
+            var inlineLinks = MarkdownLinkParser.parseMarkdownLinks(html);
+            // end 降順に置換 (index ズレ回避)
+            var sortedInline = inlineLinks.slice().sort(function(a, b) { return b.end - a.end; });
+            for (var ili = 0; ili < sortedInline.length; ili++) {
+                var il = sortedInline[ili];
+                if (il.kind === 'link' && il.alt.length > 0) {
+                    var ilClass = classifyLinkHref(il.url);
+                    var ilClassAttr = ilClass ? ' class="' + ilClass + '"' : '';
+                    var ilTag = '<a href="' + il.url + '"' + ilClassAttr + ' title="' + il.url + '">' + il.alt + '</a>';
+                    linkPlaceholders.push(ilTag);
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                } else if (il.kind === 'image') {
+                    // image syntax in outliner は通常のテキストとして表示するので退避のみ
+                    linkPlaceholders.push(html.slice(il.start, il.end));
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                }
+            }
+        }
+        // 次に生 URL (https://...) も balanced paren 対応で退避
+        var rawUrlOut = '';
+        var rawUrlI = 0;
+        while (rawUrlI < html.length) {
+            var rawHead = html.slice(rawUrlI, rawUrlI + 8).toLowerCase();
+            if ((rawHead.indexOf('http://') === 0 || rawHead.indexOf('https://') === 0) && typeof MarkdownLinkParser !== 'undefined') {
+                var rawFound = MarkdownLinkParser.extractUrlWithBalancedParens(html, rawUrlI);
+                if (rawFound) {
+                    linkPlaceholders.push(rawFound.url);
+                    rawUrlOut += '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
+                    rawUrlI = rawFound.endIndex;
+                    continue;
+                }
+            }
+            rawUrlOut += html.charAt(rawUrlI);
+            rawUrlI++;
+        }
+        html = rawUrlOut;
 
         // タグ (#tag / @tag) — \w では日本語にマッチしないため Unicode プロパティを使用
         html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
