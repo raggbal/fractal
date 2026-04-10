@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.637] - 2026-04-11
+
+### Fixed
+- Editor/Outliner: Image paths and URLs containing parentheses `()` now display correctly (e.g., `photo_(v2).png`, Wikipedia URLs)
+- Outliner: Pasting a URL with `()` (e.g., `https://en.wikipedia.org/wiki/Foo_(bar)`) now creates a single complete link instead of breaking at the first `)`
+- Import md files: Images with `()` in filename are now correctly imported
+
+### Changed
+- Internal: New balanced-paren Markdown link parser (`markdown-link-parser.js`) replaces all regex-based `([^)]+)` patterns across editor, outliner, import, and paste
+
 ## [0.195.634] - 2026-04-10
 
 ### Fixed
