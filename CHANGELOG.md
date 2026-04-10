@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.634] - 2026-04-10
+
+### Fixed
+- Outliner: Cross-outliner page node copy/paste now works for all scenarios (same outliner, different outliner in same note, and different note)
+- Outliner: Cross-outliner page node cut/paste now correctly moves .md and image files between folders
+- Outliner: Images attached to page nodes are now physically copied with new filenames on paste (previously shared references)
+- Outliner: .md body image references are rewritten to the new filenames on copy so the duplicated page is fully independent
+- Outliner: File identity is now compared by absolute path, fixing a subtle mis-classification where two notes sharing the default `./pages` directory were treated as the same file
+
+### Changed
+- Internal: Consolidated `copyPageFile` / `copyPageFileCross` into a single host API
+- Internal: Extracted shared paste asset helpers (`paste-asset-handler.ts`) and markdown image utility (`markdown-image-utils.ts`)
+
 ## [0.195.621] - 2026-04-08
 
 ### Fixed

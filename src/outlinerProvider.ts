@@ -6,7 +6,7 @@ import { getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { extractMarkdownImagePaths } from './shared/markdown-image-utils';
+import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './shared/paste-asset-handler';
 
 /**
  * OutlinerProvider — .out ファイル用 Custom Text Editor Provider
@@ -76,7 +76,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                         documentBaseUri: docBaseUri
-                    }
+                    },
+                    document.uri.fsPath
                 );
             } catch (error) {
                 console.error('[Outliner] Error updating webview:', error);
@@ -193,10 +194,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await this.handleOpenPage(document, webviewPanel, message);
                         break;
 
-                    case 'copyPageFile':
-                        await this.handleCopyPageFile(document, message);
-                        break;
-
                     case 'saveOutlinerClipboard': {
                         const clipPagesDir = this.getPagesDirPath(document);
                         const clipImagesDir = this.getOutlinerImageDirPath(document);
@@ -205,7 +202,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             isCut: message.isCut,
                             nodes: message.nodes,
                             sourcePagesDirPath: clipPagesDir,
-                            sourceImagesDirPath: clipImagesDir
+                            sourceImagesDirPath: clipImagesDir,
+                            sourceOutDir: path.dirname(document.uri.fsPath)
                         });
                         break;
                     }
@@ -213,27 +211,21 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'copyPageFileCross': {
                         const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (clipData) {
-                            const crossSrc = path.join(clipData.sourcePagesDirPath, `${message.sourcePageId}.md`);
                             await this.ensurePagesDir(document);
-                            const crossDest = this.getPageFilePath(document, message.newPageId);
-                            if (fs.existsSync(crossSrc)) {
-                                fs.copyFileSync(crossSrc, crossDest);
-                                // .md 本文から参照される画像も併せてコピー
-                                try {
-                                    const mdContent = fs.readFileSync(crossSrc, 'utf8');
-                                    const crossDestDir = path.dirname(crossDest);
-                                    const imgRefs = extractMarkdownImagePaths(mdContent);
-                                    for (const relPath of imgRefs) {
-                                        const srcImg = path.resolve(clipData.sourcePagesDirPath, relPath);
-                                        const destImg = path.resolve(crossDestDir, relPath);
-                                        if (srcImg === destImg) continue;
-                                        if (!fs.existsSync(srcImg)) continue;
-                                        const destImgDir = path.dirname(destImg);
-                                        if (!fs.existsSync(destImgDir)) fs.mkdirSync(destImgDir, { recursive: true });
-                                        if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-                                    }
-                                } catch { /* skip image copy errors */ }
-                            }
+                            const result = copyPageAssets({
+                                srcOutDir: clipData.sourceOutDir,
+                                srcPagesDir: clipData.sourcePagesDirPath,
+                                destOutDir: path.dirname(document.uri.fsPath),
+                                destPagesDir: this.getPagesDirPath(document),
+                                sourcePageId: message.sourcePageId,
+                                newPageId: message.newPageId,
+                                nodeImages: message.nodeImages || []
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'updateNodeImages',
+                                nodeId: message.targetNodeId,
+                                newImages: result.newNodeImages
+                            });
                         }
                         break;
                     }
@@ -241,13 +233,20 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'movePageFileCross': {
                         const moveClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (moveClipData) {
-                            const moveSrc = path.join(moveClipData.sourcePagesDirPath, `${message.pageId}.md`);
                             await this.ensurePagesDir(document);
-                            const moveDest = this.getPageFilePath(document, message.pageId);
-                            if (fs.existsSync(moveSrc) && moveSrc !== moveDest) {
-                                fs.copyFileSync(moveSrc, moveDest);
-                                try { fs.unlinkSync(moveSrc); } catch { /* ignore */ }
-                            }
+                            const result = movePageAssets({
+                                srcOutDir: moveClipData.sourceOutDir,
+                                srcPagesDir: moveClipData.sourcePagesDirPath,
+                                destOutDir: path.dirname(document.uri.fsPath),
+                                destPagesDir: this.getPagesDirPath(document),
+                                pageId: message.pageId,
+                                nodeImages: message.nodeImages || []
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'updateNodeImages',
+                                nodeId: message.targetNodeId,
+                                newImages: result.newNodeImages
+                            });
                         }
                         OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                         break;
@@ -256,22 +255,29 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'copyImagesCross': {
                         const imgClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (imgClipData && message.images) {
-                            const imgDir = this.getOutlinerImageDirPath(document);
-                            if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
-                            for (const imgPath of message.images) {
-                                const filename = path.basename(imgPath);
-                                const imgSrc = path.join(imgClipData.sourceImagesDirPath, filename);
-                                const imgDest = path.join(imgDir, filename);
-                                if (fs.existsSync(imgSrc) && !fs.existsSync(imgDest)) {
-                                    fs.copyFileSync(imgSrc, imgDest);
-                                }
-                            }
-                            if (imgClipData.isCut) {
-                                for (const imgPath of message.images) {
-                                    const filename = path.basename(imgPath);
-                                    const imgSrc = path.join(imgClipData.sourceImagesDirPath, filename);
-                                    try { fs.unlinkSync(imgSrc); } catch { /* ignore */ }
-                                }
+                            await this.ensurePagesDir(document);
+                            const result = message.isCut
+                                ? moveImageAssets({
+                                    srcOutDir: imgClipData.sourceOutDir,
+                                    srcPagesDir: imgClipData.sourcePagesDirPath,
+                                    destOutDir: path.dirname(document.uri.fsPath),
+                                    destPagesDir: this.getPagesDirPath(document),
+                                    nodeImages: message.images
+                                })
+                                : copyImageAssets({
+                                    srcOutDir: imgClipData.sourceOutDir,
+                                    srcPagesDir: imgClipData.sourcePagesDirPath,
+                                    destOutDir: path.dirname(document.uri.fsPath),
+                                    destPagesDir: this.getPagesDirPath(document),
+                                    newNodeId: message.targetNodeId,
+                                    nodeImages: message.images
+                                });
+                            webviewPanel.webview.postMessage({
+                                type: 'updateNodeImages',
+                                nodeId: message.targetNodeId,
+                                newImages: result.newNodeImages
+                            });
+                            if (message.isCut) {
                                 OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                             }
                         }
@@ -543,7 +549,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             const data = JSON.parse(document.getText());
                             webviewPanel.webview.postMessage({
                                 type: 'updateData',
-                                data: data
+                                data: data,
+                                outFileKey: document.uri.fsPath
                             });
                         } catch {
                             // JSON パースエラーは無視
@@ -585,7 +592,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 const data = JSON.parse(newContent);
                                 webviewPanel.webview.postMessage({
                                     type: 'updateData',
-                                    data: data
+                                    data: data,
+                                    outFileKey: document.uri.fsPath
                                 });
                             } catch { /* JSON parse error ignored */ }
                         }
@@ -743,18 +751,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             );
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to move page file to trash: ${filePath}`);
-        }
-    }
-
-    private async handleCopyPageFile(
-        document: vscode.TextDocument,
-        message: { sourcePageId: string; newPageId: string }
-    ): Promise<void> {
-        await this.ensurePagesDir(document);
-        const sourcePath = this.getPageFilePath(document, message.sourcePageId);
-        const destPath = this.getPageFilePath(document, message.newPageId);
-        if (fs.existsSync(sourcePath)) {
-            fs.copyFileSync(sourcePath, destPath);
         }
     }
 

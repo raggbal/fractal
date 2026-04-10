@@ -38,17 +38,14 @@
         removePage: function(nodeId, pageId) {
             api.postMessage({ type: 'removePage', nodeId: nodeId, pageId: pageId });
         },
-        copyPageFile: function(sourcePageId, newPageId) {
-            api.postMessage({ type: 'copyPageFile', sourcePageId: sourcePageId, newPageId: newPageId });
+        copyPageFileCross: function(sourcePageId, newPageId, clipboardPlainText, targetNodeId, nodeImages) {
+            api.postMessage({ type: 'copyPageFileCross', sourcePageId: sourcePageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [] });
         },
-        copyPageFileCross: function(sourcePageId, newPageId, clipboardPlainText) {
-            api.postMessage({ type: 'copyPageFileCross', sourcePageId: sourcePageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText });
+        movePageFileCross: function(pageId, clipboardPlainText, targetNodeId, nodeImages) {
+            api.postMessage({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [] });
         },
-        movePageFileCross: function(pageId, clipboardPlainText) {
-            api.postMessage({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText });
-        },
-        copyImagesCross: function(images, clipboardPlainText) {
-            api.postMessage({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
+        copyImagesCross: function(images, clipboardPlainText, targetNodeId, isCut) {
+            api.postMessage({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: !!isCut });
         },
         saveOutlinerClipboard: function(plainText, isCut, nodes) {
             api.postMessage({ type: 'saveOutlinerClipboard', plainText: plainText, isCut: isCut, nodes: nodes });

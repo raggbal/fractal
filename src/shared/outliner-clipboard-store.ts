@@ -20,6 +20,7 @@ interface ClipboardData {
     nodes: ClipboardNodeData[];
     sourcePagesDirPath: string;
     sourceImagesDirPath: string;
+    sourceOutDir: string;  // .out ファイルのあるディレクトリ (絶対パス) — 画像パス解決の基準
 }
 
 export class OutlinerClipboardStore {

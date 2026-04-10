@@ -3,7 +3,7 @@ import * as path from 'path';
 import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
-import { extractMarkdownImagePaths } from './markdown-image-utils';
+import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -171,24 +171,16 @@ export function handleNotesMessage(
             break;
         }
 
-        case 'copyPageFile': {
-            const pagesDir = fileManager.getPagesDirPath();
-            const sourcePath = path.join(pagesDir, `${message.sourcePageId}.md`);
-            const destPath = path.join(pagesDir, `${message.newPageId}.md`);
-            if (fs.existsSync(sourcePath)) {
-                fs.copyFileSync(sourcePath, destPath);
-            }
-            break;
-        }
-
         case 'saveOutlinerClipboard': {
             const clipPagesDir = fileManager.getPagesDirPath();
+            const currentFilePath = fileManager.getCurrentFilePath();
             OutlinerClipboardStore.save({
                 plainText: message.plainText,
                 isCut: message.isCut,
                 nodes: message.nodes,
                 sourcePagesDirPath: clipPagesDir,
-                sourceImagesDirPath: path.join(clipPagesDir, 'images')
+                sourceImagesDirPath: path.join(clipPagesDir, 'images'),
+                sourceOutDir: currentFilePath ? path.dirname(currentFilePath) : clipPagesDir
             });
             break;
         }
@@ -196,41 +188,43 @@ export function handleNotesMessage(
         case 'copyPageFileCross': {
             const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!clipData) break;
-            const crossSourcePath = path.join(clipData.sourcePagesDirPath, `${message.sourcePageId}.md`);
-            const crossDestDir = fileManager.getPagesDirPath();
-            if (!fs.existsSync(crossDestDir)) fs.mkdirSync(crossDestDir, { recursive: true });
-            const crossDestPath = path.join(crossDestDir, `${message.newPageId}.md`);
-            if (fs.existsSync(crossSourcePath)) {
-                fs.copyFileSync(crossSourcePath, crossDestPath);
-                // .md 本文から参照される画像も併せてコピー。
-                // node.images に無い「本文埋め込み画像」を取りこぼさないため。
-                try {
-                    const mdContent = fs.readFileSync(crossSourcePath, 'utf8');
-                    const imgRefs = extractMarkdownImagePaths(mdContent);
-                    for (const relPath of imgRefs) {
-                        const srcImg = path.resolve(clipData.sourcePagesDirPath, relPath);
-                        const destImg = path.resolve(crossDestDir, relPath);
-                        if (srcImg === destImg) continue;
-                        if (!fs.existsSync(srcImg)) continue;
-                        const destImgDir = path.dirname(destImg);
-                        if (!fs.existsSync(destImgDir)) fs.mkdirSync(destImgDir, { recursive: true });
-                        if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-                    }
-                } catch { /* skip image copy errors */ }
-            }
+            const currentFilePath = fileManager.getCurrentFilePath();
+            const destPagesDir = fileManager.getPagesDirPath();
+            const result = copyPageAssets({
+                srcOutDir: clipData.sourceOutDir,
+                srcPagesDir: clipData.sourcePagesDirPath,
+                destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
+                destPagesDir,
+                sourcePageId: message.sourcePageId,
+                newPageId: message.newPageId,
+                nodeImages: message.nodeImages || []
+            });
+            sender.postMessage({
+                type: 'updateNodeImages',
+                nodeId: message.targetNodeId,
+                newImages: result.newNodeImages
+            });
             break;
         }
 
         case 'movePageFileCross': {
             const moveClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
-            if (!moveClipData) break;
-            const moveSourcePath = path.join(moveClipData.sourcePagesDirPath, `${message.pageId}.md`);
-            const moveDestDir = fileManager.getPagesDirPath();
-            if (!fs.existsSync(moveDestDir)) fs.mkdirSync(moveDestDir, { recursive: true });
-            const moveDestPath = path.join(moveDestDir, `${message.pageId}.md`);
-            if (fs.existsSync(moveSourcePath) && moveSourcePath !== moveDestPath) {
-                fs.copyFileSync(moveSourcePath, moveDestPath);
-                try { fs.unlinkSync(moveSourcePath); } catch { /* ignore */ }
+            if (moveClipData) {
+                const currentFilePath = fileManager.getCurrentFilePath();
+                const destPagesDir = fileManager.getPagesDirPath();
+                const result = movePageAssets({
+                    srcOutDir: moveClipData.sourceOutDir,
+                    srcPagesDir: moveClipData.sourcePagesDirPath,
+                    destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
+                    destPagesDir,
+                    pageId: message.pageId,
+                    nodeImages: message.nodeImages || []
+                });
+                sender.postMessage({
+                    type: 'updateNodeImages',
+                    nodeId: message.targetNodeId,
+                    newImages: result.newNodeImages
+                });
             }
             OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             break;
@@ -239,22 +233,30 @@ export function handleNotesMessage(
         case 'copyImagesCross': {
             const imgClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!imgClipData || !message.images) break;
-            const targetImagesDir = path.join(fileManager.getPagesDirPath(), 'images');
-            if (!fs.existsSync(targetImagesDir)) fs.mkdirSync(targetImagesDir, { recursive: true });
-            for (const imgPath of message.images) {
-                const filename = path.basename(imgPath);
-                const imgSourcePath = path.join(imgClipData.sourceImagesDirPath, filename);
-                const imgDestPath = path.join(targetImagesDir, filename);
-                if (fs.existsSync(imgSourcePath) && !fs.existsSync(imgDestPath)) {
-                    fs.copyFileSync(imgSourcePath, imgDestPath);
-                }
-            }
-            if (imgClipData.isCut) {
-                for (const imgPath of message.images) {
-                    const filename = path.basename(imgPath);
-                    const imgSourcePath = path.join(imgClipData.sourceImagesDirPath, filename);
-                    try { fs.unlinkSync(imgSourcePath); } catch { /* ignore */ }
-                }
+            const currentFilePath = fileManager.getCurrentFilePath();
+            const destPagesDir = fileManager.getPagesDirPath();
+            const result = message.isCut
+                ? moveImageAssets({
+                    srcOutDir: imgClipData.sourceOutDir,
+                    srcPagesDir: imgClipData.sourcePagesDirPath,
+                    destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
+                    destPagesDir,
+                    nodeImages: message.images
+                })
+                : copyImageAssets({
+                    srcOutDir: imgClipData.sourceOutDir,
+                    srcPagesDir: imgClipData.sourcePagesDirPath,
+                    destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
+                    destPagesDir,
+                    newNodeId: message.targetNodeId,
+                    nodeImages: message.images
+                });
+            sender.postMessage({
+                type: 'updateNodeImages',
+                nodeId: message.targetNodeId,
+                newImages: result.newNodeImages
+            });
+            if (message.isCut) {
                 OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             }
             break;
@@ -361,7 +363,7 @@ export function handleNotesMessage(
                 const data = JSON.parse(content);
                 sendFileListWithStructure(fileManager, sender, message.filePath);
                 const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), isDailyNotes });
+                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes });
             } else {
                 // ファイル読み込み失敗: 元のファイルリストを再送信してUI状態を復元
                 sendFileListWithStructure(fileManager, sender);
@@ -379,7 +381,7 @@ export function handleNotesMessage(
                 }
                 const data = JSON.parse(content);
                 sendFileListWithStructure(fileManager, sender, filePath);
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId() });
+                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
             }
             break;
         }
@@ -398,11 +400,11 @@ export function handleNotesMessage(
                         }
                         const data = JSON.parse(content);
                         sendFileListWithStructure(fileManager, sender, fp);
-                        sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId() });
+                        sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
                     }
                 } else {
                     sendFileListWithStructure(fileManager, sender);
-                    sender.postMessage({ type: 'updateData', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId() });
+                    sender.postMessage({ type: 'updateData', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
                 }
             } else {
                 sendFileListWithStructure(fileManager, sender);
@@ -480,6 +482,7 @@ export function handleNotesMessage(
                 type: 'updateData',
                 data: dailyData,
                 fileChangeId: fileManager.getFileChangeId(),
+                outFileKey: fileManager.getCurrentFilePath(),
                 scopeToNodeId: dayNodeId,
                 isDailyNotes: true,
             });
@@ -521,6 +524,7 @@ export function handleNotesMessage(
                 type: 'updateData',
                 data: navData,
                 fileChangeId: fileManager.getFileChangeId(),
+                outFileKey: fileManager.getCurrentFilePath(),
                 scopeToNodeId: navResult.dayNodeId,
                 isDailyNotes: true,
             });
@@ -553,6 +557,7 @@ export function handleNotesMessage(
                 type: 'updateData',
                 data: navDateData,
                 fileChangeId: fileManager.getFileChangeId(),
+                outFileKey: fileManager.getCurrentFilePath(),
                 scopeToNodeId: dateResult.dayNodeId,
                 isDailyNotes: true,
             });
@@ -633,6 +638,7 @@ export function handleNotesMessage(
                     type: 'updateData',
                     data: jumpData,
                     fileChangeId: fileManager.getFileChangeId(),
+                    outFileKey: fileManager.getCurrentFilePath(),
                     jumpToNodeId: message.nodeId,
                 });
             }
@@ -666,6 +672,7 @@ export function handleNotesMessage(
                 type: 'updateData',
                 data: mdOutData,
                 fileChangeId: fileManager.getFileChangeId(),
+                outFileKey: fileManager.getCurrentFilePath(),
                 jumpToNodeId: pageNodeId,
             });
 
@@ -705,6 +712,7 @@ export function handleNotesMessage(
                 type: 'updateData',
                 data: navData,
                 fileChangeId: fileManager.getFileChangeId(),
+                outFileKey: fileManager.getCurrentFilePath(),
                 jumpToNodeId: message.nodeId,
             });
             break;

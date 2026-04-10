@@ -181,10 +181,10 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">
         try {
             var initialData = JSON.parse(decodeURIComponent(escape(atob('${base64Content}'))));
-            Outliner.init(initialData);
+            Outliner.init(initialData, ${JSON.stringify(initData.currentFilePath)});
         } catch(e) {
             console.error('[Notes] Failed to initialize outliner:', e);
-            Outliner.init({ version: 1, rootIds: [], nodes: {} });
+            Outliner.init({ version: 1, rootIds: [], nodes: {} }, ${JSON.stringify(initData.currentFilePath)});
         }
         // Initialize notes file panel
         notesFilePanel.init(

@@ -17,7 +17,8 @@ export function getOutlinerWebviewContent(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
     jsonContent: string,
-    config: OutlinerConfig
+    config: OutlinerConfig,
+    outFileKey?: string
 ): string {
     const nonce = getNonce();
 
@@ -157,10 +158,10 @@ export function getOutlinerWebviewContent(
     <script nonce="${nonce}">
         try {
             var initialData = JSON.parse(decodeURIComponent(escape(atob('${base64Content}'))));
-            Outliner.init(initialData);
+            Outliner.init(initialData, ${JSON.stringify(outFileKey || null)});
         } catch(e) {
             console.error('[Outliner] Failed to initialize:', e);
-            Outliner.init({ version: 1, rootIds: [], nodes: {} });
+            Outliner.init({ version: 1, rootIds: [], nodes: {} }, ${JSON.stringify(outFileKey || null)});
         }
     </script>
 </body>

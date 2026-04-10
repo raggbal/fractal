@@ -20722,6 +20722,7 @@ var Outliner = (function() {
     var currentSearchResult = null;  // Set<string> or null
     var searchFocusMode = false;     // true: マッチノード頂点+子のみ, false: ルートまで表示
     var pageDir = null;              // outファイル個別のpageDir設定
+    var currentOutFileKey = null;    // 同一性判定用の .out ファイル絶対パス (host から updateData で注入)
     var sidePanelWidthSetting = null; // outファイル個別のサイドパネル幅
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
@@ -20895,10 +20896,13 @@ var Outliner = (function() {
     var ICON_UNDO = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 0 1 3-7.7A9 9 0 0 1 21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.7-3"/></svg>';
     var ICON_REDO = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 0 0-3-7.7A9 9 0 0 0 3 12a9 9 0 0 0 9 9 9 9 0 0 0 6.7-3"/></svg>';
 
-    function init(data) {
+    function init(data, outFileKey) {
         host = window.outlinerHostBridge;
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
+        if (outFileKey) {
+            currentOutFileKey = outFileKey;
+        }
 
         // JSONから検索モードを復元
         if (data && data.searchFocusMode) {
@@ -22227,10 +22231,10 @@ var Outliner = (function() {
     }
 
     /** クリップボードに text/plain + text/html を書き込む (cross-outlinerメタデータ埋め込み) */
-    function writeClipboardWithHtml(plainText, nodesData) {
+    function writeClipboardWithHtml(plainText, nodesData, isCut) {
         var htmlText = buildSelectedNodesHtml(nodesData);
         // メタデータをHTMLに埋め込み (cross-webview paste用)
-        var metaJson = JSON.stringify({ nodes: nodesData, sourcePageDir: pageDir });
+        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
         try {
             navigator.clipboard.write([
@@ -22309,16 +22313,16 @@ var Outliner = (function() {
         var intClip = getValidInternalClipboard(clipText);
         var clipNodes = intClip ? intClip.nodes : null;
         var isCutPaste = intClip ? intClip.isCut : false;
+        var clipSourceKey = intClip ? (intClip.sourceOutFileKey || null) : null;
 
         // Priority 2: HTMLクリップボードからcross-outlinerメタデータ抽出
-        var isCrossWebview = false;
         if (!intClip) {
             var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
             var crossMeta = extractOutlinerClipboardMeta(htmlData);
             if (crossMeta && crossMeta.nodes) {
                 clipNodes = crossMeta.nodes;
-                isCutPaste = false; // cross-webviewでは常にコピー扱い
-                isCrossWebview = true;
+                isCutPaste = !!crossMeta.isCut; // cross-webview でも cut 情報を保持
+                clipSourceKey = crossMeta.sourceOutFileKey || null;
             }
         }
 
@@ -22344,7 +22348,7 @@ var Outliner = (function() {
                 if (selectedNodeIds.has(flat[di])) { model.removeNode(flat[di]); }
             }
             clearSelection();
-            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, isCrossWebview);
+            pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, clipSourceKey);
             return;
         }
 
@@ -22380,15 +22384,15 @@ var Outliner = (function() {
             var sibIdx = siblings.indexOf(nodeId);
             var insertAfterForEmpty = sibIdx > 0 ? siblings[sibIdx - 1] : null;
             model.removeNode(nodeId);
-            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, isCrossWebview);
+            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, clipSourceKey);
         } else {
             // テキストありノード: 現在ノードの後に全行を挿入
-            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, isCrossWebview);
+            pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, clipSourceKey);
         }
     }
 
     /** インデント付きテキストからノード階層を構築してモデルに追加 */
-    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, forceCrossFile) {
+    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, clipSourceKey) {
         var lines = text.split('\n');
         if (lines.length === 0) { return; }
 
@@ -22471,43 +22475,41 @@ var Outliner = (function() {
             // ページメタデータ・画像復元
             if (clipboardNodes && clipboardNodes[clipNodeIndexMap[n]]) {
                 var clipNode = clipboardNodes[clipNodeIndexMap[n]];
-                // cross-webview 判定は metadata 由来のフラグ一本。
-                // 相対パス文字列の同一性比較は偶然一致しうるため使わない。
-                var isCrossFile = forceCrossFile;
+                // 同一性判定は outFileKey (絶対パス) で確実に行う。
+                // 相対パス文字列での同一性比較は偶然一致しうるため使わない (retro 教訓①)。
+                var isCrossFile = !!clipSourceKey && clipSourceKey !== currentOutFileKey;
+                var clipImages = clipNode.images || [];
+                // 画像配列はまず placeholder として流用。host からの updateNodeImages postback で上書きされる。
+                if (clipImages.length > 0) {
+                    newNode.images = clipImages.slice();
+                }
                 if (clipNode.isPage && clipNode.pageId) {
                     if (isCut) {
-                        // カット→ペースト: 元のpageIdをそのまま使う（移動扱い）
+                        // cut: 元の pageId をそのまま使う (移動扱い)
                         newNode.isPage = true;
                         newNode.pageId = clipNode.pageId;
                         if (isCrossFile) {
-                            host.movePageFileCross(clipNode.pageId, text);
+                            // cross-file: .md と画像を物理移動、新 path を postback で受け取る
+                            host.movePageFileCross(clipNode.pageId, text, newNode.id, clipImages);
                         }
+                        // same-file cut: 何もしない (同じ pagesDir なので file 位置不変)
                     } else {
-                        // コピー→ペースト: 新pageId発行 + .mdファイル複製
+                        // copy: 新 pageId + .md と画像を新 filename で実体コピー (常に host 経由)
                         var newPageId = model.generatePageId();
                         newNode.isPage = true;
                         newNode.pageId = newPageId;
-                        if (isCrossFile) {
-                            host.copyPageFileCross(clipNode.pageId, newPageId, text);
-                        } else {
-                            host.copyPageFile(clipNode.pageId, newPageId);
-                        }
+                        host.copyPageFileCross(clipNode.pageId, newPageId, text, newNode.id, clipImages);
                     }
-                }
-                // 画像復元
-                if (clipNode.images && clipNode.images.length > 0) {
-                    if (isCrossFile) {
-                        // cross-file: ファイルコピー依頼 + パス変換
-                        host.copyImagesCross(clipNode.images, text);
-                        var targetDir = (pageDir || '').replace(/^\.\//, '').replace(/\/$/, '');
-                        var newImages = [];
-                        for (var imgI = 0; imgI < clipNode.images.length; imgI++) {
-                            var imgFilename = clipNode.images[imgI].split('/').pop();
-                            newImages.push(targetDir + '/images/' + imgFilename);
+                } else if (clipImages.length > 0) {
+                    // 非 isPage + images のみのケース
+                    if (isCut) {
+                        if (isCrossFile) {
+                            host.copyImagesCross(clipImages, text, newNode.id, true);
                         }
-                        newNode.images = newImages;
+                        // same-file cut: no-op
                     } else {
-                        newNode.images = clipNode.images.slice();
+                        // copy: 常に新 filename で実体コピー
+                        host.copyImagesCross(clipImages, text, newNode.id, false);
                     }
                 }
             }
@@ -23014,12 +23016,12 @@ var Outliner = (function() {
                         e.preventDefault();
                         var copyText = getSelectedText();
                         var copyNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(copyText, copyNodesData);
+                        writeClipboardWithHtml(copyText, copyNodesData, false);
                         internalClipboard = {
                             plainText: copyText,
                             isCut: false,
                             nodes: copyNodesData,
-                            sourcePageDir: pageDir
+                            sourceOutFileKey: currentOutFileKey
                         };
                         host.saveOutlinerClipboard(copyText, false, copyNodesData);
                     } else {
@@ -23035,12 +23037,12 @@ var Outliner = (function() {
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : []
                             }];
-                            writeClipboardWithHtml(singleText, singleNodesData);
+                            writeClipboardWithHtml(singleText, singleNodesData, false);
                             internalClipboard = {
                                 plainText: singleText,
                                 isCut: false,
                                 nodes: singleNodesData,
-                                sourcePageDir: pageDir
+                                sourceOutFileKey: currentOutFileKey
                             };
                             host.saveOutlinerClipboard(singleText, false, singleNodesData);
                         }
@@ -23052,12 +23054,12 @@ var Outliner = (function() {
                         e.preventDefault();
                         var cutText = getSelectedText();
                         var cutNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(cutText, cutNodesData);
+                        writeClipboardWithHtml(cutText, cutNodesData, true);
                         internalClipboard = {
                             plainText: cutText,
                             isCut: true,
                             nodes: cutNodesData,
-                            sourcePageDir: pageDir
+                            sourceOutFileKey: currentOutFileKey
                         };
                         host.saveOutlinerClipboard(cutText, true, cutNodesData);
                         deleteSelectedNodes();
@@ -23074,12 +23076,12 @@ var Outliner = (function() {
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : []
                             }];
-                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData);
+                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
                             internalClipboard = {
                                 plainText: cutSingleText,
                                 isCut: true,
                                 nodes: cutSingleNodesData,
-                                sourcePageDir: pageDir
+                                sourceOutFileKey: currentOutFileKey
                             };
                             host.saveOutlinerClipboard(cutSingleText, true, cutSingleNodesData);
                             saveSnapshot();
@@ -25175,7 +25177,22 @@ var Outliner = (function() {
     function setupHostMessages() {
         host.onMessage(function(msg) {
             switch (msg.type) {
+                case 'updateNodeImages': {
+                    // host が paste asset (copy/move) 完了後に新 images path を返してくる
+                    if (!msg.nodeId) break;
+                    var tNode = model.getNode(msg.nodeId);
+                    if (!tNode) break;
+                    tNode.images = Array.isArray(msg.newImages) ? msg.newImages.slice() : [];
+                    renderTree();
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'updateData':
+                    // file identity を先に反映 (同一性判定の唯一の根拠)
+                    if (msg.outFileKey !== undefined) {
+                        currentOutFileKey = msg.outFileKey;
+                    }
                     // --- Notes ファイル切替（fileChangeIdあり）は従来通り即時適用 ---
                     if (msg.fileChangeId !== undefined) {
                         // 編集中ガード状態をリセット（ファイル切替は最優先）

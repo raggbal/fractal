@@ -498,7 +498,7 @@ export class NotesEditorProvider {
                     const content = fs.readFileSync(currentFile, 'utf8');
                     if (content === fileManager.getLastKnownContent()) return;
                     const data = JSON.parse(content);
-                    panel.webview.postMessage({ type: 'updateData', data });
+                    panel.webview.postMessage({ type: 'updateData', data, outFileKey: fileManager.getCurrentFilePath() });
                     fileManager.updateLastKnownContent(content);
                 } catch {
                     // JSONパースエラー or ファイル読み込みエラーは無視
