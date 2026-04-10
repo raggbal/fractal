@@ -104,14 +104,17 @@ test.describe('Outliner: () 入りリンク描画', () => {
         await page.evaluate(() => {
             (window as any).__testApi.initOutliner({
                 version: 1,
-                rootIds: ['n1'],
+                rootIds: ['n1', 'n2'],
                 nodes: {
-                    n1: { id: 'n1', parentId: null, children: [], text: '[Wiki](https://en.wikipedia.org/wiki/Foo_(bar))', tags: [] }
+                    n1: { id: 'n1', parentId: null, children: [], text: '[Wiki](https://en.wikipedia.org/wiki/Foo_(bar))', tags: [] },
+                    n2: { id: 'n2', parentId: null, children: [], text: 'other', tags: [] }
                 }
             });
         });
-        await page.waitForTimeout(500);
-        // renderInlineText は非フォーカスノードの innerHTML で使われる
+        await page.waitForTimeout(300);
+        // n2 をクリックして n1 を非フォーカスにする → renderInlineText が使われる
+        await page.locator('.outliner-node[data-id="n2"] .outliner-text').click();
+        await page.waitForTimeout(300);
         const html = await page.locator('.outliner-node[data-id="n1"] .outliner-text').innerHTML();
         expect(html).toContain('<a ');
         expect(html).toContain('href="https://en.wikipedia.org/wiki/Foo_(bar)"');
@@ -122,13 +125,16 @@ test.describe('Outliner: () 入りリンク描画', () => {
         await page.evaluate(() => {
             (window as any).__testApi.initOutliner({
                 version: 1,
-                rootIds: ['n1'],
+                rootIds: ['n1', 'n2'],
                 nodes: {
-                    n1: { id: 'n1', parentId: null, children: [], text: '[Google](https://www.google.com)', tags: [] }
+                    n1: { id: 'n1', parentId: null, children: [], text: '[Google](https://www.google.com)', tags: [] },
+                    n2: { id: 'n2', parentId: null, children: [], text: 'other', tags: [] }
                 }
             });
         });
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(300);
+        await page.locator('.outliner-node[data-id="n2"] .outliner-text').click();
+        await page.waitForTimeout(300);
         const html = await page.locator('.outliner-node[data-id="n1"] .outliner-text').innerHTML();
         expect(html).toContain('<a ');
         expect(html).toContain('href="https://www.google.com"');
@@ -178,17 +184,20 @@ test.describe('Outliner: () 入り URL 自動リンク化', () => {
     });
 
     test('renderInlineText で () 入り Markdown link が描画後に a タグになる', async ({ page }) => {
-        // text に Markdown link を設定して表示確認
         await page.evaluate(() => {
             (window as any).__testApi.initOutliner({
                 version: 1,
-                rootIds: ['n1'],
+                rootIds: ['n1', 'n2'],
                 nodes: {
-                    n1: { id: 'n1', parentId: null, children: [], text: '[Wiki](https://en.wikipedia.org/wiki/Foo_(bar))', tags: [] }
+                    n1: { id: 'n1', parentId: null, children: [], text: '[Wiki](https://en.wikipedia.org/wiki/Foo_(bar))', tags: [] },
+                    n2: { id: 'n2', parentId: null, children: [], text: 'other', tags: [] }
                 }
             });
         });
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(300);
+        // n2 をクリックして n1 を非フォーカスにする → renderInlineText
+        await page.locator('.outliner-node[data-id="n2"] .outliner-text').click();
+        await page.waitForTimeout(300);
         const html = await page.locator('.outliner-node[data-id="n1"] .outliner-text').innerHTML();
         expect(html).toContain('href="https://en.wikipedia.org/wiki/Foo_(bar)"');
         expect(html).toContain('>Wiki</a>');
