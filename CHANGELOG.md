@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.641] - 2026-04-11
+
+### Added
+- Editor: Link insertion (Cmd+/ → link) now works in Notes and Outliner side panel editors (previously only worked in standalone .md editor)
+
+### Fixed
+- Outliner: Cross-outliner page node copy/paste now works within the same note folder (was broken since 0.195.623)
+- Outliner: Copy now creates independent image copies with new filenames (was sharing references)
+- Outliner: Cut/paste across notes now correctly moves .md and image files
+- Outliner: File identity detection uses absolute path instead of fragile relative pageDir string
+
+### Changed
+- Internal: New paste-asset-handler.ts for unified copy/move with image rename + .md body rewrite
+- Internal: Identity-based outFileKey propagated through Outliner.init and updateData
+
 ## [0.195.637] - 2026-04-11
 
 ### Fixed
