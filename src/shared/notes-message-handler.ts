@@ -4,6 +4,7 @@ import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './paste-asset-handler';
+import { safeResolveUnderDir } from './path-safety';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -98,12 +99,12 @@ function sendFileListWithStructure(
  * Notes メッセージハンドラ
  * webview からのメッセージを処理する共通ロジック
  */
-export function handleNotesMessage(
+export async function handleNotesMessage(
     message: any,
     fileManager: NotesFileManager,
     sender: NotesSender,
     platform: NotesPlatformActions
-): void {
+): Promise<void> {
     switch (message.type) {
         // ── Core Data ──
 
@@ -166,10 +167,8 @@ export function handleNotesMessage(
         }
 
         case 'removePage': {
-            const pagePath = fileManager.getPageFilePath(message.pageId);
-            if (fs.existsSync(pagePath)) {
-                try { fs.unlinkSync(pagePath); } catch { /* ignore */ }
-            }
+            // .md ファイルは削除しない (オーファンとして残す)
+            // → cleanup コマンドで掃除する
             break;
         }
 
@@ -396,7 +395,7 @@ export function handleNotesMessage(
 
         case 'notesDeleteFile': {
             const wasCurrent = fileManager.getCurrentFilePath() === message.filePath;
-            fileManager.deleteFile(message.filePath);
+            await fileManager.deleteFile(message.filePath);
             if (wasCurrent) {
                 const firstId = fileManager.findFirstFileId();
                 if (firstId) {

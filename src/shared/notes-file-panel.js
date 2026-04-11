@@ -297,9 +297,9 @@ var notesFilePanel = (function() {
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
         });
-        addContextItem(contextMenu, i18n.notesDelete || 'Delete', function() {
+        addContextItem(contextMenu, i18n.notesDelete || 'Delete', async function() {
             closeContextMenu();
-            bridge.deleteFile(file.filePath);
+            await bridge.deleteFile(file.filePath);
         }, true);
 
         document.body.appendChild(contextMenu);

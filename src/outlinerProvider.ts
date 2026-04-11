@@ -7,6 +7,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './shared/paste-asset-handler';
+import { safeResolveUnderDir } from './shared/path-safety';
 
 /**
  * OutlinerProvider — .out ファイル用 Custom Text Editor Provider
@@ -764,14 +765,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             sidePanel.handleClose();
         }
 
-        try {
-            await vscode.workspace.fs.delete(
-                vscode.Uri.file(filePath),
-                { useTrash: true }
-            );
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to move page file to trash: ${filePath}`);
-        }
+        // .md ファイルは削除しない (オーファンとして残す)
+        // → cleanup コマンドで掃除する
     }
 
     private async handleOpenPage(

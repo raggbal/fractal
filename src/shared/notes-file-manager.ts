@@ -670,16 +670,23 @@ export class NotesFileManager {
     /**
      * .outファイルと対応するページフォルダを削除、.note構造からも除去
      */
-    deleteFile(filePath: string): void {
+    async deleteFile(filePath: string): Promise<void> {
         try {
+            const vscode = require('vscode');
             const id = path.basename(filePath, '.out');
             const pageDirAbs = path.join(this.mainFolderPath, id);
 
             if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
+                await vscode.workspace.fs.delete(
+                    vscode.Uri.file(filePath),
+                    { useTrash: true, recursive: false }
+                );
             }
             if (fs.existsSync(pageDirAbs)) {
-                fs.rmSync(pageDirAbs, { recursive: true, force: true });
+                await vscode.workspace.fs.delete(
+                    vscode.Uri.file(pageDirAbs),
+                    { useTrash: true, recursive: true }
+                );
             }
 
             if (this.currentFilePath === filePath) {

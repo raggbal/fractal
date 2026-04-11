@@ -434,8 +434,8 @@ export class NotesEditorProvider {
 
         // メッセージハンドラ登録
         disposables.push(
-            panel.webview.onDidReceiveMessage((message) => {
-                handleNotesMessage(message, fileManager, sender, platform);
+            panel.webview.onDidReceiveMessage(async (message) => {
+                await handleNotesMessage(message, fileManager, sender, platform);
             })
         );
 
