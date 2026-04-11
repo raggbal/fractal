@@ -427,6 +427,98 @@ export class NotesEditorProvider {
                     region: fractalConfig.get<string>('s3Region', 'us-east-1'),
                 });
             },
+            migrateOutFile: async (filePath: string, currentContent: string): Promise<string | null> => {
+                // FR-3: .out ファイルの schemaVersion マイグレーション
+                // outlinerProvider.migrateOutFile と同じロジック（共通関数化も検討したが、
+                // TextDocument vs string content の違いがあるため、ここでは独立実装）
+                const CURRENT_SCHEMA_VERSION = 2;
+                let data: any;
+                try {
+                    data = JSON.parse(currentContent);
+                } catch {
+                    return null; // JSON パースエラー時は何もしない
+                }
+
+                const currentVersion = data.schemaVersion || 1;
+                if (currentVersion >= CURRENT_SCHEMA_VERSION) {
+                    return null; // 最新 — O(1) で完了、変更なし
+                }
+
+                console.log('[Fractal Notes] Migrating .out schema', currentVersion, '→', CURRENT_SCHEMA_VERSION);
+
+                const nodes = data.nodes || {};
+                const nodeIds = Object.keys(nodes);
+                const pathOwners = new Map<string, string>(); // imagePath → first nodeId
+                const modifications: Array<{ nodeId: string; imageIdx: number; newPath: string }> = [];
+                const docDir = path.dirname(filePath);
+
+                // Phase 1: 重複検出
+                for (const nodeId of nodeIds) {
+                    const node = nodes[nodeId];
+                    const images: string[] = node.images || [];
+                    for (let i = 0; i < images.length; i++) {
+                        const imgPath = images[i];
+                        if (!pathOwners.has(imgPath)) {
+                            pathOwners.set(imgPath, nodeId); // 最初の所有者
+                        } else {
+                            // 2つ目以降: 複製対象
+                            modifications.push({ nodeId, imageIdx: i, newPath: '' });
+                        }
+                    }
+                }
+
+                if (modifications.length === 0) {
+                    // 重複なし: schemaVersion のみ更新
+                    data.schemaVersion = CURRENT_SCHEMA_VERSION;
+                    const newJson = JSON.stringify(data, null, 2);
+                    fs.writeFileSync(filePath, newJson, 'utf8');
+                    return newJson;
+                }
+
+                // Phase 2: 物理複製
+                for (const mod of modifications) {
+                    const node = nodes[mod.nodeId];
+                    const origPath = node.images[mod.imageIdx];
+
+                    // パストラバーサル防御 (path-safety.ts)
+                    const { safeResolveUnderDir } = require('./shared/path-safety');
+                    const safeOrig = safeResolveUnderDir(docDir, origPath);
+                    if (!safeOrig) {
+                        console.warn('[Fractal Notes] Migration: unsafe path rejected', origPath);
+                        continue;
+                    }
+                    const origAbs = safeOrig;
+
+                    if (!fs.existsSync(origAbs)) {
+                        console.warn('[Fractal Notes] Migration: source not found', origAbs);
+                        continue;
+                    }
+
+                    const ext = path.extname(origAbs);
+                    const dir = path.dirname(origAbs);
+                    const random = Math.random().toString(36).slice(2, 8);
+                    const newName = `image_${Date.now()}_${random}${ext}`;
+                    const destAbs = path.join(dir, newName);
+
+                    try {
+                        fs.copyFileSync(origAbs, destAbs);
+                        const newRel = path.relative(docDir, destAbs).replace(/\\/g, '/');
+                        mod.newPath = newRel;
+                        node.images[mod.imageIdx] = newRel;
+                        console.log('[Fractal Notes] Migration: duplicated', origPath, '→', newRel);
+                    } catch (e) {
+                        console.error('[Fractal Notes] Migration copy failed', e);
+                        // エラー時は schemaVersion を更新しない（次回再試行）
+                        return null;
+                    }
+                }
+
+                // Phase 3: schemaVersion 更新 + 保存
+                data.schemaVersion = CURRENT_SCHEMA_VERSION;
+                const newJson = JSON.stringify(data, null, 2);
+                fs.writeFileSync(filePath, newJson, 'utf8');
+                return newJson;
+            },
         };
 
         // --- パネル固有の disposables ---

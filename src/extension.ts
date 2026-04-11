@@ -274,7 +274,7 @@ export function activate(context: vscode.ExtensionContext) {
                 // File doesn't exist — good
             }
 
-            const emptyData = JSON.stringify({ rootIds: [], nodes: {} }, null, 2);
+            const emptyData = JSON.stringify({ schemaVersion: 2, rootIds: [], nodes: {} }, null, 2);
             await vscode.workspace.fs.writeFile(fileUri, Buffer.from(emptyData, 'utf8'));
             await vscode.commands.executeCommand('vscode.openWith', fileUri, 'fractal.outliner');
         })
