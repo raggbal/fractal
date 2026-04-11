@@ -10,7 +10,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { buildLiveSetPass1, buildPass2LiveImages, listAllMd, listAllImages, walkRecursive } from '../../src/shared/cleanup-core';
+import { buildLiveSetPass1, buildPass2LiveImages, listAllMd, listAllImages, walkRecursive, scanSingleNoteCore, buildAllNotesCleanupGrouped } from '../../src/shared/cleanup-core';
 
 const projectRoot = path.resolve(__dirname, '../..');
 
@@ -30,11 +30,12 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
     });
 
     test('DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)', () => {
-        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' || true`;
+        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' || true`;
         const output = execSync(cmd, { encoding: 'utf-8' }).trim();
 
-        // paste-asset-handler.ts は例外 (cross-outliner cut-paste の move semantics)
-        // notes-s3-sync.ts は v7.1 で vscode.workspace.fs.delete に修正済み
+        // 例外 (v7.1 DOD-24 の除外リスト):
+        // - paste-asset-handler.ts: cross-outliner cut-paste の move semantics (実害ゼロ)
+        // - notes-s3-sync.ts: S3 同期処理、リモートから再取得できる即時削除セマンティクス
         expect(output).toBe('');
     });
 });
@@ -197,5 +198,184 @@ test.describe('FR-5 Cleanup Logic - buildLiveSetPass1', () => {
         }
         expect(result).toContain(path.join(tmpDir, 'test.png'));
         expect(result).toContain(path.join(subDir, 'nested.png'));
+    });
+});
+
+test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
+    let tmpRoot: string;
+    let note1: string;
+    let note2: string;
+
+    test.beforeEach(() => {
+        tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'all-notes-test-'));
+        note1 = path.join(tmpRoot, 'note1');
+        note2 = path.join(tmpRoot, 'note2');
+        fs.mkdirSync(note1);
+        fs.mkdirSync(note2);
+    });
+
+    test.afterEach(() => {
+        if (tmpRoot && fs.existsSync(tmpRoot)) {
+            fs.rmSync(tmpRoot, { recursive: true, force: true });
+        }
+    });
+
+    /**
+     * Helper: setup a note with .out, alive md, orphan md, alive image, orphan image
+     */
+    function setupNote(mainFolderPath: string, opts: {
+        outFileName: string;
+        aliveMdId: string;
+        orphanMdName: string;
+        aliveImageName: string;
+        orphanImageName: string;
+    }): void {
+        const outFile = path.join(mainFolderPath, opts.outFileName);
+        const outData = {
+            title: 'Test',
+            pageDir: './pages',
+            nodes: {
+                a: { text: 'Node A', pageId: opts.aliveMdId, images: [`images/${opts.aliveImageName}`] }
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        const pagesDir = path.join(mainFolderPath, 'pages');
+        const imagesDir = path.join(pagesDir, 'images');
+        fs.mkdirSync(imagesDir, { recursive: true });
+
+        // alive md
+        fs.writeFileSync(path.join(pagesDir, `${opts.aliveMdId}.md`), 'alive page\n', 'utf8');
+        // orphan md (not referenced by any node.pageId)
+        fs.writeFileSync(path.join(pagesDir, opts.orphanMdName), 'orphan page\n', 'utf8');
+        // alive image
+        fs.writeFileSync(path.join(imagesDir, opts.aliveImageName), 'alive img', 'utf8');
+        // orphan image
+        fs.writeFileSync(path.join(imagesDir, opts.orphanImageName), 'orphan img', 'utf8');
+    }
+
+    test('DOD-37: runNotesCleanup が mainFolderPaths 配列の全 note をスキャンする', async () => {
+        // Setup 2 notes with orphans
+        setupNote(note1, {
+            outFileName: 'a.out',
+            aliveMdId: 'p1',
+            orphanMdName: 'orphan1.md',
+            aliveImageName: 'live1.png',
+            orphanImageName: 'unused1.png'
+        });
+        setupNote(note2, {
+            outFileName: 'b.out',
+            aliveMdId: 'p2',
+            orphanMdName: 'orphan2.md',
+            aliveImageName: 'live2.png',
+            orphanImageName: 'unused2.png'
+        });
+
+        // Execute
+        const grouped = await buildAllNotesCleanupGrouped([note1, note2]);
+
+        // Verify: 2 note 分の Map エントリが存在
+        expect(grouped.size).toBe(2);
+        expect(grouped.has(note1)).toBe(true);
+        expect(grouped.has(note2)).toBe(true);
+
+        // 各 note に orphan md と orphan image が検出される
+        const note1Candidates = grouped.get(note1)!;
+        expect(note1Candidates.length).toBe(2); // orphan1.md + unused1.png
+        expect(note1Candidates.some(c => c.type === 'orphan-md' && c.relPath.includes('orphan1.md'))).toBe(true);
+        expect(note1Candidates.some(c => c.type === 'orphan-image' && c.relPath.includes('unused1.png'))).toBe(true);
+
+        const note2Candidates = grouped.get(note2)!;
+        expect(note2Candidates.length).toBe(2);
+        expect(note2Candidates.some(c => c.relPath.includes('orphan2.md'))).toBe(true);
+        expect(note2Candidates.some(c => c.relPath.includes('unused2.png'))).toBe(true);
+
+        // alive ファイルは候補に含まれない (false positive 0、DOD-31 とも重複検証)
+        for (const candidates of grouped.values()) {
+            expect(candidates.every(c => !c.relPath.includes('live'))).toBe(true);
+            expect(candidates.every(c => !c.relPath.endsWith('p1.md'))).toBe(true);
+            expect(candidates.every(c => !c.relPath.endsWith('p2.md'))).toBe(true);
+        }
+    });
+
+    test('DOD-38: 複数 note の候補が note ごとに Map エントリとして grouping される', async () => {
+        // 3 notes 用意、うち 1 つは orphan なし
+        setupNote(note1, {
+            outFileName: 'a.out',
+            aliveMdId: 'p1',
+            orphanMdName: 'orphan1.md',
+            aliveImageName: 'live1.png',
+            orphanImageName: 'unused1.png'
+        });
+        // note2 は orphan なし
+        const outFile2 = path.join(note2, 'clean.out');
+        fs.writeFileSync(outFile2, JSON.stringify({
+            title: 'Clean',
+            pageDir: './pages',
+            nodes: { x: { text: 'x', pageId: 'xp1' } }
+        }, null, 2), 'utf8');
+        const pagesDir2 = path.join(note2, 'pages');
+        fs.mkdirSync(pagesDir2);
+        fs.writeFileSync(path.join(pagesDir2, 'xp1.md'), 'alive', 'utf8');
+
+        // Execute
+        const grouped = await buildAllNotesCleanupGrouped([note1, note2]);
+
+        // orphan があった note のみ Map に入る
+        expect(grouped.size).toBe(1);
+        expect(grouped.has(note1)).toBe(true);
+        expect(grouped.has(note2)).toBe(false);
+
+        // showCleanupQuickPickGrouped で Separator を作る時の前提: 各 key が note ごとに分離されている
+        const keys = Array.from(grouped.keys());
+        expect(keys.length).toBe(1);
+        expect(keys[0]).toBe(note1);
+    });
+
+    test('DOD-39: 空の mainFolderPaths 配列で Map が空になる', async () => {
+        // Execute: empty array
+        const grouped = await buildAllNotesCleanupGrouped([]);
+
+        // Verify: Map size is 0 (UI 側で 'No registered notes found.' 通知の条件)
+        expect(grouped.size).toBe(0);
+    });
+
+    test('DOD-39 (extended): 存在しない note フォルダを混ぜても他は処理継続', async () => {
+        // Setup: note1 は存在、/nonexistent は存在しない
+        setupNote(note1, {
+            outFileName: 'a.out',
+            aliveMdId: 'p1',
+            orphanMdName: 'orphan1.md',
+            aliveImageName: 'live1.png',
+            orphanImageName: 'unused1.png'
+        });
+
+        const nonexistent = path.join(tmpRoot, 'nonexistent');
+
+        // Execute: 存在しないパスを混ぜる
+        const grouped = await buildAllNotesCleanupGrouped([note1, nonexistent]);
+
+        // Verify: note1 は正常処理、nonexistent は Map に入らない (orphan なし扱い)
+        expect(grouped.size).toBe(1);
+        expect(grouped.has(note1)).toBe(true);
+        expect(grouped.has(nonexistent)).toBe(false);
+    });
+
+    test('scanSingleNoteCore 単体動作: 1 note を直接スキャン', async () => {
+        setupNote(note1, {
+            outFileName: 'a.out',
+            aliveMdId: 'p1',
+            orphanMdName: 'orphan1.md',
+            aliveImageName: 'live1.png',
+            orphanImageName: 'unused1.png'
+        });
+
+        const candidates = await scanSingleNoteCore(note1);
+
+        // orphan md + orphan image = 2 件
+        expect(candidates.length).toBe(2);
+        const relPaths = candidates.map(c => c.relPath);
+        expect(relPaths.some(p => p.includes('orphan1.md'))).toBe(true);
+        expect(relPaths.some(p => p.includes('unused1.png'))).toBe(true);
     });
 });

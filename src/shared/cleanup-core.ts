@@ -121,3 +121,73 @@ export async function buildPass2LiveImages(
 
     return liveImages;
 }
+
+/**
+ * CleanupCandidate — vscode 依存なしの候補型
+ */
+export interface CleanupCandidateCore {
+    absPath: string;
+    relPath: string;
+    type: 'orphan-md' | 'orphan-image';
+    sizeBytes: number;
+}
+
+/**
+ * 1 note の orphan 候補を返す (vscode 依存なし、unit テスト対象)
+ */
+export async function scanSingleNoteCore(mainFolderPath: string): Promise<CleanupCandidateCore[]> {
+    const outFiles = await listOutFiles(mainFolderPath);
+    const { liveMd, liveImages: initialLiveImages } = await buildLiveSetPass1(outFiles, mainFolderPath);
+
+    const liveImages = await buildPass2LiveImages(liveMd, initialLiveImages, mainFolderPath);
+
+    const allMd = await listAllMd(mainFolderPath);
+    const orphanMd = allMd.filter(p => !liveMd.has(p));
+
+    const allImages = await listAllImages(mainFolderPath);
+    const orphanImages = allImages.filter(p => !liveImages.has(p));
+
+    const result: CleanupCandidateCore[] = [];
+    for (const p of orphanMd) {
+        try {
+            result.push({
+                absPath: p,
+                relPath: path.relative(mainFolderPath, p),
+                type: 'orphan-md',
+                sizeBytes: fs.statSync(p).size
+            });
+        } catch { /* skip */ }
+    }
+    for (const p of orphanImages) {
+        try {
+            result.push({
+                absPath: p,
+                relPath: path.relative(mainFolderPath, p),
+                type: 'orphan-image',
+                sizeBytes: fs.statSync(p).size
+            });
+        } catch { /* skip */ }
+    }
+    return result;
+}
+
+/**
+ * 複数 note を順にスキャンして、note ごとに grouping した候補 Map を返す。
+ * vscode 依存なし、unit テスト対象 (FR-7 全 note モードのコア)
+ */
+export async function buildAllNotesCleanupGrouped(
+    mainFolderPaths: string[]
+): Promise<Map<string, CleanupCandidateCore[]>> {
+    const result = new Map<string, CleanupCandidateCore[]>();
+    for (const mainFolderPath of mainFolderPaths) {
+        try {
+            const candidates = await scanSingleNoteCore(mainFolderPath);
+            if (candidates.length > 0) {
+                result.set(mainFolderPath, candidates);
+            }
+        } catch (e) {
+            console.warn(`[Fractal] Failed to scan ${mainFolderPath}:`, e);
+        }
+    }
+    return result;
+}
