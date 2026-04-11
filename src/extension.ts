@@ -5,6 +5,7 @@ import { OutlinerProvider } from './outlinerProvider';
 import { NotesFolderProvider } from './notesFolderProvider';
 import { NotesEditorProvider } from './notesEditorProvider';
 import { initLocale, t } from './i18n/messages';
+import { runNotesCleanup } from './notesCleanupCommand';
 
 interface FractalLinkParams {
     noteFolderName: string;
@@ -377,6 +378,19 @@ export function activate(context: vscode.ExtensionContext) {
             
             // Note: Temp files are left in temp directory and will be cleaned up by OS
             // Attempting to track and delete them caused issues with the diff view
+        })
+    );
+
+    // Clean unused files in Note
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.cleanUnusedFilesInNote', async () => {
+            // Try to get active notes editor from notesEditorProvider
+            const mainFolderPath = notesEditorProvider.getActiveMainFolderPath();
+            if (!mainFolderPath) {
+                vscode.window.showWarningMessage('No active Notes editor found. Please open a Notes folder first.');
+                return;
+            }
+            await runNotesCleanup({ mainFolderPath });
         })
     );
 }

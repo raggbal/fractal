@@ -77,6 +77,8 @@ export interface NotesPlatformActions {
     requestInsertLink?(text: string, sender: NotesSender): void;
     /** FR-3: .out ファイルの schemaVersion マイグレーション */
     migrateOutFile?(filePath: string, currentContent: string): Promise<string | null>;
+    /** FR-5: 手動クリーンアップコマンド */
+    cleanupUnusedFiles?(): Promise<void>;
 }
 
 /**
@@ -741,6 +743,13 @@ export async function handleNotesMessage(
         case 'searchFiles':
             if (platform.searchFiles) {
                 platform.searchFiles(message.query);
+            }
+            break;
+
+        // ── Cleanup (FR-5) ──
+        case 'cleanupUnusedFiles':
+            if (platform.cleanupUnusedFiles) {
+                await platform.cleanupUnusedFiles();
             }
             break;
     }

@@ -137,6 +137,11 @@
         "command": "fractal.newOutliner",
         "title": "New Outliner File",
         "category": "Fractal"
+      },
+      {
+        "command": "fractal.cleanUnusedFilesInNote",
+        "title": "Clean Unused Files in Note",
+        "category": "Fractal"
       }
     ],
     "customEditors": [

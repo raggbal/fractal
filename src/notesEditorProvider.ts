@@ -8,6 +8,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
+import { runNotesCleanup } from './notesCleanupCommand';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -519,6 +520,10 @@ export class NotesEditorProvider {
                 fs.writeFileSync(filePath, newJson, 'utf8');
                 return newJson;
             },
+            cleanupUnusedFiles: async () => {
+                // FR-5: 手動クリーンアップコマンド
+                await runNotesCleanup({ mainFolderPath: fileManager.getMainFolderPath() });
+            },
         };
 
         // --- パネル固有の disposables ---
@@ -764,5 +769,23 @@ export class NotesEditorProvider {
             outFileId: params.outFileId,
             nodeId: params.nodeId,
         });
+    }
+
+    /**
+     * Get the main folder path of the active (visible) notes panel.
+     * Used by fractal.cleanUnusedFilesInNote command.
+     */
+    getActiveMainFolderPath(): string | null {
+        // Try to find the currently visible panel
+        for (const [folderPath, entry] of this.openPanels) {
+            if (entry.panel.visible) {
+                return folderPath;
+            }
+        }
+        // Fallback: if no panel is visible but panels exist, use the first one
+        if (this.openPanels.size > 0) {
+            return Array.from(this.openPanels.keys())[0];
+        }
+        return null;
     }
 }
