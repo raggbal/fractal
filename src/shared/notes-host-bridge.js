@@ -263,6 +263,13 @@
                     handler(e.data);
                 }
             });
+        },
+
+        // ── Cleanup ──
+
+        cleanupUnusedFiles: function() {
+            flushOutlinerSync();
+            api.postMessage({ type: 'cleanupUnusedFiles' });
         }
     };
 })();

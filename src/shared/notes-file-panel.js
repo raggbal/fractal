@@ -939,6 +939,13 @@ var notesFilePanel = (function() {
             });
         }
 
+        var cleanupBtn = document.getElementById('filePanelCleanup');
+        if (cleanupBtn) {
+            cleanupBtn.addEventListener('click', function() {
+                if (bridge.cleanupUnusedFiles) bridge.cleanupUnusedFiles();
+            });
+        }
+
         if (collapseBtn) {
             collapseBtn.addEventListener('click', function() {
                 if (panelEl) {

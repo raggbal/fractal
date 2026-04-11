@@ -142,6 +142,7 @@ export const webviewMessages = {
   notesNewFolder: '新規フォルダ',
   notesNewOutline: '新規アウトライン',
   notesToday: '今日',
+  notesCleanupUnused: '未参照ファイルをクリーンアップ',
   notesCollapsePanel: 'パネルを折りたたむ',
   notesSearchPlaceholder: '検索...',
   notesMatchCase: '大文字小文字を区別',

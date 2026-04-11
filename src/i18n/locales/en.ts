@@ -142,6 +142,7 @@ export const webviewMessages = {
   notesNewFolder: 'New Folder',
   notesNewOutline: 'New Outline',
   notesToday: 'Today',
+  notesCleanupUnused: 'Clean Unused Files',
   notesCollapsePanel: 'Collapse panel',
   notesSearchPlaceholder: 'Search...',
   notesMatchCase: 'Match Case',
