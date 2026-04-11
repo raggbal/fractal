@@ -44,6 +44,10 @@
             api.postMessage({ type: 'setPageDir' });
         },
 
+        requestInsertLink: function(text) {
+            api.postMessage({ type: 'insertLink', text: text });
+        },
+
         // サイドパネル (ページ表示用)
         openPageInSidePanel: function(nodeId, pageId) {
             api.postMessage({ type: 'openPageInSidePanel', nodeId: nodeId, pageId: pageId });

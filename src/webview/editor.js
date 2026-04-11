@@ -5,6 +5,7 @@ class SidePanelHostBridge {
         this.filePath = filePath;
         this._onTocUpdate = callbacks.onTocUpdate || null;
         this._onImageRequest = callbacks.onImageRequest || null;
+        this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
     }
     syncContent(md) {
@@ -17,7 +18,10 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
-    requestInsertLink(text) { /* not used in side panel */ }
+    requestInsertLink(text) {
+        if (this._onLinkRequest) this._onLinkRequest();
+        this._mainHost.requestInsertLink(text);
+    }
     requestInsertImage() {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.requestInsertImage(this.filePath);
@@ -13516,6 +13520,17 @@ class EditorInstance {
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertLinkHtml') {
+            // If link was requested from side panel, dispatch to side panel instance
+            if (sidePanelLinkPending && sidePanelHostBridge) {
+                sidePanelLinkPending = false;
+                sidePanelHostBridge._sendMessage({
+                    type: 'insertLinkHtml',
+                    url: message.url,
+                    text: message.text
+                });
+                return;
+            }
+            sidePanelLinkPending = false;
             // Insert link at cursor position
             const a = document.createElement('a');
             a.href = message.url;
@@ -13640,6 +13655,7 @@ class EditorInstance {
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
+    var sidePanelLinkPending = false;
     var sidebarWasOpenBeforeSidePanel = false;
     var sidePanelCustomWidth = null; // session-only resize width
 
@@ -13665,7 +13681,8 @@ class EditorInstance {
 
         sidePanelHostBridge = new SidePanelHostBridge(host, filePath, {
             onTocUpdate: updateSidePanelTocFromMarkdown,
-            onImageRequest: function() { sidePanelImagePending = true; }
+            onImageRequest: function() { sidePanelImagePending = true; },
+            onLinkRequest: function() { sidePanelLinkPending = true; }
         });
 
         sidePanelInstance = new EditorInstance(spContainer, sidePanelHostBridge, {

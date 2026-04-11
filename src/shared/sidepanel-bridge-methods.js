@@ -22,6 +22,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openLinkInTab: function(href) {
             postFn({ type: 'openLinkInTab', href: href });
         },
+        requestInsertLink: function(text) {
+            postFn({ type: 'insertLink', text: text });
+        },
 
         // フォーカス
         reportFocus: function() {

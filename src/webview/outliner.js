@@ -4758,6 +4758,16 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'insertLinkHtml':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertLinkHtml',
+                            url: msg.url,
+                            text: msg.text
+                        });
+                    }
+                    break;
+
                 case 'scopeIn':
                     if (focusedNodeId) { setScope({ type: 'subtree', rootId: focusedNodeId }); }
                     break;

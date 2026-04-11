@@ -72,6 +72,8 @@ export interface NotesPlatformActions {
     importMdFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
     /** アプリ内リンクナビゲーション */
     navigateInAppLink?(href: string): void;
+    /** リンク挿入ダイアログ表示 (サイドパネル editor 用) */
+    requestInsertLink?(text: string, sender: NotesSender): void;
 }
 
 /**
@@ -261,6 +263,12 @@ export function handleNotesMessage(
             }
             break;
         }
+
+        case 'insertLink':
+            if (platform.requestInsertLink) {
+                platform.requestInsertLink(message.text || '', sender);
+            }
+            break;
 
         case 'setPageDir':
             platform.requestSetPageDir();

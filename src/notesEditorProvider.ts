@@ -4,7 +4,7 @@ import * as path from 'path';
 import { NotesFileManager } from './shared/notes-file-manager';
 import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
-import { getWebviewMessages, initLocale } from './i18n/messages';
+import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
@@ -159,6 +159,24 @@ export class NotesEditorProvider {
             },
             navigateInAppLink: (href: string) => {
                 vscode.commands.executeCommand('fractal.navigateInAppLink', href);
+            },
+            requestInsertLink: async (text: string, sender: { postMessage(msg: unknown): void }) => {
+                const linkUrl = await vscode.window.showInputBox({
+                    prompt: t('enterUrl'),
+                    placeHolder: 'https://example.com'
+                });
+                if (linkUrl) {
+                    const linkText = text || await vscode.window.showInputBox({
+                        prompt: t('enterLinkText'),
+                        placeHolder: 'Link text',
+                        value: 'link'
+                    }) || 'link';
+                    sender.postMessage({
+                        type: 'insertLinkHtml',
+                        url: linkUrl,
+                        text: linkText
+                    });
+                }
             },
             openFileInEditor: (filePath: string) => {
                 const uri = vscode.Uri.file(filePath);

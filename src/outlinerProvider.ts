@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
-import { getWebviewMessages, initLocale } from './i18n/messages';
+import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
@@ -280,6 +280,26 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             if (message.isCut) {
                                 OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                             }
+                        }
+                        break;
+                    }
+
+                    case 'insertLink': {
+                        const linkUrl = await vscode.window.showInputBox({
+                            prompt: t('enterUrl'),
+                            placeHolder: 'https://example.com'
+                        });
+                        if (linkUrl) {
+                            const linkText = message.text || await vscode.window.showInputBox({
+                                prompt: t('enterLinkText'),
+                                placeHolder: 'Link text',
+                                value: 'link'
+                            }) || 'link';
+                            webviewPanel.webview.postMessage({
+                                type: 'insertLinkHtml',
+                                url: linkUrl,
+                                text: linkText
+                            });
                         }
                         break;
                     }
