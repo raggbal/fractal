@@ -939,10 +939,10 @@ var notesFilePanel = (function() {
             });
         }
 
-        var cleanupBtn = document.getElementById('filePanelCleanup');
-        if (cleanupBtn) {
-            cleanupBtn.addEventListener('click', function() {
-                if (bridge.cleanupUnusedFiles) bridge.cleanupUnusedFiles();
+        var cleanupToolsBtn = document.getElementById('filePanelCleanupTools');
+        if (cleanupToolsBtn) {
+            cleanupToolsBtn.addEventListener('click', function() {
+                if (bridge.cleanupUnusedFilesAllNotes) bridge.cleanupUnusedFilesAllNotes();
             });
         }
 

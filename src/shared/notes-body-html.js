@@ -220,6 +220,17 @@ function generateNotesFilePanelHtml(options) {
         .s3-progress { padding: 8px 12px; }
         .s3-progress-message { font-size: 12px; font-weight: 500; }
         .s3-progress-detail { font-size: 11px; opacity: 0.6; margin-top: 2px; word-break: break-all; }
+
+        /* ── Tools Tab ── */
+        .file-panel-tools-section {
+            margin: 10px 0; padding: 8px;
+            border: 1px solid var(--vscode-panel-border, #444);
+            border-radius: 4px;
+        }
+        .file-panel-section-title {
+            font-weight: bold; font-size: 12px; margin-bottom: 6px;
+            color: var(--vscode-foreground); opacity: 0.8;
+        }
     `;
 
     var html = `<aside class="notes-file-panel${panelClass}" id="notesFilePanel">
@@ -238,9 +249,9 @@ function generateNotesFilePanelHtml(options) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     ${m('notesTabSearch', 'Search')}
                 </button>
-                <button class="file-panel-tab" data-tab="s3">
+                <button class="file-panel-tab" data-tab="tools">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
-                    S3
+                    ${m('notesTabTools', 'Tools')}
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
@@ -248,7 +259,6 @@ function generateNotesFilePanelHtml(options) {
                     <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
                     <span style="flex:1"></span>
-                    <button class="file-panel-btn" id="filePanelCleanup" title="${m('notesCleanupUnused', 'Clean Unused Files')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>
                 <div class="file-panel-list" id="notesFileList"></div>
@@ -265,23 +275,42 @@ function generateNotesFilePanelHtml(options) {
                 <div class="file-panel-search-count" id="notesSearchCount"></div>
                 <div class="file-panel-search-results" id="notesSearchResults"></div>
             </div>
-            <div class="file-panel-content" id="filePanelContentS3" style="display:none">
-                <div class="s3-panel-section">
-                    <label class="s3-label">S3 Bucket Path</label>
-                    <div class="s3-input-row">
-                        <input type="text" class="file-panel-search-input" id="s3BucketPathInput" placeholder="my-bucket/path" />
-                        <button class="file-panel-btn" id="s3SavePath" title="${m('notesS3Save', 'Save')}">${m('notesS3Save', 'Save')}</button>
+            <div class="file-panel-content" id="filePanelContentTools" style="display:none">
+                <!-- S3 Sync Section -->
+                <div class="file-panel-tools-section">
+                    <div class="file-panel-section-title">${m('notesS3Sync', 'S3 Sync')}</div>
+                    <div class="s3-panel-section">
+                        <label class="s3-label">S3 Bucket Path</label>
+                        <div class="s3-input-row">
+                            <input type="text" class="file-panel-search-input" id="s3BucketPathInput" placeholder="my-bucket/path" />
+                            <button class="file-panel-btn" id="s3SavePath" title="${m('notesS3Save', 'Save')}">${m('notesS3Save', 'Save')}</button>
+                        </div>
+                        <div class="s3-status" id="s3CredentialStatus"></div>
                     </div>
-                    <div class="s3-status" id="s3CredentialStatus"></div>
+                    <div class="s3-panel-section s3-actions">
+                        <button class="file-panel-btn s3-action-btn" id="s3BtnSync" disabled>${m('notesS3Sync', 'Sync (Backup)')}</button>
+                        <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnRemoteDeleteUpload" disabled>${m('notesS3RemoteDeleteUpload', 'Remote Delete &amp; Upload')}</button>
+                        <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnLocalDeleteDownload" disabled>${m('notesS3LocalDeleteDownload', 'Local Delete &amp; Download')}</button>
+                    </div>
+                    <div class="s3-progress" id="s3Progress" style="display:none">
+                        <div class="s3-progress-message" id="s3ProgressMessage"></div>
+                        <div class="s3-progress-detail" id="s3ProgressDetail"></div>
+                    </div>
                 </div>
-                <div class="s3-panel-section s3-actions">
-                    <button class="file-panel-btn s3-action-btn" id="s3BtnSync" disabled>${m('notesS3Sync', 'Sync (Backup)')}</button>
-                    <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnRemoteDeleteUpload" disabled>${m('notesS3RemoteDeleteUpload', 'Remote Delete &amp; Upload')}</button>
-                    <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnLocalDeleteDownload" disabled>${m('notesS3LocalDeleteDownload', 'Local Delete &amp; Download')}</button>
-                </div>
-                <div class="s3-progress" id="s3Progress" style="display:none">
-                    <div class="s3-progress-message" id="s3ProgressMessage"></div>
-                    <div class="s3-progress-detail" id="s3ProgressDetail"></div>
+
+                <!-- Clean Notes Section -->
+                <div class="file-panel-tools-section">
+                    <div class="file-panel-section-title">${m('notesCleanNotes', 'Clean Notes')}</div>
+                    <button class="file-panel-btn" id="filePanelCleanupTools" title="${m('notesCleanUnusedAllNotesTooltip', 'Scan all registered notes for unused files')}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                        ${m('notesCleanUnusedAllNotes', 'Clean Unused Files in All Notes')}
+                    </button>
                 </div>
             </div>
         </aside>

@@ -26,19 +26,21 @@
 
 ---
 
-## MAN-V7-2: 🧹 ボタンクリック (DOD-23)
+## MAN-V7-2: Tools タブの 🧹 ボタンクリック (DOD-48)
 
 ### 手順
 1. VSCode で Note editor を開く
-2. 左側の file panel ヘッダーを確認
-3. 🧹 アイコン (cleanup ボタン) をクリック
+2. 左側の file panel で "Tools" タブをクリック
+3. "Clean Notes" セクションの "Clean Unused Files in All Notes" ボタンをクリック
 
 ### 期待結果
 - QuickPick ダイアログが表示される (MAN-V7-1 と同じ)
-- 孤立ファイルのリストが表示される、または "No unused files found." メッセージ
+- 全 note の孤立ファイルのリストが表示される、または "No unused files found in any registered note." メッセージ
+- 複数 note がある場合は note ごとに Separator で分類表示される
 
 ### NG パターン
-- 🧹 ボタンが表示されない
+- Tools タブが表示されない
+- Clean Notes ボタンが表示されない
 - ボタンをクリックしても反応がない
 - エラーが表示される
 
@@ -98,20 +100,25 @@
 
 ---
 
-## MAN-V7-6: 復元確認
+## MAN-V7-6: OS ゴミ箱確認 (NFR-1)
+
+### 目的
+削除したファイルが即時削除ではなく OS ゴミ箱に移動されていることを確認
 
 ### 手順
-1. MAN-V7-5 でゴミ箱に移動したファイルを確認
-2. ゴミ箱から元の場所 (Note のフォルダ) に復元
-3. Note editor を閉じて再度開く
+1. MAN-V7-5 の続き (cleanup でファイルをゴミ箱移動した直後)
+2. Finder (macOS) / Explorer (Windows) のサイドバーから「ゴミ箱」を開く
+3. 削除したファイル名 (例: `orphan1.md`, `foo.png`) が入っているか確認
+4. 右クリック → "元に戻す" (macOS) / "復元" (Windows) でファイルが元の場所に戻ることを確認
 
 ### 期待結果
-- ファイルが復元される
-- Note editor でファイルが認識される
+- ゴミ箱に削除したファイル名が存在する
+- 「元に戻す」で元のパスにファイルが復元される
+- Fractal を再起動すると復元したファイルが認識される (ただしオーファンなので画面には直接表示されない)
 
 ### NG パターン
+- ゴミ箱に入っていない (完全削除されている)
 - ゴミ箱から復元できない
-- 復元しても Note editor で認識されない
 
 ---
 
@@ -134,14 +141,23 @@
 
 ## MAN-V7-8: プログレス UI (DOD-32)
 
-### 手順
-1. 100+ ファイルの大きな Note を作成 (または既存の大きな Note を使用)
-2. クリーンアップコマンドを実行
+### 目的
+大量ファイル時にプログレスバーが表示されることを確認
+
+### 手順 (件数はユーザーが手動調整可)
+1. 任意のテスト用 note フォルダを準備
+2. ターミナルから `.md` ファイルを 10 件以上作成:
+   ```bash
+   cd /path/to/note
+   for i in {1..10}; do echo "# Orphan $i" > orphan$i.md; done
+   ```
+3. Fractal で `Fractal: Clean Unused Files in Note` コマンド実行
+4. 右下に Notification でプログレス表示されることを確認
 
 ### 期待結果
-- vscode.window.withProgress による Notification が表示される
-- "Checking..." / "Scanning..." などのメッセージが表示される
-- キャンセルボタンが表示される (次の MAN-V7-9 で検証)
+- vscode.window.withProgress の Notification が表示される
+- "Scanning <note-name> (1/N)" のメッセージが更新される
+- キャンセルボタンをクリックすると処理が中断される
 
 ### NG パターン
 - プログレス UI が表示されない

@@ -520,9 +520,9 @@ export class NotesEditorProvider {
                 fs.writeFileSync(filePath, newJson, 'utf8');
                 return newJson;
             },
-            cleanupUnusedFiles: async () => {
-                // FR-5: 手動クリーンアップコマンド
-                await runNotesCleanup({ mainFolderPath: fileManager.getMainFolderPath() });
+            cleanupUnusedFilesAllNotes: async () => {
+                // FR-7: 手動クリーンアップコマンド (全 note 一気モード)
+                await vscode.commands.executeCommand('fractal.cleanUnusedFilesInNote');
             },
         };
 

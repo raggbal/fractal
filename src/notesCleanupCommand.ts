@@ -30,7 +30,7 @@ export {
 } from './shared/cleanup-core';
 
 export interface NotesCleanupContext {
-    mainFolderPath: string;  // .note のあるフォルダの絶対パス
+    mainFolderPaths: string[];  // .note のあるフォルダの絶対パス配列
 }
 
 export interface CleanupCandidate {
@@ -40,93 +40,146 @@ export interface CleanupCandidate {
     sizeBytes: number;
 }
 
+/**
+ * 1 つの note フォルダをスキャンして orphan ファイルを検出する
+ */
+async function scanSingleNote(mainFolderPath: string): Promise<CleanupCandidate[]> {
+    const outFiles = await coreListOutFiles(mainFolderPath);
+    const { liveMd, liveImages: liveImagesPass1 } = await coreBuildLiveSetPass1(outFiles, mainFolderPath);
+
+    // Pass 2: alive md からの image refs を加算
+    const liveImages = await buildPass2LiveImages(liveMd, liveImagesPass1, mainFolderPath);
+
+    const allMd = await coreListAllMd(mainFolderPath);
+    const orphanMd = allMd.filter(p => !liveMd.has(p));
+
+    const allImages = await coreListAllImages(mainFolderPath);
+    const orphanImages = allImages.filter(p => !liveImages.has(p));
+
+    const result: CleanupCandidate[] = [];
+    for (const p of orphanMd) {
+        result.push({
+            absPath: p,
+            relPath: path.relative(mainFolderPath, p),
+            type: 'orphan-md',
+            sizeBytes: fs.statSync(p).size
+        });
+    }
+    for (const p of orphanImages) {
+        result.push({
+            absPath: p,
+            relPath: path.relative(mainFolderPath, p),
+            type: 'orphan-image',
+            sizeBytes: fs.statSync(p).size
+        });
+    }
+    return result;
+}
+
 export async function runNotesCleanup(ctx: NotesCleanupContext): Promise<void> {
-    const candidates = await vscode.window.withProgress(
+    if (!ctx.mainFolderPaths || ctx.mainFolderPaths.length === 0) {
+        vscode.window.showInformationMessage(
+            'No registered notes found. Add a note folder in Activity Bar first.'
+        );
+        return;
+    }
+
+    const candidatesByNote = await vscode.window.withProgress(
         {
             location: vscode.ProgressLocation.Notification,
-            title: 'Fractal: Clean Unused Files',
+            title: 'Fractal: Clean Unused Files (All Notes)',
             cancellable: true
         },
         async (progress, token) => {
-            progress.report({ message: 'Scanning .out files...', increment: 10 });
-            const outFiles = await coreListOutFiles(ctx.mainFolderPath);
-            if (token.isCancellationRequested) { return []; }
+            const result = new Map<string, CleanupCandidate[]>();
+            const total = ctx.mainFolderPaths.length;
 
-            progress.report({ message: 'Building reference graph...', increment: 20 });
-            const { liveMd, liveImages: liveImagesPass1 } = await coreBuildLiveSetPass1(outFiles, ctx.mainFolderPath);
-            if (token.isCancellationRequested) { return []; }
+            for (let i = 0; i < ctx.mainFolderPaths.length; i++) {
+                if (token.isCancellationRequested) { return result; }
 
-            progress.report({ message: 'Finding orphan .md files...', increment: 30 });
-            const allMd = await coreListAllMd(ctx.mainFolderPath);
-            const orphanMd = allMd.filter(p => !liveMd.has(p));
-            if (token.isCancellationRequested) { return []; }
-
-            progress.report({ message: 'Finding orphan images...', increment: 30 });
-            // Pass 2: alive md からの image refs を加算
-            const liveImages = await buildPass2LiveImages(liveMd, liveImagesPass1, ctx.mainFolderPath);
-
-            const allImages = await coreListAllImages(ctx.mainFolderPath);
-            const orphanImages = allImages.filter(p => !liveImages.has(p));
-            if (token.isCancellationRequested) { return []; }
-
-            progress.report({ message: 'Calculating sizes...', increment: 10 });
-            const result: CleanupCandidate[] = [];
-            for (const p of orphanMd) {
-                result.push({
-                    absPath: p,
-                    relPath: path.relative(ctx.mainFolderPath, p),
-                    type: 'orphan-md',
-                    sizeBytes: fs.statSync(p).size
+                const mainFolderPath = ctx.mainFolderPaths[i];
+                const noteName = path.basename(mainFolderPath);
+                progress.report({
+                    message: `Scanning ${noteName} (${i + 1}/${total})`,
+                    increment: 100 / total
                 });
+
+                try {
+                    const candidates = await scanSingleNote(mainFolderPath);
+                    if (candidates.length > 0) {
+                        result.set(mainFolderPath, candidates);
+                    }
+                } catch (e) {
+                    console.warn(`[Fractal] Failed to scan ${mainFolderPath}:`, e);
+                }
             }
-            for (const p of orphanImages) {
-                result.push({
-                    absPath: p,
-                    relPath: path.relative(ctx.mainFolderPath, p),
-                    type: 'orphan-image',
-                    sizeBytes: fs.statSync(p).size
-                });
-            }
+
             return result;
         }
     );
 
-    if (!candidates || candidates.length === 0) {
-        vscode.window.showInformationMessage('No unused files found.');
+    const totalCount = Array.from(candidatesByNote.values())
+        .reduce((sum, arr) => sum + arr.length, 0);
+
+    if (totalCount === 0) {
+        vscode.window.showInformationMessage('No unused files found in any registered note.');
         return;
     }
 
-    // QuickPick 表示
-    const selected = await showCleanupQuickPick(candidates);
+    // QuickPick 表示 (grouped)
+    const selected = await showCleanupQuickPickGrouped(candidatesByNote);
     if (!selected || selected.length === 0) { return; }
 
     // ゴミ箱移動
     await applyCleanup(selected);
 }
 
-async function showCleanupQuickPick(candidates: CleanupCandidate[]): Promise<CleanupCandidate[] | null> {
-    const totalBytes = candidates.reduce((sum, c) => sum + c.sizeBytes, 0);
-    const totalMb = (totalBytes / 1024 / 1024).toFixed(2);
-
+/**
+ * 全 note の orphan ファイルを note ごとにグルーピングして QuickPick に表示
+ */
+async function showCleanupQuickPickGrouped(
+    candidatesByNote: Map<string, CleanupCandidate[]>
+): Promise<CleanupCandidate[] | null> {
     interface CleanupQuickPickItem extends vscode.QuickPickItem {
-        candidate: CleanupCandidate;
+        candidate?: CleanupCandidate;
     }
 
-    const items: CleanupQuickPickItem[] = candidates.map(c => ({
-        label: `${c.type === 'orphan-md' ? '$(file-text)' : '$(file-media)'} ${c.relPath}`,
-        description: formatBytes(c.sizeBytes),
-        picked: true,  // デフォルト全選択
-        candidate: c
-    }));
+    const items: CleanupQuickPickItem[] = [];
+    let totalBytes = 0;
+
+    for (const [mainFolderPath, candidates] of candidatesByNote.entries()) {
+        const noteName = path.basename(mainFolderPath);
+
+        // Separator
+        items.push({
+            label: noteName,
+            kind: vscode.QuickPickItemKind.Separator
+        });
+
+        // Candidates for this note
+        for (const c of candidates) {
+            const icon = c.type === 'orphan-md' ? '$(file-text)' : '$(file-media)';
+            items.push({
+                label: `${icon} ${c.relPath}`,
+                description: formatBytes(c.sizeBytes),
+                picked: true,
+                candidate: c
+            });
+            totalBytes += c.sizeBytes;
+        }
+    }
+
+    const totalCount = items.filter(i => i.candidate).length;
 
     const quickPick = vscode.window.createQuickPick<CleanupQuickPickItem>();
-    quickPick.title = `Found ${candidates.length} unused files (${totalMb} MB total)`;
+    quickPick.title = `Found ${totalCount} unused files in ${candidatesByNote.size} notes (${formatBytes(totalBytes)} total)`;
     quickPick.placeholder = 'Select files to move to trash';
     quickPick.canSelectMany = true;
     quickPick.items = items;
-    quickPick.selectedItems = items;  // デフォルト全選択
+    // Separators を除いた item のみ selected に
+    quickPick.selectedItems = items.filter(i => i.candidate);
 
-    // カスタムボタン: 全選択 / 全解除
+    // 全選択 / 全解除 custom buttons
     const selectAllBtn: vscode.QuickInputButton = {
         iconPath: new vscode.ThemeIcon('check-all'),
         tooltip: 'Select All'
@@ -140,14 +193,16 @@ async function showCleanupQuickPick(candidates: CleanupCandidate[]): Promise<Cle
     return new Promise<CleanupCandidate[] | null>((resolve) => {
         quickPick.onDidTriggerButton(btn => {
             if (btn === selectAllBtn) {
-                quickPick.selectedItems = quickPick.items;
+                quickPick.selectedItems = items.filter(i => i.candidate);
             } else if (btn === deselectAllBtn) {
                 quickPick.selectedItems = [];
             }
         });
 
         quickPick.onDidAccept(() => {
-            const selected = quickPick.selectedItems.map(i => i.candidate);
+            const selected = quickPick.selectedItems
+                .filter(i => i.candidate)
+                .map(i => i.candidate!);
             quickPick.hide();
             resolve(selected.length > 0 ? selected : null);
         });
@@ -159,6 +214,8 @@ async function showCleanupQuickPick(candidates: CleanupCandidate[]): Promise<Cle
         quickPick.show();
     });
 }
+
+// 旧 showCleanupQuickPick は削除 (単一 note 版は不要)
 
 async function applyCleanup(selected: CleanupCandidate[]): Promise<void> {
     let successCount = 0;

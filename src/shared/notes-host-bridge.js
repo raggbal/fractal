@@ -267,9 +267,9 @@
 
         // ── Cleanup ──
 
-        cleanupUnusedFiles: function() {
+        cleanupUnusedFilesAllNotes: function() {
             flushOutlinerSync();
-            api.postMessage({ type: 'cleanupUnusedFiles' });
+            api.postMessage({ type: 'cleanupUnusedFilesAllNotes' });
         }
     };
 })();
