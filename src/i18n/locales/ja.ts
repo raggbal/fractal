@@ -32,7 +32,12 @@ export const messages = {
   failedToSaveFile: 'ファイルの保存に失敗しました: ',
   fileNotFound: 'ファイルが見つかりません',
   fileNotFoundOrUnsafe: 'ファイルが見つからないか、パスが安全ではありません',
+  failedToProcessFile: 'ファイルの処理に失敗しました: ',
   selectFiles: 'ファイルを選択',
+  forceRelativeFileNo: 'いいえ — 設定通りのパスを使用',
+  forceRelativeFileYes: 'はい — ファイルパスを常に相対パスにする',
+  forceRelativeFilePrompt: 'ファイルパスを相対パスに強制しますか？',
+  forceRelativeFileTitle: 'ファイルパスモード',
 };
 
 export const webviewMessages = {

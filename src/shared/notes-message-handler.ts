@@ -35,6 +35,10 @@ export interface NotesPlatformActions {
     saveImageToDir(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイルを画像ディレクトリにコピーしてマークダウン挿入 */
     readAndInsertImage(filePath: string, sidePanelFilePath: string): void;
+    /** ファイル添付をディレクトリに保存してマークダウンリンク挿入 */
+    saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
+    /** ファイル添付をコピーしてマークダウンリンク挿入 */
+    readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
     /** サイドパネルの画像ディレクトリ情報を送信 */
     sendSidePanelImageDir(sidePanelFilePath: string): void;
     /** サイドパネルファイルを保存 */
@@ -398,6 +402,18 @@ export async function handleNotesMessage(
         case 'readAndInsertImage':
             if (message.sidePanelFilePath && message.filePath) {
                 platform.readAndInsertImage(message.filePath, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'saveFileAndInsert':
+            if (message.sidePanelFilePath && message.dataUrl && platform.saveFileToDir) {
+                platform.saveFileToDir(message.dataUrl, message.fileName, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'readAndInsertFile':
+            if (message.sidePanelFilePath && message.filePath && platform.readAndInsertFile) {
+                platform.readAndInsertFile(message.filePath, message.sidePanelFilePath);
             }
             break;
 

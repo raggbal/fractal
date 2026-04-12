@@ -172,6 +172,27 @@ function generateUniqueFileName(dir: string, extension: string): string {
     }
 }
 
+/**
+ * Generate unique file name preserving the original name.
+ * On collision: report.pdf → report-1.pdf → report-2.pdf
+ */
+function generateUniqueFileNamePreserving(dir: string, originalName: string): string {
+    const destPath = path.join(dir, originalName);
+    if (!fs.existsSync(destPath)) {
+        return originalName;
+    }
+    const ext = path.extname(originalName);
+    const base = path.basename(originalName, ext);
+    let counter = 1;
+    while (true) {
+        const newName = `${base}-${counter}${ext}`;
+        if (!fs.existsSync(path.join(dir, newName))) {
+            return newName;
+        }
+        counter++;
+    }
+}
+
 // ============================================
 // ImageDirectoryManager: 画像保存ディレクトリの管理
 // ============================================

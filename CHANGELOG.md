@@ -185,7 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Markdown: セル内改行テーブルのペースト対応** — セル内に生の改行を含むMarkdownテーブルをペーストした際、自動的に改行を`<br>`に変換してテーブルとして正しく表示。Notion等の平坦化テーブル（`| <br> |` 行区切り）にも対応
+- **Markdown: セル内改行テーブルのペースト対応** — セル内に生の改行を含むMarkdownテーブルをペーストした際、自動的に改行をに変換してテーブルとして正しく表示。Notion等の平坦化テーブル（`|  |` 行区切り）にも対応
 
 ## [0.195.570] - 2026-04-01
 

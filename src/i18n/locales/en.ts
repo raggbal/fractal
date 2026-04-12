@@ -32,7 +32,12 @@ export const messages = {
   failedToSaveFile: 'Failed to save file: ',
   fileNotFound: 'File not found',
   fileNotFoundOrUnsafe: 'File not found or path is unsafe',
+  failedToProcessFile: 'Failed to process file: ',
   selectFiles: 'Select Files',
+  forceRelativeFileNo: 'No — use path as configured',
+  forceRelativeFileYes: 'Yes — always use relative paths for files',
+  forceRelativeFilePrompt: 'Force relative file paths?',
+  forceRelativeFileTitle: 'File Path Mode',
 };
 
 export const webviewMessages = {

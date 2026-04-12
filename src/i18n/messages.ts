@@ -28,6 +28,18 @@ export interface Messages {
   failedToProcessImage: string;
   selectImage: string;
   selectFileToCompare: string;
+  // File attachment
+  enterFileDir: string;
+  fileDirSet: string;
+  fileDirCleared: string;
+  failedToSaveFile: string;
+  failedToProcessFile: string;
+  fileNotFound: string;
+  fileNotFoundOrUnsafe: string;
+  forceRelativeFileNo: string;
+  forceRelativeFileYes: string;
+  forceRelativeFilePrompt: string;
+  forceRelativeFileTitle: string;
 }
 
 export interface WebviewMessages {

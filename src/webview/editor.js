@@ -40,6 +40,14 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertImage(filePath, this.filePath);
     }
+    saveFileAndInsert(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+    }
+    readAndInsertFile(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.readAndInsertFile(filePath, this.filePath);
+    }
     openInTextEditor() {}
     copyFilePath() {}
     sendToChat(startLine, endLine, selectedMarkdown) {

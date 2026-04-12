@@ -419,6 +419,71 @@ export class NotesEditorProvider {
                     console.error('[Notes] readAndInsertImage error:', e);
                 }
             },
+            saveFileToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
+                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
+                const filesDir = outlinerId
+                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    : path.join(fileManager.getMainFolderPath(), 'files');
+                if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+
+                // Generate unique filename preserving original
+                let destFileName = fileName;
+                let destPath = path.join(filesDir, destFileName);
+                let counter = 1;
+                while (fs.existsSync(destPath)) {
+                    const ext = path.extname(fileName);
+                    const base = path.basename(fileName, ext);
+                    destFileName = `${base}-${counter}${ext}`;
+                    destPath = path.join(filesDir, destFileName);
+                    counter++;
+                }
+
+                try {
+                    const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
+                    fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
+                    const spDir = path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    panel.webview.postMessage({
+                        type: 'insertFileLink',
+                        markdownPath: relPath,
+                        fileName: destFileName,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveFileToDir error:', e);
+                }
+            },
+            readAndInsertFile: (filePath: string, sidePanelFilePath: string) => {
+                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
+                const filesDir = outlinerId
+                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    : path.join(fileManager.getMainFolderPath(), 'files');
+                if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+
+                const originalName = path.basename(filePath);
+                let destFileName = originalName;
+                let destPath = path.join(filesDir, destFileName);
+                let counter = 1;
+                while (fs.existsSync(destPath)) {
+                    const ext = path.extname(originalName);
+                    const base = path.basename(originalName, ext);
+                    destFileName = `${base}-${counter}${ext}`;
+                    destPath = path.join(filesDir, destFileName);
+                    counter++;
+                }
+
+                try {
+                    fs.copyFileSync(filePath, destPath);
+                    const spDir = path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    panel.webview.postMessage({
+                        type: 'insertFileLink',
+                        markdownPath: relPath,
+                        fileName: destFileName,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readAndInsertFile error:', e);
+                }
+            },
             sendSidePanelImageDir: (sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');

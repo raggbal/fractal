@@ -24,6 +24,9 @@ export interface HostBridge {
     requestSetImageDir(sidePanelFilePath?: string): void;
     saveImageAndInsert(dataUrl: string, fileName?: string, sidePanelFilePath?: string): void;
     readAndInsertImage(filePath: string, sidePanelFilePath?: string): void;
+    saveFileAndInsert(dataUrl: string, fileName: string, sidePanelFilePath?: string): void;
+    readAndInsertFile(filePath: string, sidePanelFilePath?: string): void;
+    requestSetFileDir(sidePanelFilePath?: string): void;
     openInTextEditor(): void;
     copyFilePath(): void;
     sendToChat(startLine: number, endLine: number, selectedMarkdown: string, sidePanelFilePath?: string): void;
@@ -58,6 +61,11 @@ export type HostMessage =
     | { type: 'imageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelImageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelSetImageDir'; dirPath: string; forceRelativePath: boolean | null }
+    | { type: 'insertFileLink'; markdownPath: string; fileName: string }
+    | { type: 'setFileDir'; dirPath: string; forceRelativeFilePath: boolean | null }
+    | { type: 'sidePanelSetFileDir'; dirPath: string; forceRelativeFilePath: boolean | null }
+    | { type: 'fileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
+    | { type: 'sidePanelFileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'openSidePanel'; content: string; filePath: string; fileName: string }
     | { type: 'fileSearchResults'; results: string[]; query: string }
     | { type: 'pageCreatedAtPath'; relativePath: string };
