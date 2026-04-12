@@ -7,7 +7,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './shared/paste-asset-handler';
-import { safeResolveUnderDir } from './shared/path-safety';
+
 
 /**
  * OutlinerProvider — .out ファイル用 Custom Text Editor Provider
@@ -42,9 +42,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        // FR-3: マイグレーション (schemaVersion < 2 の場合のみ重複画像を複製)
-        await this.migrateOutFile(document);
-
         // Clear cached webview state
         webviewPanel.webview.html = '';
 
@@ -796,106 +793,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             'fractal.editor',
             vscode.ViewColumn.Beside
         );
-    }
-
-    /**
-     * FR-3: .out ファイルを開いた時の schemaVersion マイグレーション
-     *
-     * schemaVersion < 2 の場合のみ:
-     *   - 重複画像を検出して物理複製
-     *   - schemaVersion = 2 に更新
-     *
-     * 冪等性: schemaVersion >= 2 なら O(1) で return
-     * 安全性: 失敗時は schemaVersion 未更新のまま return (次回リトライ)
-     */
-    private async migrateOutFile(document: vscode.TextDocument): Promise<void> {
-        const CURRENT_SCHEMA_VERSION = 2;
-        let data: any;
-        try {
-            data = JSON.parse(document.getText());
-        } catch {
-            return; // JSON パースエラー時は何もしない
-        }
-
-        const currentVersion = data.schemaVersion || 1;
-        if (currentVersion >= CURRENT_SCHEMA_VERSION) {
-            return; // 最新 — O(1) で完了
-        }
-
-        console.log('[Fractal] Migrating .out schema', currentVersion, '→', CURRENT_SCHEMA_VERSION);
-
-        const nodes = data.nodes || {};
-        const nodeIds = Object.keys(nodes);
-        const pathOwners = new Map<string, string>(); // imagePath → first nodeId
-        const modifications: Array<{ nodeId: string; imageIdx: number; newPath: string }> = [];
-        const docDir = path.dirname(document.uri.fsPath);
-
-        // Phase 1: 重複検出
-        for (const nodeId of nodeIds) {
-            const node = nodes[nodeId];
-            const images: string[] = node.images || [];
-            for (let i = 0; i < images.length; i++) {
-                const imgPath = images[i];
-                if (!pathOwners.has(imgPath)) {
-                    pathOwners.set(imgPath, nodeId); // 最初の所有者
-                } else {
-                    // 2つ目以降: 複製対象
-                    modifications.push({ nodeId, imageIdx: i, newPath: '' });
-                }
-            }
-        }
-
-        if (modifications.length === 0) {
-            // 重複なし: schemaVersion のみ更新
-            data.schemaVersion = CURRENT_SCHEMA_VERSION;
-            const newJson = JSON.stringify(data, null, 2);
-            await this.applyEdit(document, newJson);
-            await document.save();
-            return;
-        }
-
-        // Phase 2: 物理複製
-        for (const mod of modifications) {
-            const node = nodes[mod.nodeId];
-            const origPath = node.images[mod.imageIdx];
-
-            // パストラバーサル防御
-            const safeOrig = safeResolveUnderDir(docDir, origPath);
-            if (!safeOrig) {
-                console.warn('[Fractal] Migration: unsafe path rejected', origPath);
-                continue;
-            }
-            const origAbs = safeOrig;
-
-            if (!fs.existsSync(origAbs)) {
-                console.warn('[Fractal] Migration: source not found', origAbs);
-                continue;
-            }
-
-            const ext = path.extname(origAbs);
-            const dir = path.dirname(origAbs);
-            const random = Math.random().toString(36).slice(2, 8);
-            const newName = `image_${Date.now()}_${random}${ext}`;
-            const destAbs = path.join(dir, newName);
-
-            try {
-                fs.copyFileSync(origAbs, destAbs);
-                const newRel = path.relative(docDir, destAbs).replace(/\\/g, '/');
-                mod.newPath = newRel;
-                node.images[mod.imageIdx] = newRel;
-                console.log('[Fractal] Migration: duplicated', origPath, '→', newRel);
-            } catch (e) {
-                console.error('[Fractal] Migration copy failed', e);
-                // エラー時は schemaVersion を更新しない（次回再試行）
-                return;
-            }
-        }
-
-        // Phase 3: schemaVersion 更新 + 保存
-        data.schemaVersion = CURRENT_SCHEMA_VERSION;
-        const newJson = JSON.stringify(data, null, 2);
-        await this.applyEdit(document, newJson);
-        await document.save();
     }
 
 }

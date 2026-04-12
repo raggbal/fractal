@@ -75,8 +75,6 @@ export interface NotesPlatformActions {
     navigateInAppLink?(href: string): void;
     /** リンク挿入ダイアログ表示 (サイドパネル editor 用) */
     requestInsertLink?(text: string, sender: NotesSender): void;
-    /** FR-3: .out ファイルの schemaVersion マイグレーション */
-    migrateOutFile?(filePath: string, currentContent: string): Promise<string | null>;
     /** FR-7: 手動クリーンアップコマンド (全 note 一気モード) */
     cleanupUnusedFilesAllNotes?(): Promise<void>;
     /** FR-7: 手動クリーンアップコマンド (自ノート限定モード) */
@@ -372,15 +370,6 @@ export async function handleNotesMessage(
             if (content !== null) {
                 if (platform.saveLastOpenedFile) {
                     platform.saveLastOpenedFile(message.filePath);
-                }
-
-                // FR-3: マイグレーション (schemaVersion < 2 の場合のみ重複画像を複製)
-                if (platform.migrateOutFile) {
-                    const migratedContent = await platform.migrateOutFile(message.filePath, content);
-                    if (migratedContent !== null) {
-                        content = migratedContent;
-                        // マイグレーション後は自動保存されているので再読み込みは不要
-                    }
                 }
 
                 const data = JSON.parse(content);

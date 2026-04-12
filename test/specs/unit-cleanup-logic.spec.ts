@@ -431,7 +431,6 @@ test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
         const outData = {
             title: 'Regression test',
             pageDir: `./${outlinerId}`,
-            schemaVersion: 2,
             rootIds: ['nodeA'],
             nodes: {
                 nodeA: {
