@@ -69,15 +69,13 @@ export async function buildLiveSetPass1(
             for (const nodeId of Object.keys(nodes)) {
                 const node = nodes[nodeId];
 
-                // node.images[] (resolve relative to pageDir for backward compat, or outDir)
+                // node.images[] は path.relative(outDir, destPath) で保存されているため outDir 基準で resolve
+                // 参考: notesEditorProvider.ts:298, outlinerProvider.ts:516 の saveOutlinerImage ハンドラ
+                // 注意: safeResolveUnderDir は存在チェックしないため、必ず outDir 基準のみ使う。
+                // pageDir 基準を最初に試すと {id}/images/... を {mainFolderPath}/{id}/{id}/images/... と誤 resolve する
                 if (Array.isArray(node.images)) {
                     for (const imgRel of node.images) {
-                        // Try pageDirAbs first (most common case for images/*)
-                        let safeAbs = safeResolveUnderDir(pageDirAbs, imgRel);
-                        if (!safeAbs) {
-                            // Fallback: try outDir (for absolute or different base)
-                            safeAbs = safeResolveUnderDir(outDir, imgRel);
-                        }
+                        const safeAbs = safeResolveUnderDir(outDir, imgRel);
                         if (safeAbs) { liveImages.add(safeAbs); }
                     }
                 }

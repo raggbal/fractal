@@ -524,6 +524,10 @@ export class NotesEditorProvider {
                 // FR-7: 手動クリーンアップコマンド (全 note 一気モード)
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInNote');
             },
+            cleanupUnusedFilesCurrentNote: async () => {
+                // FR-7: 手動クリーンアップコマンド (自ノート限定モード)
+                await vscode.commands.executeCommand('fractal.cleanUnusedFilesInCurrentNote');
+            },
         };
 
         // --- パネル固有の disposables ---

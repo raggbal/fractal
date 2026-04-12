@@ -79,6 +79,8 @@ export interface NotesPlatformActions {
     migrateOutFile?(filePath: string, currentContent: string): Promise<string | null>;
     /** FR-7: 手動クリーンアップコマンド (全 note 一気モード) */
     cleanupUnusedFilesAllNotes?(): Promise<void>;
+    /** FR-7: 手動クリーンアップコマンド (自ノート限定モード) */
+    cleanupUnusedFilesCurrentNote?(): Promise<void>;
 }
 
 /**
@@ -750,6 +752,12 @@ export async function handleNotesMessage(
         case 'cleanupUnusedFilesAllNotes':
             if (platform.cleanupUnusedFilesAllNotes) {
                 await platform.cleanupUnusedFilesAllNotes();
+            }
+            break;
+
+        case 'cleanupUnusedFilesCurrentNote':
+            if (platform.cleanupUnusedFilesCurrentNote) {
+                await platform.cleanupUnusedFilesCurrentNote();
             }
             break;
     }

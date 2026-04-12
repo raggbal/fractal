@@ -42,7 +42,7 @@ var notesFilePanel = (function() {
     var lastSavedPanelWidth = null;
 
     // Tab state
-    var currentTab = 'notes'; // 'notes' | 'search' | 's3'
+    var currentTab = 'notes'; // 'notes' | 'search' | 'tools'
 
     // Search state
     var searchInputEl = null;
@@ -664,12 +664,12 @@ var notesFilePanel = (function() {
         // コンテンツ表示切替
         var notesContent = document.getElementById('filePanelContentNotes');
         var searchContent = document.getElementById('filePanelContentSearch');
-        var s3Content = document.getElementById('filePanelContentS3');
+        var toolsContent = document.getElementById('filePanelContentTools');
         if (notesContent) notesContent.style.display = tabName === 'notes' ? '' : 'none';
         if (searchContent) searchContent.style.display = tabName === 'search' ? '' : 'none';
-        if (s3Content) s3Content.style.display = tabName === 's3' ? '' : 'none';
+        if (toolsContent) toolsContent.style.display = tabName === 'tools' ? '' : 'none';
         if (tabName === 'search' && searchInputEl) searchInputEl.focus();
-        if (tabName === 's3' && bridge.s3GetStatus) bridge.s3GetStatus();
+        if (tabName === 'tools' && bridge.s3GetStatus) bridge.s3GetStatus();
     }
 
     function executeSearch() {
@@ -936,6 +936,13 @@ var notesFilePanel = (function() {
         if (todayBtn) {
             todayBtn.addEventListener('click', function() {
                 if (bridge.openDailyNotes) bridge.openDailyNotes();
+            });
+        }
+
+        var cleanupCurrentBtn = document.getElementById('filePanelCleanupCurrent');
+        if (cleanupCurrentBtn) {
+            cleanupCurrentBtn.addEventListener('click', function() {
+                if (bridge.cleanupUnusedFilesCurrentNote) bridge.cleanupUnusedFilesCurrentNote();
             });
         }
 

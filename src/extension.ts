@@ -388,6 +388,18 @@ export function activate(context: vscode.ExtensionContext) {
             await runNotesCleanup({ mainFolderPaths: folders });
         })
     );
+
+    // Clean unused files in Current Note (自ノート限定モード)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.cleanUnusedFilesInCurrentNote', async () => {
+            const activeMainFolderPath = notesEditorProvider.getActiveMainFolderPath();
+            if (!activeMainFolderPath) {
+                vscode.window.showWarningMessage('No active Notes editor found. Open a note first.');
+                return;
+            }
+            await runNotesCleanup({ mainFolderPaths: [activeMainFolderPath] });
+        })
+    );
 }
 
 function generateMarkdownTable(rows: number, cols: number): string {

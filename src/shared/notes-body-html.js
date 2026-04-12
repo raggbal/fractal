@@ -223,9 +223,7 @@ function generateNotesFilePanelHtml(options) {
 
         /* ── Tools Tab ── */
         .file-panel-tools-section {
-            margin: 10px 0; padding: 8px;
-            border: 1px solid var(--vscode-panel-border, #444);
-            border-radius: 4px;
+            margin: 10px 0; padding: 0;
         }
         .file-panel-section-title {
             font-weight: bold; font-size: 12px; margin-bottom: 6px;
@@ -301,6 +299,16 @@ function generateNotesFilePanelHtml(options) {
                 <!-- Clean Notes Section -->
                 <div class="file-panel-tools-section">
                     <div class="file-panel-section-title">${m('notesCleanNotes', 'Clean Notes')}</div>
+                    <button class="file-panel-btn" id="filePanelCleanupCurrent" title="${m('notesCleanUnusedCurrentNoteTooltip', 'Scan current note for unused files')}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                        ${m('notesCleanUnusedCurrentNote', 'Clean Unused Files (Current Note)')}
+                    </button>
                     <button class="file-panel-btn" id="filePanelCleanupTools" title="${m('notesCleanUnusedAllNotesTooltip', 'Scan all registered notes for unused files')}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 6h18"/>

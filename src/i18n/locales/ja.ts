@@ -163,4 +163,6 @@ export const webviewMessages = {
   notesCleanNotes: 'ノート整理',
   notesCleanUnusedAllNotes: '全ノートの未参照ファイルをクリーンアップ',
   notesCleanUnusedAllNotesTooltip: '登録された全ノートをスキャンして未参照ファイルを検出',
+  notesCleanUnusedCurrentNote: '自ノートの未参照ファイルをクリーンアップ',
+  notesCleanUnusedCurrentNoteTooltip: '現在開いているノートをスキャンして未参照ファイルを検出',
 };

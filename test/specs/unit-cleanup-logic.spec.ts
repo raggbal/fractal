@@ -29,6 +29,43 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
         expect(inHandleRemovePage).toBe(false);
     });
 
+    test('v7.2: switchTab に s3 参照が残っていない', () => {
+        const cmd = `grep -n "'s3'" "${projectRoot}/src/shared/notes-file-panel.js" || true`;
+        const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+        expect(output).toBe('');
+    });
+
+    test('v7.2: fractal.cleanUnusedFilesInCurrentNote コマンドが package.json に登録されている', () => {
+        const cmd = `grep -n 'fractal.cleanUnusedFilesInCurrentNote' "${projectRoot}/package.json" || true`;
+        const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+        expect(output).not.toBe('');
+    });
+
+    test('v7.2: filePanelCleanupCurrent ボタンが notes-body-html.js に存在する', () => {
+        const cmd = `grep -n 'filePanelCleanupCurrent' "${projectRoot}/src/shared/notes-body-html.js" || true`;
+        const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+        expect(output).not.toBe('');
+    });
+
+    test('v7.2: cleanupUnusedFilesCurrentNote bridge メソッドが notes-host-bridge.js に存在する', () => {
+        const cmd = `grep -n 'cleanupUnusedFilesCurrentNote' "${projectRoot}/src/shared/notes-host-bridge.js" || true`;
+        const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+        expect(output).not.toBe('');
+    });
+
+    test('v7.2: i18n notesCleanUnusedCurrentNote キーが en/ja に存在する', () => {
+        const en = execSync(`grep -n 'notesCleanUnusedCurrentNote' "${projectRoot}/src/i18n/locales/en.ts" || true`, { encoding: 'utf-8' }).trim();
+        const ja = execSync(`grep -n 'notesCleanUnusedCurrentNote' "${projectRoot}/src/i18n/locales/ja.ts" || true`, { encoding: 'utf-8' }).trim();
+        expect(en).not.toBe('');
+        expect(ja).not.toBe('');
+    });
+
+    test('v7.2: Tools タブの CSS に border がない', () => {
+        const cmd = `grep -A3 'file-panel-tools-section' "${projectRoot}/src/shared/notes-body-html.js" | grep 'border' || true`;
+        const output = execSync(cmd, { encoding: 'utf-8' }).trim();
+        expect(output).toBe('');
+    });
+
     test('DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)', () => {
         const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' || true`;
         const output = execSync(cmd, { encoding: 'utf-8' }).trim();
@@ -90,13 +127,14 @@ test.describe('FR-5 Cleanup Logic - buildLiveSetPass1', () => {
     });
 
     test('DOD-16: Pass 2 detects orphan images correctly', async () => {
-        // Setup: .out with node.images=['images/live.png'], alive md with ![](images/aliveImg.png), orphan md (p_orphan.md) with ![](images/orphanImg.png), unused.png
+        // Setup: node.images は outDir 基準 ('pages/images/live.png')
+        // md 本文の ![](...) は mdDir 基準 ('images/aliveImg.png')
         const outFile = path.join(tmpDir, 'test.out');
         const outData = {
             title: 'Test',
             pageDir: './pages',
             nodes: {
-                a: { text: 'Node A', pageId: 'p1', images: ['images/live.png'] },
+                a: { text: 'Node A', pageId: 'p1', images: ['pages/images/live.png'] },
                 b: { text: 'Node B' } // no pageId - so p_orphan.md becomes orphan
             }
         };
@@ -143,14 +181,14 @@ test.describe('FR-5 Cleanup Logic - buildLiveSetPass1', () => {
     });
 
     test('DOD-31: No false positives - alive files not detected as orphan', async () => {
-        // Setup: All files are alive
+        // Setup: All files are alive. node.images は outDir 基準 ('pages/images/*')
         const outFile = path.join(tmpDir, 'test.out');
         const outData = {
             title: 'Test',
             pageDir: './pages',
             nodes: {
-                a: { text: 'Node A', pageId: 'p1', images: ['images/img1.png'] },
-                b: { text: 'Node B', pageId: 'p2', images: ['images/img2.png'] }
+                a: { text: 'Node A', pageId: 'p1', images: ['pages/images/img1.png'] },
+                b: { text: 'Node B', pageId: 'p2', images: ['pages/images/img2.png'] }
             }
         };
         fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
@@ -222,6 +260,8 @@ test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
 
     /**
      * Helper: setup a note with .out, alive md, orphan md, alive image, orphan image
+     * 実際の保存形式: node.images は outDir 基準の相対パス
+     * (notesEditorProvider.ts:298 の path.relative(outDir, destPath) に準拠)
      */
     function setupNote(mainFolderPath: string, opts: {
         outFileName: string;
@@ -235,7 +275,8 @@ test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
             title: 'Test',
             pageDir: './pages',
             nodes: {
-                a: { text: 'Node A', pageId: opts.aliveMdId, images: [`images/${opts.aliveImageName}`] }
+                // images は outDir 基準 → 'pages/images/xxx.png' (not './images/xxx.png')
+                a: { text: 'Node A', pageId: opts.aliveMdId, images: [`pages/images/${opts.aliveImageName}`] }
             }
         };
         fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
@@ -359,6 +400,68 @@ test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
         expect(grouped.size).toBe(1);
         expect(grouped.has(note1)).toBe(true);
         expect(grouped.has(nonexistent)).toBe(false);
+    });
+
+    test('REGRESSION: Notes mode で node.images が outDir 基準で保存されている時、alive 画像が orphan 誤判定されない', async () => {
+        // Notes mode の実際のファイル配置を再現:
+        // - outFile: {mainFolderPath}/{id}.out
+        // - pageDir: ./{id} (i.e. {mainFolderPath}/{id})
+        // - 画像: {mainFolderPath}/{id}/images/image_*.png
+        // - node.images: ["{id}/images/image_*.png"] (outDir 基準で保存されている)
+        //
+        // 以前のバグ: buildLiveSetPass1 が pageDirAbs 基準を最初に試すため、
+        // {id}/images/* を {mainFolderPath}/{id}/{id}/images/* と誤 resolve し、
+        // 本物の alive 画像が orphan 誤判定されて削除された
+
+        const outlinerId = 'mnu1u5test';
+        const outFile = path.join(note1, `${outlinerId}.out`);
+        const idDir = path.join(note1, outlinerId);
+        const imagesDir = path.join(idDir, 'images');
+        fs.mkdirSync(imagesDir, { recursive: true });
+
+        // 複数の alive 画像 (ノード A に添付された 3 枚の画像)
+        const aliveImg1 = path.join(imagesDir, 'image_1775894889362.png');
+        const aliveImg2 = path.join(imagesDir, 'image_1775894896857.png');
+        const aliveImg3 = path.join(imagesDir, 'image_1775894920120.png');
+        fs.writeFileSync(aliveImg1, 'img1 data', 'utf8');
+        fs.writeFileSync(aliveImg2, 'img2 data', 'utf8');
+        fs.writeFileSync(aliveImg3, 'img3 data', 'utf8');
+
+        // .out: pageDir: './{id}', node.images は outDir 基準の相対パス (実際の保存形式)
+        const outData = {
+            title: 'Regression test',
+            pageDir: `./${outlinerId}`,
+            schemaVersion: 2,
+            rootIds: ['nodeA'],
+            nodes: {
+                nodeA: {
+                    id: 'nodeA',
+                    text: 'Node with multiple images',
+                    images: [
+                        `${outlinerId}/images/image_1775894889362.png`,
+                        `${outlinerId}/images/image_1775894896857.png`,
+                        `${outlinerId}/images/image_1775894920120.png`
+                    ],
+                    childIds: []
+                }
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        // Execute
+        const candidates = await scanSingleNoteCore(note1);
+
+        // Verify: 全ての alive 画像は orphan 候補に含まれない
+        const orphanImagePaths = candidates
+            .filter(c => c.type === 'orphan-image')
+            .map(c => c.absPath);
+
+        expect(orphanImagePaths).not.toContain(aliveImg1);
+        expect(orphanImagePaths).not.toContain(aliveImg2);
+        expect(orphanImagePaths).not.toContain(aliveImg3);
+
+        // さらに strict: orphan image candidates は 0 件であるべき
+        expect(orphanImagePaths.length).toBe(0);
     });
 
     test('scanSingleNoteCore 単体動作: 1 note を直接スキャン', async () => {

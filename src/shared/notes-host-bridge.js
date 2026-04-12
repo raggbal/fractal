@@ -270,6 +270,11 @@
         cleanupUnusedFilesAllNotes: function() {
             flushOutlinerSync();
             api.postMessage({ type: 'cleanupUnusedFilesAllNotes' });
+        },
+
+        cleanupUnusedFilesCurrentNote: function() {
+            flushOutlinerSync();
+            api.postMessage({ type: 'cleanupUnusedFilesCurrentNote' });
         }
     };
 })();
