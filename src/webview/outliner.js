@@ -1717,7 +1717,7 @@ var Outliner = (function() {
 
         // 内部クリップボードにページノードまたは画像が含まれるか判定
         var hasMetadataInClipboard = clipNodes && clipNodes.some(function(cn) {
-            return cn.isPage || (cn.images && cn.images.length > 0);
+            return cn.isPage || (cn.images && cn.images.length > 0) || cn.filePath;
         });
 
         // 単一行かつメタデータなし: 現在ノードのカーソル位置に挿入
@@ -1877,18 +1877,18 @@ var Outliner = (function() {
                 }
                 // filePath 処理 (isPage と filePath は相互排他的なので独立分岐)
                 if (clipNode.filePath) {
+                    // page コピーと同じパターン: まず filePath を即座に設定
+                    newNode.filePath = clipNode.filePath;
                     if (isCut) {
                         if (isCrossFile) {
                             // cross-file cut: ファイルを物理移動
-                            host.moveFileAssetCross(clipNode.filePath, newNode.id);
-                        } else {
-                            // same-file cut: filePath はそのまま有効 (同じ fileDir)
-                            newNode.filePath = clipNode.filePath;
+                            host.moveFileAssetCross(clipNode.filePath, text, newNode.id);
                         }
+                        // same-file cut: filePath はそのまま有効 (同じ fileDir)
                     } else {
                         // copy: ファイルを新 filename で実体コピー (常に host 経由)
-                        host.copyFileAsset(clipNode.filePath, newNode.id);
-                        // newNode.filePath は updateNodeFilePath postback で設定される
+                        // host からの updateNodeFilePath postback で新パスに上書きされる
+                        host.copyFileAsset(clipNode.filePath, text, newNode.id);
                     }
                 }
             }

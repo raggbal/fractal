@@ -642,7 +642,10 @@ export class NotesFileManager {
             } catch {
                 // fallthrough
             }
-            return path.resolve(path.dirname(this.currentFilePath), 'files');
+            // Notes mode default: {mainFolderPath}/{outlinerId}/files
+            // Same pattern as importFilesDialog in notesEditorProvider.ts
+            const outlinerId = path.basename(this.currentFilePath, '.out');
+            return path.join(this.mainFolderPath, outlinerId, 'files');
         }
 
         return path.join(this.mainFolderPath, 'files');

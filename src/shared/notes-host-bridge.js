@@ -82,11 +82,11 @@
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
         },
-        copyFileAsset: function(filePath, nodeId) {
-            api.postMessage({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
+        copyFileAsset: function(filePath, clipboardPlainText, nodeId) {
+            api.postMessage({ type: 'copyFileAsset', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId });
         },
-        moveFileAssetCross: function(filePath, nodeId) {
-            api.postMessage({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        moveFileAssetCross: function(filePath, clipboardPlainText, nodeId) {
+            api.postMessage({ type: 'moveFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId });
         },
 
         // Outlinerノード画像操作

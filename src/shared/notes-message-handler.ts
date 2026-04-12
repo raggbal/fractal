@@ -292,19 +292,19 @@ export async function handleNotesMessage(
         case 'copyFileAsset': {
             const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!fileClipData || !message.filePath) break;
-            const currentFilePath = fileManager.getCurrentFilePath();
-            const destFileDir = fileManager.getFileDirPath();
-            const result = copyFileAsset({
+            const currentFilePathCF = fileManager.getCurrentFilePath();
+            const destFileDirCF = fileManager.getFileDirPath();
+            const resultCF = copyFileAsset({
                 srcOutDir: fileClipData.sourceOutDir,
                 srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
-                destOutDir: currentFilePath ? path.dirname(currentFilePath) : destFileDir,
-                destFileDir,
+                destOutDir: currentFilePathCF ? path.dirname(currentFilePathCF) : destFileDirCF,
+                destFileDir: destFileDirCF,
                 filePath: message.filePath
             });
             sender.postMessage({
                 type: 'updateNodeFilePath',
-                nodeId: message.targetNodeId,
-                newFilePath: result.newFilePath
+                nodeId: message.nodeId,
+                newFilePath: resultCF.newFilePath
             });
             break;
         }
@@ -312,19 +312,19 @@ export async function handleNotesMessage(
         case 'moveFileAssetCross': {
             const moveFileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!moveFileClipData || !message.filePath) break;
-            const currentFilePath = fileManager.getCurrentFilePath();
-            const destFileDir = fileManager.getFileDirPath();
-            const result = moveFileAsset({
+            const currentFilePathMF = fileManager.getCurrentFilePath();
+            const destFileDirMF = fileManager.getFileDirPath();
+            const resultMF = moveFileAsset({
                 srcOutDir: moveFileClipData.sourceOutDir,
                 srcFileDir: moveFileClipData.sourceFileDirPath || path.join(moveFileClipData.sourceOutDir, 'files'),
-                destOutDir: currentFilePath ? path.dirname(currentFilePath) : destFileDir,
-                destFileDir,
+                destOutDir: currentFilePathMF ? path.dirname(currentFilePathMF) : destFileDirMF,
+                destFileDir: destFileDirMF,
                 filePath: message.filePath
             });
             sender.postMessage({
                 type: 'updateNodeFilePath',
-                nodeId: message.targetNodeId,
-                newFilePath: result.newFilePath
+                nodeId: message.nodeId,
+                newFilePath: resultMF.newFilePath
             });
             OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             break;

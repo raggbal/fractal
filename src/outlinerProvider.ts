@@ -347,7 +347,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeFilePath',
-                                nodeId: message.targetNodeId,
+                                nodeId: message.nodeId,
                                 newFilePath: result.newFilePath
                             });
                         }
@@ -366,7 +366,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeFilePath',
-                                nodeId: message.targetNodeId,
+                                nodeId: message.nodeId,
                                 newFilePath: result.newFilePath
                             });
                         }
