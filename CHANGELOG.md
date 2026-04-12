@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.673] - 2026-04-13
+
+### Added
+- MD Editor: Image double-click opens fullscreen lightbox overlay (same as outliner)
+
+### Changed
+- MD Editor: Code block buttons (expand, language, copy) repositioned to top-right with compact styling, no text overlap
+
 ## [0.195.664] - 2026-04-13
 
 ### Added
