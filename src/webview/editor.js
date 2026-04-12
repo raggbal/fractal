@@ -4059,6 +4059,33 @@ class EditorInstance {
         }
     });
 
+    // Image double-click → fullscreen overlay (same as outliner lightbox)
+    editor.addEventListener('dblclick', function(e) {
+        var target = e.target;
+        if (target.nodeType === 3) target = target.parentElement;
+        if (target && target.tagName === 'IMG' && !target.closest('pre') && !target.closest('.code-block-header')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var overlay = document.createElement('div');
+            overlay.className = 'outliner-image-overlay';
+            var largeImg = document.createElement('img');
+            largeImg.className = 'outliner-image-large';
+            largeImg.src = target.src;
+            overlay.appendChild(largeImg);
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(ev) {
+                if (ev.target === overlay) { overlay.remove(); }
+            });
+            var escHandler = function(ev) {
+                if (ev.key === 'Escape') {
+                    overlay.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        }
+    });
+
     editor.addEventListener('click', function(e) {
         // Delegated link click handler
         // e.target can be a text node inside <a>, so walk up to find <a>

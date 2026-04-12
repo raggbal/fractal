@@ -721,12 +721,15 @@ body {
 }
 .code-block-header {
     position: absolute;
-    top: 4px;
-    right: 8px;
+    top: 0;
+    right: 0;
     display: flex;
-    gap: 8px;
+    gap: 4px;
     align-items: center;
     z-index: 10;
+    padding: 4px 8px;
+    border-radius: 0 6px 0 6px;
+    background: var(--code-bg);
 }
 .code-lang-tag {
     font-size: 11px;
@@ -1480,3 +1483,26 @@ body {
 }
 
 ::selection { background: var(--selection-bg); }
+
+/* Image overlay (lightbox) — same as outliner */
+.outliner-image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    cursor: pointer;
+}
+.outliner-image-large {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    cursor: default;
+}

@@ -1,0 +1,12 @@
+## ノード属性追加時のコピペチェックリスト
+- **発生日**: 2026-04-12
+- **原因**: filePath 属性を追加した際、コピペ関連の複数箇所で漏れが発生（hasMetadataInClipboard、clipboardPlainText、フィールド名不一致、即時設定漏れ）
+- **教訓**: 新しいノード属性を追加したら、以下を全てチェックする:
+  - [ ] clipboard metadata (singleNodesData / getSelectedNodesData) に新フィールドを含めたか
+  - [ ] `hasMetadataInClipboard` 判定に新フィールドを含めたか（含めないとテキストペーストになる）
+  - [ ] paste 時に `newNode.{field} = clipNode.{field}` を**即座に**設定したか（host postback 待ちではなく、page の isPage/pageId と同じパターン）
+  - [ ] host bridge メソッドに `clipboardPlainText` を渡しているか（OutlinerClipboardStore 参照に必須）
+  - [ ] host handler の `message.{fieldName}` が bridge の送信フィールド名と**完全一致**しているか
+  - [ ] paste-asset-handler.ts に copy/move 関数を追加したか
+  - [ ] outlinerProvider.ts + notes-message-handler.ts の両方にハンドラを追加したか
+- **根拠**: v8 sprint でファイルノードのコピペが5回のバグ修正を要した
