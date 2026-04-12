@@ -5,6 +5,26 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.646] - 2026-04-12
+
+### Added
+- Notes: "Clean Unused Files" command — scans all registered notes for orphan .md and images, shows QuickPick with select-all/deselect-all, moves to trash
+- Notes: "Clean Unused Files (Current Note)" command — same but limited to the currently open note
+- Notes: Tools tab replaces S3 tab — contains S3 Sync section and Clean Notes section with both cleanup buttons
+- Notes: Startup migration (schemaVersion) — automatically deduplicates shared images on .out open (one-time, idempotent)
+- Notes: `path-safety.ts` — path traversal protection for all file operations
+- Notes: `cleanup-core.ts` — VSCode-independent cleanup logic for unit testing
+
+### Fixed
+- Notes: Remove Page (undo bug) — .md file is no longer physically deleted on "Remove Page", preserving Undo/Redo integrity. Orphan .md is cleaned up via cleanup command instead
+- Notes: `notes-file-manager.deleteFile()` now uses `vscode.workspace.fs.delete({ useTrash: true })` instead of `fs.unlinkSync` / `fs.rmSync` — deleted files go to OS trash and can be restored
+- Notes: Cleanup correctly resolves `node.images[]` paths relative to outDir (was incorrectly using pageDir, causing alive images to be detected as orphan)
+
+### Changed
+- Notes: S3 tab renamed to "Tools" (en) / "ツール" (ja), now contains both S3 sync and cleanup features
+- Internal: New `notesCleanupCommand.ts` for 2-pass cleanup (orphan .md → orphan images via transitive closure)
+- Internal: `NotesFolderProvider.getFolders()` used for all-notes cleanup mode
+
 ## [0.195.641] - 2026-04-11
 
 ### Added
