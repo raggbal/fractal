@@ -244,7 +244,7 @@ export class SidePanelManager {
             if (resolvedPath.endsWith('.md') || resolvedPath.endsWith('.markdown')) {
                 await this.openFile(resolvedUri.fsPath);
             } else {
-                vscode.commands.executeCommand('vscode.open', resolvedUri);
+                vscode.env.openExternal(resolvedUri);
             }
         }
     }
