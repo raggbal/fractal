@@ -99,6 +99,9 @@
         },
         getOutlinerImageDir: function() {
             api.postMessage({ type: 'getOutlinerImageDir' });
+        },
+        setFileDir: function() {
+            api.postMessage({ type: 'setOutlinerFileDir' });
         }
     });
 })();

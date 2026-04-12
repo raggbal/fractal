@@ -64,6 +64,7 @@ export const webviewMessages = {
   insertLink: 'Insert Link (Ctrl+K)',
   insertImage: 'Insert Image (Ctrl+Shift+I)',
   setImageDir: 'Set Image Directory',
+  setFileDir: 'Set File Directory',
   insertTable: 'Insert Table (Ctrl+T)',
   horizontalRule: 'Horizontal Rule (Ctrl+Shift+-)',
   mermaidBlock: 'Mermaid Diagram',

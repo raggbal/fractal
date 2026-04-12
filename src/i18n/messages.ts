@@ -66,6 +66,7 @@ export interface WebviewMessages {
   insertLink: string;
   insertImage: string;
   setImageDir: string;
+  setFileDir: string;
   insertTable: string;
   horizontalRule: string;
   mermaidBlock: string;
@@ -103,6 +104,11 @@ export interface WebviewMessages {
   imageDirSourceFile: string;
   imageDirSourceSettings: string;
   imageDirSourceDefault: string;
+  // File directory source labels
+  fileDirLabel: string;
+  fileDirSourceFile: string;
+  fileDirSourceSettings: string;
+  fileDirSourceDefault: string;
   // Notes left panel
   notesTabNotes: string;
   notesTabSearch: string;

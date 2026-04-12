@@ -69,6 +69,7 @@ var Outliner = (function() {
 
     // --- 画像 ---
     var imageDir = null;           // .out JSON の imageDir フィールド
+    var fileDir = null;            // .out JSON の fileDir フィールド
     var selectedImageInfo = null;  // { nodeId, index, element } or null
     var imageDragState = null;     // { nodeId, fromIndex } or null
 
@@ -218,6 +219,10 @@ var Outliner = (function() {
         // JSONからimageDirを復元
         if (data && data.imageDir) {
             imageDir = data.imageDir;
+        }
+        // JSONからfileDirを復元
+        if (data && data.fileDir) {
+            fileDir = data.fileDir;
         }
         // JSONからpinnedTagsを復元
         if (data && data.pinnedTags) {
@@ -3097,6 +3102,16 @@ var Outliner = (function() {
                 host.setOutlinerImageDir();
             });
             dropdown.appendChild(setImageDirItem);
+
+            // ファイルフォルダ設定
+            var setFileDirItem = document.createElement('button');
+            setFileDirItem.className = 'menu-item';
+            setFileDirItem.textContent = i18n.outlinerSetFileDir || 'Set file directory...';
+            setFileDirItem.addEventListener('click', function() {
+                dropdown.remove();
+                host.setFileDir();
+            });
+            dropdown.appendChild(setFileDirItem);
         }
 
         // .mdファイルインポート
@@ -4405,6 +4420,7 @@ var Outliner = (function() {
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
+        if (fileDir) { data.fileDir = fileDir; }
         if (sidePanelWidthSetting) { data.sidePanelWidth = sidePanelWidthSetting; }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
         host.syncData(JSON.stringify(data, null, 2));
@@ -4841,6 +4857,11 @@ var Outliner = (function() {
 
                 case 'outlinerImageDirChanged':
                     imageDir = msg.imageDir || null;
+                    scheduleSyncToHost();
+                    break;
+
+                case 'outlinerFileDirChanged':
+                    fileDir = msg.fileDir || null;
                     scheduleSyncToHost();
                     break;
 

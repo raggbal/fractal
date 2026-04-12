@@ -631,6 +631,25 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'setOutlinerFileDir': {
+                        const currentFileDir = this.getFileDirPath(document);
+                        const outDirF = path.dirname(document.uri.fsPath);
+                        const relCurrentF = path.relative(outDirF, currentFileDir).replace(/\\/g, '/') || './files';
+                        const inputF = await vscode.window.showInputBox({
+                            prompt: 'File directory path (relative to .out file or absolute)',
+                            value: relCurrentF
+                        });
+                        if (inputF !== undefined) {
+                            webviewPanel.webview.postMessage({
+                                type: 'outlinerFileDirChanged',
+                                fileDir: inputF,
+                                displayPath: inputF || './files',
+                                source: 'file'
+                            });
+                        }
+                        break;
+                    }
+
                     case 'getOutlinerImageDir': {
                         const imgDir = this.getOutlinerImageDirPath(document);
                         const outDir2 = path.dirname(document.uri.fsPath);
