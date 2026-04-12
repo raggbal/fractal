@@ -620,6 +620,35 @@ export class NotesFileManager {
     }
 
     /**
+     * fileDir解決: JSON内のfileDirフィールドを優先、なければデフォルト ./files
+     */
+    getFileDirPath(outJsonData?: Record<string, unknown>): string {
+        if (outJsonData && outJsonData.fileDir) {
+            const fd = outJsonData.fileDir as string;
+            if (path.isAbsolute(fd)) return fd;
+            if (this.currentFilePath) {
+                return path.resolve(path.dirname(this.currentFilePath), fd);
+            }
+        }
+
+        if (this.currentFilePath) {
+            try {
+                const content = fs.readFileSync(this.currentFilePath, 'utf8');
+                const data = JSON.parse(content);
+                if (data.fileDir) {
+                    if (path.isAbsolute(data.fileDir)) return data.fileDir;
+                    return path.resolve(path.dirname(this.currentFilePath), data.fileDir);
+                }
+            } catch {
+                // fallthrough
+            }
+            return path.resolve(path.dirname(this.currentFilePath), 'files');
+        }
+
+        return path.join(this.mainFolderPath, 'files');
+    }
+
+    /**
      * 一意のアウトラインIDを生成
      */
     static generateOutlineId(): string {

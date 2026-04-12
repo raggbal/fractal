@@ -3,7 +3,7 @@ import * as path from 'path';
 import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
-import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './paste-asset-handler';
+import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 
 /**
@@ -71,6 +71,10 @@ export interface NotesPlatformActions {
     saveOutlinerImage?(nodeId: string, dataUrl: string, fileName: string): void;
     /** .mdファイルインポートダイアログ表示 */
     importMdFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
+    /** 任意ファイルインポートダイアログ表示 */
+    importFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
+    /** ファイル添付を開く */
+    openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** アプリ内リンクナビゲーション */
     navigateInAppLink?(href: string): void;
     /** リンク挿入ダイアログ表示 (サイドパネル editor 用) */
@@ -149,6 +153,18 @@ export async function handleNotesMessage(
             platform.importMdFilesDialog?.(message.targetNodeId, sender);
             break;
 
+        case 'importFilesDialog':
+            platform.importFilesDialog?.(message.targetNodeId, sender);
+            break;
+
+        case 'openAttachedFile': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.openAttachedFile?.(message.nodeId, currentFilePath, sender);
+            }
+            break;
+        }
+
         case 'makePage': {
             const pagesDir = fileManager.getPagesDirPath();
             if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
@@ -178,6 +194,7 @@ export async function handleNotesMessage(
 
         case 'saveOutlinerClipboard': {
             const clipPagesDir = fileManager.getPagesDirPath();
+            const clipFileDir = fileManager.getFileDirPath();
             const currentFilePath = fileManager.getCurrentFilePath();
             OutlinerClipboardStore.save({
                 plainText: message.plainText,
@@ -185,6 +202,7 @@ export async function handleNotesMessage(
                 nodes: message.nodes,
                 sourcePagesDirPath: clipPagesDir,
                 sourceImagesDirPath: path.join(clipPagesDir, 'images'),
+                sourceFileDirPath: clipFileDir,
                 sourceOutDir: currentFilePath ? path.dirname(currentFilePath) : clipPagesDir
             });
             break;
@@ -264,6 +282,47 @@ export async function handleNotesMessage(
             if (message.isCut) {
                 OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             }
+            break;
+        }
+
+        case 'copyFileAsset': {
+            const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
+            if (!fileClipData || !message.filePath) break;
+            const currentFilePath = fileManager.getCurrentFilePath();
+            const destFileDir = fileManager.getFileDirPath();
+            const result = copyFileAsset({
+                srcOutDir: fileClipData.sourceOutDir,
+                srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
+                destOutDir: currentFilePath ? path.dirname(currentFilePath) : destFileDir,
+                destFileDir,
+                filePath: message.filePath
+            });
+            sender.postMessage({
+                type: 'updateNodeFilePath',
+                nodeId: message.targetNodeId,
+                newFilePath: result.newFilePath
+            });
+            break;
+        }
+
+        case 'moveFileAssetCross': {
+            const moveFileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
+            if (!moveFileClipData || !message.filePath) break;
+            const currentFilePath = fileManager.getCurrentFilePath();
+            const destFileDir = fileManager.getFileDirPath();
+            const result = moveFileAsset({
+                srcOutDir: moveFileClipData.sourceOutDir,
+                srcFileDir: moveFileClipData.sourceFileDirPath || path.join(moveFileClipData.sourceOutDir, 'files'),
+                destOutDir: currentFilePath ? path.dirname(currentFilePath) : destFileDir,
+                destFileDir,
+                filePath: message.filePath
+            });
+            sender.postMessage({
+                type: 'updateNodeFilePath',
+                nodeId: message.targetNodeId,
+                newFilePath: result.newFilePath
+            });
+            OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             break;
         }
 

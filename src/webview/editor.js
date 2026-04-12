@@ -29,6 +29,9 @@ class SidePanelHostBridge {
     requestSetImageDir() {
         this._mainHost.requestSetImageDir(this.filePath);
     }
+    requestSetFileDir() {
+        this._mainHost.requestSetFileDir(this.filePath);
+    }
     saveImageAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.saveImageAndInsert(dataUrl, fileName, this.filePath);
@@ -138,6 +141,10 @@ class EditorInstance {
                         <div class="imagedir-header"><span class="imagedir-label"></span><span class="imagedir-source"></span><button class="imagedir-settings-btn"></button></div>
                         <div class="imagedir-info"><span class="imagedir-path"></span></div>
                     </div>
+                    <div class="sidebar-status-filedir">
+                        <div class="filedir-header"><span class="filedir-label"></span><span class="filedir-source"></span><button class="filedir-settings-btn"></button></div>
+                        <div class="filedir-info"><span class="filedir-path"></span></div>
+                    </div>
                 </div>
                 <div class="sidebar-resizer"></div>
             </aside>
@@ -232,6 +239,7 @@ class EditorInstance {
     const outline = container.querySelector('.outline');
     const wordCount = container.querySelector('.word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
+    const statusFileDir = container.querySelector('.sidebar-status-filedir');
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -354,6 +362,8 @@ class EditorInstance {
     let currentForceRelativePath = null; // FORCE_RELATIVE_PATH directive value (preserved during sync)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirDisplayPath = null; // Resolved display path for files from extension
+    let fileDirSource = null; // 'file' | 'settings' | 'default'
 
     // Active editing detection — replaces simple focus-based guard
     let isActivelyEditing = false;
@@ -5659,8 +5669,30 @@ class EditorInstance {
         
         // Handle special inline elements that need different treatment
         if (tag === 'a') {
-            // Link - collect content with link info
-            const href = node.getAttribute('href') || '';
+            // Check if this is a file attachment link
+            const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            const href = node.dataset.markdownPath || node.getAttribute('href') || '';
+
+            if (isFileAttachment) {
+                // File attachment - return as single special entry (like image)
+                const linkText = node.textContent || '';
+                result.push({
+                    char: '',
+                    styles: new Set(currentStyles),
+                    isLink: false,
+                    href: '',
+                    isImage: false,
+                    src: '',
+                    alt: '',
+                    isCode: false,
+                    isFileLink: true,
+                    fileLinkHref: href,
+                    fileLinkText: linkText
+                });
+                return result;
+            }
+
+            // Regular link - collect content with link info
             const linkStyles = new Set(currentStyles);
             for (const child of node.childNodes) {
                 const childChars = collectCharStyles(child, linkStyles);
@@ -5749,12 +5781,13 @@ class EditorInstance {
         
         for (const c of chars) {
             // Check if this character can be merged with current group
-            const canMerge = currentGroup && 
+            const canMerge = currentGroup &&
                 !c.isImage && !currentGroup.isImage &&
+                !c.isFileLink && !currentGroup.isFileLink &&
                 !c.isLink && !currentGroup.isLink &&
                 !c.isCode && !currentGroup.isCode &&
                 sameStyleSet(c.styles, currentGroup.styles);
-            
+
             if (canMerge) {
                 currentGroup.text += c.char;
             } else {
@@ -5763,14 +5796,17 @@ class EditorInstance {
                     groups.push(currentGroup);
                 }
                 currentGroup = {
-                    text: c.isImage ? '' : c.char,
+                    text: (c.isImage || c.isFileLink) ? '' : c.char,
                     styles: c.styles,
                     isLink: c.isLink,
                     href: c.href,
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
-                    isCode: c.isCode
+                    isCode: c.isCode,
+                    isFileLink: c.isFileLink,
+                    fileLinkHref: c.fileLinkHref,
+                    fileLinkText: c.fileLinkText
                 };
             }
         }
@@ -5819,7 +5855,12 @@ class EditorInstance {
         if (group.isImage) {
             return '![' + group.alt + '](' + group.src + ')';
         }
-        
+
+        if (group.isFileLink) {
+            // File attachment link - preserve as [📎 text](path)
+            return '[' + group.fileLinkText + '](' + group.fileLinkHref + ')';
+        }
+
         if (group.isLink) {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
@@ -5876,10 +5917,10 @@ class EditorInstance {
     function mdGetInlineMarkdown(node) {
         // 1. Collect character-level style information
         const chars = collectCharStyles(node);
-        
-        // 2. Filter out empty entries (but keep images)
-        const filtered = chars.filter(c => c.char !== '' || c.isImage);
-        
+
+        // 2. Filter out empty entries (but keep images and file links)
+        const filtered = chars.filter(c => c.char !== '' || c.isImage || c.isFileLink);
+
         // 3. Group consecutive characters with same styles
         const groups = groupByStyle(filtered);
         
@@ -12287,6 +12328,19 @@ class EditorInstance {
         }
     }
 
+    // File directory settings button handler
+    const fileDirSettingsBtn = container.querySelector('.filedir-settings-btn');
+    if (fileDirSettingsBtn) {
+        if (IS_OUTLINER_PAGE) {
+            // outlinerページではファイルディレクトリ変更ボタンを非表示
+            fileDirSettingsBtn.style.display = 'none';
+        } else {
+            fileDirSettingsBtn.addEventListener('click', function() {
+                host.requestSetFileDir();
+            });
+        }
+    }
+
     // Sidebar resize functionality
     let isResizing = false;
     let startX = 0;
@@ -12464,6 +12518,24 @@ class EditorInstance {
                     default: i18n.imageDirSourceDefault || 'Default'
                 };
                 sourceEl.textContent = labels[imageDirSource] || imageDirSource;
+            }
+        }
+
+        // Update FILE_DIR display in sidebar footer
+        if (statusFileDir) {
+            const pathEl = container.querySelector('.filedir-path');
+            const sourceEl = container.querySelector('.filedir-source');
+            if (pathEl && fileDirDisplayPath !== null) {
+                pathEl.textContent = fileDirDisplayPath;
+                pathEl.title = fileDirDisplayPath;
+            }
+            if (sourceEl && fileDirSource) {
+                const labels = {
+                    file: i18n.fileDirSourceFile || 'File',
+                    settings: i18n.fileDirSourceSettings || 'Settings',
+                    default: i18n.fileDirSourceDefault || 'Default'
+                };
+                sourceEl.textContent = labels[fileDirSource] || fileDirSource;
             }
         }
     }
@@ -13422,6 +13494,10 @@ class EditorInstance {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             updateStatus();
+        } else if (message.type === 'fileDirStatus') {
+            fileDirDisplayPath = message.displayPath;
+            fileDirSource = message.source;
+            updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source);
         } else if (message.type === 'sidePanelSetImageDir') {
@@ -13519,6 +13595,32 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('Image element inserted');
+        } else if (message.type === 'insertFileLink') {
+            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            // Insert file link at cursor position
+            const link = document.createElement('a');
+            link.href = message.markdownPath;
+            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            link.dataset.markdownPath = message.markdownPath;
+            link.dataset.isFileAttachment = 'true';
+
+            editor.focus();
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(link);
+
+                // Move cursor after link
+                range.setStartAfter(link);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                editor.appendChild(link);
+            }
+            syncMarkdown();
+            logger.log('File link element inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -14292,6 +14394,14 @@ class EditorInstance {
         }
     });
 
+    // Helper: Check if file is an image based on extension
+    var IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
+    function isImageFile(fileName) {
+        if (!fileName) return false;
+        var ext = fileName.split('.').pop().toLowerCase();
+        return IMAGE_EXTENSIONS.indexOf(ext) !== -1;
+    }
+
     if (isMainInstance) document.addEventListener('drop', function(e) {
         var t = findTargetEditor(e.target);
         if (!t) {
@@ -14323,8 +14433,22 @@ class EditorInstance {
             const reader = new FileReader();
             reader.onload = function(event) {
                 logger.log('FileReader onload called');
-                h.saveImageAndInsert(event.target.result);
+                h.saveImageAndInsert(event.target.result, file.name);
                 logger.log('Image sent to extension for saving');
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error:', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Helper to read non-image file and send via correct host
+        function readAndInsertFileViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                logger.log('FileReader onload called for file');
+                h.saveFileAndInsert(event.target.result, file.name);
+                logger.log('File sent to extension for saving');
             };
             reader.onerror = function(err) {
                 logger.error('FileReader error:', err);
@@ -14339,8 +14463,12 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            if (file.type.startsWith('image/')) {
+            if (file.type.startsWith('image/') || isImageFile(file.name)) {
                 readAndInsertImageViaHost(file, targetHost);
+                return;
+            } else {
+                // Non-image file
+                readAndInsertFileViaHost(file, targetHost);
                 return;
             }
         }
@@ -14368,40 +14496,55 @@ class EditorInstance {
         const plainText = e.dataTransfer?.getData('text/plain');
         logger.log('URI list:', uriList);
         logger.log('Plain text:', plainText);
-        
+
         // Try to get file path from various sources
         let filePath = null;
-        
+        let isImage = false;
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    // Check if it's an image
-                    if (uri.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                        filePath = decodeURIComponent(uri.replace('file://', ''));
+                    const decodedPath = decodeURIComponent(uri.replace('file://', ''));
+                    const fileName = decodedPath.split('/').pop();
+                    if (isImageFile(fileName)) {
+                        filePath = decodedPath;
+                        isImage = true;
+                        break;
+                    } else {
+                        // Non-image file
+                        filePath = decodedPath;
+                        isImage = false;
                         break;
                     }
                 }
             }
         }
-        
+
         if (!filePath && plainText) {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
-                if (plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                    filePath = decodeURIComponent(plainText.replace('file://', ''));
-                }
-            } else if (plainText.startsWith('/') && plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
+                const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
+                const fileName = decodedPath.split('/').pop();
+                filePath = decodedPath;
+                isImage = isImageFile(fileName);
+            } else if (plainText.startsWith('/')) {
                 // Direct file path
+                const fileName = plainText.split('/').pop();
                 filePath = plainText;
+                isImage = isImageFile(fileName);
             }
         }
-        
+
         if (filePath) {
-            logger.log('Found image file path:', filePath);
-            // Send to extension to read the file
-            targetHost.readAndInsertImage(filePath);
+            if (isImage) {
+                logger.log('Found image file path:', filePath);
+                targetHost.readAndInsertImage(filePath);
+            } else {
+                logger.log('Found non-image file path:', filePath);
+                targetHost.readAndInsertFile(filePath);
+            }
             return;
         }
         

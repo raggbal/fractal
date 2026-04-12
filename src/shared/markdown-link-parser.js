@@ -118,6 +118,42 @@
     }
 
     /**
+     * .md 本文から [📎 filename](path) 形式のファイルリンクを抽出。
+     * alt text が 📎 で始まる link を対象とする。
+     * http/data/file/絶対パスを除外、クエリ/フラグメントを除去。
+     */
+    function extractMarkdownFileLinks(md) {
+        var results = [];
+        var seen = Object.create(null);
+        function push(p) {
+            if (!p) return;
+            var trimmed = p.trim().replace(/^<|>$/g, '');
+            if (!trimmed) return;
+            if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+            if (trimmed.charAt(0) === '/') return;
+            var cleaned = trimmed.split(/[?#]/)[0];
+            if (!cleaned || seen[cleaned]) return;
+            seen[cleaned] = true;
+            results.push(cleaned);
+        }
+        var links = parseMarkdownLinks(md || '');
+        for (var i = 0; i < links.length; i++) {
+            var link = links[i];
+            // Check if it's a link (not image) and alt text contains 📎
+            // 📎 is U+1F4CE, which is a surrogate pair: \uD83D\uDCCE
+            if (link.kind === 'link' && link.alt) {
+                var altTrimmed = link.alt.trim();
+                // Check if alt starts with 📎 or contains it (flexible matching)
+                if (altTrimmed.indexOf('\uD83D\uDCCE') === 0 ||
+                    altTrimmed.indexOf('📎') === 0) {
+                    push(link.url);
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
      * text[startIndex] から始まる生 URL を balanced paren 対応で検出。
      * - プロトコルは http:// / https:// のみ
      * - 空白 / 改行 / タブ / < > " ' で停止
@@ -158,6 +194,7 @@
     return {
         parseMarkdownLinks: parseMarkdownLinks,
         extractImagePaths: extractImagePaths,
+        extractMarkdownFileLinks: extractMarkdownFileLinks,
         extractUrlWithBalancedParens: extractUrlWithBalancedParens,
         findBalancedClose: findBalancedClose
     };

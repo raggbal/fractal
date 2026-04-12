@@ -1948,6 +1948,24 @@ body {
     opacity: 1;
 }
 
+/* --- File Icon --- */
+.outliner-file-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 1.75em;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--outliner-page-icon-color);
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.outliner-file-icon:hover {
+    opacity: 1;
+}
+
 /* --- Checkbox (task node) --- */
 .outliner-checkbox {
     display: flex;
@@ -3408,6 +3426,7 @@ class SidePanelHostBridge {
         this.filePath = filePath;
         this._onTocUpdate = callbacks.onTocUpdate || null;
         this._onImageRequest = callbacks.onImageRequest || null;
+        this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
     }
     syncContent(md) {
@@ -3420,7 +3439,10 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
-    requestInsertLink(text) { /* not used in side panel */ }
+    requestInsertLink(text) {
+        if (this._onLinkRequest) this._onLinkRequest();
+        this._mainHost.requestInsertLink(text);
+    }
     requestInsertImage() {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.requestInsertImage(this.filePath);
@@ -16919,6 +16941,17 @@ class EditorInstance {
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertLinkHtml') {
+            // If link was requested from side panel, dispatch to side panel instance
+            if (sidePanelLinkPending && sidePanelHostBridge) {
+                sidePanelLinkPending = false;
+                sidePanelHostBridge._sendMessage({
+                    type: 'insertLinkHtml',
+                    url: message.url,
+                    text: message.text
+                });
+                return;
+            }
+            sidePanelLinkPending = false;
             // Insert link at cursor position
             const a = document.createElement('a');
             a.href = message.url;
@@ -17043,6 +17076,7 @@ class EditorInstance {
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
+    var sidePanelLinkPending = false;
     var sidebarWasOpenBeforeSidePanel = false;
     var sidePanelCustomWidth = null; // session-only resize width
 
@@ -17068,7 +17102,8 @@ class EditorInstance {
 
         sidePanelHostBridge = new SidePanelHostBridge(host, filePath, {
             onTocUpdate: updateSidePanelTocFromMarkdown,
-            onImageRequest: function() { sidePanelImagePending = true; }
+            onImageRequest: function() { sidePanelImagePending = true; },
+            onLinkRequest: function() { sidePanelLinkPending = true; }
         });
 
         sidePanelInstance = new EditorInstance(spContainer, sidePanelHostBridge, {
@@ -19582,6 +19617,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openLinkInTab: function(href) {
             postFn({ type: 'openLinkInTab', href: href });
         },
+        requestInsertLink: function(text) {
+            postFn({ type: 'insertLink', text: text });
+        },
 
         // フォーカス
         reportFocus: function() {
@@ -19722,6 +19760,18 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        importFilesDialog: function(targetNodeId) {
+            window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
+        },
+        openAttachedFile: function(nodeId) {
+            window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
+        },
+        copyFileAsset: function(filePath, nodeId) {
+            window.__testApi.messages.push({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
+        },
+        moveFileAssetCross: function(filePath, nodeId) {
+            window.__testApi.messages.push({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
         },
@@ -19854,7 +19904,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
 
         this.nodes[id] = node;
@@ -19891,7 +19942,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
         this.nodes[id] = node;
         if (parentId === null || parentId === undefined) {
@@ -21174,6 +21226,18 @@ var Outliner = (function() {
             el.appendChild(pageIcon);
         }
 
+        // ファイルアイコン
+        if (node.filePath) {
+            var fileIcon = document.createElement('div');
+            fileIcon.className = 'outliner-file-icon';
+            fileIcon.textContent = '\uD83D\uDCCE'; // 📎
+            fileIcon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                host.openAttachedFile(node.id);
+            });
+            el.appendChild(fileIcon);
+        }
+
         // テキスト
         var textEl = document.createElement('div');
         textEl.className = 'outliner-text';
@@ -22041,7 +22105,8 @@ var Outliner = (function() {
                 level: relDepth,
                 isPage: nd.isPage || false,
                 pageId: nd.pageId || null,
-                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : []
+                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
+                filePath: nd.filePath || null
             });
         }
         return nodes;
@@ -22381,6 +22446,22 @@ var Outliner = (function() {
                     } else {
                         // copy: 常に新 filename で実体コピー
                         host.copyImagesCross(clipImages, text, newNode.id, false);
+                    }
+                }
+                // filePath 処理 (isPage と filePath は相互排他的なので独立分岐)
+                if (clipNode.filePath) {
+                    if (isCut) {
+                        if (isCrossFile) {
+                            // cross-file cut: ファイルを物理移動
+                            host.moveFileAssetCross(clipNode.filePath, newNode.id);
+                        } else {
+                            // same-file cut: filePath はそのまま有効 (同じ fileDir)
+                            newNode.filePath = clipNode.filePath;
+                        }
+                    } else {
+                        // copy: ファイルを新 filename で実体コピー (常に host 経由)
+                        host.copyFileAsset(clipNode.filePath, newNode.id);
+                        // newNode.filePath は updateNodeFilePath postback で設定される
                     }
                 }
             }
@@ -22906,7 +22987,8 @@ var Outliner = (function() {
                                 text: singleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(singleText, singleNodesData, false);
                             internalClipboard = {
@@ -22945,7 +23027,8 @@ var Outliner = (function() {
                                 text: cutSingleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
                             internalClipboard = {
@@ -23371,10 +23454,14 @@ var Outliner = (function() {
 
     function makePage(nodeId) {
         saveSnapshot();
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        // Clear filePath when making page (mutual exclusion)
+        node.filePath = null;
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        host.makePage(nodeId, pageId, model.getNode(nodeId).text);
+        host.makePage(nodeId, pageId, node.text);
         renderTree();
         scheduleSyncToHost();
     }
@@ -23594,6 +23681,16 @@ var Outliner = (function() {
             host.importMdFilesDialog(focusedNodeId);
         });
         dropdown.appendChild(importMdItem);
+
+        // 任意ファイルインポート
+        var importFileItem = document.createElement('button');
+        importFileItem.className = 'menu-item';
+        importFileItem.textContent = 'Import any files...';
+        importFileItem.addEventListener('click', function() {
+            dropdown.remove();
+            host.importFilesDialog(focusedNodeId);
+        });
+        dropdown.appendChild(importFileItem);
 
         // 検索バーを基準に配置（メニューボタンの直下に表示）
         var searchBar = document.querySelector('.outliner-search-bar');
@@ -24146,6 +24243,21 @@ var Outliner = (function() {
                 makePage(nodeId);
                 hideContextMenu();
             }, '@page');
+        }
+
+        // --- ファイル操作 ---
+        if (node.filePath) {
+            addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
+                host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
+                saveSnapshot();
+                node.filePath = null;
+                renderTree();
+                scheduleSyncToHost();
+                hideContextMenu();
+            });
         }
 
         addMenuSeparator(contextMenuEl);
@@ -25059,6 +25171,17 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'updateNodeFilePath': {
+                    // host が file asset copy/move 完了後に新 filePath を返してくる
+                    if (!msg.nodeId) break;
+                    var fNode = model.getNode(msg.nodeId);
+                    if (!fNode) break;
+                    fNode.filePath = msg.newFilePath || null;
+                    renderTree();
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'updateData':
                     // file identity を先に反映 (同一性判定の唯一の根拠)
                     if (msg.outFileKey !== undefined) {
@@ -25200,6 +25323,56 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'importFilesResult': {
+                    var results = msg.results;
+                    var impTargetId = msg.targetNodeId;
+                    var impPosition = msg.position;
+
+                    if (!results || results.length === 0) break;
+
+                    saveSnapshot();
+                    var lastInsertedId = null;
+
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var r = results[ri];
+                        var newNode;
+
+                        if (ri === 0) {
+                            // 最初のファイル: ドロップ位置に従う
+                            if (!impTargetId) {
+                                // ルート末尾
+                                var lastRootId3 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                                newNode = model.addNode(null, lastRootId3, r.title);
+                            } else if (impPosition === 'before') {
+                                var info3 = model._getSiblingInfo(impTargetId);
+                                var afterId3 = info3 && info3.index > 0 ? info3.siblings[info3.index - 1] : null;
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId3, r.title);
+                            } else if (impPosition === 'child') {
+                                newNode = model.addNodeAtStart(impTargetId, r.title);
+                                model.getNode(impTargetId).collapsed = false;
+                            } else {
+                                // after
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, impTargetId, r.title);
+                            }
+                        } else {
+                            // 2番目以降: 前のノードの直後に兄弟として挿入
+                            var prevNode3 = model.getNode(lastInsertedId);
+                            newNode = model.addNode(prevNode3.parentId, lastInsertedId, r.title);
+                        }
+
+                        // Set filePath instead of isPage/pageId (mutual exclusion)
+                        newNode.isPage = false;
+                        newNode.pageId = null;
+                        newNode.filePath = r.filePath;
+                        lastInsertedId = newNode.id;
+                    }
+
+                    renderTree();
+                    if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'pageDirChanged':
                     pageDir = msg.pageDir || null;
                     break;
@@ -25275,6 +25448,16 @@ var Outliner = (function() {
                             markdownPath: msg.markdownPath,
                             displayUri: msg.displayUri,
                             dataUri: msg.dataUri
+                        });
+                    }
+                    break;
+
+                case 'insertLinkHtml':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertLinkHtml',
+                            url: msg.url,
+                            text: msg.text
                         });
                     }
                     break;

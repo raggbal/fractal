@@ -5,8 +5,10 @@ import { getOutlinerWebviewContent } from './outlinerWebviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
+import { importFiles } from './shared/file-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets } from './shared/paste-asset-handler';
+import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset } from './shared/paste-asset-handler';
+import { safeResolveUnderDir } from './shared/path-safety';
 
 
 /**
@@ -183,6 +185,52 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'importFilesDialog': {
+                        const options: vscode.OpenDialogOptions = {
+                            canSelectMany: true,
+                            canSelectFiles: true,
+                            canSelectFolders: false,
+                            title: 'Import files'
+                        };
+                        const fileUris = await vscode.window.showOpenDialog(options);
+                        if (!fileUris || fileUris.length === 0) break;
+
+                        const filePaths = fileUris.map(u => u.fsPath).sort();
+                        const fileDir = this.getFileDirPath(document);
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const results = importFiles(filePaths, fileDir, outDir);
+
+                        webviewPanel.webview.postMessage({
+                            type: 'importFilesResult',
+                            results,
+                            targetNodeId: message.targetNodeId,
+                            position: 'after'
+                        });
+                        break;
+                    }
+
+                    case 'openAttachedFile': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.filePath) break;
+
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                        if (!safeFilePath) {
+                            vscode.window.showErrorMessage(t('fileNotFoundOrUnsafe'));
+                            break;
+                        }
+
+                        if (!fs.existsSync(safeFilePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+
+                        // Use openExternal to open with OS default app
+                        await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
+                        break;
+                    }
+
                     case 'makePage':
                         await this.handleMakePage(document, webviewPanel, message);
                         break;
@@ -198,12 +246,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'saveOutlinerClipboard': {
                         const clipPagesDir = this.getPagesDirPath(document);
                         const clipImagesDir = this.getOutlinerImageDirPath(document);
+                        const clipFileDir = this.getFileDirPath(document);
                         OutlinerClipboardStore.save({
                             plainText: message.plainText,
                             isCut: message.isCut,
                             nodes: message.nodes,
                             sourcePagesDirPath: clipPagesDir,
                             sourceImagesDirPath: clipImagesDir,
+                            sourceFileDirPath: clipFileDir,
                             sourceOutDir: path.dirname(document.uri.fsPath)
                         });
                         break;
@@ -282,6 +332,45 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                             }
                         }
+                        break;
+                    }
+
+                    case 'copyFileAsset': {
+                        const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
+                        if (fileClipData && message.filePath) {
+                            const result = copyFileAsset({
+                                srcOutDir: fileClipData.sourceOutDir,
+                                srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
+                                destOutDir: path.dirname(document.uri.fsPath),
+                                destFileDir: this.getFileDirPath(document),
+                                filePath: message.filePath
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'updateNodeFilePath',
+                                nodeId: message.targetNodeId,
+                                newFilePath: result.newFilePath
+                            });
+                        }
+                        break;
+                    }
+
+                    case 'moveFileAssetCross': {
+                        const moveFileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
+                        if (moveFileClipData && message.filePath) {
+                            const result = moveFileAsset({
+                                srcOutDir: moveFileClipData.sourceOutDir,
+                                srcFileDir: moveFileClipData.sourceFileDirPath || path.join(moveFileClipData.sourceOutDir, 'files'),
+                                destOutDir: path.dirname(document.uri.fsPath),
+                                destFileDir: this.getFileDirPath(document),
+                                filePath: message.filePath
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'updateNodeFilePath',
+                                nodeId: message.targetNodeId,
+                                newFilePath: result.newFilePath
+                            });
+                        }
+                        OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                         break;
                     }
 
@@ -714,6 +803,27 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         // 2. VSCode設定
         const config = vscode.workspace.getConfiguration('fractal');
         const configDir = config.get<string>('outlinerPageDir', './pages');
+        if (path.isAbsolute(configDir)) {
+            return configDir;
+        }
+        return path.resolve(path.dirname(document.uri.fsPath), configDir);
+    }
+
+    private getFileDirPath(document: vscode.TextDocument): string {
+        // 1. out JSON内のfileDirフィールドを優先
+        try {
+            const data = JSON.parse(document.getText());
+            if (data.fileDir) {
+                if (path.isAbsolute(data.fileDir)) {
+                    return data.fileDir;
+                }
+                return path.resolve(path.dirname(document.uri.fsPath), data.fileDir);
+            }
+        } catch { /* ignore parse errors */ }
+
+        // 2. VSCode設定
+        const config = vscode.workspace.getConfiguration('fractal');
+        const configDir = config.get<string>('outlinerFileDir', './files');
         if (path.isAbsolute(configDir)) {
             return configDir;
         }

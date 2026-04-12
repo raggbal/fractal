@@ -63,11 +63,22 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestSetImageDir: function(sidePanelFilePath) {
             postFn({ type: 'setImageDir', sidePanelFilePath: sidePanelFilePath });
         },
+        requestSetFileDir: function(sidePanelFilePath) {
+            postFn({ type: 'setFileDir', sidePanelFilePath: sidePanelFilePath });
+        },
         saveImageAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveImageAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },
         readAndInsertImage: function(filePath, sidePanelFilePath) {
             postFn({ type: 'readAndInsertImage', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // ファイル添付
+        saveFileAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
+            postFn({ type: 'saveFileAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        readAndInsertFile: function(filePath, sidePanelFilePath) {
+            postFn({ type: 'readAndInsertFile', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
 
         // sendToChat

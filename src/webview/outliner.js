@@ -653,6 +653,18 @@ var Outliner = (function() {
             el.appendChild(pageIcon);
         }
 
+        // ファイルアイコン
+        if (node.filePath) {
+            var fileIcon = document.createElement('div');
+            fileIcon.className = 'outliner-file-icon';
+            fileIcon.textContent = '\uD83D\uDCCE'; // 📎
+            fileIcon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                host.openAttachedFile(node.id);
+            });
+            el.appendChild(fileIcon);
+        }
+
         // テキスト
         var textEl = document.createElement('div');
         textEl.className = 'outliner-text';
@@ -1520,7 +1532,8 @@ var Outliner = (function() {
                 level: relDepth,
                 isPage: nd.isPage || false,
                 pageId: nd.pageId || null,
-                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : []
+                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
+                filePath: nd.filePath || null
             });
         }
         return nodes;
@@ -1860,6 +1873,22 @@ var Outliner = (function() {
                     } else {
                         // copy: 常に新 filename で実体コピー
                         host.copyImagesCross(clipImages, text, newNode.id, false);
+                    }
+                }
+                // filePath 処理 (isPage と filePath は相互排他的なので独立分岐)
+                if (clipNode.filePath) {
+                    if (isCut) {
+                        if (isCrossFile) {
+                            // cross-file cut: ファイルを物理移動
+                            host.moveFileAssetCross(clipNode.filePath, newNode.id);
+                        } else {
+                            // same-file cut: filePath はそのまま有効 (同じ fileDir)
+                            newNode.filePath = clipNode.filePath;
+                        }
+                    } else {
+                        // copy: ファイルを新 filename で実体コピー (常に host 経由)
+                        host.copyFileAsset(clipNode.filePath, newNode.id);
+                        // newNode.filePath は updateNodeFilePath postback で設定される
                     }
                 }
             }
@@ -2385,7 +2414,8 @@ var Outliner = (function() {
                                 text: singleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(singleText, singleNodesData, false);
                             internalClipboard = {
@@ -2424,7 +2454,8 @@ var Outliner = (function() {
                                 text: cutSingleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
                             internalClipboard = {
@@ -2850,10 +2881,14 @@ var Outliner = (function() {
 
     function makePage(nodeId) {
         saveSnapshot();
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        // Clear filePath when making page (mutual exclusion)
+        node.filePath = null;
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        host.makePage(nodeId, pageId, model.getNode(nodeId).text);
+        host.makePage(nodeId, pageId, node.text);
         renderTree();
         scheduleSyncToHost();
     }
@@ -3073,6 +3108,16 @@ var Outliner = (function() {
             host.importMdFilesDialog(focusedNodeId);
         });
         dropdown.appendChild(importMdItem);
+
+        // 任意ファイルインポート
+        var importFileItem = document.createElement('button');
+        importFileItem.className = 'menu-item';
+        importFileItem.textContent = 'Import any files...';
+        importFileItem.addEventListener('click', function() {
+            dropdown.remove();
+            host.importFilesDialog(focusedNodeId);
+        });
+        dropdown.appendChild(importFileItem);
 
         // 検索バーを基準に配置（メニューボタンの直下に表示）
         var searchBar = document.querySelector('.outliner-search-bar');
@@ -3627,6 +3672,21 @@ var Outliner = (function() {
             }, '@page');
         }
 
+        // --- ファイル操作 ---
+        if (node.filePath) {
+            addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
+                host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
+                saveSnapshot();
+                node.filePath = null;
+                renderTree();
+                scheduleSyncToHost();
+                hideContextMenu();
+            });
+        }
+
         addMenuSeparator(contextMenuEl);
 
         // --- ノード追加 ---
@@ -3832,6 +3892,10 @@ var Outliner = (function() {
     var sidePanelImageDirPath = null;
     var sidePanelImageDirSource = null;
     var sidePanelImageDirBtn = null;
+    var sidePanelFileDirEl = null;
+    var sidePanelFileDirPath = null;
+    var sidePanelFileDirSource = null;
+    var sidePanelFileDirBtn = null;
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -3854,6 +3918,10 @@ var Outliner = (function() {
         sidePanelImageDirPath = document.querySelector('#sidePanelImageDirPath');
         sidePanelImageDirSource = document.querySelector('#sidePanelImageDirSource');
         sidePanelImageDirBtn = document.querySelector('#sidePanelImageDirBtn');
+        sidePanelFileDirEl = document.querySelector('.side-panel-filedir');
+        sidePanelFileDirPath = document.querySelector('#sidePanelFileDirPath');
+        sidePanelFileDirSource = document.querySelector('#sidePanelFileDirSource');
+        sidePanelFileDirBtn = document.querySelector('#sidePanelFileDirBtn');
 
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
@@ -4249,6 +4317,21 @@ var Outliner = (function() {
         }
     }
 
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
+        }
+        if (sidePanelFileDirSource) {
+            var labels = {
+                file: i18n.fileDirSourceFile || 'File',
+                settings: i18n.fileDirSourceSettings || 'Settings',
+                'default': i18n.fileDirSourceDefault || 'Default'
+            };
+            sidePanelFileDirSource.textContent = labels[source] || source || '';
+        }
+    }
+
     function openSidePanelSidebar() {
         if (sidePanelSidebar) { sidePanelSidebar.classList.add('visible'); }
         if (sidePanelOpenOutlineBtn) { sidePanelOpenOutlineBtn.classList.add('hidden'); }
@@ -4538,6 +4621,17 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'updateNodeFilePath': {
+                    // host が file asset copy/move 完了後に新 filePath を返してくる
+                    if (!msg.nodeId) break;
+                    var fNode = model.getNode(msg.nodeId);
+                    if (!fNode) break;
+                    fNode.filePath = msg.newFilePath || null;
+                    renderTree();
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'updateData':
                     // file identity を先に反映 (同一性判定の唯一の根拠)
                     if (msg.outFileKey !== undefined) {
@@ -4679,6 +4773,56 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'importFilesResult': {
+                    var results = msg.results;
+                    var impTargetId = msg.targetNodeId;
+                    var impPosition = msg.position;
+
+                    if (!results || results.length === 0) break;
+
+                    saveSnapshot();
+                    var lastInsertedId = null;
+
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var r = results[ri];
+                        var newNode;
+
+                        if (ri === 0) {
+                            // 最初のファイル: ドロップ位置に従う
+                            if (!impTargetId) {
+                                // ルート末尾
+                                var lastRootId3 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                                newNode = model.addNode(null, lastRootId3, r.title);
+                            } else if (impPosition === 'before') {
+                                var info3 = model._getSiblingInfo(impTargetId);
+                                var afterId3 = info3 && info3.index > 0 ? info3.siblings[info3.index - 1] : null;
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId3, r.title);
+                            } else if (impPosition === 'child') {
+                                newNode = model.addNodeAtStart(impTargetId, r.title);
+                                model.getNode(impTargetId).collapsed = false;
+                            } else {
+                                // after
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, impTargetId, r.title);
+                            }
+                        } else {
+                            // 2番目以降: 前のノードの直後に兄弟として挿入
+                            var prevNode3 = model.getNode(lastInsertedId);
+                            newNode = model.addNode(prevNode3.parentId, lastInsertedId, r.title);
+                        }
+
+                        // Set filePath instead of isPage/pageId (mutual exclusion)
+                        newNode.isPage = false;
+                        newNode.pageId = null;
+                        newNode.filePath = r.filePath;
+                        lastInsertedId = newNode.id;
+                    }
+
+                    renderTree();
+                    if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'pageDirChanged':
                     pageDir = msg.pageDir || null;
                     break;
@@ -4747,6 +4891,12 @@ var Outliner = (function() {
                     updateSidePanelImageDir(msg.displayPath, msg.source);
                     break;
 
+                case 'sidePanelSetFileDir':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        updateSidePanelFileDir(msg.displayPath, msg.source);
+                    }
+                    break;
+
                 case 'insertImageHtml':
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
@@ -4764,6 +4914,16 @@ var Outliner = (function() {
                             type: 'insertLinkHtml',
                             url: msg.url,
                             text: msg.text
+                        });
+                    }
+                    break;
+
+                case 'insertFileLink':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertFileLink',
+                            markdownPath: msg.markdownPath,
+                            fileName: msg.fileName
                         });
                     }
                     break;

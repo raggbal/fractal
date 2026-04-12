@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractMarkdownImagePaths } from './markdown-image-utils';
 import { safeResolveUnderDir } from './path-safety';
+const { extractMarkdownFileLinks } = require('./markdown-link-parser');
 
 export async function listOutFiles(mainFolderPath: string): Promise<string[]> {
     if (!fs.existsSync(mainFolderPath)) { return []; }
@@ -23,6 +24,44 @@ export async function listAllMd(mainFolderPath: string): Promise<string[]> {
 
 export async function listAllImages(mainFolderPath: string): Promise<string[]> {
     return walkRecursive(mainFolderPath, ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp']);
+}
+
+export async function listAllFiles(mainFolderPath: string): Promise<string[]> {
+    // Walk files/ directories and return ALL files (any extension)
+    const result: string[] = [];
+    if (!fs.existsSync(mainFolderPath)) { return result; }
+
+    // Find all "files" directories recursively
+    const filesDir = path.join(mainFolderPath, 'files');
+    if (fs.existsSync(filesDir)) {
+        walkFilesDir(filesDir, result);
+    }
+
+    // Also scan {id}/files/ directories for notes mode
+    const entries = fs.readdirSync(mainFolderPath, { withFileTypes: true });
+    for (const entry of entries) {
+        if (entry.isDirectory()) {
+            const noteFilesDir = path.join(mainFolderPath, entry.name, 'files');
+            if (fs.existsSync(noteFilesDir)) {
+                walkFilesDir(noteFilesDir, result);
+            }
+        }
+    }
+
+    return result;
+}
+
+function walkFilesDir(dir: string, result: string[]): void {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            walkFilesDir(fullPath, result);
+        } else if (entry.isFile()) {
+            result.push(fullPath);
+        }
+    }
 }
 
 export function walkRecursive(dir: string, extensions: string[]): string[] {
@@ -47,9 +86,10 @@ export function walkRecursive(dir: string, extensions: string[]): string[] {
 export async function buildLiveSetPass1(
     outFiles: string[],
     mainFolderPath: string
-): Promise<{ liveMd: Set<string>; liveImages: Set<string> }> {
+): Promise<{ liveMd: Set<string>; liveImages: Set<string>; liveFiles: Set<string> }> {
     const liveMd = new Set<string>();
     const liveImages = new Set<string>();
+    const liveFiles = new Set<string>();
 
     for (const outPath of outFiles) {
         try {
@@ -80,6 +120,12 @@ export async function buildLiveSetPass1(
                     }
                 }
 
+                // node.filePath → file attachment (v8)
+                if (node.filePath) {
+                    const safeAbs = safeResolveUnderDir(outDir, node.filePath);
+                    if (safeAbs) { liveFiles.add(safeAbs); }
+                }
+
                 // node.pageId → .md
                 if (node.pageId) {
                     const mdPath = path.join(pageDirAbs, `${node.pageId}.md`);
@@ -91,7 +137,7 @@ export async function buildLiveSetPass1(
         }
     }
 
-    return { liveMd, liveImages };
+    return { liveMd, liveImages, liveFiles };
 }
 
 export async function buildPass2LiveImages(
@@ -120,13 +166,39 @@ export async function buildPass2LiveImages(
     return liveImages;
 }
 
+export async function buildPass2LiveFiles(
+    liveMdPass1: Set<string>,
+    liveFilesPass1: Set<string>,
+    mainFolderPath: string
+): Promise<Set<string>> {
+    const liveFiles = new Set(liveFilesPass1);
+    const allMd = await listAllMd(mainFolderPath);
+    const aliveMd = allMd.filter(p => liveMdPass1.has(p));
+
+    for (const mdPath of aliveMd) {
+        try {
+            const content = fs.readFileSync(mdPath, 'utf8');
+            const filePaths = extractMarkdownFileLinks(content);
+            const mdDir = path.dirname(mdPath);
+            for (const rel of filePaths) {
+                const safeAbs = safeResolveUnderDir(mdDir, rel);
+                if (safeAbs) { liveFiles.add(safeAbs); }
+            }
+        } catch (e) {
+            console.warn('[Fractal] Failed to read md for cleanup:', mdPath, e);
+        }
+    }
+
+    return liveFiles;
+}
+
 /**
  * CleanupCandidate — vscode 依存なしの候補型
  */
 export interface CleanupCandidateCore {
     absPath: string;
     relPath: string;
-    type: 'orphan-md' | 'orphan-image';
+    type: 'orphan-md' | 'orphan-image' | 'orphan-file';
     sizeBytes: number;
 }
 
@@ -135,15 +207,19 @@ export interface CleanupCandidateCore {
  */
 export async function scanSingleNoteCore(mainFolderPath: string): Promise<CleanupCandidateCore[]> {
     const outFiles = await listOutFiles(mainFolderPath);
-    const { liveMd, liveImages: initialLiveImages } = await buildLiveSetPass1(outFiles, mainFolderPath);
+    const { liveMd, liveImages: initialLiveImages, liveFiles: initialLiveFiles } = await buildLiveSetPass1(outFiles, mainFolderPath);
 
     const liveImages = await buildPass2LiveImages(liveMd, initialLiveImages, mainFolderPath);
+    const liveFiles = await buildPass2LiveFiles(liveMd, initialLiveFiles, mainFolderPath);
 
     const allMd = await listAllMd(mainFolderPath);
     const orphanMd = allMd.filter(p => !liveMd.has(p));
 
     const allImages = await listAllImages(mainFolderPath);
     const orphanImages = allImages.filter(p => !liveImages.has(p));
+
+    const allFiles = await listAllFiles(mainFolderPath);
+    const orphanFiles = allFiles.filter(p => !liveFiles.has(p));
 
     const result: CleanupCandidateCore[] = [];
     for (const p of orphanMd) {
@@ -162,6 +238,16 @@ export async function scanSingleNoteCore(mainFolderPath: string): Promise<Cleanu
                 absPath: p,
                 relPath: path.relative(mainFolderPath, p),
                 type: 'orphan-image',
+                sizeBytes: fs.statSync(p).size
+            });
+        } catch { /* skip */ }
+    }
+    for (const p of orphanFiles) {
+        try {
+            result.push({
+                absPath: p,
+                relPath: path.relative(mainFolderPath, p),
+                type: 'orphan-file',
                 sizeBytes: fs.statSync(p).size
             });
         } catch { /* skip */ }

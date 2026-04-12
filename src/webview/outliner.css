@@ -433,6 +433,24 @@ body {
     opacity: 1;
 }
 
+/* --- File Icon --- */
+.outliner-file-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 1.75em;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--outliner-page-icon-color);
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.outliner-file-icon:hover {
+    opacity: 1;
+}
+
 /* --- Checkbox (task node) --- */
 .outliner-checkbox {
     display: flex;

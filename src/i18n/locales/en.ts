@@ -25,6 +25,14 @@ export const messages = {
   failedToProcessImage: 'Failed to process image: ',
   selectImage: 'Select Image',
   selectFileToCompare: 'Select file to compare',
+  enterFileDir: 'Enter file save directory (relative or absolute path). Empty to clear.',
+  fileDirCleared: 'File directory setting cleared',
+  fileDirSet: 'File save directory set: ',
+  failedToCopyFile: 'Failed to copy file: ',
+  failedToSaveFile: 'Failed to save file: ',
+  fileNotFound: 'File not found',
+  fileNotFoundOrUnsafe: 'File not found or path is unsafe',
+  selectFiles: 'Select Files',
 };
 
 export const webviewMessages = {
@@ -91,6 +99,11 @@ export const webviewMessages = {
   imageDirSourceFile: 'by file',
   imageDirSourceSettings: 'by settings',
   imageDirSourceDefault: 'by default',
+  // File directory source labels
+  fileDirLabel: 'File save directory:',
+  fileDirSourceFile: 'by file',
+  fileDirSourceSettings: 'by settings',
+  fileDirSourceDefault: 'by default',
   // Command palette
   commandPaletteFilter: 'Type to filter...',
   commandPalettePage: 'Page',
@@ -120,6 +133,8 @@ export const webviewMessages = {
   outlinerOpenPage: 'Open Page',
   outlinerCopyPagePath: 'Copy Page Path',
   outlinerMakePage: 'Make Page',
+  outlinerOpenFile: 'Open File',
+  outlinerRemoveFile: 'Remove File',
   outlinerAddSibling: 'Add Sibling Node',
   outlinerAddChild: 'Add Child Node',
   outlinerIndent: 'Indent',

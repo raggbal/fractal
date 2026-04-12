@@ -13,11 +13,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-    listOutFiles as coreListOutFiles,
-    listAllMd as coreListAllMd,
-    listAllImages as coreListAllImages,
-    buildLiveSetPass1 as coreBuildLiveSetPass1,
-    buildPass2LiveImages
+    scanSingleNoteCore,
+    CleanupCandidateCore
 } from './shared/cleanup-core';
 
 // Re-export for backward compatibility
@@ -36,7 +33,7 @@ export interface NotesCleanupContext {
 export interface CleanupCandidate {
     absPath: string;
     relPath: string;
-    type: 'orphan-md' | 'orphan-image';
+    type: 'orphan-md' | 'orphan-image' | 'orphan-file';
     sizeBytes: number;
 }
 
@@ -44,36 +41,8 @@ export interface CleanupCandidate {
  * 1 つの note フォルダをスキャンして orphan ファイルを検出する
  */
 async function scanSingleNote(mainFolderPath: string): Promise<CleanupCandidate[]> {
-    const outFiles = await coreListOutFiles(mainFolderPath);
-    const { liveMd, liveImages: liveImagesPass1 } = await coreBuildLiveSetPass1(outFiles, mainFolderPath);
-
-    // Pass 2: alive md からの image refs を加算
-    const liveImages = await buildPass2LiveImages(liveMd, liveImagesPass1, mainFolderPath);
-
-    const allMd = await coreListAllMd(mainFolderPath);
-    const orphanMd = allMd.filter(p => !liveMd.has(p));
-
-    const allImages = await coreListAllImages(mainFolderPath);
-    const orphanImages = allImages.filter(p => !liveImages.has(p));
-
-    const result: CleanupCandidate[] = [];
-    for (const p of orphanMd) {
-        result.push({
-            absPath: p,
-            relPath: path.relative(mainFolderPath, p),
-            type: 'orphan-md',
-            sizeBytes: fs.statSync(p).size
-        });
-    }
-    for (const p of orphanImages) {
-        result.push({
-            absPath: p,
-            relPath: path.relative(mainFolderPath, p),
-            type: 'orphan-image',
-            sizeBytes: fs.statSync(p).size
-        });
-    }
-    return result;
+    // Use core function that includes file attachments (v8)
+    return await scanSingleNoteCore(mainFolderPath);
 }
 
 export async function runNotesCleanup(ctx: NotesCleanupContext): Promise<void> {
@@ -158,7 +127,8 @@ async function showCleanupQuickPickGrouped(
 
         // Candidates for this note
         for (const c of candidates) {
-            const icon = c.type === 'orphan-md' ? '$(file-text)' : '$(file-media)';
+            const icon = c.type === 'orphan-md' ? '$(file-text)' :
+                         c.type === 'orphan-file' ? '$(file)' : '$(file-media)';
             items.push({
                 label: `${icon} ${c.relPath}`,
                 description: formatBytes(c.sizeBytes),

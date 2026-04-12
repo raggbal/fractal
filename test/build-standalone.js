@@ -191,6 +191,7 @@ const html = `<!DOCTYPE html>
     <div class="toolbar" id="toolbar" style="display:none;"></div>
     <div id="statusLeft" style="display:none;"></div>
     <div class="sidebar-status-imagedir" id="statusImageDir" style="display:none;"></div>
+    <div class="sidebar-status-filedir" id="statusFileDir" style="display:none;"></div>
     <div class="word-count" id="wordCount" style="display:none;"></div>
     <div class="source-editor" id="sourceEditor" style="display:none;"></div>
     <button class="sidebar-toggle" id="closeSidebar" style="display:none;"></button>

@@ -12,6 +12,7 @@ export interface ClipboardNodeData {
     isPage: boolean;
     pageId: string | null;
     images: string[];
+    filePath?: string | null;
 }
 
 interface ClipboardData {
@@ -20,6 +21,7 @@ interface ClipboardData {
     nodes: ClipboardNodeData[];
     sourcePagesDirPath: string;
     sourceImagesDirPath: string;
+    sourceFileDirPath: string;
     sourceOutDir: string;  // .out ファイルのあるディレクトリ (絶対パス) — 画像パス解決の基準
 }
 

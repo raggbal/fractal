@@ -113,7 +113,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
 
         this.nodes[id] = node;
@@ -150,7 +151,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
         this.nodes[id] = node;
         if (parentId === null || parentId === undefined) {

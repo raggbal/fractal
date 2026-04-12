@@ -25,6 +25,14 @@ export const messages = {
   failedToProcessImage: '画像の処理に失敗しました: ',
   selectImage: '画像を選択',
   selectFileToCompare: '比較するファイルを選択',
+  enterFileDir: 'ファイル保存ディレクトリを入力してください（相対パスまたは絶対パス）。空文字で設定をクリア。',
+  fileDirCleared: 'ファイルディレクトリ設定をクリアしました',
+  fileDirSet: 'ファイル保存ディレクトリを設定しました: ',
+  failedToCopyFile: 'ファイルのコピーに失敗しました: ',
+  failedToSaveFile: 'ファイルの保存に失敗しました: ',
+  fileNotFound: 'ファイルが見つかりません',
+  fileNotFoundOrUnsafe: 'ファイルが見つからないか、パスが安全ではありません',
+  selectFiles: 'ファイルを選択',
 };
 
 export const webviewMessages = {
@@ -91,6 +99,11 @@ export const webviewMessages = {
   imageDirSourceFile: 'by ファイル個別設定',
   imageDirSourceSettings: 'by 設定',
   imageDirSourceDefault: 'by デフォルト',
+  // File directory source labels
+  fileDirLabel: 'ファイル保存先:',
+  fileDirSourceFile: 'by ファイル個別設定',
+  fileDirSourceSettings: 'by 設定',
+  fileDirSourceDefault: 'by デフォルト',
   // Command palette
   commandPaletteFilter: '入力して絞り込み...',
   commandPalettePage: 'ページ',
@@ -120,6 +133,8 @@ export const webviewMessages = {
   outlinerOpenPage: 'ページを開く',
   outlinerCopyPagePath: 'ページパスをコピー',
   outlinerMakePage: 'ページ化',
+  outlinerOpenFile: 'ファイルを開く',
+  outlinerRemoveFile: 'ファイル添付を解除',
   outlinerAddSibling: '兄弟ノードを追加',
   outlinerAddChild: '子ノードを追加',
   outlinerIndent: 'インデント',

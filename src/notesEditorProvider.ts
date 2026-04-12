@@ -8,6 +8,8 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
+import { importFiles } from './shared/file-import';
+import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 
 /**
@@ -326,6 +328,53 @@ export class NotesEditorProvider {
                     targetNodeId,
                     position: 'after'
                 });
+            },
+            importFilesDialog: async (targetNodeId: string | null, senderRef: NotesSender) => {
+                const options: vscode.OpenDialogOptions = {
+                    canSelectMany: true,
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    title: 'Import files'
+                };
+                const fileUris = await vscode.window.showOpenDialog(options);
+                if (!fileUris || fileUris.length === 0) return;
+
+                const filePaths = fileUris.map(u => u.fsPath).sort();
+                // Notes mode: fileDir = {outliner id}/files/
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                const outlinerId = path.basename(currentOutFilePath, '.out');
+                const fileDir = path.join(folderPath, outlinerId, 'files');
+                const outDir = path.dirname(currentOutFilePath);
+                const results = importFiles(filePaths, fileDir, outDir);
+
+                senderRef.postMessage({
+                    type: 'importFilesResult',
+                    results,
+                    targetNodeId,
+                    position: 'after'
+                });
+            },
+            openAttachedFile: async (nodeId: string, outFilePath: string, senderRef: NotesSender) => {
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const node = data.nodes?.[nodeId];
+                if (!node?.filePath) return;
+
+                const outDir = path.dirname(outFilePath);
+                const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                if (!safeFilePath) {
+                    vscode.window.showErrorMessage(t('fileNotFoundOrUnsafe'));
+                    return;
+                }
+
+                if (!fs.existsSync(safeFilePath)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+
+                // Use openExternal to open with OS default app
+                await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
             },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();

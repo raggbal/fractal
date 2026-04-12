@@ -73,6 +73,22 @@
             api.postMessage({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
 
+        // 任意ファイルインポート（ファイルピッカー）
+        importFilesDialog: function(targetNodeId) {
+            api.postMessage({ type: 'importFilesDialog', targetNodeId: targetNodeId });
+        },
+
+        // ファイル添付操作
+        openAttachedFile: function(nodeId) {
+            api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
+        },
+        copyFileAsset: function(filePath, nodeId) {
+            api.postMessage({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
+        },
+        moveFileAssetCross: function(filePath, nodeId) {
+            api.postMessage({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        },
+
         // Outlinerノード画像操作
         saveOutlinerImage: function(nodeId, dataUrl, fileName) {
             api.postMessage({ type: 'saveOutlinerImage', nodeId: nodeId, dataUrl: dataUrl, fileName: fileName });

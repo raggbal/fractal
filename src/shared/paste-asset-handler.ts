@@ -1,9 +1,10 @@
 /**
- * paste-asset-handler — page/images の copy/move 時のファイル操作を一元化
+ * paste-asset-handler — page/images/files の copy/move 時のファイル操作を一元化
  *
  * - copyPageAssets: 新 filename で画像を実体コピー + .md 本文の参照を rewrite + .md 本体を保存
  * - movePageAssets: 画像と .md を src → dest に物理移動 (同一 dir なら no-op)
  * - copyImageAssets / moveImageAssets: 非 isPage ノードの images[] 用
+ * - copyFileAsset / moveFileAsset: filePath 付きノードのファイル用 (original name 保持)
  *
  * すべて同期的なファイル操作。失敗時は個別にスキップ (try/catch)。
  */
@@ -247,4 +248,101 @@ export function moveImageAssets(opts: {
         return destImagesRelToOut ? `${destImagesRelToOut}/${base}` : base;
     });
     return { newNodeImages };
+}
+
+/**
+ * filePath 付きノードを copy 時にファイルを新 filename で実体コピー。
+ * 元の名前を保ちつつ collision suffix (-1, -2, etc.) を付与する。
+ */
+export function copyFileAsset(opts: {
+    srcOutDir: string;
+    srcFileDir: string;
+    destOutDir: string;
+    destFileDir: string;
+    filePath: string; // relative from srcOutDir
+}): { newFilePath: string | null } {
+    ensureDir(opts.destFileDir);
+    const srcFilePath = path.isAbsolute(opts.filePath)
+        ? opts.filePath
+        : path.resolve(opts.srcOutDir, opts.filePath);
+
+    if (!fs.existsSync(srcFilePath)) {
+        return { newFilePath: null };
+    }
+
+    const originalName = path.basename(srcFilePath);
+    const uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
+    const destFilePath = path.join(opts.destFileDir, uniqueName);
+
+    try {
+        fs.copyFileSync(srcFilePath, destFilePath);
+    } catch {
+        return { newFilePath: null };
+    }
+
+    const relPath = path.relative(opts.destOutDir, destFilePath).replace(/\\/g, '/');
+    return { newFilePath: relPath };
+}
+
+/**
+ * filePath 付きノードを cut+cross-file 時にファイルを src → dest に物理移動。
+ * 同 dir なら no-op (元の filePath を返す)。
+ */
+export function moveFileAsset(opts: {
+    srcOutDir: string;
+    srcFileDir: string;
+    destOutDir: string;
+    destFileDir: string;
+    filePath: string;
+}): { newFilePath: string | null } {
+    if (opts.srcFileDir === opts.destFileDir) {
+        return { newFilePath: opts.filePath };
+    }
+    ensureDir(opts.destFileDir);
+
+    const srcFilePath = path.isAbsolute(opts.filePath)
+        ? opts.filePath
+        : path.resolve(opts.srcOutDir, opts.filePath);
+
+    if (!fs.existsSync(srcFilePath)) {
+        return { newFilePath: null };
+    }
+
+    const originalName = path.basename(srcFilePath);
+    const destFilePath = path.join(opts.destFileDir, originalName);
+
+    if (srcFilePath === destFilePath) {
+        return { newFilePath: opts.filePath };
+    }
+
+    try {
+        if (!fs.existsSync(destFilePath)) {
+            fs.copyFileSync(srcFilePath, destFilePath);
+        }
+        fs.unlinkSync(srcFilePath);
+    } catch {
+        return { newFilePath: null };
+    }
+
+    const relPath = path.relative(opts.destOutDir, destFilePath).replace(/\\/g, '/');
+    return { newFilePath: relPath };
+}
+
+/**
+ * Generate unique filename preserving original name with collision suffix.
+ * Examples: report.pdf, report-1.pdf, report-2.pdf
+ */
+function generateUniqueFileNamePreserving(targetDir: string, originalName: string): string {
+    const ext = path.extname(originalName);
+    const baseName = path.basename(originalName, ext);
+
+    let candidate = originalName;
+    let suffix = 0;
+
+    while (fs.existsSync(path.join(targetDir, candidate))) {
+        suffix++;
+        candidate = `${baseName}-${suffix}${ext}`;
+    }
+
+    return candidate;
 }

@@ -481,3 +481,156 @@ test.describe('FR-7 All Notes Cleanup Mode (v7.2)', () => {
         expect(relPaths.some(p => p.includes('unused1.png'))).toBe(true);
     });
 });
+
+test.describe('v8 File Attachment Cleanup', () => {
+    let tmpDir: string;
+
+    test.beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-cleanup-test-'));
+    });
+
+    test.afterEach(() => {
+        if (tmpDir && fs.existsSync(tmpDir)) {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    test('DOD-18: buildLiveSetPass1 tracks node.filePath in liveFiles', async () => {
+        // Setup: .out with node.filePath
+        const outFile = path.join(tmpDir, 'test.out');
+        const outData = {
+            title: 'Test',
+            nodes: {
+                a: { text: 'Node A', filePath: 'files/report.pdf' },
+                b: { text: 'Node B', filePath: 'files/data.xlsx' },
+                c: { text: 'Node C' } // no filePath
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        // Create physical files
+        const filesDir = path.join(tmpDir, 'files');
+        fs.mkdirSync(filesDir);
+        fs.writeFileSync(path.join(filesDir, 'report.pdf'), 'pdf content', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'data.xlsx'), 'xlsx content', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'orphan.doc'), 'orphan file', 'utf8');
+
+        // Execute
+        const { liveFiles } = await buildLiveSetPass1([outFile], tmpDir);
+
+        // Verify: liveFiles contains paths from node.filePath
+        expect(liveFiles.has(path.join(filesDir, 'report.pdf'))).toBe(true);
+        expect(liveFiles.has(path.join(filesDir, 'data.xlsx'))).toBe(true);
+        expect(liveFiles.has(path.join(filesDir, 'orphan.doc'))).toBe(false);
+    });
+
+    test('DOD-19: Pass 2 tracks [📎 filename](path) links in alive MDs', async () => {
+        // Setup: .out with pageId → alive md with file link
+        // Note: Use files within pages directory to avoid ../ which safeResolveUnderDir rejects
+        const outFile = path.join(tmpDir, 'test.out');
+        const outData = {
+            title: 'Test',
+            pageDir: './pages',
+            nodes: {
+                a: { text: 'Node A', pageId: 'p1' }
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        const pagesDir = path.join(tmpDir, 'pages');
+        const filesDir = path.join(pagesDir, 'files'); // files/ inside pages/
+        fs.mkdirSync(pagesDir);
+        fs.mkdirSync(filesDir);
+
+        // Alive md with file link (relative path within pages directory)
+        const mdContent = '# Page 1\n\nSee attached: [📎 document.pdf](files/document.pdf)';
+        fs.writeFileSync(path.join(pagesDir, 'p1.md'), mdContent, 'utf8');
+
+        // Physical files
+        fs.writeFileSync(path.join(filesDir, 'document.pdf'), 'pdf data', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'unused.txt'), 'unused file', 'utf8');
+
+        // Execute Pass 1
+        const { liveMd: liveMdPass1, liveFiles: liveFilesPass1 } = await buildLiveSetPass1([outFile], tmpDir);
+
+        // Pass 2: buildPass2LiveFiles
+        const { buildPass2LiveFiles } = await import('../../src/shared/cleanup-core');
+        const liveFilesPass2 = await buildPass2LiveFiles(liveMdPass1, liveFilesPass1, tmpDir);
+
+        // Verify: liveFiles includes file from markdown link
+        expect(liveFilesPass2.has(path.join(filesDir, 'document.pdf'))).toBe(true);
+        expect(liveFilesPass2.has(path.join(filesDir, 'unused.txt'))).toBe(false);
+    });
+
+    test('DOD-20: Orphan files detected when not referenced', async () => {
+        // Setup
+        const outFile = path.join(tmpDir, 'test.out');
+        const outData = {
+            title: 'Test',
+            nodes: {
+                a: { text: 'Node A', filePath: 'files/alive.pdf' }
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        const filesDir = path.join(tmpDir, 'files');
+        fs.mkdirSync(filesDir);
+        fs.writeFileSync(path.join(filesDir, 'alive.pdf'), 'alive', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'orphan1.doc'), 'orphan 1', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'orphan2.xlsx'), 'orphan 2', 'utf8');
+
+        // Execute
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        // Verify: orphan files detected
+        const orphanFiles = candidates.filter(c => c.type === 'orphan-file');
+        expect(orphanFiles.length).toBe(2);
+
+        const orphanPaths = orphanFiles.map(c => c.relPath);
+        expect(orphanPaths.some(p => p.includes('orphan1.doc'))).toBe(true);
+        expect(orphanPaths.some(p => p.includes('orphan2.xlsx'))).toBe(true);
+        expect(orphanPaths.some(p => p.includes('alive.pdf'))).toBe(false);
+    });
+
+    test('DOD-20 (extended): File links in MD + node.filePath both tracked', async () => {
+        // Setup: combined scenario
+        const outFile = path.join(tmpDir, 'test.out');
+        const outData = {
+            title: 'Test',
+            pageDir: './pages',
+            nodes: {
+                a: { text: 'Node A', pageId: 'p1', filePath: 'files/attached.pdf' }
+            }
+        };
+        fs.writeFileSync(outFile, JSON.stringify(outData, null, 2), 'utf8');
+
+        const pagesDir = path.join(tmpDir, 'pages');
+        const filesDir = path.join(tmpDir, 'files');
+        fs.mkdirSync(pagesDir);
+        fs.mkdirSync(filesDir);
+
+        // MD with file link (safe relative path without ..)
+        fs.writeFileSync(
+            path.join(pagesDir, 'p1.md'),
+            'Content: [📎 linked.xlsx](files/linked.xlsx)',
+            'utf8'
+        );
+
+        // Also create files/linked.xlsx inside pages for the MD link to resolve
+        const pageFilesDir = path.join(pagesDir, 'files');
+        fs.mkdirSync(pageFilesDir);
+        fs.writeFileSync(path.join(pageFilesDir, 'linked.xlsx'), 'linked from md', 'utf8');
+
+        // Physical files at root level
+        fs.writeFileSync(path.join(filesDir, 'attached.pdf'), 'attached', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'orphan.doc'), 'orphan', 'utf8');
+
+        // Execute
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        // Verify: only orphan.doc is detected as orphan
+        const orphanFiles = candidates.filter(c => c.type === 'orphan-file');
+        expect(orphanFiles.length).toBe(1);
+        expect(orphanFiles[0].relPath).toContain('orphan.doc');
+    });
+});

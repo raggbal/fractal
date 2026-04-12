@@ -150,6 +150,18 @@ const testOutlinerHostBridge = `
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        importFilesDialog: function(targetNodeId) {
+            window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
+        },
+        openAttachedFile: function(nodeId) {
+            window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
+        },
+        copyFileAsset: function(filePath, nodeId) {
+            window.__testApi.messages.push({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
+        },
+        moveFileAssetCross: function(filePath, nodeId) {
+            window.__testApi.messages.push({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
         },
