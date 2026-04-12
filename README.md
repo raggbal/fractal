@@ -52,6 +52,7 @@ A Typora / Notion-style WYSIWYG markdown editor.
 - **Code blocks** — Syntax highlighting for 24+ languages, expand to VS Code editor tab
 - **Blockquotes** and **Horizontal rules**
 - **Links and Images** — Drag & drop, paste, smart link creation (select text + paste URL)
+- **File attachments** — Drag & drop any file onto the editor to insert a `[📎 filename](path)` link. Click to open with OS default app
 - **Notion-style side panel** — Click a `.md` link to open it in a side peek panel with full WYSIWYG editing. Cmd+Click to open in a new tab instead
 - **Mermaid diagrams** — Rendered inline, click to edit source
 - **KaTeX math equations** — Display-mode equations with live re-rendering
@@ -74,6 +75,7 @@ A Dynalist-like outliner built into VS Code.
 - **Search** — Dynalist-compatible queries: AND, OR, NOT, `"phrase"`, `#tag`, `in:title`, `has:children`, `is:page`, `is:task`. Tree mode and focus mode
 - **Page nodes** — Turn any bullet into a page with a full WYSIWYG markdown editor in a resizable side panel
 - **Import .md files** — Import Markdown files (Notion, Obsidian exports) as page nodes via ⋮ menu. Images are auto-copied and paths rewritten
+- **File attachments** — Attach any file type (PDF, Excel, etc.) to nodes via ⋮ → "Import any files...". File nodes display a 📎 icon; click to open with OS default app. Copy/paste duplicates the physical file
 - **Task nodes** — `- [ ]` / `- [x]` checkboxes with toggle support
 - **Inline formatting** — Bold (`Cmd+B`), italic (`Cmd+I`), strikethrough (`Cmd+Shift+S`), inline code (`Cmd+E`), `[text](url)` links
 - **Clickable links** — `[text](url)` links are rendered and clickable in display mode. URLs pasted via `Cmd+V` are auto-converted to link format
@@ -369,9 +371,9 @@ E = mc^2
 
 ---
 
-## 🖼️ Image Path Configuration
+## 🖼️ Image & File Path Configuration
 
-Images can be saved to custom directories when pasting or drag-and-dropping.
+Images and file attachments can be saved to custom directories when pasting or drag-and-dropping. The same path resolution rules apply to both.
 
 ### Configuration Levels
 
@@ -379,36 +381,29 @@ Images can be saved to custom directories when pasting or drag-and-dropping.
 | --- | --- | --- |
 | **Global** | `~/Library/Application Support/Code/User/settings.json` (macOS)<br>`%APPDATA%\Code\User\settings.json` (Windows)<br>`~/.config/Code/User/settings.json` (Linux) | VS Code user settings |
 | **Project** | `.vscode/settings.json` | Project-level override |
-| **File** | Per-file directive | Per-file override in markdown footer |
 
 ### VS Code settings.json Setting
 
 ```json
 {
   "fractal.imageDefaultDir": "./images",
-  "fractal.forceRelativeImagePath": true
+  "fractal.forceRelativeImagePath": true,
+  "fractal.fileDefaultDir": "./files",
+  "fractal.forceRelativeFilePath": true
 }
-```
-
-### Per-File Directive
-
-Add at the end of your markdown file:
-
-```markdown
----
-IMAGE_DIR: ./assets/images
-FORCE_RELATIVE_PATH: true
 ```
 
 ### Path Behavior Matrix
 
-`forceRelativeImagePath` allows you to separate the **image save location** from the **path written in Markdown**.
+The `forceRelative` settings (`forceRelativeImagePath` / `forceRelativeFilePath`) allow you to separate the **save location** from the **path written in Markdown**.
 
-**Use case**: When you want to save images to a specific absolute path (e.g., `/Users/shared/images/`) but reference them using relative paths from the Markdown file, set this to `true`.
+**Use case**: When you want to save files to a specific absolute path but reference them using relative paths from the Markdown file, set this to `true`.
 
-> **Note**: `forceRelativeImagePath` only takes effect when `imageDefaultDir` is an absolute path. When using relative paths, the setting is ignored as paths are always relative.
+> **Note**: `forceRelative` only takes effect when the directory setting is an absolute path. When using relative paths, the setting is ignored as paths are always relative.
 
-| imageDefaultDir | forceRelativeImagePath | Image Save Location | Path in Markdown |
+The same rules apply to both images and file attachments:
+
+| Directory Setting | forceRelative | Save Location | Path in Markdown |
 | --- | --- | --- | --- |
 | Absolute (e.g., `/Users/shared/images`) | `false` (default) | Specified absolute path | Absolute path |
 | Absolute (e.g., `/Users/shared/images`) | `true` | Specified absolute path | Relative path from Markdown file |
@@ -432,6 +427,9 @@ FORCE_RELATIVE_PATH: true
 | `fractal.outlinerPageDir` | Default page directory for outliner | `./pages` |
 | `fractal.outlinerPageTitle` | Show page title input in outliner | `false` |
 | `fractal.outlinerImageDefaultDir` | Default image directory for outliner nodes | `./images` |
+| `fractal.outlinerFileDir` | Default file attachment directory for outliner nodes | `./files` |
+| `fractal.fileDefaultDir` | Default directory for file attachments in markdown | `""` (same as markdown file) |
+| `fractal.forceRelativeFilePath` | Force relative paths for file attachments | `false` |
 | `fractal.enableDebugLogging` | Enable debug logging in browser console | `false` |
 
 ### Themes
@@ -482,6 +480,8 @@ Available in Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `Fractal: Toggle Source Mode` | Switch between WYSIWYG and source mode |
 | `Fractal: Undo` | Undo last edit |
 | `Fractal: Redo` | Redo last undone edit |
+| `Fractal: Clean Unused Files in Note` | Scan all notes for orphan images, markdown files, and file attachments. Move selected to trash |
+| `Fractal: Clean Unused Files (Current Note)` | Same as above, limited to the currently open note |
 
 ---
 
@@ -540,5 +540,3 @@ MIT License - feel free to use this extension in your projects.
 - Built with love for the VS Code community
 
 ---
-IMAGE_DIR: ./assets/images
-FORCE_RELATIVE_PATH: true

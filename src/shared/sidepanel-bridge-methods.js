@@ -60,12 +60,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestInsertImage: function(sidePanelFilePath) {
             postFn({ type: 'insertImage', position: 0, sidePanelFilePath: sidePanelFilePath });
         },
-        requestSetImageDir: function(sidePanelFilePath) {
-            postFn({ type: 'setImageDir', sidePanelFilePath: sidePanelFilePath });
-        },
-        requestSetFileDir: function(sidePanelFilePath) {
-            postFn({ type: 'setFileDir', sidePanelFilePath: sidePanelFilePath });
-        },
         saveImageAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveImageAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },

@@ -109,7 +109,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             { logPrefix: '[Outliner]' }
         );
 
-        // 画像ディレクトリ状態送信 (outliner固有: {pageDir}/images/ に固定, 要件PC-1)
+        // 画像ディレクトリ状態送信 (MDファイルからの相対パスで表示 — toMarkdownPath と同じロジック)
         const sendSidePanelImageDirStatus = (spFilePath: string) => {
             const pagesDir = this.getPagesDirPath(document);
             const imagesDir = path.join(pagesDir, 'images');
@@ -117,6 +117,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             const displayPath = path.relative(spDir, imagesDir).replace(/\\/g, '/') || '.';
             webviewPanel.webview.postMessage({
                 type: 'sidePanelImageDirStatus',
+                displayPath,
+                source: 'default'
+            });
+        };
+
+        // ファイルディレクトリ状態送信 ({pageDir}/files/ — 画像と同じパターン)
+        const sendSidePanelFileDirStatus = (spFilePath: string) => {
+            const pagesDir = this.getPagesDirPath(document);
+            const filesDir = path.join(pagesDir, 'files');
+            const spDir = path.dirname(spFilePath);
+            const displayPath = path.relative(spDir, filesDir).replace(/\\/g, '/') || '.';
+            webviewPanel.webview.postMessage({
+                type: 'sidePanelFileDirStatus',
                 displayPath,
                 source: 'default'
             });
@@ -484,6 +497,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'getSidePanelImageDir':
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
+                            sendSidePanelFileDirStatus(message.sidePanelFilePath);
                         }
                         break;
 
@@ -572,6 +586,75 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 });
                             } catch (e) {
                                 console.error('[Outliner] readAndInsertImage error:', e);
+                            }
+                        }
+                        break;
+                    }
+
+                    case 'saveFileAndInsert': {
+                        // ペースト/ドロップファイルの保存 (サイドパネル用: {pageDir}/files/ に保存)
+                        if (message.sidePanelFilePath && message.dataUrl) {
+                            const pagesDir = this.getPagesDirPath(document);
+                            const filesDir = path.join(pagesDir, 'files');
+                            if (!fs.existsSync(filesDir)) {
+                                fs.mkdirSync(filesDir, { recursive: true });
+                            }
+                            const originalName = message.fileName || `file_${Date.now()}`;
+                            // Collision suffix
+                            let destFileName = originalName;
+                            let destPath = path.join(filesDir, destFileName);
+                            let counter = 1;
+                            while (fs.existsSync(destPath)) {
+                                const ext = path.extname(originalName);
+                                const base = path.basename(originalName, ext);
+                                destFileName = `${base}-${counter}${ext}`;
+                                destPath = path.join(filesDir, destFileName);
+                                counter++;
+                            }
+                            const base64Data = message.dataUrl.replace(/^data:[^;]+;base64,/, '');
+                            fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
+                            const spDir = path.dirname(message.sidePanelFilePath);
+                            const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                            webviewPanel.webview.postMessage({
+                                type: 'insertFileLink',
+                                markdownPath: relPath,
+                                fileName: destFileName
+                            });
+                        }
+                        break;
+                    }
+
+                    case 'readAndInsertFile': {
+                        // ドロップされたローカルファイルの読み取り+挿入 (サイドパネル用: {pageDir}/files/)
+                        if (message.sidePanelFilePath && message.filePath) {
+                            const pagesDir = this.getPagesDirPath(document);
+                            const filesDir = path.join(pagesDir, 'files');
+                            if (!fs.existsSync(filesDir)) {
+                                fs.mkdirSync(filesDir, { recursive: true });
+                            }
+                            const srcPath = message.filePath;
+                            const originalName = path.basename(srcPath);
+                            let destFileName = originalName;
+                            let destPath = path.join(filesDir, destFileName);
+                            let counter = 1;
+                            while (fs.existsSync(destPath)) {
+                                const ext = path.extname(originalName);
+                                const base = path.basename(originalName, ext);
+                                destFileName = `${base}-${counter}${ext}`;
+                                destPath = path.join(filesDir, destFileName);
+                                counter++;
+                            }
+                            try {
+                                fs.copyFileSync(srcPath, destPath);
+                                const spDir = path.dirname(message.sidePanelFilePath);
+                                const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                                webviewPanel.webview.postMessage({
+                                    type: 'insertFileLink',
+                                    markdownPath: relPath,
+                                    fileName: destFileName
+                                });
+                            } catch (e) {
+                                console.error('[Outliner] readAndInsertFile error:', e);
                             }
                         }
                         break;

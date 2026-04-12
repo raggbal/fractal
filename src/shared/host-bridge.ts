@@ -21,12 +21,10 @@ export interface HostBridge {
     openLinkInTab(href: string): void;
     requestInsertLink(text: string): void;
     requestInsertImage(sidePanelFilePath?: string): void;
-    requestSetImageDir(sidePanelFilePath?: string): void;
     saveImageAndInsert(dataUrl: string, fileName?: string, sidePanelFilePath?: string): void;
     readAndInsertImage(filePath: string, sidePanelFilePath?: string): void;
     saveFileAndInsert(dataUrl: string, fileName: string, sidePanelFilePath?: string): void;
     readAndInsertFile(filePath: string, sidePanelFilePath?: string): void;
-    requestSetFileDir(sidePanelFilePath?: string): void;
     openInTextEditor(): void;
     copyFilePath(): void;
     sendToChat(startLine: number, endLine: number, selectedMarkdown: string, sidePanelFilePath?: string): void;
@@ -52,18 +50,13 @@ export type HostMessage =
     | { type: 'performUndo' }
     | { type: 'performRedo' }
     | { type: 'toggleSourceMode' }
-    | { type: 'setImageDir'; dirPath: string; forceRelativePath: boolean | null }
     | { type: 'insertImageHtml'; markdownPath: string; displayUri: string }
     | { type: 'insertLinkHtml'; url: string; text: string }
     | { type: 'externalChangeDetected'; message: string }
     | { type: 'scrollToAnchor'; anchor: string }
-    | { type: 'imageDirInfo'; fileImageDir: string; defaultImageDir: string }
     | { type: 'imageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelImageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
-    | { type: 'sidePanelSetImageDir'; dirPath: string; forceRelativePath: boolean | null }
     | { type: 'insertFileLink'; markdownPath: string; fileName: string }
-    | { type: 'setFileDir'; dirPath: string; forceRelativeFilePath: boolean | null }
-    | { type: 'sidePanelSetFileDir'; dirPath: string; forceRelativeFilePath: boolean | null }
     | { type: 'fileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelFileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'openSidePanel'; content: string; filePath: string; fileName: string }

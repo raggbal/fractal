@@ -4908,14 +4908,8 @@ var Outliner = (function() {
                     updateSidePanelImageDir(msg.displayPath, msg.source);
                     break;
 
-                case 'sidePanelSetImageDir':
-                    updateSidePanelImageDir(msg.displayPath, msg.source);
-                    break;
-
-                case 'sidePanelSetFileDir':
-                    if (sidePanelInstance && sidePanelHostBridge) {
-                        updateSidePanelFileDir(msg.displayPath, msg.source);
-                    }
+                case 'sidePanelFileDirStatus':
+                    updateSidePanelFileDir(msg.displayPath, msg.source);
                     break;
 
                 case 'insertImageHtml':

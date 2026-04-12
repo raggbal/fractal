@@ -5,7 +5,7 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.195.647] - 2026-04-12
+## [0.195.664] - 2026-04-13
 
 ### Added
 - Outliner: File attachment — "Import any files..." menu imports files of any type as 📎 file nodes
@@ -13,13 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Outliner: `filePath` field in .out schema — backward compatible, mutually exclusive with `isPage`
 - Outliner: `fractal.outlinerFileDir` setting — configurable file directory (default `./files`)
 - Outliner: Copy/paste file nodes duplicates physical files (same pattern as page/image assets)
+- Outliner: "Set file directory..." menu item for standalone outliner
 - MD Editor: File drag & drop — non-image files copied to file directory, inserted as `[📎 filename](path)` link
-- MD Editor: File link click opens with OS default application
+- MD Editor: File link click opens with OS default application (via `vscode.env.openExternal`)
 - MD Editor: `fractal.fileDefaultDir` and `fractal.forceRelativeFilePath` settings
-- MD Editor: `FILE_DIR` and `FORCE_RELATIVE_FILE_PATH` directives in MD footer
-- MD Editor: File directory settings UI in outline panel sidebar
+- MD Editor: Side panel MD supports file D&D (standalone outliner + notes mode)
+- MD Editor: Side panel word count display added
 - Cleanup: Extended alive set to track `node.filePath` references and `[📎](path)` MD links
 - Cleanup: Orphan file detection in files/ directories with `$(file)` icon in QuickPick
+
+### Changed
+- Non-MD local file links now open with OS default app (`vscode.env.openExternal`) instead of VS Code text editor
+- Sidebar image/file directory display simplified to single line (removed source label and settings button)
+
+### Removed
+- Per-file MD footer directives: IMAGE_DIR, FORCE_RELATIVE_PATH, FILE_DIR, FORCE_RELATIVE_FILE_PATH
+- Per-file settings button (⚙ gear icon) from sidebar for both image and file directory
 
 ## [0.195.646] - 2026-04-12
 

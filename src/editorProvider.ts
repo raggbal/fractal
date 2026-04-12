@@ -15,71 +15,8 @@ import {
 // DocumentParser: IMAGE_DIR ディレクティブの解析
 // ============================================
 
-/**
- * IMAGE_DIRディレクティブを挿入または更新
- * 既存のディレクティブブロックがあれば更新、なければ新規作成
- * すべてのディレクティブ（IMAGE_DIR, FORCE_RELATIVE_PATH, FILE_DIR, FORCE_RELATIVE_FILE_PATH）を同じブロックにまとめる
- */
-function insertOrUpdateImageDir(content: string, dirPath: string): string {
-    const existingImageDir = extractImageDir(content);
-    const existingForceRelative = extractForceRelativePath(content);
-    const existingFileDir = extractFileDir(content);
-    const existingForceRelativeFile = extractForceRelativeFilePath(content);
-
-    // Remove all existing directive blocks
-    let cleanContent = removeAllDirectives(content);
-
-    // Build new directive block with all 4 directives
-    let directives = `IMAGE_DIR: ${dirPath}`;
-    if (existingForceRelative !== null) {
-        directives += `\nFORCE_RELATIVE_PATH: ${existingForceRelative}`;
-    }
-    if (existingFileDir !== null) {
-        directives += `\nFILE_DIR: ${existingFileDir}`;
-    }
-    if (existingForceRelativeFile !== null) {
-        directives += `\nFORCE_RELATIVE_FILE_PATH: ${existingForceRelativeFile}`;
-    }
-
-    return cleanContent.trimEnd() + `\n---\n${directives}`;
-}
-
-/**
- * IMAGE_DIRディレクティブが存在するか確認
- */
-function hasImageDir(content: string): boolean {
-    return extractImageDir(content) !== null;
-}
-
-/**
- * FILE_DIRディレクティブを挿入または更新
- * 既存のディレクティブブロックがあれば更新、なければ新規作成
- * すべてのディレクティブ（IMAGE_DIR, FORCE_RELATIVE_PATH, FILE_DIR, FORCE_RELATIVE_FILE_PATH）を同じブロックにまとめる
- */
-function insertOrUpdateFileDir(content: string, dirPath: string): string {
-    const existingImageDir = extractImageDir(content);
-    const existingForceRelative = extractForceRelativePath(content);
-    const existingFileDir = extractFileDir(content);
-    const existingForceRelativeFile = extractForceRelativeFilePath(content);
-
-    // Remove all existing directive blocks
-    let cleanContent = removeAllDirectives(content);
-
-    // Build new directive block with all 4 directives
-    let directives: string[] = [];
-    if (existingImageDir !== null) {
-        directives.push(`IMAGE_DIR: ${existingImageDir}`);
-    }
-    if (existingForceRelative !== null) {
-        directives.push(`FORCE_RELATIVE_PATH: ${existingForceRelative}`);
-    }
-    directives.push(`FILE_DIR: ${dirPath}`);
-    if (existingForceRelativeFile !== null) {
-        directives.push(`FORCE_RELATIVE_FILE_PATH: ${existingForceRelativeFile}`);
-    }
-
-    return cleanContent.trimEnd() + `\n---\n${directives.join('\n')}`;
-}
+// REMOVED: insertOrUpdateImageDir, hasImageDir, insertOrUpdateFileDir
+// Per-file directive feature has been removed
 
 // ============================================
 // PathResolver: パス解決ロジック
@@ -218,29 +155,21 @@ class ImageDirectoryManager {
     
     /**
      * 現在有効な画像保存ディレクトリを取得
-     * 優先順位: 1. ファイル単位のIMAGE_DIR, 2. ドキュメント内のIMAGE_DIRディレクティブ, 3. VS Code設定のimageDefaultDir, 4. ドキュメントと同じディレクトリ
+     * 優先順位: 1. ファイル単位のIMAGE_DIR (outliner forced), 2. VS Code設定のimageDefaultDir, 3. ドキュメントと同じディレクトリ
      */
     getImageDirectory(documentUri: vscode.Uri, documentContent: string): string {
         const documentPath = documentUri.fsPath;
         const uriKey = documentUri.toString();
-        
-        // 1. ファイル単位のIMAGE_DIRをチェック
+
+        // 1. ファイル単位のIMAGE_DIR (outliner page forced dir)
         const fileImageDir = this.fileImageDirs.get(uriKey);
         if (fileImageDir) {
             const normalized = normalizeTrailingSlash(fileImageDir);
             this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
             return resolveToAbsolute(normalized, documentPath);
         }
-        
-        // 2. ドキュメント内のIMAGE_DIRディレクティブをチェック
-        const docImageDir = extractImageDir(documentContent);
-        if (docImageDir) {
-            const normalized = normalizeTrailingSlash(docImageDir);
-            this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
-            return resolveToAbsolute(normalized, documentPath);
-        }
-        
-        // 3. VS Code設定のimageDefaultDirをチェック
+
+        // 2. VS Code設定のimageDefaultDirをチェック
         const config = vscode.workspace.getConfiguration('fractal');
         const defaultDir = config.get<string>('imageDefaultDir', '');
         if (defaultDir) {
@@ -248,8 +177,8 @@ class ImageDirectoryManager {
             this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
             return resolveToAbsolute(normalized, documentPath);
         }
-        
-        // 4. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
+
+        // 3. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
         this.useAbsolutePath.set(uriKey, false);
         return path.dirname(documentPath);
     }
@@ -264,16 +193,9 @@ class ImageDirectoryManager {
     
     /**
      * 相対パスを強制するかどうかを取得
-     * 優先順位: 1. ドキュメント内のFORCE_RELATIVE_PATHディレクティブ, 2. VS Code設定のforceRelativeImagePath
+     * VS Code設定のforceRelativeImagePathを使用
      */
     shouldForceRelativePath(documentUri: vscode.Uri, documentContent: string): boolean {
-        // 1. ドキュメント内のディレクティブをチェック
-        const docForceRelative = extractForceRelativePath(documentContent);
-        if (docForceRelative !== null) {
-            return docForceRelative;
-        }
-        
-        // 2. VS Code設定をチェック
         const config = vscode.workspace.getConfiguration('fractal');
         return config.get<boolean>('forceRelativeImagePath', false);
     }
@@ -299,41 +221,6 @@ class ImageDirectoryManager {
     clearFileImageDir(documentUri: vscode.Uri): void {
         this.fileImageDirs.delete(documentUri.toString());
     }
-    
-    /**
-     * IMAGE_DIRの変更を検出して警告を表示
-     */
-    checkAndWarnIfChanged(documentUri: vscode.Uri, documentContent: string): boolean {
-        const uriKey = documentUri.toString();
-        const currentDir = extractImageDir(documentContent);
-        const lastDir = this.lastDetectedDirs.get(uriKey);
-        
-        // 初回は記録のみ
-        if (lastDir === undefined) {
-            if (currentDir) {
-                this.lastDetectedDirs.set(uriKey, currentDir);
-            }
-            return false;
-        }
-        
-        // 変更を検出
-        if (currentDir !== lastDir) {
-            this.lastDetectedDirs.set(uriKey, currentDir || '');
-            return true; // 変更あり
-        }
-        
-        return false;
-    }
-    
-    /**
-     * 初期化時にIMAGE_DIRを記録
-     */
-    initializeForDocument(documentUri: vscode.Uri, documentContent: string): void {
-        const currentDir = extractImageDir(documentContent);
-        if (currentDir) {
-            this.lastDetectedDirs.set(documentUri.toString(), currentDir);
-        }
-    }
 }
 
 // グローバルインスタンス
@@ -353,13 +240,13 @@ class FileDirectoryManager {
 
     /**
      * 現在有効なファイル保存ディレクトリを取得
-     * 優先順位: 1. ファイル単位のFILE_DIR, 2. ドキュメント内のFILE_DIRディレクティブ, 3. VS Code設定のfileDefaultDir, 4. ドキュメントと同じディレクトリ
+     * 優先順位: 1. ファイル単位のFILE_DIR (outliner forced), 2. VS Code設定のfileDefaultDir, 3. ドキュメントと同じディレクトリ
      */
     getFileDirectory(documentUri: vscode.Uri, documentContent: string): string {
         const documentPath = documentUri.fsPath;
         const uriKey = documentUri.toString();
 
-        // 1. ファイル単位のFILE_DIRをチェック
+        // 1. ファイル単位のFILE_DIR (outliner page forced dir)
         const fileFileDir = this.fileFileDirs.get(uriKey);
         if (fileFileDir) {
             const normalized = normalizeTrailingSlash(fileFileDir);
@@ -367,15 +254,7 @@ class FileDirectoryManager {
             return resolveToAbsolute(normalized, documentPath);
         }
 
-        // 2. ドキュメント内のFILE_DIRディレクティブをチェック
-        const docFileDir = extractFileDir(documentContent);
-        if (docFileDir) {
-            const normalized = normalizeTrailingSlash(docFileDir);
-            this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
-            return resolveToAbsolute(normalized, documentPath);
-        }
-
-        // 3. VS Code設定のfileDefaultDirをチェック
+        // 2. VS Code設定のfileDefaultDirをチェック
         const config = vscode.workspace.getConfiguration('fractal');
         const defaultDir = config.get<string>('fileDefaultDir', '');
         if (defaultDir) {
@@ -384,7 +263,7 @@ class FileDirectoryManager {
             return resolveToAbsolute(normalized, documentPath);
         }
 
-        // 4. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
+        // 3. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
         this.useAbsolutePath.set(uriKey, false);
         return path.dirname(documentPath);
     }
@@ -399,16 +278,9 @@ class FileDirectoryManager {
 
     /**
      * 相対パスを強制するかどうかを取得
-     * 優先順位: 1. ドキュメント内のFORCE_RELATIVE_FILE_PATHディレクティブ, 2. VS Code設定のforceRelativeFilePath
+     * VS Code設定のforceRelativeFilePathを使用
      */
     shouldForceRelativeFilePath(documentUri: vscode.Uri, documentContent: string): boolean {
-        // 1. ドキュメント内のディレクティブをチェック
-        const docForceRelative = extractForceRelativeFilePath(documentContent);
-        if (docForceRelative !== null) {
-            return docForceRelative;
-        }
-
-        // 2. VS Code設定をチェック
         const config = vscode.workspace.getConfiguration('fractal');
         return config.get<boolean>('forceRelativeFilePath', false);
     }
@@ -433,41 +305,6 @@ class FileDirectoryManager {
      */
     clearFileFileDir(documentUri: vscode.Uri): void {
         this.fileFileDirs.delete(documentUri.toString());
-    }
-
-    /**
-     * FILE_DIRの変更を検出して警告を表示
-     */
-    checkAndWarnIfChanged(documentUri: vscode.Uri, documentContent: string): boolean {
-        const uriKey = documentUri.toString();
-        const currentDir = extractFileDir(documentContent);
-        const lastDir = this.lastDetectedDirs.get(uriKey);
-
-        // 初回は記録のみ
-        if (lastDir === undefined) {
-            if (currentDir) {
-                this.lastDetectedDirs.set(uriKey, currentDir);
-            }
-            return false;
-        }
-
-        // 変更を検出
-        if (currentDir !== lastDir) {
-            this.lastDetectedDirs.set(uriKey, currentDir || '');
-            return true; // 変更あり
-        }
-
-        return false;
-    }
-
-    /**
-     * 初期化時にFILE_DIRを記録
-     */
-    initializeForDocument(documentUri: vscode.Uri, documentContent: string): void {
-        const currentDir = extractFileDir(documentContent);
-        if (currentDir) {
-            this.lastDetectedDirs.set(documentUri.toString(), currentDir);
-        }
     }
 }
 
@@ -639,14 +476,13 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             const uriKey = document.uri.toString();
             const docDir = path.dirname(docPath);
 
-            // Determine source
+            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
             const fileImageDir = imageDirectoryManager.getFileImageDir(uriKey);
-            const docImageDir = extractImageDir(docContent);
             const cfg = vscode.workspace.getConfiguration('fractal');
             const settingsDir = cfg.get<string>('imageDefaultDir', '');
 
             let source: 'file' | 'settings' | 'default';
-            if (fileImageDir || docImageDir) {
+            if (fileImageDir) {
                 source = 'file';
             } else if (settingsDir) {
                 source = 'settings';
@@ -687,15 +523,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 try { spContent = fs.readFileSync(spFilePath, 'utf-8'); } catch { /* empty */ }
             }
 
-            // Determine source
+            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
             const spUriKey = spUri.toString();
             const fileImageDir = imageDirectoryManager.getFileImageDir(spUriKey);
-            const docImageDir = extractImageDir(spContent);
             const cfg = vscode.workspace.getConfiguration('fractal');
             const settingsDir = cfg.get<string>('imageDefaultDir', '');
 
             let source: 'file' | 'settings' | 'default';
-            if (fileImageDir || docImageDir) {
+            if (fileImageDir) {
                 source = 'file';
             } else if (settingsDir) {
                 source = 'settings';
@@ -729,14 +564,13 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             const uriKey = document.uri.toString();
             const docDir = path.dirname(docPath);
 
-            // Determine source
+            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
             const fileFileDir = fileDirectoryManager.getFileFileDir(uriKey);
-            const docFileDir = extractFileDir(docContent);
             const cfg = vscode.workspace.getConfiguration('fractal');
             const settingsDir = cfg.get<string>('fileDefaultDir', '');
 
             let source: 'file' | 'settings' | 'default';
-            if (fileFileDir || docFileDir) {
+            if (fileFileDir) {
                 source = 'file';
             } else if (settingsDir) {
                 source = 'settings';
@@ -777,15 +611,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 try { spContent = fs.readFileSync(spFilePath, 'utf-8'); } catch { /* empty */ }
             }
 
-            // Determine source
+            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
             const spUriKey = spUri.toString();
             const fileFileDir = fileDirectoryManager.getFileFileDir(spUriKey);
-            const docFileDir = extractFileDir(spContent);
             const cfg = vscode.workspace.getConfiguration('fractal');
             const settingsDir = cfg.get<string>('fileDefaultDir', '');
 
             let source: 'file' | 'settings' | 'default';
-            if (fileFileDir || docFileDir) {
+            if (fileFileDir) {
                 source = 'file';
             } else if (settingsDir) {
                 source = 'settings';
@@ -814,12 +647,6 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
         // Initial content
         updateWebview();
-
-        // Initialize IMAGE_DIR tracking
-        imageDirectoryManager.initializeForDocument(document.uri, document.getText());
-
-        // Initialize FILE_DIR tracking
-        fileDirectoryManager.initializeForDocument(document.uri, document.getText());
 
         // Send initial image dir status (queued for webview)
         sendImageDirStatus();
@@ -851,21 +678,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 content: content
             });
 
-            // Update image dir status (directive may have changed)
+            // Update image dir status
             sendImageDirStatus();
-
-            // Check for IMAGE_DIR changes (external edit)
-            if (imageDirectoryManager.checkAndWarnIfChanged(document.uri, currentContent)) {
-                vscode.window.showInformationMessage(
-                    t('imageDirChanged'),
-                    t('reload')
-                ).then(selection => {
-                    if (selection === t('reload')) {
-                        updateWebview();
-                        imageDirectoryManager.initializeForDocument(document.uri, document.getText());
-                    }
-                });
-            }
         });
 
         // Listen for file system changes (from external editors like Claude)
@@ -1176,139 +990,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     }
                     break;
 
-                case 'setImageDir': {
-                    // outlinerページでは画像ディレクトリ変更を拒否
-                    if (isOutlinerPage) { break; }
-                    // Set IMAGE_DIR and FORCE_RELATIVE_PATH directives via toolbar button
-                    // Resolve target document: side panel or main
-                    const isSpSetImageDir = !!message.sidePanelFilePath;
-                    const setImgDirUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
-                    const setImgDirContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    const inputDir = await vscode.window.showInputBox({
-                        prompt: t('enterImageDir'),
-                        placeHolder: './images',
-                        value: extractImageDir(setImgDirContent) || ''
-                    });
-                    if (inputDir !== undefined) {
-                        // Choose message type based on origin (side panel or main)
-                        const setDirMsgType = isSpSetImageDir ? 'sidePanelSetImageDir' : 'setImageDir';
-                        if (inputDir === '') {
-                            // 空文字の場合: IMAGE_DIR と FORCE_RELATIVE_PATH 両方をクリア
-                            imageDirectoryManager.setFileImageDir(setImgDirUri, '');
-                            webviewPanel.webview.postMessage({
-                                type: setDirMsgType,
-                                dirPath: '',
-                                forceRelativePath: null  // null でクリア
-                            });
-                            vscode.window.showInformationMessage(t('imageDirCleared'));
-                            if (isSpSetImageDir) {
-                                sendSidePanelImageDirStatus(message.sidePanelFilePath);
-                            } else {
-                                sendImageDirStatus();
-                            }
-                        } else {
-                            // パスが入力された場合: FORCE_RELATIVE_PATH の設定を確認
-                            const forceRelativeChoice = await vscode.window.showQuickPick(
-                                [
-                                    { label: 'No', description: t('forceRelativeNo'), value: false },
-                                    { label: 'Yes', description: t('forceRelativeYes'), value: true }
-                                ],
-                                {
-                                    placeHolder: t('forceRelativePrompt'),
-                                    title: t('forceRelativeTitle')
-                                }
-                            );
+                // REMOVED: 'setImageDir' handler (per-file directive feature removed)
 
-                            if (forceRelativeChoice !== undefined) {
-                                // Update the manager
-                                imageDirectoryManager.setFileImageDir(setImgDirUri, inputDir);
-
-                                // Send to webview to update both settings
-                                webviewPanel.webview.postMessage({
-                                    type: setDirMsgType,
-                                    dirPath: inputDir,
-                                    forceRelativePath: forceRelativeChoice.value
-                                });
-
-                                const relativeMsg = forceRelativeChoice.value ? t('relativePathOn') : '';
-                                vscode.window.showInformationMessage(`${t('imageDirSet')}${inputDir} ${relativeMsg}`);
-                                if (isSpSetImageDir) {
-                                    sendSidePanelImageDirStatus(message.sidePanelFilePath);
-                                } else {
-                                    sendImageDirStatus();
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-
-                case 'setFileDir': {
-                    // outlinerページではファイルディレクトリ変更を拒否
-                    if (isOutlinerPage) { break; }
-                    // Set FILE_DIR and FORCE_RELATIVE_FILE_PATH directives via toolbar button
-                    // Resolve target document: side panel or main
-                    const isSpSetFileDir = !!message.sidePanelFilePath;
-                    const setFileDirUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
-                    const setFileDirContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    const inputDir = await vscode.window.showInputBox({
-                        prompt: t('enterFileDir'),
-                        placeHolder: './files',
-                        value: extractFileDir(setFileDirContent) || ''
-                    });
-                    if (inputDir !== undefined) {
-                        // Choose message type based on origin (side panel or main)
-                        const setDirMsgType = isSpSetFileDir ? 'sidePanelSetFileDir' : 'setFileDir';
-                        if (inputDir === '') {
-                            // 空文字の場合: FILE_DIR と FORCE_RELATIVE_FILE_PATH 両方をクリア
-                            fileDirectoryManager.setFileFileDir(setFileDirUri, '');
-                            webviewPanel.webview.postMessage({
-                                type: setDirMsgType,
-                                dirPath: '',
-                                forceRelativeFilePath: null  // null でクリア
-                            });
-                            vscode.window.showInformationMessage(t('fileDirCleared'));
-                            if (isSpSetFileDir) {
-                                sendSidePanelFileDirStatus(message.sidePanelFilePath);
-                            } else {
-                                sendFileDirStatus();
-                            }
-                        } else {
-                            // パスが入力された場合: FORCE_RELATIVE_FILE_PATH の設定を確認
-                            const forceRelativeChoice = await vscode.window.showQuickPick(
-                                [
-                                    { label: 'No', description: t('forceRelativeNo'), value: false },
-                                    { label: 'Yes', description: t('forceRelativeYes'), value: true }
-                                ],
-                                {
-                                    placeHolder: t('forceRelativePrompt'),
-                                    title: t('forceRelativeTitle')
-                                }
-                            );
-
-                            if (forceRelativeChoice !== undefined) {
-                                // Update the manager
-                                fileDirectoryManager.setFileFileDir(setFileDirUri, inputDir);
-
-                                // Send to webview to update both settings
-                                webviewPanel.webview.postMessage({
-                                    type: setDirMsgType,
-                                    dirPath: inputDir,
-                                    forceRelativeFilePath: forceRelativeChoice.value
-                                });
-
-                                const relativeMsg = forceRelativeChoice.value ? t('relativePathOn') : '';
-                                vscode.window.showInformationMessage(`${t('fileDirSet')}${inputDir} ${relativeMsg}`);
-                                if (isSpSetFileDir) {
-                                    sendSidePanelFileDirStatus(message.sidePanelFilePath);
-                                } else {
-                                    sendFileDirStatus();
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
+                // REMOVED: 'setFileDir' handler (per-file directive feature removed)
 
                 case 'getSidePanelImageDir': {
                     if (message.sidePanelFilePath) {
@@ -1317,17 +1001,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     break;
                 }
 
-                case 'getImageDir':
-                    // Return current IMAGE_DIR to webview
-                    const currentImageDir = extractImageDir(document.getText()) || '';
-                    const config = vscode.workspace.getConfiguration('fractal');
-                    const defaultImageDir = config.get<string>('imageDefaultDir', '');
-                    webviewPanel.webview.postMessage({
-                        type: 'imageDirInfo',
-                        fileImageDir: currentImageDir,
-                        defaultImageDir: defaultImageDir
-                    });
-                    break;
+                // REMOVED: 'getImageDir' handler (per-file directive feature removed)
 
                 case 'searchFiles': {
                     const query: string = message.query || '';

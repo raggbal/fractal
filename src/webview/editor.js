@@ -146,12 +146,10 @@ class EditorInstance {
                 <div class="sidebar-footer">
                     <div class="word-count"></div>
                     <div class="sidebar-status-imagedir">
-                        <div class="imagedir-header"><span class="imagedir-label"></span><span class="imagedir-source"></span><button class="imagedir-settings-btn"></button></div>
-                        <div class="imagedir-info"><span class="imagedir-path"></span></div>
+                        <span class="imagedir-label"></span> <span class="imagedir-path"></span>
                     </div>
                     <div class="sidebar-status-filedir">
-                        <div class="filedir-header"><span class="filedir-label"></span><span class="filedir-source"></span><button class="filedir-settings-btn"></button></div>
-                        <div class="filedir-info"><span class="filedir-path"></span></div>
+                        <span class="filedir-label"></span> <span class="filedir-path"></span>
                     </div>
                 </div>
                 <div class="sidebar-resizer"></div>
@@ -245,7 +243,7 @@ class EditorInstance {
     const editor = container.querySelector('.editor');
     const sourceEditor = container.querySelector('.source-editor');
     const outline = container.querySelector('.outline');
-    const wordCount = container.querySelector('.word-count');
+    const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
     const sidebar = container.querySelector('.sidebar');
@@ -366,8 +364,7 @@ class EditorInstance {
     let syncTimeout = null;
     let pendingSync = false;
     let hasUserEdited = false; // Flag to track if user has made any edits
-    let currentImageDir = null; // IMAGE_DIR directive value (preserved during sync)
-    let currentForceRelativePath = null; // FORCE_RELATIVE_PATH directive value (preserved during sync)
+    // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
     let fileDirDisplayPath = null; // Resolved display path for files from extension
@@ -500,41 +497,9 @@ class EditorInstance {
     let editingIdleTimer = null;
     let queuedExternalContent = null; // Queued external change waiting for idle
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
-    
-    // Extract IMAGE_DIR from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractImageDirFromMarkdown(md) {
-        // Pattern: matches IMAGE_DIR in a directive block (may have other directives before/after)
-        const pattern = /\n---\n(?:[\s\S]*?\n)?IMAGE_DIR:\s*([^\n]+)/;
-        const match = md.match(pattern);
-        return match ? match[1].trim() : null;
-    }
-    
-    // Extract FORCE_RELATIVE_PATH from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractForceRelativePathFromMarkdown(md) {
-        const pattern = /\n---\n(?:[\s\S]*?\n)?FORCE_RELATIVE_PATH:\s*(true|false)/i;
-        const match = md.match(pattern);
-        return match ? match[1].toLowerCase() === 'true' : null;
-    }
-    
-    // Remove all directive blocks from markdown content (for rendering)
-    // This removes all --- blocks containing IMAGE_DIR or FORCE_RELATIVE_PATH
-    function removeDirectivesFromMarkdown(md) {
-        // Remove standalone directive blocks (single directive)
-        md = md.replace(/\n---\nIMAGE_DIR:\s*[^\n]+\s*$/g, '');
-        md = md.replace(/\n---\nFORCE_RELATIVE_PATH:\s*(true|false)\s*$/gi, '');
-        
-        // Remove combined directive block at end of file
-        // Pattern: ---\n followed by any combination of IMAGE_DIR and FORCE_RELATIVE_PATH lines
-        md = md.replace(/\n---\n(?:(?:IMAGE_DIR:\s*[^\n]+|FORCE_RELATIVE_PATH:\s*(?:true|false))\n?)+\s*$/gi, '');
-        
-        return md;
-    }
-    
-    // Initialize currentImageDir and currentForceRelativePath from initial content
-    currentImageDir = extractImageDirFromMarkdown(markdown);
-    currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
+
+    // REMOVED: extractImageDirFromMarkdown, extractForceRelativePathFromMarkdown, removeDirectivesFromMarkdown
+    // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
     function classifyLinkHref(href) {
@@ -1766,10 +1731,8 @@ class EditorInstance {
     }
     
     function renderFromMarkdown() {
-        // Remove IMAGE_DIR and FORCE_RELATIVE_PATH directives before rendering (they're stored in variables)
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length, 'after directive removal:', markdownToRender.length);
-        const html = markdownToHtmlFragment(markdownToRender);
+        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
         setupInteractiveElements();
@@ -2035,8 +1998,7 @@ class EditorInstance {
         const cursorState = saveCursorState();
 
         // 2. Generate new HTML into a temporary container
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        const newHtml = markdownToHtmlFragment(markdownToRender);
+        const newHtml = markdownToHtmlFragment(markdown);
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = newHtml || '<p><br></p>';
 
@@ -6160,23 +6122,9 @@ class EditorInstance {
         
         // Remove zero-width spaces (used for cursor positioning in contenteditable)
         md = md.replace(/\u200B/g, '');
-        
-        // Append directives in a single block if any are set
-        // Format:
-        // ---
-        // IMAGE_DIR: <path>
-        // FORCE_RELATIVE_PATH: <true|false>
-        let directives = '';
-        if (currentImageDir) {
-            directives += 'IMAGE_DIR: ' + currentImageDir + '\n';
-        }
-        if (currentForceRelativePath !== null) {
-            directives += 'FORCE_RELATIVE_PATH: ' + currentForceRelativePath + '\n';
-        }
-        if (directives) {
-            md += '\n---\n' + directives.trimEnd();
-        }
-        
+
+        // REMOVED: Directive appending logic (per-file directive feature removed)
+
         return md;
     }
 
@@ -12323,31 +12271,7 @@ class EditorInstance {
         closeSidebar();
     });
 
-    // Image directory settings button handler
-    const imageDirSettingsBtn = container.querySelector('.imagedir-settings-btn');
-    if (imageDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページでは画像ディレクトリ変更ボタンを非表示
-            imageDirSettingsBtn.style.display = 'none';
-        } else {
-            imageDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetImageDir();
-            });
-        }
-    }
-
-    // File directory settings button handler
-    const fileDirSettingsBtn = container.querySelector('.filedir-settings-btn');
-    if (fileDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページではファイルディレクトリ変更ボタンを非表示
-            fileDirSettingsBtn.style.display = 'none';
-        } else {
-            fileDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetFileDir();
-            });
-        }
-    }
+    // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
     // Sidebar resize functionality
     let isResizing = false;
@@ -12464,8 +12388,6 @@ class EditorInstance {
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
         queuedExternalContent = null;
-        currentImageDir = extractImageDirFromMarkdown(markdown);
-        currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
         if (isSourceMode) {
             sourceEditor.value = markdown;
         } else {
@@ -12511,39 +12433,18 @@ class EditorInstance {
     }
 
     function updateStatus() {
-        // Update IMAGE_DIR display in sidebar footer
         if (statusImageDir) {
             const pathEl = container.querySelector('.imagedir-path');
-            const sourceEl = container.querySelector('.imagedir-source');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
                 pathEl.title = imageDirDisplayPath;
             }
-            if (sourceEl && imageDirSource) {
-                const labels = {
-                    file: i18n.imageDirSourceFile || 'File',
-                    settings: i18n.imageDirSourceSettings || 'Settings',
-                    default: i18n.imageDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[imageDirSource] || imageDirSource;
-            }
         }
-
-        // Update FILE_DIR display in sidebar footer
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
-            const sourceEl = container.querySelector('.filedir-source');
             if (pathEl && fileDirDisplayPath !== null) {
                 pathEl.textContent = fileDirDisplayPath;
                 pathEl.title = fileDirDisplayPath;
-            }
-            if (sourceEl && fileDirSource) {
-                const labels = {
-                    file: i18n.fileDirSourceFile || 'File',
-                    settings: i18n.fileDirSourceSettings || 'Settings',
-                    default: i18n.fileDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[fileDirSource] || fileDirSource;
             }
         }
     }
@@ -13476,8 +13377,6 @@ class EditorInstance {
 
             // Idle state — apply external change immediately with cursor preservation
             markdown = incomingContent;
-            currentImageDir = extractImageDirFromMarkdown(markdown);
-            currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
             if (isSourceMode) {
                 sourceEditor.value = markdown;
             } else {
@@ -13487,17 +13386,6 @@ class EditorInstance {
             updateWordCount();
             updateStatus();
             undoManager.clear();
-        } else if (message.type === 'setImageDir') {
-            // Update currentImageDir and currentForceRelativePath from extension
-            currentImageDir = message.dirPath;
-            // forceRelativePath: true/false で設定、null でクリア
-            if (message.forceRelativePath === null) {
-                currentForceRelativePath = null;
-            } else if (message.forceRelativePath !== undefined) {
-                currentForceRelativePath = message.forceRelativePath;
-            }
-            updateStatus(); // Update status bar to show IMAGE_DIR and FORCE_RELATIVE_PATH
-            syncMarkdown(); // Re-sync to include the new directives
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
@@ -13508,15 +13396,8 @@ class EditorInstance {
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source);
-        } else if (message.type === 'sidePanelSetImageDir') {
-            // Route setImageDir response to side panel instance
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage({
-                    type: 'setImageDir',
-                    dirPath: message.dirPath,
-                    forceRelativePath: message.forceRelativePath
-                });
-            }
+        } else if (message.type === 'sidePanelFileDirStatus') {
+            updateSidePanelFileDir(message.displayPath, message.source);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -13757,8 +13638,7 @@ class EditorInstance {
     var sidePanelSidebarCloseBtn = container.querySelector('#sidePanelSidebarClose');
     var sidePanelImageDirEl = container.querySelector('.side-panel-imagedir');
     var sidePanelImageDirPath = container.querySelector('#sidePanelImageDirPath');
-    var sidePanelImageDirSource = container.querySelector('#sidePanelImageDirSource');
-    var sidePanelImageDirBtn = container.querySelector('#sidePanelImageDirBtn');
+    var sidePanelFileDirPath = container.querySelector('#sidePanelFileDirPath');
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -13959,13 +13839,12 @@ class EditorInstance {
             sidePanelImageDirPath.textContent = displayPath || '';
             sidePanelImageDirPath.title = displayPath || '';
         }
-        if (sidePanelImageDirSource) {
-            var labels = {
-                file: i18n.imageDirSourceFile || 'File',
-                settings: i18n.imageDirSourceSettings || 'Settings',
-                default: i18n.imageDirSourceDefault || 'Default'
-            };
-            sidePanelImageDirSource.textContent = labels[source] || source || '';
+    }
+
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
         }
     }
 

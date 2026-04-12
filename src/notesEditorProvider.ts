@@ -494,6 +494,14 @@ export class NotesEditorProvider {
                     displayPath,
                     source: 'default',
                 });
+                // Also send file dir status
+                const fileDirPath = fileManager.getFileDirPath();
+                const fileDirDisplay = path.relative(spDir, fileDirPath).replace(/\\/g, '/') || '.';
+                panel.webview.postMessage({
+                    type: 'sidePanelFileDirStatus',
+                    displayPath: fileDirDisplay,
+                    source: 'default',
+                });
             },
             saveSidePanelFile: async (filePath: string, content: string) => {
                 await sidePanel.handleSave(filePath, content);
