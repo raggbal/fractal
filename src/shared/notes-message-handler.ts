@@ -87,6 +87,8 @@ export interface NotesPlatformActions {
     cleanupUnusedFilesAllNotes?(): Promise<void>;
     /** FR-7: 手動クリーンアップコマンド (自ノート限定モード) */
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
+    /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
+    pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string): void;
 }
 
 /**
@@ -384,6 +386,12 @@ export async function handleNotesMessage(
         case 'getSidePanelImageDir':
             if (message.sidePanelFilePath) {
                 platform.sendSidePanelImageDir(message.sidePanelFilePath);
+            }
+            break;
+
+        case 'pasteWithAssetCopy':
+            if (message.sidePanelFilePath && message.markdown && message.sourceContext && platform.pasteWithAssetCopy) {
+                platform.pasteWithAssetCopy(message.markdown, message.sourceContext, message.sidePanelFilePath);
             }
             break;
 

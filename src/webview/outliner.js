@@ -4943,6 +4943,25 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'sidePanelAssetContext':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._assetContext = {
+                            imageDir: msg.imageDir,
+                            fileDir: msg.fileDir,
+                            mdDir: msg.mdDir
+                        };
+                    }
+                    break;
+
+                case 'pasteWithAssetCopyResult':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'pasteWithAssetCopyResult',
+                            markdown: msg.markdown
+                        });
+                    }
+                    break;
+
                 case 'scopeIn':
                     if (focusedNodeId) { setScope({ type: 'subtree', rootId: focusedNodeId }); }
                     break;

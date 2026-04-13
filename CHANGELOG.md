@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.674] - 2026-04-13
+
+### Added
+- MD Editor: Copy/paste asset duplication — copying image/file links across different outliners/notes now duplicates physical files to destination directory
+- MD Editor: Clipboard context (`text/x-any-md-context`) carries source imageDir/fileDir/mdDir for cross-outliner paste detection
+- MD Editor: `sidePanelAssetContext` message provides absolute paths to side panel editors
+- MD Editor: `pasteWithAssetCopy` / `pasteWithAssetCopyResult` message flow for host-side file copy + path rewrite
+
 ## [0.195.673] - 2026-04-13
 
 ### Added

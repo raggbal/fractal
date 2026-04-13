@@ -12,6 +12,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractMarkdownImagePaths } from './markdown-image-utils';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const parser = require('./markdown-link-parser');
 
 export interface PasteAssetResult {
     newNodeImages: string[];
@@ -332,7 +334,7 @@ export function moveFileAsset(opts: {
  * Generate unique filename preserving original name with collision suffix.
  * Examples: report.pdf, report-1.pdf, report-2.pdf
  */
-function generateUniqueFileNamePreserving(targetDir: string, originalName: string): string {
+export function generateUniqueFileNamePreserving(targetDir: string, originalName: string): string {
     const ext = path.extname(originalName);
     const baseName = path.basename(originalName, ext);
 
@@ -345,4 +347,112 @@ function generateUniqueFileNamePreserving(targetDir: string, originalName: strin
     }
 
     return candidate;
+}
+
+/**
+ * MD paste asset copy: extract image/file links from markdown, copy assets to dest, rewrite paths.
+ * Used by MD editor copy/paste (side panel cross-outliner paste).
+ */
+export interface MdPasteAssetResult {
+    rewrittenMarkdown: string;
+}
+
+export function copyMdPasteAssets(opts: {
+    markdown: string;
+    sourceMdDir: string;
+    sourceImageDir: string;
+    sourceFileDir: string;
+    destImageDir: string;
+    destFileDir: string;
+    destMdDir: string;
+}): MdPasteAssetResult {
+    let rewrittenMarkdown = opts.markdown;
+
+    // Extract image paths from markdown
+    const imagePaths = parser.extractImagePaths(opts.markdown);
+
+    // Extract file paths from markdown
+    const filePaths = parser.extractMarkdownFileLinks(opts.markdown);
+
+    // Ensure dest directories exist
+    if (imagePaths.length > 0) {
+        ensureDir(opts.destImageDir);
+    }
+    if (filePaths.length > 0) {
+        ensureDir(opts.destFileDir);
+    }
+
+    // Copy images with rename pattern: copy-{timestamp}-{originalName}
+    const timestamp = Date.now();
+    const imageRenameMap = new Map<string, string>();
+
+    for (const imagePath of imagePaths) {
+        const srcAbsolute = path.resolve(opts.sourceMdDir, imagePath);
+        if (!fs.existsSync(srcAbsolute)) {
+            continue; // Skip missing files
+        }
+
+        const originalName = path.basename(imagePath);
+        const newName = `copy-${timestamp}-${originalName}`;
+        const destAbsolute = path.join(opts.destImageDir, newName);
+
+        // Copy file
+        try {
+            if (!fs.existsSync(destAbsolute)) {
+                fs.copyFileSync(srcAbsolute, destAbsolute);
+            }
+        } catch {
+            continue; // Skip on error
+        }
+
+        // Calculate new relative path from destMdDir
+        const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
+        imageRenameMap.set(imagePath, newRelativePath);
+    }
+
+    // Rewrite image paths in markdown
+    for (const [oldPath, newPath] of imageRenameMap.entries()) {
+        // Use function-based replace to avoid $ injection (patterns/work/string-replace-safety.md)
+        const escapedOldPath = escapeRegExp(oldPath);
+        rewrittenMarkdown = rewrittenMarkdown.replace(
+            new RegExp(escapedOldPath, 'g'),
+            function() { return newPath; }
+        );
+    }
+
+    // Copy files with original name + collision suffix
+    const fileRenameMap = new Map<string, string>();
+
+    for (const filePath of filePaths) {
+        const srcAbsolute = path.resolve(opts.sourceMdDir, filePath);
+        if (!fs.existsSync(srcAbsolute)) {
+            continue; // Skip missing files
+        }
+
+        const originalName = path.basename(filePath);
+        const uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
+        const destAbsolute = path.join(opts.destFileDir, uniqueName);
+
+        // Copy file
+        try {
+            fs.copyFileSync(srcAbsolute, destAbsolute);
+        } catch {
+            continue; // Skip on error
+        }
+
+        // Calculate new relative path from destMdDir
+        const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
+        fileRenameMap.set(filePath, newRelativePath);
+    }
+
+    // Rewrite file paths in markdown
+    for (const [oldPath, newPath] of fileRenameMap.entries()) {
+        const escapedOldPath = escapeRegExp(oldPath);
+        rewrittenMarkdown = rewrittenMarkdown.replace(
+            new RegExp(escapedOldPath, 'g'),
+            function() { return newPath; }
+        );
+    }
+
+    return { rewrittenMarkdown };
 }

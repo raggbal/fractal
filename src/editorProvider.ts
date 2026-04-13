@@ -10,6 +10,7 @@ import {
     extractForceRelativeFilePath,
     removeAllDirectives
 } from './shared/markdown-directives';
+import { copyMdPasteAssets } from './shared/paste-asset-handler';
 
 // ============================================
 // DocumentParser: IMAGE_DIR ディレクティブの解析
@@ -997,11 +998,60 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'getSidePanelImageDir': {
                     if (message.sidePanelFilePath) {
                         sendSidePanelImageDirStatus(message.sidePanelFilePath);
+                        // v9: Send absolute paths for MD paste asset copy
+                        const spUri = vscode.Uri.file(message.sidePanelFilePath);
+                        let spContent = '';
+                        if (sidePanel.document && !sidePanel.document.isClosed) {
+                            spContent = sidePanel.document.getText();
+                        } else {
+                            try { spContent = fs.readFileSync(message.sidePanelFilePath, 'utf-8'); } catch { /* empty */ }
+                        }
+                        const absImageDir = imageDirectoryManager.getImageDirectory(spUri, spContent);
+                        const absFileDir = fileDirectoryManager.getFileDirectory(spUri, spContent);
+                        const spDir = path.dirname(message.sidePanelFilePath);
+                        webviewPanel.webview.postMessage({
+                            type: 'sidePanelAssetContext',
+                            imageDir: absImageDir,
+                            fileDir: absFileDir,
+                            mdDir: spDir
+                        });
                     }
                     break;
                 }
 
                 // REMOVED: 'getImageDir' handler (per-file directive feature removed)
+
+                case 'pasteWithAssetCopy': {
+                    // v9: MD paste with asset copy (cross-file paste)
+                    if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
+                        const spUri = vscode.Uri.file(message.sidePanelFilePath);
+                        let spContent = '';
+                        if (sidePanel.document && !sidePanel.document.isClosed) {
+                            spContent = sidePanel.document.getText();
+                        } else {
+                            try { spContent = fs.readFileSync(message.sidePanelFilePath, 'utf-8'); } catch { /* empty */ }
+                        }
+                        const destImageDir = imageDirectoryManager.getImageDirectory(spUri, spContent);
+                        const destFileDir = fileDirectoryManager.getFileDirectory(spUri, spContent);
+                        const destMdDir = path.dirname(message.sidePanelFilePath);
+
+                        const result = copyMdPasteAssets({
+                            markdown: message.markdown,
+                            sourceMdDir: message.sourceContext.mdDir,
+                            sourceImageDir: message.sourceContext.imageDir,
+                            sourceFileDir: message.sourceContext.fileDir,
+                            destImageDir,
+                            destFileDir,
+                            destMdDir
+                        });
+
+                        webviewPanel.webview.postMessage({
+                            type: 'pasteWithAssetCopyResult',
+                            markdown: result.rewrittenMarkdown
+                        });
+                    }
+                    break;
+                }
 
                 case 'searchFiles': {
                     const query: string = message.query || '';

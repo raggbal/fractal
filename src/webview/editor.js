@@ -7,6 +7,7 @@ class SidePanelHostBridge {
         this._onImageRequest = callbacks.onImageRequest || null;
         this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
+        this._assetContext = null; // { imageDir, fileDir, mdDir } — set by sidePanelAssetContext message
     }
     syncContent(md) {
         this._mainHost.saveSidePanelFile(this.filePath, md);
@@ -58,6 +59,9 @@ class SidePanelHostBridge {
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
     createPageAuto() { this._mainHost.createPageAuto(); }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
+    pasteWithAssetCopy(markdown, sourceContext) {
+        this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -13537,6 +13541,45 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'pasteWithAssetCopyResult') {
+            // v9: Insert rewritten markdown after asset copy
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            const pastedMd = message.markdown;
+            if (!pastedMd) return;
+
+            // Use the same block/inline paste logic as normal paste
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+
+            const range = sel.getRangeAt(0);
+            const containerNode = range.commonAncestorContainer;
+            const containerBlock = containerNode.nodeType === 3
+                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
+                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
+
+            const firstLine = pastedMd.split('\n')[0];
+            const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
+
+            if (!looksLikeBlock && containerBlock) {
+                // Inline paste: insert as inline HTML fragment
+                const inlineFragment = markdownToHtmlFragment(pastedMd);
+                range.deleteContents();
+                range.insertNode(inlineFragment);
+                range.collapse(false);
+            } else {
+                // Block paste: render as block elements
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = markdownToHtml(pastedMd);
+                const fragment = document.createDocumentFragment();
+                while (tempDiv.firstChild) {
+                    fragment.appendChild(tempDiv.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(fragment);
+            }
+
+            syncMarkdown();
+            logger.log('Asset-copied content inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -14823,7 +14866,12 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
-            
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
+
         } catch (err) {
             logger.error('Copy error:', err);
             // Fallback to plain text
@@ -14859,10 +14907,15 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
-        
+
         // Delete the selection
         range.deleteContents();
         syncMarkdown();
@@ -14903,9 +14956,26 @@ class EditorInstance {
         
         // No image - handle as text/html paste
         e.preventDefault();
-        
-        // Check for internal copy (has our custom marker)
+
+        // v9: Check for asset copy context (cross-MD paste with file duplication)
+        const assetContext = e.clipboardData.getData('text/x-any-md-context');
         const internalMd = e.clipboardData.getData('text/x-any-md');
+
+        if (assetContext && internalMd && host._assetContext) {
+            try {
+                const sourceCtx = JSON.parse(assetContext);
+                const destCtx = host._assetContext;
+
+                // Compare directories — if different, need asset copy
+                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
+                    // Send to host for file copy + path rewrite
+                    host.pasteWithAssetCopy(internalMd, sourceCtx);
+                    return; // Wait for pasteWithAssetCopyResult
+                }
+            } catch { /* invalid context, fall through to normal paste */ }
+        }
+
+        // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
         

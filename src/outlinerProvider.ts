@@ -7,7 +7,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset } from './shared/paste-asset-handler';
+import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
 
 
@@ -498,8 +498,42 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
                             sendSidePanelFileDirStatus(message.sidePanelFilePath);
+                            // v9: Send absolute paths for MD paste asset copy
+                            const pagesDir = this.getPagesDirPath(document);
+                            webviewPanel.webview.postMessage({
+                                type: 'sidePanelAssetContext',
+                                imageDir: path.join(pagesDir, 'images'),
+                                fileDir: path.join(pagesDir, 'files'),
+                                mdDir: pagesDir
+                            });
                         }
                         break;
+
+                    case 'pasteWithAssetCopy': {
+                        // v9: MD paste with asset copy (cross-outliner/cross-note paste)
+                        if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
+                            const pagesDir = this.getPagesDirPath(document);
+                            const destImageDir = path.join(pagesDir, 'images');
+                            const destFileDir = path.join(pagesDir, 'files');
+                            const destMdDir = path.dirname(message.sidePanelFilePath);
+
+                            const result = copyMdPasteAssets({
+                                markdown: message.markdown,
+                                sourceMdDir: message.sourceContext.mdDir,
+                                sourceImageDir: message.sourceContext.imageDir,
+                                sourceFileDir: message.sourceContext.fileDir,
+                                destImageDir,
+                                destFileDir,
+                                destMdDir
+                            });
+
+                            webviewPanel.webview.postMessage({
+                                type: 'pasteWithAssetCopyResult',
+                                markdown: result.rewrittenMarkdown
+                            });
+                        }
+                        break;
+                    }
 
                     case 'insertImage': {
                         // 画像挿入 (サイドパネル用)
