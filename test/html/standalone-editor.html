@@ -313,62 +313,36 @@ body {
     white-space: nowrap;
 }
 .sidebar-footer .sidebar-status-imagedir,
-.side-panel-imagedir {
-    margin-top: 6px;
+.sidebar-footer .sidebar-status-filedir,
+.side-panel-imagedir,
+.side-panel-filedir {
+    margin-top: 4px;
     overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-header,
-.side-panel-imagedir .imagedir-header {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 2px;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-label,
-.side-panel-imagedir .imagedir-label {
-    opacity: 0.6;
-    font-size: 10px;
     white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-source,
-.side-panel-imagedir .imagedir-source {
-    opacity: 0.6;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-info,
-.side-panel-imagedir .imagedir-info {
-    min-width: 0;
-    overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-path,
-.side-panel-imagedir .imagedir-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn,
-.side-panel-imagedir .imagedir-settings-btn {
-    background: none;
-    border: none;
-    color: var(--text-color);
-    cursor: pointer;
-    padding: 2px;
+    font-size: 10px;
     opacity: 0.6;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
 }
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn:hover,
-.side-panel-imagedir .imagedir-settings-btn:hover {
-    opacity: 1;
+.sidebar-footer .imagedir-label,
+.sidebar-footer .filedir-label,
+.side-panel-imagedir .imagedir-label,
+.side-panel-filedir .filedir-label {
+    font-size: 10px;
 }
-.side-panel-imagedir {
-    padding: 4px 12px 8px;
-    font-size: 11px;
+.sidebar-footer .imagedir-path,
+.sidebar-footer .filedir-path,
+.side-panel-imagedir .imagedir-path,
+.side-panel-filedir .filedir-path {
+    font-size: 10px;
+}
+.side-panel-imagedir,
+.side-panel-filedir {
+    padding: 2px 12px;
+}
+.side-panel-word-count {
+    padding: 4px 12px 2px;
+    font-size: 10px;
+    opacity: 0.6;
 }
 
 .editor-container { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -833,7 +807,7 @@ body {
 }
 .editor pre {
     background: var(--code-bg);
-    padding: 16px;
+    padding: 32px 16px 16px 16px;
     border-radius: 6px;
     overflow-x: auto;
     margin: 1em 0;
@@ -865,55 +839,43 @@ body {
 }
 .code-block-header {
     position: absolute;
-    top: 4px;
-    right: 8px;
+    top: 0;
+    right: 0;
     display: flex;
-    gap: 8px;
-    align-items: center;
+    gap: 0;
+    align-items: stretch;
     z-index: 10;
+    padding: 0;
+    border-radius: 0 6px 0 0;
 }
-.code-lang-tag {
-    font-size: 11px;
-    color: var(--text-color);
-    background: var(--border-color);
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    user-select: none;
-    opacity: 0.8;
-}
-.code-lang-tag:hover {
-    opacity: 1;
-    background: var(--selection-bg);
-}
-.code-copy-btn {
-    font-size: 12px;
+.code-lang-tag,
+.code-copy-btn,
+.code-expand-btn {
+    font-size: 8px;
     color: var(--text-color);
     background: var(--border-color);
     border: none;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 1px 4px;
+    border-radius: 0;
     cursor: pointer;
-    opacity: 0.8;
+    opacity: 0.7;
+    line-height: 1.1;
+    user-select: none;
+    display: flex;
+    align-items: center;
 }
-.code-copy-btn:hover {
+.code-lang-tag:hover,
+.code-copy-btn:hover,
+.code-expand-btn:hover {
     opacity: 1;
     background: var(--selection-bg);
 }
 .code-expand-btn {
-    font-size: 14px;
-    color: var(--text-color);
-    background: var(--border-color);
-    border: none;
-    padding: 2px 6px;
-    border-radius: 4px;
-    cursor: pointer;
-    opacity: 0.8;
-    line-height: 1;
+    font-size: 9px;
 }
-.code-expand-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+/* Round only the top-right corner of the last button */
+.code-block-header > :last-child {
+    border-radius: 0 6px 0 0;
 }
 /* Expanded code block - width is set dynamically by JavaScript */
 .editor pre.code-expanded {
@@ -1625,6 +1587,29 @@ body {
 
 ::selection { background: var(--selection-bg); }
 
+/* Image overlay (lightbox) — same as outliner */
+.outliner-image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    cursor: pointer;
+}
+.outliner-image-large {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    cursor: default;
+}
+
     </style>
 </head>
 <body>
@@ -1927,12 +1912,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestInsertImage: function(sidePanelFilePath) {
             postFn({ type: 'insertImage', position: 0, sidePanelFilePath: sidePanelFilePath });
         },
-        requestSetImageDir: function(sidePanelFilePath) {
-            postFn({ type: 'setImageDir', sidePanelFilePath: sidePanelFilePath });
-        },
-        requestSetFileDir: function(sidePanelFilePath) {
-            postFn({ type: 'setFileDir', sidePanelFilePath: sidePanelFilePath });
-        },
         saveImageAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveImageAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },
@@ -1951,6 +1930,16 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // sendToChat
         sendToChat: function(startLine, endLine, selectedMarkdown, sidePanelFilePath) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // MD paste asset copy (v9)
+        pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            postFn({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: sidePanelFilePath
+            });
         },
 
         // メッセージ受信
@@ -2448,6 +2437,7 @@ class SidePanelHostBridge {
         this._onImageRequest = callbacks.onImageRequest || null;
         this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
+        this._assetContext = null; // { imageDir, fileDir, mdDir } — set by sidePanelAssetContext message
     }
     syncContent(md) {
         this._mainHost.saveSidePanelFile(this.filePath, md);
@@ -2481,6 +2471,14 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertImage(filePath, this.filePath);
     }
+    saveFileAndInsert(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+    }
+    readAndInsertFile(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.readAndInsertFile(filePath, this.filePath);
+    }
     openInTextEditor() {}
     copyFilePath() {}
     sendToChat(startLine, endLine, selectedMarkdown) {
@@ -2491,6 +2489,9 @@ class SidePanelHostBridge {
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
     createPageAuto() { this._mainHost.createPageAuto(); }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
+    pasteWithAssetCopy(markdown, sourceContext) {
+        this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -2579,12 +2580,10 @@ class EditorInstance {
                 <div class="sidebar-footer">
                     <div class="word-count"></div>
                     <div class="sidebar-status-imagedir">
-                        <div class="imagedir-header"><span class="imagedir-label"></span><span class="imagedir-source"></span><button class="imagedir-settings-btn"></button></div>
-                        <div class="imagedir-info"><span class="imagedir-path"></span></div>
+                        <span class="imagedir-label"></span> <span class="imagedir-path"></span>
                     </div>
                     <div class="sidebar-status-filedir">
-                        <div class="filedir-header"><span class="filedir-label"></span><span class="filedir-source"></span><button class="filedir-settings-btn"></button></div>
-                        <div class="filedir-info"><span class="filedir-path"></span></div>
+                        <span class="filedir-label"></span> <span class="filedir-path"></span>
                     </div>
                 </div>
                 <div class="sidebar-resizer"></div>
@@ -2678,7 +2677,7 @@ class EditorInstance {
     const editor = container.querySelector('.editor');
     const sourceEditor = container.querySelector('.source-editor');
     const outline = container.querySelector('.outline');
-    const wordCount = container.querySelector('.word-count');
+    const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
     const sidebar = container.querySelector('.sidebar');
@@ -2799,8 +2798,7 @@ class EditorInstance {
     let syncTimeout = null;
     let pendingSync = false;
     let hasUserEdited = false; // Flag to track if user has made any edits
-    let currentImageDir = null; // IMAGE_DIR directive value (preserved during sync)
-    let currentForceRelativePath = null; // FORCE_RELATIVE_PATH directive value (preserved during sync)
+    // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
     let fileDirDisplayPath = null; // Resolved display path for files from extension
@@ -2933,41 +2931,9 @@ class EditorInstance {
     let editingIdleTimer = null;
     let queuedExternalContent = null; // Queued external change waiting for idle
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
-    
-    // Extract IMAGE_DIR from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractImageDirFromMarkdown(md) {
-        // Pattern: matches IMAGE_DIR in a directive block (may have other directives before/after)
-        const pattern = /\n---\n(?:[\s\S]*?\n)?IMAGE_DIR:\s*([^\n]+)/;
-        const match = md.match(pattern);
-        return match ? match[1].trim() : null;
-    }
-    
-    // Extract FORCE_RELATIVE_PATH from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractForceRelativePathFromMarkdown(md) {
-        const pattern = /\n---\n(?:[\s\S]*?\n)?FORCE_RELATIVE_PATH:\s*(true|false)/i;
-        const match = md.match(pattern);
-        return match ? match[1].toLowerCase() === 'true' : null;
-    }
-    
-    // Remove all directive blocks from markdown content (for rendering)
-    // This removes all --- blocks containing IMAGE_DIR or FORCE_RELATIVE_PATH
-    function removeDirectivesFromMarkdown(md) {
-        // Remove standalone directive blocks (single directive)
-        md = md.replace(/\n---\nIMAGE_DIR:\s*[^\n]+\s*$/g, '');
-        md = md.replace(/\n---\nFORCE_RELATIVE_PATH:\s*(true|false)\s*$/gi, '');
-        
-        // Remove combined directive block at end of file
-        // Pattern: ---\n followed by any combination of IMAGE_DIR and FORCE_RELATIVE_PATH lines
-        md = md.replace(/\n---\n(?:(?:IMAGE_DIR:\s*[^\n]+|FORCE_RELATIVE_PATH:\s*(?:true|false))\n?)+\s*$/gi, '');
-        
-        return md;
-    }
-    
-    // Initialize currentImageDir and currentForceRelativePath from initial content
-    currentImageDir = extractImageDirFromMarkdown(markdown);
-    currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
+
+    // REMOVED: extractImageDirFromMarkdown, extractForceRelativePathFromMarkdown, removeDirectivesFromMarkdown
+    // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
     function classifyLinkHref(href) {
@@ -4199,10 +4165,8 @@ class EditorInstance {
     }
     
     function renderFromMarkdown() {
-        // Remove IMAGE_DIR and FORCE_RELATIVE_PATH directives before rendering (they're stored in variables)
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length, 'after directive removal:', markdownToRender.length);
-        const html = markdownToHtmlFragment(markdownToRender);
+        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
         setupInteractiveElements();
@@ -4468,8 +4432,7 @@ class EditorInstance {
         const cursorState = saveCursorState();
 
         // 2. Generate new HTML into a temporary container
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        const newHtml = markdownToHtmlFragment(markdownToRender);
+        const newHtml = markdownToHtmlFragment(markdown);
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = newHtml || '<p><br></p>';
 
@@ -6527,6 +6490,33 @@ class EditorInstance {
             if (table) {
                 showTableToolbar(table);
             }
+        }
+    });
+
+    // Image double-click → fullscreen overlay (same as outliner lightbox)
+    editor.addEventListener('dblclick', function(e) {
+        var target = e.target;
+        if (target.nodeType === 3) target = target.parentElement;
+        if (target && target.tagName === 'IMG' && !target.closest('pre') && !target.closest('.code-block-header')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var overlay = document.createElement('div');
+            overlay.className = 'outliner-image-overlay';
+            var largeImg = document.createElement('img');
+            largeImg.className = 'outliner-image-large';
+            largeImg.src = target.src;
+            overlay.appendChild(largeImg);
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(ev) {
+                if (ev.target === overlay) { overlay.remove(); }
+            });
+            var escHandler = function(ev) {
+                if (ev.key === 'Escape') {
+                    overlay.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
         }
     });
 
@@ -8593,23 +8583,9 @@ class EditorInstance {
         
         // Remove zero-width spaces (used for cursor positioning in contenteditable)
         md = md.replace(/\u200B/g, '');
-        
-        // Append directives in a single block if any are set
-        // Format:
-        // ---
-        // IMAGE_DIR: <path>
-        // FORCE_RELATIVE_PATH: <true|false>
-        let directives = '';
-        if (currentImageDir) {
-            directives += 'IMAGE_DIR: ' + currentImageDir + '\n';
-        }
-        if (currentForceRelativePath !== null) {
-            directives += 'FORCE_RELATIVE_PATH: ' + currentForceRelativePath + '\n';
-        }
-        if (directives) {
-            md += '\n---\n' + directives.trimEnd();
-        }
-        
+
+        // REMOVED: Directive appending logic (per-file directive feature removed)
+
         return md;
     }
 
@@ -14756,31 +14732,7 @@ class EditorInstance {
         closeSidebar();
     });
 
-    // Image directory settings button handler
-    const imageDirSettingsBtn = container.querySelector('.imagedir-settings-btn');
-    if (imageDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページでは画像ディレクトリ変更ボタンを非表示
-            imageDirSettingsBtn.style.display = 'none';
-        } else {
-            imageDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetImageDir();
-            });
-        }
-    }
-
-    // File directory settings button handler
-    const fileDirSettingsBtn = container.querySelector('.filedir-settings-btn');
-    if (fileDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページではファイルディレクトリ変更ボタンを非表示
-            fileDirSettingsBtn.style.display = 'none';
-        } else {
-            fileDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetFileDir();
-            });
-        }
-    }
+    // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
     // Sidebar resize functionality
     let isResizing = false;
@@ -14897,8 +14849,6 @@ class EditorInstance {
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
         queuedExternalContent = null;
-        currentImageDir = extractImageDirFromMarkdown(markdown);
-        currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
         if (isSourceMode) {
             sourceEditor.value = markdown;
         } else {
@@ -14944,39 +14894,18 @@ class EditorInstance {
     }
 
     function updateStatus() {
-        // Update IMAGE_DIR display in sidebar footer
         if (statusImageDir) {
             const pathEl = container.querySelector('.imagedir-path');
-            const sourceEl = container.querySelector('.imagedir-source');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
                 pathEl.title = imageDirDisplayPath;
             }
-            if (sourceEl && imageDirSource) {
-                const labels = {
-                    file: i18n.imageDirSourceFile || 'File',
-                    settings: i18n.imageDirSourceSettings || 'Settings',
-                    default: i18n.imageDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[imageDirSource] || imageDirSource;
-            }
         }
-
-        // Update FILE_DIR display in sidebar footer
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
-            const sourceEl = container.querySelector('.filedir-source');
             if (pathEl && fileDirDisplayPath !== null) {
                 pathEl.textContent = fileDirDisplayPath;
                 pathEl.title = fileDirDisplayPath;
-            }
-            if (sourceEl && fileDirSource) {
-                const labels = {
-                    file: i18n.fileDirSourceFile || 'File',
-                    settings: i18n.fileDirSourceSettings || 'Settings',
-                    default: i18n.fileDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[fileDirSource] || fileDirSource;
             }
         }
     }
@@ -15909,8 +15838,6 @@ class EditorInstance {
 
             // Idle state — apply external change immediately with cursor preservation
             markdown = incomingContent;
-            currentImageDir = extractImageDirFromMarkdown(markdown);
-            currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
             if (isSourceMode) {
                 sourceEditor.value = markdown;
             } else {
@@ -15920,17 +15847,6 @@ class EditorInstance {
             updateWordCount();
             updateStatus();
             undoManager.clear();
-        } else if (message.type === 'setImageDir') {
-            // Update currentImageDir and currentForceRelativePath from extension
-            currentImageDir = message.dirPath;
-            // forceRelativePath: true/false で設定、null でクリア
-            if (message.forceRelativePath === null) {
-                currentForceRelativePath = null;
-            } else if (message.forceRelativePath !== undefined) {
-                currentForceRelativePath = message.forceRelativePath;
-            }
-            updateStatus(); // Update status bar to show IMAGE_DIR and FORCE_RELATIVE_PATH
-            syncMarkdown(); // Re-sync to include the new directives
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
@@ -15941,15 +15857,8 @@ class EditorInstance {
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source);
-        } else if (message.type === 'sidePanelSetImageDir') {
-            // Route setImageDir response to side panel instance
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage({
-                    type: 'setImageDir',
-                    dirPath: message.dirPath,
-                    forceRelativePath: message.forceRelativePath
-                });
-            }
+        } else if (message.type === 'sidePanelFileDirStatus') {
+            updateSidePanelFileDir(message.displayPath, message.source);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -16062,6 +15971,51 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'pasteWithAssetCopyResult') {
+            // v9: Insert rewritten markdown after asset copy
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            const pastedMd = message.markdown;
+            if (!pastedMd) return;
+
+            // Use the same block/inline paste logic as normal paste
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+
+            const range = sel.getRangeAt(0);
+            const containerNode = range.commonAncestorContainer;
+            const containerBlock = containerNode.nodeType === 3
+                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
+                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
+
+            const firstLine = pastedMd.split('\n')[0];
+            const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
+
+            if (!looksLikeBlock && containerBlock) {
+                // Inline paste: convert markdown to inline HTML, then create DOM fragment
+                const inlineHtml = parseInline(pastedMd);
+                const tempSpan = document.createElement('span');
+                tempSpan.innerHTML = inlineHtml;
+                const frag = document.createDocumentFragment();
+                while (tempSpan.firstChild) {
+                    frag.appendChild(tempSpan.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(frag);
+                range.collapse(false);
+            } else {
+                // Block paste: render as block elements
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = markdownToHtml(pastedMd);
+                const fragment = document.createDocumentFragment();
+                while (tempDiv.firstChild) {
+                    fragment.appendChild(tempDiv.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(fragment);
+            }
+
+            syncMarkdown();
+            logger.log('Asset-copied content inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -16190,8 +16144,7 @@ class EditorInstance {
     var sidePanelSidebarCloseBtn = container.querySelector('#sidePanelSidebarClose');
     var sidePanelImageDirEl = container.querySelector('.side-panel-imagedir');
     var sidePanelImageDirPath = container.querySelector('#sidePanelImageDirPath');
-    var sidePanelImageDirSource = container.querySelector('#sidePanelImageDirSource');
-    var sidePanelImageDirBtn = container.querySelector('#sidePanelImageDirBtn');
+    var sidePanelFileDirPath = container.querySelector('#sidePanelFileDirPath');
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -16392,13 +16345,12 @@ class EditorInstance {
             sidePanelImageDirPath.textContent = displayPath || '';
             sidePanelImageDirPath.title = displayPath || '';
         }
-        if (sidePanelImageDirSource) {
-            var labels = {
-                file: i18n.imageDirSourceFile || 'File',
-                settings: i18n.imageDirSourceSettings || 'Settings',
-                default: i18n.imageDirSourceDefault || 'Default'
-            };
-            sidePanelImageDirSource.textContent = labels[source] || source || '';
+    }
+
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
         }
     }
 
@@ -17350,7 +17302,12 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
-            
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
+
         } catch (err) {
             logger.error('Copy error:', err);
             // Fallback to plain text
@@ -17386,10 +17343,15 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
-        
+
         // Delete the selection
         range.deleteContents();
         syncMarkdown();
@@ -17430,9 +17392,26 @@ class EditorInstance {
         
         // No image - handle as text/html paste
         e.preventDefault();
-        
-        // Check for internal copy (has our custom marker)
+
+        // v9: Check for asset copy context (cross-MD paste with file duplication)
+        const assetContext = e.clipboardData.getData('text/x-any-md-context');
         const internalMd = e.clipboardData.getData('text/x-any-md');
+
+        if (assetContext && internalMd && host._assetContext) {
+            try {
+                const sourceCtx = JSON.parse(assetContext);
+                const destCtx = host._assetContext;
+
+                // Compare directories — if different, need asset copy
+                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
+                    // Send to host for file copy + path rewrite
+                    host.pasteWithAssetCopy(internalMd, sourceCtx);
+                    return; // Wait for pasteWithAssetCopyResult
+                }
+            } catch { /* invalid context, fall through to normal paste */ }
+        }
+
+        // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
         

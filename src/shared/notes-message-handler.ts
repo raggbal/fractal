@@ -3,7 +3,7 @@ import * as path from 'path';
 import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
-import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset } from './paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 
 /**
@@ -214,48 +214,29 @@ export async function handleNotesMessage(
             break;
         }
 
-        case 'copyPageFileCross': {
+        case 'handlePageAssetsCross': {
             const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!clipData) break;
             const currentFilePath = fileManager.getCurrentFilePath();
             const destPagesDir = fileManager.getPagesDirPath();
-            const result = copyPageAssets({
+            const result = handlePageAssets({
                 srcOutDir: clipData.sourceOutDir,
                 srcPagesDir: clipData.sourcePagesDirPath,
                 destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
                 destPagesDir,
-                sourcePageId: message.sourcePageId,
+                pageId: message.pageId,
                 newPageId: message.newPageId,
-                nodeImages: message.nodeImages || []
+                nodeImages: message.nodeImages || [],
+                sameDirSkip: message.isCut
             });
             sender.postMessage({
                 type: 'updateNodeImages',
                 nodeId: message.targetNodeId,
                 newImages: result.newNodeImages
             });
-            break;
-        }
-
-        case 'movePageFileCross': {
-            const moveClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
-            if (moveClipData) {
-                const currentFilePath = fileManager.getCurrentFilePath();
-                const destPagesDir = fileManager.getPagesDirPath();
-                const result = movePageAssets({
-                    srcOutDir: moveClipData.sourceOutDir,
-                    srcPagesDir: moveClipData.sourcePagesDirPath,
-                    destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
-                    destPagesDir,
-                    pageId: message.pageId,
-                    nodeImages: message.nodeImages || []
-                });
-                sender.postMessage({
-                    type: 'updateNodeImages',
-                    nodeId: message.targetNodeId,
-                    newImages: result.newNodeImages
-                });
+            if (message.isCut) {
+                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             }
-            OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
             break;
         }
 
@@ -291,44 +272,28 @@ export async function handleNotesMessage(
             break;
         }
 
-        case 'copyFileAsset': {
+        case 'handleFileAssetCross': {
             const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!fileClipData || !message.filePath) break;
-            const currentFilePathCF = fileManager.getCurrentFilePath();
-            const destFileDirCF = fileManager.getFileDirPath();
-            const resultCF = copyFileAsset({
+            const currentFilePathFA = fileManager.getCurrentFilePath();
+            const destFileDirFA = fileManager.getFileDirPath();
+            const resultFA = handleFileAsset({
                 srcOutDir: fileClipData.sourceOutDir,
                 srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
-                destOutDir: currentFilePathCF ? path.dirname(currentFilePathCF) : destFileDirCF,
-                destFileDir: destFileDirCF,
-                filePath: message.filePath
+                destOutDir: currentFilePathFA ? path.dirname(currentFilePathFA) : destFileDirFA,
+                destFileDir: destFileDirFA,
+                filePath: message.filePath,
+                useCollisionSuffix: !message.isCut,
+                sameDirSkip: message.isCut
             });
             sender.postMessage({
                 type: 'updateNodeFilePath',
                 nodeId: message.nodeId,
-                newFilePath: resultCF.newFilePath
+                newFilePath: resultFA.newFilePath
             });
-            break;
-        }
-
-        case 'moveFileAssetCross': {
-            const moveFileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
-            if (!moveFileClipData || !message.filePath) break;
-            const currentFilePathMF = fileManager.getCurrentFilePath();
-            const destFileDirMF = fileManager.getFileDirPath();
-            const resultMF = moveFileAsset({
-                srcOutDir: moveFileClipData.sourceOutDir,
-                srcFileDir: moveFileClipData.sourceFileDirPath || path.join(moveFileClipData.sourceOutDir, 'files'),
-                destOutDir: currentFilePathMF ? path.dirname(currentFilePathMF) : destFileDirMF,
-                destFileDir: destFileDirMF,
-                filePath: message.filePath
-            });
-            sender.postMessage({
-                type: 'updateNodeFilePath',
-                nodeId: message.nodeId,
-                newFilePath: resultMF.newFilePath
-            });
-            OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
+            if (message.isCut) {
+                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
+            }
             break;
         }
 
