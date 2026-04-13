@@ -2,9 +2,9 @@
  * paste-asset-handler — page/images/files の copy/move 時のファイル操作を一元化
  *
  * - copyPageAssets: 新 filename で画像を実体コピー + .md 本文の参照を rewrite + .md 本体を保存
- * - movePageAssets: 画像と .md を src → dest に物理移動 (同一 dir なら no-op)
- * - copyImageAssets / moveImageAssets: 非 isPage ノードの images[] 用
- * - copyFileAsset / moveFileAsset: filePath 付きノードのファイル用 (original name 保持)
+ * - movePageAssets: 画像と .md を src → dest にコピー (同一 dir なら no-op、元ファイルは削除しない — cleanup が管理)
+ * - copyImageAssets / moveImageAssets: 非 isPage ノードの images[] 用 (move も元を削除しない)
+ * - copyFileAsset / moveFileAsset: filePath 付きノードのファイル用 (original name 保持、move も元を削除しない)
  *
  * すべて同期的なファイル操作。失敗時は個別にスキップ (try/catch)。
  */
@@ -36,7 +36,7 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * 新 filename で画像を実体コピーし、.md 本文の参照も rewrite する。
+ * 新 filename で画像・ファイルを実体コピーし、.md 本文の参照も rewrite する。
  * cmd+c 経路。srcPagesDir === destPagesDir でも常に新 filename を発行する。
  */
 export function copyPageAssets(opts: {
@@ -61,7 +61,7 @@ export function copyPageAssets(opts: {
     const bodyRefs = extractMarkdownImagePaths(mdContent);
     const allRefs = Array.from(new Set([...(opts.nodeImages || []), ...bodyRefs]));
 
-    // rename map (basename → new basename)
+    // rename map (basename → new basename) — 画像用
     const renameMap = new Map<string, string>();
     const prefix = `copy-${opts.newPageId}-`;
     for (const ref of allRefs) {
@@ -87,6 +87,33 @@ export function copyPageAssets(opts: {
     for (const [oldBase, newBase] of renameMap.entries()) {
         newMdContent = newMdContent.replace(new RegExp(escapeRegExp(oldBase), 'g'), newBase);
     }
+
+    // ファイルリンク [📎](files/...) の抽出・コピー・パス書き換え（画像とは別ループで処理）
+    const fileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
+    if (fileRefs.length > 0) {
+        const destFilesDir = path.join(opts.destPagesDir, 'files');
+        ensureDir(destFilesDir);
+        for (const fileRef of fileRefs) {
+            const srcFile = resolveSourceImage(fileRef, opts.srcOutDir, opts.srcPagesDir);
+            if (!srcFile) continue;
+            const originalName = path.basename(fileRef);
+            // ファイルは元名保持 + collision suffix（画像の rename パターンとは異なる）
+            const newName = generateUniqueFileNamePreserving(destFilesDir, originalName);
+            const destFile = path.join(destFilesDir, newName);
+            try { fs.copyFileSync(srcFile, destFile); } catch { /* ignore */ }
+            // 名前が変わった場合のみ .md 内パスを書き換え
+            if (newName !== originalName) {
+                const oldRelPath = escapeRegExp(fileRef);
+                const dirPart = fileRef.substring(0, fileRef.length - originalName.length);
+                const newRelPath = dirPart + newName;
+                newMdContent = newMdContent.replace(
+                    new RegExp(oldRelPath, 'g'),
+                    function() { return newRelPath; }
+                );
+            }
+        }
+    }
+
     try { fs.writeFileSync(destMdPath, newMdContent, 'utf8'); } catch { /* ignore */ }
 
     // 新 nodeImages を組み立て (dest out dir 相対 + 新 basename)
@@ -103,7 +130,7 @@ export function copyPageAssets(opts: {
 }
 
 /**
- * .md と画像を src → dest に物理移動 (filename 不変)。
+ * .md と画像・ファイルを src → dest にコピー (filename 不変、元ファイルは削除しない — cleanup が管理)。
  * srcPagesDir === destPagesDir の場合は no-op で元の nodeImages を返す。
  * cmd+x 経路。
  */
@@ -120,17 +147,16 @@ export function movePageAssets(opts: {
     }
     ensureDir(opts.destPagesDir);
 
-    // .md 移動
+    // .md コピー (元ファイルは削除しない — cleanup が管理)
     const srcMdPath = path.join(opts.srcPagesDir, `${opts.pageId}.md`);
     const destMdPath = path.join(opts.destPagesDir, `${opts.pageId}.md`);
     if (fs.existsSync(srcMdPath) && srcMdPath !== destMdPath) {
         try {
             fs.copyFileSync(srcMdPath, destMdPath);
-            fs.unlinkSync(srcMdPath);
         } catch { /* ignore */ }
     }
 
-    // 移動後の .md を読んで body 画像参照を抽出 (src に既にないので dest から読む)
+    // コピー先の .md を読んで body 画像参照を抽出
     let mdContent = '';
     if (fs.existsSync(destMdPath)) {
         try { mdContent = fs.readFileSync(destMdPath, 'utf8'); } catch { /* ignore */ }
@@ -138,7 +164,7 @@ export function movePageAssets(opts: {
     const bodyRefs = extractMarkdownImagePaths(mdContent);
     const allRefs = Array.from(new Set([...(opts.nodeImages || []), ...bodyRefs]));
 
-    // 画像移動 (同 basename)
+    // 画像コピー (同 basename、元ファイルは削除しない — cleanup が管理)
     const destImagesDir = path.join(opts.destPagesDir, 'images');
     if (allRefs.length > 0) ensureDir(destImagesDir);
     for (const ref of allRefs) {
@@ -149,8 +175,24 @@ export function movePageAssets(opts: {
         if (srcImg === destImg) continue;
         try {
             if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-            fs.unlinkSync(srcImg);
         } catch { /* ignore */ }
+    }
+
+    // ファイルリンク [📎](files/...) のコピー (同名、パス書き換え不要)
+    const fileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
+    if (fileRefs.length > 0) {
+        const destFilesDir = path.join(opts.destPagesDir, 'files');
+        ensureDir(destFilesDir);
+        for (const fileRef of fileRefs) {
+            const srcFile = resolveSourceImage(fileRef, opts.srcOutDir, opts.srcPagesDir);
+            if (!srcFile) continue;
+            const base = path.basename(fileRef);
+            const destFile = path.join(destFilesDir, base);
+            if (srcFile === destFile) continue;
+            try {
+                if (!fs.existsSync(destFile)) fs.copyFileSync(srcFile, destFile);
+            } catch { /* ignore */ }
+        }
     }
 
     // 新 nodeImages: dest out dir 相対 + 同 basename
@@ -211,7 +253,7 @@ export function copyImageAssets(opts: {
 }
 
 /**
- * 非 isPage ノードの images[] を src → dest に物理移動 (filename 不変)。
+ * 非 isPage ノードの images[] を src → dest にコピー (filename 不変、元ファイルは削除しない — cleanup が管理)。
  * srcPagesDir === destPagesDir の場合は no-op。
  */
 export function moveImageAssets(opts: {
@@ -238,7 +280,6 @@ export function moveImageAssets(opts: {
         if (srcImg === destImg) continue;
         try {
             if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-            fs.unlinkSync(srcImg);
         } catch { /* ignore */ }
     }
 
@@ -287,7 +328,7 @@ export function copyFileAsset(opts: {
 }
 
 /**
- * filePath 付きノードを cut+cross-file 時にファイルを src → dest に物理移動。
+ * filePath 付きノードを cut+cross-file 時にファイルを src → dest にコピー (元ファイルは削除しない — cleanup が管理)。
  * 同 dir なら no-op (元の filePath を返す)。
  */
 export function moveFileAsset(opts: {
@@ -321,7 +362,7 @@ export function moveFileAsset(opts: {
         if (!fs.existsSync(destFilePath)) {
             fs.copyFileSync(srcFilePath, destFilePath);
         }
-        fs.unlinkSync(srcFilePath);
+        // 元ファイルは削除しない — cleanup が管理
     } catch {
         return { newFilePath: null };
     }
