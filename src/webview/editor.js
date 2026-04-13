@@ -13561,10 +13561,16 @@ class EditorInstance {
             const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
 
             if (!looksLikeBlock && containerBlock) {
-                // Inline paste: insert as inline HTML fragment
-                const inlineFragment = markdownToHtmlFragment(pastedMd);
+                // Inline paste: convert markdown to inline HTML, then create DOM fragment
+                const inlineHtml = parseInline(pastedMd);
+                const tempSpan = document.createElement('span');
+                tempSpan.innerHTML = inlineHtml;
+                const frag = document.createDocumentFragment();
+                while (tempSpan.firstChild) {
+                    frag.appendChild(tempSpan.firstChild);
+                }
                 range.deleteContents();
-                range.insertNode(inlineFragment);
+                range.insertNode(frag);
                 range.collapse(false);
             } else {
                 // Block paste: render as block elements
