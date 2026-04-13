@@ -13371,6 +13371,51 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // v9: pasteWithAssetCopyResult — must be handled here (inside init) to access markdownToHtmlFragment
+        if (message.type === 'pasteWithAssetCopyResult') {
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            var pastedMd = message.markdown;
+            if (!pastedMd) return;
+
+            editor.focus();
+            var sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+
+            var range = sel.getRangeAt(0);
+            var containerNode = range.commonAncestorContainer;
+            var containerBlock = containerNode.nodeType === 3
+                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
+                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
+
+            var firstLine = pastedMd.split('\n')[0];
+            var looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
+
+            if (!looksLikeBlock && containerBlock) {
+                var inlineHtml = parseInline(pastedMd);
+                var tempSpan = document.createElement('span');
+                tempSpan.innerHTML = inlineHtml;
+                var frag = document.createDocumentFragment();
+                while (tempSpan.firstChild) {
+                    frag.appendChild(tempSpan.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(frag);
+                range.collapse(false);
+            } else {
+                var tempDiv = document.createElement('div');
+                tempDiv.innerHTML = markdownToHtmlFragment(pastedMd);
+                var fragment = document.createDocumentFragment();
+                while (tempDiv.firstChild) {
+                    fragment.appendChild(tempDiv.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(fragment);
+            }
+
+            syncMarkdown();
+            logger.log('Asset-copied content inserted');
+            return;
+        }
         if (message.type === 'performUndo') {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._undo) activeInst._undo();
@@ -13542,50 +13587,10 @@ class EditorInstance {
             syncMarkdown();
             logger.log('File link element inserted');
         } else if (message.type === 'pasteWithAssetCopyResult') {
-            // v9: Insert rewritten markdown after asset copy
-            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
-            const pastedMd = message.markdown;
-            if (!pastedMd) return;
-
-            // Use the same block/inline paste logic as normal paste
-            const sel = window.getSelection();
-            if (!sel || sel.rangeCount === 0) return;
-
-            const range = sel.getRangeAt(0);
-            const containerNode = range.commonAncestorContainer;
-            const containerBlock = containerNode.nodeType === 3
-                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
-                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
-
-            const firstLine = pastedMd.split('\n')[0];
-            const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
-
-            if (!looksLikeBlock && containerBlock) {
-                // Inline paste: convert markdown to inline HTML, then create DOM fragment
-                const inlineHtml = parseInline(pastedMd);
-                const tempSpan = document.createElement('span');
-                tempSpan.innerHTML = inlineHtml;
-                const frag = document.createDocumentFragment();
-                while (tempSpan.firstChild) {
-                    frag.appendChild(tempSpan.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(frag);
-                range.collapse(false);
-            } else {
-                // Block paste: render as block elements
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = markdownToHtml(pastedMd);
-                const fragment = document.createDocumentFragment();
-                while (tempDiv.firstChild) {
-                    fragment.appendChild(tempDiv.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(fragment);
+            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
             }
-
-            syncMarkdown();
-            logger.log('Asset-copied content inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
