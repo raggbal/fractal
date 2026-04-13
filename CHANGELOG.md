@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.684] - 2026-04-13
+
+### Fixed
+- MD editor: pasteWithAssetCopyResult now uses shared `_insertPastedMarkdown` function (same paste path as normal paste, including list merge and table handling)
+- Kiro: Fixed double image insertion when pasting screenshots (keydown + paste event both triggered)
+
+### Added
+- Retro patterns: refactoring-timing, editor-paste-scope, webview-event-limits, hotfix-chain-rule
+
 ## [0.195.679] - 2026-04-13
 
 ### Changed

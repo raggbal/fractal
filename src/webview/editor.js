@@ -12522,6 +12522,8 @@ class EditorInstance {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
                                 e.preventDefault();
+                                // Set flag to skip duplicate image handling in paste event
+                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -14901,11 +14903,19 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // Kiro: skip if image was already handled by keydown Clipboard API path
+        if (self._kiroImagePasteHandled) {
+            self._kiroImagePasteHandled = false;
+            e.preventDefault();
+            logger.log('Paste event skipped (Kiro image already handled via keydown)');
+            return;
+        }
+
         undoManager.saveSnapshot();
         markAsEdited();
-        
+
         logger.log('Paste event triggered');
-        
+
         // Check for image files first
         const items = e.clipboardData?.items;
         if (items) {
