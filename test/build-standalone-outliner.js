@@ -103,11 +103,8 @@ const testOutlinerHostBridge = `
         copyPageFile: function(sourcePageId, newPageId) {
             window.__testApi.messages.push({ type: 'copyPageFile', sourcePageId: sourcePageId, newPageId: newPageId });
         },
-        copyPageFileCross: function(sourcePageId, newPageId, clipboardPlainText) {
-            window.__testApi.messages.push({ type: 'copyPageFileCross', sourcePageId: sourcePageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText });
-        },
-        movePageFileCross: function(pageId, clipboardPlainText) {
-            window.__testApi.messages.push({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText });
+        handlePageAssetsCross: function(pageId, newPageId, clipboardPlainText, targetNodeId, nodeImages, isCut) {
+            window.__testApi.messages.push({ type: 'handlePageAssetsCross', pageId: pageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [], isCut: !!isCut });
         },
         copyImagesCross: function(images, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
@@ -156,11 +153,8 @@ const testOutlinerHostBridge = `
         openAttachedFile: function(nodeId) {
             window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
         },
-        copyFileAsset: function(filePath, nodeId) {
-            window.__testApi.messages.push({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
-        },
-        moveFileAssetCross: function(filePath, nodeId) {
-            window.__testApi.messages.push({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
+            window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
         },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
@@ -281,9 +275,9 @@ const html = `<!DOCTYPE html>
     <script>
     // テストAPI公開
     window.__testApi.ready = false;
-    window.__testApi.initOutliner = function(data) {
+    window.__testApi.initOutliner = function(data, outFileKey) {
         var defaultData = { version: 1, rootIds: [], nodes: {} };
-        Outliner.init(data || defaultData);
+        Outliner.init(data || defaultData, outFileKey);
         window.__testApi.ready = true;
     };
     window.__testApi.getSerializedData = function() {

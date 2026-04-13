@@ -38,11 +38,8 @@
         removePage: function(nodeId, pageId) {
             api.postMessage({ type: 'removePage', nodeId: nodeId, pageId: pageId });
         },
-        copyPageFileCross: function(sourcePageId, newPageId, clipboardPlainText, targetNodeId, nodeImages) {
-            api.postMessage({ type: 'copyPageFileCross', sourcePageId: sourcePageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [] });
-        },
-        movePageFileCross: function(pageId, clipboardPlainText, targetNodeId, nodeImages) {
-            api.postMessage({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [] });
+        handlePageAssetsCross: function(pageId, newPageId, clipboardPlainText, targetNodeId, nodeImages, isCut) {
+            api.postMessage({ type: 'handlePageAssetsCross', pageId: pageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [], isCut: !!isCut });
         },
         copyImagesCross: function(images, clipboardPlainText, targetNodeId, isCut) {
             api.postMessage({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: !!isCut });
@@ -82,11 +79,8 @@
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
         },
-        copyFileAsset: function(filePath, clipboardPlainText, nodeId) {
-            api.postMessage({ type: 'copyFileAsset', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId });
-        },
-        moveFileAssetCross: function(filePath, clipboardPlainText, nodeId) {
-            api.postMessage({ type: 'moveFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId });
+        handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
+            api.postMessage({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
         },
 
         // Outlinerノード画像操作

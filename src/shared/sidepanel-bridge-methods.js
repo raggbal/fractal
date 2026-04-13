@@ -80,6 +80,16 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // MD paste asset copy (v9)
+        pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            postFn({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
         // メッセージ受信
         onMessage: function(handler) {
             window.addEventListener('message', function(e) {

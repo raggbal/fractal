@@ -11,6 +11,7 @@ import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
+import { copyMdPasteAssets } from './shared/paste-asset-handler';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -502,6 +503,13 @@ export class NotesEditorProvider {
                     displayPath: fileDirDisplay,
                     source: 'default',
                 });
+                // v9: Send absolute paths for MD paste asset copy
+                panel.webview.postMessage({
+                    type: 'sidePanelAssetContext',
+                    imageDir: imagesDir,
+                    fileDir: fileDirPath,
+                    mdDir: pagesDir
+                });
             },
             saveSidePanelFile: async (filePath: string, content: string) => {
                 await sidePanel.handleSave(filePath, content);
@@ -557,6 +565,28 @@ export class NotesEditorProvider {
             cleanupUnusedFilesCurrentNote: async () => {
                 // FR-7: 手動クリーンアップコマンド (自ノート限定モード)
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInCurrentNote');
+            },
+            pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string) => {
+                // v9: MD paste with asset copy (cross-outliner/cross-note paste)
+                const pagesDir = fileManager.getPagesDirPath();
+                const destImageDir = path.join(pagesDir, 'images');
+                const destFileDir = fileManager.getFileDirPath();
+                const destMdDir = path.dirname(sidePanelFilePath);
+
+                const result = copyMdPasteAssets({
+                    markdown,
+                    sourceMdDir: sourceContext.mdDir,
+                    sourceImageDir: sourceContext.imageDir,
+                    sourceFileDir: sourceContext.fileDir,
+                    destImageDir,
+                    destFileDir,
+                    destMdDir
+                });
+
+                panel.webview.postMessage({
+                    type: 'pasteWithAssetCopyResult',
+                    markdown: result.rewrittenMarkdown
+                });
             },
         };
 

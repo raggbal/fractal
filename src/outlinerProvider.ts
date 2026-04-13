@@ -7,7 +7,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { copyPageAssets, movePageAssets, copyImageAssets, moveImageAssets, copyFileAsset, moveFileAsset } from './shared/paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
 
 
@@ -272,47 +272,29 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
-                    case 'copyPageFileCross': {
+                    case 'handlePageAssetsCross': {
                         const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (clipData) {
                             await this.ensurePagesDir(document);
-                            const result = copyPageAssets({
+                            const result = handlePageAssets({
                                 srcOutDir: clipData.sourceOutDir,
                                 srcPagesDir: clipData.sourcePagesDirPath,
                                 destOutDir: path.dirname(document.uri.fsPath),
                                 destPagesDir: this.getPagesDirPath(document),
-                                sourcePageId: message.sourcePageId,
-                                newPageId: message.newPageId,
-                                nodeImages: message.nodeImages || []
-                            });
-                            webviewPanel.webview.postMessage({
-                                type: 'updateNodeImages',
-                                nodeId: message.targetNodeId,
-                                newImages: result.newNodeImages
-                            });
-                        }
-                        break;
-                    }
-
-                    case 'movePageFileCross': {
-                        const moveClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
-                        if (moveClipData) {
-                            await this.ensurePagesDir(document);
-                            const result = movePageAssets({
-                                srcOutDir: moveClipData.sourceOutDir,
-                                srcPagesDir: moveClipData.sourcePagesDirPath,
-                                destOutDir: path.dirname(document.uri.fsPath),
-                                destPagesDir: this.getPagesDirPath(document),
                                 pageId: message.pageId,
-                                nodeImages: message.nodeImages || []
+                                newPageId: message.newPageId,
+                                nodeImages: message.nodeImages || [],
+                                sameDirSkip: message.isCut
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeImages',
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
                             });
+                            if (message.isCut) {
+                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
+                            }
                         }
-                        OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                         break;
                     }
 
@@ -348,42 +330,27 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
-                    case 'copyFileAsset': {
+                    case 'handleFileAssetCross': {
                         const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (fileClipData && message.filePath) {
-                            const result = copyFileAsset({
+                            const result = handleFileAsset({
                                 srcOutDir: fileClipData.sourceOutDir,
                                 srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
                                 destOutDir: path.dirname(document.uri.fsPath),
                                 destFileDir: this.getFileDirPath(document),
-                                filePath: message.filePath
+                                filePath: message.filePath,
+                                useCollisionSuffix: !message.isCut,
+                                sameDirSkip: message.isCut
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeFilePath',
                                 nodeId: message.nodeId,
                                 newFilePath: result.newFilePath
                             });
+                            if (message.isCut) {
+                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
+                            }
                         }
-                        break;
-                    }
-
-                    case 'moveFileAssetCross': {
-                        const moveFileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
-                        if (moveFileClipData && message.filePath) {
-                            const result = moveFileAsset({
-                                srcOutDir: moveFileClipData.sourceOutDir,
-                                srcFileDir: moveFileClipData.sourceFileDirPath || path.join(moveFileClipData.sourceOutDir, 'files'),
-                                destOutDir: path.dirname(document.uri.fsPath),
-                                destFileDir: this.getFileDirPath(document),
-                                filePath: message.filePath
-                            });
-                            webviewPanel.webview.postMessage({
-                                type: 'updateNodeFilePath',
-                                nodeId: message.nodeId,
-                                newFilePath: result.newFilePath
-                            });
-                        }
-                        OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
                         break;
                     }
 
@@ -498,8 +465,42 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
                             sendSidePanelFileDirStatus(message.sidePanelFilePath);
+                            // v9: Send absolute paths for MD paste asset copy
+                            const pagesDir = this.getPagesDirPath(document);
+                            webviewPanel.webview.postMessage({
+                                type: 'sidePanelAssetContext',
+                                imageDir: path.join(pagesDir, 'images'),
+                                fileDir: path.join(pagesDir, 'files'),
+                                mdDir: pagesDir
+                            });
                         }
                         break;
+
+                    case 'pasteWithAssetCopy': {
+                        // v9: MD paste with asset copy (cross-outliner/cross-note paste)
+                        if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
+                            const pagesDir = this.getPagesDirPath(document);
+                            const destImageDir = path.join(pagesDir, 'images');
+                            const destFileDir = path.join(pagesDir, 'files');
+                            const destMdDir = path.dirname(message.sidePanelFilePath);
+
+                            const result = copyMdPasteAssets({
+                                markdown: message.markdown,
+                                sourceMdDir: message.sourceContext.mdDir,
+                                sourceImageDir: message.sourceContext.imageDir,
+                                sourceFileDir: message.sourceContext.fileDir,
+                                destImageDir,
+                                destFileDir,
+                                destMdDir
+                            });
+
+                            webviewPanel.webview.postMessage({
+                                type: 'pasteWithAssetCopyResult',
+                                markdown: result.rewrittenMarkdown
+                            });
+                        }
+                        break;
+                    }
 
                     case 'insertImage': {
                         // 画像挿入 (サイドパネル用)

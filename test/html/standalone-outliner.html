@@ -201,62 +201,36 @@ body {
     white-space: nowrap;
 }
 .sidebar-footer .sidebar-status-imagedir,
-.side-panel-imagedir {
-    margin-top: 6px;
+.sidebar-footer .sidebar-status-filedir,
+.side-panel-imagedir,
+.side-panel-filedir {
+    margin-top: 4px;
     overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-header,
-.side-panel-imagedir .imagedir-header {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 2px;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-label,
-.side-panel-imagedir .imagedir-label {
-    opacity: 0.6;
-    font-size: 10px;
     white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-source,
-.side-panel-imagedir .imagedir-source {
-    opacity: 0.6;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-info,
-.side-panel-imagedir .imagedir-info {
-    min-width: 0;
-    overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-path,
-.side-panel-imagedir .imagedir-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn,
-.side-panel-imagedir .imagedir-settings-btn {
-    background: none;
-    border: none;
-    color: var(--text-color);
-    cursor: pointer;
-    padding: 2px;
+    font-size: 10px;
     opacity: 0.6;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
 }
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn:hover,
-.side-panel-imagedir .imagedir-settings-btn:hover {
-    opacity: 1;
+.sidebar-footer .imagedir-label,
+.sidebar-footer .filedir-label,
+.side-panel-imagedir .imagedir-label,
+.side-panel-filedir .filedir-label {
+    font-size: 10px;
 }
-.side-panel-imagedir {
-    padding: 4px 12px 8px;
-    font-size: 11px;
+.sidebar-footer .imagedir-path,
+.sidebar-footer .filedir-path,
+.side-panel-imagedir .imagedir-path,
+.side-panel-filedir .filedir-path {
+    font-size: 10px;
+}
+.side-panel-imagedir,
+.side-panel-filedir {
+    padding: 2px 12px;
+}
+.side-panel-word-count {
+    padding: 4px 12px 2px;
+    font-size: 10px;
+    opacity: 0.6;
 }
 
 .editor-container { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -721,7 +695,7 @@ body {
 }
 .editor pre {
     background: var(--code-bg);
-    padding: 16px;
+    padding: 32px 16px 16px 16px;
     border-radius: 6px;
     overflow-x: auto;
     margin: 1em 0;
@@ -753,55 +727,43 @@ body {
 }
 .code-block-header {
     position: absolute;
-    top: 4px;
-    right: 8px;
+    top: 0;
+    right: 0;
     display: flex;
-    gap: 8px;
-    align-items: center;
+    gap: 0;
+    align-items: stretch;
     z-index: 10;
+    padding: 0;
+    border-radius: 0 6px 0 0;
 }
-.code-lang-tag {
-    font-size: 11px;
-    color: var(--text-color);
-    background: var(--border-color);
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    user-select: none;
-    opacity: 0.8;
-}
-.code-lang-tag:hover {
-    opacity: 1;
-    background: var(--selection-bg);
-}
-.code-copy-btn {
-    font-size: 12px;
+.code-lang-tag,
+.code-copy-btn,
+.code-expand-btn {
+    font-size: 8px;
     color: var(--text-color);
     background: var(--border-color);
     border: none;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 1px 4px;
+    border-radius: 0;
     cursor: pointer;
-    opacity: 0.8;
+    opacity: 0.7;
+    line-height: 1.1;
+    user-select: none;
+    display: flex;
+    align-items: center;
 }
-.code-copy-btn:hover {
+.code-lang-tag:hover,
+.code-copy-btn:hover,
+.code-expand-btn:hover {
     opacity: 1;
     background: var(--selection-bg);
 }
 .code-expand-btn {
-    font-size: 14px;
-    color: var(--text-color);
-    background: var(--border-color);
-    border: none;
-    padding: 2px 6px;
-    border-radius: 4px;
-    cursor: pointer;
-    opacity: 0.8;
-    line-height: 1;
+    font-size: 9px;
 }
-.code-expand-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+/* Round only the top-right corner of the last button */
+.code-block-header > :last-child {
+    border-radius: 0 6px 0 0;
 }
 /* Expanded code block - width is set dynamically by JavaScript */
 .editor pre.code-expanded {
@@ -1512,6 +1474,29 @@ body {
 }
 
 ::selection { background: var(--selection-bg); }
+
+/* Image overlay (lightbox) — same as outliner */
+.outliner-image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    cursor: pointer;
+}
+.outliner-image-large {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    cursor: default;
+}
 </style>
     <style>/* =============================================
  * Outliner Styles
@@ -2926,17 +2911,12 @@ body {
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
+                    <div class="side-panel-word-count" id="sidePanelWordCount"></div>
                     <div class="side-panel-imagedir" id="sidePanelImageDir">
-                        <div class="imagedir-header">
-                            <span class="imagedir-label">Image save directory:</span>
-                            <span class="imagedir-source" id="sidePanelImageDirSource"></span>
-                            <button class="imagedir-settings-btn" id="sidePanelImageDirBtn" title="Set Image Directory">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                            </button>
-                        </div>
-                        <div class="imagedir-info">
-                            <span class="imagedir-path" id="sidePanelImageDirPath"></span>
-                        </div>
+                        <span class="imagedir-label">Image save directory:</span> <span class="imagedir-path" id="sidePanelImageDirPath"></span>
+                    </div>
+                    <div class="side-panel-filedir" id="sidePanelFileDir">
+                        <span class="filedir-label">File save directory:</span> <span class="filedir-path" id="sidePanelFileDirPath"></span>
                     </div>
                 </div>
             </aside>
@@ -3428,6 +3408,7 @@ class SidePanelHostBridge {
         this._onImageRequest = callbacks.onImageRequest || null;
         this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
+        this._assetContext = null; // { imageDir, fileDir, mdDir } — set by sidePanelAssetContext message
     }
     syncContent(md) {
         this._mainHost.saveSidePanelFile(this.filePath, md);
@@ -3450,6 +3431,9 @@ class SidePanelHostBridge {
     requestSetImageDir() {
         this._mainHost.requestSetImageDir(this.filePath);
     }
+    requestSetFileDir() {
+        this._mainHost.requestSetFileDir(this.filePath);
+    }
     saveImageAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.saveImageAndInsert(dataUrl, fileName, this.filePath);
@@ -3457,6 +3441,14 @@ class SidePanelHostBridge {
     readAndInsertImage(filePath) {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertImage(filePath, this.filePath);
+    }
+    saveFileAndInsert(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+    }
+    readAndInsertFile(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.readAndInsertFile(filePath, this.filePath);
     }
     openInTextEditor() {}
     copyFilePath() {}
@@ -3468,6 +3460,9 @@ class SidePanelHostBridge {
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
     createPageAuto() { this._mainHost.createPageAuto(); }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
+    pasteWithAssetCopy(markdown, sourceContext) {
+        this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -3556,8 +3551,10 @@ class EditorInstance {
                 <div class="sidebar-footer">
                     <div class="word-count"></div>
                     <div class="sidebar-status-imagedir">
-                        <div class="imagedir-header"><span class="imagedir-label"></span><span class="imagedir-source"></span><button class="imagedir-settings-btn"></button></div>
-                        <div class="imagedir-info"><span class="imagedir-path"></span></div>
+                        <span class="imagedir-label"></span> <span class="imagedir-path"></span>
+                    </div>
+                    <div class="sidebar-status-filedir">
+                        <span class="filedir-label"></span> <span class="filedir-path"></span>
                     </div>
                 </div>
                 <div class="sidebar-resizer"></div>
@@ -3651,8 +3648,9 @@ class EditorInstance {
     const editor = container.querySelector('.editor');
     const sourceEditor = container.querySelector('.source-editor');
     const outline = container.querySelector('.outline');
-    const wordCount = container.querySelector('.word-count');
+    const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
+    const statusFileDir = container.querySelector('.sidebar-status-filedir');
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -3771,10 +3769,11 @@ class EditorInstance {
     let syncTimeout = null;
     let pendingSync = false;
     let hasUserEdited = false; // Flag to track if user has made any edits
-    let currentImageDir = null; // IMAGE_DIR directive value (preserved during sync)
-    let currentForceRelativePath = null; // FORCE_RELATIVE_PATH directive value (preserved during sync)
+    // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirDisplayPath = null; // Resolved display path for files from extension
+    let fileDirSource = null; // 'file' | 'settings' | 'default'
 
     // Active editing detection — replaces simple focus-based guard
     let isActivelyEditing = false;
@@ -3903,41 +3902,9 @@ class EditorInstance {
     let editingIdleTimer = null;
     let queuedExternalContent = null; // Queued external change waiting for idle
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
-    
-    // Extract IMAGE_DIR from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractImageDirFromMarkdown(md) {
-        // Pattern: matches IMAGE_DIR in a directive block (may have other directives before/after)
-        const pattern = /\n---\n(?:[\s\S]*?\n)?IMAGE_DIR:\s*([^\n]+)/;
-        const match = md.match(pattern);
-        return match ? match[1].trim() : null;
-    }
-    
-    // Extract FORCE_RELATIVE_PATH from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractForceRelativePathFromMarkdown(md) {
-        const pattern = /\n---\n(?:[\s\S]*?\n)?FORCE_RELATIVE_PATH:\s*(true|false)/i;
-        const match = md.match(pattern);
-        return match ? match[1].toLowerCase() === 'true' : null;
-    }
-    
-    // Remove all directive blocks from markdown content (for rendering)
-    // This removes all --- blocks containing IMAGE_DIR or FORCE_RELATIVE_PATH
-    function removeDirectivesFromMarkdown(md) {
-        // Remove standalone directive blocks (single directive)
-        md = md.replace(/\n---\nIMAGE_DIR:\s*[^\n]+\s*$/g, '');
-        md = md.replace(/\n---\nFORCE_RELATIVE_PATH:\s*(true|false)\s*$/gi, '');
-        
-        // Remove combined directive block at end of file
-        // Pattern: ---\n followed by any combination of IMAGE_DIR and FORCE_RELATIVE_PATH lines
-        md = md.replace(/\n---\n(?:(?:IMAGE_DIR:\s*[^\n]+|FORCE_RELATIVE_PATH:\s*(?:true|false))\n?)+\s*$/gi, '');
-        
-        return md;
-    }
-    
-    // Initialize currentImageDir and currentForceRelativePath from initial content
-    currentImageDir = extractImageDirFromMarkdown(markdown);
-    currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
+
+    // REMOVED: extractImageDirFromMarkdown, extractForceRelativePathFromMarkdown, removeDirectivesFromMarkdown
+    // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
     function classifyLinkHref(href) {
@@ -5169,10 +5136,8 @@ class EditorInstance {
     }
     
     function renderFromMarkdown() {
-        // Remove IMAGE_DIR and FORCE_RELATIVE_PATH directives before rendering (they're stored in variables)
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length, 'after directive removal:', markdownToRender.length);
-        const html = markdownToHtmlFragment(markdownToRender);
+        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
         setupInteractiveElements();
@@ -5438,8 +5403,7 @@ class EditorInstance {
         const cursorState = saveCursorState();
 
         // 2. Generate new HTML into a temporary container
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        const newHtml = markdownToHtmlFragment(markdownToRender);
+        const newHtml = markdownToHtmlFragment(markdown);
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = newHtml || '<p><br></p>';
 
@@ -7500,6 +7464,33 @@ class EditorInstance {
         }
     });
 
+    // Image double-click → fullscreen overlay (same as outliner lightbox)
+    editor.addEventListener('dblclick', function(e) {
+        var target = e.target;
+        if (target.nodeType === 3) target = target.parentElement;
+        if (target && target.tagName === 'IMG' && !target.closest('pre') && !target.closest('.code-block-header')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var overlay = document.createElement('div');
+            overlay.className = 'outliner-image-overlay';
+            var largeImg = document.createElement('img');
+            largeImg.className = 'outliner-image-large';
+            largeImg.src = target.src;
+            overlay.appendChild(largeImg);
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(ev) {
+                if (ev.target === overlay) { overlay.remove(); }
+            });
+            var escHandler = function(ev) {
+                if (ev.key === 'Escape') {
+                    overlay.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        }
+    });
+
     editor.addEventListener('click', function(e) {
         // Delegated link click handler
         // e.target can be a text node inside <a>, so walk up to find <a>
@@ -9080,8 +9071,30 @@ class EditorInstance {
         
         // Handle special inline elements that need different treatment
         if (tag === 'a') {
-            // Link - collect content with link info
-            const href = node.getAttribute('href') || '';
+            // Check if this is a file attachment link
+            const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            const href = node.dataset.markdownPath || node.getAttribute('href') || '';
+
+            if (isFileAttachment) {
+                // File attachment - return as single special entry (like image)
+                const linkText = node.textContent || '';
+                result.push({
+                    char: '',
+                    styles: new Set(currentStyles),
+                    isLink: false,
+                    href: '',
+                    isImage: false,
+                    src: '',
+                    alt: '',
+                    isCode: false,
+                    isFileLink: true,
+                    fileLinkHref: href,
+                    fileLinkText: linkText
+                });
+                return result;
+            }
+
+            // Regular link - collect content with link info
             const linkStyles = new Set(currentStyles);
             for (const child of node.childNodes) {
                 const childChars = collectCharStyles(child, linkStyles);
@@ -9170,12 +9183,13 @@ class EditorInstance {
         
         for (const c of chars) {
             // Check if this character can be merged with current group
-            const canMerge = currentGroup && 
+            const canMerge = currentGroup &&
                 !c.isImage && !currentGroup.isImage &&
+                !c.isFileLink && !currentGroup.isFileLink &&
                 !c.isLink && !currentGroup.isLink &&
                 !c.isCode && !currentGroup.isCode &&
                 sameStyleSet(c.styles, currentGroup.styles);
-            
+
             if (canMerge) {
                 currentGroup.text += c.char;
             } else {
@@ -9184,14 +9198,17 @@ class EditorInstance {
                     groups.push(currentGroup);
                 }
                 currentGroup = {
-                    text: c.isImage ? '' : c.char,
+                    text: (c.isImage || c.isFileLink) ? '' : c.char,
                     styles: c.styles,
                     isLink: c.isLink,
                     href: c.href,
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
-                    isCode: c.isCode
+                    isCode: c.isCode,
+                    isFileLink: c.isFileLink,
+                    fileLinkHref: c.fileLinkHref,
+                    fileLinkText: c.fileLinkText
                 };
             }
         }
@@ -9240,7 +9257,12 @@ class EditorInstance {
         if (group.isImage) {
             return '![' + group.alt + '](' + group.src + ')';
         }
-        
+
+        if (group.isFileLink) {
+            // File attachment link - preserve as [📎 text](path)
+            return '[' + group.fileLinkText + '](' + group.fileLinkHref + ')';
+        }
+
         if (group.isLink) {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
@@ -9297,10 +9319,10 @@ class EditorInstance {
     function mdGetInlineMarkdown(node) {
         // 1. Collect character-level style information
         const chars = collectCharStyles(node);
-        
-        // 2. Filter out empty entries (but keep images)
-        const filtered = chars.filter(c => c.char !== '' || c.isImage);
-        
+
+        // 2. Filter out empty entries (but keep images and file links)
+        const filtered = chars.filter(c => c.char !== '' || c.isImage || c.isFileLink);
+
         // 3. Group consecutive characters with same styles
         const groups = groupByStyle(filtered);
         
@@ -9532,23 +9554,9 @@ class EditorInstance {
         
         // Remove zero-width spaces (used for cursor positioning in contenteditable)
         md = md.replace(/\u200B/g, '');
-        
-        // Append directives in a single block if any are set
-        // Format:
-        // ---
-        // IMAGE_DIR: <path>
-        // FORCE_RELATIVE_PATH: <true|false>
-        let directives = '';
-        if (currentImageDir) {
-            directives += 'IMAGE_DIR: ' + currentImageDir + '\n';
-        }
-        if (currentForceRelativePath !== null) {
-            directives += 'FORCE_RELATIVE_PATH: ' + currentForceRelativePath + '\n';
-        }
-        if (directives) {
-            md += '\n---\n' + directives.trimEnd();
-        }
-        
+
+        // REMOVED: Directive appending logic (per-file directive feature removed)
+
         return md;
     }
 
@@ -15695,18 +15703,7 @@ class EditorInstance {
         closeSidebar();
     });
 
-    // Image directory settings button handler
-    const imageDirSettingsBtn = container.querySelector('.imagedir-settings-btn');
-    if (imageDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページでは画像ディレクトリ変更ボタンを非表示
-            imageDirSettingsBtn.style.display = 'none';
-        } else {
-            imageDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetImageDir();
-            });
-        }
-    }
+    // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
     // Sidebar resize functionality
     let isResizing = false;
@@ -15823,8 +15820,6 @@ class EditorInstance {
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
         queuedExternalContent = null;
-        currentImageDir = extractImageDirFromMarkdown(markdown);
-        currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
         if (isSourceMode) {
             sourceEditor.value = markdown;
         } else {
@@ -15870,21 +15865,18 @@ class EditorInstance {
     }
 
     function updateStatus() {
-        // Update IMAGE_DIR display in sidebar footer
         if (statusImageDir) {
             const pathEl = container.querySelector('.imagedir-path');
-            const sourceEl = container.querySelector('.imagedir-source');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
                 pathEl.title = imageDirDisplayPath;
             }
-            if (sourceEl && imageDirSource) {
-                const labels = {
-                    file: i18n.imageDirSourceFile || 'File',
-                    settings: i18n.imageDirSourceSettings || 'Settings',
-                    default: i18n.imageDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[imageDirSource] || imageDirSource;
+        }
+        if (statusFileDir) {
+            const pathEl = container.querySelector('.filedir-path');
+            if (pathEl && fileDirDisplayPath !== null) {
+                pathEl.textContent = fileDirDisplayPath;
+                pathEl.title = fileDirDisplayPath;
             }
         }
     }
@@ -16817,8 +16809,6 @@ class EditorInstance {
 
             // Idle state — apply external change immediately with cursor preservation
             markdown = incomingContent;
-            currentImageDir = extractImageDirFromMarkdown(markdown);
-            currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
             if (isSourceMode) {
                 sourceEditor.value = markdown;
             } else {
@@ -16828,32 +16818,18 @@ class EditorInstance {
             updateWordCount();
             updateStatus();
             undoManager.clear();
-        } else if (message.type === 'setImageDir') {
-            // Update currentImageDir and currentForceRelativePath from extension
-            currentImageDir = message.dirPath;
-            // forceRelativePath: true/false で設定、null でクリア
-            if (message.forceRelativePath === null) {
-                currentForceRelativePath = null;
-            } else if (message.forceRelativePath !== undefined) {
-                currentForceRelativePath = message.forceRelativePath;
-            }
-            updateStatus(); // Update status bar to show IMAGE_DIR and FORCE_RELATIVE_PATH
-            syncMarkdown(); // Re-sync to include the new directives
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             updateStatus();
+        } else if (message.type === 'fileDirStatus') {
+            fileDirDisplayPath = message.displayPath;
+            fileDirSource = message.source;
+            updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source);
-        } else if (message.type === 'sidePanelSetImageDir') {
-            // Route setImageDir response to side panel instance
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage({
-                    type: 'setImageDir',
-                    dirPath: message.dirPath,
-                    forceRelativePath: message.forceRelativePath
-                });
-            }
+        } else if (message.type === 'sidePanelFileDirStatus') {
+            updateSidePanelFileDir(message.displayPath, message.source);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -16940,6 +16916,77 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('Image element inserted');
+        } else if (message.type === 'insertFileLink') {
+            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            // Insert file link at cursor position
+            const link = document.createElement('a');
+            link.href = message.markdownPath;
+            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            link.dataset.markdownPath = message.markdownPath;
+            link.dataset.isFileAttachment = 'true';
+
+            editor.focus();
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(link);
+
+                // Move cursor after link
+                range.setStartAfter(link);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                editor.appendChild(link);
+            }
+            syncMarkdown();
+            logger.log('File link element inserted');
+        } else if (message.type === 'pasteWithAssetCopyResult') {
+            // v9: Insert rewritten markdown after asset copy
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            const pastedMd = message.markdown;
+            if (!pastedMd) return;
+
+            // Use the same block/inline paste logic as normal paste
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0) return;
+
+            const range = sel.getRangeAt(0);
+            const containerNode = range.commonAncestorContainer;
+            const containerBlock = containerNode.nodeType === 3
+                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
+                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
+
+            const firstLine = pastedMd.split('\n')[0];
+            const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
+
+            if (!looksLikeBlock && containerBlock) {
+                // Inline paste: convert markdown to inline HTML, then create DOM fragment
+                const inlineHtml = parseInline(pastedMd);
+                const tempSpan = document.createElement('span');
+                tempSpan.innerHTML = inlineHtml;
+                const frag = document.createDocumentFragment();
+                while (tempSpan.firstChild) {
+                    frag.appendChild(tempSpan.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(frag);
+                range.collapse(false);
+            } else {
+                // Block paste: render as block elements
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = markdownToHtml(pastedMd);
+                const fragment = document.createDocumentFragment();
+                while (tempDiv.firstChild) {
+                    fragment.appendChild(tempDiv.firstChild);
+                }
+                range.deleteContents();
+                range.insertNode(fragment);
+            }
+
+            syncMarkdown();
+            logger.log('Asset-copied content inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -17068,8 +17115,7 @@ class EditorInstance {
     var sidePanelSidebarCloseBtn = container.querySelector('#sidePanelSidebarClose');
     var sidePanelImageDirEl = container.querySelector('.side-panel-imagedir');
     var sidePanelImageDirPath = container.querySelector('#sidePanelImageDirPath');
-    var sidePanelImageDirSource = container.querySelector('#sidePanelImageDirSource');
-    var sidePanelImageDirBtn = container.querySelector('#sidePanelImageDirBtn');
+    var sidePanelFileDirPath = container.querySelector('#sidePanelFileDirPath');
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -17270,13 +17316,12 @@ class EditorInstance {
             sidePanelImageDirPath.textContent = displayPath || '';
             sidePanelImageDirPath.title = displayPath || '';
         }
-        if (sidePanelImageDirSource) {
-            var labels = {
-                file: i18n.imageDirSourceFile || 'File',
-                settings: i18n.imageDirSourceSettings || 'Settings',
-                default: i18n.imageDirSourceDefault || 'Default'
-            };
-            sidePanelImageDirSource.textContent = labels[source] || source || '';
+    }
+
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
         }
     }
 
@@ -17713,6 +17758,14 @@ class EditorInstance {
         }
     });
 
+    // Helper: Check if file is an image based on extension
+    var IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
+    function isImageFile(fileName) {
+        if (!fileName) return false;
+        var ext = fileName.split('.').pop().toLowerCase();
+        return IMAGE_EXTENSIONS.indexOf(ext) !== -1;
+    }
+
     if (isMainInstance) document.addEventListener('drop', function(e) {
         var t = findTargetEditor(e.target);
         if (!t) {
@@ -17744,8 +17797,22 @@ class EditorInstance {
             const reader = new FileReader();
             reader.onload = function(event) {
                 logger.log('FileReader onload called');
-                h.saveImageAndInsert(event.target.result);
+                h.saveImageAndInsert(event.target.result, file.name);
                 logger.log('Image sent to extension for saving');
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error:', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Helper to read non-image file and send via correct host
+        function readAndInsertFileViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                logger.log('FileReader onload called for file');
+                h.saveFileAndInsert(event.target.result, file.name);
+                logger.log('File sent to extension for saving');
             };
             reader.onerror = function(err) {
                 logger.error('FileReader error:', err);
@@ -17760,8 +17827,12 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            if (file.type.startsWith('image/')) {
+            if (file.type.startsWith('image/') || isImageFile(file.name)) {
                 readAndInsertImageViaHost(file, targetHost);
+                return;
+            } else {
+                // Non-image file
+                readAndInsertFileViaHost(file, targetHost);
                 return;
             }
         }
@@ -17789,40 +17860,55 @@ class EditorInstance {
         const plainText = e.dataTransfer?.getData('text/plain');
         logger.log('URI list:', uriList);
         logger.log('Plain text:', plainText);
-        
+
         // Try to get file path from various sources
         let filePath = null;
-        
+        let isImage = false;
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    // Check if it's an image
-                    if (uri.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                        filePath = decodeURIComponent(uri.replace('file://', ''));
+                    const decodedPath = decodeURIComponent(uri.replace('file://', ''));
+                    const fileName = decodedPath.split('/').pop();
+                    if (isImageFile(fileName)) {
+                        filePath = decodedPath;
+                        isImage = true;
+                        break;
+                    } else {
+                        // Non-image file
+                        filePath = decodedPath;
+                        isImage = false;
                         break;
                     }
                 }
             }
         }
-        
+
         if (!filePath && plainText) {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
-                if (plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                    filePath = decodeURIComponent(plainText.replace('file://', ''));
-                }
-            } else if (plainText.startsWith('/') && plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
+                const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
+                const fileName = decodedPath.split('/').pop();
+                filePath = decodedPath;
+                isImage = isImageFile(fileName);
+            } else if (plainText.startsWith('/')) {
                 // Direct file path
+                const fileName = plainText.split('/').pop();
                 filePath = plainText;
+                isImage = isImageFile(fileName);
             }
         }
-        
+
         if (filePath) {
-            logger.log('Found image file path:', filePath);
-            // Send to extension to read the file
-            targetHost.readAndInsertImage(filePath);
+            if (isImage) {
+                logger.log('Found image file path:', filePath);
+                targetHost.readAndInsertImage(filePath);
+            } else {
+                logger.log('Found non-image file path:', filePath);
+                targetHost.readAndInsertFile(filePath);
+            }
             return;
         }
         
@@ -18187,7 +18273,12 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
-            
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
+
         } catch (err) {
             logger.error('Copy error:', err);
             // Fallback to plain text
@@ -18223,10 +18314,15 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
-        
+
         // Delete the selection
         range.deleteContents();
         syncMarkdown();
@@ -18267,9 +18363,26 @@ class EditorInstance {
         
         // No image - handle as text/html paste
         e.preventDefault();
-        
-        // Check for internal copy (has our custom marker)
+
+        // v9: Check for asset copy context (cross-MD paste with file duplication)
+        const assetContext = e.clipboardData.getData('text/x-any-md-context');
         const internalMd = e.clipboardData.getData('text/x-any-md');
+
+        if (assetContext && internalMd && host._assetContext) {
+            try {
+                const sourceCtx = JSON.parse(assetContext);
+                const destCtx = host._assetContext;
+
+                // Compare directories — if different, need asset copy
+                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
+                    // Send to host for file copy + path rewrite
+                    host.pasteWithAssetCopy(internalMd, sourceCtx);
+                    return; // Wait for pasteWithAssetCopyResult
+                }
+            } catch { /* invalid context, fall through to normal paste */ }
+        }
+
+        // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
         
@@ -19546,6 +19659,42 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
     }
 
     /**
+     * .md 本文から [📎 filename](path) 形式のファイルリンクを抽出。
+     * alt text が 📎 で始まる link を対象とする。
+     * http/data/file/絶対パスを除外、クエリ/フラグメントを除去。
+     */
+    function extractMarkdownFileLinks(md) {
+        var results = [];
+        var seen = Object.create(null);
+        function push(p) {
+            if (!p) return;
+            var trimmed = p.trim().replace(/^<|>$/g, '');
+            if (!trimmed) return;
+            if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+            if (trimmed.charAt(0) === '/') return;
+            var cleaned = trimmed.split(/[?#]/)[0];
+            if (!cleaned || seen[cleaned]) return;
+            seen[cleaned] = true;
+            results.push(cleaned);
+        }
+        var links = parseMarkdownLinks(md || '');
+        for (var i = 0; i < links.length; i++) {
+            var link = links[i];
+            // Check if it's a link (not image) and alt text contains 📎
+            // 📎 is U+1F4CE, which is a surrogate pair: \uD83D\uDCCE
+            if (link.kind === 'link' && link.alt) {
+                var altTrimmed = link.alt.trim();
+                // Check if alt starts with 📎 or contains it (flexible matching)
+                if (altTrimmed.indexOf('\uD83D\uDCCE') === 0 ||
+                    altTrimmed.indexOf('📎') === 0) {
+                    push(link.url);
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
      * text[startIndex] から始まる生 URL を balanced paren 対応で検出。
      * - プロトコルは http:// / https:// のみ
      * - 空白 / 改行 / タブ / < > " ' で停止
@@ -19586,6 +19735,7 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
     return {
         parseMarkdownLinks: parseMarkdownLinks,
         extractImagePaths: extractImagePaths,
+        extractMarkdownFileLinks: extractMarkdownFileLinks,
         extractUrlWithBalancedParens: extractUrlWithBalancedParens,
         findBalancedClose: findBalancedClose
     };
@@ -19655,9 +19805,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestInsertImage: function(sidePanelFilePath) {
             postFn({ type: 'insertImage', position: 0, sidePanelFilePath: sidePanelFilePath });
         },
-        requestSetImageDir: function(sidePanelFilePath) {
-            postFn({ type: 'setImageDir', sidePanelFilePath: sidePanelFilePath });
-        },
         saveImageAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveImageAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },
@@ -19665,9 +19812,27 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'readAndInsertImage', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // ファイル添付
+        saveFileAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
+            postFn({ type: 'saveFileAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        readAndInsertFile: function(filePath, sidePanelFilePath) {
+            postFn({ type: 'readAndInsertFile', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
+        },
+
         // sendToChat
         sendToChat: function(startLine, endLine, selectedMarkdown, sidePanelFilePath) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // MD paste asset copy (v9)
+        pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            postFn({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: sidePanelFilePath
+            });
         },
 
         // メッセージ受信
@@ -19713,11 +19878,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         copyPageFile: function(sourcePageId, newPageId) {
             window.__testApi.messages.push({ type: 'copyPageFile', sourcePageId: sourcePageId, newPageId: newPageId });
         },
-        copyPageFileCross: function(sourcePageId, newPageId, clipboardPlainText) {
-            window.__testApi.messages.push({ type: 'copyPageFileCross', sourcePageId: sourcePageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText });
-        },
-        movePageFileCross: function(pageId, clipboardPlainText) {
-            window.__testApi.messages.push({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText });
+        handlePageAssetsCross: function(pageId, newPageId, clipboardPlainText, targetNodeId, nodeImages, isCut) {
+            window.__testApi.messages.push({ type: 'handlePageAssetsCross', pageId: pageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages || [], isCut: !!isCut });
         },
         copyImagesCross: function(images, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
@@ -19766,11 +19928,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openAttachedFile: function(nodeId) {
             window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
         },
-        copyFileAsset: function(filePath, nodeId) {
-            window.__testApi.messages.push({ type: 'copyFileAsset', filePath: filePath, nodeId: nodeId });
-        },
-        moveFileAssetCross: function(filePath, nodeId) {
-            window.__testApi.messages.push({ type: 'moveFileAssetCross', filePath: filePath, nodeId: nodeId });
+        handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
+            window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
         },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
@@ -20642,6 +20801,7 @@ var Outliner = (function() {
 
     // --- 画像 ---
     var imageDir = null;           // .out JSON の imageDir フィールド
+    var fileDir = null;            // .out JSON の fileDir フィールド
     var selectedImageInfo = null;  // { nodeId, index, element } or null
     var imageDragState = null;     // { nodeId, fromIndex } or null
 
@@ -20791,6 +20951,10 @@ var Outliner = (function() {
         // JSONからimageDirを復元
         if (data && data.imageDir) {
             imageDir = data.imageDir;
+        }
+        // JSONからfileDirを復元
+        if (data && data.fileDir) {
+            fileDir = data.fileDir;
         }
         // JSONからpinnedTagsを復元
         if (data && data.pinnedTags) {
@@ -22290,7 +22454,7 @@ var Outliner = (function() {
 
         // 内部クリップボードにページノードまたは画像が含まれるか判定
         var hasMetadataInClipboard = clipNodes && clipNodes.some(function(cn) {
-            return cn.isPage || (cn.images && cn.images.length > 0);
+            return cn.isPage || (cn.images && cn.images.length > 0) || cn.filePath;
         });
 
         // 単一行かつメタデータなし: 現在ノードのカーソル位置に挿入
@@ -22426,7 +22590,7 @@ var Outliner = (function() {
                         newNode.pageId = clipNode.pageId;
                         if (isCrossFile) {
                             // cross-file: .md と画像を物理移動、新 path を postback で受け取る
-                            host.movePageFileCross(clipNode.pageId, text, newNode.id, clipImages);
+                            host.handlePageAssetsCross(clipNode.pageId, null, text, newNode.id, clipImages, true);
                         }
                         // same-file cut: 何もしない (同じ pagesDir なので file 位置不変)
                     } else {
@@ -22434,7 +22598,7 @@ var Outliner = (function() {
                         var newPageId = model.generatePageId();
                         newNode.isPage = true;
                         newNode.pageId = newPageId;
-                        host.copyPageFileCross(clipNode.pageId, newPageId, text, newNode.id, clipImages);
+                        host.handlePageAssetsCross(clipNode.pageId, newPageId, text, newNode.id, clipImages, false);
                     }
                 } else if (clipImages.length > 0) {
                     // 非 isPage + images のみのケース
@@ -22450,18 +22614,18 @@ var Outliner = (function() {
                 }
                 // filePath 処理 (isPage と filePath は相互排他的なので独立分岐)
                 if (clipNode.filePath) {
+                    // page コピーと同じパターン: まず filePath を即座に設定
+                    newNode.filePath = clipNode.filePath;
                     if (isCut) {
                         if (isCrossFile) {
                             // cross-file cut: ファイルを物理移動
-                            host.moveFileAssetCross(clipNode.filePath, newNode.id);
-                        } else {
-                            // same-file cut: filePath はそのまま有効 (同じ fileDir)
-                            newNode.filePath = clipNode.filePath;
+                            host.handleFileAssetCross(clipNode.filePath, text, newNode.id, true);
                         }
+                        // same-file cut: filePath はそのまま有効 (同じ fileDir)
                     } else {
                         // copy: ファイルを新 filename で実体コピー (常に host 経由)
-                        host.copyFileAsset(clipNode.filePath, newNode.id);
-                        // newNode.filePath は updateNodeFilePath postback で設定される
+                        // host からの updateNodeFilePath postback で新パスに上書きされる
+                        host.handleFileAssetCross(clipNode.filePath, text, newNode.id, false);
                     }
                 }
             }
@@ -23670,6 +23834,16 @@ var Outliner = (function() {
                 host.setOutlinerImageDir();
             });
             dropdown.appendChild(setImageDirItem);
+
+            // ファイルフォルダ設定
+            var setFileDirItem = document.createElement('button');
+            setFileDirItem.className = 'menu-item';
+            setFileDirItem.textContent = i18n.outlinerSetFileDir || 'Set file directory...';
+            setFileDirItem.addEventListener('click', function() {
+                dropdown.remove();
+                host.setFileDir();
+            });
+            dropdown.appendChild(setFileDirItem);
         }
 
         // .mdファイルインポート
@@ -24465,6 +24639,10 @@ var Outliner = (function() {
     var sidePanelImageDirPath = null;
     var sidePanelImageDirSource = null;
     var sidePanelImageDirBtn = null;
+    var sidePanelFileDirEl = null;
+    var sidePanelFileDirPath = null;
+    var sidePanelFileDirSource = null;
+    var sidePanelFileDirBtn = null;
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -24487,6 +24665,10 @@ var Outliner = (function() {
         sidePanelImageDirPath = document.querySelector('#sidePanelImageDirPath');
         sidePanelImageDirSource = document.querySelector('#sidePanelImageDirSource');
         sidePanelImageDirBtn = document.querySelector('#sidePanelImageDirBtn');
+        sidePanelFileDirEl = document.querySelector('.side-panel-filedir');
+        sidePanelFileDirPath = document.querySelector('#sidePanelFileDirPath');
+        sidePanelFileDirSource = document.querySelector('#sidePanelFileDirSource');
+        sidePanelFileDirBtn = document.querySelector('#sidePanelFileDirBtn');
 
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
@@ -24882,6 +25064,21 @@ var Outliner = (function() {
         }
     }
 
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
+        }
+        if (sidePanelFileDirSource) {
+            var labels = {
+                file: i18n.fileDirSourceFile || 'File',
+                settings: i18n.fileDirSourceSettings || 'Settings',
+                'default': i18n.fileDirSourceDefault || 'Default'
+            };
+            sidePanelFileDirSource.textContent = labels[source] || source || '';
+        }
+    }
+
     function openSidePanelSidebar() {
         if (sidePanelSidebar) { sidePanelSidebar.classList.add('visible'); }
         if (sidePanelOpenOutlineBtn) { sidePanelOpenOutlineBtn.classList.add('hidden'); }
@@ -24955,6 +25152,7 @@ var Outliner = (function() {
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
+        if (fileDir) { data.fileDir = fileDir; }
         if (sidePanelWidthSetting) { data.sidePanelWidth = sidePanelWidthSetting; }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
         host.syncData(JSON.stringify(data, null, 2));
@@ -25394,6 +25592,11 @@ var Outliner = (function() {
                     scheduleSyncToHost();
                     break;
 
+                case 'outlinerFileDirChanged':
+                    fileDir = msg.fileDir || null;
+                    scheduleSyncToHost();
+                    break;
+
                 case 'outlinerImageDirStatus':
                     break;
 
@@ -25437,8 +25640,8 @@ var Outliner = (function() {
                     updateSidePanelImageDir(msg.displayPath, msg.source);
                     break;
 
-                case 'sidePanelSetImageDir':
-                    updateSidePanelImageDir(msg.displayPath, msg.source);
+                case 'sidePanelFileDirStatus':
+                    updateSidePanelFileDir(msg.displayPath, msg.source);
                     break;
 
                 case 'insertImageHtml':
@@ -25458,6 +25661,35 @@ var Outliner = (function() {
                             type: 'insertLinkHtml',
                             url: msg.url,
                             text: msg.text
+                        });
+                    }
+                    break;
+
+                case 'insertFileLink':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertFileLink',
+                            markdownPath: msg.markdownPath,
+                            fileName: msg.fileName
+                        });
+                    }
+                    break;
+
+                case 'sidePanelAssetContext':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._assetContext = {
+                            imageDir: msg.imageDir,
+                            fileDir: msg.fileDir,
+                            mdDir: msg.mdDir
+                        };
+                    }
+                    break;
+
+                case 'pasteWithAssetCopyResult':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'pasteWithAssetCopyResult',
+                            markdown: msg.markdown
                         });
                     }
                     break;
@@ -25549,9 +25781,9 @@ var Outliner = (function() {
     <script>
     // テストAPI公開
     window.__testApi.ready = false;
-    window.__testApi.initOutliner = function(data) {
+    window.__testApi.initOutliner = function(data, outFileKey) {
         var defaultData = { version: 1, rootIds: [], nodes: {} };
-        Outliner.init(data || defaultData);
+        Outliner.init(data || defaultData, outFileKey);
         window.__testApi.ready = true;
     };
     window.__testApi.getSerializedData = function() {

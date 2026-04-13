@@ -5,6 +5,32 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.684] - 2026-04-13
+
+### Fixed
+- MD editor: pasteWithAssetCopyResult now uses shared `_insertPastedMarkdown` function (same paste path as normal paste, including list merge and table handling)
+- Kiro: Fixed double image insertion when pasting screenshots (keydown + paste event both triggered)
+
+### Added
+- Retro patterns: refactoring-timing, editor-paste-scope, webview-event-limits, hotfix-chain-rule
+
+## [0.195.679] - 2026-04-13
+
+### Changed
+- Refactored paste-asset-handler: 6 copy/move function pairs unified into 3 functions (handlePageAssets, handleImageAssets, handleFileAsset)
+- Unified message protocol: copyPageFileCross/movePageFileCross → handlePageAssetsCross, copyFileAsset/moveFileAssetCross → handleFileAssetCross (with isCut flag)
+- Copy and cut operations now both copy files without deletion (cleanup manages orphans)
+- Page node copy/paste now also duplicates file links ([📎] references) within .md content
+- Legacy wrapper functions retained for backward compatibility
+
+## [0.195.674] - 2026-04-13
+
+### Added
+- MD Editor: Copy/paste asset duplication — copying image/file links across different outliners/notes now duplicates physical files to destination directory
+- MD Editor: Clipboard context (`text/x-any-md-context`) carries source imageDir/fileDir/mdDir for cross-outliner paste detection
+- MD Editor: `sidePanelAssetContext` message provides absolute paths to side panel editors
+- MD Editor: `pasteWithAssetCopy` / `pasteWithAssetCopyResult` message flow for host-side file copy + path rewrite
+
 ## [0.195.673] - 2026-04-13
 
 ### Added

@@ -1858,7 +1858,7 @@ var Outliner = (function() {
                         newNode.pageId = clipNode.pageId;
                         if (isCrossFile) {
                             // cross-file: .md と画像を物理移動、新 path を postback で受け取る
-                            host.movePageFileCross(clipNode.pageId, text, newNode.id, clipImages);
+                            host.handlePageAssetsCross(clipNode.pageId, null, text, newNode.id, clipImages, true);
                         }
                         // same-file cut: 何もしない (同じ pagesDir なので file 位置不変)
                     } else {
@@ -1866,7 +1866,7 @@ var Outliner = (function() {
                         var newPageId = model.generatePageId();
                         newNode.isPage = true;
                         newNode.pageId = newPageId;
-                        host.copyPageFileCross(clipNode.pageId, newPageId, text, newNode.id, clipImages);
+                        host.handlePageAssetsCross(clipNode.pageId, newPageId, text, newNode.id, clipImages, false);
                     }
                 } else if (clipImages.length > 0) {
                     // 非 isPage + images のみのケース
@@ -1887,13 +1887,13 @@ var Outliner = (function() {
                     if (isCut) {
                         if (isCrossFile) {
                             // cross-file cut: ファイルを物理移動
-                            host.moveFileAssetCross(clipNode.filePath, text, newNode.id);
+                            host.handleFileAssetCross(clipNode.filePath, text, newNode.id, true);
                         }
                         // same-file cut: filePath はそのまま有効 (同じ fileDir)
                     } else {
                         // copy: ファイルを新 filename で実体コピー (常に host 経由)
                         // host からの updateNodeFilePath postback で新パスに上書きされる
-                        host.copyFileAsset(clipNode.filePath, text, newNode.id);
+                        host.handleFileAssetCross(clipNode.filePath, text, newNode.id, false);
                     }
                 }
             }
@@ -4939,6 +4939,25 @@ var Outliner = (function() {
                             type: 'insertFileLink',
                             markdownPath: msg.markdownPath,
                             fileName: msg.fileName
+                        });
+                    }
+                    break;
+
+                case 'sidePanelAssetContext':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._assetContext = {
+                            imageDir: msg.imageDir,
+                            fileDir: msg.fileDir,
+                            mdDir: msg.mdDir
+                        };
+                    }
+                    break;
+
+                case 'pasteWithAssetCopyResult':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'pasteWithAssetCopyResult',
+                            markdown: msg.markdown
                         });
                     }
                     break;

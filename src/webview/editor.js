@@ -7,6 +7,7 @@ class SidePanelHostBridge {
         this._onImageRequest = callbacks.onImageRequest || null;
         this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
+        this._assetContext = null; // { imageDir, fileDir, mdDir } — set by sidePanelAssetContext message
     }
     syncContent(md) {
         this._mainHost.saveSidePanelFile(this.filePath, md);
@@ -58,6 +59,9 @@ class SidePanelHostBridge {
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
     createPageAuto() { this._mainHost.createPageAuto(); }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
+    pasteWithAssetCopy(markdown, sourceContext) {
+        this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -12518,6 +12522,8 @@ class EditorInstance {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
                                 e.preventDefault();
+                                // Set flag to skip duplicate image handling in paste event
+                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -13367,6 +13373,16 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
+        if (message.type === 'pasteWithAssetCopyResult') {
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            if (!message.markdown) return;
+            undoManager.saveSnapshot();
+            markAsEdited();
+            editor.focus();
+            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            return;
+        }
         if (message.type === 'performUndo') {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._undo) activeInst._undo();
@@ -13537,6 +13553,11 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'pasteWithAssetCopyResult') {
+            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
+            }
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -14823,7 +14844,12 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
-            
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
+
         } catch (err) {
             logger.error('Copy error:', err);
             // Fallback to plain text
@@ -14859,10 +14885,15 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
-        
+
         // Delete the selection
         range.deleteContents();
         syncMarkdown();
@@ -14872,11 +14903,19 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // Kiro: skip if image was already handled by keydown Clipboard API path
+        if (self._kiroImagePasteHandled) {
+            self._kiroImagePasteHandled = false;
+            e.preventDefault();
+            logger.log('Paste event skipped (Kiro image already handled via keydown)');
+            return;
+        }
+
         undoManager.saveSnapshot();
         markAsEdited();
-        
+
         logger.log('Paste event triggered');
-        
+
         // Check for image files first
         const items = e.clipboardData?.items;
         if (items) {
@@ -14903,17 +14942,34 @@ class EditorInstance {
         
         // No image - handle as text/html paste
         e.preventDefault();
-        
-        // Check for internal copy (has our custom marker)
+
+        // v9: Check for asset copy context (cross-MD paste with file duplication)
+        const assetContext = e.clipboardData.getData('text/x-any-md-context');
         const internalMd = e.clipboardData.getData('text/x-any-md');
+
+        if (assetContext && internalMd && host._assetContext) {
+            try {
+                const sourceCtx = JSON.parse(assetContext);
+                const destCtx = host._assetContext;
+
+                // Compare directories — if different, need asset copy
+                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
+                    // Send to host for file copy + path rewrite
+                    host.pasteWithAssetCopy(internalMd, sourceCtx);
+                    return; // Wait for pasteWithAssetCopyResult
+                }
+            } catch { /* invalid context, fall through to normal paste */ }
+        }
+
+        // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
-        
+
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
-        
+
         let pastedMd = '';
-        
+
         // Priority: internal markdown > external HTML > plain text
         // Exception: If plain text looks like a markdown table and HTML has no <table>,
         // prefer plain text (Turndown mangles markdown tables from <p>-wrapped HTML)
@@ -15141,6 +15197,19 @@ class EditorInstance {
             return;
         }
 
+        _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
+    });
+
+    // Shared paste insertion function — used by both paste handler and pasteWithAssetCopyResult.
+    // Extracted from the paste handler to avoid duplication. Takes already-determined markdown
+    // and handles normalization, block/inline detection, list merge, table/code/blockquote paste.
+    // opts.clipboardEvent: original paste event (null for pasteWithAssetCopyResult)
+    // opts.isInternal: true if pasted from internal copy (has text/x-any-md)
+    // opts.plainText: plain text from clipboard (for URL auto-link, code block paste, etc.)
+    function _insertPastedMarkdown(pastedMd, opts) {
+        var clipboardEvent = opts && opts.clipboardEvent || null;
+        var isInternal = opts && opts.isInternal || false;
+        var plainText = opts && opts.plainText || '';
         // Normalize table rows with embedded newlines (cell content containing raw newlines)
         // Applied to all paste sources (internal, Turndown, plain text)
         pastedMd = window.__editorUtils.normalizeMultiLineTableCells(pastedMd);
@@ -15222,7 +15291,7 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 const textNode = document.createTextNode(textToPaste);
@@ -15243,7 +15312,7 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -15287,7 +15356,7 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -15319,17 +15388,17 @@ class EditorInstance {
         
         // URL auto-link on paste
         // If clipboard contains a URL (not from internal copy), auto-create a link
-        if (!internalMd) {
-            const plainText = (text || '').trim();
+        if (!isInternal) {
+            const urlPlainText = plainText.trim();
             const urlRegex = /^https?:\/\/[^\s]+$/;
-            if (plainText && !plainText.includes('\n') && urlRegex.test(plainText)) {
+            if (urlPlainText && !urlPlainText.includes('\n') && urlRegex.test(urlPlainText)) {
                 const selectedText = range.toString();
 
                 if (selectedText && !selectedText.includes('\n')) {
                     // Case 2: Text is selected + URL in clipboard → wrap selected text as link
-                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', plainText);
+                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
+                    a.href = urlPlainText;
                     a.textContent = selectedText;
                     range.deleteContents();
                     range.insertNode(a);
@@ -15345,10 +15414,10 @@ class EditorInstance {
                     return;
                 } else if (!selectedText || selectedText.trim() === '') {
                     // Case 1: No selection + URL paste → auto-create link with URL as text
-                    logger.log('URL paste: auto-linking URL:', plainText);
+                    logger.log('URL paste: auto-linking URL:', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
-                    a.textContent = plainText;
+                    a.href = urlPlainText;
+                    a.textContent = urlPlainText;
                     range.deleteContents();
                     range.insertNode(a);
 
@@ -15648,7 +15717,7 @@ class EditorInstance {
             
             logger.log('Block paste completed via DOM manipulation');
         }
-    });
+    } // end _insertPastedMarkdown
 
     // Focus/blur notifications for sync policy
     editor.addEventListener('focus', function() {
