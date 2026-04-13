@@ -13371,49 +13371,14 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
-        // v9: pasteWithAssetCopyResult — must be handled here (inside init) to access markdownToHtmlFragment
+        // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
         if (message.type === 'pasteWithAssetCopyResult') {
             logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
-            var pastedMd = message.markdown;
-            if (!pastedMd) return;
-
+            if (!message.markdown) return;
+            undoManager.saveSnapshot();
+            markAsEdited();
             editor.focus();
-            var sel = window.getSelection();
-            if (!sel || sel.rangeCount === 0) return;
-
-            var range = sel.getRangeAt(0);
-            var containerNode = range.commonAncestorContainer;
-            var containerBlock = containerNode.nodeType === 3
-                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
-                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
-
-            var firstLine = pastedMd.split('\n')[0];
-            var looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
-
-            if (!looksLikeBlock && containerBlock) {
-                var inlineHtml = parseInline(pastedMd);
-                var tempSpan = document.createElement('span');
-                tempSpan.innerHTML = inlineHtml;
-                var frag = document.createDocumentFragment();
-                while (tempSpan.firstChild) {
-                    frag.appendChild(tempSpan.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(frag);
-                range.collapse(false);
-            } else {
-                var tempDiv = document.createElement('div');
-                tempDiv.innerHTML = markdownToHtmlFragment(pastedMd);
-                var fragment = document.createDocumentFragment();
-                while (tempDiv.firstChild) {
-                    fragment.appendChild(tempDiv.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(fragment);
-            }
-
-            syncMarkdown();
-            logger.log('Asset-copied content inserted');
+            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
             return;
         }
         if (message.type === 'performUndo') {
@@ -14989,12 +14954,12 @@ class EditorInstance {
         // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
-        
+
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
-        
+
         let pastedMd = '';
-        
+
         // Priority: internal markdown > external HTML > plain text
         // Exception: If plain text looks like a markdown table and HTML has no <table>,
         // prefer plain text (Turndown mangles markdown tables from <p>-wrapped HTML)
@@ -15222,6 +15187,19 @@ class EditorInstance {
             return;
         }
 
+        _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
+    });
+
+    // Shared paste insertion function — used by both paste handler and pasteWithAssetCopyResult.
+    // Extracted from the paste handler to avoid duplication. Takes already-determined markdown
+    // and handles normalization, block/inline detection, list merge, table/code/blockquote paste.
+    // opts.clipboardEvent: original paste event (null for pasteWithAssetCopyResult)
+    // opts.isInternal: true if pasted from internal copy (has text/x-any-md)
+    // opts.plainText: plain text from clipboard (for URL auto-link, code block paste, etc.)
+    function _insertPastedMarkdown(pastedMd, opts) {
+        var clipboardEvent = opts && opts.clipboardEvent || null;
+        var isInternal = opts && opts.isInternal || false;
+        var plainText = opts && opts.plainText || '';
         // Normalize table rows with embedded newlines (cell content containing raw newlines)
         // Applied to all paste sources (internal, Turndown, plain text)
         pastedMd = window.__editorUtils.normalizeMultiLineTableCells(pastedMd);
@@ -15303,7 +15281,7 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 const textNode = document.createTextNode(textToPaste);
@@ -15324,7 +15302,7 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -15368,7 +15346,7 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -15400,17 +15378,17 @@ class EditorInstance {
         
         // URL auto-link on paste
         // If clipboard contains a URL (not from internal copy), auto-create a link
-        if (!internalMd) {
-            const plainText = (text || '').trim();
+        if (!isInternal) {
+            const urlPlainText = plainText.trim();
             const urlRegex = /^https?:\/\/[^\s]+$/;
-            if (plainText && !plainText.includes('\n') && urlRegex.test(plainText)) {
+            if (urlPlainText && !urlPlainText.includes('\n') && urlRegex.test(urlPlainText)) {
                 const selectedText = range.toString();
 
                 if (selectedText && !selectedText.includes('\n')) {
                     // Case 2: Text is selected + URL in clipboard → wrap selected text as link
-                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', plainText);
+                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
+                    a.href = urlPlainText;
                     a.textContent = selectedText;
                     range.deleteContents();
                     range.insertNode(a);
@@ -15426,10 +15404,10 @@ class EditorInstance {
                     return;
                 } else if (!selectedText || selectedText.trim() === '') {
                     // Case 1: No selection + URL paste → auto-create link with URL as text
-                    logger.log('URL paste: auto-linking URL:', plainText);
+                    logger.log('URL paste: auto-linking URL:', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
-                    a.textContent = plainText;
+                    a.href = urlPlainText;
+                    a.textContent = urlPlainText;
                     range.deleteContents();
                     range.insertNode(a);
 
@@ -15729,7 +15707,7 @@ class EditorInstance {
             
             logger.log('Block paste completed via DOM manipulation');
         }
-    });
+    } // end _insertPastedMarkdown
 
     // Focus/blur notifications for sync policy
     editor.addEventListener('focus', function() {
