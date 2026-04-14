@@ -4160,10 +4160,24 @@ var Outliner = (function() {
             translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
         }
         console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
-        // Close current side panel MD
+        // Capture the current (pre-translation) header actions HTML BEFORE closing the panel,
+        // because closeSidePanelImmediate clears sidePanelPreTranslationState.
+        var preservedState = sidePanelPreTranslationState;
+        if (preservedState && sidePanelEl) {
+            var preHeader = sidePanelEl.querySelector('.side-panel-header');
+            if (preHeader) {
+                var preActions = preHeader.querySelector('.side-panel-header-actions');
+                if (preActions && !preservedState.actionsHtml) {
+                    preservedState.actionsHtml = preActions.innerHTML;
+                }
+            }
+        }
+        // Close current side panel MD (this nulls sidePanelPreTranslationState)
         if (sidePanelInstance) {
             closeSidePanelImmediate();
         }
+        // Restore preserved state so later close handlers can rebuild default header actions
+        sidePanelPreTranslationState = preservedState;
 
         // Reopen as translation result panel
         var spContainer = window.EditorInstance.createSidePanelContainer();
@@ -4372,13 +4386,30 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
+    // v10: If a translation panel is currently shown, restore the default header action
+    // buttons (undo/redo/translateLang/...) before the panel is destroyed. Otherwise the
+    // next openSidePanel() would reuse the same DOM with only the "← Back" button left.
+    function restoreHeaderActionsFromTranslation() {
+        if (!sidePanelPreTranslationState || !sidePanelPreTranslationState.actionsHtml) return;
+        if (!sidePanelEl) return;
+        var header = sidePanelEl.querySelector('.side-panel-header');
+        if (!header) return;
+        var actions = header.querySelector('.side-panel-header-actions');
+        if (actions) {
+            actions.innerHTML = sidePanelPreTranslationState.actionsHtml;
+        }
+    }
+
     function closeSidePanelImmediate() {
+        restoreHeaderActionsFromTranslation();
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
         if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
         if (sidePanelExpanded) {
