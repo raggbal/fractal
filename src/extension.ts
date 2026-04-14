@@ -164,6 +164,13 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // v10: Translate command - trigger translation from keyboard shortcut
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.translate', () => {
+            provider.sendTranslate();
+        })
+    );
+
     // --- Notes (Activity Bar + WebviewPanel) ---
     const notesFolderProvider = new NotesFolderProvider(context);
     const notesEditorProvider = new NotesEditorProvider(context);

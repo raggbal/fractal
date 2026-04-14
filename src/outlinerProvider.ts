@@ -9,6 +9,7 @@ import { importFiles } from './shared/file-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
+import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 
 
 /**
@@ -742,6 +743,65 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             type: 'outlinerImageDirStatus',
                             displayPath: displayPath,
                             source: 'settings'
+                        });
+                        break;
+                    }
+
+                    case 'translateContent': {
+                        const config = vscode.workspace.getConfiguration('fractal');
+                        const accessKeyId = config.get<string>('transAccessKeyId', '');
+                        const secretAccessKey = config.get<string>('transSecretAccessKey', '');
+                        const region = config.get<string>('transRegion', 'us-east-1');
+                        if (!accessKeyId || !secretAccessKey) {
+                            webviewPanel.webview.postMessage({
+                                type: 'translateError',
+                                message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.'
+                            });
+                            break;
+                        }
+                        try {
+                            const result = await translateText({
+                                text: message.markdown,
+                                sourceLang: message.sourceLang,
+                                targetLang: message.targetLang,
+                                accessKeyId,
+                                secretAccessKey,
+                                region
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'translateResult',
+                                translatedMarkdown: result.translatedText,
+                                sourceLang: result.sourceLang,
+                                targetLang: result.targetLang
+                            });
+                        } catch (err: any) {
+                            const errMsg = err?.message || String(err);
+                            const errStack = err?.stack || '';
+                            console.error('[Translate] Error:', errMsg, errStack);
+                            vscode.window.showErrorMessage(`Translate failed: ${errMsg}`);
+                            webviewPanel.webview.postMessage({
+                                type: 'translateError',
+                                message: errMsg
+                            });
+                        }
+                        break;
+                    }
+
+                    case 'translateSelectLang': {
+                        const sourcePick = await vscode.window.showQuickPick(
+                            TRANSLATE_LANGUAGES.map(l => ({ label: l.label, description: l.code })),
+                            { placeHolder: 'Source language' }
+                        );
+                        if (!sourcePick) break;
+                        const targetPick = await vscode.window.showQuickPick(
+                            TRANSLATE_LANGUAGES.map(l => ({ label: l.label, description: l.code })),
+                            { placeHolder: 'Target language' }
+                        );
+                        if (!targetPick) break;
+                        webviewPanel.webview.postMessage({
+                            type: 'translateLangSelected',
+                            sourceLang: sourcePick.description,
+                            targetLang: targetPick.description
                         });
                         break;
                     }

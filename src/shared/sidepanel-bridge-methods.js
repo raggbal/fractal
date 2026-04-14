@@ -90,6 +90,25 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // v10: Translation
+        translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
+            postFn({
+                type: 'translateContent',
+                markdown: markdown,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+        translateSelectLang: function(currentSource, currentTarget, sidePanelFilePath) {
+            postFn({
+                type: 'translateSelectLang',
+                currentSource: currentSource,
+                currentTarget: currentTarget,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
         // メッセージ受信
         onMessage: function(handler) {
             window.addEventListener('message', function(e) {

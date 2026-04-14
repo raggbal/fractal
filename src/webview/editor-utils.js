@@ -45,6 +45,8 @@
         'align-center': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M17 12H7"/><path d="M19 19H5"/></svg>',
         'align-right': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M21 12H9"/><path d="M21 19H7"/></svg>',
         'addPage': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 12v6"/></svg>',
+        'translate': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+        'translateLang': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
     };
 
     // ===== Language Constants =====
@@ -389,6 +391,30 @@
         return result.join('\n');
     }
 
+    /**
+     * v10: Normalize AWS Translate output to restore broken MD syntax.
+     * AWS Translate does NOT preserve Markdown — it translates the raw text and mangles syntax:
+     *   `- [text](url)` → `-[訳] (url)`  (lost space after dash, added space before paren)
+     *   `# Heading`     → `#見出し`       (lost space after hash)
+     *   `1. Item`       → `1.アイテム`    (lost space after period)
+     * Re-apply these spaces so the markdown renderer recognizes the structures.
+     */
+    function normalizeTranslatedMarkdown(md) {
+        if (!md) return md;
+        return md
+            // `] (url)` → `](url)`   — link bracket→paren spacing
+            .replace(/\]\s+\(/g, '](')
+            // line-start `-[` / `*[` / `+[` → `- [` — bullet before link
+            .replace(/^([-*+])\[/gm, '$1 [')
+            // line-start `-word` / `*word` / `+word` → `- word` — bullet before text
+            // only when followed by a non-bullet, non-space char (avoid `---` hr, `**bold**`)
+            .replace(/^([-*+])([^\s\-*+\[])/gm, '$1 $2')
+            // line-start `1.text` / `12.text` → `1. text` — ordered list
+            .replace(/^(\d+)\.(?=\S)/gm, '$1. ')
+            // line-start `#text` / `##text` … → `# text` — heading
+            .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
+    }
+
     // ===== Export =====
     window.__editorUtils = {
         LUCIDE_ICONS: LUCIDE_ICONS,
@@ -402,6 +428,7 @@
         wrapInlineCode: wrapInlineCode,
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
-        normalizeMultiLineTableCells: normalizeMultiLineTableCells
+        normalizeMultiLineTableCells: normalizeMultiLineTableCells,
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
     };
 })();
