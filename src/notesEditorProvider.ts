@@ -588,6 +588,15 @@ export class NotesEditorProvider {
                     markdown: result.rewrittenMarkdown
                 });
             },
+            getWorkspaceConfig: (section: string) => {
+                return vscode.workspace.getConfiguration(section);
+            },
+            postMessage: (message: any) => {
+                panel.webview.postMessage(message);
+            },
+            showQuickPick: async (items: Array<{ label: string; description?: string }>, placeHolder: string) => {
+                return await vscode.window.showQuickPick(items, { placeHolder });
+            },
         };
 
         // --- パネル固有の disposables ---

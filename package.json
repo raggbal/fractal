@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.195.684",
+  "version": "0.195.702",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -147,6 +147,11 @@
         "command": "fractal.cleanUnusedFilesInCurrentNote",
         "title": "Clean Unused Files in Current Note",
         "category": "Fractal"
+      },
+      {
+        "command": "fractal.translate",
+        "title": "Translate",
+        "category": "Fractal"
       }
     ],
     "customEditors": [
@@ -288,6 +293,31 @@
           "type": "string",
           "default": "us-east-1",
           "description": "AWS Region for S3 sync (e.g., ap-northeast-1)"
+        },
+        "fractal.translateSourceLang": {
+          "type": "string",
+          "default": "en",
+          "description": "Default source language for translation"
+        },
+        "fractal.translateTargetLang": {
+          "type": "string",
+          "default": "ja",
+          "description": "Default target language for translation"
+        },
+        "fractal.transAccessKeyId": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Access Key ID for Amazon Translate"
+        },
+        "fractal.transSecretAccessKey": {
+          "type": "string",
+          "default": "",
+          "description": "AWS Secret Access Key for Amazon Translate"
+        },
+        "fractal.transRegion": {
+          "type": "string",
+          "default": "us-east-1",
+          "description": "AWS Region for Amazon Translate (e.g., ap-northeast-1)"
         }
       }
     },
@@ -380,6 +410,12 @@
         "key": "ctrl+]",
         "mac": "cmd+]",
         "when": "activeCustomEditorId == 'fractal.outliner'"
+      },
+      {
+        "command": "fractal.translate",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "activeCustomEditorId == 'fractal.editor'"
       }
     ]
   },

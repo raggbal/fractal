@@ -62,6 +62,12 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    translateContent(markdown, sourceLang, targetLang) {
+        this._mainHost.translateContent(markdown, sourceLang, targetLang, this.filePath);
+    }
+    translateSelectLang(currentSource, currentTarget) {
+        this._mainHost.translateSelectLang(currentSource, currentTarget, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -188,6 +194,10 @@ class EditorInstance {
                         <button data-action="image"></button>
                         <button data-action="table"></button>
                     </div>
+                    <div class="toolbar-group" data-group="translate">
+                        <button data-action="translateLang" title="Translation language">ja → en</button>
+                        <button data-action="translate" title="Translate"></button>
+                    </div>
                 </div>
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--right hidden">&#x276F;</button>
             </div>
@@ -253,10 +263,26 @@ class EditorInstance {
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
+    // v10: Apply readonly option
+    if (this.options.readonly) {
+        if (editor) editor.contentEditable = 'false';
+        // Disable toolbar buttons except translate buttons in readonly mode
+        if (toolbar) {
+            toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+                if (btn.dataset.action !== 'translate' && btn.dataset.action !== 'translateLang') {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.3';
+                }
+            });
+        }
+    }
+
     // Populate toolbar buttons with Lucide icons
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+            // translateLang shows text label (ja → en), not an icon
+            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -373,6 +399,11 @@ class EditorInstance {
     let imageDirSource = null; // 'file' | 'settings' | 'default'
     let fileDirDisplayPath = null; // Resolved display path for files from extension
     let fileDirSource = null; // 'file' | 'settings' | 'default'
+
+    // v10: Translation state
+    let translateSourceLang = 'en';
+    let translateTargetLang = 'ja';
+    let translateLoading = false;
 
     // Active editing detection — replaces simple focus-based guard
     let isActivelyEditing = false;
@@ -11318,6 +11349,26 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'translateLang':
+                host.translateSelectLang(translateSourceLang, translateTargetLang);
+                break;
+            case 'translate': {
+                var translationText = '';
+                var sel = window.getSelection();
+                if (sel && sel.toString()) {
+                    // Selection exists — translate only selected text
+                    translationText = sel.toString();
+                } else {
+                    // No selection — translate full markdown
+                    translationText = markdown;
+                }
+                if (translationText) {
+                    translateLoading = true;
+                    showTranslateLoading();
+                    host.translateContent(translationText, translateSourceLang, translateTargetLang);
+                }
+                break;
+            }
             default:
                 // Shared actions (toolbar + command palette)
                 dispatchToolbarAction(action);
@@ -12499,6 +12550,24 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._getMarkdown = function() {
+        // Sync current editor state to markdown and return
+        try {
+            markdown = htmlToMarkdown();
+        } catch (e) { /* ignore */ }
+        return markdown || '';
+    };
+    this._getSelectionText = function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            // Only return selection if it's within this instance's editor
+            var range = sel.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) {
+                return sel.toString();
+            }
+        }
+        return '';
+    };
     this._setUndoUpdateCallback = function(fn) { undoManager.onUpdateButtons = fn; };
 
     // Instance-aware global shortcut handler (captures closure variables)
@@ -13401,6 +13470,22 @@ class EditorInstance {
             else toggleSourceMode();
             return;
         }
+        if (message.type === 'triggerTranslate') {
+            // v10: Keyboard shortcut triggered translation
+            var translationText = '';
+            var sel = window.getSelection();
+            if (sel && sel.toString()) {
+                translationText = sel.toString();
+            } else {
+                translationText = markdown;
+            }
+            if (translationText) {
+                translateLoading = true;
+                showTranslateLoading();
+                host.translateContent(translationText, translateSourceLang, translateTargetLang);
+            }
+            return;
+        }
         if (message.type === 'update') {
             logger.log('[Any MD] update message received, content length:', message.content?.length);
 
@@ -13671,6 +13756,21 @@ class EditorInstance {
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message.data);
             }
+        } else if (message.type === 'translateLangSelected') {
+            // v10: Update translation language state and button label
+            translateSourceLang = message.sourceLang || 'en';
+            translateTargetLang = message.targetLang || 'ja';
+            updateTranslateLangButton();
+        } else if (message.type === 'translateResult') {
+            // v10: Open translation panel with result
+            translateLoading = false;
+            hideTranslateLoading();
+            openTranslationPanel(message.translatedMarkdown, message.sourceLang, message.targetLang);
+        } else if (message.type === 'translateError') {
+            // v10: Show error and hide loading
+            translateLoading = false;
+            hideTranslateLoading();
+            showTranslateError(message.message || 'Translation failed');
         }
     });
 
@@ -14234,9 +14334,149 @@ class EditorInstance {
         }, 5000);
     }
 
+    // v10: Translation helpers
+    function updateTranslateLangButton() {
+        if (toolbar) {
+            var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
+            if (translateLangBtn) {
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
+            }
+        }
+    }
+
+    var translateLoadingOverlay = null;
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function showTranslateError(message) {
+        // Simple alert for now — could be enhanced to toast notification
+        alert('Translation Error: ' + message);
+    }
+
+    function openTranslationPanel(translatedMarkdown, sourceLang, targetLang) {
+        // v10: AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        // Close existing side panel if open
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Create EditorInstance container for translation result
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        var LUCIDE_ICONS = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
+
+        // Create a minimal host bridge for translation panel (no file operations)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {}
+        };
+
+        // Create readonly EditorInstance
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update header label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation Result (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Setup header buttons (copy + close only for translation panel)
+        if (sidePanel) {
+            var header = sidePanel.querySelector('.side-panel-header');
+            if (header) {
+                // Hide undo/redo/source/openInTextEditor buttons
+                var undoBtn = header.querySelector('[data-action="undo"]');
+                var redoBtn = header.querySelector('[data-action="redo"]');
+                var sourceBtn = header.querySelector('[data-action="source"]');
+                var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
+                if (undoBtn) undoBtn.style.display = 'none';
+                if (redoBtn) redoBtn.style.display = 'none';
+                if (sourceBtn) sourceBtn.style.display = 'none';
+                if (openTextEditorBtn) openTextEditorBtn.style.display = 'none';
+
+                // Add copy button (reuse copyPath button as template)
+                var copyBtn = header.querySelector('.side-panel-copy-path');
+                if (copyBtn) {
+                    copyBtn.style.display = 'block';
+                    copyBtn.title = 'Copy translated text';
+                    copyBtn.onclick = function() {
+                        var copyText = '';
+                        if (sidePanelInstance) {
+                            var spEditor = sidePanelInstance.container.querySelector('.editor');
+                            var sel = window.getSelection();
+                            if (sel && sel.toString()) {
+                                copyText = sel.toString();
+                            } else {
+                                copyText = sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : spEditor.textContent;
+                            }
+                        }
+                        if (copyText) {
+                            navigator.clipboard.writeText(copyText).then(function() {
+                                // Visual feedback
+                                copyBtn.style.opacity = '0.5';
+                                setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
+                            });
+                        }
+                    };
+                }
+            }
+        }
+
+        // Show panel with animation
+        if (sidePanel) { sidePanel.style.display = 'flex'; }
+        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
+        requestAnimationFrame(function() {
+            if (sidePanel) { sidePanel.classList.add('open'); }
+            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
+        });
+
+        // Auto-focus editor
+        setTimeout(function() {
+            requestAnimationFrame(function() {
+                if (sidePanelInstance && sidePanelInstance.container) {
+                    var spEditor = sidePanelInstance.container.querySelector('.editor');
+                    if (spEditor) {
+                        spEditor.focus();
+                    }
+                }
+            });
+        }, 300);
+    }
+
     // Drag cursor indicator element
     let dragCursor = null;
-    
+
     function createDragCursor() {
         if (!dragCursor) {
             dragCursor = document.createElement('div');
@@ -15126,6 +15366,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });

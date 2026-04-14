@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.702] - 2026-04-14
+
+### Added
+- Translation (v10): AWS Translate integration via AWS CLI. Toolbar button in standalone MD + side panel header button in outliner. Translation result displayed in readonly side panel with ← Back button to restore original, loading overlay during translation. Supports 14 languages via QuickPick selection.
+- Settings: `fractal.translateSourceLang` (default `en`), `fractal.translateTargetLang` (default `ja`), `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+
+### Fixed
+- Translation: language selection changes now correctly apply in side panel (previously hardcoded `ja`/`en`)
+- Translation: post-process AWS output to restore MD syntax mangled by translation (missing space after `-`, `#`, `1.`, and extra space between `]`/`(`)
+- Wikipedia citation paste: `[40]` now pastes as `[` + link(40) + `]` instead of `[[40]](url)` with outer brackets inside link text. `parseMarkdownLinks` detects `[[text](url)]` wrapper pattern; `turndown normalizeLink` moves bracket-wrapped link text outside the link
+
+### Changed
+- Translation language button shows only target language (e.g. `ja`) to keep header single-line; source→target shown in tooltip
+
 ## [0.195.684] - 2026-04-13
 
 ### Fixed

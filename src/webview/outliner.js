@@ -3919,6 +3919,37 @@ var Outliner = (function() {
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
 
+    // v10: Translation state for side panel
+    var sidePanelTranslateSourceLang = 'en';
+    var sidePanelTranslateTargetLang = 'ja';
+    var sidePanelPreTranslationState = null; // saved original MD state for "back" restore
+    var translateLoadingOverlay = null;
+
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function updateSidePanelTranslateLangBtn() {
+        if (!sidePanelEl) return;
+        var btn = sidePanelEl.querySelector('[data-action="translateLang"]');
+        if (btn) {
+            btn.textContent = sidePanelTranslateTargetLang;
+            btn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+        }
+    }
+
     function initSidePanel() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
@@ -4122,6 +4153,91 @@ var Outliner = (function() {
         }
     }
 
+    // v10: Show translation result by reopening side panel with translated markdown (readonly)
+    function showTranslationInSidePanel(translatedMarkdown, sourceLang, targetLang) {
+        // AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
+        // Close current side panel MD
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Reopen as translation result panel
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        // Minimal bridge (no host operations for readonly result)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {},
+            reportFocus: function() {},
+            reportBlur: function() {}
+        };
+
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update filename label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Inject "← Back" button into header, replacing action buttons (read-only panel).
+        // Save original actions HTML so openSidePanel on restore can rebuild default buttons.
+        if (sidePanelEl) {
+            var header = sidePanelEl.querySelector('.side-panel-header');
+            if (header) {
+                var actions = header.querySelector('.side-panel-header-actions');
+                if (actions) {
+                    if (sidePanelPreTranslationState && !sidePanelPreTranslationState.actionsHtml) {
+                        sidePanelPreTranslationState.actionsHtml = actions.innerHTML;
+                    }
+                    actions.innerHTML = '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>';
+                    var backBtn = actions.querySelector('[data-action="translateBack"]');
+                    if (backBtn) {
+                        backBtn.addEventListener('click', function() {
+                            var s = sidePanelPreTranslationState;
+                            if (s && s.filePath) {
+                                // Restore original header actions HTML before reopening
+                                if (s.actionsHtml) { actions.innerHTML = s.actionsHtml; }
+                                sidePanelPreTranslationState = null;
+                                openSidePanel(s.markdown, s.filePath, s.fileName, s.toc, s.documentBaseUri);
+                            } else {
+                                closeSidePanel();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        // Show side panel
+        if (sidePanelEl) {
+            sidePanelEl.style.display = 'flex';
+            requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
+        }
+        if (sidePanelOverlay) {
+            sidePanelOverlay.style.display = 'block';
+            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        }
+    }
+
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (sidePanelInstance) {
             closeSidePanelImmediate();
@@ -4155,6 +4271,8 @@ var Outliner = (function() {
             var header = sidePanelEl.querySelector('.side-panel-header');
             if (header) {
                 header.querySelectorAll('button[data-action]').forEach(function(btn) {
+                    // translateLang shows text label (ja → en), not an icon
+                    if (btn.dataset.action === 'translateLang') return;
                     var icon = LUCIDE_ICONS[btn.dataset.action];
                     if (icon) { btn.innerHTML = icon; }
                 });
@@ -4162,11 +4280,42 @@ var Outliner = (function() {
                 var redoBtn = header.querySelector('[data-action="redo"]');
                 var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
                 var sourceBtn = header.querySelector('[data-action="source"]');
+                var translateLangBtn = header.querySelector('[data-action="translateLang"]');
+                var translateBtn = header.querySelector('[data-action="translate"]');
 
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
+                if (translateLangBtn) {
+                    translateLangBtn.textContent = sidePanelTranslateTargetLang;
+                    translateLangBtn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+                    translateLangBtn.addEventListener('click', function() {
+                        host.translateSelectLang(sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                    });
+                }
+                if (translateBtn) {
+                    translateBtn.addEventListener('click', function() {
+                        if (!sidePanelInstance) return;
+                        var selectionText = sidePanelInstance._getSelectionText ? sidePanelInstance._getSelectionText() : '';
+                        var text = selectionText || (sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '');
+                        console.log('[Translate] Button clicked. Text length:', text.length, 'langs:', sidePanelTranslateSourceLang, '→', sidePanelTranslateTargetLang);
+                        if (text) {
+                            // Save original state so user can restore via "back" button on result panel
+                            sidePanelPreTranslationState = {
+                                markdown: sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '',
+                                filePath: sidePanelFilePath,
+                                fileName: sidePanelFilename ? sidePanelFilename.textContent : '',
+                                toc: null,
+                                documentBaseUri: sidePanelInstance.options ? sidePanelInstance.options.documentBaseUri : ''
+                            };
+                            showTranslateLoading();
+                            host.translateContent(text, sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                        } else {
+                            console.warn('[Translate] No text to translate');
+                        }
+                    });
+                }
 
                 sidePanelInstance._setUndoUpdateCallback(function(undoDisabled, redoDisabled) {
                     if (undoBtn) { undoBtn.disabled = undoDisabled; undoBtn.style.opacity = undoDisabled ? '0.3' : '1'; }
@@ -4223,6 +4372,7 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
@@ -4960,6 +5110,25 @@ var Outliner = (function() {
                             markdown: msg.markdown
                         });
                     }
+                    break;
+
+                case 'translateResult':
+                    // v10: Show translation result by replacing side panel MD content in readonly mode.
+                    // Re-opens side panel with translated markdown, but in readonly display.
+                    hideTranslateLoading();
+                    showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    break;
+
+                case 'translateError':
+                    hideTranslateLoading();
+                    alert('Translation Error: ' + (msg.message || 'Failed'));
+                    break;
+
+                case 'translateLangSelected':
+                    // v10: Update outliner-level side panel translation state
+                    sidePanelTranslateSourceLang = msg.sourceLang || 'en';
+                    sidePanelTranslateTargetLang = msg.targetLang || 'ja';
+                    updateSidePanelTranslateLangBtn();
                     break;
 
                 case 'scopeIn':

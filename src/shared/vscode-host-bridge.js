@@ -43,6 +43,25 @@
         },
         updatePageH1: function(relativePath, h1Text) {
             api.postMessage({ type: 'updatePageH1', relativePath: relativePath, h1Text: h1Text });
+        },
+
+        // v10: Translation
+        translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
+            api.postMessage({
+                type: 'translateContent',
+                markdown: markdown,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+        translateSelectLang: function(currentSource, currentTarget, sidePanelFilePath) {
+            api.postMessage({
+                type: 'translateSelectLang',
+                currentSource: currentSource,
+                currentTarget: currentTarget,
+                sidePanelFilePath: sidePanelFilePath
+            });
         }
     });
 })();

@@ -143,6 +143,8 @@ function generateSidePanelHtml(messages) {
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
+                        <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
+                        <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>

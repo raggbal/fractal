@@ -201,62 +201,36 @@ body {
     white-space: nowrap;
 }
 .sidebar-footer .sidebar-status-imagedir,
-.side-panel-imagedir {
-    margin-top: 6px;
+.sidebar-footer .sidebar-status-filedir,
+.side-panel-imagedir,
+.side-panel-filedir {
+    margin-top: 4px;
     overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-header,
-.side-panel-imagedir .imagedir-header {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 2px;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-label,
-.side-panel-imagedir .imagedir-label {
-    opacity: 0.6;
-    font-size: 10px;
     white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-source,
-.side-panel-imagedir .imagedir-source {
-    opacity: 0.6;
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
     text-overflow: ellipsis;
-    min-width: 0;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-info,
-.side-panel-imagedir .imagedir-info {
-    min-width: 0;
-    overflow: hidden;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-path,
-.side-panel-imagedir .imagedir-path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn,
-.side-panel-imagedir .imagedir-settings-btn {
-    background: none;
-    border: none;
-    color: var(--text-color);
-    cursor: pointer;
-    padding: 2px;
+    font-size: 10px;
     opacity: 0.6;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
 }
-.sidebar-footer .sidebar-status-imagedir .imagedir-settings-btn:hover,
-.side-panel-imagedir .imagedir-settings-btn:hover {
-    opacity: 1;
+.sidebar-footer .imagedir-label,
+.sidebar-footer .filedir-label,
+.side-panel-imagedir .imagedir-label,
+.side-panel-filedir .filedir-label {
+    font-size: 10px;
 }
-.side-panel-imagedir {
-    padding: 4px 12px 8px;
-    font-size: 11px;
+.sidebar-footer .imagedir-path,
+.sidebar-footer .filedir-path,
+.side-panel-imagedir .imagedir-path,
+.side-panel-filedir .filedir-path {
+    font-size: 10px;
+}
+.side-panel-imagedir,
+.side-panel-filedir {
+    padding: 2px 12px;
+}
+.side-panel-word-count {
+    padding: 4px 12px 2px;
+    font-size: 10px;
+    opacity: 0.6;
 }
 
 .editor-container { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -721,7 +695,7 @@ body {
 }
 .editor pre {
     background: var(--code-bg);
-    padding: 16px;
+    padding: 32px 16px 16px 16px;
     border-radius: 6px;
     overflow-x: auto;
     margin: 1em 0;
@@ -753,55 +727,43 @@ body {
 }
 .code-block-header {
     position: absolute;
-    top: 4px;
-    right: 8px;
+    top: 0;
+    right: 0;
     display: flex;
-    gap: 8px;
-    align-items: center;
+    gap: 0;
+    align-items: stretch;
     z-index: 10;
+    padding: 0;
+    border-radius: 0 6px 0 0;
 }
-.code-lang-tag {
-    font-size: 11px;
-    color: var(--text-color);
-    background: var(--border-color);
-    padding: 2px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    user-select: none;
-    opacity: 0.8;
-}
-.code-lang-tag:hover {
-    opacity: 1;
-    background: var(--selection-bg);
-}
-.code-copy-btn {
-    font-size: 12px;
+.code-lang-tag,
+.code-copy-btn,
+.code-expand-btn {
+    font-size: 8px;
     color: var(--text-color);
     background: var(--border-color);
     border: none;
-    padding: 2px 8px;
-    border-radius: 4px;
+    padding: 1px 4px;
+    border-radius: 0;
     cursor: pointer;
-    opacity: 0.8;
+    opacity: 0.7;
+    line-height: 1.1;
+    user-select: none;
+    display: flex;
+    align-items: center;
 }
-.code-copy-btn:hover {
+.code-lang-tag:hover,
+.code-copy-btn:hover,
+.code-expand-btn:hover {
     opacity: 1;
     background: var(--selection-bg);
 }
 .code-expand-btn {
-    font-size: 14px;
-    color: var(--text-color);
-    background: var(--border-color);
-    border: none;
-    padding: 2px 6px;
-    border-radius: 4px;
-    cursor: pointer;
-    opacity: 0.8;
-    line-height: 1;
+    font-size: 9px;
 }
-.code-expand-btn:hover {
-    opacity: 1;
-    background: var(--selection-bg);
+/* Round only the top-right corner of the last button */
+.code-block-header > :last-child {
+    border-radius: 0 6px 0 0;
 }
 /* Expanded code block - width is set dynamically by JavaScript */
 .editor pre.code-expanded {
@@ -1512,6 +1474,61 @@ body {
 }
 
 ::selection { background: var(--selection-bg); }
+
+/* Image overlay (lightbox) — same as outliner */
+.outliner-image-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    cursor: pointer;
+}
+.outliner-image-large {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    cursor: default;
+}
+
+/* v10: Translation Loading Overlay */
+.translate-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+.translate-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: translate-spin 0.8s linear infinite;
+}
+@keyframes translate-spin {
+    to { transform: rotate(360deg); }
+}
+.translate-loading-text {
+    margin-top: 1em;
+    color: white;
+    font-size: 14px;
+    font-family: var(--font-family);
+}
 </style>
     <style>/* =============================================
  * Outliner Styles
@@ -1945,6 +1962,24 @@ body {
 }
 
 .outliner-page-icon:hover {
+    opacity: 1;
+}
+
+/* --- File Icon --- */
+.outliner-file-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 1.75em;
+    flex-shrink: 0;
+    cursor: pointer;
+    color: var(--outliner-page-icon-color);
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.outliner-file-icon:hover {
     opacity: 1;
 }
 
@@ -3076,6 +3111,15 @@ body {
         .s3-progress { padding: 8px 12px; }
         .s3-progress-message { font-size: 12px; font-weight: 500; }
         .s3-progress-detail { font-size: 11px; opacity: 0.6; margin-top: 2px; word-break: break-all; }
+
+        /* ── Tools Tab ── */
+        .file-panel-tools-section {
+            margin: 10px 0; padding: 0;
+        }
+        .file-panel-section-title {
+            font-weight: bold; font-size: 12px; margin-bottom: 6px;
+            color: var(--vscode-foreground); opacity: 0.8;
+        }
     </style>
 </head>
 <body>
@@ -3096,9 +3140,9 @@ body {
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     Search
                 </button>
-                <button class="file-panel-tab" data-tab="s3">
+                <button class="file-panel-tab" data-tab="tools">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
-                    S3
+                    Tools
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
@@ -3122,23 +3166,52 @@ body {
                 <div class="file-panel-search-count" id="notesSearchCount"></div>
                 <div class="file-panel-search-results" id="notesSearchResults"></div>
             </div>
-            <div class="file-panel-content" id="filePanelContentS3" style="display:none">
-                <div class="s3-panel-section">
-                    <label class="s3-label">S3 Bucket Path</label>
-                    <div class="s3-input-row">
-                        <input type="text" class="file-panel-search-input" id="s3BucketPathInput" placeholder="my-bucket/path" />
-                        <button class="file-panel-btn" id="s3SavePath" title="Save">Save</button>
+            <div class="file-panel-content" id="filePanelContentTools" style="display:none">
+                <!-- S3 Sync Section -->
+                <div class="file-panel-tools-section">
+                    <div class="file-panel-section-title">S3 Sync</div>
+                    <div class="s3-panel-section">
+                        <label class="s3-label">S3 Bucket Path</label>
+                        <div class="s3-input-row">
+                            <input type="text" class="file-panel-search-input" id="s3BucketPathInput" placeholder="my-bucket/path" />
+                            <button class="file-panel-btn" id="s3SavePath" title="Save">Save</button>
+                        </div>
+                        <div class="s3-status" id="s3CredentialStatus"></div>
                     </div>
-                    <div class="s3-status" id="s3CredentialStatus"></div>
+                    <div class="s3-panel-section s3-actions">
+                        <button class="file-panel-btn s3-action-btn" id="s3BtnSync" disabled>Sync (Backup)</button>
+                        <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnRemoteDeleteUpload" disabled>Remote Delete &amp; Upload</button>
+                        <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnLocalDeleteDownload" disabled>Local Delete &amp; Download</button>
+                    </div>
+                    <div class="s3-progress" id="s3Progress" style="display:none">
+                        <div class="s3-progress-message" id="s3ProgressMessage"></div>
+                        <div class="s3-progress-detail" id="s3ProgressDetail"></div>
+                    </div>
                 </div>
-                <div class="s3-panel-section s3-actions">
-                    <button class="file-panel-btn s3-action-btn" id="s3BtnSync" disabled>Sync (Backup)</button>
-                    <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnRemoteDeleteUpload" disabled>Remote Delete &amp; Upload</button>
-                    <button class="file-panel-btn s3-action-btn s3-danger" id="s3BtnLocalDeleteDownload" disabled>Local Delete &amp; Download</button>
-                </div>
-                <div class="s3-progress" id="s3Progress" style="display:none">
-                    <div class="s3-progress-message" id="s3ProgressMessage"></div>
-                    <div class="s3-progress-detail" id="s3ProgressDetail"></div>
+
+                <!-- Clean Notes Section -->
+                <div class="file-panel-tools-section">
+                    <div class="file-panel-section-title">Clean Notes</div>
+                    <button class="file-panel-btn" id="filePanelCleanupCurrent" title="Scan current note for unused files">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                        Clean Unused Files (Current Note)
+                    </button>
+                    <button class="file-panel-btn" id="filePanelCleanupTools" title="Scan all registered notes for unused files">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                        Clean Unused Files in All Notes
+                    </button>
                 </div>
             </div>
         </aside>
@@ -3198,17 +3271,12 @@ body {
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
+                    <div class="side-panel-word-count" id="sidePanelWordCount"></div>
                     <div class="side-panel-imagedir" id="sidePanelImageDir">
-                        <div class="imagedir-header">
-                            <span class="imagedir-label">Image save directory:</span>
-                            <span class="imagedir-source" id="sidePanelImageDirSource"></span>
-                            <button class="imagedir-settings-btn" id="sidePanelImageDirBtn" title="Set Image Directory">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-                            </button>
-                        </div>
-                        <div class="imagedir-info">
-                            <span class="imagedir-path" id="sidePanelImageDirPath"></span>
-                        </div>
+                        <span class="imagedir-label">Image save directory:</span> <span class="imagedir-path" id="sidePanelImageDirPath"></span>
+                    </div>
+                    <div class="side-panel-filedir" id="sidePanelFileDir">
+                        <span class="filedir-label">File save directory:</span> <span class="filedir-path" id="sidePanelFileDirPath"></span>
                     </div>
                 </div>
             </aside>
@@ -3221,6 +3289,8 @@ body {
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
+                        <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
+                        <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>
@@ -3345,6 +3415,21 @@ body {
                 i++;
                 continue;
             }
+            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+            // outer `[...]` is literal text, inner `[text](url)` is the link.
+            // Detect: next char is `[`, and there's a complete inner link whose end is
+            // immediately followed by `]`. In that case skip the outer `[` so the inner
+            // one parses as the link.
+            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+                var innerCloseBr = text.indexOf(']', bracketOpen + 2);
+                if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
+                    var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
+                    if (innerCloseParen !== -1 && text.charAt(innerCloseParen + 1) === ']') {
+                        i++;
+                        continue;
+                    }
+                }
+            }
             var closeBracket = text.indexOf(']', bracketOpen + 1);
             if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
                 i++;
@@ -3401,6 +3486,42 @@ body {
     }
 
     /**
+     * .md 本文から [📎 filename](path) 形式のファイルリンクを抽出。
+     * alt text が 📎 で始まる link を対象とする。
+     * http/data/file/絶対パスを除外、クエリ/フラグメントを除去。
+     */
+    function extractMarkdownFileLinks(md) {
+        var results = [];
+        var seen = Object.create(null);
+        function push(p) {
+            if (!p) return;
+            var trimmed = p.trim().replace(/^<|>$/g, '');
+            if (!trimmed) return;
+            if (/^(https?:|data:|file:)/i.test(trimmed)) return;
+            if (trimmed.charAt(0) === '/') return;
+            var cleaned = trimmed.split(/[?#]/)[0];
+            if (!cleaned || seen[cleaned]) return;
+            seen[cleaned] = true;
+            results.push(cleaned);
+        }
+        var links = parseMarkdownLinks(md || '');
+        for (var i = 0; i < links.length; i++) {
+            var link = links[i];
+            // Check if it's a link (not image) and alt text contains 📎
+            // 📎 is U+1F4CE, which is a surrogate pair: \uD83D\uDCCE
+            if (link.kind === 'link' && link.alt) {
+                var altTrimmed = link.alt.trim();
+                // Check if alt starts with 📎 or contains it (flexible matching)
+                if (altTrimmed.indexOf('\uD83D\uDCCE') === 0 ||
+                    altTrimmed.indexOf('📎') === 0) {
+                    push(link.url);
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
      * text[startIndex] から始まる生 URL を balanced paren 対応で検出。
      * - プロトコルは http:// / https:// のみ
      * - 空白 / 改行 / タブ / < > " ' で停止
@@ -3441,6 +3562,7 @@ body {
     return {
         parseMarkdownLinks: parseMarkdownLinks,
         extractImagePaths: extractImagePaths,
+        extractMarkdownFileLinks: extractMarkdownFileLinks,
         extractUrlWithBalancedParens: extractUrlWithBalancedParens,
         findBalancedClose: findBalancedClose
     };
@@ -3471,6 +3593,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         openLinkInTab: function(href) {
             postFn({ type: 'openLinkInTab', href: href });
+        },
+        requestInsertLink: function(text) {
+            postFn({ type: 'insertLink', text: text });
         },
 
         // フォーカス
@@ -3507,9 +3632,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestInsertImage: function(sidePanelFilePath) {
             postFn({ type: 'insertImage', position: 0, sidePanelFilePath: sidePanelFilePath });
         },
-        requestSetImageDir: function(sidePanelFilePath) {
-            postFn({ type: 'setImageDir', sidePanelFilePath: sidePanelFilePath });
-        },
         saveImageAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveImageAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },
@@ -3517,9 +3639,46 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'readAndInsertImage', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // ファイル添付
+        saveFileAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
+            postFn({ type: 'saveFileAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        readAndInsertFile: function(filePath, sidePanelFilePath) {
+            postFn({ type: 'readAndInsertFile', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
+        },
+
         // sendToChat
         sendToChat: function(startLine, endLine, selectedMarkdown, sidePanelFilePath) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // MD paste asset copy (v9)
+        pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            postFn({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
+        // v10: Translation
+        translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
+            postFn({
+                type: 'translateContent',
+                markdown: markdown,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+        translateSelectLang: function(currentSource, currentTarget, sidePanelFilePath) {
+            postFn({
+                type: 'translateSelectLang',
+                currentSource: currentSource,
+                currentTarget: currentTarget,
+                sidePanelFilePath: sidePanelFilePath
+            });
         },
 
         // メッセージ受信
@@ -3736,6 +3895,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         'align-center': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M17 12H7"/><path d="M19 19H5"/></svg>',
         'align-right': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M21 12H9"/><path d="M21 19H7"/></svg>',
         'addPage': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 12v6"/></svg>',
+        'translate': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+        'translateLang': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
     };
 
     // ===== Language Constants =====
@@ -4080,6 +4241,30 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         return result.join('\n');
     }
 
+    /**
+     * v10: Normalize AWS Translate output to restore broken MD syntax.
+     * AWS Translate does NOT preserve Markdown — it translates the raw text and mangles syntax:
+     *   `- [text](url)` → `-[訳] (url)`  (lost space after dash, added space before paren)
+     *   `# Heading`     → `#見出し`       (lost space after hash)
+     *   `1. Item`       → `1.アイテム`    (lost space after period)
+     * Re-apply these spaces so the markdown renderer recognizes the structures.
+     */
+    function normalizeTranslatedMarkdown(md) {
+        if (!md) return md;
+        return md
+            // `] (url)` → `](url)`   — link bracket→paren spacing
+            .replace(/\]\s+\(/g, '](')
+            // line-start `-[` / `*[` / `+[` → `- [` — bullet before link
+            .replace(/^([-*+])\[/gm, '$1 [')
+            // line-start `-word` / `*word` / `+word` → `- word` — bullet before text
+            // only when followed by a non-bullet, non-space char (avoid `---` hr, `**bold**`)
+            .replace(/^([-*+])([^\s\-*+\[])/gm, '$1 $2')
+            // line-start `1.text` / `12.text` → `1. text` — ordered list
+            .replace(/^(\d+)\.(?=\S)/gm, '$1. ')
+            // line-start `#text` / `##text` … → `# text` — heading
+            .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
+    }
+
     // ===== Export =====
     window.__editorUtils = {
         LUCIDE_ICONS: LUCIDE_ICONS,
@@ -4093,7 +4278,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         wrapInlineCode: wrapInlineCode,
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
-        normalizeMultiLineTableCells: normalizeMultiLineTableCells
+        normalizeMultiLineTableCells: normalizeMultiLineTableCells,
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
     };
 })();
 
@@ -4106,7 +4292,9 @@ class SidePanelHostBridge {
         this.filePath = filePath;
         this._onTocUpdate = callbacks.onTocUpdate || null;
         this._onImageRequest = callbacks.onImageRequest || null;
+        this._onLinkRequest = callbacks.onLinkRequest || null;
         this._messageHandler = null;
+        this._assetContext = null; // { imageDir, fileDir, mdDir } — set by sidePanelAssetContext message
     }
     syncContent(md) {
         this._mainHost.saveSidePanelFile(this.filePath, md);
@@ -4118,13 +4306,19 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
-    requestInsertLink(text) { /* not used in side panel */ }
+    requestInsertLink(text) {
+        if (this._onLinkRequest) this._onLinkRequest();
+        this._mainHost.requestInsertLink(text);
+    }
     requestInsertImage() {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.requestInsertImage(this.filePath);
     }
     requestSetImageDir() {
         this._mainHost.requestSetImageDir(this.filePath);
+    }
+    requestSetFileDir() {
+        this._mainHost.requestSetFileDir(this.filePath);
     }
     saveImageAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -4133,6 +4327,14 @@ class SidePanelHostBridge {
     readAndInsertImage(filePath) {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertImage(filePath, this.filePath);
+    }
+    saveFileAndInsert(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+    }
+    readAndInsertFile(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        this._mainHost.readAndInsertFile(filePath, this.filePath);
     }
     openInTextEditor() {}
     copyFilePath() {}
@@ -4144,6 +4346,15 @@ class SidePanelHostBridge {
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
     createPageAuto() { this._mainHost.createPageAuto(); }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
+    pasteWithAssetCopy(markdown, sourceContext) {
+        this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
+    translateContent(markdown, sourceLang, targetLang) {
+        this._mainHost.translateContent(markdown, sourceLang, targetLang, this.filePath);
+    }
+    translateSelectLang(currentSource, currentTarget) {
+        this._mainHost.translateSelectLang(currentSource, currentTarget, this.filePath);
+    }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -4232,8 +4443,10 @@ class EditorInstance {
                 <div class="sidebar-footer">
                     <div class="word-count"></div>
                     <div class="sidebar-status-imagedir">
-                        <div class="imagedir-header"><span class="imagedir-label"></span><span class="imagedir-source"></span><button class="imagedir-settings-btn"></button></div>
-                        <div class="imagedir-info"><span class="imagedir-path"></span></div>
+                        <span class="imagedir-label"></span> <span class="imagedir-path"></span>
+                    </div>
+                    <div class="sidebar-status-filedir">
+                        <span class="filedir-label"></span> <span class="filedir-path"></span>
                     </div>
                 </div>
                 <div class="sidebar-resizer"></div>
@@ -4267,6 +4480,10 @@ class EditorInstance {
                         <button data-action="link"></button>
                         <button data-action="image"></button>
                         <button data-action="table"></button>
+                    </div>
+                    <div class="toolbar-group" data-group="translate">
+                        <button data-action="translateLang" title="Translation language">ja → en</button>
+                        <button data-action="translate" title="Translate"></button>
                     </div>
                 </div>
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--right hidden">&#x276F;</button>
@@ -4327,15 +4544,32 @@ class EditorInstance {
     const editor = container.querySelector('.editor');
     const sourceEditor = container.querySelector('.source-editor');
     const outline = container.querySelector('.outline');
-    const wordCount = container.querySelector('.word-count');
+    const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
+    const statusFileDir = container.querySelector('.sidebar-status-filedir');
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
+
+    // v10: Apply readonly option
+    if (this.options.readonly) {
+        if (editor) editor.contentEditable = 'false';
+        // Disable toolbar buttons except translate buttons in readonly mode
+        if (toolbar) {
+            toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+                if (btn.dataset.action !== 'translate' && btn.dataset.action !== 'translateLang') {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.3';
+                }
+            });
+        }
+    }
 
     // Populate toolbar buttons with Lucide icons
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+            // translateLang shows text label (ja → en), not an icon
+            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -4447,10 +4681,16 @@ class EditorInstance {
     let syncTimeout = null;
     let pendingSync = false;
     let hasUserEdited = false; // Flag to track if user has made any edits
-    let currentImageDir = null; // IMAGE_DIR directive value (preserved during sync)
-    let currentForceRelativePath = null; // FORCE_RELATIVE_PATH directive value (preserved during sync)
+    // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirDisplayPath = null; // Resolved display path for files from extension
+    let fileDirSource = null; // 'file' | 'settings' | 'default'
+
+    // v10: Translation state
+    let translateSourceLang = 'en';
+    let translateTargetLang = 'ja';
+    let translateLoading = false;
 
     // Active editing detection — replaces simple focus-based guard
     let isActivelyEditing = false;
@@ -4579,41 +4819,9 @@ class EditorInstance {
     let editingIdleTimer = null;
     let queuedExternalContent = null; // Queued external change waiting for idle
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
-    
-    // Extract IMAGE_DIR from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractImageDirFromMarkdown(md) {
-        // Pattern: matches IMAGE_DIR in a directive block (may have other directives before/after)
-        const pattern = /\n---\n(?:[\s\S]*?\n)?IMAGE_DIR:\s*([^\n]+)/;
-        const match = md.match(pattern);
-        return match ? match[1].trim() : null;
-    }
-    
-    // Extract FORCE_RELATIVE_PATH from markdown content
-    // Supports both standalone and combined directive blocks
-    function extractForceRelativePathFromMarkdown(md) {
-        const pattern = /\n---\n(?:[\s\S]*?\n)?FORCE_RELATIVE_PATH:\s*(true|false)/i;
-        const match = md.match(pattern);
-        return match ? match[1].toLowerCase() === 'true' : null;
-    }
-    
-    // Remove all directive blocks from markdown content (for rendering)
-    // This removes all --- blocks containing IMAGE_DIR or FORCE_RELATIVE_PATH
-    function removeDirectivesFromMarkdown(md) {
-        // Remove standalone directive blocks (single directive)
-        md = md.replace(/\n---\nIMAGE_DIR:\s*[^\n]+\s*$/g, '');
-        md = md.replace(/\n---\nFORCE_RELATIVE_PATH:\s*(true|false)\s*$/gi, '');
-        
-        // Remove combined directive block at end of file
-        // Pattern: ---\n followed by any combination of IMAGE_DIR and FORCE_RELATIVE_PATH lines
-        md = md.replace(/\n---\n(?:(?:IMAGE_DIR:\s*[^\n]+|FORCE_RELATIVE_PATH:\s*(?:true|false))\n?)+\s*$/gi, '');
-        
-        return md;
-    }
-    
-    // Initialize currentImageDir and currentForceRelativePath from initial content
-    currentImageDir = extractImageDirFromMarkdown(markdown);
-    currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
+
+    // REMOVED: extractImageDirFromMarkdown, extractForceRelativePathFromMarkdown, removeDirectivesFromMarkdown
+    // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
     function classifyLinkHref(href) {
@@ -5845,10 +6053,8 @@ class EditorInstance {
     }
     
     function renderFromMarkdown() {
-        // Remove IMAGE_DIR and FORCE_RELATIVE_PATH directives before rendering (they're stored in variables)
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length, 'after directive removal:', markdownToRender.length);
-        const html = markdownToHtmlFragment(markdownToRender);
+        logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
         setupInteractiveElements();
@@ -6114,8 +6320,7 @@ class EditorInstance {
         const cursorState = saveCursorState();
 
         // 2. Generate new HTML into a temporary container
-        let markdownToRender = removeDirectivesFromMarkdown(markdown);
-        const newHtml = markdownToHtmlFragment(markdownToRender);
+        const newHtml = markdownToHtmlFragment(markdown);
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = newHtml || '<p><br></p>';
 
@@ -8176,6 +8381,33 @@ class EditorInstance {
         }
     });
 
+    // Image double-click → fullscreen overlay (same as outliner lightbox)
+    editor.addEventListener('dblclick', function(e) {
+        var target = e.target;
+        if (target.nodeType === 3) target = target.parentElement;
+        if (target && target.tagName === 'IMG' && !target.closest('pre') && !target.closest('.code-block-header')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var overlay = document.createElement('div');
+            overlay.className = 'outliner-image-overlay';
+            var largeImg = document.createElement('img');
+            largeImg.className = 'outliner-image-large';
+            largeImg.src = target.src;
+            overlay.appendChild(largeImg);
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', function(ev) {
+                if (ev.target === overlay) { overlay.remove(); }
+            });
+            var escHandler = function(ev) {
+                if (ev.key === 'Escape') {
+                    overlay.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        }
+    });
+
     editor.addEventListener('click', function(e) {
         // Delegated link click handler
         // e.target can be a text node inside <a>, so walk up to find <a>
@@ -9756,8 +9988,30 @@ class EditorInstance {
         
         // Handle special inline elements that need different treatment
         if (tag === 'a') {
-            // Link - collect content with link info
-            const href = node.getAttribute('href') || '';
+            // Check if this is a file attachment link
+            const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            const href = node.dataset.markdownPath || node.getAttribute('href') || '';
+
+            if (isFileAttachment) {
+                // File attachment - return as single special entry (like image)
+                const linkText = node.textContent || '';
+                result.push({
+                    char: '',
+                    styles: new Set(currentStyles),
+                    isLink: false,
+                    href: '',
+                    isImage: false,
+                    src: '',
+                    alt: '',
+                    isCode: false,
+                    isFileLink: true,
+                    fileLinkHref: href,
+                    fileLinkText: linkText
+                });
+                return result;
+            }
+
+            // Regular link - collect content with link info
             const linkStyles = new Set(currentStyles);
             for (const child of node.childNodes) {
                 const childChars = collectCharStyles(child, linkStyles);
@@ -9846,12 +10100,13 @@ class EditorInstance {
         
         for (const c of chars) {
             // Check if this character can be merged with current group
-            const canMerge = currentGroup && 
+            const canMerge = currentGroup &&
                 !c.isImage && !currentGroup.isImage &&
+                !c.isFileLink && !currentGroup.isFileLink &&
                 !c.isLink && !currentGroup.isLink &&
                 !c.isCode && !currentGroup.isCode &&
                 sameStyleSet(c.styles, currentGroup.styles);
-            
+
             if (canMerge) {
                 currentGroup.text += c.char;
             } else {
@@ -9860,14 +10115,17 @@ class EditorInstance {
                     groups.push(currentGroup);
                 }
                 currentGroup = {
-                    text: c.isImage ? '' : c.char,
+                    text: (c.isImage || c.isFileLink) ? '' : c.char,
                     styles: c.styles,
                     isLink: c.isLink,
                     href: c.href,
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
-                    isCode: c.isCode
+                    isCode: c.isCode,
+                    isFileLink: c.isFileLink,
+                    fileLinkHref: c.fileLinkHref,
+                    fileLinkText: c.fileLinkText
                 };
             }
         }
@@ -9916,7 +10174,12 @@ class EditorInstance {
         if (group.isImage) {
             return '![' + group.alt + '](' + group.src + ')';
         }
-        
+
+        if (group.isFileLink) {
+            // File attachment link - preserve as [📎 text](path)
+            return '[' + group.fileLinkText + '](' + group.fileLinkHref + ')';
+        }
+
         if (group.isLink) {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
@@ -9973,10 +10236,10 @@ class EditorInstance {
     function mdGetInlineMarkdown(node) {
         // 1. Collect character-level style information
         const chars = collectCharStyles(node);
-        
-        // 2. Filter out empty entries (but keep images)
-        const filtered = chars.filter(c => c.char !== '' || c.isImage);
-        
+
+        // 2. Filter out empty entries (but keep images and file links)
+        const filtered = chars.filter(c => c.char !== '' || c.isImage || c.isFileLink);
+
         // 3. Group consecutive characters with same styles
         const groups = groupByStyle(filtered);
         
@@ -10208,23 +10471,9 @@ class EditorInstance {
         
         // Remove zero-width spaces (used for cursor positioning in contenteditable)
         md = md.replace(/\u200B/g, '');
-        
-        // Append directives in a single block if any are set
-        // Format:
-        // ---
-        // IMAGE_DIR: <path>
-        // FORCE_RELATIVE_PATH: <true|false>
-        let directives = '';
-        if (currentImageDir) {
-            directives += 'IMAGE_DIR: ' + currentImageDir + '\n';
-        }
-        if (currentForceRelativePath !== null) {
-            directives += 'FORCE_RELATIVE_PATH: ' + currentForceRelativePath + '\n';
-        }
-        if (directives) {
-            md += '\n---\n' + directives.trimEnd();
-        }
-        
+
+        // REMOVED: Directive appending logic (per-file directive feature removed)
+
         return md;
     }
 
@@ -15387,6 +15636,26 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'translateLang':
+                host.translateSelectLang(translateSourceLang, translateTargetLang);
+                break;
+            case 'translate': {
+                var translationText = '';
+                var sel = window.getSelection();
+                if (sel && sel.toString()) {
+                    // Selection exists — translate only selected text
+                    translationText = sel.toString();
+                } else {
+                    // No selection — translate full markdown
+                    translationText = markdown;
+                }
+                if (translationText) {
+                    translateLoading = true;
+                    showTranslateLoading();
+                    host.translateContent(translationText, translateSourceLang, translateTargetLang);
+                }
+                break;
+            }
             default:
                 // Shared actions (toolbar + command palette)
                 dispatchToolbarAction(action);
@@ -16371,18 +16640,7 @@ class EditorInstance {
         closeSidebar();
     });
 
-    // Image directory settings button handler
-    const imageDirSettingsBtn = container.querySelector('.imagedir-settings-btn');
-    if (imageDirSettingsBtn) {
-        if (IS_OUTLINER_PAGE) {
-            // outlinerページでは画像ディレクトリ変更ボタンを非表示
-            imageDirSettingsBtn.style.display = 'none';
-        } else {
-            imageDirSettingsBtn.addEventListener('click', function() {
-                host.requestSetImageDir();
-            });
-        }
-    }
+    // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
     // Sidebar resize functionality
     let isResizing = false;
@@ -16499,8 +16757,6 @@ class EditorInstance {
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
         queuedExternalContent = null;
-        currentImageDir = extractImageDirFromMarkdown(markdown);
-        currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
         if (isSourceMode) {
             sourceEditor.value = markdown;
         } else {
@@ -16546,21 +16802,18 @@ class EditorInstance {
     }
 
     function updateStatus() {
-        // Update IMAGE_DIR display in sidebar footer
         if (statusImageDir) {
             const pathEl = container.querySelector('.imagedir-path');
-            const sourceEl = container.querySelector('.imagedir-source');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
                 pathEl.title = imageDirDisplayPath;
             }
-            if (sourceEl && imageDirSource) {
-                const labels = {
-                    file: i18n.imageDirSourceFile || 'File',
-                    settings: i18n.imageDirSourceSettings || 'Settings',
-                    default: i18n.imageDirSourceDefault || 'Default'
-                };
-                sourceEl.textContent = labels[imageDirSource] || imageDirSource;
+        }
+        if (statusFileDir) {
+            const pathEl = container.querySelector('.filedir-path');
+            if (pathEl && fileDirDisplayPath !== null) {
+                pathEl.textContent = fileDirDisplayPath;
+                pathEl.title = fileDirDisplayPath;
             }
         }
     }
@@ -16584,6 +16837,24 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._getMarkdown = function() {
+        // Sync current editor state to markdown and return
+        try {
+            markdown = htmlToMarkdown();
+        } catch (e) { /* ignore */ }
+        return markdown || '';
+    };
+    this._getSelectionText = function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            // Only return selection if it's within this instance's editor
+            var range = sel.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) {
+                return sel.toString();
+            }
+        }
+        return '';
+    };
     this._setUndoUpdateCallback = function(fn) { undoManager.onUpdateButtons = fn; };
 
     // Instance-aware global shortcut handler (captures closure variables)
@@ -16607,6 +16878,8 @@ class EditorInstance {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
                                 e.preventDefault();
+                                // Set flag to skip duplicate image handling in paste event
+                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -17456,6 +17729,16 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
+        if (message.type === 'pasteWithAssetCopyResult') {
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            if (!message.markdown) return;
+            undoManager.saveSnapshot();
+            markAsEdited();
+            editor.focus();
+            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            return;
+        }
         if (message.type === 'performUndo') {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._undo) activeInst._undo();
@@ -17472,6 +17755,22 @@ class EditorInstance {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._toggleSourceMode) activeInst._toggleSourceMode();
             else toggleSourceMode();
+            return;
+        }
+        if (message.type === 'triggerTranslate') {
+            // v10: Keyboard shortcut triggered translation
+            var translationText = '';
+            var sel = window.getSelection();
+            if (sel && sel.toString()) {
+                translationText = sel.toString();
+            } else {
+                translationText = markdown;
+            }
+            if (translationText) {
+                translateLoading = true;
+                showTranslateLoading();
+                host.translateContent(translationText, translateSourceLang, translateTargetLang);
+            }
             return;
         }
         if (message.type === 'update') {
@@ -17493,8 +17792,6 @@ class EditorInstance {
 
             // Idle state — apply external change immediately with cursor preservation
             markdown = incomingContent;
-            currentImageDir = extractImageDirFromMarkdown(markdown);
-            currentForceRelativePath = extractForceRelativePathFromMarkdown(markdown);
             if (isSourceMode) {
                 sourceEditor.value = markdown;
             } else {
@@ -17504,32 +17801,18 @@ class EditorInstance {
             updateWordCount();
             updateStatus();
             undoManager.clear();
-        } else if (message.type === 'setImageDir') {
-            // Update currentImageDir and currentForceRelativePath from extension
-            currentImageDir = message.dirPath;
-            // forceRelativePath: true/false で設定、null でクリア
-            if (message.forceRelativePath === null) {
-                currentForceRelativePath = null;
-            } else if (message.forceRelativePath !== undefined) {
-                currentForceRelativePath = message.forceRelativePath;
-            }
-            updateStatus(); // Update status bar to show IMAGE_DIR and FORCE_RELATIVE_PATH
-            syncMarkdown(); // Re-sync to include the new directives
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             updateStatus();
+        } else if (message.type === 'fileDirStatus') {
+            fileDirDisplayPath = message.displayPath;
+            fileDirSource = message.source;
+            updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source);
-        } else if (message.type === 'sidePanelSetImageDir') {
-            // Route setImageDir response to side panel instance
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage({
-                    type: 'setImageDir',
-                    dirPath: message.dirPath,
-                    forceRelativePath: message.forceRelativePath
-                });
-            }
+        } else if (message.type === 'sidePanelFileDirStatus') {
+            updateSidePanelFileDir(message.displayPath, message.source);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -17616,7 +17899,49 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('Image element inserted');
+        } else if (message.type === 'insertFileLink') {
+            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            // Insert file link at cursor position
+            const link = document.createElement('a');
+            link.href = message.markdownPath;
+            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            link.dataset.markdownPath = message.markdownPath;
+            link.dataset.isFileAttachment = 'true';
+
+            editor.focus();
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(link);
+
+                // Move cursor after link
+                range.setStartAfter(link);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                editor.appendChild(link);
+            }
+            syncMarkdown();
+            logger.log('File link element inserted');
+        } else if (message.type === 'pasteWithAssetCopyResult') {
+            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
+            }
         } else if (message.type === 'insertLinkHtml') {
+            // If link was requested from side panel, dispatch to side panel instance
+            if (sidePanelLinkPending && sidePanelHostBridge) {
+                sidePanelLinkPending = false;
+                sidePanelHostBridge._sendMessage({
+                    type: 'insertLinkHtml',
+                    url: message.url,
+                    text: message.text
+                });
+                return;
+            }
+            sidePanelLinkPending = false;
             // Insert link at cursor position
             const a = document.createElement('a');
             a.href = message.url;
@@ -17718,6 +18043,21 @@ class EditorInstance {
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message.data);
             }
+        } else if (message.type === 'translateLangSelected') {
+            // v10: Update translation language state and button label
+            translateSourceLang = message.sourceLang || 'en';
+            translateTargetLang = message.targetLang || 'ja';
+            updateTranslateLangButton();
+        } else if (message.type === 'translateResult') {
+            // v10: Open translation panel with result
+            translateLoading = false;
+            hideTranslateLoading();
+            openTranslationPanel(message.translatedMarkdown, message.sourceLang, message.targetLang);
+        } else if (message.type === 'translateError') {
+            // v10: Show error and hide loading
+            translateLoading = false;
+            hideTranslateLoading();
+            showTranslateError(message.message || 'Translation failed');
         }
     });
 
@@ -17733,14 +18073,14 @@ class EditorInstance {
     var sidePanelSidebarCloseBtn = container.querySelector('#sidePanelSidebarClose');
     var sidePanelImageDirEl = container.querySelector('.side-panel-imagedir');
     var sidePanelImageDirPath = container.querySelector('#sidePanelImageDirPath');
-    var sidePanelImageDirSource = container.querySelector('#sidePanelImageDirSource');
-    var sidePanelImageDirBtn = container.querySelector('#sidePanelImageDirBtn');
+    var sidePanelFileDirPath = container.querySelector('#sidePanelFileDirPath');
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
+    var sidePanelLinkPending = false;
     var sidebarWasOpenBeforeSidePanel = false;
     var sidePanelCustomWidth = null; // session-only resize width
 
@@ -17766,7 +18106,8 @@ class EditorInstance {
 
         sidePanelHostBridge = new SidePanelHostBridge(host, filePath, {
             onTocUpdate: updateSidePanelTocFromMarkdown,
-            onImageRequest: function() { sidePanelImagePending = true; }
+            onImageRequest: function() { sidePanelImagePending = true; },
+            onLinkRequest: function() { sidePanelLinkPending = true; }
         });
 
         sidePanelInstance = new EditorInstance(spContainer, sidePanelHostBridge, {
@@ -17933,13 +18274,12 @@ class EditorInstance {
             sidePanelImageDirPath.textContent = displayPath || '';
             sidePanelImageDirPath.title = displayPath || '';
         }
-        if (sidePanelImageDirSource) {
-            var labels = {
-                file: i18n.imageDirSourceFile || 'File',
-                settings: i18n.imageDirSourceSettings || 'Settings',
-                default: i18n.imageDirSourceDefault || 'Default'
-            };
-            sidePanelImageDirSource.textContent = labels[source] || source || '';
+    }
+
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
         }
     }
 
@@ -18281,9 +18621,149 @@ class EditorInstance {
         }, 5000);
     }
 
+    // v10: Translation helpers
+    function updateTranslateLangButton() {
+        if (toolbar) {
+            var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
+            if (translateLangBtn) {
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
+            }
+        }
+    }
+
+    var translateLoadingOverlay = null;
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function showTranslateError(message) {
+        // Simple alert for now — could be enhanced to toast notification
+        alert('Translation Error: ' + message);
+    }
+
+    function openTranslationPanel(translatedMarkdown, sourceLang, targetLang) {
+        // v10: AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        // Close existing side panel if open
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Create EditorInstance container for translation result
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        var LUCIDE_ICONS = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
+
+        // Create a minimal host bridge for translation panel (no file operations)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {}
+        };
+
+        // Create readonly EditorInstance
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update header label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation Result (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Setup header buttons (copy + close only for translation panel)
+        if (sidePanel) {
+            var header = sidePanel.querySelector('.side-panel-header');
+            if (header) {
+                // Hide undo/redo/source/openInTextEditor buttons
+                var undoBtn = header.querySelector('[data-action="undo"]');
+                var redoBtn = header.querySelector('[data-action="redo"]');
+                var sourceBtn = header.querySelector('[data-action="source"]');
+                var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
+                if (undoBtn) undoBtn.style.display = 'none';
+                if (redoBtn) redoBtn.style.display = 'none';
+                if (sourceBtn) sourceBtn.style.display = 'none';
+                if (openTextEditorBtn) openTextEditorBtn.style.display = 'none';
+
+                // Add copy button (reuse copyPath button as template)
+                var copyBtn = header.querySelector('.side-panel-copy-path');
+                if (copyBtn) {
+                    copyBtn.style.display = 'block';
+                    copyBtn.title = 'Copy translated text';
+                    copyBtn.onclick = function() {
+                        var copyText = '';
+                        if (sidePanelInstance) {
+                            var spEditor = sidePanelInstance.container.querySelector('.editor');
+                            var sel = window.getSelection();
+                            if (sel && sel.toString()) {
+                                copyText = sel.toString();
+                            } else {
+                                copyText = sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : spEditor.textContent;
+                            }
+                        }
+                        if (copyText) {
+                            navigator.clipboard.writeText(copyText).then(function() {
+                                // Visual feedback
+                                copyBtn.style.opacity = '0.5';
+                                setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
+                            });
+                        }
+                    };
+                }
+            }
+        }
+
+        // Show panel with animation
+        if (sidePanel) { sidePanel.style.display = 'flex'; }
+        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
+        requestAnimationFrame(function() {
+            if (sidePanel) { sidePanel.classList.add('open'); }
+            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
+        });
+
+        // Auto-focus editor
+        setTimeout(function() {
+            requestAnimationFrame(function() {
+                if (sidePanelInstance && sidePanelInstance.container) {
+                    var spEditor = sidePanelInstance.container.querySelector('.editor');
+                    if (spEditor) {
+                        spEditor.focus();
+                    }
+                }
+            });
+        }, 300);
+    }
+
     // Drag cursor indicator element
     let dragCursor = null;
-    
+
     function createDragCursor() {
         if (!dragCursor) {
             dragCursor = document.createElement('div');
@@ -18376,6 +18856,14 @@ class EditorInstance {
         }
     });
 
+    // Helper: Check if file is an image based on extension
+    var IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
+    function isImageFile(fileName) {
+        if (!fileName) return false;
+        var ext = fileName.split('.').pop().toLowerCase();
+        return IMAGE_EXTENSIONS.indexOf(ext) !== -1;
+    }
+
     if (isMainInstance) document.addEventListener('drop', function(e) {
         var t = findTargetEditor(e.target);
         if (!t) {
@@ -18407,8 +18895,22 @@ class EditorInstance {
             const reader = new FileReader();
             reader.onload = function(event) {
                 logger.log('FileReader onload called');
-                h.saveImageAndInsert(event.target.result);
+                h.saveImageAndInsert(event.target.result, file.name);
                 logger.log('Image sent to extension for saving');
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error:', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Helper to read non-image file and send via correct host
+        function readAndInsertFileViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                logger.log('FileReader onload called for file');
+                h.saveFileAndInsert(event.target.result, file.name);
+                logger.log('File sent to extension for saving');
             };
             reader.onerror = function(err) {
                 logger.error('FileReader error:', err);
@@ -18423,8 +18925,12 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            if (file.type.startsWith('image/')) {
+            if (file.type.startsWith('image/') || isImageFile(file.name)) {
                 readAndInsertImageViaHost(file, targetHost);
+                return;
+            } else {
+                // Non-image file
+                readAndInsertFileViaHost(file, targetHost);
                 return;
             }
         }
@@ -18452,40 +18958,55 @@ class EditorInstance {
         const plainText = e.dataTransfer?.getData('text/plain');
         logger.log('URI list:', uriList);
         logger.log('Plain text:', plainText);
-        
+
         // Try to get file path from various sources
         let filePath = null;
-        
+        let isImage = false;
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    // Check if it's an image
-                    if (uri.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                        filePath = decodeURIComponent(uri.replace('file://', ''));
+                    const decodedPath = decodeURIComponent(uri.replace('file://', ''));
+                    const fileName = decodedPath.split('/').pop();
+                    if (isImageFile(fileName)) {
+                        filePath = decodedPath;
+                        isImage = true;
+                        break;
+                    } else {
+                        // Non-image file
+                        filePath = decodedPath;
+                        isImage = false;
                         break;
                     }
                 }
             }
         }
-        
+
         if (!filePath && plainText) {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
-                if (plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
-                    filePath = decodeURIComponent(plainText.replace('file://', ''));
-                }
-            } else if (plainText.startsWith('/') && plainText.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i)) {
+                const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
+                const fileName = decodedPath.split('/').pop();
+                filePath = decodedPath;
+                isImage = isImageFile(fileName);
+            } else if (plainText.startsWith('/')) {
                 // Direct file path
+                const fileName = plainText.split('/').pop();
                 filePath = plainText;
+                isImage = isImageFile(fileName);
             }
         }
-        
+
         if (filePath) {
-            logger.log('Found image file path:', filePath);
-            // Send to extension to read the file
-            targetHost.readAndInsertImage(filePath);
+            if (isImage) {
+                logger.log('Found image file path:', filePath);
+                targetHost.readAndInsertImage(filePath);
+            } else {
+                logger.log('Found non-image file path:', filePath);
+                targetHost.readAndInsertFile(filePath);
+            }
             return;
         }
         
@@ -18850,7 +19371,12 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
-            
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
+
         } catch (err) {
             logger.error('Copy error:', err);
             // Fallback to plain text
@@ -18886,10 +19412,15 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', md);
             e.clipboardData.setData('text/html', selectedHtml);
             e.clipboardData.setData('text/x-any-md', md);
+
+            // v9: Asset context for cross-MD paste (side panel only)
+            if (host._assetContext) {
+                e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
+            }
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
-        
+
         // Delete the selection
         range.deleteContents();
         syncMarkdown();
@@ -18899,11 +19430,19 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // Kiro: skip if image was already handled by keydown Clipboard API path
+        if (self._kiroImagePasteHandled) {
+            self._kiroImagePasteHandled = false;
+            e.preventDefault();
+            logger.log('Paste event skipped (Kiro image already handled via keydown)');
+            return;
+        }
+
         undoManager.saveSnapshot();
         markAsEdited();
-        
+
         logger.log('Paste event triggered');
-        
+
         // Check for image files first
         const items = e.clipboardData?.items;
         if (items) {
@@ -18930,17 +19469,34 @@ class EditorInstance {
         
         // No image - handle as text/html paste
         e.preventDefault();
-        
-        // Check for internal copy (has our custom marker)
+
+        // v9: Check for asset copy context (cross-MD paste with file duplication)
+        const assetContext = e.clipboardData.getData('text/x-any-md-context');
         const internalMd = e.clipboardData.getData('text/x-any-md');
+
+        if (assetContext && internalMd && host._assetContext) {
+            try {
+                const sourceCtx = JSON.parse(assetContext);
+                const destCtx = host._assetContext;
+
+                // Compare directories — if different, need asset copy
+                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
+                    // Send to host for file copy + path rewrite
+                    host.pasteWithAssetCopy(internalMd, sourceCtx);
+                    return; // Wait for pasteWithAssetCopyResult
+                }
+            } catch { /* invalid context, fall through to normal paste */ }
+        }
+
+        // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
-        
+
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
-        
+
         let pastedMd = '';
-        
+
         // Priority: internal markdown > external HTML > plain text
         // Exception: If plain text looks like a markdown table and HTML has no <table>,
         // prefer plain text (Turndown mangles markdown tables from <p>-wrapped HTML)
@@ -19097,6 +19653,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });
@@ -19168,6 +19731,19 @@ class EditorInstance {
             return;
         }
 
+        _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
+    });
+
+    // Shared paste insertion function — used by both paste handler and pasteWithAssetCopyResult.
+    // Extracted from the paste handler to avoid duplication. Takes already-determined markdown
+    // and handles normalization, block/inline detection, list merge, table/code/blockquote paste.
+    // opts.clipboardEvent: original paste event (null for pasteWithAssetCopyResult)
+    // opts.isInternal: true if pasted from internal copy (has text/x-any-md)
+    // opts.plainText: plain text from clipboard (for URL auto-link, code block paste, etc.)
+    function _insertPastedMarkdown(pastedMd, opts) {
+        var clipboardEvent = opts && opts.clipboardEvent || null;
+        var isInternal = opts && opts.isInternal || false;
+        var plainText = opts && opts.plainText || '';
         // Normalize table rows with embedded newlines (cell content containing raw newlines)
         // Applied to all paste sources (internal, Turndown, plain text)
         pastedMd = window.__editorUtils.normalizeMultiLineTableCells(pastedMd);
@@ -19249,7 +19825,7 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 const textNode = document.createTextNode(textToPaste);
@@ -19270,7 +19846,7 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -19314,7 +19890,7 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -19346,17 +19922,17 @@ class EditorInstance {
         
         // URL auto-link on paste
         // If clipboard contains a URL (not from internal copy), auto-create a link
-        if (!internalMd) {
-            const plainText = (text || '').trim();
+        if (!isInternal) {
+            const urlPlainText = plainText.trim();
             const urlRegex = /^https?:\/\/[^\s]+$/;
-            if (plainText && !plainText.includes('\n') && urlRegex.test(plainText)) {
+            if (urlPlainText && !urlPlainText.includes('\n') && urlRegex.test(urlPlainText)) {
                 const selectedText = range.toString();
 
                 if (selectedText && !selectedText.includes('\n')) {
                     // Case 2: Text is selected + URL in clipboard → wrap selected text as link
-                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', plainText);
+                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
+                    a.href = urlPlainText;
                     a.textContent = selectedText;
                     range.deleteContents();
                     range.insertNode(a);
@@ -19372,10 +19948,10 @@ class EditorInstance {
                     return;
                 } else if (!selectedText || selectedText.trim() === '') {
                     // Case 1: No selection + URL paste → auto-create link with URL as text
-                    logger.log('URL paste: auto-linking URL:', plainText);
+                    logger.log('URL paste: auto-linking URL:', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
-                    a.textContent = plainText;
+                    a.href = urlPlainText;
+                    a.textContent = urlPlainText;
                     range.deleteContents();
                     range.insertNode(a);
 
@@ -19675,7 +20251,7 @@ class EditorInstance {
             
             logger.log('Block paste completed via DOM manipulation');
         }
-    });
+    } // end _insertPastedMarkdown
 
     // Focus/blur notifications for sync policy
     editor.addEventListener('focus', function() {
@@ -20204,7 +20780,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
 
         this.nodes[id] = node;
@@ -20241,7 +20818,8 @@ var OutlinerModel = (function() {
             collapsed: false,
             checked: null,
             subtext: '',
-            images: []
+            images: [],
+            filePath: null
         };
         this.nodes[id] = node;
         if (parentId === null || parentId === undefined) {
@@ -20940,6 +21518,7 @@ var Outliner = (function() {
 
     // --- 画像 ---
     var imageDir = null;           // .out JSON の imageDir フィールド
+    var fileDir = null;            // .out JSON の fileDir フィールド
     var selectedImageInfo = null;  // { nodeId, index, element } or null
     var imageDragState = null;     // { nodeId, fromIndex } or null
 
@@ -21089,6 +21668,10 @@ var Outliner = (function() {
         // JSONからimageDirを復元
         if (data && data.imageDir) {
             imageDir = data.imageDir;
+        }
+        // JSONからfileDirを復元
+        if (data && data.fileDir) {
+            fileDir = data.fileDir;
         }
         // JSONからpinnedTagsを復元
         if (data && data.pinnedTags) {
@@ -21522,6 +22105,18 @@ var Outliner = (function() {
                 openPage(node.id);
             });
             el.appendChild(pageIcon);
+        }
+
+        // ファイルアイコン
+        if (node.filePath) {
+            var fileIcon = document.createElement('div');
+            fileIcon.className = 'outliner-file-icon';
+            fileIcon.textContent = '\uD83D\uDCCE'; // 📎
+            fileIcon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                host.openAttachedFile(node.id);
+            });
+            el.appendChild(fileIcon);
         }
 
         // テキスト
@@ -22391,7 +22986,8 @@ var Outliner = (function() {
                 level: relDepth,
                 isPage: nd.isPage || false,
                 pageId: nd.pageId || null,
-                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : []
+                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
+                filePath: nd.filePath || null
             });
         }
         return nodes;
@@ -22575,7 +23171,7 @@ var Outliner = (function() {
 
         // 内部クリップボードにページノードまたは画像が含まれるか判定
         var hasMetadataInClipboard = clipNodes && clipNodes.some(function(cn) {
-            return cn.isPage || (cn.images && cn.images.length > 0);
+            return cn.isPage || (cn.images && cn.images.length > 0) || cn.filePath;
         });
 
         // 単一行かつメタデータなし: 現在ノードのカーソル位置に挿入
@@ -22711,7 +23307,7 @@ var Outliner = (function() {
                         newNode.pageId = clipNode.pageId;
                         if (isCrossFile) {
                             // cross-file: .md と画像を物理移動、新 path を postback で受け取る
-                            host.movePageFileCross(clipNode.pageId, text, newNode.id, clipImages);
+                            host.handlePageAssetsCross(clipNode.pageId, null, text, newNode.id, clipImages, true);
                         }
                         // same-file cut: 何もしない (同じ pagesDir なので file 位置不変)
                     } else {
@@ -22719,7 +23315,7 @@ var Outliner = (function() {
                         var newPageId = model.generatePageId();
                         newNode.isPage = true;
                         newNode.pageId = newPageId;
-                        host.copyPageFileCross(clipNode.pageId, newPageId, text, newNode.id, clipImages);
+                        host.handlePageAssetsCross(clipNode.pageId, newPageId, text, newNode.id, clipImages, false);
                     }
                 } else if (clipImages.length > 0) {
                     // 非 isPage + images のみのケース
@@ -22731,6 +23327,22 @@ var Outliner = (function() {
                     } else {
                         // copy: 常に新 filename で実体コピー
                         host.copyImagesCross(clipImages, text, newNode.id, false);
+                    }
+                }
+                // filePath 処理 (isPage と filePath は相互排他的なので独立分岐)
+                if (clipNode.filePath) {
+                    // page コピーと同じパターン: まず filePath を即座に設定
+                    newNode.filePath = clipNode.filePath;
+                    if (isCut) {
+                        if (isCrossFile) {
+                            // cross-file cut: ファイルを物理移動
+                            host.handleFileAssetCross(clipNode.filePath, text, newNode.id, true);
+                        }
+                        // same-file cut: filePath はそのまま有効 (同じ fileDir)
+                    } else {
+                        // copy: ファイルを新 filename で実体コピー (常に host 経由)
+                        // host からの updateNodeFilePath postback で新パスに上書きされる
+                        host.handleFileAssetCross(clipNode.filePath, text, newNode.id, false);
                     }
                 }
             }
@@ -23256,7 +23868,8 @@ var Outliner = (function() {
                                 text: singleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(singleText, singleNodesData, false);
                             internalClipboard = {
@@ -23295,7 +23908,8 @@ var Outliner = (function() {
                                 text: cutSingleText, level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
-                                images: (node.images && node.images.length > 0) ? node.images.slice() : []
+                                images: (node.images && node.images.length > 0) ? node.images.slice() : [],
+                                filePath: node.filePath || null
                             }];
                             writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
                             internalClipboard = {
@@ -23721,10 +24335,14 @@ var Outliner = (function() {
 
     function makePage(nodeId) {
         saveSnapshot();
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        // Clear filePath when making page (mutual exclusion)
+        node.filePath = null;
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        host.makePage(nodeId, pageId, model.getNode(nodeId).text);
+        host.makePage(nodeId, pageId, node.text);
         renderTree();
         scheduleSyncToHost();
     }
@@ -23933,6 +24551,16 @@ var Outliner = (function() {
                 host.setOutlinerImageDir();
             });
             dropdown.appendChild(setImageDirItem);
+
+            // ファイルフォルダ設定
+            var setFileDirItem = document.createElement('button');
+            setFileDirItem.className = 'menu-item';
+            setFileDirItem.textContent = i18n.outlinerSetFileDir || 'Set file directory...';
+            setFileDirItem.addEventListener('click', function() {
+                dropdown.remove();
+                host.setFileDir();
+            });
+            dropdown.appendChild(setFileDirItem);
         }
 
         // .mdファイルインポート
@@ -23944,6 +24572,16 @@ var Outliner = (function() {
             host.importMdFilesDialog(focusedNodeId);
         });
         dropdown.appendChild(importMdItem);
+
+        // 任意ファイルインポート
+        var importFileItem = document.createElement('button');
+        importFileItem.className = 'menu-item';
+        importFileItem.textContent = 'Import any files...';
+        importFileItem.addEventListener('click', function() {
+            dropdown.remove();
+            host.importFilesDialog(focusedNodeId);
+        });
+        dropdown.appendChild(importFileItem);
 
         // 検索バーを基準に配置（メニューボタンの直下に表示）
         var searchBar = document.querySelector('.outliner-search-bar');
@@ -24498,6 +25136,21 @@ var Outliner = (function() {
             }, '@page');
         }
 
+        // --- ファイル操作 ---
+        if (node.filePath) {
+            addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
+                host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
+                saveSnapshot();
+                node.filePath = null;
+                renderTree();
+                scheduleSyncToHost();
+                hideContextMenu();
+            });
+        }
+
         addMenuSeparator(contextMenuEl);
 
         // --- ノード追加 ---
@@ -24703,6 +25356,10 @@ var Outliner = (function() {
     var sidePanelImageDirPath = null;
     var sidePanelImageDirSource = null;
     var sidePanelImageDirBtn = null;
+    var sidePanelFileDirEl = null;
+    var sidePanelFileDirPath = null;
+    var sidePanelFileDirSource = null;
+    var sidePanelFileDirBtn = null;
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
@@ -24710,6 +25367,37 @@ var Outliner = (function() {
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
+
+    // v10: Translation state for side panel
+    var sidePanelTranslateSourceLang = 'en';
+    var sidePanelTranslateTargetLang = 'ja';
+    var sidePanelPreTranslationState = null; // saved original MD state for "back" restore
+    var translateLoadingOverlay = null;
+
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function updateSidePanelTranslateLangBtn() {
+        if (!sidePanelEl) return;
+        var btn = sidePanelEl.querySelector('[data-action="translateLang"]');
+        if (btn) {
+            btn.textContent = sidePanelTranslateTargetLang;
+            btn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+        }
+    }
 
     function initSidePanel() {
         sidePanelEl = document.querySelector('.side-panel');
@@ -24725,6 +25413,10 @@ var Outliner = (function() {
         sidePanelImageDirPath = document.querySelector('#sidePanelImageDirPath');
         sidePanelImageDirSource = document.querySelector('#sidePanelImageDirSource');
         sidePanelImageDirBtn = document.querySelector('#sidePanelImageDirBtn');
+        sidePanelFileDirEl = document.querySelector('.side-panel-filedir');
+        sidePanelFileDirPath = document.querySelector('#sidePanelFileDirPath');
+        sidePanelFileDirSource = document.querySelector('#sidePanelFileDirSource');
+        sidePanelFileDirBtn = document.querySelector('#sidePanelFileDirBtn');
 
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
@@ -24910,6 +25602,91 @@ var Outliner = (function() {
         }
     }
 
+    // v10: Show translation result by reopening side panel with translated markdown (readonly)
+    function showTranslationInSidePanel(translatedMarkdown, sourceLang, targetLang) {
+        // AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
+        // Close current side panel MD
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Reopen as translation result panel
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        // Minimal bridge (no host operations for readonly result)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {},
+            reportFocus: function() {},
+            reportBlur: function() {}
+        };
+
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update filename label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Inject "← Back" button into header, replacing action buttons (read-only panel).
+        // Save original actions HTML so openSidePanel on restore can rebuild default buttons.
+        if (sidePanelEl) {
+            var header = sidePanelEl.querySelector('.side-panel-header');
+            if (header) {
+                var actions = header.querySelector('.side-panel-header-actions');
+                if (actions) {
+                    if (sidePanelPreTranslationState && !sidePanelPreTranslationState.actionsHtml) {
+                        sidePanelPreTranslationState.actionsHtml = actions.innerHTML;
+                    }
+                    actions.innerHTML = '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>';
+                    var backBtn = actions.querySelector('[data-action="translateBack"]');
+                    if (backBtn) {
+                        backBtn.addEventListener('click', function() {
+                            var s = sidePanelPreTranslationState;
+                            if (s && s.filePath) {
+                                // Restore original header actions HTML before reopening
+                                if (s.actionsHtml) { actions.innerHTML = s.actionsHtml; }
+                                sidePanelPreTranslationState = null;
+                                openSidePanel(s.markdown, s.filePath, s.fileName, s.toc, s.documentBaseUri);
+                            } else {
+                                closeSidePanel();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        // Show side panel
+        if (sidePanelEl) {
+            sidePanelEl.style.display = 'flex';
+            requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
+        }
+        if (sidePanelOverlay) {
+            sidePanelOverlay.style.display = 'block';
+            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        }
+    }
+
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (sidePanelInstance) {
             closeSidePanelImmediate();
@@ -24943,6 +25720,8 @@ var Outliner = (function() {
             var header = sidePanelEl.querySelector('.side-panel-header');
             if (header) {
                 header.querySelectorAll('button[data-action]').forEach(function(btn) {
+                    // translateLang shows text label (ja → en), not an icon
+                    if (btn.dataset.action === 'translateLang') return;
                     var icon = LUCIDE_ICONS[btn.dataset.action];
                     if (icon) { btn.innerHTML = icon; }
                 });
@@ -24950,11 +25729,42 @@ var Outliner = (function() {
                 var redoBtn = header.querySelector('[data-action="redo"]');
                 var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
                 var sourceBtn = header.querySelector('[data-action="source"]');
+                var translateLangBtn = header.querySelector('[data-action="translateLang"]');
+                var translateBtn = header.querySelector('[data-action="translate"]');
 
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
+                if (translateLangBtn) {
+                    translateLangBtn.textContent = sidePanelTranslateTargetLang;
+                    translateLangBtn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+                    translateLangBtn.addEventListener('click', function() {
+                        host.translateSelectLang(sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                    });
+                }
+                if (translateBtn) {
+                    translateBtn.addEventListener('click', function() {
+                        if (!sidePanelInstance) return;
+                        var selectionText = sidePanelInstance._getSelectionText ? sidePanelInstance._getSelectionText() : '';
+                        var text = selectionText || (sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '');
+                        console.log('[Translate] Button clicked. Text length:', text.length, 'langs:', sidePanelTranslateSourceLang, '→', sidePanelTranslateTargetLang);
+                        if (text) {
+                            // Save original state so user can restore via "back" button on result panel
+                            sidePanelPreTranslationState = {
+                                markdown: sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '',
+                                filePath: sidePanelFilePath,
+                                fileName: sidePanelFilename ? sidePanelFilename.textContent : '',
+                                toc: null,
+                                documentBaseUri: sidePanelInstance.options ? sidePanelInstance.options.documentBaseUri : ''
+                            };
+                            showTranslateLoading();
+                            host.translateContent(text, sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                        } else {
+                            console.warn('[Translate] No text to translate');
+                        }
+                    });
+                }
 
                 sidePanelInstance._setUndoUpdateCallback(function(undoDisabled, redoDisabled) {
                     if (undoBtn) { undoBtn.disabled = undoDisabled; undoBtn.style.opacity = undoDisabled ? '0.3' : '1'; }
@@ -25011,6 +25821,7 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
@@ -25120,6 +25931,21 @@ var Outliner = (function() {
         }
     }
 
+    function updateSidePanelFileDir(displayPath, source) {
+        if (sidePanelFileDirPath) {
+            sidePanelFileDirPath.textContent = displayPath || '';
+            sidePanelFileDirPath.title = displayPath || '';
+        }
+        if (sidePanelFileDirSource) {
+            var labels = {
+                file: i18n.fileDirSourceFile || 'File',
+                settings: i18n.fileDirSourceSettings || 'Settings',
+                'default': i18n.fileDirSourceDefault || 'Default'
+            };
+            sidePanelFileDirSource.textContent = labels[source] || source || '';
+        }
+    }
+
     function openSidePanelSidebar() {
         if (sidePanelSidebar) { sidePanelSidebar.classList.add('visible'); }
         if (sidePanelOpenOutlineBtn) { sidePanelOpenOutlineBtn.classList.add('hidden'); }
@@ -25193,6 +26019,7 @@ var Outliner = (function() {
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
+        if (fileDir) { data.fileDir = fileDir; }
         if (sidePanelWidthSetting) { data.sidePanelWidth = sidePanelWidthSetting; }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
         host.syncData(JSON.stringify(data, null, 2));
@@ -25409,6 +26236,17 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'updateNodeFilePath': {
+                    // host が file asset copy/move 完了後に新 filePath を返してくる
+                    if (!msg.nodeId) break;
+                    var fNode = model.getNode(msg.nodeId);
+                    if (!fNode) break;
+                    fNode.filePath = msg.newFilePath || null;
+                    renderTree();
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'updateData':
                     // file identity を先に反映 (同一性判定の唯一の根拠)
                     if (msg.outFileKey !== undefined) {
@@ -25550,6 +26388,56 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'importFilesResult': {
+                    var results = msg.results;
+                    var impTargetId = msg.targetNodeId;
+                    var impPosition = msg.position;
+
+                    if (!results || results.length === 0) break;
+
+                    saveSnapshot();
+                    var lastInsertedId = null;
+
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var r = results[ri];
+                        var newNode;
+
+                        if (ri === 0) {
+                            // 最初のファイル: ドロップ位置に従う
+                            if (!impTargetId) {
+                                // ルート末尾
+                                var lastRootId3 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                                newNode = model.addNode(null, lastRootId3, r.title);
+                            } else if (impPosition === 'before') {
+                                var info3 = model._getSiblingInfo(impTargetId);
+                                var afterId3 = info3 && info3.index > 0 ? info3.siblings[info3.index - 1] : null;
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId3, r.title);
+                            } else if (impPosition === 'child') {
+                                newNode = model.addNodeAtStart(impTargetId, r.title);
+                                model.getNode(impTargetId).collapsed = false;
+                            } else {
+                                // after
+                                newNode = model.addNode(model.getNode(impTargetId).parentId, impTargetId, r.title);
+                            }
+                        } else {
+                            // 2番目以降: 前のノードの直後に兄弟として挿入
+                            var prevNode3 = model.getNode(lastInsertedId);
+                            newNode = model.addNode(prevNode3.parentId, lastInsertedId, r.title);
+                        }
+
+                        // Set filePath instead of isPage/pageId (mutual exclusion)
+                        newNode.isPage = false;
+                        newNode.pageId = null;
+                        newNode.filePath = r.filePath;
+                        lastInsertedId = newNode.id;
+                    }
+
+                    renderTree();
+                    if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'pageDirChanged':
                     pageDir = msg.pageDir || null;
                     break;
@@ -25568,6 +26456,11 @@ var Outliner = (function() {
 
                 case 'outlinerImageDirChanged':
                     imageDir = msg.imageDir || null;
+                    scheduleSyncToHost();
+                    break;
+
+                case 'outlinerFileDirChanged':
+                    fileDir = msg.fileDir || null;
                     scheduleSyncToHost();
                     break;
 
@@ -25614,8 +26507,8 @@ var Outliner = (function() {
                     updateSidePanelImageDir(msg.displayPath, msg.source);
                     break;
 
-                case 'sidePanelSetImageDir':
-                    updateSidePanelImageDir(msg.displayPath, msg.source);
+                case 'sidePanelFileDirStatus':
+                    updateSidePanelFileDir(msg.displayPath, msg.source);
                     break;
 
                 case 'insertImageHtml':
@@ -25627,6 +26520,64 @@ var Outliner = (function() {
                             dataUri: msg.dataUri
                         });
                     }
+                    break;
+
+                case 'insertLinkHtml':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertLinkHtml',
+                            url: msg.url,
+                            text: msg.text
+                        });
+                    }
+                    break;
+
+                case 'insertFileLink':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertFileLink',
+                            markdownPath: msg.markdownPath,
+                            fileName: msg.fileName
+                        });
+                    }
+                    break;
+
+                case 'sidePanelAssetContext':
+                    if (sidePanelHostBridge) {
+                        sidePanelHostBridge._assetContext = {
+                            imageDir: msg.imageDir,
+                            fileDir: msg.fileDir,
+                            mdDir: msg.mdDir
+                        };
+                    }
+                    break;
+
+                case 'pasteWithAssetCopyResult':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'pasteWithAssetCopyResult',
+                            markdown: msg.markdown
+                        });
+                    }
+                    break;
+
+                case 'translateResult':
+                    // v10: Show translation result by replacing side panel MD content in readonly mode.
+                    // Re-opens side panel with translated markdown, but in readonly display.
+                    hideTranslateLoading();
+                    showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    break;
+
+                case 'translateError':
+                    hideTranslateLoading();
+                    alert('Translation Error: ' + (msg.message || 'Failed'));
+                    break;
+
+                case 'translateLangSelected':
+                    // v10: Update outliner-level side panel translation state
+                    sidePanelTranslateSourceLang = msg.sourceLang || 'en';
+                    sidePanelTranslateTargetLang = msg.targetLang || 'ja';
+                    updateSidePanelTranslateLangBtn();
                     break;
 
                 case 'scopeIn':
@@ -25758,7 +26709,7 @@ var notesFilePanel = (function() {
     var lastSavedPanelWidth = null;
 
     // Tab state
-    var currentTab = 'notes'; // 'notes' | 'search' | 's3'
+    var currentTab = 'notes'; // 'notes' | 'search' | 'tools'
 
     // Search state
     var searchInputEl = null;
@@ -26013,9 +26964,9 @@ var notesFilePanel = (function() {
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
         });
-        addContextItem(contextMenu, i18n.notesDelete || 'Delete', function() {
+        addContextItem(contextMenu, i18n.notesDelete || 'Delete', async function() {
             closeContextMenu();
-            bridge.deleteFile(file.filePath);
+            await bridge.deleteFile(file.filePath);
         }, true);
 
         document.body.appendChild(contextMenu);
@@ -26380,12 +27331,12 @@ var notesFilePanel = (function() {
         // コンテンツ表示切替
         var notesContent = document.getElementById('filePanelContentNotes');
         var searchContent = document.getElementById('filePanelContentSearch');
-        var s3Content = document.getElementById('filePanelContentS3');
+        var toolsContent = document.getElementById('filePanelContentTools');
         if (notesContent) notesContent.style.display = tabName === 'notes' ? '' : 'none';
         if (searchContent) searchContent.style.display = tabName === 'search' ? '' : 'none';
-        if (s3Content) s3Content.style.display = tabName === 's3' ? '' : 'none';
+        if (toolsContent) toolsContent.style.display = tabName === 'tools' ? '' : 'none';
         if (tabName === 'search' && searchInputEl) searchInputEl.focus();
-        if (tabName === 's3' && bridge.s3GetStatus) bridge.s3GetStatus();
+        if (tabName === 'tools' && bridge.s3GetStatus) bridge.s3GetStatus();
     }
 
     function executeSearch() {
@@ -26652,6 +27603,20 @@ var notesFilePanel = (function() {
         if (todayBtn) {
             todayBtn.addEventListener('click', function() {
                 if (bridge.openDailyNotes) bridge.openDailyNotes();
+            });
+        }
+
+        var cleanupCurrentBtn = document.getElementById('filePanelCleanupCurrent');
+        if (cleanupCurrentBtn) {
+            cleanupCurrentBtn.addEventListener('click', function() {
+                if (bridge.cleanupUnusedFilesCurrentNote) bridge.cleanupUnusedFilesCurrentNote();
+            });
+        }
+
+        var cleanupToolsBtn = document.getElementById('filePanelCleanupTools');
+        if (cleanupToolsBtn) {
+            cleanupToolsBtn.addEventListener('click', function() {
+                if (bridge.cleanupUnusedFilesAllNotes) bridge.cleanupUnusedFilesAllNotes();
             });
         }
 

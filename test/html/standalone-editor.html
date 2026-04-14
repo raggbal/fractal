@@ -1610,6 +1610,38 @@ body {
     cursor: default;
 }
 
+/* v10: Translation Loading Overlay */
+.translate-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+.translate-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: translate-spin 0.8s linear infinite;
+}
+@keyframes translate-spin {
+    to { transform: rotate(360deg); }
+}
+.translate-loading-text {
+    margin-top: 1em;
+    color: white;
+    font-size: 14px;
+    font-family: var(--font-family);
+}
+
     </style>
 </head>
 <body>
@@ -1709,6 +1741,21 @@ body {
             } else {
                 i++;
                 continue;
+            }
+            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+            // outer `[...]` is literal text, inner `[text](url)` is the link.
+            // Detect: next char is `[`, and there's a complete inner link whose end is
+            // immediately followed by `]`. In that case skip the outer `[` so the inner
+            // one parses as the link.
+            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+                var innerCloseBr = text.indexOf(']', bracketOpen + 2);
+                if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
+                    var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
+                    if (innerCloseParen !== -1 && text.charAt(innerCloseParen + 1) === ']') {
+                        i++;
+                        continue;
+                    }
+                }
             }
             var closeBracket = text.indexOf(']', bracketOpen + 1);
             if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
@@ -1942,6 +1989,25 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // v10: Translation
+        translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
+            postFn({
+                type: 'translateContent',
+                markdown: markdown,
+                sourceLang: sourceLang,
+                targetLang: targetLang,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+        translateSelectLang: function(currentSource, currentTarget, sidePanelFilePath) {
+            postFn({
+                type: 'translateSelectLang',
+                currentSource: currentSource,
+                currentTarget: currentTarget,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
         // メッセージ受信
         onMessage: function(handler) {
             window.addEventListener('message', function(e) {
@@ -2065,6 +2131,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         'align-center': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M17 12H7"/><path d="M19 19H5"/></svg>',
         'align-right': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H3"/><path d="M21 12H9"/><path d="M21 19H7"/></svg>',
         'addPage': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 12v6"/></svg>',
+        'translate': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+        'translateLang': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
     };
 
     // ===== Language Constants =====
@@ -2409,6 +2477,30 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         return result.join('\n');
     }
 
+    /**
+     * v10: Normalize AWS Translate output to restore broken MD syntax.
+     * AWS Translate does NOT preserve Markdown — it translates the raw text and mangles syntax:
+     *   `- [text](url)` → `-[訳] (url)`  (lost space after dash, added space before paren)
+     *   `# Heading`     → `#見出し`       (lost space after hash)
+     *   `1. Item`       → `1.アイテム`    (lost space after period)
+     * Re-apply these spaces so the markdown renderer recognizes the structures.
+     */
+    function normalizeTranslatedMarkdown(md) {
+        if (!md) return md;
+        return md
+            // `] (url)` → `](url)`   — link bracket→paren spacing
+            .replace(/\]\s+\(/g, '](')
+            // line-start `-[` / `*[` / `+[` → `- [` — bullet before link
+            .replace(/^([-*+])\[/gm, '$1 [')
+            // line-start `-word` / `*word` / `+word` → `- word` — bullet before text
+            // only when followed by a non-bullet, non-space char (avoid `---` hr, `**bold**`)
+            .replace(/^([-*+])([^\s\-*+\[])/gm, '$1 $2')
+            // line-start `1.text` / `12.text` → `1. text` — ordered list
+            .replace(/^(\d+)\.(?=\S)/gm, '$1. ')
+            // line-start `#text` / `##text` … → `# text` — heading
+            .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
+    }
+
     // ===== Export =====
     window.__editorUtils = {
         LUCIDE_ICONS: LUCIDE_ICONS,
@@ -2422,7 +2514,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         wrapInlineCode: wrapInlineCode,
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
-        normalizeMultiLineTableCells: normalizeMultiLineTableCells
+        normalizeMultiLineTableCells: normalizeMultiLineTableCells,
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
     };
 })();
 
@@ -2491,6 +2584,12 @@ class SidePanelHostBridge {
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
+    translateContent(markdown, sourceLang, targetLang) {
+        this._mainHost.translateContent(markdown, sourceLang, targetLang, this.filePath);
+    }
+    translateSelectLang(currentSource, currentTarget) {
+        this._mainHost.translateSelectLang(currentSource, currentTarget, this.filePath);
     }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
@@ -2618,6 +2717,10 @@ class EditorInstance {
                         <button data-action="image"></button>
                         <button data-action="table"></button>
                     </div>
+                    <div class="toolbar-group" data-group="translate">
+                        <button data-action="translateLang" title="Translation language">ja → en</button>
+                        <button data-action="translate" title="Translate"></button>
+                    </div>
                 </div>
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--right hidden">&#x276F;</button>
             </div>
@@ -2683,10 +2786,26 @@ class EditorInstance {
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
+    // v10: Apply readonly option
+    if (this.options.readonly) {
+        if (editor) editor.contentEditable = 'false';
+        // Disable toolbar buttons except translate buttons in readonly mode
+        if (toolbar) {
+            toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+                if (btn.dataset.action !== 'translate' && btn.dataset.action !== 'translateLang') {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.3';
+                }
+            });
+        }
+    }
+
     // Populate toolbar buttons with Lucide icons
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+            // translateLang shows text label (ja → en), not an icon
+            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -2803,6 +2922,11 @@ class EditorInstance {
     let imageDirSource = null; // 'file' | 'settings' | 'default'
     let fileDirDisplayPath = null; // Resolved display path for files from extension
     let fileDirSource = null; // 'file' | 'settings' | 'default'
+
+    // v10: Translation state
+    let translateSourceLang = 'en';
+    let translateTargetLang = 'ja';
+    let translateLoading = false;
 
     // Active editing detection — replaces simple focus-based guard
     let isActivelyEditing = false;
@@ -13748,6 +13872,26 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'translateLang':
+                host.translateSelectLang(translateSourceLang, translateTargetLang);
+                break;
+            case 'translate': {
+                var translationText = '';
+                var sel = window.getSelection();
+                if (sel && sel.toString()) {
+                    // Selection exists — translate only selected text
+                    translationText = sel.toString();
+                } else {
+                    // No selection — translate full markdown
+                    translationText = markdown;
+                }
+                if (translationText) {
+                    translateLoading = true;
+                    showTranslateLoading();
+                    host.translateContent(translationText, translateSourceLang, translateTargetLang);
+                }
+                break;
+            }
             default:
                 // Shared actions (toolbar + command palette)
                 dispatchToolbarAction(action);
@@ -14929,6 +15073,24 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._getMarkdown = function() {
+        // Sync current editor state to markdown and return
+        try {
+            markdown = htmlToMarkdown();
+        } catch (e) { /* ignore */ }
+        return markdown || '';
+    };
+    this._getSelectionText = function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            // Only return selection if it's within this instance's editor
+            var range = sel.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) {
+                return sel.toString();
+            }
+        }
+        return '';
+    };
     this._setUndoUpdateCallback = function(fn) { undoManager.onUpdateButtons = fn; };
 
     // Instance-aware global shortcut handler (captures closure variables)
@@ -14952,6 +15114,8 @@ class EditorInstance {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
                                 e.preventDefault();
+                                // Set flag to skip duplicate image handling in paste event
+                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -15801,6 +15965,16 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
+        if (message.type === 'pasteWithAssetCopyResult') {
+            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            if (!message.markdown) return;
+            undoManager.saveSnapshot();
+            markAsEdited();
+            editor.focus();
+            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            return;
+        }
         if (message.type === 'performUndo') {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._undo) activeInst._undo();
@@ -15817,6 +15991,22 @@ class EditorInstance {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._toggleSourceMode) activeInst._toggleSourceMode();
             else toggleSourceMode();
+            return;
+        }
+        if (message.type === 'triggerTranslate') {
+            // v10: Keyboard shortcut triggered translation
+            var translationText = '';
+            var sel = window.getSelection();
+            if (sel && sel.toString()) {
+                translationText = sel.toString();
+            } else {
+                translationText = markdown;
+            }
+            if (translationText) {
+                translateLoading = true;
+                showTranslateLoading();
+                host.translateContent(translationText, translateSourceLang, translateTargetLang);
+            }
             return;
         }
         if (message.type === 'update') {
@@ -15972,50 +16162,10 @@ class EditorInstance {
             syncMarkdown();
             logger.log('File link element inserted');
         } else if (message.type === 'pasteWithAssetCopyResult') {
-            // v9: Insert rewritten markdown after asset copy
-            logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
-            const pastedMd = message.markdown;
-            if (!pastedMd) return;
-
-            // Use the same block/inline paste logic as normal paste
-            const sel = window.getSelection();
-            if (!sel || sel.rangeCount === 0) return;
-
-            const range = sel.getRangeAt(0);
-            const containerNode = range.commonAncestorContainer;
-            const containerBlock = containerNode.nodeType === 3
-                ? containerNode.parentElement.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th')
-                : containerNode.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th');
-
-            const firstLine = pastedMd.split('\n')[0];
-            const looksLikeBlock = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(firstLine) || pastedMd.includes('\n\n');
-
-            if (!looksLikeBlock && containerBlock) {
-                // Inline paste: convert markdown to inline HTML, then create DOM fragment
-                const inlineHtml = parseInline(pastedMd);
-                const tempSpan = document.createElement('span');
-                tempSpan.innerHTML = inlineHtml;
-                const frag = document.createDocumentFragment();
-                while (tempSpan.firstChild) {
-                    frag.appendChild(tempSpan.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(frag);
-                range.collapse(false);
-            } else {
-                // Block paste: render as block elements
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = markdownToHtml(pastedMd);
-                const fragment = document.createDocumentFragment();
-                while (tempDiv.firstChild) {
-                    fragment.appendChild(tempDiv.firstChild);
-                }
-                range.deleteContents();
-                range.insertNode(fragment);
+            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
             }
-
-            syncMarkdown();
-            logger.log('Asset-copied content inserted');
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -16129,6 +16279,21 @@ class EditorInstance {
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message.data);
             }
+        } else if (message.type === 'translateLangSelected') {
+            // v10: Update translation language state and button label
+            translateSourceLang = message.sourceLang || 'en';
+            translateTargetLang = message.targetLang || 'ja';
+            updateTranslateLangButton();
+        } else if (message.type === 'translateResult') {
+            // v10: Open translation panel with result
+            translateLoading = false;
+            hideTranslateLoading();
+            openTranslationPanel(message.translatedMarkdown, message.sourceLang, message.targetLang);
+        } else if (message.type === 'translateError') {
+            // v10: Show error and hide loading
+            translateLoading = false;
+            hideTranslateLoading();
+            showTranslateError(message.message || 'Translation failed');
         }
     });
 
@@ -16692,9 +16857,149 @@ class EditorInstance {
         }, 5000);
     }
 
+    // v10: Translation helpers
+    function updateTranslateLangButton() {
+        if (toolbar) {
+            var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
+            if (translateLangBtn) {
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
+            }
+        }
+    }
+
+    var translateLoadingOverlay = null;
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function showTranslateError(message) {
+        // Simple alert for now — could be enhanced to toast notification
+        alert('Translation Error: ' + message);
+    }
+
+    function openTranslationPanel(translatedMarkdown, sourceLang, targetLang) {
+        // v10: AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        // Close existing side panel if open
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Create EditorInstance container for translation result
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        var LUCIDE_ICONS = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
+
+        // Create a minimal host bridge for translation panel (no file operations)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {}
+        };
+
+        // Create readonly EditorInstance
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update header label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation Result (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Setup header buttons (copy + close only for translation panel)
+        if (sidePanel) {
+            var header = sidePanel.querySelector('.side-panel-header');
+            if (header) {
+                // Hide undo/redo/source/openInTextEditor buttons
+                var undoBtn = header.querySelector('[data-action="undo"]');
+                var redoBtn = header.querySelector('[data-action="redo"]');
+                var sourceBtn = header.querySelector('[data-action="source"]');
+                var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
+                if (undoBtn) undoBtn.style.display = 'none';
+                if (redoBtn) redoBtn.style.display = 'none';
+                if (sourceBtn) sourceBtn.style.display = 'none';
+                if (openTextEditorBtn) openTextEditorBtn.style.display = 'none';
+
+                // Add copy button (reuse copyPath button as template)
+                var copyBtn = header.querySelector('.side-panel-copy-path');
+                if (copyBtn) {
+                    copyBtn.style.display = 'block';
+                    copyBtn.title = 'Copy translated text';
+                    copyBtn.onclick = function() {
+                        var copyText = '';
+                        if (sidePanelInstance) {
+                            var spEditor = sidePanelInstance.container.querySelector('.editor');
+                            var sel = window.getSelection();
+                            if (sel && sel.toString()) {
+                                copyText = sel.toString();
+                            } else {
+                                copyText = sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : spEditor.textContent;
+                            }
+                        }
+                        if (copyText) {
+                            navigator.clipboard.writeText(copyText).then(function() {
+                                // Visual feedback
+                                copyBtn.style.opacity = '0.5';
+                                setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
+                            });
+                        }
+                    };
+                }
+            }
+        }
+
+        // Show panel with animation
+        if (sidePanel) { sidePanel.style.display = 'flex'; }
+        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
+        requestAnimationFrame(function() {
+            if (sidePanel) { sidePanel.classList.add('open'); }
+            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
+        });
+
+        // Auto-focus editor
+        setTimeout(function() {
+            requestAnimationFrame(function() {
+                if (sidePanelInstance && sidePanelInstance.container) {
+                    var spEditor = sidePanelInstance.container.querySelector('.editor');
+                    if (spEditor) {
+                        spEditor.focus();
+                    }
+                }
+            });
+        }, 300);
+    }
+
     // Drag cursor indicator element
     let dragCursor = null;
-    
+
     function createDragCursor() {
         if (!dragCursor) {
             dragCursor = document.createElement('div');
@@ -17361,11 +17666,19 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // Kiro: skip if image was already handled by keydown Clipboard API path
+        if (self._kiroImagePasteHandled) {
+            self._kiroImagePasteHandled = false;
+            e.preventDefault();
+            logger.log('Paste event skipped (Kiro image already handled via keydown)');
+            return;
+        }
+
         undoManager.saveSnapshot();
         markAsEdited();
-        
+
         logger.log('Paste event triggered');
-        
+
         // Check for image files first
         const items = e.clipboardData?.items;
         if (items) {
@@ -17414,12 +17727,12 @@ class EditorInstance {
         // Check for internal copy (has our custom marker)
         const html = e.clipboardData.getData('text/html');
         const text = e.clipboardData.getData('text/plain');
-        
+
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
-        
+
         let pastedMd = '';
-        
+
         // Priority: internal markdown > external HTML > plain text
         // Exception: If plain text looks like a markdown table and HTML has no <table>,
         // prefer plain text (Turndown mangles markdown tables from <p>-wrapped HTML)
@@ -17576,6 +17889,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });
@@ -17647,6 +17967,19 @@ class EditorInstance {
             return;
         }
 
+        _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
+    });
+
+    // Shared paste insertion function — used by both paste handler and pasteWithAssetCopyResult.
+    // Extracted from the paste handler to avoid duplication. Takes already-determined markdown
+    // and handles normalization, block/inline detection, list merge, table/code/blockquote paste.
+    // opts.clipboardEvent: original paste event (null for pasteWithAssetCopyResult)
+    // opts.isInternal: true if pasted from internal copy (has text/x-any-md)
+    // opts.plainText: plain text from clipboard (for URL auto-link, code block paste, etc.)
+    function _insertPastedMarkdown(pastedMd, opts) {
+        var clipboardEvent = opts && opts.clipboardEvent || null;
+        var isInternal = opts && opts.isInternal || false;
+        var plainText = opts && opts.plainText || '';
         // Normalize table rows with embedded newlines (cell content containing raw newlines)
         // Applied to all paste sources (internal, Turndown, plain text)
         pastedMd = window.__editorUtils.normalizeMultiLineTableCells(pastedMd);
@@ -17728,7 +18061,7 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 const textNode = document.createTextNode(textToPaste);
@@ -17749,7 +18082,7 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -17793,7 +18126,7 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = e.clipboardData.getData('text/plain') || '';
+            const textToPaste = plainText;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -17825,17 +18158,17 @@ class EditorInstance {
         
         // URL auto-link on paste
         // If clipboard contains a URL (not from internal copy), auto-create a link
-        if (!internalMd) {
-            const plainText = (text || '').trim();
+        if (!isInternal) {
+            const urlPlainText = plainText.trim();
             const urlRegex = /^https?:\/\/[^\s]+$/;
-            if (plainText && !plainText.includes('\n') && urlRegex.test(plainText)) {
+            if (urlPlainText && !urlPlainText.includes('\n') && urlRegex.test(urlPlainText)) {
                 const selectedText = range.toString();
 
                 if (selectedText && !selectedText.includes('\n')) {
                     // Case 2: Text is selected + URL in clipboard → wrap selected text as link
-                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', plainText);
+                    logger.log('URL paste: wrapping selected text as link:', selectedText, '->', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
+                    a.href = urlPlainText;
                     a.textContent = selectedText;
                     range.deleteContents();
                     range.insertNode(a);
@@ -17851,10 +18184,10 @@ class EditorInstance {
                     return;
                 } else if (!selectedText || selectedText.trim() === '') {
                     // Case 1: No selection + URL paste → auto-create link with URL as text
-                    logger.log('URL paste: auto-linking URL:', plainText);
+                    logger.log('URL paste: auto-linking URL:', urlPlainText);
                     const a = document.createElement('a');
-                    a.href = plainText;
-                    a.textContent = plainText;
+                    a.href = urlPlainText;
+                    a.textContent = urlPlainText;
                     range.deleteContents();
                     range.insertNode(a);
 
@@ -18154,7 +18487,7 @@ class EditorInstance {
             
             logger.log('Block paste completed via DOM manipulation');
         }
-    });
+    } // end _insertPastedMarkdown
 
     // Focus/blur notifications for sync policy
     editor.addEventListener('focus', function() {

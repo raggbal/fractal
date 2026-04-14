@@ -133,6 +133,21 @@ npm run compile
 # Press F5 to launch in debug mode
 ```
 
+### Optional: AWS CLI (for S3 sync & Translation features)
+
+Fractal itself works without AWS CLI. However, the following features require the AWS CLI (`aws` command) to be installed and available in PATH:
+
+- **S3 sync** (Notes: sync notes folder to/from S3 bucket)
+- **Translation** (MD editor: translate selected text or full document via Amazon Translate)
+
+If AWS CLI is not installed, the core editor features (Markdown, Outliner, Notes management) work normally — only these two AWS-based features will show an error when invoked.
+
+**Install AWS CLI:** https://aws.amazon.com/cli/
+
+**Configure credentials** in VS Code settings:
+- For S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
+- For Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+
 ---
 
 ## ⚙️ Set as Default Editor

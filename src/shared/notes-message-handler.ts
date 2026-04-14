@@ -5,6 +5,7 @@ import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
+import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -89,6 +90,12 @@ export interface NotesPlatformActions {
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
     /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
     pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string): void;
+    /** v10: Get workspace config (for translate AWS credentials) */
+    getWorkspaceConfig?(section: string): any;
+    /** v10: Post message to webview (used in translate handler) */
+    postMessage?(message: any): void;
+    /** v10: Show quick pick for language selection */
+    showQuickPick?(items: Array<{ label: string; description?: string }>, placeHolder: string): Promise<{ label: string; description?: string } | undefined>;
 }
 
 /**
@@ -797,5 +804,66 @@ export async function handleNotesMessage(
                 await platform.cleanupUnusedFilesCurrentNote();
             }
             break;
+
+        case 'translateContent': {
+            if (platform.getWorkspaceConfig && platform.postMessage) {
+                const config = platform.getWorkspaceConfig('fractal');
+                const accessKeyId = config.get('transAccessKeyId', '');
+                const secretAccessKey = config.get('transSecretAccessKey', '');
+                const region = config.get('transRegion', 'us-east-1');
+                if (!accessKeyId || !secretAccessKey) {
+                    sender.postMessage({
+                        type: 'translateError',
+                        message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.'
+                    });
+                    break;
+                }
+                try {
+                    const result = await translateText({
+                        text: message.markdown,
+                        sourceLang: message.sourceLang,
+                        targetLang: message.targetLang,
+                        accessKeyId,
+                        secretAccessKey,
+                        region
+                    });
+                    sender.postMessage({
+                        type: 'translateResult',
+                        translatedMarkdown: result.translatedText,
+                        sourceLang: result.sourceLang,
+                        targetLang: result.targetLang
+                    });
+                } catch (err: any) {
+                    const errMsg = err?.message || String(err);
+                    console.error('[Translate] Error:', errMsg, err?.stack || '');
+                    sender.postMessage({
+                        type: 'translateError',
+                        message: errMsg
+                    });
+                }
+            }
+            break;
+        }
+
+        case 'translateSelectLang': {
+            if (platform.showQuickPick) {
+                const sourcePick = await platform.showQuickPick(
+                    TRANSLATE_LANGUAGES.map(l => ({ label: l.label, description: l.code })),
+                    'Source language'
+                );
+                if (!sourcePick) break;
+                const targetPick = await platform.showQuickPick(
+                    TRANSLATE_LANGUAGES.map(l => ({ label: l.label, description: l.code })),
+                    'Target language'
+                );
+                if (!targetPick) break;
+                sender.postMessage({
+                    type: 'translateLangSelected',
+                    sourceLang: sourcePick.description,
+                    targetLang: targetPick.description
+                });
+            }
+            break;
+        }
     }
 }
