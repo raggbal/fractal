@@ -141,6 +141,9 @@ function generateSidePanelHtml(messages) {
                     </button>
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
+                        <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
                         <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
@@ -156,9 +159,6 @@ function generateSidePanelHtml(messages) {
                     </button>
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </button>
-                    <button class="side-panel-expand" id="sidePanelExpand" title="Expand">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                     </button>
                     <button class="side-panel-close" id="sidePanelClose" title="Close">&times;</button>
                 </div>

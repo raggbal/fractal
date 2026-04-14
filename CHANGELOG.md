@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.705] - 2026-04-14
+
+### Fixed
+- Side panel: closing the translation-result panel (Esc, outside click, ×) then reopening now correctly restores the default header action buttons (previously the `← Back` button remained)
+
+### Changed
+- Side panel header: Expand button moved to the leftmost position of the action button group (next to Undo) so it stays visible when the panel is narrow
+
 ## [0.195.702] - 2026-04-14
 
 ### Added
