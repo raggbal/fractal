@@ -1785,6 +1785,11 @@ var Outliner = (function() {
                 else { break; }
             }
             var content = line.substring(j);
+            // 外部ペースト (MD editor 等) から来たリスト: 先頭の `- ` / `* ` / `+ ` / `1.` バレットを除去。
+            // 内部コピー (clipboardNodes あり) はそのまま — ノードのテキストとして保持。
+            if (!clipboardNodes) {
+                content = content.replace(/^(?:[-*+]|\d+\.)[ \t]+/, '');
+            }
             if (content === '') { continue; } // 空行スキップ
             parsed.push({ level: tabs, text: content });
             clipNodeIndexMap.push(i);
