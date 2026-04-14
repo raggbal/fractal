@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.706] - 2026-04-14
+
+### Fixed
+- Outliner: pasting a multi-line markdown list copied from the MD editor no longer keeps the literal `- ` / `* ` / `+ ` / `1.` bullet markers at the start of each node. Markers are stripped for external pastes only; internal outliner-to-outliner copy keeps node text unchanged.
+
 ## [0.195.705] - 2026-04-14
 
 ### Fixed
