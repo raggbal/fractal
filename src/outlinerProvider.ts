@@ -62,6 +62,15 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         this.activeWebviewPanel = webviewPanel;
 
+        const sendTranslateLangFromConfig = () => {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            webviewPanel.webview.postMessage({
+                type: 'translateLangSelected',
+                sourceLang: cfg.get<string>('translateSourceLang', 'en'),
+                targetLang: cfg.get<string>('translateTargetLang', 'ja'),
+            });
+        };
+
         // --- updateWebview ---
         const updateWebview = () => {
             try {
@@ -73,9 +82,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     this.context.extensionUri,
                     content,
                     {
-                        theme: config.get<string>('theme', 'github'),
+                        theme: config.get<string>('theme', 'things'),
                         fontSize: config.get<number>('fontSize', 14),
-                        toolbarMode: config.get<string>('toolbarMode', 'full'),
+                        toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
@@ -83,6 +92,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     },
                     document.uri.fsPath
                 );
+                sendTranslateLangFromConfig();
             } catch (error) {
                 console.error('[Outliner] Error updating webview:', error);
                 webviewPanel.webview.html = `<!DOCTYPE html>
@@ -892,6 +902,12 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     e.affectsConfiguration('fractal.outlinerPageTitle') ||
                     e.affectsConfiguration('fractal.language')) {
                     updateWebview();
+                }
+                if (
+                    e.affectsConfiguration('fractal.translateSourceLang') ||
+                    e.affectsConfiguration('fractal.translateTargetLang')
+                ) {
+                    sendTranslateLangFromConfig();
                 }
             })
         );

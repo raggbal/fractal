@@ -105,6 +105,15 @@ export class NotesEditorProvider {
             this.openPanels.delete(folderPath);
         });
 
+        const sendTranslateLangFromConfig = () => {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            panel.webview.postMessage({
+                type: 'translateLangSelected',
+                sourceLang: cfg.get<string>('translateSourceLang', 'en'),
+                targetLang: cfg.get<string>('translateTargetLang', 'ja'),
+            });
+        };
+
         // HTML 生成
         const config = vscode.workspace.getConfiguration('fractal');
         const folderBaseUri = panel.webview.asWebviewUri(vscode.Uri.file(folderPath)).toString();
@@ -112,9 +121,9 @@ export class NotesEditorProvider {
             panel.webview,
             this.context.extensionUri,
             {
-                theme: config.get<string>('theme', 'github'),
+                theme: config.get<string>('theme', 'things'),
                 fontSize: config.get<number>('fontSize', 14),
-                toolbarMode: config.get<string>('toolbarMode', 'full'),
+                toolbarMode: config.get<string>('toolbarMode', 'simple'),
                 webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                 enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                 outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
@@ -131,6 +140,7 @@ export class NotesEditorProvider {
                 fileChangeId: fileManager.getFileChangeId(),
             }
         );
+        sendTranslateLangFromConfig();
 
         // サイドパネル管理
         const sidePanel = new SidePanelManager(
@@ -636,8 +646,8 @@ export class NotesEditorProvider {
                         panel.webview,
                         this.context.extensionUri,
                         {
-                            theme: refreshConfig.get<string>('theme', 'github'),
-                            fontSize: refreshConfig.get<number>('fontSize', 16),
+                            theme: refreshConfig.get<string>('theme', 'things'),
+                            fontSize: refreshConfig.get<number>('fontSize', 14),
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
@@ -645,6 +655,13 @@ export class NotesEditorProvider {
                         },
                         { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), fileChangeId: fileManager.getFileChangeId() }
                     );
+                    sendTranslateLangFromConfig();
+                }
+                if (
+                    e.affectsConfiguration('fractal.translateSourceLang') ||
+                    e.affectsConfiguration('fractal.translateTargetLang')
+                ) {
+                    sendTranslateLangFromConfig();
                 }
             })
         );

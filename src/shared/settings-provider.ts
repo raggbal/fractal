@@ -6,7 +6,7 @@
  */
 
 export interface EditorSettings {
-    theme: 'github' | 'sepia' | 'night' | 'dark' | 'minimal' | 'perplexity';
+    theme: 'github' | 'sepia' | 'night' | 'dark' | 'minimal' | 'perplexity' | 'things';
     fontSize: number;
     toolbarMode: 'full' | 'simple';
     language: 'default' | 'en' | 'ja' | 'zh-TW' | 'zh-CN' | 'ko' | 'es' | 'fr';
@@ -16,8 +16,8 @@ export interface EditorSettings {
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
-    theme: 'github',
-    fontSize: 16,
+    theme: 'things',
+    fontSize: 14,
     toolbarMode: 'simple',
     language: 'default',
     imageDefaultDir: '',

@@ -437,6 +437,15 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             imageDirectoryManager.setFileImageDir(document.uri, imagesDir);
         }
 
+        const sendTranslateLangFromConfig = () => {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            webviewPanel.webview.postMessage({
+                type: 'translateLangSelected',
+                sourceLang: cfg.get<string>('translateSourceLang', 'en'),
+                targetLang: cfg.get<string>('translateTargetLang', 'ja'),
+            });
+        };
+
         const updateWebview = () => {
             try {
                 const config = vscode.workspace.getConfiguration('fractal');
@@ -446,9 +455,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     this.context.extensionUri,
                     content,
                     {
-                        theme: config.get<string>('theme', 'github'),
-                        fontSize: config.get<number>('fontSize', 16),
-                        toolbarMode: config.get<string>('toolbarMode', 'full'),
+                        theme: config.get<string>('theme', 'things'),
+                        fontSize: config.get<number>('fontSize', 14),
+                        toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         documentBaseUri: documentBaseUri,
                         webviewMessages: getWebviewMessages(),
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
@@ -456,6 +465,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     },
                     webviewNonce
                 );
+                sendTranslateLangFromConfig();
             } catch (error) {
                 console.error('[Any MD] Error updating webview:', error);
                 // Show a minimal error page instead of crashing
