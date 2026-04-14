@@ -3981,19 +3981,21 @@ var Outliner = (function() {
             sidePanelOverlay.addEventListener('click', closeSidePanel);
         }
 
-        // Expand toggle
-        var sidePanelExpandBtn = document.querySelector('.side-panel-expand');
-        if (sidePanelExpandBtn) {
-            sidePanelExpandBtn.addEventListener('click', function() {
+        // Expand toggle — delegated on sidePanelEl so it survives
+        // .side-panel-header-actions innerHTML rebuilds from the translate flow.
+        if (sidePanelEl) {
+            sidePanelEl.addEventListener('click', function(e) {
+                var expandBtn = e.target && e.target.closest ? e.target.closest('.side-panel-expand') : null;
+                if (!expandBtn || !sidePanelEl.contains(expandBtn)) return;
                 sidePanelExpanded = !sidePanelExpanded;
                 if (sidePanelExpanded) {
                     sidePanelEl.classList.add('expanded');
-                    sidePanelExpandBtn.classList.add('active');
+                    expandBtn.classList.add('active');
                     sidePanelEl.style.width = '';
                     sidePanelEl.style.maxWidth = '';
                 } else {
                     sidePanelEl.classList.remove('expanded');
-                    sidePanelExpandBtn.classList.remove('active');
+                    expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
                         sidePanelEl.style.width = sidePanelWidthSetting + 'px';
                         sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';

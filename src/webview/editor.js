@@ -12579,10 +12579,16 @@ class EditorInstance {
 
         // Handle paste shortcut for Kiro only
         const isKiro = navigator.userAgent.includes('Kiro');
-        if (isMod && e.key === 'v' && isKiro) {
+        if (isMod && e.key === 'v' && isKiro && navigator.clipboard && navigator.clipboard.read) {
             logger.log('Cmd/Ctrl+V keydown detected (Kiro)');
 
-            if (navigator.clipboard && navigator.clipboard.read) {
+            // Set flag SYNCHRONOUSLY before any await, so the paste event (which fires
+            // synchronously right after this keydown returns at the first await) skips
+            // image-file handling. Otherwise both the paste event and the Clipboard API
+            // path insert the same screenshot → duplicate image.
+            self._kiroImagePasteHandled = true;
+
+            (async () => {
                 try {
                     const items = await navigator.clipboard.read();
 
@@ -12590,9 +12596,6 @@ class EditorInstance {
                         for (const type of item.types) {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
-                                e.preventDefault();
-                                // Set flag to skip duplicate image handling in paste event
-                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -12605,11 +12608,11 @@ class EditorInstance {
                             }
                         }
                     }
-                    logger.log('No image in clipboard, falling through to native paste (Kiro)');
+                    logger.log('No image in clipboard (Kiro) - paste event handled text');
                 } catch (err) {
                     logger.log('Clipboard API read failed (Kiro):', err.message);
                 }
-            }
+            })();
         }
 
         // Undo (Ctrl+Z / Cmd+Z)
@@ -15143,12 +15146,12 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
-        // Kiro: skip if image was already handled by keydown Clipboard API path
-        if (self._kiroImagePasteHandled) {
+        // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
+        // here so text/HTML paste still works when clipboard has no image.
+        const kiroSkipImage = self._kiroImagePasteHandled === true;
+        if (kiroSkipImage) {
             self._kiroImagePasteHandled = false;
-            e.preventDefault();
-            logger.log('Paste event skipped (Kiro image already handled via keydown)');
-            return;
+            logger.log('Paste event: Kiro keydown handles images, skipping image detection');
         }
 
         undoManager.saveSnapshot();
@@ -15156,26 +15159,28 @@ class EditorInstance {
 
         logger.log('Paste event triggered');
 
-        // Check for image files first
-        const items = e.clipboardData?.items;
-        if (items) {
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
-                    e.preventDefault();
-                    logger.log('Image found in paste event');
-                    const file = item.getAsFile();
-                    if (file) {
-                        logger.log('Pasting image from clipboard:', file.type);
-                        const reader = new FileReader();
-                        reader.onload = function(event) {
-                            const dataUrl = event.target.result;
-                            host.saveImageAndInsert(dataUrl);
-                            logger.log('Image sent to extension for saving');
-                        };
-                        reader.readAsDataURL(file);
+        // Check for image files first (unless Kiro keydown will handle via Clipboard API)
+        if (!kiroSkipImage) {
+            const items = e.clipboardData?.items;
+            if (items) {
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        logger.log('Image found in paste event');
+                        const file = item.getAsFile();
+                        if (file) {
+                            logger.log('Pasting image from clipboard:', file.type);
+                            const reader = new FileReader();
+                            reader.onload = function(event) {
+                                const dataUrl = event.target.result;
+                                host.saveImageAndInsert(dataUrl);
+                                logger.log('Image sent to extension for saving');
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                        return; // Stop processing - image handled
                     }
-                    return; // Stop processing - image handled
                 }
             }
         }
