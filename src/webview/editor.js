@@ -13959,7 +13959,7 @@ class EditorInstance {
             var line = lines[i];
             if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
             if (inCodeBlock) continue;
-            var match = line.match(/^(#{1,2})\s+(.+)$/);
+            var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()

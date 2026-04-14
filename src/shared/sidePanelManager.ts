@@ -9,6 +9,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { extractToc, TocItem } from './toc-utils';
 
 /** Webview への通信インターフェース */
 export interface SidePanelHost {
@@ -21,11 +22,8 @@ export interface SidePanelManagerConfig {
     logPrefix: string;
 }
 
-export interface TocItem {
-    level: number;
-    text: string;
-    anchor: string;
-}
+// Re-export TocItem for backward compatibility
+export type { TocItem } from './toc-utils';
 
 export class SidePanelManager {
     // --- 内部状態 ---
@@ -287,24 +285,9 @@ export class SidePanelManager {
 
     /**
      * Markdown テキストから目次を抽出する (pure function)。
-     * H1/H2 を対象にアンカーIDを生成。CJK文字対応。
+     * toc-utils.ts に移譲。
      */
     static extractToc(markdown: string): TocItem[] {
-        const lines = markdown.split('\n');
-        const toc: TocItem[] = [];
-        let inCodeBlock = false;
-        for (const line of lines) {
-            if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
-            if (inCodeBlock) continue;
-            const match = line.match(/^(#{1,2})\s+(.+)$/);
-            if (match) {
-                const text = match[2].trim();
-                const anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
-                    .replace(/\s+/g, '-');
-                toc.push({ level: match[1].length, text, anchor });
-            }
-        }
-        return toc;
+        return extractToc(markdown);
     }
 }

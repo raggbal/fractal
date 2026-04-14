@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.708] - 2026-04-14
+
+### Fixed
+- Side panel TOC / outline: headings h3-h6 are no longer dropped. Previously the regex captured only `#{1,2}`, so `# Title` followed directly by `### Subsection` rendered just the h1. The regex is now `#{1,6}`, and non-hierarchical structures (h1→h3, h2→h5, etc.) also list every heading. The standalone editor was unaffected (it queries the DOM).
+
 ## [0.195.707] - 2026-04-14
 
 ### Fixed
