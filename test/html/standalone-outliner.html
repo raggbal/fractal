@@ -2961,7 +2961,7 @@ body {
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
-                        <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja → en</button>
+                        <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
@@ -3416,6 +3416,30 @@ body {
         return result.join('\n');
     }
 
+    /**
+     * v10: Normalize AWS Translate output to restore broken MD syntax.
+     * AWS Translate does NOT preserve Markdown — it translates the raw text and mangles syntax:
+     *   `- [text](url)` → `-[訳] (url)`  (lost space after dash, added space before paren)
+     *   `# Heading`     → `#見出し`       (lost space after hash)
+     *   `1. Item`       → `1.アイテム`    (lost space after period)
+     * Re-apply these spaces so the markdown renderer recognizes the structures.
+     */
+    function normalizeTranslatedMarkdown(md) {
+        if (!md) return md;
+        return md
+            // `] (url)` → `](url)`   — link bracket→paren spacing
+            .replace(/\]\s+\(/g, '](')
+            // line-start `-[` / `*[` / `+[` → `- [` — bullet before link
+            .replace(/^([-*+])\[/gm, '$1 [')
+            // line-start `-word` / `*word` / `+word` → `- word` — bullet before text
+            // only when followed by a non-bullet, non-space char (avoid `---` hr, `**bold**`)
+            .replace(/^([-*+])([^\s\-*+\[])/gm, '$1 $2')
+            // line-start `1.text` / `12.text` → `1. text` — ordered list
+            .replace(/^(\d+)\.(?=\S)/gm, '$1. ')
+            // line-start `#text` / `##text` … → `# text` — heading
+            .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
+    }
+
     // ===== Export =====
     window.__editorUtils = {
         LUCIDE_ICONS: LUCIDE_ICONS,
@@ -3429,7 +3453,8 @@ body {
         wrapInlineCode: wrapInlineCode,
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
-        normalizeMultiLineTableCells: normalizeMultiLineTableCells
+        normalizeMultiLineTableCells: normalizeMultiLineTableCells,
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
     };
 })();
 
@@ -3718,6 +3743,8 @@ class EditorInstance {
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+            // translateLang shows text label (ja → en), not an icon
+            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -3836,8 +3863,8 @@ class EditorInstance {
     let fileDirSource = null; // 'file' | 'settings' | 'default'
 
     // v10: Translation state
-    let translateSourceLang = 'ja';
-    let translateTargetLang = 'en';
+    let translateSourceLang = 'en';
+    let translateTargetLang = 'ja';
     let translateLoading = false;
 
     // Active editing detection — replaces simple focus-based guard
@@ -15985,6 +16012,24 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._getMarkdown = function() {
+        // Sync current editor state to markdown and return
+        try {
+            markdown = htmlToMarkdown();
+        } catch (e) { /* ignore */ }
+        return markdown || '';
+    };
+    this._getSelectionText = function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            // Only return selection if it's within this instance's editor
+            var range = sel.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) {
+                return sel.toString();
+            }
+        }
+        return '';
+    };
     this._setUndoUpdateCallback = function(fn) { undoManager.onUpdateButtons = fn; };
 
     // Instance-aware global shortcut handler (captures closure variables)
@@ -17175,8 +17220,8 @@ class EditorInstance {
             }
         } else if (message.type === 'translateLangSelected') {
             // v10: Update translation language state and button label
-            translateSourceLang = message.sourceLang || 'ja';
-            translateTargetLang = message.targetLang || 'en';
+            translateSourceLang = message.sourceLang || 'en';
+            translateTargetLang = message.targetLang || 'ja';
             updateTranslateLangButton();
         } else if (message.type === 'translateResult') {
             // v10: Open translation panel with result
@@ -17756,7 +17801,8 @@ class EditorInstance {
         if (toolbar) {
             var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
             if (translateLangBtn) {
-                translateLangBtn.textContent = translateSourceLang + ' → ' + translateTargetLang;
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
             }
         }
     }
@@ -17784,6 +17830,10 @@ class EditorInstance {
     }
 
     function openTranslationPanel(translatedMarkdown, sourceLang, targetLang) {
+        // v10: AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
         // Close existing side panel if open
         if (sidePanelInstance) {
             closeSidePanelImmediate();
@@ -18778,6 +18828,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });
@@ -19846,6 +19903,21 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
             } else {
                 i++;
                 continue;
+            }
+            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+            // outer `[...]` is literal text, inner `[text](url)` is the link.
+            // Detect: next char is `[`, and there's a complete inner link whose end is
+            // immediately followed by `]`. In that case skip the outer `[` so the inner
+            // one parses as the link.
+            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+                var innerCloseBr = text.indexOf(']', bracketOpen + 2);
+                if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
+                    var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
+                    if (innerCloseParen !== -1 && text.charAt(innerCloseParen + 1) === ']') {
+                        i++;
+                        continue;
+                    }
+                }
             }
             var closeBracket = text.indexOf(']', bracketOpen + 1);
             if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
@@ -24914,6 +24986,37 @@ var Outliner = (function() {
     var sidePanelExpanded = false;
     var sidePanelImagePending = false;
 
+    // v10: Translation state for side panel
+    var sidePanelTranslateSourceLang = 'en';
+    var sidePanelTranslateTargetLang = 'ja';
+    var sidePanelPreTranslationState = null; // saved original MD state for "back" restore
+    var translateLoadingOverlay = null;
+
+    function showTranslateLoading() {
+        if (!translateLoadingOverlay) {
+            translateLoadingOverlay = document.createElement('div');
+            translateLoadingOverlay.className = 'translate-loading-overlay';
+            translateLoadingOverlay.innerHTML = '<div class="translate-loading-spinner"></div><div class="translate-loading-text">Translating...</div>';
+            document.body.appendChild(translateLoadingOverlay);
+        }
+        translateLoadingOverlay.style.display = 'flex';
+    }
+
+    function hideTranslateLoading() {
+        if (translateLoadingOverlay) {
+            translateLoadingOverlay.style.display = 'none';
+        }
+    }
+
+    function updateSidePanelTranslateLangBtn() {
+        if (!sidePanelEl) return;
+        var btn = sidePanelEl.querySelector('[data-action="translateLang"]');
+        if (btn) {
+            btn.textContent = sidePanelTranslateTargetLang;
+            btn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+        }
+    }
+
     function initSidePanel() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
@@ -25117,6 +25220,91 @@ var Outliner = (function() {
         }
     }
 
+    // v10: Show translation result by reopening side panel with translated markdown (readonly)
+    function showTranslationInSidePanel(translatedMarkdown, sourceLang, targetLang) {
+        // AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
+        console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
+        // Close current side panel MD
+        if (sidePanelInstance) {
+            closeSidePanelImmediate();
+        }
+
+        // Reopen as translation result panel
+        var spContainer = window.EditorInstance.createSidePanelContainer();
+        if (sidePanelIframeContainer) {
+            sidePanelIframeContainer.innerHTML = '';
+            sidePanelIframeContainer.appendChild(spContainer);
+        }
+
+        // Minimal bridge (no host operations for readonly result)
+        sidePanelHostBridge = {
+            _sendMessage: function() {},
+            onMessage: function() {},
+            sidePanelOpenInTextEditor: function() {},
+            requestInsertImage: function() {},
+            requestInsertFile: function() {},
+            requestInsertLink: function() {},
+            syncContent: function() {},
+            reportEditingState: function() {},
+            reportFocus: function() {},
+            reportBlur: function() {}
+        };
+
+        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
+            initialContent: translatedMarkdown,
+            documentBaseUri: '',
+            isSidePanel: true,
+            readonly: true
+        });
+
+        // Update filename label
+        if (sidePanelFilename) {
+            sidePanelFilename.textContent = 'Translation (' + sourceLang + ' → ' + targetLang + ')';
+        }
+
+        // Inject "← Back" button into header, replacing action buttons (read-only panel).
+        // Save original actions HTML so openSidePanel on restore can rebuild default buttons.
+        if (sidePanelEl) {
+            var header = sidePanelEl.querySelector('.side-panel-header');
+            if (header) {
+                var actions = header.querySelector('.side-panel-header-actions');
+                if (actions) {
+                    if (sidePanelPreTranslationState && !sidePanelPreTranslationState.actionsHtml) {
+                        sidePanelPreTranslationState.actionsHtml = actions.innerHTML;
+                    }
+                    actions.innerHTML = '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>';
+                    var backBtn = actions.querySelector('[data-action="translateBack"]');
+                    if (backBtn) {
+                        backBtn.addEventListener('click', function() {
+                            var s = sidePanelPreTranslationState;
+                            if (s && s.filePath) {
+                                // Restore original header actions HTML before reopening
+                                if (s.actionsHtml) { actions.innerHTML = s.actionsHtml; }
+                                sidePanelPreTranslationState = null;
+                                openSidePanel(s.markdown, s.filePath, s.fileName, s.toc, s.documentBaseUri);
+                            } else {
+                                closeSidePanel();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        // Show side panel
+        if (sidePanelEl) {
+            sidePanelEl.style.display = 'flex';
+            requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
+        }
+        if (sidePanelOverlay) {
+            sidePanelOverlay.style.display = 'block';
+            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        }
+    }
+
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (sidePanelInstance) {
             closeSidePanelImmediate();
@@ -25150,6 +25338,8 @@ var Outliner = (function() {
             var header = sidePanelEl.querySelector('.side-panel-header');
             if (header) {
                 header.querySelectorAll('button[data-action]').forEach(function(btn) {
+                    // translateLang shows text label (ja → en), not an icon
+                    if (btn.dataset.action === 'translateLang') return;
                     var icon = LUCIDE_ICONS[btn.dataset.action];
                     if (icon) { btn.innerHTML = icon; }
                 });
@@ -25164,14 +25354,32 @@ var Outliner = (function() {
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
-                if (translateLangBtn) { translateLangBtn.addEventListener('click', function() { host.translateSelectLang('ja', 'en', sidePanelFilePath); }); }
+                if (translateLangBtn) {
+                    translateLangBtn.textContent = sidePanelTranslateTargetLang;
+                    translateLangBtn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
+                    translateLangBtn.addEventListener('click', function() {
+                        host.translateSelectLang(sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                    });
+                }
                 if (translateBtn) {
                     translateBtn.addEventListener('click', function() {
-                        if (sidePanelInstance) {
-                            var markdown = sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '';
-                            if (markdown) {
-                                host.translateContent(markdown, 'ja', 'en', sidePanelFilePath);
-                            }
+                        if (!sidePanelInstance) return;
+                        var selectionText = sidePanelInstance._getSelectionText ? sidePanelInstance._getSelectionText() : '';
+                        var text = selectionText || (sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '');
+                        console.log('[Translate] Button clicked. Text length:', text.length, 'langs:', sidePanelTranslateSourceLang, '→', sidePanelTranslateTargetLang);
+                        if (text) {
+                            // Save original state so user can restore via "back" button on result panel
+                            sidePanelPreTranslationState = {
+                                markdown: sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '',
+                                filePath: sidePanelFilePath,
+                                fileName: sidePanelFilename ? sidePanelFilename.textContent : '',
+                                toc: null,
+                                documentBaseUri: sidePanelInstance.options ? sidePanelInstance.options.documentBaseUri : ''
+                            };
+                            showTranslateLoading();
+                            host.translateContent(text, sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
+                        } else {
+                            console.warn('[Translate] No text to translate');
                         }
                     });
                 }
@@ -25231,6 +25439,7 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
@@ -25971,33 +26180,22 @@ var Outliner = (function() {
                     break;
 
                 case 'translateResult':
-                    if (sidePanelInstance && sidePanelHostBridge) {
-                        sidePanelHostBridge._sendMessage({
-                            type: 'translateResult',
-                            translatedMarkdown: msg.translatedMarkdown,
-                            sourceLang: msg.sourceLang,
-                            targetLang: msg.targetLang
-                        });
-                    }
+                    // v10: Show translation result by replacing side panel MD content in readonly mode.
+                    // Re-opens side panel with translated markdown, but in readonly display.
+                    hideTranslateLoading();
+                    showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
                     break;
 
                 case 'translateError':
-                    if (sidePanelInstance && sidePanelHostBridge) {
-                        sidePanelHostBridge._sendMessage({
-                            type: 'translateError',
-                            message: msg.message
-                        });
-                    }
+                    hideTranslateLoading();
+                    alert('Translation Error: ' + (msg.message || 'Failed'));
                     break;
 
                 case 'translateLangSelected':
-                    if (sidePanelInstance && sidePanelHostBridge) {
-                        sidePanelHostBridge._sendMessage({
-                            type: 'translateLangSelected',
-                            sourceLang: msg.sourceLang,
-                            targetLang: msg.targetLang
-                        });
-                    }
+                    // v10: Update outliner-level side panel translation state
+                    sidePanelTranslateSourceLang = msg.sourceLang || 'en';
+                    sidePanelTranslateTargetLang = msg.targetLang || 'ja';
+                    updateSidePanelTranslateLangBtn();
                     break;
 
                 case 'scopeIn':

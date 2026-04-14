@@ -1742,6 +1742,21 @@ body {
                 i++;
                 continue;
             }
+            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+            // outer `[...]` is literal text, inner `[text](url)` is the link.
+            // Detect: next char is `[`, and there's a complete inner link whose end is
+            // immediately followed by `]`. In that case skip the outer `[` so the inner
+            // one parses as the link.
+            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+                var innerCloseBr = text.indexOf(']', bracketOpen + 2);
+                if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
+                    var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
+                    if (innerCloseParen !== -1 && text.charAt(innerCloseParen + 1) === ']') {
+                        i++;
+                        continue;
+                    }
+                }
+            }
             var closeBracket = text.indexOf(']', bracketOpen + 1);
             if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
                 i++;
@@ -2462,6 +2477,30 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         return result.join('\n');
     }
 
+    /**
+     * v10: Normalize AWS Translate output to restore broken MD syntax.
+     * AWS Translate does NOT preserve Markdown — it translates the raw text and mangles syntax:
+     *   `- [text](url)` → `-[訳] (url)`  (lost space after dash, added space before paren)
+     *   `# Heading`     → `#見出し`       (lost space after hash)
+     *   `1. Item`       → `1.アイテム`    (lost space after period)
+     * Re-apply these spaces so the markdown renderer recognizes the structures.
+     */
+    function normalizeTranslatedMarkdown(md) {
+        if (!md) return md;
+        return md
+            // `] (url)` → `](url)`   — link bracket→paren spacing
+            .replace(/\]\s+\(/g, '](')
+            // line-start `-[` / `*[` / `+[` → `- [` — bullet before link
+            .replace(/^([-*+])\[/gm, '$1 [')
+            // line-start `-word` / `*word` / `+word` → `- word` — bullet before text
+            // only when followed by a non-bullet, non-space char (avoid `---` hr, `**bold**`)
+            .replace(/^([-*+])([^\s\-*+\[])/gm, '$1 $2')
+            // line-start `1.text` / `12.text` → `1. text` — ordered list
+            .replace(/^(\d+)\.(?=\S)/gm, '$1. ')
+            // line-start `#text` / `##text` … → `# text` — heading
+            .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
+    }
+
     // ===== Export =====
     window.__editorUtils = {
         LUCIDE_ICONS: LUCIDE_ICONS,
@@ -2475,7 +2514,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         wrapInlineCode: wrapInlineCode,
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
-        normalizeMultiLineTableCells: normalizeMultiLineTableCells
+        normalizeMultiLineTableCells: normalizeMultiLineTableCells,
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
     };
 })();
 
@@ -2764,6 +2804,8 @@ class EditorInstance {
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
+            // translateLang shows text label (ja → en), not an icon
+            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -2882,8 +2924,8 @@ class EditorInstance {
     let fileDirSource = null; // 'file' | 'settings' | 'default'
 
     // v10: Translation state
-    let translateSourceLang = 'ja';
-    let translateTargetLang = 'en';
+    let translateSourceLang = 'en';
+    let translateTargetLang = 'ja';
     let translateLoading = false;
 
     // Active editing detection — replaces simple focus-based guard
@@ -15031,6 +15073,24 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._getMarkdown = function() {
+        // Sync current editor state to markdown and return
+        try {
+            markdown = htmlToMarkdown();
+        } catch (e) { /* ignore */ }
+        return markdown || '';
+    };
+    this._getSelectionText = function() {
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            // Only return selection if it's within this instance's editor
+            var range = sel.getRangeAt(0);
+            if (editor.contains(range.commonAncestorContainer)) {
+                return sel.toString();
+            }
+        }
+        return '';
+    };
     this._setUndoUpdateCallback = function(fn) { undoManager.onUpdateButtons = fn; };
 
     // Instance-aware global shortcut handler (captures closure variables)
@@ -16221,8 +16281,8 @@ class EditorInstance {
             }
         } else if (message.type === 'translateLangSelected') {
             // v10: Update translation language state and button label
-            translateSourceLang = message.sourceLang || 'ja';
-            translateTargetLang = message.targetLang || 'en';
+            translateSourceLang = message.sourceLang || 'en';
+            translateTargetLang = message.targetLang || 'ja';
             updateTranslateLangButton();
         } else if (message.type === 'translateResult') {
             // v10: Open translation panel with result
@@ -16802,7 +16862,8 @@ class EditorInstance {
         if (toolbar) {
             var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
             if (translateLangBtn) {
-                translateLangBtn.textContent = translateSourceLang + ' → ' + translateTargetLang;
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
             }
         }
     }
@@ -16830,6 +16891,10 @@ class EditorInstance {
     }
 
     function openTranslationPanel(translatedMarkdown, sourceLang, targetLang) {
+        // v10: AWS Translate mangles MD syntax — normalize before rendering
+        if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
+            translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
+        }
         // Close existing side panel if open
         if (sidePanelInstance) {
             closeSidePanelImmediate();
@@ -17824,6 +17889,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });

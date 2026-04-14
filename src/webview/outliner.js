@@ -3945,7 +3945,8 @@ var Outliner = (function() {
         if (!sidePanelEl) return;
         var btn = sidePanelEl.querySelector('[data-action="translateLang"]');
         if (btn) {
-            btn.textContent = sidePanelTranslateSourceLang + ' → ' + sidePanelTranslateTargetLang;
+            btn.textContent = sidePanelTranslateTargetLang;
+            btn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
         }
     }
 
@@ -4287,7 +4288,8 @@ var Outliner = (function() {
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
                 if (translateLangBtn) {
-                    translateLangBtn.textContent = sidePanelTranslateSourceLang + ' → ' + sidePanelTranslateTargetLang;
+                    translateLangBtn.textContent = sidePanelTranslateTargetLang;
+                    translateLangBtn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
                     translateLangBtn.addEventListener('click', function() {
                         host.translateSelectLang(sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
                     });

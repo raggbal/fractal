@@ -62,6 +62,21 @@
                 i++;
                 continue;
             }
+            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+            // outer `[...]` is literal text, inner `[text](url)` is the link.
+            // Detect: next char is `[`, and there's a complete inner link whose end is
+            // immediately followed by `]`. In that case skip the outer `[` so the inner
+            // one parses as the link.
+            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+                var innerCloseBr = text.indexOf(']', bracketOpen + 2);
+                if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
+                    var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
+                    if (innerCloseParen !== -1 && text.charAt(innerCloseParen + 1) === ']') {
+                        i++;
+                        continue;
+                    }
+                }
+            }
             var closeBracket = text.indexOf(']', bracketOpen + 1);
             if (closeBracket === -1 || text.charAt(closeBracket + 1) !== '(') {
                 i++;

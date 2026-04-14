@@ -14339,7 +14339,8 @@ class EditorInstance {
         if (toolbar) {
             var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
             if (translateLangBtn) {
-                translateLangBtn.textContent = translateSourceLang + ' → ' + translateTargetLang;
+                translateLangBtn.textContent = translateTargetLang;
+                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
             }
         }
     }
@@ -15365,6 +15366,13 @@ class EditorInstance {
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
+                        // Wikipedia-style citation links: link text like `[40]` should render as
+                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
+                        // whose text is `[40]`. Move the bracket pair outside the link.
+                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+                        if (bracketMatch) {
+                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+                        }
                         return '[' + content + '](' + href + title + ')';
                     }
                 });
