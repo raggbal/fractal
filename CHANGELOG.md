@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.710] - 2026-04-15
+
+### Added
+- Outliner: full text search & replace (Cmd+F) mirroring the MD editor. Floating top-right box with search / replace inputs, N/M match counter, prev/next navigation, toggle-replace, and case-sensitive / whole-word / regex options. Searches both `text` and `subtext` across the current scope (or the whole document when no scope is active); inline formatting is preserved on replace (`**foo**` → search `foo` → replace with `bar` yields `**bar**`). Jumping to a match that lives inside a collapsed ancestor now auto-expands the ancestor chain. Replace All is a single undo step.
+- Outliner: Cmd+H opens the search/replace box with the replace row already expanded (same shortcut as the MD editor).
+
+### Changed
+- Outliner: Cmd+Shift+F now focuses the existing header filter search (previously Cmd+F). Cmd+F is repurposed for the new text search & replace box.
+
 ## [0.195.708] - 2026-04-14
 
 ### Fixed
