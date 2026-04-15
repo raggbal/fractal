@@ -274,6 +274,7 @@ var Outliner = (function() {
         setupKeyHandlers();
         setupContextMenu();
         setupHostMessages();
+        setupTextSearchReplace();
         initSidePanel();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
@@ -2356,6 +2357,22 @@ var Outliner = (function() {
             return;
         }
 
+        // Cmd+Shift+F: ヘッダフィルタ検索にフォーカス（以前の Cmd+F の役割）
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (searchInput) { searchInput.focus(); searchInput.select(); }
+            return;
+        }
+
+        // Cmd+H: テキスト検索/置換ボックス（置換行展開）
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+            e.preventDefault();
+            e.stopPropagation();
+            openTextSearchBox(true);
+            return;
+        }
+
         // Cmd+Shift+C: ページパスをコピー
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
             e.preventDefault();
@@ -2392,8 +2409,8 @@ var Outliner = (function() {
                     break;
                 case 'f':
                     e.preventDefault();
-                    searchInput.focus();
-                    searchInput.select();
+                    e.stopPropagation();
+                    openTextSearchBox(false);
                     break;
                 case '.':
                     e.preventDefault();
@@ -5180,10 +5197,475 @@ var Outliner = (function() {
         });
     }
 
+    // --- テキスト検索 & 置換ボックス (MDエディタの機能を踏襲) ---
+
+    var textSearchBox = null;
+    var textSearchInput = null;
+    var textReplaceInput = null;
+    var textSearchCountEl = null;
+    var textSearchReplaceRow = null;
+    var textSearchCaseEl = null;
+    var textSearchWordEl = null;
+    var textSearchRegexEl = null;
+    // マッチエントリ: { nodeId, field: 'text'|'subtext', sourceStart, sourceEnd, renderedStart, renderedEnd }
+    var textSearchMatches = [];
+    var textSearchCurrentIndex = -1;
+
+    function setupTextSearchReplace() {
+        if (textSearchBox) { return; }
+        var box = document.createElement('div');
+        box.className = 'search-replace-box outliner-search-replace-box';
+        box.style.display = 'none';
+        box.innerHTML =
+            '<div class="search-row">' +
+              '<input type="text" class="search-input" placeholder="Search..." />' +
+              '<span class="search-count">0/0</span>' +
+              '<button class="search-prev" title="Previous">\u25B2</button>' +
+              '<button class="search-next" title="Next">\u25BC</button>' +
+              '<button class="toggle-replace" title="Toggle Replace">\u21A9</button>' +
+              '<button class="close-search" title="Close">\u2715</button>' +
+            '</div>' +
+            '<div class="replace-row" style="display:none">' +
+              '<input type="text" class="replace-input" placeholder="Replace..." />' +
+              '<button class="replace-one" title="Replace">Replace</button>' +
+              '<button class="replace-all" title="Replace All">All</button>' +
+            '</div>' +
+            '<div class="search-options">' +
+              '<label><input type="checkbox" class="search-case-sensitive" /> Aa</label>' +
+              '<label><input type="checkbox" class="search-whole-word" /> Ab|</label>' +
+              '<label><input type="checkbox" class="search-regex" /> .*</label>' +
+            '</div>';
+        document.body.appendChild(box);
+
+        textSearchBox = box;
+        textSearchInput = box.querySelector('.search-input');
+        textReplaceInput = box.querySelector('.replace-input');
+        textSearchCountEl = box.querySelector('.search-count');
+        textSearchReplaceRow = box.querySelector('.replace-row');
+        textSearchCaseEl = box.querySelector('.search-case-sensitive');
+        textSearchWordEl = box.querySelector('.search-whole-word');
+        textSearchRegexEl = box.querySelector('.search-regex');
+
+        textSearchInput.addEventListener('input', performTextSearch);
+        textSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                goToTextMatch(textSearchCurrentIndex + (e.shiftKey ? -1 : 1));
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+        textReplaceInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                replaceCurrentTextMatch();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+
+        box.querySelector('.search-prev').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex - 1);
+        });
+        box.querySelector('.search-next').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex + 1);
+        });
+        box.querySelector('.close-search').addEventListener('click', closeTextSearchBox);
+        box.querySelector('.toggle-replace').addEventListener('click', function() {
+            if (textSearchReplaceRow.style.display === 'none') {
+                textSearchReplaceRow.style.display = 'flex';
+                textReplaceInput.focus();
+            } else {
+                textSearchReplaceRow.style.display = 'none';
+                textSearchInput.focus();
+            }
+        });
+        box.querySelector('.replace-one').addEventListener('click', replaceCurrentTextMatch);
+        box.querySelector('.replace-all').addEventListener('click', replaceAllTextMatches);
+        textSearchCaseEl.addEventListener('change', performTextSearch);
+        textSearchWordEl.addEventListener('change', performTextSearch);
+        textSearchRegexEl.addEventListener('change', performTextSearch);
+
+        // ボックス内キーイベントが外に漏れないようにする（ノードハンドラ等の誤発火防止）
+        box.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    function openTextSearchBox(showReplace) {
+        setupTextSearchReplace();
+        textSearchBox.style.display = 'block';
+        textSearchReplaceRow.style.display = showReplace ? 'flex' : 'none';
+
+        // 選択テキストがあれば検索ワードに反映
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed) {
+            var sText = sel.toString();
+            if (sText && sText.length < 100 && sText.indexOf('\n') < 0) {
+                textSearchInput.value = sText;
+            }
+        }
+        textSearchInput.focus();
+        textSearchInput.select();
+        performTextSearch();
+    }
+
+    function closeTextSearchBox() {
+        if (!textSearchBox) { return; }
+        textSearchBox.style.display = 'none';
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+        if (textSearchCountEl) { textSearchCountEl.textContent = '0/0'; }
+    }
+
+    function isTextSearchOpen() {
+        return !!(textSearchBox && textSearchBox.style.display !== 'none');
+    }
+
+    /** 現在のスコープに属するノードIDリストをDFS順で返す */
+    function getScopedNodeIds() {
+        if (currentScope.type === 'subtree' && currentScope.rootId && model.getNode(currentScope.rootId)) {
+            return [currentScope.rootId].concat(model.getDescendantIds(currentScope.rootId));
+        }
+        return model.getFlattenedIds(false);
+    }
+
+    /** 正規表現生成 (検索ワードとオプションから) */
+    function buildTextSearchRegex() {
+        var term = textSearchInput.value;
+        if (!term) { return null; }
+        var pattern = term;
+        if (!textSearchRegexEl.checked) {
+            pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        if (textSearchWordEl.checked) {
+            pattern = '\\b' + pattern + '\\b';
+        }
+        try {
+            return new RegExp(pattern, textSearchCaseEl.checked ? 'g' : 'gi');
+        } catch (e) {
+            return 'invalid';
+        }
+    }
+
+    function performTextSearch() {
+        if (!textSearchBox) { return; }
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+
+        var regex = buildTextSearchRegex();
+        if (regex === null) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (regex === 'invalid') {
+            textSearchCountEl.textContent = 'Invalid';
+            return;
+        }
+
+        var ids = getScopedNodeIds();
+        for (var i = 0; i < ids.length; i++) {
+            var node = model.getNode(ids[i]);
+            if (!node) { continue; }
+
+            // text フィールド: rendered text (markers除去後) で検索
+            var srcText = node.text || '';
+            if (srcText) {
+                var renderedText = stripInlineMarkers(srcText);
+                collectMatches(regex, renderedText, node.id, 'text', srcText);
+            }
+
+            // subtext フィールド: markersなし → rendered = source
+            var sub = node.subtext || '';
+            if (sub) {
+                collectMatches(regex, sub, node.id, 'subtext', sub);
+            }
+        }
+
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(0);
+        } else {
+            textSearchCountEl.textContent = '0/0';
+        }
+    }
+
+    function collectMatches(regex, rendered, nodeId, field, sourceText) {
+        regex.lastIndex = 0;
+        var m;
+        while ((m = regex.exec(rendered)) !== null) {
+            if (m[0].length === 0) { regex.lastIndex++; continue; } // ゼロ幅マッチ回避
+            var rs = m.index;
+            var re = m.index + m[0].length;
+            var ss, se;
+            if (field === 'text') {
+                ss = renderedOffsetToSource(sourceText, rs);
+                se = renderedOffsetToSource(sourceText, re);
+            } else {
+                ss = rs;
+                se = re;
+            }
+            textSearchMatches.push({
+                nodeId: nodeId,
+                field: field,
+                sourceStart: ss,
+                sourceEnd: se,
+                renderedStart: rs,
+                renderedEnd: re
+            });
+        }
+    }
+
+    function clearTextSearchHighlights() {
+        var hits = treeEl ? treeEl.querySelectorAll('.outliner-search-hit, .outliner-search-hit-current') : [];
+        for (var i = 0; i < hits.length; i++) {
+            var el = hits[i];
+            var parent = el.parentNode;
+            if (!parent) { continue; }
+            while (el.firstChild) { parent.insertBefore(el.firstChild, el); }
+            parent.removeChild(el);
+            parent.normalize();
+        }
+    }
+
+    /** 指定ノードの指定フィールドDOM要素を取得 (描画モードのみ対象) */
+    function getFieldElement(nodeId, field) {
+        if (!treeEl) { return null; }
+        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (!nodeEl) { return null; }
+        if (field === 'text') {
+            return nodeEl.querySelector('.outliner-text');
+        }
+        return nodeEl.querySelector('.outliner-subtext');
+    }
+
+    /**
+     * 要素内のレンダリング後オフセット範囲 [rStart, rEnd] をラップして <span> 化する。
+     * 複数のテキストノードにまたがる場合は分割してそれぞれをラップする。
+     */
+    function wrapRenderedRange(el, rStart, rEnd, cls) {
+        if (!el || rStart >= rEnd) { return; }
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        var pos = 0;
+        var node;
+        var ops = [];
+        while ((node = walker.nextNode())) {
+            var txt = node.nodeValue || '';
+            var nodeStart = pos;
+            var nodeEnd = pos + txt.length;
+            if (nodeEnd <= rStart) { pos = nodeEnd; continue; }
+            if (nodeStart >= rEnd) { break; }
+            var localStart = Math.max(0, rStart - nodeStart);
+            var localEnd = Math.min(txt.length, rEnd - nodeStart);
+            if (localStart < localEnd) {
+                ops.push({ node: node, start: localStart, end: localEnd });
+            }
+            pos = nodeEnd;
+        }
+        // 逆順に処理 (splitText によるオフセットずれを回避)
+        for (var i = ops.length - 1; i >= 0; i--) {
+            var op = ops[i];
+            try {
+                var textNode = op.node;
+                if (op.end < (textNode.nodeValue || '').length) {
+                    textNode.splitText(op.end);
+                }
+                if (op.start > 0) {
+                    textNode = textNode.splitText(op.start);
+                }
+                var span = document.createElement('span');
+                span.className = cls;
+                textNode.parentNode.insertBefore(span, textNode);
+                span.appendChild(textNode);
+            } catch (e) {
+                // 失敗時はスキップ (編集モード遷移中等の稀なケース)
+            }
+        }
+    }
+
+    function paintTextSearchHighlights() {
+        clearTextSearchHighlights();
+        if (textSearchMatches.length === 0) { return; }
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var el = getFieldElement(m.nodeId, m.field);
+            if (!el) { continue; }
+            // 編集中の要素はスキップ (innerHTMLが書き換わるため)
+            if (document.activeElement === el) { continue; }
+            var cls = (i === textSearchCurrentIndex) ? 'outliner-search-hit-current' : 'outliner-search-hit';
+            wrapRenderedRange(el, m.renderedStart, m.renderedEnd, cls);
+        }
+    }
+
+    /** ノードの祖先 collapsed を全て解除してツリーを再描画 (必要な場合のみ) */
+    function ensureNodeExpanded(nodeId) {
+        var changed = false;
+        var n = model.getNode(nodeId);
+        if (!n) { return false; }
+        var cur = n.parentId ? model.getNode(n.parentId) : null;
+        while (cur) {
+            if (cur.collapsed) { cur.collapsed = false; changed = true; }
+            cur = cur.parentId ? model.getNode(cur.parentId) : null;
+        }
+        if (changed) { renderTree(); }
+        return changed;
+    }
+
+    function goToTextMatch(index) {
+        if (textSearchMatches.length === 0) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (index < 0) { index = textSearchMatches.length - 1; }
+        if (index >= textSearchMatches.length) { index = 0; }
+        textSearchCurrentIndex = index;
+        var m = textSearchMatches[index];
+
+        // 折畳みされていれば展開
+        ensureNodeExpanded(m.nodeId);
+
+        // ハイライト再描画 (current を区別)
+        paintTextSearchHighlights();
+
+        // スクロール
+        var el = getFieldElement(m.nodeId, m.field);
+        if (el) {
+            var hit = el.querySelector('.outliner-search-hit-current');
+            var target = hit || el;
+            if (target.scrollIntoView) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        textSearchCountEl.textContent = (index + 1) + '/' + textSearchMatches.length;
+    }
+
+    /** 1ノードの text または subtext を再描画 (blur 状態のみ) */
+    function rerenderNodeField(nodeId, field) {
+        var el = getFieldElement(nodeId, field);
+        if (!el) { return; }
+        if (document.activeElement === el) { return; } // 編集中は触らない
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        if (field === 'text') {
+            el.innerHTML = renderInlineText(node.text || '');
+        } else {
+            var sub = node.subtext || '';
+            if (sub) {
+                el.classList.add('has-content');
+                el.textContent = getSubtextPreview(sub);
+            } else {
+                el.classList.remove('has-content');
+                el.textContent = '';
+            }
+        }
+    }
+
+    function replaceCurrentTextMatch() {
+        if (textSearchCurrentIndex < 0 || textSearchCurrentIndex >= textSearchMatches.length) { return; }
+        var m = textSearchMatches[textSearchCurrentIndex];
+        var node = model.getNode(m.nodeId);
+        if (!node) { return; }
+
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+        var src = (m.field === 'text') ? (node.text || '') : (node.subtext || '');
+        var newSrc = src.slice(0, m.sourceStart) + replaceValue + src.slice(m.sourceEnd);
+        if (m.field === 'text') {
+            model.updateText(node.id, newSrc);
+        } else {
+            model.updateSubtext(node.id, newSrc);
+        }
+        rerenderNodeField(m.nodeId, m.field);
+        scheduleSyncToHost();
+
+        // 再検索して次のマッチへ
+        var preferIndex = textSearchCurrentIndex;
+        performTextSearch();
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(Math.min(preferIndex, textSearchMatches.length - 1));
+        }
+    }
+
+    function replaceAllTextMatches() {
+        if (textSearchMatches.length === 0) { return; }
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+
+        // (nodeId, field) でグループ化
+        var groups = {};
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var key = m.nodeId + '\u0000' + m.field;
+            if (!groups[key]) { groups[key] = { nodeId: m.nodeId, field: m.field, items: [] }; }
+            groups[key].items.push(m);
+        }
+        var keys = Object.keys(groups);
+        for (var k = 0; k < keys.length; k++) {
+            var g = groups[keys[k]];
+            var node = model.getNode(g.nodeId);
+            if (!node) { continue; }
+            // sourceStart 降順 (後ろから置換してオフセットを壊さない)
+            g.items.sort(function(a, b) { return b.sourceStart - a.sourceStart; });
+            var src = (g.field === 'text') ? (node.text || '') : (node.subtext || '');
+            for (var j = 0; j < g.items.length; j++) {
+                var it = g.items[j];
+                src = src.slice(0, it.sourceStart) + replaceValue + src.slice(it.sourceEnd);
+            }
+            if (g.field === 'text') {
+                model.updateText(node.id, src);
+            } else {
+                model.updateSubtext(node.id, src);
+            }
+            rerenderNodeField(g.nodeId, g.field);
+        }
+        scheduleSyncToHost();
+
+        // 再検索 (通常は 0 件になる)
+        performTextSearch();
+    }
+
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
         document.addEventListener('keydown', function(e) {
+            // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
+            //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)
+            //   (サイドパネル MD エディタにフォーカスがある場合は editor.js 側に委譲)
+            if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                var ae = document.activeElement;
+                var inBox = !!(textSearchBox && ae && textSearchBox.contains(ae));
+                var inSidePanel = !!(ae && ae.closest && ae.closest('.side-panel-editor-root'));
+                if (!inBox && !inSidePanel) {
+                    if (!e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(false);
+                        return;
+                    }
+                    if (!e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(true);
+                        return;
+                    }
+                    if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        if (searchInput) { searchInput.focus(); searchInput.select(); }
+                        return;
+                    }
+                }
+            }
+
             // 画像選択中の Delete/Backspace
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageInfo) {
                 e.preventDefault();

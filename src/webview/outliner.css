@@ -1372,3 +1372,88 @@ body {
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     cursor: default;
 }
+
+/* =============================================
+ * Outliner text search & replace box
+ *   (mirrors .search-replace-box from styles.css,
+ *    overrides top offset for outliner header height)
+ * ============================================= */
+.outliner-search-replace-box {
+    position: fixed;
+    top: 80px;
+    right: 40px;
+    z-index: 1000;
+    background: var(--toolbar-bg, var(--vscode-editor-background, #1e1e1e));
+    border: 1px solid var(--border-color, var(--vscode-panel-border, #333));
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    min-width: 350px;
+    font-family: inherit;
+}
+.outliner-search-replace-box .search-row,
+.outliner-search-replace-box .replace-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.outliner-search-replace-box input[type="text"] {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, var(--vscode-input-foreground, #ccc));
+    font-size: 13px;
+    outline: none;
+}
+.outliner-search-replace-box input[type="text"]:focus {
+    border-color: var(--link-color, var(--vscode-focusBorder, #007acc));
+}
+.outliner-search-replace-box .search-count {
+    font-size: 12px;
+    color: var(--text-color, #ccc);
+    min-width: 40px;
+    text-align: center;
+}
+.outliner-search-replace-box button {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, #ccc);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+.outliner-search-replace-box button:hover {
+    background: var(--selection-bg, var(--vscode-list-hoverBackground, rgba(255,255,255,0.08)));
+}
+.outliner-search-replace-box .search-options {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-color, #ccc);
+}
+.outliner-search-replace-box .search-options label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+.outliner-search-replace-box .search-options input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Match highlights inside outliner nodes */
+.outliner-text .outliner-search-hit,
+.outliner-subtext .outliner-search-hit {
+    background-color: rgba(255, 255, 0, 0.4);
+    border-radius: 2px;
+}
+.outliner-text .outliner-search-hit-current,
+.outliner-subtext .outliner-search-hit-current {
+    background-color: rgba(255, 165, 0, 0.6);
+    border-radius: 2px;
+}
