@@ -25,6 +25,10 @@ export const messages = {
   failedToProcessImage: '이미지 처리 실패: ',
   selectImage: '이미지 선택',
   selectFileToCompare: '비교할 파일 선택',
+  // v12: D&D file import
+  dropFolderRejected: '드래그 앤 드롭 가져오기에서 폴더는 지원되지 않습니다',
+  dropFileTooLarge: '파일이 너무 큽니다 (최대 50MB)',
+  dropImportFailed: '파일 가져오기 실패',
 };
 
 export const webviewMessages = {

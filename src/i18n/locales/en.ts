@@ -38,6 +38,10 @@ export const messages = {
   forceRelativeFileYes: 'Yes — always use relative paths for files',
   forceRelativeFilePrompt: 'Force relative file paths?',
   forceRelativeFileTitle: 'File Path Mode',
+  // v12: D&D file import
+  dropFolderRejected: 'Folders are not supported for drag & drop import',
+  dropFileTooLarge: 'File too large (max 50MB)',
+  dropImportFailed: 'Failed to import file(s)',
 };
 
 export const webviewMessages = {

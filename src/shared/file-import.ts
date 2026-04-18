@@ -17,12 +17,18 @@ export interface ImportedFile {
     filePath: string;    // Relative path from outDir to copied file
 }
 
+export interface ImportFileItem {
+    name: string;        // Original filename
+    buffer: Buffer;      // File content as Buffer
+}
+
 // ────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────
 
 /**
  * Import files by copying them to fileDir with unique names.
+ * Thin wrapper over importFilesCore for file path based input.
  *
  * @param filePaths  Array of absolute paths to source files
  * @param fileDir    Target directory for copied files
@@ -34,6 +40,41 @@ export function importFiles(
     fileDir: string,
     outDir: string
 ): ImportedFile[] {
+    // Build items from file paths, skipping non-existent files
+    const items: ImportFileItem[] = [];
+    for (const sourcePath of filePaths) {
+        if (!fs.existsSync(sourcePath)) {
+            continue;
+        }
+        try {
+            items.push({
+                name: path.basename(sourcePath),
+                buffer: fs.readFileSync(sourcePath)
+            });
+        } catch {
+            // Skip on read failure
+            continue;
+        }
+    }
+
+    return importFilesCore(items, fileDir, outDir);
+}
+
+/**
+ * Import files from buffer arrays (D&D support).
+ * Core implementation shared by both path-based and buffer-based imports.
+ *
+ * @param items    Array of {name, buffer} items
+ * @param fileDir  Target directory for copied files
+ * @param outDir   Base directory (for calculating relative paths)
+ * @returns Array of ImportedFile results
+ * @throws Error if filename contains path traversal attempt
+ */
+export function importFilesCore(
+    items: ImportFileItem[],
+    fileDir: string,
+    outDir: string
+): ImportedFile[] {
     const results: ImportedFile[] = [];
 
     // Ensure fileDir exists
@@ -41,27 +82,24 @@ export function importFiles(
         fs.mkdirSync(fileDir, { recursive: true });
     }
 
-    for (const sourcePath of filePaths) {
-        if (!fs.existsSync(sourcePath)) {
-            continue; // Skip non-existent files
+    for (const item of items) {
+        // Path traversal prevention: basename must equal original name
+        const safeName = path.basename(item.name);
+        if (safeName !== item.name || item.name.includes('..')) {
+            throw new Error(`Invalid file name: ${item.name}`);
         }
 
-        const originalName = path.basename(sourcePath);
-        const uniqueName = generateUniqueFileName(fileDir, originalName);
+        const uniqueName = generateUniqueFileName(fileDir, safeName);
         const destPath = path.join(fileDir, uniqueName);
 
-        // Copy file
-        try {
-            fs.copyFileSync(sourcePath, destPath);
-        } catch {
-            continue; // Skip on copy failure
-        }
+        // Write file
+        fs.writeFileSync(destPath, item.buffer);
 
         // Calculate relative path from outDir
         const relativePath = path.relative(outDir, destPath).replace(/\\/g, '/');
 
         results.push({
-            title: originalName,
+            title: safeName,
             filePath: relativePath
         });
     }

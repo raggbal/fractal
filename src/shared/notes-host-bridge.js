@@ -75,6 +75,17 @@
             api.postMessage({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },
 
+        // D&D ファイルインポート
+        dropFilesImport: function(items, targetNodeId, position) {
+            api.postMessage({ type: 'dropFilesImport', items: items, targetNodeId: targetNodeId, position: position });
+        },
+        notifyDropFolderRejected: function(folders) {
+            api.postMessage({ type: 'notifyDropFolderRejected', folders: folders });
+        },
+        notifyDropFileTooLarge: function(fileName) {
+            api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
+        },
+
         // ファイル添付操作
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });

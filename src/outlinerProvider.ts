@@ -6,6 +6,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
+import { processDropFilesImport, DropImportItem, DropImportResult } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
@@ -230,6 +231,46 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             targetNodeId: message.targetNodeId,
                             position: 'after'
                         });
+                        break;
+                    }
+
+                    case 'dropFilesImport': {
+                        const items: DropImportItem[] = message.items;
+                        const fileDir = this.getFileDirPath(document);
+                        const pageDir = this.getPagesDirPath(document);
+                        const imageDir = this.getOutlinerImageDirPath(document);
+                        const outDir = path.dirname(document.uri.fsPath);
+
+                        const results = await processDropFilesImport(items, {
+                            fileDir,
+                            pageDir,
+                            imageDir,
+                            outDir,
+                            getDisplayUri: (filePath: string) => webviewPanel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString()
+                        });
+
+                        const failed = results.filter((r: DropImportResult) => !r.ok);
+                        if (failed.length > 0) {
+                            vscode.window.showWarningMessage(t('dropImportFailed'));
+                        }
+
+                        webviewPanel.webview.postMessage({
+                            type: 'dropFilesResult',
+                            results,
+                            targetNodeId: message.targetNodeId,
+                            position: message.position
+                        });
+                        break;
+                    }
+
+                    case 'notifyDropFolderRejected': {
+                        vscode.window.showWarningMessage(t('dropFolderRejected'));
+                        break;
+                    }
+
+                    case 'notifyDropFileTooLarge': {
+                        // Note: t() doesn't support interpolation, keeping plain string with filename
+                        vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
                         break;
                     }
 

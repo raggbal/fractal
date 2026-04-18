@@ -2904,6 +2904,91 @@ body {
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     cursor: default;
 }
+
+/* =============================================
+ * Outliner text search & replace box
+ *   (mirrors .search-replace-box from styles.css,
+ *    overrides top offset for outliner header height)
+ * ============================================= */
+.outliner-search-replace-box {
+    position: fixed;
+    top: 80px;
+    right: 40px;
+    z-index: 1000;
+    background: var(--toolbar-bg, var(--vscode-editor-background, #1e1e1e));
+    border: 1px solid var(--border-color, var(--vscode-panel-border, #333));
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    min-width: 350px;
+    font-family: inherit;
+}
+.outliner-search-replace-box .search-row,
+.outliner-search-replace-box .replace-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.outliner-search-replace-box input[type="text"] {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, var(--vscode-input-foreground, #ccc));
+    font-size: 13px;
+    outline: none;
+}
+.outliner-search-replace-box input[type="text"]:focus {
+    border-color: var(--link-color, var(--vscode-focusBorder, #007acc));
+}
+.outliner-search-replace-box .search-count {
+    font-size: 12px;
+    color: var(--text-color, #ccc);
+    min-width: 40px;
+    text-align: center;
+}
+.outliner-search-replace-box button {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, #ccc);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+.outliner-search-replace-box button:hover {
+    background: var(--selection-bg, var(--vscode-list-hoverBackground, rgba(255,255,255,0.08)));
+}
+.outliner-search-replace-box .search-options {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-color, #ccc);
+}
+.outliner-search-replace-box .search-options label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+.outliner-search-replace-box .search-options input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Match highlights inside outliner nodes */
+.outliner-text .outliner-search-hit,
+.outliner-subtext .outliner-search-hit {
+    background-color: rgba(255, 255, 0, 0.4);
+    border-radius: 2px;
+}
+.outliner-text .outliner-search-hit-current,
+.outliner-subtext .outliner-search-hit-current {
+    background-color: rgba(255, 165, 0, 0.6);
+    border-radius: 2px;
+}
 </style>
 </head>
 <body>
@@ -2959,6 +3044,9 @@ body {
                     </button>
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
+                        <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
                         <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
@@ -2974,9 +3062,6 @@ body {
                     </button>
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </button>
-                    <button class="side-panel-expand" id="sidePanelExpand" title="Expand">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                     </button>
                     <button class="side-panel-close" id="sidePanelClose" title="Close">&times;</button>
                 </div>
@@ -16041,10 +16126,16 @@ class EditorInstance {
 
         // Handle paste shortcut for Kiro only
         const isKiro = navigator.userAgent.includes('Kiro');
-        if (isMod && e.key === 'v' && isKiro) {
+        if (isMod && e.key === 'v' && isKiro && navigator.clipboard && navigator.clipboard.read) {
             logger.log('Cmd/Ctrl+V keydown detected (Kiro)');
 
-            if (navigator.clipboard && navigator.clipboard.read) {
+            // Set flag SYNCHRONOUSLY before any await, so the paste event (which fires
+            // synchronously right after this keydown returns at the first await) skips
+            // image-file handling. Otherwise both the paste event and the Clipboard API
+            // path insert the same screenshot → duplicate image.
+            self._kiroImagePasteHandled = true;
+
+            (async () => {
                 try {
                     const items = await navigator.clipboard.read();
 
@@ -16052,9 +16143,6 @@ class EditorInstance {
                         for (const type of item.types) {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
-                                e.preventDefault();
-                                // Set flag to skip duplicate image handling in paste event
-                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -16067,11 +16155,11 @@ class EditorInstance {
                             }
                         }
                     }
-                    logger.log('No image in clipboard, falling through to native paste (Kiro)');
+                    logger.log('No image in clipboard (Kiro) - paste event handled text');
                 } catch (err) {
                     logger.log('Clipboard API read failed (Kiro):', err.message);
                 }
-            }
+            })();
         }
 
         // Undo (Ctrl+Z / Cmd+Z)
@@ -17421,7 +17509,7 @@ class EditorInstance {
             var line = lines[i];
             if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
             if (inCodeBlock) continue;
-            var match = line.match(/^(#{1,2})\s+(.+)$/);
+            var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
@@ -17633,6 +17721,8 @@ class EditorInstance {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
             if (actionPanelVisible || commandPaletteVisible) return;
+            // v11: Don't close side panel if image lightbox is open — lightbox handles ESC separately
+            if (document.querySelector('.outliner-image-overlay')) return;
             closeSidePanel();
             e.preventDefault();
         }
@@ -18605,12 +18695,12 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
-        // Kiro: skip if image was already handled by keydown Clipboard API path
-        if (self._kiroImagePasteHandled) {
+        // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
+        // here so text/HTML paste still works when clipboard has no image.
+        const kiroSkipImage = self._kiroImagePasteHandled === true;
+        if (kiroSkipImage) {
             self._kiroImagePasteHandled = false;
-            e.preventDefault();
-            logger.log('Paste event skipped (Kiro image already handled via keydown)');
-            return;
+            logger.log('Paste event: Kiro keydown handles images, skipping image detection');
         }
 
         undoManager.saveSnapshot();
@@ -18618,26 +18708,28 @@ class EditorInstance {
 
         logger.log('Paste event triggered');
 
-        // Check for image files first
-        const items = e.clipboardData?.items;
-        if (items) {
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
-                    e.preventDefault();
-                    logger.log('Image found in paste event');
-                    const file = item.getAsFile();
-                    if (file) {
-                        logger.log('Pasting image from clipboard:', file.type);
-                        const reader = new FileReader();
-                        reader.onload = function(event) {
-                            const dataUrl = event.target.result;
-                            host.saveImageAndInsert(dataUrl);
-                            logger.log('Image sent to extension for saving');
-                        };
-                        reader.readAsDataURL(file);
+        // Check for image files first (unless Kiro keydown will handle via Clipboard API)
+        if (!kiroSkipImage) {
+            const items = e.clipboardData?.items;
+            if (items) {
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        logger.log('Image found in paste event');
+                        const file = item.getAsFile();
+                        if (file) {
+                            logger.log('Pasting image from clipboard:', file.type);
+                            const reader = new FileReader();
+                            reader.onload = function(event) {
+                                const dataUrl = event.target.result;
+                                host.saveImageAndInsert(dataUrl);
+                                logger.log('Image sent to extension for saving');
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                        return; // Stop processing - image handled
                     }
-                    return; // Stop processing - image handled
                 }
             }
         }
@@ -21341,6 +21433,7 @@ var Outliner = (function() {
         setupKeyHandlers();
         setupContextMenu();
         setupHostMessages();
+        setupTextSearchReplace();
         initSidePanel();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
@@ -21348,10 +21441,26 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // Files D&D (OS file drop) has priority
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // Files D&D (OS file drop)
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                removeDropIndicator();
+                handleFilesDrop(e, null, 'root-end');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             if (e.target === treeEl) {
                 e.preventDefault();
@@ -21365,6 +21474,11 @@ var Outliner = (function() {
                 renderTree();
                 focusNode(movedId);
                 scheduleSyncToHost();
+            }
+        });
+        treeEl.addEventListener('dragleave', function(e) {
+            if (e.target === treeEl) {
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
             }
         });
 
@@ -21383,6 +21497,87 @@ var Outliner = (function() {
     }
 
     // --- ドラッグ&ドロップ ヘルパー ---
+
+    /** Check if drag event contains Files (OS file drop) */
+    function isFilesDragEvent(e) {
+        return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+    }
+
+    /** Classify dropped file by extension */
+    function classifyDroppedFile(file) {
+        var ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (ext === 'md') return 'md';
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].indexOf(ext) >= 0) return 'image';
+        return 'file';
+    }
+
+    /** Read file content by kind */
+    function readFileByKind(file, kind) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onerror = function() { reject(reader.error); };
+            if (kind === 'md') {
+                reader.onload = function() { resolve({ content: reader.result }); };
+                reader.readAsText(file);
+            } else if (kind === 'image') {
+                reader.onload = function() { resolve({ dataUrl: reader.result }); };
+                reader.readAsDataURL(file);
+            } else {
+                reader.onload = function() { resolve({ bytes: new Uint8Array(reader.result) }); };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+    }
+
+    /** Handle Files D&D drop event */
+    async function handleFilesDrop(e, targetNodeId, position) {
+        var dt = e.dataTransfer;
+        var items = [];
+        var rejectedFolders = [];
+        var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+        // 1. Filter out folders and oversized files
+        for (var i = 0; i < dt.items.length; i++) {
+            var item = dt.items[i];
+            var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+            if (entry && entry.isDirectory) {
+                rejectedFolders.push(entry.name);
+                continue;
+            }
+            var file = item.getAsFile();
+            if (file) {
+                if (file.size > MAX_FILE_SIZE) {
+                    host.notifyDropFileTooLarge(file.name);
+                    continue;
+                }
+                items.push(file);
+            }
+        }
+
+        if (rejectedFolders.length > 0) {
+            host.notifyDropFolderRejected(rejectedFolders);
+        }
+        if (items.length === 0) return;
+
+        // 2. Read each file by kind
+        var imports = [];
+        for (var j = 0; j < items.length; j++) {
+            var f = items[j];
+            var kind = classifyDroppedFile(f);
+            try {
+                var content = await readFileByKind(f, kind);
+                imports.push({ kind: kind, name: f.name, ...content });
+            } catch (err) {
+                // Skip failed reads
+                console.warn('Failed to read file:', f.name, err);
+            }
+        }
+
+        if (imports.length === 0) return;
+
+        // 3. Send to host
+        host.dropFilesImport(imports, targetNodeId, position);
+    }
 
     function showDropIndicator(targetEl, position) {
         removeDropIndicator();
@@ -21908,6 +22103,19 @@ var Outliner = (function() {
 
         // D&D: ノード要素にドロップターゲットイベント
         el.addEventListener('dragover', function(e) {
+            // Files D&D (OS file drop) has priority
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                var rect = el.getBoundingClientRect();
+                var y = e.clientY - rect.top;
+                var h = rect.height;
+                if (y < h * 0.25) showDropIndicator(el, 'before');
+                else if (y > h * 0.75) showDropIndicator(el, 'after');
+                else showDropIndicator(el, 'child');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
@@ -21937,6 +22145,19 @@ var Outliner = (function() {
         el.addEventListener('drop', function(e) {
             e.preventDefault();
             e.stopPropagation();
+            // Files D&D (OS file drop)
+            if (isFilesDragEvent(e)) {
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                var rect = el.getBoundingClientRect();
+                var y = e.clientY - rect.top;
+                var h = rect.height;
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var targetId = el.dataset.id;
+                removeDropIndicator();
+                handleFilesDrop(e, targetId, pos);
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
 
             var targetId = el.dataset.id;
@@ -22852,6 +23073,11 @@ var Outliner = (function() {
                 else { break; }
             }
             var content = line.substring(j);
+            // 外部ペースト (MD editor 等) から来たリスト: 先頭の `- ` / `* ` / `+ ` / `1.` バレットを除去。
+            // 内部コピー (clipboardNodes あり) はそのまま — ノードのテキストとして保持。
+            if (!clipboardNodes) {
+                content = content.replace(/^(?:[-*+]|\d+\.)[ \t]+/, '');
+            }
             if (content === '') { continue; } // 空行スキップ
             parsed.push({ level: tabs, text: content });
             clipNodeIndexMap.push(i);
@@ -23418,6 +23644,22 @@ var Outliner = (function() {
             return;
         }
 
+        // Cmd+Shift+F: ヘッダフィルタ検索にフォーカス（以前の Cmd+F の役割）
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (searchInput) { searchInput.focus(); searchInput.select(); }
+            return;
+        }
+
+        // Cmd+H: テキスト検索/置換ボックス（置換行展開）
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+            e.preventDefault();
+            e.stopPropagation();
+            openTextSearchBox(true);
+            return;
+        }
+
         // Cmd+Shift+C: ページパスをコピー
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
             e.preventDefault();
@@ -23454,8 +23696,8 @@ var Outliner = (function() {
                     break;
                 case 'f':
                     e.preventDefault();
-                    searchInput.focus();
-                    searchInput.select();
+                    e.stopPropagation();
+                    openTextSearchBox(false);
                     break;
                 case '.':
                     e.preventDefault();
@@ -25043,19 +25285,21 @@ var Outliner = (function() {
             sidePanelOverlay.addEventListener('click', closeSidePanel);
         }
 
-        // Expand toggle
-        var sidePanelExpandBtn = document.querySelector('.side-panel-expand');
-        if (sidePanelExpandBtn) {
-            sidePanelExpandBtn.addEventListener('click', function() {
+        // Expand toggle — delegated on sidePanelEl so it survives
+        // .side-panel-header-actions innerHTML rebuilds from the translate flow.
+        if (sidePanelEl) {
+            sidePanelEl.addEventListener('click', function(e) {
+                var expandBtn = e.target && e.target.closest ? e.target.closest('.side-panel-expand') : null;
+                if (!expandBtn || !sidePanelEl.contains(expandBtn)) return;
                 sidePanelExpanded = !sidePanelExpanded;
                 if (sidePanelExpanded) {
                     sidePanelEl.classList.add('expanded');
-                    sidePanelExpandBtn.classList.add('active');
+                    expandBtn.classList.add('active');
                     sidePanelEl.style.width = '';
                     sidePanelEl.style.maxWidth = '';
                 } else {
                     sidePanelEl.classList.remove('expanded');
-                    sidePanelExpandBtn.classList.remove('active');
+                    expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
                         sidePanelEl.style.width = sidePanelWidthSetting + 'px';
                         sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
@@ -25155,13 +25399,15 @@ var Outliner = (function() {
             });
         }
 
-        // ESC to close side panel (but not if action panel or command palette is open)
+        // ESC to close side panel (but not if action panel, command palette, or image lightbox is open)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && sidePanelEl && sidePanelEl.classList.contains('open')) {
                 // Don't close side panel if a modal panel (action panel, command palette) is handling ESC
                 var ap = document.querySelector('.action-panel');
                 var cp = document.querySelector('.command-palette');
                 if ((ap && ap.style.display !== 'none') || (cp && cp.style.display !== 'none')) return;
+                // v11: Don't close side panel if image lightbox is open — lightbox handles ESC separately
+                if (document.querySelector('.outliner-image-overlay')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 closeSidePanel();
@@ -25227,10 +25473,24 @@ var Outliner = (function() {
             translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
         }
         console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
-        // Close current side panel MD
+        // Capture the current (pre-translation) header actions HTML BEFORE closing the panel,
+        // because closeSidePanelImmediate clears sidePanelPreTranslationState.
+        var preservedState = sidePanelPreTranslationState;
+        if (preservedState && sidePanelEl) {
+            var preHeader = sidePanelEl.querySelector('.side-panel-header');
+            if (preHeader) {
+                var preActions = preHeader.querySelector('.side-panel-header-actions');
+                if (preActions && !preservedState.actionsHtml) {
+                    preservedState.actionsHtml = preActions.innerHTML;
+                }
+            }
+        }
+        // Close current side panel MD (this nulls sidePanelPreTranslationState)
         if (sidePanelInstance) {
             closeSidePanelImmediate();
         }
+        // Restore preserved state so later close handlers can rebuild default header actions
+        sidePanelPreTranslationState = preservedState;
 
         // Reopen as translation result panel
         var spContainer = window.EditorInstance.createSidePanelContainer();
@@ -25439,13 +25699,30 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
+    // v10: If a translation panel is currently shown, restore the default header action
+    // buttons (undo/redo/translateLang/...) before the panel is destroyed. Otherwise the
+    // next openSidePanel() would reuse the same DOM with only the "← Back" button left.
+    function restoreHeaderActionsFromTranslation() {
+        if (!sidePanelPreTranslationState || !sidePanelPreTranslationState.actionsHtml) return;
+        if (!sidePanelEl) return;
+        var header = sidePanelEl.querySelector('.side-panel-header');
+        if (!header) return;
+        var actions = header.querySelector('.side-panel-header-actions');
+        if (actions) {
+            actions.innerHTML = sidePanelPreTranslationState.actionsHtml;
+        }
+    }
+
     function closeSidePanelImmediate() {
+        restoreHeaderActionsFromTranslation();
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
         if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
         if (sidePanelExpanded) {
@@ -25513,7 +25790,7 @@ var Outliner = (function() {
             var line = lines[k];
             if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
             if (inCodeBlock) { continue; }
-            var match = line.match(/^(#{1,2})\s+(.+)$/);
+            var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
@@ -26056,6 +26333,80 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'dropFilesResult': {
+                    // D&D file import result (mixed md/image/file)
+                    var results = msg.results || [];
+                    var targetId = msg.targetNodeId;
+                    var position = msg.position;
+
+                    // Check if any results are ok
+                    var anyOk = results.some(function(r) { return r.ok; });
+                    if (!anyOk) break;
+
+                    saveSnapshot();  // 1 D&D = 1 snapshot
+
+                    var lastInsertedId = null;
+
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var r = results[ri];
+                        if (!r.ok) continue;  // Skip failed items
+
+                        var newNode;
+                        var insertParentId, insertAfterId;
+
+                        if (lastInsertedId === null) {
+                            // First node: use position
+                            if (position === 'root-end' || !targetId) {
+                                var lastRootId4 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                                newNode = model.addNode(null, lastRootId4, '');
+                            } else if (position === 'before') {
+                                var beforeNode = model.getNode(targetId);
+                                insertParentId = beforeNode.parentId;
+                                var siblings = insertParentId ? model.getNode(insertParentId).children : model.rootIds;
+                                var idx = siblings.indexOf(targetId);
+                                insertAfterId = idx > 0 ? siblings[idx - 1] : null;
+                                newNode = model.addNode(insertParentId, insertAfterId, '');
+                            } else if (position === 'child') {
+                                newNode = model.addNodeAtStart(targetId, '');
+                                var t = model.getNode(targetId);
+                                if (t.collapsed) t.collapsed = false;
+                            } else { // 'after'
+                                var afterNode = model.getNode(targetId);
+                                newNode = model.addNode(afterNode.parentId, targetId, '');
+                            }
+                        } else {
+                            // Subsequent nodes: sibling after previous
+                            var prev = model.getNode(lastInsertedId);
+                            newNode = model.addNode(prev.parentId, lastInsertedId, '');
+                        }
+                        lastInsertedId = newNode.id;
+
+                        // Kind-specific node setup
+                        if (r.kind === 'md') {
+                            newNode.text = r.title;
+                            newNode.isPage = true;
+                            newNode.pageId = r.pageId;
+                            newNode.filePath = null;
+                        } else if (r.kind === 'image') {
+                            newNode.text = '';
+                            newNode.isPage = false;
+                            newNode.pageId = null;
+                            newNode.filePath = null;
+                            model.addImage(newNode.id, r.imagePath);
+                        } else { // 'file'
+                            newNode.text = r.title;
+                            newNode.isPage = false;
+                            newNode.pageId = null;
+                            newNode.filePath = r.filePath;
+                        }
+                    }
+
+                    renderTree();
+                    if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
                 case 'pageDirChanged':
                     pageDir = msg.pageDir || null;
                     break;
@@ -26209,10 +26560,475 @@ var Outliner = (function() {
         });
     }
 
+    // --- テキスト検索 & 置換ボックス (MDエディタの機能を踏襲) ---
+
+    var textSearchBox = null;
+    var textSearchInput = null;
+    var textReplaceInput = null;
+    var textSearchCountEl = null;
+    var textSearchReplaceRow = null;
+    var textSearchCaseEl = null;
+    var textSearchWordEl = null;
+    var textSearchRegexEl = null;
+    // マッチエントリ: { nodeId, field: 'text'|'subtext', sourceStart, sourceEnd, renderedStart, renderedEnd }
+    var textSearchMatches = [];
+    var textSearchCurrentIndex = -1;
+
+    function setupTextSearchReplace() {
+        if (textSearchBox) { return; }
+        var box = document.createElement('div');
+        box.className = 'search-replace-box outliner-search-replace-box';
+        box.style.display = 'none';
+        box.innerHTML =
+            '<div class="search-row">' +
+              '<input type="text" class="search-input" placeholder="Search..." />' +
+              '<span class="search-count">0/0</span>' +
+              '<button class="search-prev" title="Previous">\u25B2</button>' +
+              '<button class="search-next" title="Next">\u25BC</button>' +
+              '<button class="toggle-replace" title="Toggle Replace">\u21A9</button>' +
+              '<button class="close-search" title="Close">\u2715</button>' +
+            '</div>' +
+            '<div class="replace-row" style="display:none">' +
+              '<input type="text" class="replace-input" placeholder="Replace..." />' +
+              '<button class="replace-one" title="Replace">Replace</button>' +
+              '<button class="replace-all" title="Replace All">All</button>' +
+            '</div>' +
+            '<div class="search-options">' +
+              '<label><input type="checkbox" class="search-case-sensitive" /> Aa</label>' +
+              '<label><input type="checkbox" class="search-whole-word" /> Ab|</label>' +
+              '<label><input type="checkbox" class="search-regex" /> .*</label>' +
+            '</div>';
+        document.body.appendChild(box);
+
+        textSearchBox = box;
+        textSearchInput = box.querySelector('.search-input');
+        textReplaceInput = box.querySelector('.replace-input');
+        textSearchCountEl = box.querySelector('.search-count');
+        textSearchReplaceRow = box.querySelector('.replace-row');
+        textSearchCaseEl = box.querySelector('.search-case-sensitive');
+        textSearchWordEl = box.querySelector('.search-whole-word');
+        textSearchRegexEl = box.querySelector('.search-regex');
+
+        textSearchInput.addEventListener('input', performTextSearch);
+        textSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                goToTextMatch(textSearchCurrentIndex + (e.shiftKey ? -1 : 1));
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+        textReplaceInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                replaceCurrentTextMatch();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+
+        box.querySelector('.search-prev').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex - 1);
+        });
+        box.querySelector('.search-next').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex + 1);
+        });
+        box.querySelector('.close-search').addEventListener('click', closeTextSearchBox);
+        box.querySelector('.toggle-replace').addEventListener('click', function() {
+            if (textSearchReplaceRow.style.display === 'none') {
+                textSearchReplaceRow.style.display = 'flex';
+                textReplaceInput.focus();
+            } else {
+                textSearchReplaceRow.style.display = 'none';
+                textSearchInput.focus();
+            }
+        });
+        box.querySelector('.replace-one').addEventListener('click', replaceCurrentTextMatch);
+        box.querySelector('.replace-all').addEventListener('click', replaceAllTextMatches);
+        textSearchCaseEl.addEventListener('change', performTextSearch);
+        textSearchWordEl.addEventListener('change', performTextSearch);
+        textSearchRegexEl.addEventListener('change', performTextSearch);
+
+        // ボックス内キーイベントが外に漏れないようにする（ノードハンドラ等の誤発火防止）
+        box.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    function openTextSearchBox(showReplace) {
+        setupTextSearchReplace();
+        textSearchBox.style.display = 'block';
+        textSearchReplaceRow.style.display = showReplace ? 'flex' : 'none';
+
+        // 選択テキストがあれば検索ワードに反映
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed) {
+            var sText = sel.toString();
+            if (sText && sText.length < 100 && sText.indexOf('\n') < 0) {
+                textSearchInput.value = sText;
+            }
+        }
+        textSearchInput.focus();
+        textSearchInput.select();
+        performTextSearch();
+    }
+
+    function closeTextSearchBox() {
+        if (!textSearchBox) { return; }
+        textSearchBox.style.display = 'none';
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+        if (textSearchCountEl) { textSearchCountEl.textContent = '0/0'; }
+    }
+
+    function isTextSearchOpen() {
+        return !!(textSearchBox && textSearchBox.style.display !== 'none');
+    }
+
+    /** 現在のスコープに属するノードIDリストをDFS順で返す */
+    function getScopedNodeIds() {
+        if (currentScope.type === 'subtree' && currentScope.rootId && model.getNode(currentScope.rootId)) {
+            return [currentScope.rootId].concat(model.getDescendantIds(currentScope.rootId));
+        }
+        return model.getFlattenedIds(false);
+    }
+
+    /** 正規表現生成 (検索ワードとオプションから) */
+    function buildTextSearchRegex() {
+        var term = textSearchInput.value;
+        if (!term) { return null; }
+        var pattern = term;
+        if (!textSearchRegexEl.checked) {
+            pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        if (textSearchWordEl.checked) {
+            pattern = '\\b' + pattern + '\\b';
+        }
+        try {
+            return new RegExp(pattern, textSearchCaseEl.checked ? 'g' : 'gi');
+        } catch (e) {
+            return 'invalid';
+        }
+    }
+
+    function performTextSearch() {
+        if (!textSearchBox) { return; }
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+
+        var regex = buildTextSearchRegex();
+        if (regex === null) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (regex === 'invalid') {
+            textSearchCountEl.textContent = 'Invalid';
+            return;
+        }
+
+        var ids = getScopedNodeIds();
+        for (var i = 0; i < ids.length; i++) {
+            var node = model.getNode(ids[i]);
+            if (!node) { continue; }
+
+            // text フィールド: rendered text (markers除去後) で検索
+            var srcText = node.text || '';
+            if (srcText) {
+                var renderedText = stripInlineMarkers(srcText);
+                collectMatches(regex, renderedText, node.id, 'text', srcText);
+            }
+
+            // subtext フィールド: markersなし → rendered = source
+            var sub = node.subtext || '';
+            if (sub) {
+                collectMatches(regex, sub, node.id, 'subtext', sub);
+            }
+        }
+
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(0);
+        } else {
+            textSearchCountEl.textContent = '0/0';
+        }
+    }
+
+    function collectMatches(regex, rendered, nodeId, field, sourceText) {
+        regex.lastIndex = 0;
+        var m;
+        while ((m = regex.exec(rendered)) !== null) {
+            if (m[0].length === 0) { regex.lastIndex++; continue; } // ゼロ幅マッチ回避
+            var rs = m.index;
+            var re = m.index + m[0].length;
+            var ss, se;
+            if (field === 'text') {
+                ss = renderedOffsetToSource(sourceText, rs);
+                se = renderedOffsetToSource(sourceText, re);
+            } else {
+                ss = rs;
+                se = re;
+            }
+            textSearchMatches.push({
+                nodeId: nodeId,
+                field: field,
+                sourceStart: ss,
+                sourceEnd: se,
+                renderedStart: rs,
+                renderedEnd: re
+            });
+        }
+    }
+
+    function clearTextSearchHighlights() {
+        var hits = treeEl ? treeEl.querySelectorAll('.outliner-search-hit, .outliner-search-hit-current') : [];
+        for (var i = 0; i < hits.length; i++) {
+            var el = hits[i];
+            var parent = el.parentNode;
+            if (!parent) { continue; }
+            while (el.firstChild) { parent.insertBefore(el.firstChild, el); }
+            parent.removeChild(el);
+            parent.normalize();
+        }
+    }
+
+    /** 指定ノードの指定フィールドDOM要素を取得 (描画モードのみ対象) */
+    function getFieldElement(nodeId, field) {
+        if (!treeEl) { return null; }
+        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (!nodeEl) { return null; }
+        if (field === 'text') {
+            return nodeEl.querySelector('.outliner-text');
+        }
+        return nodeEl.querySelector('.outliner-subtext');
+    }
+
+    /**
+     * 要素内のレンダリング後オフセット範囲 [rStart, rEnd] をラップして <span> 化する。
+     * 複数のテキストノードにまたがる場合は分割してそれぞれをラップする。
+     */
+    function wrapRenderedRange(el, rStart, rEnd, cls) {
+        if (!el || rStart >= rEnd) { return; }
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        var pos = 0;
+        var node;
+        var ops = [];
+        while ((node = walker.nextNode())) {
+            var txt = node.nodeValue || '';
+            var nodeStart = pos;
+            var nodeEnd = pos + txt.length;
+            if (nodeEnd <= rStart) { pos = nodeEnd; continue; }
+            if (nodeStart >= rEnd) { break; }
+            var localStart = Math.max(0, rStart - nodeStart);
+            var localEnd = Math.min(txt.length, rEnd - nodeStart);
+            if (localStart < localEnd) {
+                ops.push({ node: node, start: localStart, end: localEnd });
+            }
+            pos = nodeEnd;
+        }
+        // 逆順に処理 (splitText によるオフセットずれを回避)
+        for (var i = ops.length - 1; i >= 0; i--) {
+            var op = ops[i];
+            try {
+                var textNode = op.node;
+                if (op.end < (textNode.nodeValue || '').length) {
+                    textNode.splitText(op.end);
+                }
+                if (op.start > 0) {
+                    textNode = textNode.splitText(op.start);
+                }
+                var span = document.createElement('span');
+                span.className = cls;
+                textNode.parentNode.insertBefore(span, textNode);
+                span.appendChild(textNode);
+            } catch (e) {
+                // 失敗時はスキップ (編集モード遷移中等の稀なケース)
+            }
+        }
+    }
+
+    function paintTextSearchHighlights() {
+        clearTextSearchHighlights();
+        if (textSearchMatches.length === 0) { return; }
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var el = getFieldElement(m.nodeId, m.field);
+            if (!el) { continue; }
+            // 編集中の要素はスキップ (innerHTMLが書き換わるため)
+            if (document.activeElement === el) { continue; }
+            var cls = (i === textSearchCurrentIndex) ? 'outliner-search-hit-current' : 'outliner-search-hit';
+            wrapRenderedRange(el, m.renderedStart, m.renderedEnd, cls);
+        }
+    }
+
+    /** ノードの祖先 collapsed を全て解除してツリーを再描画 (必要な場合のみ) */
+    function ensureNodeExpanded(nodeId) {
+        var changed = false;
+        var n = model.getNode(nodeId);
+        if (!n) { return false; }
+        var cur = n.parentId ? model.getNode(n.parentId) : null;
+        while (cur) {
+            if (cur.collapsed) { cur.collapsed = false; changed = true; }
+            cur = cur.parentId ? model.getNode(cur.parentId) : null;
+        }
+        if (changed) { renderTree(); }
+        return changed;
+    }
+
+    function goToTextMatch(index) {
+        if (textSearchMatches.length === 0) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (index < 0) { index = textSearchMatches.length - 1; }
+        if (index >= textSearchMatches.length) { index = 0; }
+        textSearchCurrentIndex = index;
+        var m = textSearchMatches[index];
+
+        // 折畳みされていれば展開
+        ensureNodeExpanded(m.nodeId);
+
+        // ハイライト再描画 (current を区別)
+        paintTextSearchHighlights();
+
+        // スクロール
+        var el = getFieldElement(m.nodeId, m.field);
+        if (el) {
+            var hit = el.querySelector('.outliner-search-hit-current');
+            var target = hit || el;
+            if (target.scrollIntoView) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        textSearchCountEl.textContent = (index + 1) + '/' + textSearchMatches.length;
+    }
+
+    /** 1ノードの text または subtext を再描画 (blur 状態のみ) */
+    function rerenderNodeField(nodeId, field) {
+        var el = getFieldElement(nodeId, field);
+        if (!el) { return; }
+        if (document.activeElement === el) { return; } // 編集中は触らない
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        if (field === 'text') {
+            el.innerHTML = renderInlineText(node.text || '');
+        } else {
+            var sub = node.subtext || '';
+            if (sub) {
+                el.classList.add('has-content');
+                el.textContent = getSubtextPreview(sub);
+            } else {
+                el.classList.remove('has-content');
+                el.textContent = '';
+            }
+        }
+    }
+
+    function replaceCurrentTextMatch() {
+        if (textSearchCurrentIndex < 0 || textSearchCurrentIndex >= textSearchMatches.length) { return; }
+        var m = textSearchMatches[textSearchCurrentIndex];
+        var node = model.getNode(m.nodeId);
+        if (!node) { return; }
+
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+        var src = (m.field === 'text') ? (node.text || '') : (node.subtext || '');
+        var newSrc = src.slice(0, m.sourceStart) + replaceValue + src.slice(m.sourceEnd);
+        if (m.field === 'text') {
+            model.updateText(node.id, newSrc);
+        } else {
+            model.updateSubtext(node.id, newSrc);
+        }
+        rerenderNodeField(m.nodeId, m.field);
+        scheduleSyncToHost();
+
+        // 再検索して次のマッチへ
+        var preferIndex = textSearchCurrentIndex;
+        performTextSearch();
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(Math.min(preferIndex, textSearchMatches.length - 1));
+        }
+    }
+
+    function replaceAllTextMatches() {
+        if (textSearchMatches.length === 0) { return; }
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+
+        // (nodeId, field) でグループ化
+        var groups = {};
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var key = m.nodeId + '\u0000' + m.field;
+            if (!groups[key]) { groups[key] = { nodeId: m.nodeId, field: m.field, items: [] }; }
+            groups[key].items.push(m);
+        }
+        var keys = Object.keys(groups);
+        for (var k = 0; k < keys.length; k++) {
+            var g = groups[keys[k]];
+            var node = model.getNode(g.nodeId);
+            if (!node) { continue; }
+            // sourceStart 降順 (後ろから置換してオフセットを壊さない)
+            g.items.sort(function(a, b) { return b.sourceStart - a.sourceStart; });
+            var src = (g.field === 'text') ? (node.text || '') : (node.subtext || '');
+            for (var j = 0; j < g.items.length; j++) {
+                var it = g.items[j];
+                src = src.slice(0, it.sourceStart) + replaceValue + src.slice(it.sourceEnd);
+            }
+            if (g.field === 'text') {
+                model.updateText(node.id, src);
+            } else {
+                model.updateSubtext(node.id, src);
+            }
+            rerenderNodeField(g.nodeId, g.field);
+        }
+        scheduleSyncToHost();
+
+        // 再検索 (通常は 0 件になる)
+        performTextSearch();
+    }
+
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
         document.addEventListener('keydown', function(e) {
+            // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
+            //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)
+            //   (サイドパネル MD エディタにフォーカスがある場合は editor.js 側に委譲)
+            if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                var ae = document.activeElement;
+                var inBox = !!(textSearchBox && ae && textSearchBox.contains(ae));
+                var inSidePanel = !!(ae && ae.closest && ae.closest('.side-panel-editor-root'));
+                if (!inBox && !inSidePanel) {
+                    if (!e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(false);
+                        return;
+                    }
+                    if (!e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(true);
+                        return;
+                    }
+                    if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        if (searchInput) { searchInput.focus(); searchInput.select(); }
+                        return;
+                    }
+                }
+            }
+
             // 画像選択中の Delete/Backspace
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageInfo) {
                 e.preventDefault();

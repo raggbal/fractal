@@ -688,6 +688,13 @@ body {
     z-index: 100;
 }
 
+/* --- Files D&D drop zone overlay (v12) --- */
+.outliner-tree-drop-zone-active {
+    background-color: rgba(0, 120, 212, 0.04);
+    outline: 2px dashed var(--vscode-focusBorder, #007acc);
+    outline-offset: -2px;
+}
+
 /* --- Side Panel (right half) --- */
 .outliner-layout {
     display: flex;

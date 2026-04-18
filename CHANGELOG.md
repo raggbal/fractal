@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.712] - 2026-04-19
+
+### Added
+- Outliner: drag & drop file import — drop files from Finder / Explorer directly onto the outliner tree to create nodes, alongside the existing ⋮ menu import. Works in both standalone `.out` files and Notes mode. The drop target uses the same 25/50/25 rule as existing node reorder (top 25% = insert before, middle 50% = insert as child, bottom 25% = insert after; empty area = append to root). File type is routed by extension: `.md` → page node with H1 extracted as title (relative image references in dropped markdown are skipped — the source directory is not available from the browser File API); image (png/jpg/jpeg/gif/webp/svg/bmp) → new node with the image attached inline (same thumbnail + `images[]` persistence as Cmd+V paste); any other type → file-attachment node with `filePath` set. A single drop operation = a single undo step even when 3 files of 3 kinds are dropped together. Dropping a folder is rejected with a notification. Files over 50MB are rejected before transfer. The drop zone is the tree area only — dropping on the side panel, toolbar, header, tag bar, or resize handle does not trigger import. Visual feedback: a dashed outline appears around the tree while dragging, and the existing drop indicator line shows the precise insertion position. Existing node reorder drag-and-drop (OL-12) and the existing Import .md files / Import any files menu items continue to work unchanged — both menu and D&D paths share the same `importFilesCore` / `importMdFilesCore` internals. Path traversal is blocked at the boundary (`../`, absolute paths, and embedded `..` are rejected).
+
 ## [0.195.711] - 2026-04-18
 
 ### Added

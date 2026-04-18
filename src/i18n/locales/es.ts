@@ -25,6 +25,10 @@ export const messages = {
   failedToProcessImage: 'Error al procesar imagen: ',
   selectImage: 'Seleccionar imagen',
   selectFileToCompare: 'Seleccionar archivo para comparar',
+  // v12: D&D file import
+  dropFolderRejected: 'Las carpetas no son compatibles con la importación por arrastrar y soltar',
+  dropFileTooLarge: 'Archivo demasiado grande (máximo 50MB)',
+  dropImportFailed: 'Error al importar archivo(s)',
 };
 
 export const webviewMessages = {

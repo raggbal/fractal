@@ -38,6 +38,10 @@ export const messages = {
   forceRelativeFileYes: 'はい — ファイルパスを常に相対パスにする',
   forceRelativeFilePrompt: 'ファイルパスを相対パスに強制しますか？',
   forceRelativeFileTitle: 'ファイルパスモード',
+  // v12: D&D file import
+  dropFolderRejected: 'フォルダはドラッグ&ドロップインポートに対応していません',
+  dropFileTooLarge: 'ファイルが大きすぎます (最大50MB)',
+  dropImportFailed: 'ファイルのインポートに失敗しました',
 };
 
 export const webviewMessages = {

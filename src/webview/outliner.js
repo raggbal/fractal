@@ -282,10 +282,26 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // Files D&D (OS file drop) has priority
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // Files D&D (OS file drop)
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                removeDropIndicator();
+                handleFilesDrop(e, null, 'root-end');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             if (e.target === treeEl) {
                 e.preventDefault();
@@ -299,6 +315,11 @@ var Outliner = (function() {
                 renderTree();
                 focusNode(movedId);
                 scheduleSyncToHost();
+            }
+        });
+        treeEl.addEventListener('dragleave', function(e) {
+            if (e.target === treeEl) {
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
             }
         });
 
@@ -317,6 +338,87 @@ var Outliner = (function() {
     }
 
     // --- ドラッグ&ドロップ ヘルパー ---
+
+    /** Check if drag event contains Files (OS file drop) */
+    function isFilesDragEvent(e) {
+        return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+    }
+
+    /** Classify dropped file by extension */
+    function classifyDroppedFile(file) {
+        var ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (ext === 'md') return 'md';
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].indexOf(ext) >= 0) return 'image';
+        return 'file';
+    }
+
+    /** Read file content by kind */
+    function readFileByKind(file, kind) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onerror = function() { reject(reader.error); };
+            if (kind === 'md') {
+                reader.onload = function() { resolve({ content: reader.result }); };
+                reader.readAsText(file);
+            } else if (kind === 'image') {
+                reader.onload = function() { resolve({ dataUrl: reader.result }); };
+                reader.readAsDataURL(file);
+            } else {
+                reader.onload = function() { resolve({ bytes: new Uint8Array(reader.result) }); };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+    }
+
+    /** Handle Files D&D drop event */
+    async function handleFilesDrop(e, targetNodeId, position) {
+        var dt = e.dataTransfer;
+        var items = [];
+        var rejectedFolders = [];
+        var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+        // 1. Filter out folders and oversized files
+        for (var i = 0; i < dt.items.length; i++) {
+            var item = dt.items[i];
+            var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+            if (entry && entry.isDirectory) {
+                rejectedFolders.push(entry.name);
+                continue;
+            }
+            var file = item.getAsFile();
+            if (file) {
+                if (file.size > MAX_FILE_SIZE) {
+                    host.notifyDropFileTooLarge(file.name);
+                    continue;
+                }
+                items.push(file);
+            }
+        }
+
+        if (rejectedFolders.length > 0) {
+            host.notifyDropFolderRejected(rejectedFolders);
+        }
+        if (items.length === 0) return;
+
+        // 2. Read each file by kind
+        var imports = [];
+        for (var j = 0; j < items.length; j++) {
+            var f = items[j];
+            var kind = classifyDroppedFile(f);
+            try {
+                var content = await readFileByKind(f, kind);
+                imports.push({ kind: kind, name: f.name, ...content });
+            } catch (err) {
+                // Skip failed reads
+                console.warn('Failed to read file:', f.name, err);
+            }
+        }
+
+        if (imports.length === 0) return;
+
+        // 3. Send to host
+        host.dropFilesImport(imports, targetNodeId, position);
+    }
 
     function showDropIndicator(targetEl, position) {
         removeDropIndicator();
@@ -842,6 +944,19 @@ var Outliner = (function() {
 
         // D&D: ノード要素にドロップターゲットイベント
         el.addEventListener('dragover', function(e) {
+            // Files D&D (OS file drop) has priority
+            if (isFilesDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                var rect = el.getBoundingClientRect();
+                var y = e.clientY - rect.top;
+                var h = rect.height;
+                if (y < h * 0.25) showDropIndicator(el, 'before');
+                else if (y > h * 0.75) showDropIndicator(el, 'after');
+                else showDropIndicator(el, 'child');
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
@@ -871,6 +986,19 @@ var Outliner = (function() {
         el.addEventListener('drop', function(e) {
             e.preventDefault();
             e.stopPropagation();
+            // Files D&D (OS file drop)
+            if (isFilesDragEvent(e)) {
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                var rect = el.getBoundingClientRect();
+                var y = e.clientY - rect.top;
+                var h = rect.height;
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var targetId = el.dataset.id;
+                removeDropIndicator();
+                handleFilesDrop(e, targetId, pos);
+                return;
+            }
+            // Existing node reorder D&D
             if (!dragState) { return; }
 
             var targetId = el.dataset.id;
@@ -5038,6 +5166,80 @@ var Outliner = (function() {
                         newNode.pageId = null;
                         newNode.filePath = r.filePath;
                         lastInsertedId = newNode.id;
+                    }
+
+                    renderTree();
+                    if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
+                case 'dropFilesResult': {
+                    // D&D file import result (mixed md/image/file)
+                    var results = msg.results || [];
+                    var targetId = msg.targetNodeId;
+                    var position = msg.position;
+
+                    // Check if any results are ok
+                    var anyOk = results.some(function(r) { return r.ok; });
+                    if (!anyOk) break;
+
+                    saveSnapshot();  // 1 D&D = 1 snapshot
+
+                    var lastInsertedId = null;
+
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var r = results[ri];
+                        if (!r.ok) continue;  // Skip failed items
+
+                        var newNode;
+                        var insertParentId, insertAfterId;
+
+                        if (lastInsertedId === null) {
+                            // First node: use position
+                            if (position === 'root-end' || !targetId) {
+                                var lastRootId4 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                                newNode = model.addNode(null, lastRootId4, '');
+                            } else if (position === 'before') {
+                                var beforeNode = model.getNode(targetId);
+                                insertParentId = beforeNode.parentId;
+                                var siblings = insertParentId ? model.getNode(insertParentId).children : model.rootIds;
+                                var idx = siblings.indexOf(targetId);
+                                insertAfterId = idx > 0 ? siblings[idx - 1] : null;
+                                newNode = model.addNode(insertParentId, insertAfterId, '');
+                            } else if (position === 'child') {
+                                newNode = model.addNodeAtStart(targetId, '');
+                                var t = model.getNode(targetId);
+                                if (t.collapsed) t.collapsed = false;
+                            } else { // 'after'
+                                var afterNode = model.getNode(targetId);
+                                newNode = model.addNode(afterNode.parentId, targetId, '');
+                            }
+                        } else {
+                            // Subsequent nodes: sibling after previous
+                            var prev = model.getNode(lastInsertedId);
+                            newNode = model.addNode(prev.parentId, lastInsertedId, '');
+                        }
+                        lastInsertedId = newNode.id;
+
+                        // Kind-specific node setup
+                        if (r.kind === 'md') {
+                            newNode.text = r.title;
+                            newNode.isPage = true;
+                            newNode.pageId = r.pageId;
+                            newNode.filePath = null;
+                        } else if (r.kind === 'image') {
+                            newNode.text = '';
+                            newNode.isPage = false;
+                            newNode.pageId = null;
+                            newNode.filePath = null;
+                            model.addImage(newNode.id, r.imagePath);
+                        } else { // 'file'
+                            newNode.text = r.title;
+                            newNode.isPage = false;
+                            newNode.pageId = null;
+                            newNode.filePath = r.filePath;
+                        }
                     }
 
                     renderTree();

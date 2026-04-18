@@ -25,6 +25,10 @@ export const messages = {
   failedToProcessImage: 'Échec du traitement de l\'image : ',
   selectImage: 'Sélectionner une image',
   selectFileToCompare: 'Sélectionner le fichier à comparer',
+  // v12: D&D file import
+  dropFolderRejected: 'Les dossiers ne sont pas pris en charge pour l\'importation par glisser-déposer',
+  dropFileTooLarge: 'Fichier trop volumineux (max 50 Mo)',
+  dropImportFailed: 'Échec de l\'importation du/des fichier(s)',
 };
 
 export const webviewMessages = {

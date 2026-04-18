@@ -23,6 +23,14 @@ export interface ImportedMdFile {
 export interface ImportMdOptions {
     /** H1 の代わりに使用するタイトル。指定時は H1 抽出をスキップする */
     title?: string;
+    /** true の場合、相対画像パスの解決をスキップする（D&D 用） */
+    skipRelativeImages?: boolean;
+}
+
+export interface ImportMdItem {
+    name: string;       // Original filename
+    content: string;    // Markdown content
+    sourceDir: string;  // Directory for resolving relative image paths (empty string to skip)
 }
 
 // ────────────────────────────────────────────
@@ -79,6 +87,7 @@ export function importMdFile(
 
 /**
  * 複数の .md ファイルをインポートする。
+ * Thin wrapper over importMdFilesCore for file path based input.
  */
 export function importMdFiles(
     filePaths: string[],
@@ -94,6 +103,64 @@ export function importMdFiles(
         }
     }
     return results;
+}
+
+/**
+ * Import markdown files from content arrays (D&D support).
+ * Core implementation for buffer-based imports.
+ *
+ * @param items    Array of {name, content, sourceDir} items
+ * @param pageDir  Directory for page files
+ * @param imageDir Directory for image files
+ * @param options  Import options (skipRelativeImages for D&D)
+ * @returns Array of ImportedMdFile results
+ */
+export function importMdFilesCore(
+    items: ImportMdItem[],
+    pageDir: string,
+    imageDir: string,
+    options?: ImportMdOptions
+): ImportedMdFile[] {
+    const results: ImportedMdFile[] = [];
+
+    // Ensure pageDir exists
+    if (!fs.existsSync(pageDir)) {
+        fs.mkdirSync(pageDir, { recursive: true });
+    }
+
+    for (const item of items) {
+        // Title: use option if provided, otherwise extract H1, finally use filename without extension
+        const h1Title = extractH1Title(item.content);
+        const title = options?.title ?? (h1Title !== 'Untitled' ? h1Title : stripExtension(item.name));
+
+        // Normalize markdown
+        let content = normalizeMarkdownPlainText(item.content);
+
+        // Process images if sourceDir is provided and not skipping relative images
+        if (item.sourceDir && !options?.skipRelativeImages) {
+            content = processImages(content, item.sourceDir, imageDir, pageDir);
+        }
+        // If skipRelativeImages is true or sourceDir is empty, leave relative paths as-is
+
+        // Generate pageId
+        const pageId = crypto.randomUUID();
+
+        // Save page file
+        const pagePath = path.join(pageDir, `${pageId}.md`);
+        fs.writeFileSync(pagePath, content, 'utf-8');
+
+        results.push({ title, content, pageId });
+    }
+
+    return results;
+}
+
+/**
+ * Strip extension from filename.
+ */
+function stripExtension(filename: string): string {
+    const ext = path.extname(filename);
+    return ext ? filename.slice(0, -ext.length) : filename;
 }
 
 // ────────────────────────────────────────────

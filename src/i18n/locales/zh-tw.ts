@@ -25,6 +25,10 @@ export const messages = {
   failedToProcessImage: '處理圖片失敗：',
   selectImage: '選擇圖片',
   selectFileToCompare: '選擇要比較的檔案',
+  // v12: D&D file import
+  dropFolderRejected: '不支援拖放匯入資料夾',
+  dropFileTooLarge: '檔案太大（最大50MB）',
+  dropImportFailed: '匯入檔案失敗',
 };
 
 export const webviewMessages = {

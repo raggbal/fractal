@@ -40,6 +40,10 @@ export interface Messages {
   forceRelativeFileYes: string;
   forceRelativeFilePrompt: string;
   forceRelativeFileTitle: string;
+  // v12: D&D file import
+  dropFolderRejected: string;
+  dropFileTooLarge: string;
+  dropImportFailed: string;
 }
 
 export interface WebviewMessages {

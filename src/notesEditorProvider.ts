@@ -9,6 +9,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
+import { processDropFilesImport, DropImportItem } from './shared/drop-import';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
@@ -365,6 +366,42 @@ export class NotesEditorProvider {
                     targetNodeId,
                     position: 'after'
                 });
+            },
+            dropFilesImport: async (items: DropImportItem[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
+                // Notes mode: fileDir = {outliner id}/files/, pageDir = pages/, imageDir = pages/images/
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                const outlinerId = path.basename(currentOutFilePath, '.out');
+                const fileDir = path.join(folderPath, outlinerId, 'files');
+                const pagesDir = fileManager.getPagesDirPath();
+                const imageDir = path.join(pagesDir, 'images');
+                const outDir = path.dirname(currentOutFilePath);
+
+                const results = await processDropFilesImport(items, {
+                    fileDir,
+                    pageDir: pagesDir,
+                    imageDir,
+                    outDir
+                });
+
+                // Check for failures
+                const failed = results.filter(r => !r.ok);
+                if (failed.length > 0) {
+                    vscode.window.showWarningMessage(t('dropImportFailed'));
+                }
+
+                senderRef.postMessage({
+                    type: 'dropFilesResult',
+                    results,
+                    targetNodeId,
+                    position
+                });
+            },
+            notifyDropFolderRejected: () => {
+                vscode.window.showWarningMessage(t('dropFolderRejected'));
+            },
+            notifyDropFileTooLarge: (fileName: string) => {
+                vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${fileName}`);
             },
             openAttachedFile: async (nodeId: string, outFilePath: string, senderRef: NotesSender) => {
                 const content = fs.readFileSync(outFilePath, 'utf8');

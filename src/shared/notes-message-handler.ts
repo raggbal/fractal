@@ -6,6 +6,7 @@ import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
+import { processDropFilesImport, DropImportItem } from './drop-import';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -96,6 +97,12 @@ export interface NotesPlatformActions {
     postMessage?(message: any): void;
     /** v10: Show quick pick for language selection */
     showQuickPick?(items: Array<{ label: string; description?: string }>, placeHolder: string): Promise<{ label: string; description?: string } | undefined>;
+    /** v12: D&D ファイルインポート */
+    dropFilesImport?(items: DropImportItem[], targetNodeId: string | null, position: string, sender: NotesSender): void;
+    /** v12: フォルダ D&D 拒否通知 */
+    notifyDropFolderRejected?(folders: string[]): void;
+    /** v12: ファイルサイズ超過通知 */
+    notifyDropFileTooLarge?(fileName: string): void;
 }
 
 /**
@@ -168,6 +175,18 @@ export async function handleNotesMessage(
 
         case 'importFilesDialog':
             platform.importFilesDialog?.(message.targetNodeId, sender);
+            break;
+
+        case 'dropFilesImport':
+            platform.dropFilesImport?.(message.items, message.targetNodeId, message.position, sender);
+            break;
+
+        case 'notifyDropFolderRejected':
+            platform.notifyDropFolderRejected?.(message.folders);
+            break;
+
+        case 'notifyDropFileTooLarge':
+            platform.notifyDropFileTooLarge?.(message.fileName);
             break;
 
         case 'openAttachedFile': {
