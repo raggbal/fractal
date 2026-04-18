@@ -13,6 +13,7 @@ export interface NoteTreeFile {
     type: 'file';
     id: string;        // .out ファイル名（拡張子なし）
     title: string;     // 表示タイトル（.outのtitleと同期）
+    color?: string;    // v11: Tailwind palette name ('red', 'orange', ..., 'zinc') or undefined
 }
 
 export interface NoteTreeFolder {
@@ -21,6 +22,7 @@ export interface NoteTreeFolder {
     title: string;     // フォルダ名
     childIds: string[]; // 子アイテムID（順序付き）
     collapsed: boolean;
+    color?: string;    // v11: Tailwind palette name or undefined
 }
 
 export type NoteTreeItem = NoteTreeFile | NoteTreeFolder;

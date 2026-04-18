@@ -161,6 +161,11 @@
             api.postMessage({ type: 'notesMoveItem', itemId: itemId, targetParentId: targetParentId, index: index });
         },
 
+        // v11: アイテム色設定
+        setItemColor: function(itemId, color) {
+            api.postMessage({ type: 'notesSetItemColor', itemId: itemId, color: color });
+        },
+
         // Daily Notes
         openDailyNotes: function() {
             flushOutlinerSync();

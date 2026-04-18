@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.711] - 2026-04-18
+
+### Added
+- Notes panel: assign one of 20 fixed colors (Tailwind 500 palette: red, orange, amber, yellow, lime, green, emerald, teal, cyan, sky, blue, indigo, violet, purple, fuchsia, pink, rose, slate, gray, zinc) to any folder or `.out` file icon in the Notes tab. Right-click → "Set Color" → pick a swatch (or "None" to clear). The color is persisted in `outline.note` as the `color` field and applied to the icon SVG `stroke` only — text and background are unchanged. Backward compatible: existing `outline.note` files without the `color` field continue to work. The webview→host boundary validates that the color name is in the fixed palette before persisting (rejects arbitrary strings).
+
+### Changed
+- Notes panel: `.file-panel-folder-children` `padding-left` increased from 12px to 28px so that child file/folder icons render to the right of the parent folder icon. Two-level nesting accumulates the indent correctly. Root-level item position is unchanged.
+
+### Fixed
+- Side panel markdown: pressing ESC while an image is shown in the fullscreen lightbox (open by double-clicking the image) now closes only the lightbox; the side panel itself stays open. Both `outliner.js` and `editor.js` ESC handlers now skip `closeSidePanel` when `.outliner-image-overlay` is present in the DOM, mirroring the existing skip pattern for action panel / command palette. Previously, ESC closed both the lightbox and the side panel, forcing the user to reopen the panel.
+
 ## [0.195.710] - 2026-04-15
 
 ### Added

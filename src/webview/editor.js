@@ -14174,6 +14174,8 @@ class EditorInstance {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
             if (actionPanelVisible || commandPaletteVisible) return;
+            // v11: Don't close side panel if image lightbox is open — lightbox handles ESC separately
+            if (document.querySelector('.outliner-image-overlay')) return;
             closeSidePanel();
             e.preventDefault();
         }

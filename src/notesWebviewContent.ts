@@ -49,6 +49,10 @@ export function getNotesWebviewContent(
         messages: config.webviewMessages || {},
     });
 
+    // Load Notes color palette (must load before notes-file-panel.js)
+    const notesColorPaletteScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+
     // Load Notes file panel JS
     const notesFilePanelScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-file-panel.js'), 'utf8');
@@ -182,6 +186,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${outlinerModelScript}</script>
     <script nonce="${nonce}">${outlinerSearchScript}</script>
     <script nonce="${nonce}">${outlinerScript}</script>
+    <script nonce="${nonce}">${notesColorPaletteScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">
         try {

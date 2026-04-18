@@ -451,4 +451,200 @@ test.describe('Notes ファイルパネル', () => {
 
         expect(panelWidth).toBe('300px');
     });
+
+    // ===== v11: Color クラス反映 =====
+
+    test('23. color付きファイルに notes-item-color-{name} クラスが付与される', async ({ page }) => {
+        const colorFileList = [
+            { filePath: '/test/file1.out', title: 'File1', id: 'file1' },
+            { filePath: '/test/file2.out', title: 'ColorFile', id: 'file2' }
+        ];
+        const colorStructure = {
+            version: 1,
+            rootIds: ['file1', 'file2'],
+            items: {
+                file1: { type: 'file', id: 'file1', title: 'File1' },
+                file2: { type: 'file', id: 'file2', title: 'ColorFile', color: 'blue' }
+            }
+        };
+
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList: colorFileList, structure: colorStructure });
+
+        // file2 に notes-item-color-blue クラスが付与されている
+        const coloredItem = page.locator('.file-panel-item[data-item-id="file2"]');
+        await expect(coloredItem).toHaveClass(/notes-item-color-blue/);
+
+        // file1 には color クラスがない
+        const normalItem = page.locator('.file-panel-item[data-item-id="file1"]');
+        const normalItemClasses = await normalItem.getAttribute('class');
+        expect(normalItemClasses).not.toContain('notes-item-color-');
+    });
+
+    test('24. color付きフォルダのheaderに notes-item-color-{name} クラスが付与される', async ({ page }) => {
+        const folderColorStructure = {
+            version: 1,
+            rootIds: ['f1', 'file1'],
+            items: {
+                f1: { type: 'folder', id: 'f1', title: 'ColoredFolder', childIds: [], collapsed: false, color: 'green' },
+                file1: { type: 'file', id: 'file1', title: 'File1' }
+            }
+        };
+
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList, structure: folderColorStructure });
+
+        // folder header に notes-item-color-green クラスが付与されている (wrapper ではなく header)
+        const folderHeader = page.locator('.file-panel-folder[data-folder-id="f1"] .file-panel-folder-header');
+        await expect(folderHeader).toHaveClass(/notes-item-color-green/);
+
+        // wrapper 自体には付与されていない
+        const folderWrapper = page.locator('.file-panel-folder[data-folder-id="f1"]');
+        const wrapperClasses = await folderWrapper.getAttribute('class');
+        expect(wrapperClasses).not.toContain('notes-item-color-');
+    });
+
+    test('25. ファイル右クリック → Set Color メニュー項目が表示される', async ({ page }) => {
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList, structure });
+
+        const firstFile = page.locator('.file-panel-item').first();
+        await firstFile.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        // Set Color 項目が表示される
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await expect(setColorItem).toBeVisible();
+    });
+
+    test('26. Set Color クリックでパレット UI に切り替わる', async ({ page }) => {
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList, structure });
+
+        const firstFile = page.locator('.file-panel-item').first();
+        await firstFile.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await setColorItem.click();
+        await page.waitForTimeout(200);
+
+        // パレット UI が表示される (20 swatch + None + Back)
+        const colorGrid = page.locator('.file-panel-color-grid');
+        await expect(colorGrid).toBeVisible();
+
+        const swatches = page.locator('.file-panel-color-swatch');
+        await expect(swatches).toHaveCount(20);
+
+        const noneBtn = page.locator('.file-panel-color-none');
+        await expect(noneBtn).toBeVisible();
+
+        const backBtn = page.locator('.file-panel-color-back');
+        await expect(backBtn).toBeVisible();
+    });
+
+    test('27. パレットで色クリック → bridge.setItemColor が呼ばれる', async ({ page }) => {
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+            (window as any).__testApi.notesMessages.length = 0;
+        }, { fileList, structure });
+
+        const firstFile = page.locator('.file-panel-item').first();
+        await firstFile.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await setColorItem.click();
+        await page.waitForTimeout(200);
+
+        // red swatch をクリック
+        const redSwatch = page.locator('.file-panel-color-swatch[data-color="red"]');
+        await redSwatch.click();
+        await page.waitForTimeout(200);
+
+        const messages = await page.evaluate(() => (window as any).__testApi.notesMessages);
+        const colorMsgs = messages.filter((m: any) => m.type === 'setItemColor');
+        expect(colorMsgs.length).toBe(1);
+        expect(colorMsgs[0].itemId).toBe('file1');
+        expect(colorMsgs[0].color).toBe('red');
+    });
+
+    test('28. パレットで None クリック → bridge.setItemColor(id, null) が呼ばれる', async ({ page }) => {
+        const colorFileList = [
+            { filePath: '/test/file1.out', title: 'File1', id: 'file1' }
+        ];
+        const colorStructure = {
+            version: 1,
+            rootIds: ['file1'],
+            items: {
+                file1: { type: 'file', id: 'file1', title: 'File1', color: 'red' }
+            }
+        };
+
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+            (window as any).__testApi.notesMessages.length = 0;
+        }, { fileList: colorFileList, structure: colorStructure });
+
+        const firstFile = page.locator('.file-panel-item').first();
+        await firstFile.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await setColorItem.click();
+        await page.waitForTimeout(200);
+
+        const noneBtn = page.locator('.file-panel-color-none');
+        await noneBtn.click();
+        await page.waitForTimeout(200);
+
+        const messages = await page.evaluate(() => (window as any).__testApi.notesMessages);
+        const colorMsgs = messages.filter((m: any) => m.type === 'setItemColor');
+        expect(colorMsgs.length).toBe(1);
+        expect(colorMsgs[0].itemId).toBe('file1');
+        expect(colorMsgs[0].color).toBe(null);
+    });
+
+    test('29. パレットで Back クリック → 元のコンテキストメニューに戻る', async ({ page }) => {
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList, structure });
+
+        const firstFile = page.locator('.file-panel-item').first();
+        await firstFile.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await setColorItem.click();
+        await page.waitForTimeout(200);
+
+        // パレットが表示されている
+        await expect(page.locator('.file-panel-color-grid')).toBeVisible();
+
+        const backBtn = page.locator('.file-panel-color-back');
+        await backBtn.click();
+        await page.waitForTimeout(200);
+
+        // 元のメニューに戻る (Set Color 項目が再度表示)
+        await expect(page.locator('.file-panel-context-item:has-text("Set Color")')).toBeVisible();
+        // パレットは消える
+        await expect(page.locator('.file-panel-color-grid')).toHaveCount(0);
+    });
+
+    test('30. フォルダ右クリックでも Set Color メニュー項目が表示される', async ({ page }) => {
+        await page.evaluate(({ fileList, structure }) => {
+            (window as any).__testApi.initNotesPanel(fileList, '/test/file1.out', structure);
+        }, { fileList, structure: folderStructure });
+
+        const folderHeader = page.locator('.file-panel-folder-header').first();
+        await folderHeader.click({ button: 'right' });
+        await page.waitForTimeout(200);
+
+        const setColorItem = page.locator('.file-panel-context-item:has-text("Set Color")');
+        await expect(setColorItem).toBeVisible();
+    });
 });

@@ -2904,6 +2904,91 @@ body {
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     cursor: default;
 }
+
+/* =============================================
+ * Outliner text search & replace box
+ *   (mirrors .search-replace-box from styles.css,
+ *    overrides top offset for outliner header height)
+ * ============================================= */
+.outliner-search-replace-box {
+    position: fixed;
+    top: 80px;
+    right: 40px;
+    z-index: 1000;
+    background: var(--toolbar-bg, var(--vscode-editor-background, #1e1e1e));
+    border: 1px solid var(--border-color, var(--vscode-panel-border, #333));
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    min-width: 350px;
+    font-family: inherit;
+}
+.outliner-search-replace-box .search-row,
+.outliner-search-replace-box .replace-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.outliner-search-replace-box input[type="text"] {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, var(--vscode-input-foreground, #ccc));
+    font-size: 13px;
+    outline: none;
+}
+.outliner-search-replace-box input[type="text"]:focus {
+    border-color: var(--link-color, var(--vscode-focusBorder, #007acc));
+}
+.outliner-search-replace-box .search-count {
+    font-size: 12px;
+    color: var(--text-color, #ccc);
+    min-width: 40px;
+    text-align: center;
+}
+.outliner-search-replace-box button {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 4px;
+    background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
+    color: var(--text-color, #ccc);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+.outliner-search-replace-box button:hover {
+    background: var(--selection-bg, var(--vscode-list-hoverBackground, rgba(255,255,255,0.08)));
+}
+.outliner-search-replace-box .search-options {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-color, #ccc);
+}
+.outliner-search-replace-box .search-options label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+.outliner-search-replace-box .search-options input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Match highlights inside outliner nodes */
+.outliner-text .outliner-search-hit,
+.outliner-subtext .outliner-search-hit {
+    background-color: rgba(255, 255, 0, 0.4);
+    border-radius: 2px;
+}
+.outliner-text .outliner-search-hit-current,
+.outliner-subtext .outliner-search-hit-current {
+    background-color: rgba(255, 165, 0, 0.6);
+    border-radius: 2px;
+}
 </style>
     <style>
         .notes-layout {
@@ -2977,7 +3062,7 @@ body {
         .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 14px; height: 14px; }
         .file-panel-folder-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .file-panel-folder-children {
-            padding-left: 12px;
+            padding-left: 28px;  /* v11: was 12px. chevron(14) + gap(4) + folder icon(14) 相当 */
         }
         .file-panel-folder.collapsed > .file-panel-folder-children {
             display: none;
@@ -3120,6 +3205,67 @@ body {
             font-weight: bold; font-size: 12px; margin-bottom: 6px;
             color: var(--vscode-foreground); opacity: 0.8;
         }
+
+        /* ── v11: Color Palette UI ── */
+        .file-panel-color-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 20px);
+            gap: 4px;
+            padding: 8px 12px;
+        }
+        .file-panel-color-swatch {
+            width: 20px; height: 20px; border-radius: 4px; cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .file-panel-color-swatch:hover { transform: scale(1.15); }
+        .file-panel-color-swatch.active { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-color-back, .file-panel-color-none {
+            font-size: 12px;
+            opacity: 0.75;
+        }
+
+        /* ── v11: Notes Item Color Classes (generated) ── */
+        .notes-item-color-red > .file-panel-item-icon,
+.notes-item-color-red > .file-panel-folder-icon { stroke: #ef4444; opacity: 1; }
+.notes-item-color-orange > .file-panel-item-icon,
+.notes-item-color-orange > .file-panel-folder-icon { stroke: #f97316; opacity: 1; }
+.notes-item-color-amber > .file-panel-item-icon,
+.notes-item-color-amber > .file-panel-folder-icon { stroke: #f59e0b; opacity: 1; }
+.notes-item-color-yellow > .file-panel-item-icon,
+.notes-item-color-yellow > .file-panel-folder-icon { stroke: #eab308; opacity: 1; }
+.notes-item-color-lime > .file-panel-item-icon,
+.notes-item-color-lime > .file-panel-folder-icon { stroke: #84cc16; opacity: 1; }
+.notes-item-color-green > .file-panel-item-icon,
+.notes-item-color-green > .file-panel-folder-icon { stroke: #22c55e; opacity: 1; }
+.notes-item-color-emerald > .file-panel-item-icon,
+.notes-item-color-emerald > .file-panel-folder-icon { stroke: #10b981; opacity: 1; }
+.notes-item-color-teal > .file-panel-item-icon,
+.notes-item-color-teal > .file-panel-folder-icon { stroke: #14b8a6; opacity: 1; }
+.notes-item-color-cyan > .file-panel-item-icon,
+.notes-item-color-cyan > .file-panel-folder-icon { stroke: #06b6d4; opacity: 1; }
+.notes-item-color-sky > .file-panel-item-icon,
+.notes-item-color-sky > .file-panel-folder-icon { stroke: #0ea5e9; opacity: 1; }
+.notes-item-color-blue > .file-panel-item-icon,
+.notes-item-color-blue > .file-panel-folder-icon { stroke: #3b82f6; opacity: 1; }
+.notes-item-color-indigo > .file-panel-item-icon,
+.notes-item-color-indigo > .file-panel-folder-icon { stroke: #6366f1; opacity: 1; }
+.notes-item-color-violet > .file-panel-item-icon,
+.notes-item-color-violet > .file-panel-folder-icon { stroke: #8b5cf6; opacity: 1; }
+.notes-item-color-purple > .file-panel-item-icon,
+.notes-item-color-purple > .file-panel-folder-icon { stroke: #a855f7; opacity: 1; }
+.notes-item-color-fuchsia > .file-panel-item-icon,
+.notes-item-color-fuchsia > .file-panel-folder-icon { stroke: #d946ef; opacity: 1; }
+.notes-item-color-pink > .file-panel-item-icon,
+.notes-item-color-pink > .file-panel-folder-icon { stroke: #ec4899; opacity: 1; }
+.notes-item-color-rose > .file-panel-item-icon,
+.notes-item-color-rose > .file-panel-folder-icon { stroke: #f43f5e; opacity: 1; }
+.notes-item-color-slate > .file-panel-item-icon,
+.notes-item-color-slate > .file-panel-folder-icon { stroke: #64748b; opacity: 1; }
+.notes-item-color-gray > .file-panel-item-icon,
+.notes-item-color-gray > .file-panel-folder-icon { stroke: #6b7280; opacity: 1; }
+.notes-item-color-zinc > .file-panel-item-icon,
+.notes-item-color-zinc > .file-panel-folder-icon { stroke: #71717a; opacity: 1; }
     </style>
 </head>
 <body>
@@ -3287,6 +3433,9 @@ body {
                     </button>
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
+                        <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="undo" title="Undo"></button>
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
                         <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
@@ -3302,9 +3451,6 @@ body {
                     </button>
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    </button>
-                    <button class="side-panel-expand" id="sidePanelExpand" title="Expand">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                     </button>
                     <button class="side-panel-close" id="sidePanelClose" title="Close">&times;</button>
                 </div>
@@ -3820,6 +3966,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         savePanelWidth: function(width) {
             window.__testApi.notesMessages.push({ type: 'savePanelWidth', width: width });
+        },
+        setItemColor: function(itemId, color) {
+            window.__testApi.notesMessages.push({ type: 'setItemColor', itemId: itemId, color: color });
         },
         search: function() {},
         jumpToNode: function() {},
@@ -16866,10 +17015,16 @@ class EditorInstance {
 
         // Handle paste shortcut for Kiro only
         const isKiro = navigator.userAgent.includes('Kiro');
-        if (isMod && e.key === 'v' && isKiro) {
+        if (isMod && e.key === 'v' && isKiro && navigator.clipboard && navigator.clipboard.read) {
             logger.log('Cmd/Ctrl+V keydown detected (Kiro)');
 
-            if (navigator.clipboard && navigator.clipboard.read) {
+            // Set flag SYNCHRONOUSLY before any await, so the paste event (which fires
+            // synchronously right after this keydown returns at the first await) skips
+            // image-file handling. Otherwise both the paste event and the Clipboard API
+            // path insert the same screenshot → duplicate image.
+            self._kiroImagePasteHandled = true;
+
+            (async () => {
                 try {
                     const items = await navigator.clipboard.read();
 
@@ -16877,9 +17032,6 @@ class EditorInstance {
                         for (const type of item.types) {
                             if (type.startsWith('image/')) {
                                 logger.log('Found image in clipboard via Clipboard API (Kiro):', type);
-                                e.preventDefault();
-                                // Set flag to skip duplicate image handling in paste event
-                                self._kiroImagePasteHandled = true;
                                 const blob = await item.getType(type);
                                 const reader = new FileReader();
                                 reader.onload = function(event) {
@@ -16892,11 +17044,11 @@ class EditorInstance {
                             }
                         }
                     }
-                    logger.log('No image in clipboard, falling through to native paste (Kiro)');
+                    logger.log('No image in clipboard (Kiro) - paste event handled text');
                 } catch (err) {
                     logger.log('Clipboard API read failed (Kiro):', err.message);
                 }
-            }
+            })();
         }
 
         // Undo (Ctrl+Z / Cmd+Z)
@@ -18246,7 +18398,7 @@ class EditorInstance {
             var line = lines[i];
             if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
             if (inCodeBlock) continue;
-            var match = line.match(/^(#{1,2})\s+(.+)$/);
+            var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
@@ -18458,6 +18610,8 @@ class EditorInstance {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
             if (actionPanelVisible || commandPaletteVisible) return;
+            // v11: Don't close side panel if image lightbox is open — lightbox handles ESC separately
+            if (document.querySelector('.outliner-image-overlay')) return;
             closeSidePanel();
             e.preventDefault();
         }
@@ -19430,12 +19584,12 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
-        // Kiro: skip if image was already handled by keydown Clipboard API path
-        if (self._kiroImagePasteHandled) {
+        // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
+        // here so text/HTML paste still works when clipboard has no image.
+        const kiroSkipImage = self._kiroImagePasteHandled === true;
+        if (kiroSkipImage) {
             self._kiroImagePasteHandled = false;
-            e.preventDefault();
-            logger.log('Paste event skipped (Kiro image already handled via keydown)');
-            return;
+            logger.log('Paste event: Kiro keydown handles images, skipping image detection');
         }
 
         undoManager.saveSnapshot();
@@ -19443,26 +19597,28 @@ class EditorInstance {
 
         logger.log('Paste event triggered');
 
-        // Check for image files first
-        const items = e.clipboardData?.items;
-        if (items) {
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
-                    e.preventDefault();
-                    logger.log('Image found in paste event');
-                    const file = item.getAsFile();
-                    if (file) {
-                        logger.log('Pasting image from clipboard:', file.type);
-                        const reader = new FileReader();
-                        reader.onload = function(event) {
-                            const dataUrl = event.target.result;
-                            host.saveImageAndInsert(dataUrl);
-                            logger.log('Image sent to extension for saving');
-                        };
-                        reader.readAsDataURL(file);
+        // Check for image files first (unless Kiro keydown will handle via Clipboard API)
+        if (!kiroSkipImage) {
+            const items = e.clipboardData?.items;
+            if (items) {
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        logger.log('Image found in paste event');
+                        const file = item.getAsFile();
+                        if (file) {
+                            logger.log('Pasting image from clipboard:', file.type);
+                            const reader = new FileReader();
+                            reader.onload = function(event) {
+                                const dataUrl = event.target.result;
+                                host.saveImageAndInsert(dataUrl);
+                                logger.log('Image sent to extension for saving');
+                            };
+                            reader.readAsDataURL(file);
+                        }
+                        return; // Stop processing - image handled
                     }
-                    return; // Stop processing - image handled
                 }
             }
         }
@@ -21723,6 +21879,7 @@ var Outliner = (function() {
         setupKeyHandlers();
         setupContextMenu();
         setupHostMessages();
+        setupTextSearchReplace();
         initSidePanel();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
@@ -23234,6 +23391,11 @@ var Outliner = (function() {
                 else { break; }
             }
             var content = line.substring(j);
+            // 外部ペースト (MD editor 等) から来たリスト: 先頭の `- ` / `* ` / `+ ` / `1.` バレットを除去。
+            // 内部コピー (clipboardNodes あり) はそのまま — ノードのテキストとして保持。
+            if (!clipboardNodes) {
+                content = content.replace(/^(?:[-*+]|\d+\.)[ \t]+/, '');
+            }
             if (content === '') { continue; } // 空行スキップ
             parsed.push({ level: tabs, text: content });
             clipNodeIndexMap.push(i);
@@ -23800,6 +23962,22 @@ var Outliner = (function() {
             return;
         }
 
+        // Cmd+Shift+F: ヘッダフィルタ検索にフォーカス（以前の Cmd+F の役割）
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (searchInput) { searchInput.focus(); searchInput.select(); }
+            return;
+        }
+
+        // Cmd+H: テキスト検索/置換ボックス（置換行展開）
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+            e.preventDefault();
+            e.stopPropagation();
+            openTextSearchBox(true);
+            return;
+        }
+
         // Cmd+Shift+C: ページパスをコピー
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
             e.preventDefault();
@@ -23836,8 +24014,8 @@ var Outliner = (function() {
                     break;
                 case 'f':
                     e.preventDefault();
-                    searchInput.focus();
-                    searchInput.select();
+                    e.stopPropagation();
+                    openTextSearchBox(false);
                     break;
                 case '.':
                     e.preventDefault();
@@ -25425,19 +25603,21 @@ var Outliner = (function() {
             sidePanelOverlay.addEventListener('click', closeSidePanel);
         }
 
-        // Expand toggle
-        var sidePanelExpandBtn = document.querySelector('.side-panel-expand');
-        if (sidePanelExpandBtn) {
-            sidePanelExpandBtn.addEventListener('click', function() {
+        // Expand toggle — delegated on sidePanelEl so it survives
+        // .side-panel-header-actions innerHTML rebuilds from the translate flow.
+        if (sidePanelEl) {
+            sidePanelEl.addEventListener('click', function(e) {
+                var expandBtn = e.target && e.target.closest ? e.target.closest('.side-panel-expand') : null;
+                if (!expandBtn || !sidePanelEl.contains(expandBtn)) return;
                 sidePanelExpanded = !sidePanelExpanded;
                 if (sidePanelExpanded) {
                     sidePanelEl.classList.add('expanded');
-                    sidePanelExpandBtn.classList.add('active');
+                    expandBtn.classList.add('active');
                     sidePanelEl.style.width = '';
                     sidePanelEl.style.maxWidth = '';
                 } else {
                     sidePanelEl.classList.remove('expanded');
-                    sidePanelExpandBtn.classList.remove('active');
+                    expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
                         sidePanelEl.style.width = sidePanelWidthSetting + 'px';
                         sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
@@ -25537,13 +25717,15 @@ var Outliner = (function() {
             });
         }
 
-        // ESC to close side panel (but not if action panel or command palette is open)
+        // ESC to close side panel (but not if action panel, command palette, or image lightbox is open)
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && sidePanelEl && sidePanelEl.classList.contains('open')) {
                 // Don't close side panel if a modal panel (action panel, command palette) is handling ESC
                 var ap = document.querySelector('.action-panel');
                 var cp = document.querySelector('.command-palette');
                 if ((ap && ap.style.display !== 'none') || (cp && cp.style.display !== 'none')) return;
+                // v11: Don't close side panel if image lightbox is open — lightbox handles ESC separately
+                if (document.querySelector('.outliner-image-overlay')) return;
                 e.preventDefault();
                 e.stopPropagation();
                 closeSidePanel();
@@ -25609,10 +25791,24 @@ var Outliner = (function() {
             translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
         }
         console.log('[Translate] Result received. Length:', (translatedMarkdown || '').length, 'Preview:', (translatedMarkdown || '').substring(0, 200));
-        // Close current side panel MD
+        // Capture the current (pre-translation) header actions HTML BEFORE closing the panel,
+        // because closeSidePanelImmediate clears sidePanelPreTranslationState.
+        var preservedState = sidePanelPreTranslationState;
+        if (preservedState && sidePanelEl) {
+            var preHeader = sidePanelEl.querySelector('.side-panel-header');
+            if (preHeader) {
+                var preActions = preHeader.querySelector('.side-panel-header-actions');
+                if (preActions && !preservedState.actionsHtml) {
+                    preservedState.actionsHtml = preActions.innerHTML;
+                }
+            }
+        }
+        // Close current side panel MD (this nulls sidePanelPreTranslationState)
         if (sidePanelInstance) {
             closeSidePanelImmediate();
         }
+        // Restore preserved state so later close handlers can rebuild default header actions
+        sidePanelPreTranslationState = preservedState;
 
         // Reopen as translation result panel
         var spContainer = window.EditorInstance.createSidePanelContainer();
@@ -25821,13 +26017,30 @@ var Outliner = (function() {
     }
 
     function closeSidePanel() {
+        restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
         if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
+    // v10: If a translation panel is currently shown, restore the default header action
+    // buttons (undo/redo/translateLang/...) before the panel is destroyed. Otherwise the
+    // next openSidePanel() would reuse the same DOM with only the "← Back" button left.
+    function restoreHeaderActionsFromTranslation() {
+        if (!sidePanelPreTranslationState || !sidePanelPreTranslationState.actionsHtml) return;
+        if (!sidePanelEl) return;
+        var header = sidePanelEl.querySelector('.side-panel-header');
+        if (!header) return;
+        var actions = header.querySelector('.side-panel-header-actions');
+        if (actions) {
+            actions.innerHTML = sidePanelPreTranslationState.actionsHtml;
+        }
+    }
+
     function closeSidePanelImmediate() {
+        restoreHeaderActionsFromTranslation();
+        sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
         if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
         if (sidePanelExpanded) {
@@ -25895,7 +26108,7 @@ var Outliner = (function() {
             var line = lines[k];
             if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
             if (inCodeBlock) { continue; }
-            var match = line.match(/^(#{1,2})\s+(.+)$/);
+            var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
@@ -26591,10 +26804,475 @@ var Outliner = (function() {
         });
     }
 
+    // --- テキスト検索 & 置換ボックス (MDエディタの機能を踏襲) ---
+
+    var textSearchBox = null;
+    var textSearchInput = null;
+    var textReplaceInput = null;
+    var textSearchCountEl = null;
+    var textSearchReplaceRow = null;
+    var textSearchCaseEl = null;
+    var textSearchWordEl = null;
+    var textSearchRegexEl = null;
+    // マッチエントリ: { nodeId, field: 'text'|'subtext', sourceStart, sourceEnd, renderedStart, renderedEnd }
+    var textSearchMatches = [];
+    var textSearchCurrentIndex = -1;
+
+    function setupTextSearchReplace() {
+        if (textSearchBox) { return; }
+        var box = document.createElement('div');
+        box.className = 'search-replace-box outliner-search-replace-box';
+        box.style.display = 'none';
+        box.innerHTML =
+            '<div class="search-row">' +
+              '<input type="text" class="search-input" placeholder="Search..." />' +
+              '<span class="search-count">0/0</span>' +
+              '<button class="search-prev" title="Previous">\u25B2</button>' +
+              '<button class="search-next" title="Next">\u25BC</button>' +
+              '<button class="toggle-replace" title="Toggle Replace">\u21A9</button>' +
+              '<button class="close-search" title="Close">\u2715</button>' +
+            '</div>' +
+            '<div class="replace-row" style="display:none">' +
+              '<input type="text" class="replace-input" placeholder="Replace..." />' +
+              '<button class="replace-one" title="Replace">Replace</button>' +
+              '<button class="replace-all" title="Replace All">All</button>' +
+            '</div>' +
+            '<div class="search-options">' +
+              '<label><input type="checkbox" class="search-case-sensitive" /> Aa</label>' +
+              '<label><input type="checkbox" class="search-whole-word" /> Ab|</label>' +
+              '<label><input type="checkbox" class="search-regex" /> .*</label>' +
+            '</div>';
+        document.body.appendChild(box);
+
+        textSearchBox = box;
+        textSearchInput = box.querySelector('.search-input');
+        textReplaceInput = box.querySelector('.replace-input');
+        textSearchCountEl = box.querySelector('.search-count');
+        textSearchReplaceRow = box.querySelector('.replace-row');
+        textSearchCaseEl = box.querySelector('.search-case-sensitive');
+        textSearchWordEl = box.querySelector('.search-whole-word');
+        textSearchRegexEl = box.querySelector('.search-regex');
+
+        textSearchInput.addEventListener('input', performTextSearch);
+        textSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                goToTextMatch(textSearchCurrentIndex + (e.shiftKey ? -1 : 1));
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+        textReplaceInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                replaceCurrentTextMatch();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                closeTextSearchBox();
+            }
+        });
+
+        box.querySelector('.search-prev').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex - 1);
+        });
+        box.querySelector('.search-next').addEventListener('click', function() {
+            goToTextMatch(textSearchCurrentIndex + 1);
+        });
+        box.querySelector('.close-search').addEventListener('click', closeTextSearchBox);
+        box.querySelector('.toggle-replace').addEventListener('click', function() {
+            if (textSearchReplaceRow.style.display === 'none') {
+                textSearchReplaceRow.style.display = 'flex';
+                textReplaceInput.focus();
+            } else {
+                textSearchReplaceRow.style.display = 'none';
+                textSearchInput.focus();
+            }
+        });
+        box.querySelector('.replace-one').addEventListener('click', replaceCurrentTextMatch);
+        box.querySelector('.replace-all').addEventListener('click', replaceAllTextMatches);
+        textSearchCaseEl.addEventListener('change', performTextSearch);
+        textSearchWordEl.addEventListener('change', performTextSearch);
+        textSearchRegexEl.addEventListener('change', performTextSearch);
+
+        // ボックス内キーイベントが外に漏れないようにする（ノードハンドラ等の誤発火防止）
+        box.addEventListener('keydown', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    function openTextSearchBox(showReplace) {
+        setupTextSearchReplace();
+        textSearchBox.style.display = 'block';
+        textSearchReplaceRow.style.display = showReplace ? 'flex' : 'none';
+
+        // 選択テキストがあれば検索ワードに反映
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed) {
+            var sText = sel.toString();
+            if (sText && sText.length < 100 && sText.indexOf('\n') < 0) {
+                textSearchInput.value = sText;
+            }
+        }
+        textSearchInput.focus();
+        textSearchInput.select();
+        performTextSearch();
+    }
+
+    function closeTextSearchBox() {
+        if (!textSearchBox) { return; }
+        textSearchBox.style.display = 'none';
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+        if (textSearchCountEl) { textSearchCountEl.textContent = '0/0'; }
+    }
+
+    function isTextSearchOpen() {
+        return !!(textSearchBox && textSearchBox.style.display !== 'none');
+    }
+
+    /** 現在のスコープに属するノードIDリストをDFS順で返す */
+    function getScopedNodeIds() {
+        if (currentScope.type === 'subtree' && currentScope.rootId && model.getNode(currentScope.rootId)) {
+            return [currentScope.rootId].concat(model.getDescendantIds(currentScope.rootId));
+        }
+        return model.getFlattenedIds(false);
+    }
+
+    /** 正規表現生成 (検索ワードとオプションから) */
+    function buildTextSearchRegex() {
+        var term = textSearchInput.value;
+        if (!term) { return null; }
+        var pattern = term;
+        if (!textSearchRegexEl.checked) {
+            pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        if (textSearchWordEl.checked) {
+            pattern = '\\b' + pattern + '\\b';
+        }
+        try {
+            return new RegExp(pattern, textSearchCaseEl.checked ? 'g' : 'gi');
+        } catch (e) {
+            return 'invalid';
+        }
+    }
+
+    function performTextSearch() {
+        if (!textSearchBox) { return; }
+        clearTextSearchHighlights();
+        textSearchMatches = [];
+        textSearchCurrentIndex = -1;
+
+        var regex = buildTextSearchRegex();
+        if (regex === null) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (regex === 'invalid') {
+            textSearchCountEl.textContent = 'Invalid';
+            return;
+        }
+
+        var ids = getScopedNodeIds();
+        for (var i = 0; i < ids.length; i++) {
+            var node = model.getNode(ids[i]);
+            if (!node) { continue; }
+
+            // text フィールド: rendered text (markers除去後) で検索
+            var srcText = node.text || '';
+            if (srcText) {
+                var renderedText = stripInlineMarkers(srcText);
+                collectMatches(regex, renderedText, node.id, 'text', srcText);
+            }
+
+            // subtext フィールド: markersなし → rendered = source
+            var sub = node.subtext || '';
+            if (sub) {
+                collectMatches(regex, sub, node.id, 'subtext', sub);
+            }
+        }
+
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(0);
+        } else {
+            textSearchCountEl.textContent = '0/0';
+        }
+    }
+
+    function collectMatches(regex, rendered, nodeId, field, sourceText) {
+        regex.lastIndex = 0;
+        var m;
+        while ((m = regex.exec(rendered)) !== null) {
+            if (m[0].length === 0) { regex.lastIndex++; continue; } // ゼロ幅マッチ回避
+            var rs = m.index;
+            var re = m.index + m[0].length;
+            var ss, se;
+            if (field === 'text') {
+                ss = renderedOffsetToSource(sourceText, rs);
+                se = renderedOffsetToSource(sourceText, re);
+            } else {
+                ss = rs;
+                se = re;
+            }
+            textSearchMatches.push({
+                nodeId: nodeId,
+                field: field,
+                sourceStart: ss,
+                sourceEnd: se,
+                renderedStart: rs,
+                renderedEnd: re
+            });
+        }
+    }
+
+    function clearTextSearchHighlights() {
+        var hits = treeEl ? treeEl.querySelectorAll('.outliner-search-hit, .outliner-search-hit-current') : [];
+        for (var i = 0; i < hits.length; i++) {
+            var el = hits[i];
+            var parent = el.parentNode;
+            if (!parent) { continue; }
+            while (el.firstChild) { parent.insertBefore(el.firstChild, el); }
+            parent.removeChild(el);
+            parent.normalize();
+        }
+    }
+
+    /** 指定ノードの指定フィールドDOM要素を取得 (描画モードのみ対象) */
+    function getFieldElement(nodeId, field) {
+        if (!treeEl) { return null; }
+        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (!nodeEl) { return null; }
+        if (field === 'text') {
+            return nodeEl.querySelector('.outliner-text');
+        }
+        return nodeEl.querySelector('.outliner-subtext');
+    }
+
+    /**
+     * 要素内のレンダリング後オフセット範囲 [rStart, rEnd] をラップして <span> 化する。
+     * 複数のテキストノードにまたがる場合は分割してそれぞれをラップする。
+     */
+    function wrapRenderedRange(el, rStart, rEnd, cls) {
+        if (!el || rStart >= rEnd) { return; }
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        var pos = 0;
+        var node;
+        var ops = [];
+        while ((node = walker.nextNode())) {
+            var txt = node.nodeValue || '';
+            var nodeStart = pos;
+            var nodeEnd = pos + txt.length;
+            if (nodeEnd <= rStart) { pos = nodeEnd; continue; }
+            if (nodeStart >= rEnd) { break; }
+            var localStart = Math.max(0, rStart - nodeStart);
+            var localEnd = Math.min(txt.length, rEnd - nodeStart);
+            if (localStart < localEnd) {
+                ops.push({ node: node, start: localStart, end: localEnd });
+            }
+            pos = nodeEnd;
+        }
+        // 逆順に処理 (splitText によるオフセットずれを回避)
+        for (var i = ops.length - 1; i >= 0; i--) {
+            var op = ops[i];
+            try {
+                var textNode = op.node;
+                if (op.end < (textNode.nodeValue || '').length) {
+                    textNode.splitText(op.end);
+                }
+                if (op.start > 0) {
+                    textNode = textNode.splitText(op.start);
+                }
+                var span = document.createElement('span');
+                span.className = cls;
+                textNode.parentNode.insertBefore(span, textNode);
+                span.appendChild(textNode);
+            } catch (e) {
+                // 失敗時はスキップ (編集モード遷移中等の稀なケース)
+            }
+        }
+    }
+
+    function paintTextSearchHighlights() {
+        clearTextSearchHighlights();
+        if (textSearchMatches.length === 0) { return; }
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var el = getFieldElement(m.nodeId, m.field);
+            if (!el) { continue; }
+            // 編集中の要素はスキップ (innerHTMLが書き換わるため)
+            if (document.activeElement === el) { continue; }
+            var cls = (i === textSearchCurrentIndex) ? 'outliner-search-hit-current' : 'outliner-search-hit';
+            wrapRenderedRange(el, m.renderedStart, m.renderedEnd, cls);
+        }
+    }
+
+    /** ノードの祖先 collapsed を全て解除してツリーを再描画 (必要な場合のみ) */
+    function ensureNodeExpanded(nodeId) {
+        var changed = false;
+        var n = model.getNode(nodeId);
+        if (!n) { return false; }
+        var cur = n.parentId ? model.getNode(n.parentId) : null;
+        while (cur) {
+            if (cur.collapsed) { cur.collapsed = false; changed = true; }
+            cur = cur.parentId ? model.getNode(cur.parentId) : null;
+        }
+        if (changed) { renderTree(); }
+        return changed;
+    }
+
+    function goToTextMatch(index) {
+        if (textSearchMatches.length === 0) {
+            textSearchCountEl.textContent = '0/0';
+            return;
+        }
+        if (index < 0) { index = textSearchMatches.length - 1; }
+        if (index >= textSearchMatches.length) { index = 0; }
+        textSearchCurrentIndex = index;
+        var m = textSearchMatches[index];
+
+        // 折畳みされていれば展開
+        ensureNodeExpanded(m.nodeId);
+
+        // ハイライト再描画 (current を区別)
+        paintTextSearchHighlights();
+
+        // スクロール
+        var el = getFieldElement(m.nodeId, m.field);
+        if (el) {
+            var hit = el.querySelector('.outliner-search-hit-current');
+            var target = hit || el;
+            if (target.scrollIntoView) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        textSearchCountEl.textContent = (index + 1) + '/' + textSearchMatches.length;
+    }
+
+    /** 1ノードの text または subtext を再描画 (blur 状態のみ) */
+    function rerenderNodeField(nodeId, field) {
+        var el = getFieldElement(nodeId, field);
+        if (!el) { return; }
+        if (document.activeElement === el) { return; } // 編集中は触らない
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        if (field === 'text') {
+            el.innerHTML = renderInlineText(node.text || '');
+        } else {
+            var sub = node.subtext || '';
+            if (sub) {
+                el.classList.add('has-content');
+                el.textContent = getSubtextPreview(sub);
+            } else {
+                el.classList.remove('has-content');
+                el.textContent = '';
+            }
+        }
+    }
+
+    function replaceCurrentTextMatch() {
+        if (textSearchCurrentIndex < 0 || textSearchCurrentIndex >= textSearchMatches.length) { return; }
+        var m = textSearchMatches[textSearchCurrentIndex];
+        var node = model.getNode(m.nodeId);
+        if (!node) { return; }
+
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+        var src = (m.field === 'text') ? (node.text || '') : (node.subtext || '');
+        var newSrc = src.slice(0, m.sourceStart) + replaceValue + src.slice(m.sourceEnd);
+        if (m.field === 'text') {
+            model.updateText(node.id, newSrc);
+        } else {
+            model.updateSubtext(node.id, newSrc);
+        }
+        rerenderNodeField(m.nodeId, m.field);
+        scheduleSyncToHost();
+
+        // 再検索して次のマッチへ
+        var preferIndex = textSearchCurrentIndex;
+        performTextSearch();
+        if (textSearchMatches.length > 0) {
+            goToTextMatch(Math.min(preferIndex, textSearchMatches.length - 1));
+        }
+    }
+
+    function replaceAllTextMatches() {
+        if (textSearchMatches.length === 0) { return; }
+        saveSnapshot();
+        var replaceValue = textReplaceInput.value;
+
+        // (nodeId, field) でグループ化
+        var groups = {};
+        for (var i = 0; i < textSearchMatches.length; i++) {
+            var m = textSearchMatches[i];
+            var key = m.nodeId + '\u0000' + m.field;
+            if (!groups[key]) { groups[key] = { nodeId: m.nodeId, field: m.field, items: [] }; }
+            groups[key].items.push(m);
+        }
+        var keys = Object.keys(groups);
+        for (var k = 0; k < keys.length; k++) {
+            var g = groups[keys[k]];
+            var node = model.getNode(g.nodeId);
+            if (!node) { continue; }
+            // sourceStart 降順 (後ろから置換してオフセットを壊さない)
+            g.items.sort(function(a, b) { return b.sourceStart - a.sourceStart; });
+            var src = (g.field === 'text') ? (node.text || '') : (node.subtext || '');
+            for (var j = 0; j < g.items.length; j++) {
+                var it = g.items[j];
+                src = src.slice(0, it.sourceStart) + replaceValue + src.slice(it.sourceEnd);
+            }
+            if (g.field === 'text') {
+                model.updateText(node.id, src);
+            } else {
+                model.updateSubtext(node.id, src);
+            }
+            rerenderNodeField(g.nodeId, g.field);
+        }
+        scheduleSyncToHost();
+
+        // 再検索 (通常は 0 件になる)
+        performTextSearch();
+    }
+
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
         document.addEventListener('keydown', function(e) {
+            // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
+            //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)
+            //   (サイドパネル MD エディタにフォーカスがある場合は editor.js 側に委譲)
+            if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                var ae = document.activeElement;
+                var inBox = !!(textSearchBox && ae && textSearchBox.contains(ae));
+                var inSidePanel = !!(ae && ae.closest && ae.closest('.side-panel-editor-root'));
+                if (!inBox && !inSidePanel) {
+                    if (!e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(false);
+                        return;
+                    }
+                    if (!e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        openTextSearchBox(true);
+                        return;
+                    }
+                    if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+                        if (searchInput) { searchInput.focus(); searchInput.select(); }
+                        return;
+                    }
+                }
+            }
+
             // 画像選択中の Delete/Backspace
             if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageInfo) {
                 e.preventDefault();
@@ -26662,6 +27340,55 @@ var Outliner = (function() {
         }
     };
 })();
+
+    </script>
+    <script>
+    'use strict';
+
+/**
+ * Notes ツリーアイテム用 固定 20 色パレット（Tailwind 500 レベル）
+ * Notes 左パネルの file/folder アイコン stroke 着色に使用
+ *
+ * 参照元:
+ *   - notes-file-panel.js: パレット UI 描画 + 色→CSS class マッピング
+ *   - notes-body-html.js: CSS 生成（stroke 色 + opacity）
+ *
+ * 色名は英語のみ（i18n 対象外、tooltip として表示）
+ *
+ * 注意: この配列の順序と hex 値は変更禁止 — 既存 outline.note に保存された
+ *       色名が不整合を起こす
+ */
+
+var NOTES_COLOR_PALETTE = [
+    { name: 'red',      hex: '#ef4444' },
+    { name: 'orange',   hex: '#f97316' },
+    { name: 'amber',    hex: '#f59e0b' },
+    { name: 'yellow',   hex: '#eab308' },
+    { name: 'lime',     hex: '#84cc16' },
+    { name: 'green',    hex: '#22c55e' },
+    { name: 'emerald',  hex: '#10b981' },
+    { name: 'teal',     hex: '#14b8a6' },
+    { name: 'cyan',     hex: '#06b6d4' },
+    { name: 'sky',      hex: '#0ea5e9' },
+    { name: 'blue',     hex: '#3b82f6' },
+    { name: 'indigo',   hex: '#6366f1' },
+    { name: 'violet',   hex: '#8b5cf6' },
+    { name: 'purple',   hex: '#a855f7' },
+    { name: 'fuchsia',  hex: '#d946ef' },
+    { name: 'pink',     hex: '#ec4899' },
+    { name: 'rose',     hex: '#f43f5e' },
+    { name: 'slate',    hex: '#64748b' },
+    { name: 'gray',     hex: '#6b7280' },
+    { name: 'zinc',     hex: '#71717a' },
+];
+
+// CommonJS + global 両対応（webview では window.NOTES_COLOR_PALETTE として使用）
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { NOTES_COLOR_PALETTE: NOTES_COLOR_PALETTE };
+}
+if (typeof window !== 'undefined') {
+    window.NOTES_COLOR_PALETTE = NOTES_COLOR_PALETTE;
+}
 
     </script>
     <script>
@@ -26779,7 +27506,13 @@ var notesFilePanel = (function() {
 
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
-        item.className = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
+        var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
+        // v11: color class 反映
+        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, ''));
+        if (itemColor) {
+            itemClass += ' notes-item-color-' + itemColor;
+        }
+        item.className = itemClass;
         item.dataset.filePath = f.filePath;
         item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
         item.dataset.itemType = 'file';
@@ -26819,7 +27552,12 @@ var notesFilePanel = (function() {
         if (parentId) wrapper.dataset.parentId = parentId;
 
         var header = document.createElement('div');
-        header.className = 'file-panel-folder-header';
+        // v11: color class は header に付与 (wrapper ではない — 直下セレクタが効くため)
+        var headerClass = 'file-panel-folder-header';
+        if (folder.color) {
+            headerClass += ' notes-item-color-' + folder.color;
+        }
+        header.className = headerClass;
         header.draggable = true;
         header.innerHTML = ICON_CHEVRON + ICON_FOLDER +
             '<span class="file-panel-folder-title">' + escapeHtml(folder.title || (i18n.notesUntitled || 'Untitled')) + '</span>';
@@ -26959,11 +27697,24 @@ var notesFilePanel = (function() {
         contextMenu.style.left = e.clientX + 'px';
         contextMenu.style.top = e.clientY + 'px';
 
+        var fileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
+        var currentColor = getItemColor(fileId);
+
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
         });
+        // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
+        addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+            renderColorPalette(contextMenu, currentColor, function(colorName) {
+                bridge.setItemColor(fileId, colorName);
+                closeContextMenu();
+            }, function() {
+                // Back: 元のメニューを再構築
+                showFileContextMenu(e, file);
+            });
+        }, false, true);
         addContextItem(contextMenu, i18n.notesDelete || 'Delete', async function() {
             closeContextMenu();
             await bridge.deleteFile(file.filePath);
@@ -26979,6 +27730,8 @@ var notesFilePanel = (function() {
         contextMenu.className = 'file-panel-context-menu';
         contextMenu.style.left = e.clientX + 'px';
         contextMenu.style.top = e.clientY + 'px';
+
+        var currentColor = folder.color || null;
 
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
@@ -26996,6 +27749,16 @@ var notesFilePanel = (function() {
                 if (header) startRenameFolder(header, folder);
             }
         });
+        // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
+        addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+            renderColorPalette(contextMenu, currentColor, function(colorName) {
+                bridge.setItemColor(folder.id, colorName);
+                closeContextMenu();
+            }, function() {
+                // Back: 元のメニューを再構築
+                showFolderContextMenu(e, folder);
+            });
+        }, false, true);
         addContextItem(contextMenu, i18n.notesDeleteFolder || 'Delete Folder', function() {
             closeContextMenu();
             bridge.deleteFolder(folder.id);
@@ -27005,11 +27768,14 @@ var notesFilePanel = (function() {
         setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
     }
 
-    function addContextItem(menu, label, onClick, danger) {
+    function addContextItem(menu, label, onClick, danger, stopProp) {
         var item = document.createElement('div');
         item.className = 'file-panel-context-item' + (danger ? ' danger' : '');
         item.textContent = label;
-        item.addEventListener('click', onClick);
+        item.addEventListener('click', function(e) {
+            if (stopProp) e.stopPropagation();
+            onClick(e);
+        });
         menu.appendChild(item);
     }
 
@@ -27018,6 +27784,58 @@ var notesFilePanel = (function() {
             contextMenu.parentNode.removeChild(contextMenu);
             contextMenu = null;
         }
+    }
+
+    // v11: カラーパレット UI をコンテキストメニュー内に描画
+    function renderColorPalette(menu, currentColor, onPick, onBack) {
+        // menu の innerHTML をクリアしてパレット UI に置換
+        menu.innerHTML = '';
+
+        // ← Set Color (Back ボタン)
+        var backBtn = document.createElement('div');
+        backBtn.className = 'file-panel-color-back';
+        backBtn.textContent = '← ' + (i18n.notesSetColor || 'Set Color');
+        backBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onBack();
+        });
+        menu.appendChild(backBtn);
+
+        // カラーグリッド (5x4 = 20色)
+        var grid = document.createElement('div');
+        grid.className = 'file-panel-color-grid';
+
+        // NOTES_COLOR_PALETTE を参照 (グローバル window または require)
+        var palette = (typeof NOTES_COLOR_PALETTE !== 'undefined')
+            ? NOTES_COLOR_PALETTE
+            : (typeof window !== 'undefined' && window.NOTES_COLOR_PALETTE)
+                ? window.NOTES_COLOR_PALETTE
+                : [];
+
+        palette.forEach(function(c) {
+            var swatch = document.createElement('div');
+            swatch.className = 'file-panel-color-swatch' + (currentColor === c.name ? ' active' : '');
+            swatch.style.backgroundColor = c.hex;
+            swatch.dataset.color = c.name;
+            swatch.title = c.name;
+            swatch.addEventListener('click', function(e) {
+                e.stopPropagation();
+                onPick(c.name);
+            });
+            grid.appendChild(swatch);
+        });
+
+        menu.appendChild(grid);
+
+        // None ボタン
+        var noneBtn = document.createElement('div');
+        noneBtn.className = 'file-panel-color-none';
+        noneBtn.textContent = i18n.notesColorNone || 'None';
+        noneBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onPick(null);
+        });
+        menu.appendChild(noneBtn);
     }
 
     // ── Drag & Drop ──
@@ -27190,6 +28008,12 @@ var notesFilePanel = (function() {
     }
 
     // ── ヘルパー ──
+
+    // v11: item の color を structure から取得
+    function getItemColor(itemId) {
+        if (!structure || !structure.items || !structure.items[itemId]) return null;
+        return structure.items[itemId].color || null;
+    }
 
     function getChildIdsOfParent(parentId) {
         if (!structure) return [];

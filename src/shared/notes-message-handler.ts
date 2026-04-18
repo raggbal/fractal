@@ -521,6 +521,30 @@ export async function handleNotesMessage(
             break;
         }
 
+        // v11: アイテム色設定
+        case 'notesSetItemColor': {
+            const structure = fileManager.getStructure();
+            if (structure && structure.items && structure.items[message.itemId]) {
+                const item = structure.items[message.itemId];
+                if (message.color === null || message.color === undefined) {
+                    // color クリア: delete で undefined 化 (後方互換)
+                    delete item.color;
+                } else {
+                    // v11 セキュリティ: パレット登録済み色名のみ許可
+                    const { NOTES_COLOR_PALETTE } = require('./notes-color-palette') as { NOTES_COLOR_PALETTE: Array<{ name: string; hex: string }> };
+                    const validNames = NOTES_COLOR_PALETTE.map(c => c.name);
+                    if (!validNames.includes(message.color)) {
+                        console.warn('[notes-message-handler] Invalid color name rejected:', message.color);
+                        return;
+                    }
+                    item.color = message.color;
+                }
+                fileManager.saveStructure();
+                sendFileListWithStructure(fileManager, sender);
+            }
+            break;
+        }
+
         // ── Daily Notes ──
 
         case 'notesOpenDailyNotes': {

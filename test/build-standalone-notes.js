@@ -24,6 +24,7 @@ const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
 const notesBodyHtmlPath = path.join(__dirname, '../src/shared/notes-body-html.js');
 const notesFilePanelJsPath = path.join(__dirname, '../src/shared/notes-file-panel.js');
+const notesColorPaletteJsPath = path.join(__dirname, '../src/shared/notes-color-palette.js');
 const outputPath = path.join(__dirname, 'html/standalone-notes.html');
 
 // vendor/ → test/html/vendor/ にコピー（テストサーバー用）
@@ -74,6 +75,7 @@ const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
+const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 
 // サイドパネルHTML生成
@@ -209,6 +211,9 @@ const testNotesHostBridge = `
         },
         savePanelWidth: function(width) {
             window.__testApi.notesMessages.push({ type: 'savePanelWidth', width: width });
+        },
+        setItemColor: function(itemId, color) {
+            window.__testApi.notesMessages.push({ type: 'setItemColor', itemId: itemId, color: color });
         },
         search: function() {},
         jumpToNode: function() {},
@@ -359,6 +364,9 @@ const html = `<!DOCTYPE html>
     __OUTLINER_SCRIPT__
     </script>
     <script>
+    __NOTES_COLOR_PALETTE_SCRIPT__
+    </script>
+    <script>
     __NOTES_FILE_PANEL_SCRIPT__
     </script>
     <script>
@@ -401,6 +409,7 @@ result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
+result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 fs.writeFileSync(outputPath, result);
 

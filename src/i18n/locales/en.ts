@@ -186,4 +186,6 @@ export const webviewMessages = {
   notesCleanUnusedAllNotesTooltip: 'Scan all registered notes for unused files',
   notesCleanUnusedCurrentNote: 'Clean Unused Files (Current Note)',
   notesCleanUnusedCurrentNoteTooltip: 'Scan current note for unused files',
+  notesSetColor: 'Set Color',
+  notesColorNone: 'None',
 };

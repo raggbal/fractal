@@ -112,7 +112,13 @@ var notesFilePanel = (function() {
 
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
-        item.className = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
+        var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
+        // v11: color class 反映
+        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, ''));
+        if (itemColor) {
+            itemClass += ' notes-item-color-' + itemColor;
+        }
+        item.className = itemClass;
         item.dataset.filePath = f.filePath;
         item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
         item.dataset.itemType = 'file';
@@ -152,7 +158,12 @@ var notesFilePanel = (function() {
         if (parentId) wrapper.dataset.parentId = parentId;
 
         var header = document.createElement('div');
-        header.className = 'file-panel-folder-header';
+        // v11: color class は header に付与 (wrapper ではない — 直下セレクタが効くため)
+        var headerClass = 'file-panel-folder-header';
+        if (folder.color) {
+            headerClass += ' notes-item-color-' + folder.color;
+        }
+        header.className = headerClass;
         header.draggable = true;
         header.innerHTML = ICON_CHEVRON + ICON_FOLDER +
             '<span class="file-panel-folder-title">' + escapeHtml(folder.title || (i18n.notesUntitled || 'Untitled')) + '</span>';
@@ -292,11 +303,24 @@ var notesFilePanel = (function() {
         contextMenu.style.left = e.clientX + 'px';
         contextMenu.style.top = e.clientY + 'px';
 
+        var fileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
+        var currentColor = getItemColor(fileId);
+
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
         });
+        // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
+        addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+            renderColorPalette(contextMenu, currentColor, function(colorName) {
+                bridge.setItemColor(fileId, colorName);
+                closeContextMenu();
+            }, function() {
+                // Back: 元のメニューを再構築
+                showFileContextMenu(e, file);
+            });
+        }, false, true);
         addContextItem(contextMenu, i18n.notesDelete || 'Delete', async function() {
             closeContextMenu();
             await bridge.deleteFile(file.filePath);
@@ -312,6 +336,8 @@ var notesFilePanel = (function() {
         contextMenu.className = 'file-panel-context-menu';
         contextMenu.style.left = e.clientX + 'px';
         contextMenu.style.top = e.clientY + 'px';
+
+        var currentColor = folder.color || null;
 
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
@@ -329,6 +355,16 @@ var notesFilePanel = (function() {
                 if (header) startRenameFolder(header, folder);
             }
         });
+        // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
+        addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+            renderColorPalette(contextMenu, currentColor, function(colorName) {
+                bridge.setItemColor(folder.id, colorName);
+                closeContextMenu();
+            }, function() {
+                // Back: 元のメニューを再構築
+                showFolderContextMenu(e, folder);
+            });
+        }, false, true);
         addContextItem(contextMenu, i18n.notesDeleteFolder || 'Delete Folder', function() {
             closeContextMenu();
             bridge.deleteFolder(folder.id);
@@ -338,11 +374,14 @@ var notesFilePanel = (function() {
         setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
     }
 
-    function addContextItem(menu, label, onClick, danger) {
+    function addContextItem(menu, label, onClick, danger, stopProp) {
         var item = document.createElement('div');
         item.className = 'file-panel-context-item' + (danger ? ' danger' : '');
         item.textContent = label;
-        item.addEventListener('click', onClick);
+        item.addEventListener('click', function(e) {
+            if (stopProp) e.stopPropagation();
+            onClick(e);
+        });
         menu.appendChild(item);
     }
 
@@ -351,6 +390,58 @@ var notesFilePanel = (function() {
             contextMenu.parentNode.removeChild(contextMenu);
             contextMenu = null;
         }
+    }
+
+    // v11: カラーパレット UI をコンテキストメニュー内に描画
+    function renderColorPalette(menu, currentColor, onPick, onBack) {
+        // menu の innerHTML をクリアしてパレット UI に置換
+        menu.innerHTML = '';
+
+        // ← Set Color (Back ボタン)
+        var backBtn = document.createElement('div');
+        backBtn.className = 'file-panel-color-back';
+        backBtn.textContent = '← ' + (i18n.notesSetColor || 'Set Color');
+        backBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onBack();
+        });
+        menu.appendChild(backBtn);
+
+        // カラーグリッド (5x4 = 20色)
+        var grid = document.createElement('div');
+        grid.className = 'file-panel-color-grid';
+
+        // NOTES_COLOR_PALETTE を参照 (グローバル window または require)
+        var palette = (typeof NOTES_COLOR_PALETTE !== 'undefined')
+            ? NOTES_COLOR_PALETTE
+            : (typeof window !== 'undefined' && window.NOTES_COLOR_PALETTE)
+                ? window.NOTES_COLOR_PALETTE
+                : [];
+
+        palette.forEach(function(c) {
+            var swatch = document.createElement('div');
+            swatch.className = 'file-panel-color-swatch' + (currentColor === c.name ? ' active' : '');
+            swatch.style.backgroundColor = c.hex;
+            swatch.dataset.color = c.name;
+            swatch.title = c.name;
+            swatch.addEventListener('click', function(e) {
+                e.stopPropagation();
+                onPick(c.name);
+            });
+            grid.appendChild(swatch);
+        });
+
+        menu.appendChild(grid);
+
+        // None ボタン
+        var noneBtn = document.createElement('div');
+        noneBtn.className = 'file-panel-color-none';
+        noneBtn.textContent = i18n.notesColorNone || 'None';
+        noneBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onPick(null);
+        });
+        menu.appendChild(noneBtn);
     }
 
     // ── Drag & Drop ──
@@ -523,6 +614,12 @@ var notesFilePanel = (function() {
     }
 
     // ── ヘルパー ──
+
+    // v11: item の color を structure から取得
+    function getItemColor(itemId) {
+        if (!structure || !structure.items || !structure.items[itemId]) return null;
+        return structure.items[itemId].color || null;
+    }
 
     function getChildIdsOfParent(parentId) {
         if (!structure) return [];

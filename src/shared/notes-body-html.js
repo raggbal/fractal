@@ -8,6 +8,30 @@
  * @param {boolean} options.collapsed - パネルが折り畳み状態か
  * @returns {{ css: string, html: string }} CSS文字列とHTML文字列
  */
+
+/**
+ * 20 色分の Notes アイコン色付け CSS を生成
+ * @returns {string} CSS ルール文字列
+ */
+function generateNotesColorCss() {
+    // CommonJS require または global から palette を取得
+    var palette;
+    if (typeof NOTES_COLOR_PALETTE !== 'undefined') {
+        palette = NOTES_COLOR_PALETTE;
+    } else if (typeof require !== 'undefined') {
+        palette = require('./notes-color-palette').NOTES_COLOR_PALETTE;
+    } else {
+        return '';
+    }
+
+    return palette.map(function(c) {
+        // 直下セレクタ (>) を使用してサブツリーへの色伝播を防止
+        return '.notes-item-color-' + c.name + ' > .file-panel-item-icon,\n' +
+               '.notes-item-color-' + c.name + ' > .file-panel-folder-icon { ' +
+               'stroke: ' + c.hex + '; opacity: 1; }';
+    }).join('\n');
+}
+
 function generateNotesFilePanelHtml(options) {
     var collapsed = options && options.collapsed;
     var msg = (options && options.messages) || {};
@@ -86,7 +110,7 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 14px; height: 14px; }
         .file-panel-folder-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .file-panel-folder-children {
-            padding-left: 12px;
+            padding-left: 28px;  /* v11: was 12px. chevron(14) + gap(4) + folder icon(14) 相当 */
         }
         .file-panel-folder.collapsed > .file-panel-folder-children {
             display: none;
@@ -229,6 +253,28 @@ function generateNotesFilePanelHtml(options) {
             font-weight: bold; font-size: 12px; margin-bottom: 6px;
             color: var(--vscode-foreground); opacity: 0.8;
         }
+
+        /* ── v11: Color Palette UI ── */
+        .file-panel-color-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 20px);
+            gap: 4px;
+            padding: 8px 12px;
+        }
+        .file-panel-color-swatch {
+            width: 20px; height: 20px; border-radius: 4px; cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .file-panel-color-swatch:hover { transform: scale(1.15); }
+        .file-panel-color-swatch.active { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-color-back, .file-panel-color-none {
+            font-size: 12px;
+            opacity: 0.75;
+        }
+
+        /* ── v11: Notes Item Color Classes (generated) ── */
+        ` + generateNotesColorCss() + `
     `;
 
     var html = `<aside class="notes-file-panel${panelClass}" id="notesFilePanel">

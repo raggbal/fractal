@@ -150,4 +150,6 @@ export const webviewMessages = {
   notesS3LocalDeleteDownload: '本地刪除並下載',
   notesS3Cancel: '取消',
   notesS3Continue: '繼續',
+  notesSetColor: '設定顏色',
+  notesColorNone: '無',
 };
