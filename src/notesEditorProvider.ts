@@ -9,7 +9,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
-import { processDropFilesImport, DropImportItem } from './shared/drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './shared/drop-import';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
@@ -385,6 +385,35 @@ export class NotesEditorProvider {
                 });
 
                 // Check for failures
+                const failed = results.filter(r => !r.ok);
+                if (failed.length > 0) {
+                    vscode.window.showWarningMessage(t('dropImportFailed'));
+                }
+
+                senderRef.postMessage({
+                    type: 'dropFilesResult',
+                    results,
+                    targetNodeId,
+                    position
+                });
+            },
+            dropVscodeUrisImport: async (uris: string[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
+                // v12 拡張: VSCode Explorer D&D (Notes mode)
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                const outlinerId = path.basename(currentOutFilePath, '.out');
+                const fileDir = path.join(folderPath, outlinerId, 'files');
+                const pagesDir = fileManager.getPagesDirPath();
+                const imageDir = path.join(pagesDir, 'images');
+                const outDir = path.dirname(currentOutFilePath);
+
+                const results = await processDropVscodeUrisImport(uris, {
+                    fileDir,
+                    pageDir: pagesDir,
+                    imageDir,
+                    outDir
+                });
+
                 const failed = results.filter(r => !r.ok);
                 if (failed.length > 0) {
                     vscode.window.showWarningMessage(t('dropImportFailed'));

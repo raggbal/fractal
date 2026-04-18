@@ -607,3 +607,294 @@ test.describe.serial('DOD-12-26: FileReader usage - no File direct to postMessag
         expect(dropFilesImportMatch![0]).not.toMatch(/\bfiles\b|\bitems\b/);
     });
 });
+
+// ============================================================================
+// DOD-12-27〜31: VSCode Explorer D&D 経路 (v12 拡張)
+// ============================================================================
+
+test.describe.serial('DOD-12-27: VSCode URI dragover detection', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-27: dragover with application/vnd.code.uri-list type adds outliner-tree-drop-zone-active class', async ({ page }) => {
+        const hasClass = await page.evaluate(() => {
+            const treeEl = document.querySelector('.outliner-tree') as HTMLElement;
+            const event = new DragEvent('dragover', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+            });
+            // Mock VSCode Explorer URI list type
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['application/vnd.code.uri-list'],
+                writable: false
+            });
+
+            treeEl.dispatchEvent(event);
+            return treeEl.classList.contains('outliner-tree-drop-zone-active');
+        });
+
+        expect(hasClass).toBe(true);
+    });
+
+    test('DOD-12-27: node element dragover with uri-list shows drop indicator', async ({ page }) => {
+        const result = await page.evaluate(() => {
+            const nodeEl = document.querySelector('.outliner-node') as HTMLElement;
+            if (!nodeEl) return { error: 'no node' };
+
+            const rect = nodeEl.getBoundingClientRect();
+            const event = new DragEvent('dragover', {
+                bubbles: true,
+                cancelable: true,
+                clientY: rect.top + rect.height * 0.5,
+                dataTransfer: new DataTransfer()
+            });
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['application/vnd.code.uri-list'],
+                writable: false
+            });
+
+            nodeEl.dispatchEvent(event);
+            const indicator = document.querySelector('.outliner-drop-indicator');
+            return { hasIndicator: !!indicator };
+        });
+
+        expect(result.hasIndicator).toBe(true);
+    });
+});
+
+test.describe.serial('DOD-12-28: VSCode URI drop sends dropVscodeUrisImport message', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-28: drop with uri-list sends dropVscodeUrisImport with parsed URIs', async ({ page }) => {
+        // Capture messages sent to host
+        const capturedMessages: any[] = [];
+        await page.evaluate(() => {
+            const original = (window as any).outlinerHostBridge.dropVscodeUrisImport;
+            (window as any).outlinerHostBridge.dropVscodeUrisImport = function(uris: string[], targetNodeId: string | null, position: string) {
+                (window as any).__capturedDropVscodeUrisImport = { uris, targetNodeId, position };
+                // Don't call original to avoid actual processing
+            };
+        });
+
+        await page.evaluate(() => {
+            const treeEl = document.querySelector('.outliner-tree') as HTMLElement;
+            const event = new DragEvent('drop', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+            });
+
+            // Mock the dataTransfer
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['application/vnd.code.uri-list'],
+                writable: false
+            });
+            Object.defineProperty(event.dataTransfer, 'getData', {
+                value: (type: string) => {
+                    if (type === 'application/vnd.code.uri-list') {
+                        return 'file:///tmp/a.pdf\nfile:///tmp/b.md\nfile:///tmp/c.png';
+                    }
+                    return '';
+                },
+                writable: false
+            });
+
+            treeEl.dispatchEvent(event);
+        });
+
+        const captured = await page.evaluate(() => (window as any).__capturedDropVscodeUrisImport);
+        expect(captured).toBeTruthy();
+        expect(captured.uris).toEqual([
+            'file:///tmp/a.pdf',
+            'file:///tmp/b.md',
+            'file:///tmp/c.png'
+        ]);
+        expect(captured.position).toBe('root-end');
+    });
+
+    test('DOD-12-28: empty lines in uri-list are filtered out', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).outlinerHostBridge.dropVscodeUrisImport = function(uris: string[], targetNodeId: string | null, position: string) {
+                (window as any).__capturedDropVscodeUrisImport = { uris, targetNodeId, position };
+            };
+        });
+
+        await page.evaluate(() => {
+            const treeEl = document.querySelector('.outliner-tree') as HTMLElement;
+            const event = new DragEvent('drop', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+            });
+
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['application/vnd.code.uri-list'],
+                writable: false
+            });
+            Object.defineProperty(event.dataTransfer, 'getData', {
+                value: (type: string) => {
+                    if (type === 'application/vnd.code.uri-list') {
+                        return 'file:///tmp/a.pdf\n\n  \nfile:///tmp/b.pdf\n';
+                    }
+                    return '';
+                },
+                writable: false
+            });
+
+            treeEl.dispatchEvent(event);
+        });
+
+        const captured = await page.evaluate(() => (window as any).__capturedDropVscodeUrisImport);
+        expect(captured.uris).toEqual(['file:///tmp/a.pdf', 'file:///tmp/b.pdf']);
+    });
+});
+
+test.describe.serial('DOD-12-29/30/31: processDropVscodeUrisImport static analysis', () => {
+    test('DOD-12-29: processDropVscodeUrisImport calls importFiles/importMdFiles directly', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        const srcPath = path.join(process.cwd(), 'src/shared/drop-import.ts');
+        const src = fs.readFileSync(srcPath, 'utf-8');
+
+        // Verify processDropVscodeUrisImport function exists
+        expect(src).toMatch(/export async function processDropVscodeUrisImport/);
+
+        // Verify it calls importMdFiles (not importMdFilesCore)
+        expect(src).toMatch(/importMdFiles\s*\(/);
+
+        // Verify it calls importFiles (not importFilesCore)
+        expect(src).toMatch(/importFiles\s*\(/);
+    });
+
+    test('DOD-12-30: Explorer path .md drop uses importMdFiles for relative image resolution', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        const srcPath = path.join(process.cwd(), 'src/shared/drop-import.ts');
+        const src = fs.readFileSync(srcPath, 'utf-8');
+
+        // Verify processDropVscodeUrisImport does NOT use skipRelativeImages
+        // It should call importMdFiles directly which handles relative images
+        const vscodeUrisSection = src.match(/export async function processDropVscodeUrisImport[\s\S]+?^}/m);
+        expect(vscodeUrisSection).toBeTruthy();
+
+        // Should NOT contain skipRelativeImages in this function
+        if (vscodeUrisSection) {
+            expect(vscodeUrisSection[0]).not.toMatch(/skipRelativeImages/);
+        }
+    });
+
+    test('DOD-12-31: Explorer path has no MAX_FILE_SIZE check (code review)', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+
+        const webviewSrcPath = path.join(process.cwd(), 'src/webview/outliner.js');
+        const webviewSrc = fs.readFileSync(webviewSrcPath, 'utf-8');
+
+        // Find handleVscodeUrisDrop function
+        const handleVscodeUrisMatch = webviewSrc.match(/function handleVscodeUrisDrop[\s\S]+?(?=\n    function|\n    \/\/|$)/);
+        expect(handleVscodeUrisMatch).toBeTruthy();
+
+        if (handleVscodeUrisMatch) {
+            // Should NOT contain MAX_FILE_SIZE check
+            expect(handleVscodeUrisMatch[0]).not.toMatch(/MAX_FILE_SIZE/);
+            expect(handleVscodeUrisMatch[0]).not.toMatch(/file\.size/);
+            expect(handleVscodeUrisMatch[0]).not.toMatch(/notifyDropFileTooLarge/);
+        }
+    });
+});
+
+test.describe.serial('DOD-12-E2E-19: Finder path regression after Explorer path addition', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-E2E-19: Finder path (Files type) still calls handleFilesDrop, not handleVscodeUrisDrop', async ({ page }) => {
+        // Verify that Files type triggers handleFilesDrop
+        await page.evaluate(() => {
+            (window as any).__handleFilesDropCalled = false;
+            (window as any).__handleVscodeUrisDropCalled = false;
+
+            // Mock both handlers to track which one is called
+            const originalDropFilesImport = (window as any).outlinerHostBridge.dropFilesImport;
+            (window as any).outlinerHostBridge.dropFilesImport = function() {
+                (window as any).__handleFilesDropCalled = true;
+            };
+
+            const originalDropVscodeUrisImport = (window as any).outlinerHostBridge.dropVscodeUrisImport;
+            if (originalDropVscodeUrisImport) {
+                (window as any).outlinerHostBridge.dropVscodeUrisImport = function() {
+                    (window as any).__handleVscodeUrisDropCalled = true;
+                };
+            }
+        });
+
+        // Simulate Files type drop (Finder path)
+        await page.evaluate(() => {
+            const treeEl = document.querySelector('.outliner-tree') as HTMLElement;
+            const event = new DragEvent('drop', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+            });
+
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['Files'],
+                writable: false
+            });
+            Object.defineProperty(event.dataTransfer, 'items', {
+                value: [],
+                writable: false
+            });
+
+            treeEl.dispatchEvent(event);
+        });
+
+        // Give a moment for async processing
+        await page.waitForTimeout(100);
+
+        const result = await page.evaluate(() => ({
+            filesDropCalled: (window as any).__handleFilesDropCalled,
+            vscodeUrisDropCalled: (window as any).__handleVscodeUrisDropCalled
+        }));
+
+        // Files type should trigger handleFilesDrop path (which calls dropFilesImport)
+        // NOT handleVscodeUrisDrop
+        expect(result.vscodeUrisDropCalled).toBe(false);
+    });
+});

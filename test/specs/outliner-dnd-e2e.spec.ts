@@ -824,6 +824,176 @@ test.describe.serial('DOD-12-E2E-11: Notes mode outliner D&D behavior', () => {
     });
 });
 
+// ============================================================================
+// DOD-12-E2E-16/17/18: VSCode Explorer D&D E2E Tests (v12 拡張)
+// ============================================================================
+
+test.describe.serial('DOD-12-E2E-16: Explorer URI drop creates file node', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-E2E-16: Explorer URI drop (mocked) creates file node with filePath', async ({ page }) => {
+        // Mock the dropVscodeUrisImport response (simulating host processing)
+        await page.evaluate(() => {
+            // The webview sends dropVscodeUrisImport to host
+            // Host processes URIs and sends back dropFilesResult
+            // We simulate the host response
+            (window as any).__hostMessageHandler({
+                type: 'dropFilesResult',
+                results: [{
+                    kind: 'file',
+                    ok: true,
+                    title: 'sample.pdf',
+                    filePath: 'files/sample.pdf'
+                }],
+                targetNodeId: 'n1',
+                position: 'after'
+            });
+        });
+        await page.waitForTimeout(1500);
+
+        const data = await page.evaluate(() => JSON.parse((window as any).__testApi.lastSyncData));
+        expect(data.rootIds.length).toBe(2);
+        const newNodeId = data.rootIds.find((id: string) => id !== 'n1');
+        expect(data.nodes[newNodeId].text).toBe('sample.pdf');
+        expect(data.nodes[newNodeId].filePath).toBe('files/sample.pdf');
+    });
+
+    test('DOD-12-E2E-16: Explorer dragover with uri-list activates drop zone', async ({ page }) => {
+        // Verify that dragover with application/vnd.code.uri-list type
+        // activates the drop zone (same visual as Files type)
+        const hasClass = await page.evaluate(() => {
+            const treeEl = document.querySelector('.outliner-tree') as HTMLElement;
+            const event = new DragEvent('dragover', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: new DataTransfer()
+            });
+            Object.defineProperty(event.dataTransfer, 'types', {
+                value: ['application/vnd.code.uri-list'],
+                writable: false
+            });
+
+            treeEl.dispatchEvent(event);
+            return treeEl.classList.contains('outliner-tree-drop-zone-active');
+        });
+
+        expect(hasClass).toBe(true);
+    });
+});
+
+test.describe.serial('DOD-12-E2E-17: Explorer .md drop with relative images', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-E2E-17: Explorer .md drop creates page node (simulated host response)', async ({ page }) => {
+        // When Explorer drops a .md file with relative images,
+        // the host uses importMdFiles which handles relative image resolution.
+        // We simulate the host response after processing.
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'dropFilesResult',
+                results: [{
+                    kind: 'md',
+                    ok: true,
+                    title: 'Hello',
+                    pageId: 'explorer-page-uuid'
+                    // Note: The image path rewriting happens on host side
+                    // and is stored in the .md file, not in the result
+                }],
+                targetNodeId: 'n1',
+                position: 'after'
+            });
+        });
+        await page.waitForTimeout(1500);
+
+        const data = await page.evaluate(() => JSON.parse((window as any).__testApi.lastSyncData));
+        expect(data.rootIds.length).toBe(2);
+
+        const newNodeId = data.rootIds.find((id: string) => id !== 'n1');
+        expect(data.nodes[newNodeId].text).toBe('Hello');
+        expect(data.nodes[newNodeId].isPage).toBe(true);
+        expect(data.nodes[newNodeId].pageId).toBe('explorer-page-uuid');
+    });
+});
+
+test.describe.serial('DOD-12-E2E-18: Remote URI rejection', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'Node1', tags: [] }
+                }
+            });
+        });
+    });
+
+    test('DOD-12-E2E-18: vscode-remote:// URI drop results in ok:false', async ({ page }) => {
+        // Get initial node count
+        const initialCount = await page.locator('.outliner-node').count();
+
+        // When host receives a remote URI, it returns ok:false
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'dropFilesResult',
+                results: [{
+                    kind: 'file',
+                    ok: false,
+                    name: 'vscode-remote://ssh-remote/home/a.pdf',
+                    error: 'Unsupported URI scheme: vscode-remote: (only file:// is supported)'
+                }],
+                targetNodeId: 'n1',
+                position: 'after'
+            });
+        });
+        await page.waitForTimeout(1500);
+
+        // No new node should be created (ok:false results are skipped)
+        const finalCount = await page.locator('.outliner-node').count();
+        expect(finalCount).toBe(initialCount);
+    });
+
+    test('DOD-12-E2E-18: processDropVscodeUrisImport rejects non-file:// URIs', async () => {
+        // Static analysis test - verify remote URI rejection in drop-import.ts
+        const fs = await import('fs');
+        const path = await import('path');
+
+        const srcPath = path.join(process.cwd(), 'src/shared/drop-import.ts');
+        const src = fs.readFileSync(srcPath, 'utf-8');
+
+        // Verify the function checks for file:// protocol
+        expect(src).toMatch(/parsedUrl\.protocol\s*!==\s*['"]file:/);
+        // Verify it creates an error result for non-file schemes
+        expect(src).toMatch(/Unsupported URI scheme/);
+    });
+});
+
 test.describe.serial('DOD-12-E2E-12: Side panel drop does not trigger outliner D&D', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/standalone-outliner.html');

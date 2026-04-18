@@ -29,6 +29,8 @@ export const messages = {
   dropFolderRejected: 'Les dossiers ne sont pas pris en charge pour l\'importation par glisser-déposer',
   dropFileTooLarge: 'Fichier trop volumineux (max 50 Mo)',
   dropImportFailed: 'Échec de l\'importation du/des fichier(s)',
+  // v12 拡張: VSCode Explorer D&D
+  dropRemoteUriUnsupported: 'Les fichiers distants ne sont pas pris en charge (fichiers locaux uniquement)',
 };
 
 export const webviewMessages = {

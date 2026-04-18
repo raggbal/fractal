@@ -6,7 +6,7 @@ import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
-import { processDropFilesImport, DropImportItem } from './drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -99,6 +99,8 @@ export interface NotesPlatformActions {
     showQuickPick?(items: Array<{ label: string; description?: string }>, placeHolder: string): Promise<{ label: string; description?: string } | undefined>;
     /** v12: D&D ファイルインポート */
     dropFilesImport?(items: DropImportItem[], targetNodeId: string | null, position: string, sender: NotesSender): void;
+    /** v12 拡張: VSCode Explorer D&D */
+    dropVscodeUrisImport?(uris: string[], targetNodeId: string | null, position: string, sender: NotesSender): void;
     /** v12: フォルダ D&D 拒否通知 */
     notifyDropFolderRejected?(folders: string[]): void;
     /** v12: ファイルサイズ超過通知 */
@@ -179,6 +181,10 @@ export async function handleNotesMessage(
 
         case 'dropFilesImport':
             platform.dropFilesImport?.(message.items, message.targetNodeId, message.position, sender);
+            break;
+
+        case 'dropVscodeUrisImport':
+            platform.dropVscodeUrisImport?.(message.uris, message.targetNodeId, message.position, sender);
             break;
 
         case 'notifyDropFolderRejected':

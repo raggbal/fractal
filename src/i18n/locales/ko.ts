@@ -29,6 +29,8 @@ export const messages = {
   dropFolderRejected: '드래그 앤 드롭 가져오기에서 폴더는 지원되지 않습니다',
   dropFileTooLarge: '파일이 너무 큽니다 (최대 50MB)',
   dropImportFailed: '파일 가져오기 실패',
+  // v12 拡張: VSCode Explorer D&D
+  dropRemoteUriUnsupported: '원격 파일은 지원되지 않습니다 (로컬 파일만 해당)',
 };
 
 export const webviewMessages = {

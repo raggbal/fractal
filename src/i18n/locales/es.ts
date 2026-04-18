@@ -29,6 +29,8 @@ export const messages = {
   dropFolderRejected: 'Las carpetas no son compatibles con la importación por arrastrar y soltar',
   dropFileTooLarge: 'Archivo demasiado grande (máximo 50MB)',
   dropImportFailed: 'Error al importar archivo(s)',
+  // v12 拡張: VSCode Explorer D&D
+  dropRemoteUriUnsupported: 'Los archivos remotos no son compatibles (solo archivos locales)',
 };
 
 export const webviewMessages = {

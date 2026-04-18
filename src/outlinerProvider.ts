@@ -6,7 +6,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
-import { processDropFilesImport, DropImportItem, DropImportResult } from './shared/drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, DropImportResult } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
@@ -254,6 +254,39 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             vscode.window.showWarningMessage(t('dropImportFailed'));
                         }
 
+                        webviewPanel.webview.postMessage({
+                            type: 'dropFilesResult',
+                            results,
+                            targetNodeId: message.targetNodeId,
+                            position: message.position
+                        });
+                        break;
+                    }
+
+                    case 'dropVscodeUrisImport': {
+                        // v12 拡張: VSCode Explorer D&D
+                        const uris: string[] = message.uris;
+                        const fileDir = this.getFileDirPath(document);
+                        const pageDir = this.getPagesDirPath(document);
+                        const imageDir = this.getOutlinerImageDirPath(document);
+                        const outDir = path.dirname(document.uri.fsPath);
+
+                        const results = await processDropVscodeUrisImport(uris, {
+                            fileDir,
+                            pageDir,
+                            imageDir,
+                            outDir,
+                            getDisplayUri: (filePath: string) =>
+                                webviewPanel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString()
+                        });
+
+                        const failed = results.filter((r): r is Extract<DropImportResult, { ok: false }> => !r.ok);
+                        if (failed.length > 0) {
+                            const names = failed.map(f => f.name).slice(0, 3).join(', ');
+                            vscode.window.showWarningMessage(`${t('dropImportFailed')}: ${names}${failed.length > 3 ? '...' : ''}`);
+                        }
+
+                        // Use same dropFilesResult message format for webview reuse
                         webviewPanel.webview.postMessage({
                             type: 'dropFilesResult',
                             results,

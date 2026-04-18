@@ -282,8 +282,8 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
-            // Files D&D (OS file drop) has priority
-            if (isFilesDragEvent(e)) {
+            // Files D&D (Finder or VSCode Explorer) has priority
+            if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
                 treeEl.classList.add('outliner-tree-drop-zone-active');
                 return;
@@ -293,12 +293,21 @@ var Outliner = (function() {
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
-            // Files D&D (OS file drop)
+            // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
+                // Finder path
                 e.preventDefault();
                 treeEl.classList.remove('outliner-tree-drop-zone-active');
                 removeDropIndicator();
                 handleFilesDrop(e, null, 'root-end');
+                return;
+            }
+            if (isVscodeUriDragEvent(e)) {
+                // VSCode Explorer path (v12 拡張)
+                e.preventDefault();
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                removeDropIndicator();
+                handleVscodeUrisDrop(e, null, 'root-end');
                 return;
             }
             // Existing node reorder D&D
@@ -339,9 +348,19 @@ var Outliner = (function() {
 
     // --- ドラッグ&ドロップ ヘルパー ---
 
-    /** Check if drag event contains Files (OS file drop) */
+    /** Check if drag event contains Files (OS file drop / Finder) */
     function isFilesDragEvent(e) {
         return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+    }
+
+    /** Check if drag event contains VSCode Explorer URI list (v12 拡張) */
+    function isVscodeUriDragEvent(e) {
+        return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('application/vnd.code.uri-list') >= 0;
+    }
+
+    /** Check if drag event is any file drop (Finder OR VSCode Explorer) */
+    function isAnyFilesDragEvent(e) {
+        return isFilesDragEvent(e) || isVscodeUriDragEvent(e);
     }
 
     /** Classify dropped file by extension */
@@ -418,6 +437,18 @@ var Outliner = (function() {
 
         // 3. Send to host
         host.dropFilesImport(imports, targetNodeId, position);
+    }
+
+    /**
+     * Handle VSCode Explorer D&D drop event (v12 拡張)
+     * Unlike Finder path, this sends URIs directly to host without FileReader.
+     * No 50MB limit (webview memory not involved).
+     */
+    function handleVscodeUrisDrop(e, targetNodeId, position) {
+        var raw = e.dataTransfer.getData('application/vnd.code.uri-list') || '';
+        var uris = raw.split(/\r?\n/).map(function(s) { return s.trim(); }).filter(Boolean);
+        if (uris.length === 0) return;
+        host.dropVscodeUrisImport(uris, targetNodeId, position);
     }
 
     function showDropIndicator(targetEl, position) {
@@ -944,8 +975,8 @@ var Outliner = (function() {
 
         // D&D: ノード要素にドロップターゲットイベント
         el.addEventListener('dragover', function(e) {
-            // Files D&D (OS file drop) has priority
-            if (isFilesDragEvent(e)) {
+            // Files D&D (Finder or VSCode Explorer) has priority
+            if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 var rect = el.getBoundingClientRect();
@@ -986,8 +1017,9 @@ var Outliner = (function() {
         el.addEventListener('drop', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            // Files D&D (OS file drop)
+            // Files D&D: distinguish Finder vs VSCode Explorer
             if (isFilesDragEvent(e)) {
+                // Finder path
                 treeEl.classList.remove('outliner-tree-drop-zone-active');
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
@@ -996,6 +1028,18 @@ var Outliner = (function() {
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleFilesDrop(e, targetId, pos);
+                return;
+            }
+            if (isVscodeUriDragEvent(e)) {
+                // VSCode Explorer path (v12 拡張)
+                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                var rect = el.getBoundingClientRect();
+                var y = e.clientY - rect.top;
+                var h = rect.height;
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var targetId = el.dataset.id;
+                removeDropIndicator();
+                handleVscodeUrisDrop(e, targetId, pos);
                 return;
             }
             // Existing node reorder D&D

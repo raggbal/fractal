@@ -42,6 +42,8 @@ export const messages = {
   dropFolderRejected: 'フォルダはドラッグ&ドロップインポートに対応していません',
   dropFileTooLarge: 'ファイルが大きすぎます (最大50MB)',
   dropImportFailed: 'ファイルのインポートに失敗しました',
+  // v12 拡張: VSCode Explorer D&D
+  dropRemoteUriUnsupported: 'リモートファイルはサポートされていません（ローカルファイルのみ）',
 };
 
 export const webviewMessages = {

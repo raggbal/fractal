@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { processDropFilesImport, classifyDroppedFile, DropImportItem } from '../../src/shared/drop-import';
+import { processDropFilesImport, classifyDroppedFile, DropImportItem, processDropVscodeUrisImport } from '../../out/shared/drop-import';
 
 test.describe('DOD-12-6: classifyDroppedFile — file type classification', () => {
     test('classifies .md files (case insensitive)', () => {
@@ -257,6 +257,164 @@ test.describe('DOD-12-FR2-2: Core function sharing verification', () => {
         expect(results[0].ok).toBe(true);
         if (results[0].ok && results[0].kind === 'md') {
             expect(results[0].title).toBe('My Custom Title');
+        }
+    });
+});
+
+// ============================================================================
+// DOD-12-29/30: VSCode Explorer D&D 経路 (v12 拡張)
+// ============================================================================
+
+test.describe('DOD-12-29: processDropVscodeUrisImport uses existing importFiles/importMdFiles', () => {
+    let tmpDir: string;
+    let ctx: { fileDir: string; pageDir: string; imageDir: string; outDir: string };
+
+    test.beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fractal-vscode-uri-test-'));
+        ctx = {
+            fileDir: path.join(tmpDir, 'files'),
+            pageDir: path.join(tmpDir, 'pages'),
+            imageDir: path.join(tmpDir, 'images'),
+            outDir: tmpDir
+        };
+    });
+
+    test.afterEach(() => {
+        if (fs.existsSync(tmpDir)) {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    test('processes file:// URIs and creates files using importFiles', async () => {
+        // Create a test PDF file
+        const testPdfPath = path.join(tmpDir, 'test.pdf');
+        fs.writeFileSync(testPdfPath, '%PDF-1.4 test content');
+
+        const uris = [`file://${testPdfPath}`];
+        const results = await processDropVscodeUrisImport(uris, ctx);
+
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(true);
+        if (results[0].ok && results[0].kind === 'file') {
+            expect(results[0].title).toBe('test.pdf');
+            expect(results[0].filePath).toBe('files/test.pdf');
+        }
+
+        // Verify physical file was created
+        expect(fs.existsSync(path.join(ctx.fileDir, 'test.pdf'))).toBe(true);
+    });
+
+    test('processes .md URIs using importMdFiles with H1 extraction', async () => {
+        // Create a test MD file
+        const testMdPath = path.join(tmpDir, 'doc.md');
+        fs.writeFileSync(testMdPath, '# My Document\n\nContent here');
+
+        const uris = [`file://${testMdPath}`];
+        const results = await processDropVscodeUrisImport(uris, ctx);
+
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(true);
+        if (results[0].ok && results[0].kind === 'md') {
+            expect(results[0].title).toBe('My Document');
+            expect(results[0].pageId).toBeTruthy();
+        }
+
+        // Verify page file was created in pageDir
+        const pageFiles = fs.readdirSync(ctx.pageDir);
+        expect(pageFiles.length).toBe(1);
+        expect(pageFiles[0]).toMatch(/\.md$/);
+    });
+
+    test('rejects non-file:// scheme URIs (e.g., vscode-remote://)', async () => {
+        const uris = ['vscode-remote://ssh-remote/home/user/file.pdf'];
+        const results = await processDropVscodeUrisImport(uris, ctx);
+
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(false);
+        if (!results[0].ok) {
+            expect(results[0].error).toMatch(/remote|unsupported/i);
+        }
+    });
+
+    test('handles mixed URIs maintaining original order', async () => {
+        // Create test files
+        const pdfPath = path.join(tmpDir, 'a.pdf');
+        const mdPath = path.join(tmpDir, 'b.md');
+        const pngPath = path.join(tmpDir, 'c.png');
+
+        fs.writeFileSync(pdfPath, '%PDF test');
+        fs.writeFileSync(mdPath, '# Title\n\nBody');
+        // Minimal PNG
+        fs.writeFileSync(pngPath, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+
+        const uris = [
+            `file://${pdfPath}`,
+            `file://${mdPath}`,
+            `file://${pngPath}`
+        ];
+        const results = await processDropVscodeUrisImport(uris, ctx);
+
+        expect(results).toHaveLength(3);
+        expect(results[0].kind).toBe('file');
+        expect(results[1].kind).toBe('md');
+        expect(results[2].kind).toBe('image');
+    });
+});
+
+test.describe('DOD-12-30: Explorer path .md handles relative image references', () => {
+    let tmpDir: string;
+    let ctx: { fileDir: string; pageDir: string; imageDir: string; outDir: string };
+
+    test.beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fractal-vscode-uri-md-test-'));
+        ctx = {
+            fileDir: path.join(tmpDir, 'files'),
+            pageDir: path.join(tmpDir, 'pages'),
+            imageDir: path.join(tmpDir, 'images'),
+            outDir: tmpDir
+        };
+    });
+
+    test.afterEach(() => {
+        if (fs.existsSync(tmpDir)) {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    test('relative image references in .md are copied and rewritten', async () => {
+        // Create a subdirectory with an image
+        const subDir = path.join(tmpDir, 'sub');
+        fs.mkdirSync(subDir, { recursive: true });
+
+        // Create a minimal PNG in sub directory
+        const imgPath = path.join(subDir, 'pic.png');
+        const pngBytes = Buffer.from([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
+        ]);
+        fs.writeFileSync(imgPath, pngBytes);
+
+        // Create MD file with relative image reference
+        const mdPath = path.join(tmpDir, 'doc.md');
+        fs.writeFileSync(mdPath, '# Hello\n\n![alt](sub/pic.png)\n\nMore text');
+
+        const uris = [`file://${mdPath}`];
+        const results = await processDropVscodeUrisImport(uris, ctx);
+
+        expect(results).toHaveLength(1);
+        expect(results[0].ok).toBe(true);
+
+        if (results[0].ok && results[0].kind === 'md') {
+            // The page should be created
+            const pageFiles = fs.readdirSync(ctx.pageDir);
+            expect(pageFiles.length).toBe(1);
+
+            // Read the created page content
+            const pageContent = fs.readFileSync(path.join(ctx.pageDir, pageFiles[0]), 'utf-8');
+
+            // The image reference should be rewritten to point to images directory
+            // (exact path depends on implementation, but should not be 'sub/pic.png')
+            expect(pageContent).not.toContain('sub/pic.png');
         }
     });
 });

@@ -29,6 +29,8 @@ export const messages = {
   dropFolderRejected: '不支持拖放导入文件夹',
   dropFileTooLarge: '文件太大（最大50MB）',
   dropImportFailed: '导入文件失败',
+  // v12 拡張: VSCode Explorer D&D
+  dropRemoteUriUnsupported: '不支持远程文件（仅限本地文件）',
 };
 
 export const webviewMessages = {

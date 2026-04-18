@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.713] - 2026-04-19
+
+### Added
+- Outliner: drag & drop file import now works from **VSCode Explorer** too (previously only Finder / native file managers). VSCode Explorer drags carry `application/vnd.code.uri-list` type (not `Files`), and dataTransfer.files is empty — the outliner now detects both and routes them through separate code paths. Explorer drops go through the existing `importFiles` / `importMdFiles` functions directly (same path as ⋮ menu imports), so: (1) no 50MB size limit (file bytes are not shipped through the webview), (2) relative image references inside dropped `.md` files are resolved and copied correctly (since the source directory is available from the absolute file path). Non-local schemes like `vscode-remote://` are rejected with a warning. Finder drops continue to use the FileReader+bytes path unchanged.
+
 ## [0.195.712] - 2026-04-19
 
 ### Added

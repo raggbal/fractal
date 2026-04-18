@@ -79,6 +79,10 @@
         dropFilesImport: function(items, targetNodeId, position) {
             api.postMessage({ type: 'dropFilesImport', items: items, targetNodeId: targetNodeId, position: position });
         },
+        // v12 拡張: VSCode Explorer D&D
+        dropVscodeUrisImport: function(uris, targetNodeId, position) {
+            api.postMessage({ type: 'dropVscodeUrisImport', uris: uris, targetNodeId: targetNodeId, position: position });
+        },
         notifyDropFolderRejected: function(folders) {
             api.postMessage({ type: 'notifyDropFolderRejected', folders: folders });
         },
