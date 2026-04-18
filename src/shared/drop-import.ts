@@ -39,6 +39,9 @@ export interface DropImportContext {
     getDisplayUri?: (filePath: string) => string;  // Optional: convert file path to webview URI
 }
 
+/** Image file extensions for classification */
+const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];
+
 // ────────────────────────────────────────────
 // Classification
 // ────────────────────────────────────────────
@@ -50,8 +53,49 @@ export interface DropImportContext {
 export function classifyDroppedFile(file: { name: string }): 'md' | 'image' | 'file' {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
     if (ext === 'md') return 'md';
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
+    if (IMAGE_EXTS.includes(ext)) return 'image';
     return 'file';
+}
+
+// ────────────────────────────────────────────
+// Shared image-save helper (used by both Finder and Explorer paths)
+// ────────────────────────────────────────────
+
+/**
+ * Save an image buffer to imageDir with a unique filename, returning
+ * the relative path (from outDir) and optional display URI.
+ */
+export function saveImageBuffer(
+    buffer: Buffer,
+    extHint: string,  // e.g. 'png' (without dot). 'jpeg' is normalized to 'jpg'.
+    ctx: { imageDir: string; outDir: string; getDisplayUri?: (p: string) => string }
+): { imagePath: string; displayUri: string } {
+    const ext = (extHint || 'png').replace('jpeg', 'jpg');
+    const fileName = `image_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
+    if (!fs.existsSync(ctx.imageDir)) {
+        fs.mkdirSync(ctx.imageDir, { recursive: true });
+    }
+    const destPath = path.join(ctx.imageDir, fileName);
+    fs.writeFileSync(destPath, buffer);
+    const imagePath = path.relative(ctx.outDir, destPath).replace(/\\/g, '/');
+    const displayUri = ctx.getDisplayUri ? ctx.getDisplayUri(destPath) : destPath;
+    return { imagePath, displayUri };
+}
+
+/**
+ * Parse a data URL (e.g. "data:image/png;base64,...") and save to imageDir.
+ * Throws on invalid format.
+ */
+export function saveImageFromDataUrl(
+    dataUrl: string,
+    ctx: { imageDir: string; outDir: string; getDisplayUri?: (p: string) => string }
+): { imagePath: string; displayUri: string } {
+    const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!match) {
+        throw new Error('Invalid dataUrl format');
+    }
+    const [, extRaw, base64Data] = match;
+    return saveImageBuffer(Buffer.from(base64Data, 'base64'), extRaw, ctx);
 }
 
 // ────────────────────────────────────────────
@@ -118,43 +162,10 @@ export async function processDropFilesImport(
     for (const g of groups.image) {
         try {
             const imageItem = g.item as { kind: 'image'; name: string; dataUrl: string };
-            const dataUrl = imageItem.dataUrl;
-
-            // Validate dataUrl format
-            const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-            if (!match) {
-                throw new Error('Invalid dataUrl format');
-            }
-
-            const extRaw = match[1];
-            const base64Data = match[2];
-            const ext = extRaw.replace('jpeg', 'jpg');
-            const fileName = `image_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
-
-            // Ensure imageDir exists
-            if (!fs.existsSync(ctx.imageDir)) {
-                fs.mkdirSync(ctx.imageDir, { recursive: true });
-            }
-
-            const destPath = path.join(ctx.imageDir, fileName);
-            fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
-
-            const imagePath = path.relative(ctx.outDir, destPath).replace(/\\/g, '/');
-            const displayUri = ctx.getDisplayUri ? ctx.getDisplayUri(destPath) : destPath;
-
-            results[g.idx] = {
-                kind: 'image',
-                ok: true,
-                imagePath,
-                displayUri
-            };
+            const { imagePath, displayUri } = saveImageFromDataUrl(imageItem.dataUrl, ctx);
+            results[g.idx] = { kind: 'image', ok: true, imagePath, displayUri };
         } catch (err) {
-            results[g.idx] = {
-                kind: 'image',
-                ok: false,
-                name: g.item.name,
-                error: String(err)
-            };
+            results[g.idx] = { kind: 'image', ok: false, name: g.item.name, error: String(err) };
         }
     }
 
@@ -195,9 +206,6 @@ export async function processDropFilesImport(
 // ────────────────────────────────────────────
 // VSCode Explorer D&D (application/vnd.code.uri-list)
 // ────────────────────────────────────────────
-
-/** Image file extensions for classification */
-const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];
 
 /**
  * Process dropped VSCode URIs (from VSCode Explorer).
@@ -318,37 +326,12 @@ export async function processDropVscodeUrisImport(
             if (!fs.existsSync(img.fsPath)) {
                 throw new Error(`File not found: ${img.fsPath}`);
             }
-
             const buffer = fs.readFileSync(img.fsPath);
-
-            // Determine extension from file
-            const ext = path.extname(img.name).toLowerCase().slice(1) || 'png';
-            const fileName = `image_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
-
-            // Ensure imageDir exists
-            if (!fs.existsSync(ctx.imageDir)) {
-                fs.mkdirSync(ctx.imageDir, { recursive: true });
-            }
-
-            const destPath = path.join(ctx.imageDir, fileName);
-            fs.writeFileSync(destPath, buffer);
-
-            const imagePath = path.relative(ctx.outDir, destPath).replace(/\\/g, '/');
-            const displayUri = ctx.getDisplayUri ? ctx.getDisplayUri(destPath) : destPath;
-
-            results[img.idx] = {
-                kind: 'image',
-                ok: true,
-                imagePath,
-                displayUri
-            };
+            const extHint = path.extname(img.name).toLowerCase().slice(1);
+            const { imagePath, displayUri } = saveImageBuffer(buffer, extHint, ctx);
+            results[img.idx] = { kind: 'image', ok: true, imagePath, displayUri };
         } catch (err) {
-            results[img.idx] = {
-                kind: 'image',
-                ok: false,
-                name: img.name,
-                error: String(err)
-            };
+            results[img.idx] = { kind: 'image', ok: false, name: img.name, error: String(err) };
         }
     }
 
@@ -379,4 +362,40 @@ export async function processDropVscodeUrisImport(
     }
 
     return results;
+}
+
+// ────────────────────────────────────────────
+// Handler factory (reduces duplication in outlinerProvider / notesEditorProvider)
+// ────────────────────────────────────────────
+
+export interface DropImportHandlerDeps {
+    resolveDirs: () => Omit<DropImportContext, 'getDisplayUri'>;
+    postMessage: (msg: Record<string, unknown>) => void;
+    getDisplayUri?: (filePath: string) => string;
+    onFailed?: (names: string[]) => void;
+}
+
+/**
+ * Create a drop-import handler that resolves directories, invokes the processor,
+ * reports failures, and posts `dropFilesResult` back to the webview.
+ *
+ * Removes duplication across outlinerProvider.ts (standalone) and
+ * notesEditorProvider.ts (Notes mode), and across Finder vs Explorer paths.
+ */
+export function createDropImportHandler<P>(
+    processor: (payload: P, ctx: DropImportContext) => Promise<DropImportResult[]>,
+    deps: DropImportHandlerDeps
+): (payload: P, targetNodeId: string | null, position: string) => Promise<void> {
+    return async (payload, targetNodeId, position) => {
+        const ctx: DropImportContext = {
+            ...deps.resolveDirs(),
+            getDisplayUri: deps.getDisplayUri
+        };
+        const results = await processor(payload, ctx);
+        const failed = results.filter(r => !r.ok) as Array<Extract<DropImportResult, { ok: false }>>;
+        if (failed.length > 0 && deps.onFailed) {
+            deps.onFailed(failed.map(f => f.name));
+        }
+        deps.postMessage({ type: 'dropFilesResult', results, targetNodeId, position });
+    };
 }

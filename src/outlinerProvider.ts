@@ -6,7 +6,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
-import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, DropImportResult } from './shared/drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
@@ -150,6 +150,24 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         // --- メッセージハンドラ ---
         const disposables: vscode.Disposable[] = [];
 
+        // Shared factory setup for Finder + Explorer drop import (DRY: removes 4 duplicated case bodies)
+        const dropHandlerDeps = {
+            resolveDirs: () => ({
+                fileDir: this.getFileDirPath(document),
+                pageDir: this.getPagesDirPath(document),
+                imageDir: this.getOutlinerImageDirPath(document),
+                outDir: path.dirname(document.uri.fsPath)
+            }),
+            postMessage: (msg: Record<string, unknown>) => webviewPanel.webview.postMessage(msg),
+            getDisplayUri: (p: string) => webviewPanel.webview.asWebviewUri(vscode.Uri.file(p)).toString(),
+            onFailed: (names: string[]) => {
+                const head = names.slice(0, 3).join(', ');
+                vscode.window.showWarningMessage(`${t('dropImportFailed')}: ${head}${names.length > 3 ? '...' : ''}`);
+            }
+        };
+        const handleFinderDrop = createDropImportHandler(processDropFilesImport, dropHandlerDeps);
+        const handleExplorerDrop = createDropImportHandler(processDropVscodeUrisImport, dropHandlerDeps);
+
         disposables.push(
             webviewPanel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.type) {
@@ -234,67 +252,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
-                    case 'dropFilesImport': {
-                        const items: DropImportItem[] = message.items;
-                        const fileDir = this.getFileDirPath(document);
-                        const pageDir = this.getPagesDirPath(document);
-                        const imageDir = this.getOutlinerImageDirPath(document);
-                        const outDir = path.dirname(document.uri.fsPath);
-
-                        const results = await processDropFilesImport(items, {
-                            fileDir,
-                            pageDir,
-                            imageDir,
-                            outDir,
-                            getDisplayUri: (filePath: string) => webviewPanel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString()
-                        });
-
-                        const failed = results.filter((r: DropImportResult) => !r.ok);
-                        if (failed.length > 0) {
-                            vscode.window.showWarningMessage(t('dropImportFailed'));
-                        }
-
-                        webviewPanel.webview.postMessage({
-                            type: 'dropFilesResult',
-                            results,
-                            targetNodeId: message.targetNodeId,
-                            position: message.position
-                        });
+                    case 'dropFilesImport':
+                        await handleFinderDrop(message.items as DropImportItem[], message.targetNodeId, message.position);
                         break;
-                    }
 
-                    case 'dropVscodeUrisImport': {
+                    case 'dropVscodeUrisImport':
                         // v12 拡張: VSCode Explorer D&D
-                        const uris: string[] = message.uris;
-                        const fileDir = this.getFileDirPath(document);
-                        const pageDir = this.getPagesDirPath(document);
-                        const imageDir = this.getOutlinerImageDirPath(document);
-                        const outDir = path.dirname(document.uri.fsPath);
-
-                        const results = await processDropVscodeUrisImport(uris, {
-                            fileDir,
-                            pageDir,
-                            imageDir,
-                            outDir,
-                            getDisplayUri: (filePath: string) =>
-                                webviewPanel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString()
-                        });
-
-                        const failed = results.filter((r): r is Extract<DropImportResult, { ok: false }> => !r.ok);
-                        if (failed.length > 0) {
-                            const names = failed.map(f => f.name).slice(0, 3).join(', ');
-                            vscode.window.showWarningMessage(`${t('dropImportFailed')}: ${names}${failed.length > 3 ? '...' : ''}`);
-                        }
-
-                        // Use same dropFilesResult message format for webview reuse
-                        webviewPanel.webview.postMessage({
-                            type: 'dropFilesResult',
-                            results,
-                            targetNodeId: message.targetNodeId,
-                            position: message.position
-                        });
+                        await handleExplorerDrop(message.uris as string[], message.targetNodeId, message.position);
                         break;
-                    }
 
                     case 'notifyDropFolderRejected': {
                         vscode.window.showWarningMessage(t('dropFolderRejected'));

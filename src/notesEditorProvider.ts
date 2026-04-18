@@ -9,7 +9,7 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
-import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './shared/drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
@@ -166,6 +166,30 @@ export class NotesEditorProvider {
                 panel.webview.postMessage(msg);
             },
         };
+
+        // Notes-mode drop-import handler factory (DRY: dropFilesImport + dropVscodeUrisImport 共通骨格)
+        // Close over fileManager / folderPath / panel / senderRef so the two dispatchers are one-liners
+        const makeNotesDropHandler = <P>(
+            senderRef: NotesSender,
+            processor: (payload: P, ctx: import('./shared/drop-import').DropImportContext) => Promise<import('./shared/drop-import').DropImportResult[]>
+        ) => createDropImportHandler(processor, {
+            resolveDirs: () => {
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
+                const pagesDir = fileManager.getPagesDirPath();
+                return {
+                    fileDir: path.join(folderPath, outlinerId, 'files'),
+                    pageDir: pagesDir,
+                    imageDir: path.join(pagesDir, 'images'),
+                    outDir: currentOutFilePath ? path.dirname(currentOutFilePath) : fileManager.getMainFolderPath()
+                };
+            },
+            postMessage: (msg: Record<string, unknown>) => senderRef.postMessage(msg),
+            getDisplayUri: (p: string) => panel.webview.asWebviewUri(vscode.Uri.file(p)).toString(),
+            onFailed: () => {
+                vscode.window.showWarningMessage(t('dropImportFailed'));
+            }
+        });
 
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
         const platform: NotesPlatformActions = {
@@ -368,63 +392,13 @@ export class NotesEditorProvider {
                 });
             },
             dropFilesImport: async (items: DropImportItem[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
-                // Notes mode: fileDir = {outliner id}/files/, pageDir = pages/, imageDir = pages/images/
-                const currentOutFilePath = fileManager.getCurrentFilePath();
-                if (!currentOutFilePath) return;
-                const outlinerId = path.basename(currentOutFilePath, '.out');
-                const fileDir = path.join(folderPath, outlinerId, 'files');
-                const pagesDir = fileManager.getPagesDirPath();
-                const imageDir = path.join(pagesDir, 'images');
-                const outDir = path.dirname(currentOutFilePath);
-
-                const results = await processDropFilesImport(items, {
-                    fileDir,
-                    pageDir: pagesDir,
-                    imageDir,
-                    outDir
-                });
-
-                // Check for failures
-                const failed = results.filter(r => !r.ok);
-                if (failed.length > 0) {
-                    vscode.window.showWarningMessage(t('dropImportFailed'));
-                }
-
-                senderRef.postMessage({
-                    type: 'dropFilesResult',
-                    results,
-                    targetNodeId,
-                    position
-                });
+                if (!fileManager.getCurrentFilePath()) return;
+                await makeNotesDropHandler(senderRef, processDropFilesImport)(items, targetNodeId, position);
             },
             dropVscodeUrisImport: async (uris: string[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
                 // v12 拡張: VSCode Explorer D&D (Notes mode)
-                const currentOutFilePath = fileManager.getCurrentFilePath();
-                if (!currentOutFilePath) return;
-                const outlinerId = path.basename(currentOutFilePath, '.out');
-                const fileDir = path.join(folderPath, outlinerId, 'files');
-                const pagesDir = fileManager.getPagesDirPath();
-                const imageDir = path.join(pagesDir, 'images');
-                const outDir = path.dirname(currentOutFilePath);
-
-                const results = await processDropVscodeUrisImport(uris, {
-                    fileDir,
-                    pageDir: pagesDir,
-                    imageDir,
-                    outDir
-                });
-
-                const failed = results.filter(r => !r.ok);
-                if (failed.length > 0) {
-                    vscode.window.showWarningMessage(t('dropImportFailed'));
-                }
-
-                senderRef.postMessage({
-                    type: 'dropFilesResult',
-                    results,
-                    targetNodeId,
-                    position
-                });
+                if (!fileManager.getCurrentFilePath()) return;
+                await makeNotesDropHandler(senderRef, processDropVscodeUrisImport)(uris, targetNodeId, position);
             },
             notifyDropFolderRejected: () => {
                 vscode.window.showWarningMessage(t('dropFolderRejected'));
