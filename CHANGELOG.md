@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.714] - 2026-04-19
+
+### Changed
+- Internal refactor of v12 drop-import: extract `saveImageBuffer` / `saveImageFromDataUrl` helpers (dedupe the image-save path across Finder and Explorer routes) and add `createDropImportHandler` factory (collapses four near-identical switch-case bodies in `outlinerProvider.ts` and `notesEditorProvider.ts` into one-liners). No behavior change — all 73 drop-import / file-import tests pass. The previous structure was what allowed the Notes-mode Explorer handler to be forgotten in 0.195.713; under the factory, adding a new drop path or platform no longer requires copy-pasting the dir resolution + failure handling boilerplate.
+
 ## [0.195.713] - 2026-04-19
 
 ### Added
