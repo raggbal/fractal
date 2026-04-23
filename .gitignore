@@ -11,7 +11,7 @@ vendor/
 .kiro/
 .claude/
 .vscode/
-
+.claude_bk/
 
 # Test artifacts
 test-results/
@@ -35,3 +35,4 @@ Thumbs.db
 CLAUDE.md
 
 .harness/
+.harness_bk/

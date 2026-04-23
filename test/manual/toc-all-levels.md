@@ -12,7 +12,7 @@ This test verifies that the side panel TOC displays all heading levels (h1-h6), 
 
 ## Test Fixture
 
-File: `tests/e2e/fixtures/toc-non-hierarchical.md`
+File: `test/manual/fixtures/toc-non-hierarchical.md`
 
 Contents:
 - h1: Title
@@ -28,7 +28,7 @@ Contents:
 ### DOD-TOC-1: TOC displays all heading levels h1-h6
 
 1. Open VSCode with the Fractal extension installed
-2. Open the file `tests/e2e/fixtures/toc-non-hierarchical.md` with Fractal Editor
+2. Open the file `test/manual/fixtures/toc-non-hierarchical.md` with Fractal Editor
 3. Open the side panel (if not already open)
 4. Verify the TOC shows **7 items**:
    - Title (level 1)
