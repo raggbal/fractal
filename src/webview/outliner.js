@@ -2201,14 +2201,24 @@ var Outliner = (function() {
 
         switch (e.key) {
             case 'Enter':
-                // Cmd+Enter: ページを開く (ページノードのみ)
+                // Cmd+Enter: ノード種別に応じてアクション
+                //   isPage  → side panel で page MD を開く (既存挙動)
+                //   filePath → 外部アプリで添付ファイルを開く (FR-OL-CMDENTER-1, sprint v14)
+                //   それ以外 → 何もしない (preventDefault のみ)
+                // 注: isPage と filePath は data-model.md §4.2 で「相互排他」が
+                //     保証されており、else if で順次判定して安全 (排他性に依存)
                 if (e.metaKey || e.ctrlKey) {
                     e.preventDefault();
                     e.stopPropagation();
                     var pageNode = model.getNode(nodeId);
-                    if (pageNode && pageNode.isPage) {
+                    if (!pageNode) return;
+                    if (pageNode.isPage) {
                         openPage(nodeId);
+                    } else if (pageNode.filePath) {
+                        // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
+                        host.openAttachedFile(nodeId);
                     }
+                    // 添付なし: preventDefault のみ、新規動作なし (既存挙動維持)
                     return;
                 }
                 e.preventDefault();
@@ -3885,6 +3895,11 @@ var Outliner = (function() {
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
                 host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を clipboard へコピー
+            addMenuItem(contextMenuEl, i18n.outlinerCopyFilePath || 'Copy File Path', function() {
+                host.copyAttachedFilePath(nodeId);
                 hideContextMenu();
             });
             addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {

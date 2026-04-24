@@ -158,4 +158,5 @@ export const webviewMessages = {
   notesS3Continue: '계속',
   notesSetColor: '색상 설정',
   notesColorNone: '없음',
+  outlinerCopyFilePath: '파일 경로 복사',
 };

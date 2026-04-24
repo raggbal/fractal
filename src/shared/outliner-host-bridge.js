@@ -60,6 +60,10 @@
         copyPagePaths: function(pageIds) {
             api.postMessage({ type: 'copyPagePaths', pageIds: pageIds });
         },
+        // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard にコピー
+        copyAttachedFilePath: function(nodeId) {
+            api.postMessage({ type: 'copyAttachedFilePath', nodeId: nodeId });
+        },
 
         // ページ管理 (サイドパネル内EditorInstanceから呼ばれる — outlinerでは未使用)
         createPageAtPath: function() { /* no-op in outliner */ },

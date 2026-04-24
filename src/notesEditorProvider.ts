@@ -427,6 +427,21 @@ export class NotesEditorProvider {
                 // Use openExternal to open with OS default app
                 await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
             },
+            // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard へコピー
+            copyAttachedFilePath: async (nodeId: string, outFilePath: string, _senderRef: NotesSender) => {
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const node = data.nodes?.[nodeId];
+                if (!node?.filePath) return;
+
+                const outDir = path.dirname(outFilePath);
+                const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                if (!safeFilePath) {
+                    vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                    return;
+                }
+                await vscode.env.clipboard.writeText(safeFilePath);
+            },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');

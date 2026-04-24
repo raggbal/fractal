@@ -147,6 +147,7 @@ export const webviewMessages = {
   outlinerMakePage: 'Make Page',
   outlinerOpenFile: 'Open File',
   outlinerRemoveFile: 'Remove File',
+  outlinerCopyFilePath: 'Copy File Path',
   outlinerAddSibling: 'Add Sibling Node',
   outlinerAddChild: 'Add Child Node',
   outlinerIndent: 'Indent',

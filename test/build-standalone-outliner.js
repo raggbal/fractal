@@ -127,6 +127,10 @@ const testOutlinerHostBridge = `
         copyPagePaths: function(pageIds) {
             window.__testApi.messages.push({ type: 'copyPagePaths', pageIds: pageIds });
         },
+        // FR-OL-COPYPATH-1: file 添付ノードの絶対 path コピー (テストモック)
+        copyAttachedFilePath: function(nodeId) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePath', nodeId: nodeId });
+        },
         createPageAtPath: function() {},
         createPageAuto: function() {},
         updatePageH1: function() {},

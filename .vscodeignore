@@ -29,4 +29,7 @@ test-*.js
 electron/**
 assets/**
 .claude/**
+.claude_bk/**
 .harness/**
+.harness_bk/**
+.harnessのコピー/**

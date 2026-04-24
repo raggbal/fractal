@@ -116,6 +116,10 @@
         copyPagePaths: function(pageIds) {
             api.postMessage({ type: 'copyPagePaths', pageIds: pageIds });
         },
+        // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard にコピー (Notes mode)
+        copyAttachedFilePath: function(nodeId) {
+            api.postMessage({ type: 'copyAttachedFilePath', nodeId: nodeId });
+        },
 
         postDailyNotes: function(type, dayOffset, currentDate) {
             if (window.Outliner && window.Outliner.flushSync) {

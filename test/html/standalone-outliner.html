@@ -3626,6 +3626,31 @@ class SidePanelHostBridge {
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
 
+/**
+ * P2 ミニマム観測ヘルパー (sprint 20260424-135027-debug-banner-outliner-actions)
+ *
+ * blur 時に queuedExternalContent が non-null + hasUserEdited の状態を検知した時、
+ * webview 右上に floating banner を表示してユーザーに通知する。
+ * 同時に console.warn '[Fractal:blur-with-queue]' で構造化ログ出力 (call site で実施)。
+ *
+ * 目的: 「20 分編集 → 別アプリ → 戻ったら巻き戻る」現象の真因特定のための
+ *       実機データ採取。修正自体は行わない (NT-14 cross-editor sync 維持)。
+ *
+ * 将来: 真因確定後 (Sprint v15+) はこのヘルパーと call site を削除予定。
+ */
+function _fractalDebugShowBanner(info) {
+    var existing = document.getElementById('fractal-debug-banner');
+    if (existing) existing.remove();
+    var banner = document.createElement('div');
+    banner.id = 'fractal-debug-banner';
+    banner.style.cssText = 'position:fixed;top:10px;right:10px;background:#ff9800;color:#000;padding:10px 14px;border-radius:4px;font-size:12px;font-family:monospace;z-index:99999;max-width:480px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;line-height:1.5';
+    banner.innerHTML = '<strong>⚠️ Fractal: 巻き戻り検知</strong><br>' +
+        info.instance + ' / domLen=' + info.domLen + ' / queueLen=' + info.queueLen + ' / delta=' + info.delta + '<br>' +
+        '<small>Cmd+Opt+I → Console "[Fractal:blur-with-queue]" を共有 / クリックで閉じる</small>';
+    banner.onclick = function() { banner.remove(); };
+    document.body.appendChild(banner);
+}
+
 // EditorInstance class — Phase 2 skeleton wrapping legacy IIFE code
 class EditorInstance {
     // ===== Static members =====
@@ -19533,6 +19558,20 @@ class EditorInstance {
         host.reportFocus();
     });
     editor.addEventListener('blur', function() {
+        // P2 観測 (FR-DBG-1, FR-DBG-2): blur 時に queue + user edit が同時にある状態を検知
+        // 実機の「巻き戻り」現象データ採取用、修正は行わない (NT-14 維持)
+        if (!isSourceMode && hasUserEdited && queuedExternalContent !== null) {
+            var _fdomMd = htmlToMarkdown();
+            var _finfo = {
+                instance: isMainInstance ? 'main' : 'side-panel',
+                domLen: _fdomMd.length,
+                queueLen: queuedExternalContent.length,
+                delta: queuedExternalContent.length - _fdomMd.length
+            };
+            console.warn('[Fractal:blur-with-queue]', _finfo);
+            _fractalDebugShowBanner(_finfo);
+        }
+
         // Flush pending edits immediately on blur
         if (!isSourceMode && hasUserEdited) {
             clearTimeout(syncTimeout);
@@ -19555,6 +19594,18 @@ class EditorInstance {
         host.reportFocus();
     });
     sourceEditor.addEventListener('blur', function() {
+        // P2 観測 (FR-DBG-1, FR-DBG-2): source mode 用、editor.blur と同等
+        if (isSourceMode && hasUserEdited && queuedExternalContent !== null) {
+            var _finfo2 = {
+                instance: isMainInstance ? 'main' : 'side-panel',
+                domLen: sourceEditor.value.length,
+                queueLen: queuedExternalContent.length,
+                delta: queuedExternalContent.length - sourceEditor.value.length
+            };
+            console.warn('[Fractal:blur-with-queue]', _finfo2);
+            _fractalDebugShowBanner(_finfo2);
+        }
+
         if (isSourceMode && hasUserEdited) {
             markdown = sourceEditor.value;
             host.syncContent(markdown);
@@ -19571,6 +19622,19 @@ class EditorInstance {
     // Expose visibilitychange handler for delegation
     this._handleVisibilityChange = function() {
         if (document.visibilityState === 'hidden' && hasUserEdited) {
+            // P2 観測 (FR-DBG-1, FR-DBG-2): visibility hidden 時の検知
+            if (queuedExternalContent !== null) {
+                var _fdomMd3 = isSourceMode ? sourceEditor.value : htmlToMarkdown();
+                var _finfo3 = {
+                    instance: isMainInstance ? 'main' : 'side-panel',
+                    domLen: _fdomMd3.length,
+                    queueLen: queuedExternalContent.length,
+                    delta: queuedExternalContent.length - _fdomMd3.length
+                };
+                console.warn('[Fractal:blur-with-queue]', _finfo3);
+                _fractalDebugShowBanner(_finfo3);
+            }
+
             if (isSourceMode) {
                 markdown = sourceEditor.value;
             } else {
@@ -20335,6 +20399,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         copyPagePaths: function(pageIds) {
             window.__testApi.messages.push({ type: 'copyPagePaths', pageIds: pageIds });
+        },
+        // FR-OL-COPYPATH-1: file 添付ノードの絶対 path コピー (テストモック)
+        copyAttachedFilePath: function(nodeId) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePath', nodeId: nodeId });
         },
         createPageAtPath: function() {},
         createPageAuto: function() {},
@@ -23367,14 +23435,24 @@ var Outliner = (function() {
 
         switch (e.key) {
             case 'Enter':
-                // Cmd+Enter: ページを開く (ページノードのみ)
+                // Cmd+Enter: ノード種別に応じてアクション
+                //   isPage  → side panel で page MD を開く (既存挙動)
+                //   filePath → 外部アプリで添付ファイルを開く (FR-OL-CMDENTER-1, sprint v14)
+                //   それ以外 → 何もしない (preventDefault のみ)
+                // 注: isPage と filePath は data-model.md §4.2 で「相互排他」が
+                //     保証されており、else if で順次判定して安全 (排他性に依存)
                 if (e.metaKey || e.ctrlKey) {
                     e.preventDefault();
                     e.stopPropagation();
                     var pageNode = model.getNode(nodeId);
-                    if (pageNode && pageNode.isPage) {
+                    if (!pageNode) return;
+                    if (pageNode.isPage) {
                         openPage(nodeId);
+                    } else if (pageNode.filePath) {
+                        // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
+                        host.openAttachedFile(nodeId);
                     }
+                    // 添付なし: preventDefault のみ、新規動作なし (既存挙動維持)
                     return;
                 }
                 e.preventDefault();
@@ -25051,6 +25129,11 @@ var Outliner = (function() {
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
                 host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を clipboard へコピー
+            addMenuItem(contextMenuEl, i18n.outlinerCopyFilePath || 'Copy File Path', function() {
+                host.copyAttachedFilePath(nodeId);
                 hideContextMenu();
             });
             addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
