@@ -155,7 +155,7 @@ test.describe('blur-with-queue observability', () => {
     /**
      * TC-DBG-4: banner DOM 要素 (#fractal-debug-banner) が追加される
      */
-    test('TC-DBG-4: banner DOM 要素が追加される', async ({ page }) => {
+    test.skip('TC-DBG-4: banner DOM 要素が追加される (banner removed in v0.195.718, console.warn のみ残置)', async ({ page }) => {
         await page.evaluate(() => {
             (window as any).__testApi.setMarkdown('V_BASE');
         });
@@ -200,7 +200,7 @@ test.describe('blur-with-queue observability', () => {
     /**
      * TC-DBG-5: banner クリックで dismiss される
      */
-    test('TC-DBG-5: banner クリックで dismiss される', async ({ page }) => {
+    test.skip('TC-DBG-5: banner クリックで dismiss される (banner removed in v0.195.718)', async ({ page }) => {
         await page.evaluate(() => {
             (window as any).__testApi.setMarkdown('V_BASE');
         });
@@ -237,7 +237,7 @@ test.describe('blur-with-queue observability', () => {
     /**
      * TC-DBG-6: 連続発火で banner が 1 つだけ存在 (上書き)
      */
-    test('TC-DBG-6: 連続発火で banner 1 つのみ', async ({ page }) => {
+    test.skip('TC-DBG-6: 連続発火で banner 1 つのみ (banner removed in v0.195.718)', async ({ page }) => {
         await page.evaluate(() => {
             (window as any).__testApi.setMarkdown('V_BASE');
         });
@@ -303,10 +303,77 @@ test.describe('blur-with-queue observability', () => {
 
         // console.warn 出ない
         expect(consoleWarns.length).toBe(0);
-        // banner 追加されない
+        // banner removed in v0.195.718, このチェックも削除可だが念のため残置
         const exists = await page.evaluate(() =>
             !!document.getElementById('fractal-debug-banner')
         );
         expect(exists).toBe(false);
+    });
+
+    /**
+     * TC-DBG-FIX-A: blur 時に hasUserEdited=true なら queue を drop し、view 巻き戻りを防ぐ
+     *
+     * Fix A (sprint v14 hotfix): editor.blur で flush 後に
+     *   queuedExternalContent = null + applyQueuedExternalChange を skip
+     * → DOM は user の最新 typing を維持、view 巻き戻り → disk 上書き連鎖を防ぐ。
+     */
+    test('TC-DBG-FIX-A: blur で hasUserEdited 時、queue を drop して view 巻き戻りなし', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('V_BASE');
+        });
+        await page.waitForTimeout(50);
+
+        const editor = page.locator('#editor');
+        await editor.click();
+        await page.keyboard.type(' V_USER_LATEST');
+        await page.waitForTimeout(50);
+
+        // cross-edit から古い content が queue に来ている状態
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'update',
+                content: 'V_QUEUED_STALE_OLD'  // user の typing より古い content
+            });
+        });
+        await page.waitForTimeout(50);
+
+        // blur 発火
+        await page.evaluate(() => {
+            const el = document.getElementById('editor') as HTMLElement;
+            el.blur();
+        });
+        await page.waitForTimeout(100);
+
+        // ★ 検証: blur 後の view (markdown) は user の typing を維持し、
+        //   queue 内容に巻き戻されていない
+        const finalMd = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(finalMd).toContain('V_USER_LATEST');
+        expect(finalMd).not.toBe('V_QUEUED_STALE_OLD');
+        expect(finalMd).not.toContain('V_QUEUED_STALE_OLD');
+    });
+
+    /**
+     * TC-DBG-FIX-A2: 真の external change (idle 時 update) は引き続き適用される
+     *
+     * Fix A は editing editor の blur 時のみ queue drop。
+     * idle editor は applyQueuedExternalChange / 即時 apply 経路で正常動作。
+     */
+    test('TC-DBG-FIX-A2: idle 状態の真 external change は変わらず即時適用される', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('V_BASE');
+        });
+        await page.waitForTimeout(2000); // idle 確定 (markActivelyEditing の 1500ms 経過)
+
+        // typing なしで update を送る (= 真の external change シナリオ)
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'update',
+                content: 'V_TRUE_EXTERNAL_FROM_OTHER_EDITOR'
+            });
+        });
+        await page.waitForTimeout(100);
+
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md.trim()).toBe('V_TRUE_EXTERNAL_FROM_OTHER_EDITOR');
     });
 });

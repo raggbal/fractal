@@ -3626,31 +3626,6 @@ class SidePanelHostBridge {
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
 
-/**
- * P2 ミニマム観測ヘルパー (sprint 20260424-135027-debug-banner-outliner-actions)
- *
- * blur 時に queuedExternalContent が non-null + hasUserEdited の状態を検知した時、
- * webview 右上に floating banner を表示してユーザーに通知する。
- * 同時に console.warn '[Fractal:blur-with-queue]' で構造化ログ出力 (call site で実施)。
- *
- * 目的: 「20 分編集 → 別アプリ → 戻ったら巻き戻る」現象の真因特定のための
- *       実機データ採取。修正自体は行わない (NT-14 cross-editor sync 維持)。
- *
- * 将来: 真因確定後 (Sprint v15+) はこのヘルパーと call site を削除予定。
- */
-function _fractalDebugShowBanner(info) {
-    var existing = document.getElementById('fractal-debug-banner');
-    if (existing) existing.remove();
-    var banner = document.createElement('div');
-    banner.id = 'fractal-debug-banner';
-    banner.style.cssText = 'position:fixed;top:10px;right:10px;background:#ff9800;color:#000;padding:10px 14px;border-radius:4px;font-size:12px;font-family:monospace;z-index:99999;max-width:480px;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:pointer;line-height:1.5';
-    banner.innerHTML = '<strong>⚠️ Fractal: 巻き戻り検知</strong><br>' +
-        info.instance + ' / domLen=' + info.domLen + ' / queueLen=' + info.queueLen + ' / delta=' + info.delta + '<br>' +
-        '<small>Cmd+Opt+I → Console "[Fractal:blur-with-queue]" を共有 / クリックで閉じる</small>';
-    banner.onclick = function() { banner.remove(); };
-    document.body.appendChild(banner);
-}
-
 // EditorInstance class — Phase 2 skeleton wrapping legacy IIFE code
 class EditorInstance {
     // ===== Static members =====
@@ -19559,7 +19534,6 @@ class EditorInstance {
     });
     editor.addEventListener('blur', function() {
         // P2 観測 (FR-DBG-1, FR-DBG-2): blur 時に queue + user edit が同時にある状態を検知
-        // 実機の「巻き戻り」現象データ採取用、修正は行わない (NT-14 維持)
         if (!isSourceMode && hasUserEdited && queuedExternalContent !== null) {
             var _fdomMd = htmlToMarkdown();
             var _finfo = {
@@ -19569,14 +19543,23 @@ class EditorInstance {
                 delta: queuedExternalContent.length - _fdomMd.length
             };
             console.warn('[Fractal:blur-with-queue]', _finfo);
-            _fractalDebugShowBanner(_finfo);
         }
 
         // Flush pending edits immediately on blur
+        var didFlushUserEdit = false;
         if (!isSourceMode && hasUserEdited) {
             clearTimeout(syncTimeout);
             markdown = htmlToMarkdown();
             host.syncContent(markdown);
+            didFlushUserEdit = true;
+            // Fix A (sprint v14, hotfix): user の最新 typing が「真」。 cross-edit から
+            // 来ていた古い queue を破棄して、後続の applyQueuedExternalChange による
+            // DOM 巻き戻し → disk 上書きの連鎖を防ぐ。
+            // NT-14 への影響: queue drop は editing editor の webview 内のみ。host 側
+            //   の sidePanelManager listener / editorProvider listener は不変なので、
+            //   別 editor への cross-edit forward は維持される。drop された queue 内容
+            //   は cross-edit の round-trip で次の event 時に再到来する。
+            queuedExternalContent = null;
         }
 
         // Force idle state on blur
@@ -19585,8 +19568,12 @@ class EditorInstance {
         host.reportEditingState(false);
         host.reportBlur();
 
-        // Apply queued external changes now that we're definitely idle
-        applyQueuedExternalChange();
+        // Apply queued external changes only if user did NOT just flush.
+        // Flushing implies user typing is the truth; queue would be stale
+        // cross-edit content, applying it would cause the rollback bug.
+        if (!didFlushUserEdit) {
+            applyQueuedExternalChange();
+        }
     });
 
     sourceEditor.addEventListener('focus', function() {
@@ -19603,12 +19590,15 @@ class EditorInstance {
                 delta: queuedExternalContent.length - sourceEditor.value.length
             };
             console.warn('[Fractal:blur-with-queue]', _finfo2);
-            _fractalDebugShowBanner(_finfo2);
         }
 
+        var didFlushUserEditSrc = false;
         if (isSourceMode && hasUserEdited) {
             markdown = sourceEditor.value;
             host.syncContent(markdown);
+            didFlushUserEditSrc = true;
+            // Fix A (sprint v14): editor.blur と同等の queue drop。詳細はそちらのコメント参照
+            queuedExternalContent = null;
         }
 
         clearTimeout(editingIdleTimer);
@@ -19616,7 +19606,9 @@ class EditorInstance {
         host.reportEditingState(false);
         host.reportBlur();
 
-        applyQueuedExternalChange();
+        if (!didFlushUserEditSrc) {
+            applyQueuedExternalChange();
+        }
     });
 
     // Expose visibilitychange handler for delegation
@@ -19632,7 +19624,6 @@ class EditorInstance {
                     delta: queuedExternalContent.length - _fdomMd3.length
                 };
                 console.warn('[Fractal:blur-with-queue]', _finfo3);
-                _fractalDebugShowBanner(_finfo3);
             }
 
             if (isSourceMode) {
@@ -19642,6 +19633,10 @@ class EditorInstance {
                 markdown = htmlToMarkdown();
             }
             host.syncContent(markdown);
+            // Fix A (sprint v14): visibility hidden での flush も blur と同様に
+            // queue を drop。後続の applyQueuedExternalChange は元々呼んでいないので
+            // queue だけ捨てて DOM 巻き戻しの原因経路を断つ。
+            queuedExternalContent = null;
         }
     };
 

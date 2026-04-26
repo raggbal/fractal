@@ -5,6 +5,22 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.718] - 2026-04-25
+
+### Added
+- **Outliner: "Copy File Path" context menu for file-attachment nodes** — Right-click a file-attached node (`node.filePath`) → "Copy File Path" copies the absolute path of the attached file to the OS clipboard. Available in 7 languages (en/ja/zh-cn/zh-tw/ko/es/fr) via the new `outlinerCopyFilePath` i18n key. md page nodes continue to use the existing "Copy Page Path" menu (functionally equivalent, no duplicate entry added). Plain (no-attachment) nodes do not show this menu. Implemented as a new host message `copyAttachedFilePath` registered per the 5-place messaging rule (outliner-host-bridge.js / notes-host-bridge.js / outlinerProvider.ts / notes-message-handler.ts).
+- **Outliner: Cmd+Enter on file-attachment nodes opens externally** — Pressing Cmd+Enter (Mac) / Ctrl+Enter (Win/Linux) on a file-attachment node now opens the file in the OS default app (reusing the existing `host.openAttachedFile`). md page nodes (`isPage`) keep their existing behavior (open page in side panel). Plain nodes keep their existing behavior (preventDefault only, no new action). Relies on `isPage` and `filePath` being mutually exclusive per data-model §4.2.
+- **Editor blur observability (diagnostic)** — When `editor.blur` / `sourceEditor.blur` / `_handleVisibilityChange` fires while `hasUserEdited && queuedExternalContent !== null`, the editor logs `console.warn '[Fractal:blur-with-queue]', { instance, domLen, queueLen, delta }` for diagnosis. Helps identify the cross-edit race that previously caused view rollback. UI banner intermediate (v0.195.717) was removed in favor of console-only output.
+
+### Fixed
+- **View rollback hotfix (Fix A)** — When a user typing in `editor` / `sourceEditor` / on visibility hidden, if a stale cross-edit `update` was queued in `queuedExternalContent`, the previous behavior would call `applyQueuedExternalChange()` after flush, causing the DOM to roll back to stale content. The user, seeing the rolled-back view, would re-edit and overwrite the disk with the rolled-back state — silent data loss. The fix: when `hasUserEdited` triggers flush, drop the queue (`queuedExternalContent = null`) and skip `applyQueuedExternalChange()`. The user's typing becomes the truth; the cross-edit content is delivered again via the normal cross-edit round-trip on the next event. NT-14 cross-editor sync is preserved (the host-side `editorProvider.onDidChangeTextDocument` and `sidePanelManager.onDidChangeTextDocument` listeners are unchanged — only the in-webview blur handler in `editor.js` is modified).
+
+### Known issues
+- Edge cases not covered by the Fix A guard (out of scope for v0.195.718, planned for a follow-up sprint):
+  - **IME composition mid-state + app switch**: switching to another app while an IME composition is active can still produce a view inconsistency through a different code path.
+  - **Sub-debounce typing burst + app switch**: typing very rapidly and switching apps within the 1000ms debounce window (before `host.syncContent` has fired) can lose the unsynced characters.
+- Workaround for both: pause briefly (~1 second) before switching apps, or press Cmd+S explicitly. The `[Fractal:blur-with-queue]` console log is unaffected by these edge cases (it fires regardless of whether the data was lost).
+
 ## [0.195.714] - 2026-04-19
 
 ### Changed
