@@ -12,6 +12,7 @@ interface NotesConfig {
     outlinerPageTitle?: boolean;
     documentBaseUri?: string;
     folderName?: string;
+    showTranslateButtons?: boolean;
 }
 
 interface NotesInitData {
@@ -106,7 +107,7 @@ export function getNotesWebviewContent(
     const sidePanelHtml = generateSidePanelHtml(msg);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}">
+<html lang="en" data-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

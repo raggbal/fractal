@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.722] - 2026-04-26
+
+### Added
+- **New setting `fractal.showTranslateButtons` (boolean, default `false`)** — Controls visibility of translate / translateLang buttons in both the standalone editor toolbar and side panel header. Translation can still be triggered via the `fractal.translate` command (Cmd+/) regardless of this setting (UI visibility only).
+- **Standalone editor toolbar gains a translate group** — When `fractal.showTranslateButtons` is on, the standalone MD editor toolbar shows translateLang + translate buttons at the leftmost position (inside `toolbar-inner`, before the inline group). The side panel header continues to host these buttons as before.
+
+### Changed
+- **Default OFF for translate buttons (behavior change)** — Existing users who had translate buttons visible in the side panel header will see them disappear by default. Set `fractal.showTranslateButtons: true` in settings to restore them. The translation feature itself is unchanged; only the UI affordance is gated.
+- **Standalone toolbar translate result no longer uses the side panel** — When the translate button is invoked from the **standalone** editor toolbar, the translation result now replaces the editor view in place (with a sticky `← Back / Translation (src → tgt) / Copy` header bar) rather than opening in a side-panel slide-over. The side-panel-based flow remains for outliner page contexts (unchanged via `outliner.js showTranslationInSidePanel`). The side-panel link-open behavior for plain MD links is also unchanged.
+
+### Fixed
+- **No disk overwrite while viewing a translation** — While the inline translation view is active, the editor's `blur` / `sourceEditor.blur` / `_handleVisibilityChange` flush paths and `applyQueuedExternalChange` are gated by a `translationViewActive` flag. Pre-edit content is force-flushed to disk before swapping in the translation, so switching apps mid-translation no longer risks overwriting the file with the translated content. NT-14 cross-editor sync is preserved via post-Back `applyQueuedExternalChange()` catch-up.
+- **Translation header label color** — The `Translation (en → ja)` label uses `--text-color` (matches body text) instead of `--blockquote-color` (which appeared inverted/white in some themes).
+
 ## [0.195.718] - 2026-04-25
 
 ### Added

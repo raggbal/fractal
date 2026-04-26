@@ -533,6 +533,12 @@ class EditorInstance {
     let queuedExternalContent = null; // Queued external change waiting for idle
     const EDITING_IDLE_TIMEOUT = 1500; // 1.5 seconds of inactivity = idle
 
+    // v0.195.720: standalone toolbar 翻訳ビュー (editor 自身を一時的に翻訳結果に置換)
+    // translationViewActive=true の間は input/blur/visibility の sync 経路と
+    // applyQueuedExternalChange の DOM 更新を抑止し、Back で完全復元する
+    let translationViewActive = false;
+    let translationSavedState = null;
+
     // REMOVED: extractImageDirFromMarkdown, extractForceRelativePathFromMarkdown, removeDirectivesFromMarkdown
     // Per-file directive feature removed
     
@@ -12466,6 +12472,8 @@ class EditorInstance {
      */
     function applyQueuedExternalChange() {
         if (queuedExternalContent === null) return;
+        // v0.195.720: 翻訳ビュー中は DOM 反映を保留 (closeTranslationView で再適用される)
+        if (translationViewActive) return;
 
         logger.log('[Any MD] applying queued external change');
         markdown = queuedExternalContent;
@@ -14377,106 +14385,120 @@ class EditorInstance {
         if (window.__editorUtils && window.__editorUtils.normalizeTranslatedMarkdown) {
             translatedMarkdown = window.__editorUtils.normalizeTranslatedMarkdown(translatedMarkdown);
         }
-        // Close existing side panel if open
-        if (sidePanelInstance) {
-            closeSidePanelImmediate();
+
+        // v0.195.720: standalone editor では side panel を使わず、editor 自身を一時的に
+        // 翻訳結果ビューに置き換える。元の DOM/source/markdown 変数/編集状態を保存して
+        // ← Back で完全復元する。
+        if (translationViewActive) {
+            // 既に翻訳ビュー表示中の再翻訳要求は一旦既存ビューを閉じてから開き直す
+            closeTranslationView();
         }
 
-        // Create EditorInstance container for translation result
-        var spContainer = window.EditorInstance.createSidePanelContainer();
-        if (sidePanelIframeContainer) {
-            sidePanelIframeContainer.innerHTML = '';
-            sidePanelIframeContainer.appendChild(spContainer);
+        // 編集中の差分は disk へ flush しておく (翻訳ビュー中は sync を抑止するため)
+        if (hasUserEdited) {
+            try {
+                clearTimeout(syncTimeout);
+                if (isSourceMode) {
+                    markdown = sourceEditor.value;
+                } else {
+                    markdown = htmlToMarkdown();
+                }
+                host.syncContent(markdown);
+            } catch (_e) { /* host 未接続時は無視 */ }
         }
 
-        var LUCIDE_ICONS = window.__editorUtils ? window.__editorUtils.LUCIDE_ICONS : {};
-
-        // Create a minimal host bridge for translation panel (no file operations)
-        sidePanelHostBridge = {
-            _sendMessage: function() {},
-            onMessage: function() {},
-            sidePanelOpenInTextEditor: function() {},
-            requestInsertImage: function() {},
-            requestInsertFile: function() {},
-            requestInsertLink: function() {},
-            syncContent: function() {},
-            reportEditingState: function() {}
+        // 復元用の状態を保存
+        translationSavedState = {
+            html: editor.innerHTML,
+            sourceValue: sourceEditor ? sourceEditor.value : '',
+            sourceMode: isSourceMode,
+            sourceReadOnly: sourceEditor ? !!sourceEditor.readOnly : false,
+            contentEditable: editor.contentEditable,
+            scrollTop: editor.scrollTop,
+            hasUserEdited: hasUserEdited,
+            translatedMarkdown: translatedMarkdown
         };
 
-        // Create readonly EditorInstance
-        sidePanelInstance = new window.EditorInstance(spContainer, sidePanelHostBridge, {
-            initialContent: translatedMarkdown,
-            documentBaseUri: '',
-            isSidePanel: true,
-            readonly: true
-        });
+        // 翻訳ビューに切替 (sync / queue 適用は translationViewActive で抑止)
+        translationViewActive = true;
+        hasUserEdited = false;
 
-        // Update header label
-        if (sidePanelFilename) {
-            sidePanelFilename.textContent = 'Translation Result (' + sourceLang + ' → ' + targetLang + ')';
-        }
-
-        // Setup header buttons (copy + close only for translation panel)
-        if (sidePanel) {
-            var header = sidePanel.querySelector('.side-panel-header');
-            if (header) {
-                // Hide undo/redo/source/openInTextEditor buttons
-                var undoBtn = header.querySelector('[data-action="undo"]');
-                var redoBtn = header.querySelector('[data-action="redo"]');
-                var sourceBtn = header.querySelector('[data-action="source"]');
-                var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
-                if (undoBtn) undoBtn.style.display = 'none';
-                if (redoBtn) redoBtn.style.display = 'none';
-                if (sourceBtn) sourceBtn.style.display = 'none';
-                if (openTextEditorBtn) openTextEditorBtn.style.display = 'none';
-
-                // Add copy button (reuse copyPath button as template)
-                var copyBtn = header.querySelector('.side-panel-copy-path');
-                if (copyBtn) {
-                    copyBtn.style.display = 'block';
-                    copyBtn.title = 'Copy translated text';
-                    copyBtn.onclick = function() {
-                        var copyText = '';
-                        if (sidePanelInstance) {
-                            var spEditor = sidePanelInstance.container.querySelector('.editor');
-                            var sel = window.getSelection();
-                            if (sel && sel.toString()) {
-                                copyText = sel.toString();
-                            } else {
-                                copyText = sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : spEditor.textContent;
-                            }
-                        }
-                        if (copyText) {
-                            navigator.clipboard.writeText(copyText).then(function() {
-                                // Visual feedback
-                                copyBtn.style.opacity = '0.5';
-                                setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
-                            });
-                        }
-                    };
-                }
+        if (isSourceMode) {
+            sourceEditor.value = translatedMarkdown;
+            sourceEditor.readOnly = true;
+        } else {
+            try {
+                editor.innerHTML = markdownToHtmlFragment(translatedMarkdown) || '<p><br></p>';
+            } catch (_e) {
+                editor.textContent = translatedMarkdown;
             }
+            try { setupInteractiveElements(); } catch (_e) { /* ignore */ }
+            try { updateOutline(); } catch (_e) { /* ignore */ }
+            editor.contentEditable = 'false';
+        }
+        editor.scrollTop = 0;
+
+        // フローティング header bar を editor-wrapper の先頭に挿入
+        var editorWrapper = container.querySelector('.editor-wrapper') || editor.parentElement;
+        if (!editorWrapper) return;
+        var existing = editorWrapper.querySelector('.fractal-translation-header');
+        if (existing) existing.remove();
+
+        var headerBar = document.createElement('div');
+        headerBar.className = 'fractal-translation-header';
+        headerBar.innerHTML =
+            '<button class="fractal-translation-back" type="button" title="Back to original">← Back</button>' +
+            '<span class="fractal-translation-label">Translation (' + (sourceLang || '') + ' → ' + (targetLang || '') + ')</span>' +
+            '<button class="fractal-translation-copy" type="button" title="Copy translated text">Copy</button>';
+        editorWrapper.insertBefore(headerBar, editorWrapper.firstChild);
+
+        var backBtn = headerBar.querySelector('.fractal-translation-back');
+        if (backBtn) backBtn.addEventListener('click', closeTranslationView);
+
+        var copyBtn = headerBar.querySelector('.fractal-translation-copy');
+        if (copyBtn) copyBtn.addEventListener('click', function() {
+            var sel = window.getSelection();
+            var text = (sel && sel.toString()) ? sel.toString() : translatedMarkdown;
+            try {
+                navigator.clipboard.writeText(text).then(function() {
+                    copyBtn.style.opacity = '0.5';
+                    setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
+                });
+            } catch (_e) { /* ignore */ }
+        });
+    }
+
+    function closeTranslationView() {
+        if (!translationViewActive || !translationSavedState) return;
+        var s = translationSavedState;
+        translationSavedState = null;
+        translationViewActive = false;
+
+        // header 削除
+        if (container) {
+            var hdr = container.querySelector('.fractal-translation-header');
+            if (hdr && hdr.remove) hdr.remove();
         }
 
-        // Show panel with animation
-        if (sidePanel) { sidePanel.style.display = 'flex'; }
-        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
-        requestAnimationFrame(function() {
-            if (sidePanel) { sidePanel.classList.add('open'); }
-            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
-        });
+        // 元の DOM / source / mode / 編集状態を復元
+        if (s.sourceMode) {
+            if (sourceEditor) {
+                sourceEditor.value = s.sourceValue;
+                sourceEditor.readOnly = s.sourceReadOnly;
+            }
+        } else {
+            try {
+                editor.innerHTML = s.html;
+                setupInteractiveElements();
+                updateOutline();
+            } catch (_e) { /* ignore */ }
+            editor.contentEditable = (s.contentEditable === 'false') ? 'false' : 'true';
+        }
+        editor.scrollTop = s.scrollTop || 0;
+        hasUserEdited = !!s.hasUserEdited;
 
-        // Auto-focus editor
-        setTimeout(function() {
-            requestAnimationFrame(function() {
-                if (sidePanelInstance && sidePanelInstance.container) {
-                    var spEditor = sidePanelInstance.container.querySelector('.editor');
-                    if (spEditor) {
-                        spEditor.focus();
-                    }
-                }
-            });
-        }, 300);
+        // 翻訳ビュー中に到来していた cross-edit 内容があれば反映
+        try { applyQueuedExternalChange(); } catch (_e) { /* ignore */ }
     }
 
     // Drag cursor indicator element
@@ -15979,6 +16001,10 @@ class EditorInstance {
         host.reportFocus();
     });
     editor.addEventListener('blur', function() {
+        // v0.195.720: 翻訳ビュー中は editor の DOM が翻訳結果に置換されているため、
+        // ここで htmlToMarkdown() → host.syncContent() すると disk が翻訳で上書きされる。
+        // 早期 return で全 sync 経路を抑止する (Back 時に saved state へ復元される)。
+        if (translationViewActive) return;
         // P2 観測 (FR-DBG-1, FR-DBG-2): blur 時に queue + user edit が同時にある状態を検知
         if (!isSourceMode && hasUserEdited && queuedExternalContent !== null) {
             var _fdomMd = htmlToMarkdown();
@@ -16027,6 +16053,8 @@ class EditorInstance {
         host.reportFocus();
     });
     sourceEditor.addEventListener('blur', function() {
+        // v0.195.720: 翻訳ビュー中は sync を抑止 (editor.blur と同様の理由)
+        if (translationViewActive) return;
         // P2 観測 (FR-DBG-1, FR-DBG-2): source mode 用、editor.blur と同等
         if (isSourceMode && hasUserEdited && queuedExternalContent !== null) {
             var _finfo2 = {
@@ -16059,6 +16087,8 @@ class EditorInstance {
 
     // Expose visibilitychange handler for delegation
     this._handleVisibilityChange = function() {
+        // v0.195.720: 翻訳ビュー中は visibility hidden flush も抑止
+        if (translationViewActive) return;
         if (document.visibilityState === 'hidden' && hasUserEdited) {
             // P2 観測 (FR-DBG-1, FR-DBG-2): visibility hidden 時の検知
             if (queuedExternalContent !== null) {

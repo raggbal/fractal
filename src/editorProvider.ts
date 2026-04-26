@@ -461,7 +461,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         documentBaseUri: documentBaseUri,
                         webviewMessages: getWebviewMessages(),
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
-                        isOutlinerPage: isOutlinerPage
+                        isOutlinerPage: isOutlinerPage,
+                        showTranslateButtons: config.get<boolean>('showTranslateButtons', false)
                     },
                     webviewNonce
                 );

@@ -128,6 +128,7 @@ export class NotesEditorProvider {
                 webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                 enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                 outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
+                showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
                 documentBaseUri: folderBaseUri,
                 folderName: path.basename(folderPath),
             },
@@ -684,6 +685,7 @@ export class NotesEditorProvider {
                 if (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
                     e.affectsConfiguration('fractal.outlinerPageTitle') ||
+                    e.affectsConfiguration('fractal.showTranslateButtons') ||
                     e.affectsConfiguration('fractal.language')) {
                     // refreshPanel inline (ローカル変数を使用)
                     const refreshConfig = vscode.workspace.getConfiguration('fractal');
@@ -706,6 +708,7 @@ export class NotesEditorProvider {
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
+                            showTranslateButtons: refreshConfig.get<boolean>('showTranslateButtons', false),
                             folderName: path.basename(folderPath),
                         },
                         { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), fileChangeId: fileManager.getFileChangeId() }

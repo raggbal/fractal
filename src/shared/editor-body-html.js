@@ -41,6 +41,10 @@ function generateEditorBodyHtml(messages, platform) {
                 </div>
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--left hidden" id="toolbarScrollLeft">&#x276E;</button>
                 <div class="toolbar-inner" id="toolbarInner">
+                    <div class="toolbar-group" data-group="translate">
+                        <button data-action="translateLang" title="Translation language">ja → en</button>
+                        <button data-action="translate" title="Translate"></button>
+                    </div>
                     <div class="toolbar-group" data-group="inline">
                         <button data-action="bold" title="${m('bold')}"></button>
                         <button data-action="italic" title="${m('italic')}"></button>

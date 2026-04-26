@@ -365,6 +365,56 @@ body {
     display: none;
 }
 
+/* v0.195.720: standalone editor 内に表示する翻訳結果 header bar
+   side panel を使わず、editor 自身の上部に Back/Copy ヘッダを差し込む */
+.fractal-translation-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--code-bg, #f6f8fa);
+    border-bottom: 1px solid var(--border-color, #d0d7de);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    font-size: 13px;
+}
+.fractal-translation-header .fractal-translation-back,
+.fractal-translation-header .fractal-translation-copy {
+    background: transparent;
+    border: 1px solid var(--border-color, #d0d7de);
+    color: var(--text-color, #24292f);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+}
+.fractal-translation-header .fractal-translation-back:hover,
+.fractal-translation-header .fractal-translation-copy:hover {
+    background: var(--selection-bg, #b6d7ff);
+}
+.fractal-translation-header .fractal-translation-label {
+    flex: 1;
+    color: var(--text-color, #24292f);
+    font-weight: 500;
+}
+
+/* Translate buttons toggle (fractal.showTranslateButtons setting, default off).
+   Hides standalone toolbar's translate group AND side panel header's translate / translateLang.
+   The fractal.translate command (Cmd+/) is unaffected. */
+[data-show-translate-buttons="false"] .toolbar-group[data-group="translate"],
+[data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translate"],
+[data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
+    display: none !important;
+}
+/* Standalone toolbar translate language button: text-based label (e.g. "ja → en") */
+.toolbar-inner .toolbar-group[data-group="translate"] [data-action="translateLang"] {
+    min-width: 56px;
+    padding: 0 6px;
+    font-size: 12px;
+}
+
 .editor-wrapper { flex: 1; overflow: auto; position: relative; }
 .editor {
     max-width: 860px;

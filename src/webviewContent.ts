@@ -23,6 +23,7 @@ interface EditorConfig {
     webviewMessages?: WebviewMessages;
     enableDebugLogging?: boolean;
     isOutlinerPage?: boolean;
+    showTranslateButtons?: boolean;
 }
 
 export function getWebviewContent(
@@ -58,7 +59,8 @@ export function getWebviewContent(
         documentBaseUri: config?.documentBaseUri ?? '',
         webviewMessages: config?.webviewMessages,
         enableDebugLogging: config?.enableDebugLogging ?? false,
-        isOutlinerPage: config?.isOutlinerPage ?? false
+        isOutlinerPage: config?.isOutlinerPage ?? false,
+        showTranslateButtons: config?.showTranslateButtons ?? false
     };
 
     const nonce = getNonce();
@@ -109,7 +111,7 @@ export function getWebviewContent(
         .replace('__CONTENT__', `'${base64Content}'`);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}">
+<html lang="en" data-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

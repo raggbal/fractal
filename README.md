@@ -446,6 +446,7 @@ The same rules apply to both images and file attachments:
 | `fractal.fileDefaultDir` | Default directory for file attachments in markdown | `""` (same as markdown file) |
 | `fractal.forceRelativeFilePath` | Force relative paths for file attachments | `false` |
 | `fractal.enableDebugLogging` | Enable debug logging in browser console | `false` |
+| `fractal.showTranslateButtons` | Show translate buttons in standalone toolbar (leftmost) and side panel header. When off, translation can still be triggered via the `fractal.translate` command (Cmd+/) | `false` |
 
 ### Themes
 

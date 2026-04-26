@@ -483,6 +483,21 @@ body {
     display: none;
 }
 
+/* Translate buttons toggle (fractal.showTranslateButtons setting, default off).
+   Hides standalone toolbar's translate group AND side panel header's translate / translateLang.
+   The fractal.translate command (Cmd+/) is unaffected. */
+[data-show-translate-buttons="false"] .toolbar-group[data-group="translate"],
+[data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translate"],
+[data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
+    display: none !important;
+}
+/* Standalone toolbar translate language button: text-based label (e.g. "ja → en") */
+.toolbar-inner .toolbar-group[data-group="translate"] [data-action="translateLang"] {
+    min-width: 56px;
+    padding: 0 6px;
+    font-size: 12px;
+}
+
 .editor-wrapper { flex: 1; overflow: auto; position: relative; }
 .editor {
     max-width: 860px;
