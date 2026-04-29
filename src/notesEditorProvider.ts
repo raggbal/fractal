@@ -692,28 +692,14 @@ export class NotesEditorProvider {
                 void fileName; // unused
             },
             requestCreateDrawio: async (sidePanelFilePath: string) => {
-                const inputName = await vscode.window.showInputBox({
-                    prompt: t('drawioFilenamePromptTitle'),
-                    placeHolder: t('drawioFilenamePromptPlaceholder'),
-                    value: 'diagram'
-                });
-                if (!inputName || !inputName.trim()) return;
-
+                // v15+ で InputBox 廃止 → diagram.drawio.svg を自動命名で生成
                 const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
                 const filesDir = outlinerId
                     ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
                     : path.join(fileManager.getMainFolderPath(), 'files');
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
-                let baseName = inputName.trim();
-                if (!baseName.toLowerCase().endsWith('.drawio.svg')) {
-                    if (baseName.toLowerCase().endsWith('.drawio')) {
-                        baseName = baseName + '.svg';
-                    } else {
-                        baseName = baseName + '.drawio.svg';
-                    }
-                }
-                const destFileName = buildUniqueDrawioName(baseName, (n) => fs.existsSync(path.join(filesDir, n)));
+                const destFileName = buildUniqueDrawioName('diagram.drawio.svg', (n) => fs.existsSync(path.join(filesDir, n)));
                 const destPath = path.join(filesDir, destFileName);
                 try {
                     fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');

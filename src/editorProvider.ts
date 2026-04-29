@@ -690,16 +690,54 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
         // --- drawio watcher (MD-48): 既存 fileWatcher / fileChangeSubscription とは完全分離 ---
         // NT-14 / OL-22 / MD-24 を破壊しないため、document 経路には触らない。
-        // PoC editorProvider.patch.md の指示通りに新 instance + onDidChangeTextDocument 末尾にぶら下げ。
+        // standalone customEditor は workspace folder が無い場合があり、その場合
+        // vscode.workspace.createFileSystemWatcher は外部ファイルに対して fire しない。
+        // Node の fs.watchFile (1秒 polling) を fallback として併用する。
         const drawioWatcher = new DrawioWatcherRegistry({
             createFileSystemWatcher: (drawioPath: string) => {
-                // RelativePattern を使うことで workspace 外のファイルも監視可能
-                // (raw string を createFileSystemWatcher に渡すと workspace 内ファイルのみ監視される VSCode API 制限の回避)
                 const dir = path.dirname(drawioPath);
                 const base = path.basename(drawioPath);
-                return vscode.workspace.createFileSystemWatcher(
+                const vsWatcher = vscode.workspace.createFileSystemWatcher(
                     new vscode.RelativePattern(vscode.Uri.file(dir), base)
                 );
+                // fs.watchFile fallback (workspace 外ファイル対応)
+                const changeListeners: Array<() => void> = [];
+                const fsListener = (curr: { mtimeMs: number }, prev: { mtimeMs: number }) => {
+                    if (curr.mtimeMs !== prev.mtimeMs && curr.mtimeMs > 0) {
+                        changeListeners.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+                    }
+                };
+                try { fs.watchFile(drawioPath, { interval: 1000 }, fsListener); } catch { /* ignore */ }
+                // wrapper: vsWatcher の onDidChange/onDidCreate と fs.watchFile を統合
+                return {
+                    onDidChange: (h: () => void) => {
+                        changeListeners.push(h);
+                        const sub = vsWatcher.onDidChange(h);
+                        return {
+                            dispose: () => {
+                                const i = changeListeners.indexOf(h);
+                                if (i >= 0) changeListeners.splice(i, 1);
+                                try { sub.dispose(); } catch { /* ignore */ }
+                            }
+                        };
+                    },
+                    onDidCreate: (h: () => void) => {
+                        changeListeners.push(h);
+                        const sub = vsWatcher.onDidCreate(h);
+                        return {
+                            dispose: () => {
+                                const i = changeListeners.indexOf(h);
+                                if (i >= 0) changeListeners.splice(i, 1);
+                                try { sub.dispose(); } catch { /* ignore */ }
+                            }
+                        };
+                    },
+                    dispose: () => {
+                        try { fs.unwatchFile(drawioPath, fsListener); } catch { /* ignore */ }
+                        try { vsWatcher.dispose(); } catch { /* ignore */ }
+                        changeListeners.length = 0;
+                    }
+                };
             },
             debounceMs: 200,
             onChange: (drawioPath: string, mdPaths: string[]) => {
@@ -1731,8 +1769,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     /**
-     * MD-47: Cmd+/ → Insert Drawio Diagram。InputBox でファイル名入力 →
-     * fileDir/<name>.drawio.svg にテンプレートを書き出し → ![]() を挿入。
+     * MD-47: Cmd+/ → Insert Drawio Diagram。
+     * v15+ で InputBox 廃止 → fileDir/diagram.drawio.svg を自動命名で生成 (衝突時 diagram-1, diagram-2 ...) → ![]() を挿入。
      */
     private async handleRequestCreateDrawio(
         documentUri: vscode.Uri,
@@ -1741,29 +1779,12 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
-        const inputName = await vscode.window.showInputBox({
-            prompt: t('drawioFilenamePromptTitle'),
-            placeHolder: t('drawioFilenamePromptPlaceholder'),
-            value: 'diagram'
-        });
-        if (!inputName || !inputName.trim()) {
-            return; // キャンセル / 空文字
-        }
         try {
             const fileDir = fileDirectoryManager.getFileDirectory(documentUri, documentContent);
             ensureDirectoryExists(fileDir);
 
-            // .drawio.svg 拡張子を自動付加
-            let baseName = inputName.trim();
-            if (!baseName.toLowerCase().endsWith('.drawio.svg')) {
-                // 既存の拡張子があれば剥がしてから付加
-                if (baseName.toLowerCase().endsWith('.drawio')) {
-                    baseName = baseName + '.svg';
-                } else {
-                    baseName = baseName + '.drawio.svg';
-                }
-            }
-            const uniqueName = generateUniqueDrawioFileName(fileDir, baseName);
+            // 自動命名: diagram.drawio.svg が無ければそのまま、あれば diagram-1.drawio.svg ...
+            const uniqueName = generateUniqueDrawioFileName(fileDir, 'diagram.drawio.svg');
             const destPath = path.join(fileDir, uniqueName);
             fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');
 

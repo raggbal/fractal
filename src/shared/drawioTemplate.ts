@@ -20,14 +20,23 @@ function escapeXmlAttr(xml: string): string {
 }
 
 /**
+ * Page サイズ定数 (drawio の標準 pixel 値)。
+ * v15+: 新規 drawio.svg は A3 landscape を default にする。
+ */
+export const PAGE_A3_LANDSCAPE_WIDTH = 1654;
+export const PAGE_A3_LANDSCAPE_HEIGHT = 1169;
+
+/**
  * mxfile XML（完全空 mxCell id=0/1 のみ）。
  * GUI で開いて即編集を始める用途には十分だが、CLI export round-trip では
  * 落ちる可能性がある（PoC observation）。fallback として保持。
+ *
+ * ページサイズ: A3 landscape (1654 × 1169 px)
  */
 export const MXFILE_EMPTY: string = (
     '<mxfile host="fractal" modified="2026-04-27T00:00:00.000Z" agent="fractal" version="24.0.0">' +
         '<diagram name="Page-1" id="empty">' +
-            '<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">' +
+            '<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="' + PAGE_A3_LANDSCAPE_WIDTH + '" pageHeight="' + PAGE_A3_LANDSCAPE_HEIGHT + '" math="0" shadow="0">' +
                 '<root>' +
                     '<mxCell id="0"/>' +
                     '<mxCell id="1" parent="0"/>' +
@@ -41,16 +50,18 @@ export const MXFILE_EMPTY: string = (
  * mxfile XML（"Placeholder" rect を 1 個含む最小実用テンプレート）。
  * CLI export round-trip でも OK、GUI で開いて即編集を始められる。
  * Cmd+/ Insert Drawio Diagram ではこちらを採用する。
+ *
+ * ページサイズ: A3 landscape (1654 × 1169 px)
  */
 export const MXFILE_WITH_PLACEHOLDER: string = (
     '<mxfile host="fractal" modified="2026-04-27T00:00:00.000Z" agent="fractal" version="24.0.0">' +
         '<diagram name="Page-1" id="empty">' +
-            '<mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">' +
+            '<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="' + PAGE_A3_LANDSCAPE_WIDTH + '" pageHeight="' + PAGE_A3_LANDSCAPE_HEIGHT + '" math="0" shadow="0">' +
                 '<root>' +
                     '<mxCell id="0"/>' +
                     '<mxCell id="1" parent="0"/>' +
                     '<mxCell id="2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#cccccc;fontSize=11;fontColor=#999999;align=center;" vertex="1" parent="1">' +
-                        '<mxGeometry x="0" y="0" width="120" height="80" as="geometry"/>' +
+                        '<mxGeometry x="40" y="40" width="200" height="100" as="geometry"/>' +
                     '</mxCell>' +
                 '</root>' +
             '</mxGraphModel>' +

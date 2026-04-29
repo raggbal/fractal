@@ -11793,6 +11793,27 @@ class EditorInstance {
             case 'drawio':
                 // MD-47: Cmd+/ → Insert Drawio Diagram
                 if (typeof host.requestCreateDrawio === 'function') {
+                    // BUG-FIX (cmd+/ で drawio が挿入されないケースがある):
+                    // host への往復中に focus / selection が失われると insertImageHtml で挿入位置が不定になる。
+                    // 不可視 marker span を cursor 位置に置いて固定化、insertImageHtml 受信時に marker
+                    // を image に置換する。contenteditable=false + width:0 で edit / cursor 位置に影響なし。
+                    try {
+                        var dwSel = window.getSelection();
+                        if (dwSel && dwSel.rangeCount) {
+                            var existing = editor.querySelector('span[data-drawio-insert-marker]');
+                            if (existing) existing.remove();
+                            var marker = document.createElement('span');
+                            marker.setAttribute('data-drawio-insert-marker', '1');
+                            marker.setAttribute('contenteditable', 'false');
+                            marker.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden;';
+                            var dwRange = dwSel.getRangeAt(0);
+                            dwRange.insertNode(marker);
+                            dwRange.setStartAfter(marker);
+                            dwRange.setEndAfter(marker);
+                            dwSel.removeAllRanges();
+                            dwSel.addRange(dwRange);
+                        }
+                    } catch (e) { /* ignore — fallback to focus-based insertion */ }
                     host.requestCreateDrawio();
                 }
                 break;
@@ -13856,7 +13877,25 @@ class EditorInstance {
             img.onload = function() {
                 logger.log('Image loaded successfully');
             };
-            
+
+            // BUG-FIX: cmd+/ drawio などで host 往復中に selection が失われた場合、
+            // case 'drawio' で挿入した不可視 marker (data-drawio-insert-marker) を画像に置換する。
+            // marker が無ければ通常の cursor 位置挿入経路へ。
+            const markerEl = editor.querySelector('span[data-drawio-insert-marker]');
+            if (markerEl) {
+                markerEl.parentNode.replaceChild(img, markerEl);
+                editor.focus();
+                // image の後にカーソル
+                const mRange = document.createRange();
+                mRange.setStartAfter(img);
+                mRange.setEndAfter(img);
+                const mSel = window.getSelection();
+                mSel.removeAllRanges();
+                mSel.addRange(mRange);
+                syncMarkdown();
+                return;
+            }
+
             editor.focus();
             const sel = window.getSelection();
             if (sel && sel.rangeCount) {
