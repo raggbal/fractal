@@ -159,6 +159,20 @@ test.describe('Outliner matrix — C. drawio.svg (node.filePath)', () => {
         // drawio は file 扱いなので images[] には入らない
         expect(save.nodes[0].images || []).not.toContain('files/diagram.drawio.svg');
     });
+
+    test('C cmd+x clipboard with isCut=true + drawio filePath', async ({ page }) => {
+        await setupOutliner(page, SOURCE_OUT_KEY, initData());
+        await focusFirstNodeAndSelectAll(page);
+        await clearMessages(page);
+        await page.keyboard.press('Meta+x');
+        await page.waitForTimeout(100);
+        const msgs = await getMessages(page);
+        const save = msgs.find((m) => m.type === 'saveOutlinerClipboard');
+        expect(save).toBeTruthy();
+        expect(save.isCut).toBe(true);
+        expect(save.nodes[0].filePath).toBe('files/diagram.drawio.svg');
+        expect(save.nodes[0].images || []).not.toContain('files/diagram.drawio.svg');
+    });
 });
 
 // ============================================================================

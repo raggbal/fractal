@@ -136,6 +136,7 @@ export const webviewMessages = {
   addPageAtPathTitle: 'Enter path (.md)',
   confirmLinkName: 'Link name',
   actionPanelConfirm: 'Confirm',
+  actionPanelCancel: 'Cancel',
   // Outliner
   outlinerNoItems: 'No items yet',
   outlinerAddHint: 'Press Enter to add an item',
@@ -169,6 +170,8 @@ export const webviewMessages = {
   contextCut: 'Cut',
   contextCopy: 'Copy',
   contextPaste: 'Paste',
+  contextRenameLink: 'Rename Link',
+  promptRenameLink: 'Enter new link name',
   // Notes left panel
   notesTabNotes: 'Notes',
   notesTabSearch: 'Search',

@@ -34,6 +34,12 @@ export class SidePanelManager {
     private _watchedPath: string | undefined;
     private _isApplyingEdit = false;
 
+    // v15+: side panel navigation history (back/forward stacks)
+    // ユーザーが side panel 内で .md link click したときに pre-replace の filePath を push し
+    // ← / → ボタンで navigate できる
+    private _navBackStack: string[] = [];
+    private _navForwardStack: string[] = [];
+
     private readonly host: SidePanelHost;
     private readonly config: SidePanelManagerConfig;
 
@@ -190,6 +196,7 @@ export class SidePanelManager {
      */
     handleClose(): void {
         this.disposeFileWatcher();
+        this.clearNavigationHistory();
     }
 
     /**
@@ -221,7 +228,7 @@ export class SidePanelManager {
 
     /**
      * 'sidePanelOpenLink' メッセージの処理。
-     * サイドパネル内のリンククリック → 同じサイドパネル内で遷移。
+     * サイドパネル内のリンククリック → 同じサイドパネル内で遷移 (back/forward stack push)。
      */
     async handleOpenLink(href: string, sidePanelFilePath: string): Promise<void> {
         if (href.startsWith('fractal://')) {
@@ -240,11 +247,65 @@ export class SidePanelManager {
                 : vscode.Uri.joinPath(spBaseUri, '..', href);
             const resolvedPath = resolvedUri.fsPath.toLowerCase();
             if (resolvedPath.endsWith('.md') || resolvedPath.endsWith('.markdown')) {
+                // v15+: push current side panel file to back stack, clear forward stack
+                if (sidePanelFilePath && sidePanelFilePath !== resolvedUri.fsPath) {
+                    this._navBackStack.push(sidePanelFilePath);
+                    this._navForwardStack = [];
+                }
                 await this.openFile(resolvedUri.fsPath);
+                this.sendNavStateUpdate();
             } else {
                 vscode.env.openExternal(resolvedUri);
             }
         }
+    }
+
+    /**
+     * v15+: side panel navigation back — back stack から pop して openFile、現在 path は forward stack へ。
+     */
+    async navigateBack(currentSidePanelFilePath: string): Promise<void> {
+        if (this._navBackStack.length === 0) return;
+        const prev = this._navBackStack.pop()!;
+        if (currentSidePanelFilePath && currentSidePanelFilePath !== prev) {
+            this._navForwardStack.push(currentSidePanelFilePath);
+        }
+        await this.openFile(prev);
+        this.sendNavStateUpdate();
+    }
+
+    /**
+     * v15+: side panel navigation forward。
+     */
+    async navigateForward(currentSidePanelFilePath: string): Promise<void> {
+        if (this._navForwardStack.length === 0) return;
+        const next = this._navForwardStack.pop()!;
+        if (currentSidePanelFilePath && currentSidePanelFilePath !== next) {
+            this._navBackStack.push(currentSidePanelFilePath);
+        }
+        await this.openFile(next);
+        this.sendNavStateUpdate();
+    }
+
+    /**
+     * navigation stack 状態を webview に通知 (button enable/disable 用)。
+     */
+    sendNavStateUpdate(): void {
+        this.host.postMessage({
+            type: 'sidePanelMessage',
+            data: {
+                type: 'sidePanelNavStateUpdate',
+                canGoBack: this._navBackStack.length > 0,
+                canGoForward: this._navForwardStack.length > 0
+            }
+        });
+    }
+
+    /**
+     * side panel close 時に history clear。
+     */
+    clearNavigationHistory(): void {
+        this._navBackStack = [];
+        this._navForwardStack = [];
     }
 
     // --- sendToChat (テキストエディタで開いて行選択) ---

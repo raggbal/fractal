@@ -139,6 +139,8 @@ export const webviewMessages = {
   contextCut: '剪切',
   contextCopy: '复制',
   contextPaste: '粘贴',
+  contextRenameLink: '重命名链接',
+  promptRenameLink: '请输入新的链接名称',
   notesTabNotes: '笔记',
   notesTabSearch: '搜索',
   notesNewFolder: '新建文件夹',

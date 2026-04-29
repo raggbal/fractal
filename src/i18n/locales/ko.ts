@@ -139,6 +139,8 @@ export const webviewMessages = {
   contextCut: '잘라내기',
   contextCopy: '복사',
   contextPaste: '붙여넣기',
+  contextRenameLink: '링크 이름 변경',
+  promptRenameLink: '새 링크 이름을 입력하세요',
   notesTabNotes: '노트',
   notesTabSearch: '검색',
   notesNewFolder: '새 폴더',

@@ -139,6 +139,8 @@ export const webviewMessages = {
   contextCut: 'Couper',
   contextCopy: 'Copier',
   contextPaste: 'Coller',
+  contextRenameLink: 'Renommer le lien',
+  promptRenameLink: 'Entrez le nouveau nom du lien',
   notesTabNotes: 'Notes',
   notesTabSearch: 'Rechercher',
   notesNewFolder: 'Nouveau dossier',

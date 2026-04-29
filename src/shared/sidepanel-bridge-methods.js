@@ -88,6 +88,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         requestCreateDrawio: function(sidePanelFilePath) {
             postFn({ type: 'requestCreateDrawio', sidePanelFilePath: sidePanelFilePath });
         },
+        // v15+: cmd+/ Add Page (simple flow) — sidepanel が outliner pageDir 直下に新規 .md を作る
+        createPageAutoForSidePanel: function(sidePanelFilePath) {
+            postFn({ type: 'createPageAutoForSidePanel', sidePanelFilePath: sidePanelFilePath });
+        },
+        // v15+: side panel navigation (back/forward stack)
+        sidePanelNavigateBack: function(sidePanelFilePath) {
+            postFn({ type: 'sidePanelNavigateBack', sidePanelFilePath: sidePanelFilePath });
+        },
+        sidePanelNavigateForward: function(sidePanelFilePath) {
+            postFn({ type: 'sidePanelNavigateForward', sidePanelFilePath: sidePanelFilePath });
+        },
 
         // sendToChat
         sendToChat: function(startLine, endLine, selectedMarkdown, sidePanelFilePath) {

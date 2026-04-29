@@ -1047,8 +1047,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             : vscode.Uri.joinPath(document.uri, '..', linkHref);
                         const resolvedPath = resolvedUri.fsPath.toLowerCase();
                         if (resolvedPath.endsWith('.md') || resolvedPath.endsWith('.markdown')) {
+                            // v15+: standalone customEditor の MD link click は default 'tab' (新タブで standalone customEditor として開く)。
+                            // 旧 default 'sidePanel' から変更。side panel で開きたい場合は user 設定 fractal.linkOpenMode='sidePanel'。
                             const linkOpenMode = forceTab ? 'tab'
-                                : vscode.workspace.getConfiguration('fractal').get<string>('linkOpenMode', 'sidePanel');
+                                : vscode.workspace.getConfiguration('fractal').get<string>('linkOpenMode', 'tab');
                             if (linkOpenMode === 'tab') {
                                 vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
                             } else {
@@ -1097,6 +1099,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'sidePanelClosed':
                     sidePanel.handleClose();
+                    break;
+
+                case 'sidePanelNavigateBack':
+                    await sidePanel.navigateBack(message.sidePanelFilePath || '');
+                    break;
+
+                case 'sidePanelNavigateForward':
+                    await sidePanel.navigateForward(message.sidePanelFilePath || '');
                     break;
 
                 case 'sidePanelOpenLink':
@@ -1277,17 +1287,50 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'createPageAuto': {
                     const docDir3 = path.dirname(document.uri.fsPath);
-                    const pagesDir = path.join(docDir3, 'pages');
+                    // outliner page MD なら outliner の pageDir 直下、それ以外は <docDir>/pages
+                    const pagesDir = (isOutlinerPage && outlinerPageDir)
+                        ? outlinerPageDir
+                        : path.join(docDir3, 'pages');
                     if (!fs.existsSync(pagesDir)) {
                         fs.mkdirSync(pagesDir, { recursive: true });
                     }
                     const fileName = generateUniqueFileName(pagesDir, 'md');
                     const absPath2 = path.join(pagesDir, fileName);
-                    fs.writeFileSync(absPath2, '', 'utf8');
-                    const relPath = path.relative(docDir3, absPath2);
+                    // 初期 content "# " — render 後 H1 になり即タイトル入力可
+                    fs.writeFileSync(absPath2, '# ', 'utf8');
+                    const relPath = path.relative(docDir3, absPath2).replace(/\\/g, '/');
                     webviewPanel.webview.postMessage({
                         type: 'pageCreatedAtPath',
                         relativePath: relPath
+                    });
+                    break;
+                }
+
+                case 'createPageAutoForSidePanel': {
+                    // v15+: side panel の cmd+/ Add Page (simple flow)
+                    // sidePanel が outliner page を開いている場合は outliner の pageDir 直下、
+                    // それ以外は side panel file dir/pages に作る
+                    const sidePanelFilePath: string = message.sidePanelFilePath || '';
+                    if (!sidePanelFilePath) break;
+                    const spDir = path.dirname(sidePanelFilePath);
+                    // side panel が outliner page MD かどうか判定
+                    const spIsOutlinerPage = OutlinerProvider.outlinerPagePaths.has(sidePanelFilePath);
+                    const spOutlinerPageDir = OutlinerProvider.outlinerPagePaths.get(sidePanelFilePath);
+                    const pagesDir = (spIsOutlinerPage && spOutlinerPageDir)
+                        ? spOutlinerPageDir
+                        : path.join(spDir, 'pages');
+                    if (!fs.existsSync(pagesDir)) {
+                        fs.mkdirSync(pagesDir, { recursive: true });
+                    }
+                    const fileName = generateUniqueFileName(pagesDir, 'md');
+                    const absPath = path.join(pagesDir, fileName);
+                    fs.writeFileSync(absPath, '# ', 'utf8');
+                    // side panel から見た相対 path
+                    const relPath = path.relative(spDir, absPath).replace(/\\/g, '/');
+                    // sidePanelMessage envelope で side panel EditorInstance に届ける
+                    webviewPanel.webview.postMessage({
+                        type: 'sidePanelMessage',
+                        data: { type: 'pageCreatedAtPath', relativePath: relPath }
                     });
                     break;
                 }

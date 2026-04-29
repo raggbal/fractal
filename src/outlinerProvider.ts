@@ -500,6 +500,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await sidePanel.handleOpenLink(message.href, message.sidePanelFilePath);
                         break;
 
+                    case 'sidePanelNavigateBack':
+                        await sidePanel.navigateBack(message.sidePanelFilePath || '');
+                        break;
+
+                    case 'sidePanelNavigateForward':
+                        await sidePanel.navigateForward(message.sidePanelFilePath || '');
+                        break;
+
                     case 'sidePanelOpenInTextEditor':
                         if (message.sidePanelFilePath) {
                             const spTextUri = vscode.Uri.file(message.sidePanelFilePath);
@@ -565,6 +573,36 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 markdown: result.rewrittenMarkdown
                             });
                         }
+                        break;
+                    }
+
+                    case 'createPageAutoForSidePanel': {
+                        // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
+                        const sidePanelFilePath: string = message.sidePanelFilePath || '';
+                        if (!sidePanelFilePath) break;
+                        const pagesDir = this.getPagesDirPath(document);
+                        if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
+                        // unique <timestamp>.md (衝突時 -0001 等)
+                        const ts = Date.now();
+                        let fileName = `${ts}.md`;
+                        if (fs.existsSync(path.join(pagesDir, fileName))) {
+                            let counter = 1;
+                            // eslint-disable-next-line no-constant-condition
+                            while (true) {
+                                const cs = String(counter).padStart(4, '0');
+                                fileName = `${ts}-${cs}.md`;
+                                if (!fs.existsSync(path.join(pagesDir, fileName))) break;
+                                counter++;
+                            }
+                        }
+                        const absPath = path.join(pagesDir, fileName);
+                        fs.writeFileSync(absPath, '# ', 'utf8');
+                        const spDir = path.dirname(sidePanelFilePath);
+                        const relPath = path.relative(spDir, absPath).replace(/\\/g, '/');
+                        webviewPanel.webview.postMessage({
+                            type: 'sidePanelMessage',
+                            data: { type: 'pageCreatedAtPath', relativePath: relPath }
+                        });
                         break;
                     }
 

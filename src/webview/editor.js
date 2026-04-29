@@ -84,7 +84,24 @@ class SidePanelHostBridge {
     notifySidePanelClosed() {}
     searchFiles(query) { this._mainHost.searchFiles(query); }
     createPageAtPath(path) { this._mainHost.createPageAtPath(path); }
-    createPageAuto() { this._mainHost.createPageAuto(); }
+    createPageAuto() {
+        // sidepanel context: filePath を渡して host 側で正しい pageDir を解決
+        if (typeof this._mainHost.createPageAutoForSidePanel === 'function') {
+            this._mainHost.createPageAutoForSidePanel(this.filePath);
+        } else {
+            this._mainHost.createPageAuto();
+        }
+    }
+    sidePanelNavigateBack(filePath) {
+        if (typeof this._mainHost.sidePanelNavigateBack === 'function') {
+            this._mainHost.sidePanelNavigateBack(filePath || this.filePath);
+        }
+    }
+    sidePanelNavigateForward(filePath) {
+        if (typeof this._mainHost.sidePanelNavigateForward === 'function') {
+            this._mainHost.sidePanelNavigateForward(filePath || this.filePath);
+        }
+    }
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
@@ -262,6 +279,14 @@ class EditorInstance {
     // Debug logging configuration
     const DEBUG_MODE = __DEBUG_MODE__;
     const IS_OUTLINER_PAGE = __IS_OUTLINER_PAGE__;
+    // v15+: cmd+/ Add Page は **常に simple flow** (marker pin + 自動命名 + 即 link 挿入)。
+    // 旧 action panel (auto/at-path 二択 + name 確認) は path picker が必要な特殊ケース用に
+    // 残す可能性があるが、cmd+/ → Add Page entry は context によらず simple に統一。
+    // sidepanel / outliner page MD のように pageDir が固定された文脈では addPage の path picker を skip し
+    // pageDir 直下に <timestamp>.md を自動生成、cursor 位置に [untitled](rel) を即挿入する
+    const IS_SIDEPANEL = !!this.options.isSidePanel;
+    // v15+: simple flow を全 context で有効化 (standalone main / sidepanel / outliner page)
+    const useSimpleAddPage = true;
     const logger = {
         log: DEBUG_MODE ? (...args) => console.log('[DEBUG]', ...args) : () => {},
         warn: DEBUG_MODE ? (...args) => console.warn('[DEBUG]', ...args) : () => {},
@@ -625,7 +650,7 @@ class EditorInstance {
         }
     }
 
-    function showEditorContextMenu(x, y) {
+    function showEditorContextMenu(x, y, opts) {
         hideEditorContextMenu();
         var sel = window.getSelection();
         var hasSelection = sel && !sel.isCollapsed;
@@ -634,6 +659,8 @@ class EditorInstance {
         var isInNotesContext = !!document.querySelector('.notes-layout');
         var isMac = navigator.platform.indexOf('Mac') !== -1;
         var mod = isMac ? 'Cmd' : 'Ctrl';
+        // Right-click target が <a href> なら link rename 用 metadata を保持
+        var ctxLinkEl = (opts && opts.linkEl) || null;
 
         function restoreSelectionAndFocus() {
             // preventScroll to avoid jumping to top (問題2対策)
@@ -684,8 +711,26 @@ class EditorInstance {
         function addCtxSeparator() {
             var sep = document.createElement('div');
             sep.className = 'editor-context-menu-separator';
-            sep.style.cssText = 'height:1px;background:#454545;margin:4px 0;';
+            // theme-aware: menuBorder と同じ色 (light theme でも目立たない灰色になる)
+            sep.style.cssText = 'height:1px;background:' + menuBorder + ';opacity:0.5;margin:4px 0;';
             editorContextMenuEl.appendChild(sep);
+        }
+
+        // Rename Link (only when right-clicked on an <a href> inside the editor)
+        if (ctxLinkEl) {
+            addCtxItem(i18n.contextRenameLink || 'Rename Link', function() {
+                var oldText = ctxLinkEl.textContent || '';
+                // VSCode webview では window.prompt がブロックされるためカスタムモーダルを使う
+                showRenameLinkModal(oldText, function(newText) {
+                    if (newText === null) return; // cancel
+                    if (newText === oldText) return;
+                    undoManager.saveSnapshot();
+                    ctxLinkEl.textContent = newText;
+                    markAsEdited();
+                    syncMarkdown();
+                });
+            });
+            addCtxSeparator();
         }
 
         // Cut
@@ -723,6 +768,111 @@ class EditorInstance {
         }, 0);
     }
 
+    // ========== RENAME LINK MODAL ==========
+    // VSCode webview blocks window.prompt — implement a custom centered modal.
+    var renameLinkModalEl = null;
+    var pendingAddPageLinkName = null; // cmd+/ Add Page 用: response 時に marker を <a>{name}</a> 置換するため
+    function hideRenameLinkModal() {
+        if (renameLinkModalEl && renameLinkModalEl.parentNode) {
+            renameLinkModalEl.parentNode.removeChild(renameLinkModalEl);
+        }
+        renameLinkModalEl = null;
+    }
+    // Add Page 用の薄いラッパ — タイトルを「リンク名」に差し替えて showRenameLinkModal を流用
+    function showAddPageLinkNameModal(defaultText, onResult) {
+        showRenameLinkModal(defaultText, onResult, {
+            titleText: i18n.confirmLinkName || 'Link name'
+        });
+    }
+    function showRenameLinkModal(currentText, onResult, opts) {
+        hideRenameLinkModal();
+        var cs = getComputedStyle(document.documentElement);
+        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
+        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
+        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
+        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'rename-link-modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+
+        var modal = document.createElement('div');
+        modal.className = 'rename-link-modal';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:560px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+
+        var title = document.createElement('div');
+        title.style.cssText = 'margin-bottom:10px;font-weight:600;';
+        title.textContent = (opts && opts.titleText) || i18n.promptRenameLink || 'Enter new link name';
+        modal.appendChild(title);
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentText || '';
+        input.style.cssText = 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid ' + border + ';border-radius:4px;background:' + bg + ';color:' + fg + ';font-size:13px;outline:none;';
+        modal.appendChild(input);
+
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:14px;';
+
+        function btn(label, primary) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
+                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            return b;
+        }
+        var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
+        var okBtn = btn(i18n.actionPanelConfirm || 'OK', true);
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(okBtn);
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        renameLinkModalEl = overlay;
+
+        var isComposingRn = false;
+        // Enter / Escape は document capture phase で受ける
+        // (VSCode webview で input が focus 取得失敗 → input listener が発火しないケース対策。
+        //  overlay 表示中は document level で確実にキャッチ、close 時に listener 解除)
+        function handleModalKey(e) {
+            if (isComposingRn) return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopPropagation();
+                finish(input.value);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                finish(null);
+            }
+        }
+        document.addEventListener('keydown', handleModalKey, true);
+
+        function finish(result) {
+            try { document.removeEventListener('keydown', handleModalKey, true); } catch (eR) { /* ignore */ }
+            hideRenameLinkModal();
+            try { onResult(result); } catch (e) { /* ignore */ }
+        }
+
+        // outside-clicks → cancel
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) finish(null);
+        });
+        cancelBtn.addEventListener('click', function() { finish(null); });
+        okBtn.addEventListener('click', function() { finish(input.value); });
+        input.addEventListener('compositionstart', function() { isComposingRn = true; });
+        input.addEventListener('compositionend', function() { isComposingRn = false; });
+
+        // 多重フォーカス試行 (VSCode webview で 1 回目失敗するケース対策)
+        function tryFocus() {
+            try { input.focus(); input.select(); } catch (eF) { /* ignore */ }
+        }
+        requestAnimationFrame(tryFocus);
+        setTimeout(tryFocus, 30);
+        setTimeout(tryFocus, 100);
+    }
+
     // Register on document level — VSCode webview does not deliver contextmenu
     // events to individual elements reliably. Each EditorInstance registers its own
     // handler with editor.contains() guard so closures (editor, isSourceMode, host,
@@ -732,7 +882,19 @@ class EditorInstance {
         if (isSourceMode) return; // Let browser handle in source mode
         e.preventDefault();
         e.stopImmediatePropagation(); // Prevent other instances & outliner handler
-        showEditorContextMenu(e.clientX, e.clientY);
+        // Right-click target が <a href> 上なら link rename を有効化
+        var linkEl = null;
+        try {
+            var el = e.target;
+            while (el && el !== editor) {
+                if (el.nodeType === 1 && el.tagName === 'A' && el.hasAttribute('href')) {
+                    linkEl = el;
+                    break;
+                }
+                el = el.parentNode;
+            }
+        } catch (err) { /* ignore */ }
+        showEditorContextMenu(e.clientX, e.clientY, { linkEl: linkEl });
     });
 
     // ========== UNDO / REDO MANAGER ==========
@@ -1674,7 +1836,9 @@ class EditorInstance {
         if (headingMatch) {
             const level = headingMatch[1].length;
             const content = parseInline(headingMatch[2]);
-            return { tag: 'h' + level, html: content, consumed: true };
+            // 空 heading (`# ` だけ) も visible にする — `<br>` を入れて高さを確保
+            // (cmd+/ Add Page で `# ` を初期 content にして即タイトル入力できるようにするため)
+            return { tag: 'h' + level, html: content || '<br>', consumed: true };
         }
 
         // Horizontal rule
@@ -6525,6 +6689,21 @@ class EditorInstance {
     editor.addEventListener('keydown', function(e) {
         logger.log('Editor keydown:', e.key);
         if (isSourceMode) return;
+
+        // v15+: Alt+Left/Right で side panel navigation (history back/forward)
+        if (IS_SIDEPANEL && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var spFp = self.filePath;
+            if (spFp && typeof host !== 'undefined') {
+                if (e.key === 'ArrowLeft' && typeof host.sidePanelNavigateBack === 'function') {
+                    host.sidePanelNavigateBack(spFp);
+                } else if (e.key === 'ArrowRight' && typeof host.sidePanelNavigateForward === 'function') {
+                    host.sidePanelNavigateForward(spFp);
+                }
+            }
+            return;
+        }
 
         // Mark as actively editing for non-navigation keys
         if (!e.key.startsWith('Arrow') && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Escape', 'Tab'].includes(e.key)) {
@@ -11838,7 +12017,74 @@ class EditorInstance {
                 syncMarkdown();
                 break;
             case 'addPage':
-                openActionPanel();
+                if (useSimpleAddPage) {
+                    // v15+ simple flow:
+                    //   1) cursor 位置に marker pin (insert 位置固定)
+                    //   2) リンク名入力 modal (default 'untitled')
+                    //   3) OK → host.createPageAuto() で page MD 作成 + marker を <a>{linkName}</a> に置換
+                    //   Cancel → marker 削除 (何も挿入しない)
+                    //
+                    // BUG-FIX (cmd+/ で addPage 挿入失敗):
+                    //   selection が editor 外 を指している場合、apRange.insertNode は editor 外に marker を置く →
+                    //   editor.contains で検査して外なら editor 末尾に新規 <p> として pin する。
+                    var apMarker = null;
+                    try {
+                        var apExisting = editor.querySelector('span[data-page-insert-marker]');
+                        if (apExisting) apExisting.remove();
+                        apMarker = document.createElement('span');
+                        apMarker.setAttribute('data-page-insert-marker', '1');
+                        apMarker.setAttribute('contenteditable', 'false');
+                        apMarker.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden;';
+
+                        var apSel = window.getSelection();
+                        var insertedInEditor = false;
+                        if (apSel && apSel.rangeCount) {
+                            var apRange = apSel.getRangeAt(0);
+                            if (editor.contains(apRange.startContainer) || apRange.startContainer === editor) {
+                                apRange.insertNode(apMarker);
+                                apRange.setStartAfter(apMarker);
+                                apRange.setEndAfter(apMarker);
+                                apSel.removeAllRanges();
+                                apSel.addRange(apRange);
+                                insertedInEditor = true;
+                            }
+                        }
+                        if (!insertedInEditor) {
+                            var apTailP = document.createElement('p');
+                            apTailP.appendChild(apMarker);
+                            editor.appendChild(apTailP);
+                            try {
+                                editor.focus({ preventScroll: false });
+                                var apNewRange = document.createRange();
+                                apNewRange.setStartAfter(apMarker);
+                                apNewRange.setEndAfter(apMarker);
+                                var apSel2 = window.getSelection();
+                                apSel2.removeAllRanges();
+                                apSel2.addRange(apNewRange);
+                            } catch (eFoc) { /* ignore */ }
+                        }
+                    } catch (e) { /* ignore */ }
+
+                    // 旧モーダル (link rename) を流用 — タイトルを差し替えるため context-aware に呼ぶ
+                    showAddPageLinkNameModal('untitled', function(linkName) {
+                        if (linkName === null) {
+                            // Cancel → marker 削除
+                            try {
+                                var cancelMarker = editor.querySelector('span[data-page-insert-marker]');
+                                if (cancelMarker && cancelMarker.parentNode) {
+                                    cancelMarker.parentNode.removeChild(cancelMarker);
+                                }
+                            } catch (eC) { /* ignore */ }
+                            return;
+                        }
+                        pendingAddPageLinkName = linkName || 'untitled';
+                        if (typeof host.createPageAuto === 'function') {
+                            host.createPageAuto();
+                        }
+                    });
+                } else {
+                    openActionPanel();
+                }
                 break;
         }
     }
@@ -11878,12 +12124,9 @@ class EditorInstance {
         { group: 'insert', action: 'table',   i18nKey: 'insertTable', icon: 'table' },
     ];
 
-    // outlinerページではaddPageを非表示
-    if (IS_OUTLINER_PAGE) {
-        COMMAND_PALETTE_ITEMS = COMMAND_PALETTE_ITEMS.filter(function(item) {
-            return item.action !== 'addPage';
-        });
-    }
+    // v15+: outliner page / sidepanel mode でも addPage は表示 (簡易 flow で auto-create + link 挿入)。
+    // 旧仕様 (path picker / link name input) は IS_OUTLINER_PAGE 時のみ非表示にしていたが、
+    // 簡易 flow を導入したため filter 不要。
 
     var COMMAND_PALETTE_GROUPS = {
         page:     function() { return i18n.commandPalettePage     || 'Page'; },
@@ -12639,6 +12882,58 @@ class EditorInstance {
 
     // Handle pageCreatedAtPath response from host
     function handlePageCreatedAtPath(relativePath) {
+        // v15+: simple flow — marker を <a>{linkName}</a> に置換
+        if (useSimpleAddPage) {
+            try {
+                var pcMarker = editor.querySelector('span[data-page-insert-marker]');
+                // ユーザーが modal で入力した linkName を使用 (未指定時は 'untitled' fallback)
+                var pcLinkText = pendingAddPageLinkName || 'untitled';
+                pendingAddPageLinkName = null; // consume
+                var pcA = document.createElement('a');
+                pcA.href = relativePath;
+                pcA.textContent = pcLinkText;
+                pcA.dataset.markdownPath = relativePath;
+                if (pcMarker && pcMarker.parentNode) {
+                    pcMarker.parentNode.replaceChild(pcA, pcMarker);
+                } else {
+                    // BUG-FIX (cmd+/ で addPage が表示されない時がある):
+                    //   marker が消えている (race / 失敗 fallback) 時、cursor 位置の selection が
+                    //   editor 外なら link を visible な末尾に append する。editor 外への insertNode は禁止。
+                    editor.focus();
+                    var pcSel = window.getSelection();
+                    var pcInserted = false;
+                    if (pcSel && pcSel.rangeCount) {
+                        var pcRange = pcSel.getRangeAt(0);
+                        if (editor.contains(pcRange.startContainer) || pcRange.startContainer === editor) {
+                            pcRange.insertNode(pcA);
+                            pcInserted = true;
+                        }
+                    }
+                    if (!pcInserted) {
+                        // 末尾に新規 <p> として append (常に見える位置)
+                        var pcTailP = document.createElement('p');
+                        pcTailP.appendChild(pcA);
+                        editor.appendChild(pcTailP);
+                    }
+                }
+                // cursor を <a> の後ろに
+                var pcSel2 = window.getSelection();
+                var pcAfterRange = document.createRange();
+                pcAfterRange.setStartAfter(pcA);
+                pcAfterRange.setEndAfter(pcA);
+                pcSel2.removeAllRanges();
+                pcSel2.addRange(pcAfterRange);
+                undoManager.saveSnapshot();
+                markAsEdited();
+                syncMarkdown();
+                // 新規 MD の H1 をユーザー入力の linkName に同期 ('untitled' default 時はスキップ)
+                if (pcLinkText && pcLinkText !== 'untitled' && typeof host.updatePageH1 === 'function') {
+                    try { host.updatePageH1(relativePath, pcLinkText); } catch (eH1) { /* ignore */ }
+                }
+            } catch (e) { /* ignore */ }
+            return;
+        }
+        // Legacy: action panel flow
         if (!actionPanelVisible) return;
         showActionPanelLinkName(relativePath, false);
         // Also relay to side panel instance if open
@@ -14095,7 +14390,15 @@ class EditorInstance {
         } else if (message.type === 'openSidePanel') {
             openSidePanel(message.markdown, message.filePath, message.fileName, message.toc, message.documentBaseUri);
         } else if (message.type === 'sidePanelMessage') {
-            // Dispatch message to side panel EditorInstance
+            // sidePanelNavStateUpdate は side panel button state なのでここで吸収
+            var spData = message.data || {};
+            if (spData.type === 'sidePanelNavStateUpdate') {
+                sidePanelCanGoBack = !!spData.canGoBack;
+                sidePanelCanGoForward = !!spData.canGoForward;
+                applySidePanelNavButtonState();
+                return;
+            }
+            // それ以外は side panel EditorInstance に dispatch
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message.data);
             }
@@ -14170,9 +14473,9 @@ class EditorInstance {
     var sidePanelCustomWidth = null; // session-only resize width
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
-        // Close existing panel if open
+        // Close existing panel if open (panel switch, not full close — preserve nav history)
         if (sidePanelInstance) {
-            closeSidePanelImmediate();
+            closeSidePanelImmediate(true /* isSwitch */);
         }
         // Close sidebar (outline) and remember its state
         sidebarWasOpenBeforeSidePanel = sidebar && !sidebar.classList.contains('hidden');
@@ -14268,11 +14571,19 @@ class EditorInstance {
             existing.parentNode.replaceChild(fresh, existing);
             return fresh;
         }
+        var navBackBtn = freshButton('navigateBack');
+        var navForwardBtn = freshButton('navigateForward');
         var undoBtn = freshButton('undo');
         var redoBtn = freshButton('redo');
         var openTextEditorBtn = freshButton('openInTextEditor');
         var sourceBtn = freshButton('source');
 
+        if (navBackBtn) navBackBtn.addEventListener('click', function() {
+            if (sidePanelFilePath) host.sidePanelNavigateBack(sidePanelFilePath);
+        });
+        if (navForwardBtn) navForwardBtn.addEventListener('click', function() {
+            if (sidePanelFilePath) host.sidePanelNavigateForward(sidePanelFilePath);
+        });
         if (undoBtn) undoBtn.addEventListener('click', function() {
             if (sidePanelInstance) sidePanelInstance._undo();
         });
@@ -14294,9 +14605,30 @@ class EditorInstance {
             if (redoBtn) { redoBtn.disabled = redoDisabled; redoBtn.style.opacity = redoDisabled ? '0.3' : '1'; }
         });
 
+        // Track nav buttons (re-set by sidePanelNavStateUpdate message)
+        sidePanelNavBackBtn = navBackBtn;
+        sidePanelNavForwardBtn = navForwardBtn;
+        applySidePanelNavButtonState();
+
         // Set initial disabled state
         if (undoBtn) { undoBtn.disabled = true; undoBtn.style.opacity = '0.3'; }
         if (redoBtn) { redoBtn.disabled = true; redoBtn.style.opacity = '0.3'; }
+    }
+    var sidePanelNavBackBtn = null;
+    var sidePanelNavForwardBtn = null;
+    var sidePanelCanGoBack = false;
+    var sidePanelCanGoForward = false;
+    function applySidePanelNavButtonState() {
+        // disabled でも chevron icon を視認できるよう opacity を 0.5 に引き上げる
+        // (元の 0.3 だと dark theme で殆ど見えず「ボタンが無い」と誤認される)
+        if (sidePanelNavBackBtn) {
+            sidePanelNavBackBtn.disabled = !sidePanelCanGoBack;
+            sidePanelNavBackBtn.style.opacity = sidePanelCanGoBack ? '1' : '0.5';
+        }
+        if (sidePanelNavForwardBtn) {
+            sidePanelNavForwardBtn.disabled = !sidePanelCanGoForward;
+            sidePanelNavForwardBtn.style.opacity = sidePanelCanGoForward ? '1' : '0.5';
+        }
     }
 
     function renderSidePanelToc(toc) {
@@ -14389,9 +14721,16 @@ class EditorInstance {
         }, 200);
     }
 
-    function closeSidePanelImmediate() {
-        if (sidePanel) sidePanel.style.display = 'none';
-        if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+    function closeSidePanelImmediate(isSwitch) {
+        // BUG-FIX (sidepanel back/forward が動かない):
+        //   isSwitch=true (=openSidePanel が別 MD に切替) の時は notifySidePanelClosed を発火しない。
+        //   これを発火すると extension 側で SidePanelManager.handleClose → clearNavigationHistory が走り、
+        //   handleOpenLink で push されたばかりの back stack が消える。
+        //   isSwitch=false (=ユーザー明示 close / 拡張 destroy) の時のみ notify する。
+        if (!isSwitch) {
+            if (sidePanel) sidePanel.style.display = 'none';
+            if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+        }
         // Reset expanded state
         if (sidePanelExpanded) {
             if (sidePanel) sidePanel.classList.remove('expanded');
@@ -14405,13 +14744,15 @@ class EditorInstance {
         }
         sidePanelHostBridge = null;
         if (sidePanelIframeContainer) sidePanelIframeContainer.innerHTML = '';
-        sidePanelFilePath = null;
-        // Notify VSCode to dispose side panel file watcher
-        host.notifySidePanelClosed();
-        // Restore sidebar if it was open before
-        if (sidebarWasOpenBeforeSidePanel) {
-            openSidebar();
-            sidebarWasOpenBeforeSidePanel = false;
+        if (!isSwitch) {
+            sidePanelFilePath = null;
+            // Notify VSCode to dispose side panel file watcher (full close only)
+            host.notifySidePanelClosed();
+            // Restore sidebar if it was open before
+            if (sidebarWasOpenBeforeSidePanel) {
+                openSidebar();
+                sidebarWasOpenBeforeSidePanel = false;
+            }
         }
     }
 
@@ -16900,15 +17241,19 @@ class EditorInstance {
         };
         
         // Expose activeTableCell and activeTable as properties
+        // configurable:true で 2 度目の defineProperty (sidepanel 切り替え時の re-init) を許可
         Object.defineProperty(window, 'activeTableCell', {
+            configurable: true,
             get: () => activeTableCell,
             set: (value) => { activeTableCell = value; }
         });
         Object.defineProperty(window, 'activeTable', {
+            configurable: true,
             get: () => activeTable,
             set: (value) => { activeTable = value; }
         });
         Object.defineProperty(window, 'markdown', {
+            configurable: true,
             get: () => markdown,
             set: (value) => { markdown = value; }
         });

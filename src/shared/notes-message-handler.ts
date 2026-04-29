@@ -49,6 +49,9 @@ export interface NotesPlatformActions {
     notifyUnsupportedDrawioXml?(droppedPath: string, fileName: string, sidePanelFilePath: string): void;
     /** MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入 */
     requestCreateDrawio?(sidePanelFilePath: string): void;
+    createPageAutoForSidePanel?(sidePanelFilePath: string): void;
+    sidePanelNavigateBack?(sidePanelFilePath: string): void;
+    sidePanelNavigateForward?(sidePanelFilePath: string): void;
     /** サイドパネルの画像ディレクトリ情報を送信 */
     sendSidePanelImageDir(sidePanelFilePath: string): void;
     /** サイドパネルファイルを保存 */
@@ -466,6 +469,24 @@ export async function handleNotesMessage(
         case 'requestCreateDrawio':
             if (platform.requestCreateDrawio) {
                 platform.requestCreateDrawio(message.sidePanelFilePath || '');
+            }
+            break;
+
+        case 'createPageAutoForSidePanel':
+            if (platform.createPageAutoForSidePanel) {
+                platform.createPageAutoForSidePanel(message.sidePanelFilePath || '');
+            }
+            break;
+
+        case 'sidePanelNavigateBack':
+            if (platform.sidePanelNavigateBack) {
+                platform.sidePanelNavigateBack(message.sidePanelFilePath || '');
+            }
+            break;
+
+        case 'sidePanelNavigateForward':
+            if (platform.sidePanelNavigateForward) {
+                platform.sidePanelNavigateForward(message.sidePanelFilePath || '');
             }
             break;
 

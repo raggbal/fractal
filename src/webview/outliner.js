@@ -4182,6 +4182,22 @@ var Outliner = (function() {
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
+    // v15+: side panel navigation history (back/forward) state
+    var outerSidePanelNavBackBtn = null;
+    var outerSidePanelNavForwardBtn = null;
+    var outerSidePanelCanGoBack = false;
+    var outerSidePanelCanGoForward = false;
+    function applyOuterSidePanelNavButtonState() {
+        // disabled でも chevron icon を視認できるよう opacity を 0.5 に引き上げる
+        if (outerSidePanelNavBackBtn) {
+            outerSidePanelNavBackBtn.disabled = !outerSidePanelCanGoBack;
+            outerSidePanelNavBackBtn.style.opacity = outerSidePanelCanGoBack ? '1' : '0.5';
+        }
+        if (outerSidePanelNavForwardBtn) {
+            outerSidePanelNavForwardBtn.disabled = !outerSidePanelCanGoForward;
+            outerSidePanelNavForwardBtn.style.opacity = outerSidePanelCanGoForward ? '1' : '0.5';
+        }
+    }
     var sidePanelOriginNodeId = null;  // サイドパネルを開いたノードID（閉じた時にフォーカスを戻す）
     var sidePanelTocVisible = true;
     var sidePanelExpanded = false;
@@ -4526,7 +4542,7 @@ var Outliner = (function() {
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
         if (sidePanelInstance) {
-            closeSidePanelImmediate();
+            closeSidePanelImmediate(true /* isSwitch */);
         }
         sidePanelFilePath = filePath;
         if (sidePanelFilename) { sidePanelFilename.textContent = fileName; }
@@ -4562,17 +4578,42 @@ var Outliner = (function() {
                     var icon = LUCIDE_ICONS[btn.dataset.action];
                     if (icon) { btn.innerHTML = icon; }
                 });
-                var undoBtn = header.querySelector('[data-action="undo"]');
-                var redoBtn = header.querySelector('[data-action="redo"]');
-                var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
-                var sourceBtn = header.querySelector('[data-action="source"]');
-                var translateLangBtn = header.querySelector('[data-action="translateLang"]');
-                var translateBtn = header.querySelector('[data-action="translate"]');
+                // v15+: side panel navigation history (back/forward)
+                // 既存 button と同様 cloneNode で旧 listener を破棄してから attach
+                function freshSpHeaderBtn(action) {
+                    var ex = header.querySelector('[data-action="' + action + '"]');
+                    if (!ex) return null;
+                    var fresh = ex.cloneNode(true);
+                    ex.parentNode.replaceChild(fresh, ex);
+                    return fresh;
+                }
+                var navBackBtn = freshSpHeaderBtn('navigateBack');
+                var navForwardBtn = freshSpHeaderBtn('navigateForward');
+                var undoBtn = freshSpHeaderBtn('undo');
+                var redoBtn = freshSpHeaderBtn('redo');
+                var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var sourceBtn = freshSpHeaderBtn('source');
+                var translateLangBtn = freshSpHeaderBtn('translateLang');
+                var translateBtn = freshSpHeaderBtn('translate');
 
+                if (navBackBtn) navBackBtn.addEventListener('click', function() {
+                    if (sidePanelFilePath && typeof host.sidePanelNavigateBack === 'function') {
+                        host.sidePanelNavigateBack(sidePanelFilePath);
+                    }
+                });
+                if (navForwardBtn) navForwardBtn.addEventListener('click', function() {
+                    if (sidePanelFilePath && typeof host.sidePanelNavigateForward === 'function') {
+                        host.sidePanelNavigateForward(sidePanelFilePath);
+                    }
+                });
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
+                // navigation button state を保持
+                outerSidePanelNavBackBtn = navBackBtn;
+                outerSidePanelNavForwardBtn = navForwardBtn;
+                applyOuterSidePanelNavButtonState();
                 if (translateLangBtn) {
                     translateLangBtn.textContent = sidePanelTranslateTargetLang;
                     translateLangBtn.title = 'Translate to ' + sidePanelTranslateTargetLang + ' (from ' + sidePanelTranslateSourceLang + ')';
@@ -4679,11 +4720,17 @@ var Outliner = (function() {
         }
     }
 
-    function closeSidePanelImmediate() {
+    function closeSidePanelImmediate(isSwitch) {
+        // BUG-FIX (sidepanel back/forward が動かない):
+        //   isSwitch=true (=openSidePanel が別 MD に切替) の時は notifySidePanelClosed を発火しない。
+        //   発火すると extension が SidePanelManager.handleClose → clearNavigationHistory を実行し、
+        //   handleOpenLink で push されたばかりの back stack が消える。
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
-        if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
-        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
+        if (!isSwitch) {
+            if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
+            if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
+        }
         if (sidePanelExpanded) {
             if (sidePanelEl) { sidePanelEl.classList.remove('expanded'); }
             sidePanelExpanded = false;
@@ -4696,11 +4743,13 @@ var Outliner = (function() {
         }
         sidePanelHostBridge = null;
         if (sidePanelIframeContainer) { sidePanelIframeContainer.innerHTML = ''; }
-        sidePanelFilePath = null;
-        host.notifySidePanelClosed();
-        if (sidePanelOriginNodeId) {
-            focusNode(sidePanelOriginNodeId);
-            sidePanelOriginNodeId = null;
+        if (!isSwitch) {
+            sidePanelFilePath = null;
+            host.notifySidePanelClosed();
+            if (sidePanelOriginNodeId) {
+                focusNode(sidePanelOriginNodeId);
+                sidePanelOriginNodeId = null;
+            }
         }
         // else: サイドパネルを開いた経緯が不明な場合（検索ジャンプ等）は
         // 現在のフォーカスを保持する。先頭ノードへ戻すと検索結果からの
@@ -5414,6 +5463,14 @@ var Outliner = (function() {
                     break;
 
                 case 'sidePanelMessage':
+                    // sidePanelNavStateUpdate は side panel header (outer scope) の button 制御なので吸収
+                    var spdata = msg.data || {};
+                    if (spdata.type === 'sidePanelNavStateUpdate') {
+                        outerSidePanelCanGoBack = !!spdata.canGoBack;
+                        outerSidePanelCanGoForward = !!spdata.canGoForward;
+                        applyOuterSidePanelNavButtonState();
+                        break;
+                    }
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage(msg.data);
                     }

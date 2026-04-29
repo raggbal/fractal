@@ -136,6 +136,7 @@ export const webviewMessages = {
   addPageAtPathTitle: 'パスを入力 (.md)',
   confirmLinkName: 'リンク名',
   actionPanelConfirm: '確定',
+  actionPanelCancel: 'キャンセル',
   // Outliner
   outlinerNoItems: 'アイテムがありません',
   outlinerAddHint: 'Enterキーでアイテムを追加',
@@ -169,6 +170,8 @@ export const webviewMessages = {
   contextCut: '切り取り',
   contextCopy: 'コピー',
   contextPaste: '貼り付け',
+  contextRenameLink: 'リンク名変更',
+  promptRenameLink: '新しいリンク名を入力してください',
   // Notes left panel
   notesTabNotes: 'ノート',
   notesTabSearch: '検索',

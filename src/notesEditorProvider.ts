@@ -715,6 +715,43 @@ export class NotesEditorProvider {
                     console.error('[Notes] requestCreateDrawio error:', e);
                 }
             },
+            sidePanelNavigateBack: async (sidePanelFilePath: string) => {
+                await sidePanel.navigateBack(sidePanelFilePath || '');
+            },
+            sidePanelNavigateForward: async (sidePanelFilePath: string) => {
+                await sidePanel.navigateForward(sidePanelFilePath || '');
+            },
+            createPageAutoForSidePanel: (sidePanelFilePath: string) => {
+                // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
+                if (!sidePanelFilePath) return;
+                const pagesDir = fileManager.getPagesDirPath();
+                if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
+                const ts = Date.now();
+                let fileName = `${ts}.md`;
+                if (fs.existsSync(path.join(pagesDir, fileName))) {
+                    let counter = 1;
+                    // eslint-disable-next-line no-constant-condition
+                    while (true) {
+                        const cs = String(counter).padStart(4, '0');
+                        fileName = `${ts}-${cs}.md`;
+                        if (!fs.existsSync(path.join(pagesDir, fileName))) break;
+                        counter++;
+                    }
+                }
+                const absPath = path.join(pagesDir, fileName);
+                try {
+                    fs.writeFileSync(absPath, '# ', 'utf8');
+                } catch (e) {
+                    console.error('[Notes] createPageAutoForSidePanel write error:', e);
+                    return;
+                }
+                const spDir = path.dirname(sidePanelFilePath);
+                const relPath = path.relative(spDir, absPath).replace(/\\/g, '/');
+                panel.webview.postMessage({
+                    type: 'sidePanelMessage',
+                    data: { type: 'pageCreatedAtPath', relativePath: relPath }
+                });
+            },
             sendSidePanelImageDir: (sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');
