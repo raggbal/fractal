@@ -4127,35 +4127,115 @@ class EditorInstance {
         }
     });
 
-    // Image double-click → fullscreen overlay (same as outliner lightbox)
+    // Image double-click → fullscreen overlay with pinch zoom (Mac touchpad pinch / wheel+ctrl)
     editor.addEventListener('dblclick', function(e) {
         var target = e.target;
         if (target.nodeType === 3) target = target.parentElement;
         if (target && target.tagName === 'IMG' && !target.closest('pre') && !target.closest('.code-block-header')) {
             e.preventDefault();
             e.stopPropagation();
-            var overlay = document.createElement('div');
-            overlay.className = 'outliner-image-overlay';
-            var largeImg = document.createElement('img');
-            largeImg.className = 'outliner-image-large';
-            largeImg.src = target.src;
-            overlay.appendChild(largeImg);
-            document.body.appendChild(overlay);
-            overlay.addEventListener('click', function(ev) {
-                if (ev.target === overlay) { overlay.remove(); }
-            });
-            var escHandler = function(ev) {
-                if (ev.key === 'Escape') {
-                    overlay.remove();
-                    document.removeEventListener('keydown', escHandler);
-                }
-            };
-            document.addEventListener('keydown', escHandler);
+            attachImageOverlayWithZoom(target.src);
         }
     });
 
-    // drawio.svg / drawio.png 用「Open」ボタン (codeblock copy ボタンと同じデザイン系統)
-    // mouseover で対象 img の右上に floating 表示、click で外部アプリ起動 (ファイルリンクと同経路)
+    /**
+     * 全画面 image overlay を生成。
+     * - dblclick で起動 (caller 側)
+     * - Mac touchpad のピンチ (= wheel ev with ctrlKey) で zoom
+     * - 拡大中は drag で pan
+     * - 画像 dblclick で zoom リセット
+     * - overlay 背景 click / ESC で閉じる
+     */
+    function attachImageOverlayWithZoom(imgSrc) {
+        var overlay = document.createElement('div');
+        overlay.className = 'outliner-image-overlay';
+        var largeImg = document.createElement('img');
+        largeImg.className = 'outliner-image-large';
+        largeImg.src = imgSrc;
+        overlay.appendChild(largeImg);
+        // Hint banner
+        var hint = document.createElement('div');
+        hint.className = 'outliner-image-overlay-hint';
+        hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+        document.body.appendChild(overlay);
+
+        var scale = 1, tx = 0, ty = 0;
+        var isDragging = false, dragStartX = 0, dragStartY = 0;
+        var MIN_SCALE = 0.2, MAX_SCALE = 16;
+
+        function apply() {
+            largeImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+
+        // Pinch zoom (Mac touchpad reports as wheel with ctrlKey, Chromium standard)
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey) return;
+            ev.preventDefault();
+            var delta = -ev.deltaY * 0.01;
+            var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            // Zoom toward cursor: cursor position must remain at the same screen point
+            var rect = largeImg.getBoundingClientRect();
+            var ox = ev.clientX - rect.left;
+            var oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            apply();
+        }, { passive: false });
+
+        // Drag-to-pan when zoomed in
+        largeImg.addEventListener('mousedown', function(ev) {
+            ev.preventDefault();
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            largeImg.style.cursor = 'grabbing';
+        });
+        var onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            apply();
+        };
+        var onUp = function() {
+            isDragging = false;
+            largeImg.style.cursor = 'default';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+
+        // Double-click image to reset zoom (clicking overlay still closes)
+        largeImg.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            apply();
+        });
+
+        // Close on background click
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) cleanup();
+        });
+
+        // ESC close
+        var escHandler = function(ev) {
+            if (ev.key === 'Escape') cleanup();
+        };
+        document.addEventListener('keydown', escHandler);
+
+        function cleanup() {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler);
+        }
+    }
+
+    // drawio.svg / drawio.png 用「Open」「Copy Path」ボタン (codeblock copy ボタンと同じデザイン系統)
+    // mouseover で対象 img の右上に floating 表示
+    //   Open       → 外部アプリ起動 (ファイルリンクと同経路 host.openLink)
+    //   Copy Path  → 絶対 fs path を clipboard にコピー (vscode-resource 接頭辞除去)
     var drawioOpenBtn = document.createElement('button');
     drawioOpenBtn.className = 'drawio-open-btn';
     drawioOpenBtn.textContent = (typeof i18n !== 'undefined' && i18n.openInDrawioDesktopButton) || 'Open';
@@ -4163,6 +4243,15 @@ class EditorInstance {
     drawioOpenBtn.setAttribute('contenteditable', 'false');
     drawioOpenBtn.style.display = 'none';
     document.body.appendChild(drawioOpenBtn);
+
+    var drawioCopyPathBtn = document.createElement('button');
+    drawioCopyPathBtn.className = 'drawio-open-btn'; // 同 style 流用
+    drawioCopyPathBtn.textContent = 'Copy Path';
+    drawioCopyPathBtn.title = 'Copy absolute path to clipboard';
+    drawioCopyPathBtn.setAttribute('contenteditable', 'false');
+    drawioCopyPathBtn.style.display = 'none';
+    document.body.appendChild(drawioCopyPathBtn);
+
     var drawioOpenBtnTargetImg = null;
     var drawioOpenBtnHideTimer = null;
 
@@ -4173,13 +4262,21 @@ class EditorInstance {
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
-        drawioOpenBtn.style.top = (rect.top + 4) + 'px';
-        drawioOpenBtn.style.left = (rect.right - drawioOpenBtn.offsetWidth - 4) + 'px';
+        // 右上に Open、その左に Copy Path を配置
+        var openTop = rect.top + 4;
+        var openLeft = rect.right - drawioOpenBtn.offsetWidth - 4;
+        drawioOpenBtn.style.top = openTop + 'px';
+        drawioOpenBtn.style.left = openLeft + 'px';
+        // Copy Path を Open の左に gap 4px で
+        var copyLeft = openLeft - drawioCopyPathBtn.offsetWidth - 4;
+        drawioCopyPathBtn.style.top = openTop + 'px';
+        drawioCopyPathBtn.style.left = copyLeft + 'px';
     }
     function showDrawioOpenBtnFor(img) {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
         drawioOpenBtnTargetImg = img;
         drawioOpenBtn.style.display = 'block';
+        drawioCopyPathBtn.style.display = 'block';
         positionDrawioOpenBtn(img);
         // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
         requestAnimationFrame(function() { positionDrawioOpenBtn(img); });
@@ -4188,6 +4285,7 @@ class EditorInstance {
         if (drawioOpenBtnHideTimer) clearTimeout(drawioOpenBtnHideTimer);
         drawioOpenBtnHideTimer = setTimeout(function() {
             drawioOpenBtn.style.display = 'none';
+            drawioCopyPathBtn.style.display = 'none';
             drawioOpenBtnTargetImg = null;
         }, 120);
     }
@@ -4208,6 +4306,39 @@ class EditorInstance {
             host.openLink(cleanPath);
         }
     });
+
+    drawioCopyPathBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioCopyPathBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioCopyPathBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioCopyPathBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!drawioOpenBtnTargetImg) return;
+        // 絶対 fs path を clipboard へ
+        // 1) src は webview URL (`https://file%2B.vscode-resource.vscode-cdn.net/Users/...`) → 接頭辞除去で絶対 fs path
+        // 2) ?v= や #fragment を除去
+        var rawSrc = drawioOpenBtnTargetImg.getAttribute('src') || '';
+        var cleaned = (typeof cleanImageSrc === 'function')
+            ? cleanImageSrc(rawSrc)
+            : rawSrc.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
+        var absPath = (cleaned || '').split('?')[0].split('#')[0];
+        if (!absPath) return;
+        try {
+            navigator.clipboard.writeText(absPath);
+            // 視覚 feedback: ボタン文字を一瞬「Copied!」にする
+            var orig = drawioCopyPathBtn.textContent;
+            drawioCopyPathBtn.textContent = 'Copied!';
+            setTimeout(function() {
+                drawioCopyPathBtn.textContent = orig;
+            }, 1000);
+        } catch (err) {
+            // fallback: prompt で表示
+            try { window.prompt('Copy path:', absPath); } catch (e) { /* ignore */ }
+        }
+    });
+
     editor.addEventListener('mouseover', function(e) {
         var t = e.target;
         if (t && t.nodeType === 3) t = t.parentElement;
@@ -4219,7 +4350,7 @@ class EditorInstance {
         if (isDrawioImg(t)) {
             // related target がボタン or 同じ img なら維持
             var rt = e.relatedTarget;
-            if (rt === drawioOpenBtn || rt === drawioOpenBtnTargetImg) return;
+            if (rt === drawioOpenBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
             hideDrawioOpenBtnSoon();
         }
     });

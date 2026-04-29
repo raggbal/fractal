@@ -1261,7 +1261,61 @@ var Outliner = (function() {
         largeImg.src = src;
 
         overlay.appendChild(largeImg);
+
+        var hint = document.createElement('div');
+        hint.className = 'outliner-image-overlay-hint';
+        hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
         document.body.appendChild(overlay);
+
+        // Pinch zoom + drag pan (Mac touchpad pinch reports as wheel + ctrlKey)
+        var scale = 1, tx = 0, ty = 0;
+        var isDragging = false, dragStartX = 0, dragStartY = 0;
+        var MIN_SCALE = 0.2, MAX_SCALE = 16;
+        function apply() {
+            largeImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey) return;
+            ev.preventDefault();
+            var delta = -ev.deltaY * 0.01;
+            var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            var rect = largeImg.getBoundingClientRect();
+            var ox = ev.clientX - rect.left;
+            var oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            apply();
+        }, { passive: false });
+        largeImg.addEventListener('mousedown', function(ev) {
+            ev.preventDefault();
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            largeImg.style.cursor = 'grabbing';
+        });
+        var onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            apply();
+        };
+        var onUp = function() {
+            isDragging = false;
+            largeImg.style.cursor = 'default';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+        largeImg.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            apply();
+        });
 
         overlay.addEventListener('click', function(ev) {
             if (ev.target === overlay) { overlay.remove(); }

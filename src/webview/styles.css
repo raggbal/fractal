@@ -1560,6 +1560,25 @@ body {
     border-radius: 4px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     cursor: default;
+    /* pinch zoom 用 transform-origin はスクリプト側で動的に制御する */
+    transform-origin: 0 0;
+    transition: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.outliner-image-overlay-hint {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10001;
+    user-select: none;
 }
 
 /* v10: Translation Loading Overlay */
