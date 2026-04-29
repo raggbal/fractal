@@ -12,6 +12,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractMarkdownImagePaths } from './markdown-image-utils';
+import { buildUniqueDrawioName } from './drawioTemplate';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const parser = require('./markdown-link-parser');
 
@@ -129,7 +130,19 @@ export function handlePageAssets(opts: {
             const srcFile = resolveSourceImage(fileRef, opts.srcOutDir, opts.srcPagesDir);
             if (!srcFile) continue;
             const originalName = path.basename(fileRef);
-            const newName = isCut ? originalName : generateUniqueFileNamePreserving(destFilesDir, originalName);
+            // TC-03: drawio.svg/png は多重拡張子 suffix 対応
+            const lowerOrig = originalName.toLowerCase();
+            const isMultiExt = lowerOrig.endsWith('.drawio.svg') || lowerOrig.endsWith('.drawio.png');
+            let newName: string;
+            if (isCut) {
+                newName = originalName;
+            } else if (isMultiExt) {
+                newName = buildUniqueDrawioName(originalName, (n) =>
+                    fs.existsSync(path.join(destFilesDir, n))
+                );
+            } else {
+                newName = generateUniqueFileNamePreserving(destFilesDir, originalName);
+            }
             const destFile = path.join(destFilesDir, newName);
             if (srcFile === destFile) continue;
             try {
@@ -145,6 +158,32 @@ export function handlePageAssets(opts: {
                     function() { return newRelPath; }
                 );
             }
+        }
+    }
+
+    // mdLinks: [text](*.md) 通常リンクを destPagesDir に複製
+    // (page MD の中で別の .md を参照しているケース。`isCut` 時は名前変えずそのまま、copy 時は collision suffix)
+    const pageRefs = extractAllAssetRefs(mdContent);
+    for (const mdLinkRef of pageRefs.mdLinks) {
+        const srcMdLink = resolveSourceImage(mdLinkRef, opts.srcOutDir, opts.srcPagesDir);
+        if (!srcMdLink) continue;
+        const originalName = path.basename(mdLinkRef);
+        const newName = isCut
+            ? originalName
+            : generateUniqueFileNamePreserving(opts.destPagesDir, originalName);
+        const destMdLink = path.join(opts.destPagesDir, newName);
+        if (srcMdLink === destMdLink) continue;
+        try {
+            if (!fs.existsSync(destMdLink)) fs.copyFileSync(srcMdLink, destMdLink);
+        } catch { /* ignore */ }
+        if (!isCut && newName !== originalName) {
+            const oldRelPath = escapeRegExp(mdLinkRef);
+            const dirPart = mdLinkRef.substring(0, mdLinkRef.length - originalName.length);
+            const newRelPath = dirPart + newName;
+            newMdContent = newMdContent.replace(
+                new RegExp(oldRelPath, 'g'),
+                function() { return newRelPath; }
+            );
         }
     }
 
@@ -261,9 +300,20 @@ export function handleFileAsset(opts: {
     }
 
     const originalName = path.basename(srcFilePath);
-    const uniqueName = opts.useCollisionSuffix
-        ? generateUniqueFileNamePreserving(opts.destFileDir, originalName)
-        : originalName;
+    // TC-03 仕様準拠: 多重拡張子 (.drawio.svg / .drawio.png) は suffix を多重拡張子の前に付ける
+    // (foo.drawio.svg → foo-1.drawio.svg、generateUniqueFileNamePreserving だと foo.drawio-1.svg になる)
+    const lowerName = originalName.toLowerCase();
+    const isMultiExt = lowerName.endsWith('.drawio.svg') || lowerName.endsWith('.drawio.png');
+    let uniqueName: string;
+    if (!opts.useCollisionSuffix) {
+        uniqueName = originalName;
+    } else if (isMultiExt) {
+        uniqueName = buildUniqueDrawioName(originalName, (n) =>
+            fs.existsSync(path.join(opts.destFileDir, n))
+        );
+    } else {
+        uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
+    }
     const destFilePath = path.join(opts.destFileDir, uniqueName);
 
     if (srcFilePath === destFilePath) {
@@ -458,6 +508,63 @@ export interface MdPasteAssetResult {
     rewrittenMarkdown: string;
 }
 
+/**
+ * webview の resource URL 接頭辞を strip する。
+ * cleanImageSrc が完全に剥がせなかったり、Turndown 経由の絶対 URL が
+ * markdown に紛れた場合に「フルパス化」を防ぐため、複製前に正規化する。
+ */
+function stripWebviewUrlPrefixes(md: string): string {
+    if (!md) return md;
+    md = md.replace(/https:\/\/file\+\.vscode-resource\.vscode-cdn\.net/g, '');
+    md = md.replace(/https:\/\/file%2B\.vscode-resource\.vscode-cdn\.net/g, '');
+    md = md.replace(/vscode-resource:\/\//g, '');
+    md = md.replace(/vscode-webview:\/\//g, '');
+    return md;
+}
+
+/**
+ * markdown から ![alt](url) / [📎...](url) / [text](*.md) を抽出する。
+ * extractImagePaths と違い **絶対パス・http(s) URL も結果に含める** (copyMdPasteAssets が後段でコピー判断)。
+ * - images: `![](url)`
+ * - files:  `[📎 ...](url)` (添付ファイル指定)
+ * - mdLinks: `[text](url)` で url が `.md` で終わるもの (📎 でも image でもない通常リンク)
+ */
+function extractAllAssetRefs(md: string): { images: string[]; files: string[]; mdLinks: string[] } {
+    const images = new Set<string>();
+    const files = new Set<string>();
+    const mdLinks = new Set<string>();
+    if (!md) return { images: [], files: [], mdLinks: [] };
+    // images: ![alt](url)
+    const imgRe = /!\[[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = imgRe.exec(md)) !== null) {
+        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        if (!url) continue;
+        if (/^(data:|https?:|file:)/i.test(url)) continue; // remote / data は除外
+        images.add(url);
+    }
+    // files: [📎 ...](url)
+    const fileRe = /\[📎[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
+    while ((m = fileRe.exec(md)) !== null) {
+        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        if (!url) continue;
+        if (/^(data:|https?:|file:)/i.test(url)) continue;
+        files.add(url);
+    }
+    // mdLinks: [text](url.md) - 画像 (`!` 始まり) と 📎 始まり以外
+    // (^|[^!]) で `!` 直前を排除、 \[(?!📎) で 📎 始まりを排除
+    const mdLinkRe = /(^|[^!])\[(?!📎)[^\]]+\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
+    while ((m = mdLinkRe.exec(md)) !== null) {
+        const url = (m[2] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        if (!url) continue;
+        if (/^(data:|https?:|file:|fractal:)/i.test(url)) continue;
+        if (url.startsWith('#')) continue; // anchor link
+        if (!url.toLowerCase().endsWith('.md') && !url.toLowerCase().endsWith('.markdown')) continue;
+        mdLinks.add(url);
+    }
+    return { images: Array.from(images), files: Array.from(files), mdLinks: Array.from(mdLinks) };
+}
+
 export function copyMdPasteAssets(opts: {
     markdown: string;
     sourceMdDir: string;
@@ -467,19 +574,28 @@ export function copyMdPasteAssets(opts: {
     destFileDir: string;
     destMdDir: string;
 }): MdPasteAssetResult {
-    let rewrittenMarkdown = opts.markdown;
+    // Step 1: webview URL 接頭辞を strip して、後段が絶対パスとして扱えるようにする
+    let rewrittenMarkdown = stripWebviewUrlPrefixes(opts.markdown);
 
-    // Extract image paths from markdown
-    const imagePaths = parser.extractImagePaths(opts.markdown);
+    // Step 2: ![]() / [📎]() を全件抽出 (絶対パスも含める。extractImagePaths は絶対パスをスキップするので使わない)
+    const refs = extractAllAssetRefs(rewrittenMarkdown);
 
-    // Extract file paths from markdown
-    const filePaths = parser.extractMarkdownFileLinks(opts.markdown);
+    // MD-41 拡張: drawio.svg / drawio.png は ![]() 構文だが file 系（destFileDir）へ振り分ける
+    const isDrawioAsset = (p: string): boolean => {
+        const lower = (p || '').toLowerCase();
+        return lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
+    };
+    const imagePaths = refs.images.filter((p: string) => !isDrawioAsset(p));
+    const drawioImagePaths = refs.images.filter((p: string) => isDrawioAsset(p));
+
+    // Extract file paths from markdown (📎 attached files)
+    const filePaths = refs.files;
 
     // Ensure dest directories exist
     if (imagePaths.length > 0) {
         ensureDir(opts.destImageDir);
     }
-    if (filePaths.length > 0) {
+    if (filePaths.length > 0 || drawioImagePaths.length > 0) {
         ensureDir(opts.destFileDir);
     }
 
@@ -509,6 +625,25 @@ export function copyMdPasteAssets(opts: {
         // Calculate new relative path from destMdDir
         const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
         imageRenameMap.set(imagePath, newRelativePath);
+    }
+
+    // MD-41 拡張: drawio asset を destFileDir にコピー（imageDir には保存しない）
+    // TC-03 / TC-15: 衝突 suffix は多重拡張子の前 (foo-1.drawio.svg) — buildUniqueDrawioName を使用
+    for (const drawioPath of drawioImagePaths) {
+        const srcAbsolute = path.resolve(opts.sourceMdDir, drawioPath);
+        if (!fs.existsSync(srcAbsolute)) continue;
+        const originalName = path.basename(drawioPath);
+        const uniqueName = buildUniqueDrawioName(originalName, (n) =>
+            fs.existsSync(path.join(opts.destFileDir, n))
+        );
+        const destAbsolute = path.join(opts.destFileDir, uniqueName);
+        try {
+            fs.copyFileSync(srcAbsolute, destAbsolute);
+        } catch {
+            continue;
+        }
+        const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
+        imageRenameMap.set(drawioPath, newRelativePath);
     }
 
     // Rewrite image paths in markdown
@@ -548,6 +683,36 @@ export function copyMdPasteAssets(opts: {
 
     // Rewrite file paths in markdown
     for (const [oldPath, newPath] of fileRenameMap.entries()) {
+        const escapedOldPath = escapeRegExp(oldPath);
+        rewrittenMarkdown = rewrittenMarkdown.replace(
+            new RegExp(escapedOldPath, 'g'),
+            function() { return newPath; }
+        );
+    }
+
+    // mdLinks: [text](*.md) 通常リンク → dest の destMdDir に複製、相対パス書き換え
+    // 「常に複製」要件: cmd+c/v は同 dir でも複製してコピー間で独立性を保つ
+    const mdLinkPaths = refs.mdLinks;
+    if (mdLinkPaths.length > 0) {
+        ensureDir(opts.destMdDir);
+    }
+    const mdLinkRenameMap = new Map<string, string>();
+    for (const mdLinkPath of mdLinkPaths) {
+        const srcAbsolute = path.resolve(opts.sourceMdDir, mdLinkPath);
+        if (!fs.existsSync(srcAbsolute)) continue;
+        const originalName = path.basename(mdLinkPath);
+        // 同じ pageDir 配下の page MD (UUID 名) と衝突しないよう、必ず unique suffix を付ける
+        const uniqueName = generateUniqueFileNamePreserving(opts.destMdDir, originalName);
+        const destAbsolute = path.join(opts.destMdDir, uniqueName);
+        try {
+            fs.copyFileSync(srcAbsolute, destAbsolute);
+        } catch {
+            continue;
+        }
+        const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
+        mdLinkRenameMap.set(mdLinkPath, newRelativePath);
+    }
+    for (const [oldPath, newPath] of mdLinkRenameMap.entries()) {
         const escapedOldPath = escapeRegExp(oldPath);
         rewrittenMarkdown = rewrittenMarkdown.replace(
             new RegExp(escapedOldPath, 'g'),

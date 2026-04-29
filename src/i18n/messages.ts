@@ -44,6 +44,11 @@ export interface Messages {
   dropFolderRejected: string;
   dropFileTooLarge: string;
   dropImportFailed: string;
+  // MD-45/46/47: drawio
+  unsupportedDrawioXmlNotice: string;
+  openInDrawioDesktopButton: string;
+  drawioFilenamePromptTitle: string;
+  drawioFilenamePromptPlaceholder: string;
 }
 
 export interface WebviewMessages {
@@ -136,6 +141,8 @@ export interface WebviewMessages {
   notesS3LocalDeleteDownload: string;
   notesS3Cancel: string;
   notesS3Continue: string;
+  // MD-47: Insert Drawio Diagram (Cmd+/ palette)
+  insertDrawioDiagram?: string;
 }
 
 // Supported locales

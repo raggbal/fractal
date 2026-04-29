@@ -31,6 +31,11 @@ export const messages = {
   dropImportFailed: '匯入檔案失敗',
   // v12 拡張: VSCode Explorer D&D
   dropRemoteUriUnsupported: '不支援遠端檔案（僅限本地檔案）',
+  // MD-45/46/47: drawio
+  unsupportedDrawioXmlNotice: '不支援 .drawio (XML) 檔案。請在 drawio Desktop 中開啟並另存為 .drawio.svg 後再次拖入。',
+  openInDrawioDesktopButton: '在 drawio Desktop 開啟',
+  drawioFilenamePromptTitle: '輸入 drawio 圖表檔案名稱',
+  drawioFilenamePromptPlaceholder: 'diagram（自動加上 .drawio.svg）',
 };
 
 export const webviewMessages = {
@@ -159,4 +164,6 @@ export const webviewMessages = {
   notesSetColor: '設定顏色',
   notesColorNone: '無',
   outlinerCopyFilePath: '複製檔案路徑',
+  // MD-47: Insert Drawio Diagram (Cmd+/ palette)
+  insertDrawioDiagram: '插入 Drawio 圖表',
 };

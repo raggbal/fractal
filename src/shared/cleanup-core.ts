@@ -184,6 +184,19 @@ export async function buildPass2LiveFiles(
                 const safeAbs = safeResolveUnderDir(mdDir, rel);
                 if (safeAbs) { liveFiles.add(safeAbs); }
             }
+
+            // NT-17 配慮（MD-45 連動）: drawio.svg / drawio.png は ![]() 構文だが
+            // fileDir 配下に保存される（OL-19B file 経路）。`extractMarkdownFileLinks`
+            // は 📎 alt-text しか拾わないため、ここで ![](*.drawio.svg / *.drawio.png) を
+            // 別途追加して orphan-file 誤判定を防ぐ。
+            const imagePaths = extractMarkdownImagePaths(content);
+            for (const rel of imagePaths) {
+                const lower = rel.toLowerCase();
+                if (lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png')) {
+                    const safeAbs = safeResolveUnderDir(mdDir, rel);
+                    if (safeAbs) { liveFiles.add(safeAbs); }
+                }
+            }
         } catch (e) {
             console.warn('[Fractal] Failed to read md for cleanup:', mdPath, e);
         }

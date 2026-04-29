@@ -44,6 +44,11 @@ export const messages = {
   dropImportFailed: 'ファイルのインポートに失敗しました',
   // v12 拡張: VSCode Explorer D&D
   dropRemoteUriUnsupported: 'リモートファイルはサポートされていません（ローカルファイルのみ）',
+  // MD-45/46/47: drawio
+  unsupportedDrawioXmlNotice: '.drawio (XML) 形式はサポートされていません。drawio Desktop で開き .drawio.svg として保存してから再ドロップしてください。',
+  openInDrawioDesktopButton: 'drawio Desktop で開く',
+  drawioFilenamePromptTitle: 'drawio ダイアグラムのファイル名を入力',
+  drawioFilenamePromptPlaceholder: 'diagram（拡張子 .drawio.svg は自動付与）',
 };
 
 export const webviewMessages = {
@@ -195,4 +200,6 @@ export const webviewMessages = {
   notesCleanUnusedCurrentNoteTooltip: '現在開いているノートをスキャンして未参照ファイルを検出',
   notesSetColor: '色を設定',
   notesColorNone: 'なし',
+  // MD-47: Insert Drawio Diagram (Cmd+/ palette)
+  insertDrawioDiagram: 'Drawio ダイアグラムを挿入',
 };

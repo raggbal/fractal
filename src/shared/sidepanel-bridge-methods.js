@@ -75,6 +75,20 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'readAndInsertFile', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // MD-45/46/47: drawio.svg / drawio.png / drawio (XML) 経路
+        saveDrawioAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
+            postFn({ type: 'saveDrawioAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        readAndInsertDrawio: function(filePath, sidePanelFilePath) {
+            postFn({ type: 'readAndInsertDrawio', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
+        },
+        notifyUnsupportedDrawioXml: function(droppedPath, fileName, sidePanelFilePath) {
+            postFn({ type: 'notifyUnsupportedDrawioXml', droppedPath: droppedPath, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        requestCreateDrawio: function(sidePanelFilePath) {
+            postFn({ type: 'requestCreateDrawio', sidePanelFilePath: sidePanelFilePath });
+        },
+
         // sendToChat
         sendToChat: function(startLine, endLine, selectedMarkdown, sidePanelFilePath) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });

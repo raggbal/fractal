@@ -41,6 +41,14 @@ export interface NotesPlatformActions {
     saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイル添付をコピーしてマークダウンリンク挿入 */
     readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
+    /** MD-45: drawio dataUrl を fileDir に保存して `![]()` 挿入 */
+    saveDrawioToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
+    /** MD-45 (URI 経路): drawio ファイルを fileDir にコピーして `![]()` 挿入 */
+    readAndInsertDrawio?(filePath: string, sidePanelFilePath: string): void;
+    /** MD-46: .drawio (XML) D&D 棄却ダイアログ + drawio Desktop で開く */
+    notifyUnsupportedDrawioXml?(droppedPath: string, fileName: string, sidePanelFilePath: string): void;
+    /** MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入 */
+    requestCreateDrawio?(sidePanelFilePath: string): void;
     /** サイドパネルの画像ディレクトリ情報を送信 */
     sendSidePanelImageDir(sidePanelFilePath: string): void;
     /** サイドパネルファイルを保存 */
@@ -430,6 +438,34 @@ export async function handleNotesMessage(
         case 'readAndInsertFile':
             if (message.sidePanelFilePath && message.filePath && platform.readAndInsertFile) {
                 platform.readAndInsertFile(message.filePath, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'saveDrawioAndInsert':
+            if (message.sidePanelFilePath && message.dataUrl && platform.saveDrawioToDir) {
+                platform.saveDrawioToDir(message.dataUrl, message.fileName, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'readAndInsertDrawio':
+            if (message.sidePanelFilePath && message.filePath && platform.readAndInsertDrawio) {
+                platform.readAndInsertDrawio(message.filePath, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'notifyUnsupportedDrawioXml':
+            if (platform.notifyUnsupportedDrawioXml) {
+                platform.notifyUnsupportedDrawioXml(
+                    message.droppedPath || '',
+                    message.fileName || '',
+                    message.sidePanelFilePath || ''
+                );
+            }
+            break;
+
+        case 'requestCreateDrawio':
+            if (platform.requestCreateDrawio) {
+                platform.requestCreateDrawio(message.sidePanelFilePath || '');
             }
             break;
 

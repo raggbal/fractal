@@ -31,6 +31,11 @@ export const messages = {
   dropImportFailed: 'Échec de l\'importation du/des fichier(s)',
   // v12 拡張: VSCode Explorer D&D
   dropRemoteUriUnsupported: 'Les fichiers distants ne sont pas pris en charge (fichiers locaux uniquement)',
+  // MD-45/46/47: drawio
+  unsupportedDrawioXmlNotice: "Les fichiers .drawio (XML) ne sont pas pris en charge. Ouvrez-les dans drawio Desktop, enregistrez-les en .drawio.svg, puis déposez-les à nouveau.",
+  openInDrawioDesktopButton: 'Ouvrir dans drawio Desktop',
+  drawioFilenamePromptTitle: 'Entrez le nom du diagramme drawio',
+  drawioFilenamePromptPlaceholder: 'diagram (.drawio.svg est ajouté automatiquement)',
 };
 
 export const webviewMessages = {
@@ -159,4 +164,6 @@ export const webviewMessages = {
   notesSetColor: 'Définir la couleur',
   notesColorNone: 'Aucune',
   outlinerCopyFilePath: 'Copier le chemin du fichier',
+  // MD-47: Insert Drawio Diagram (Cmd+/ palette)
+  insertDrawioDiagram: 'Insérer un diagramme Drawio',
 };

@@ -49,6 +49,33 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertFile(filePath, this.filePath);
     }
+    // MD-45/46/47: drawio
+    saveDrawioAndInsert(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.saveDrawioAndInsert === 'function') {
+            this._mainHost.saveDrawioAndInsert(dataUrl, fileName, this.filePath);
+        } else {
+            this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+        }
+    }
+    readAndInsertDrawio(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.readAndInsertDrawio === 'function') {
+            this._mainHost.readAndInsertDrawio(filePath, this.filePath);
+        } else {
+            this._mainHost.readAndInsertFile(filePath, this.filePath);
+        }
+    }
+    notifyUnsupportedDrawioXml(droppedPath, fileName) {
+        if (typeof this._mainHost.notifyUnsupportedDrawioXml === 'function') {
+            this._mainHost.notifyUnsupportedDrawioXml(droppedPath, fileName, this.filePath);
+        }
+    }
+    requestCreateDrawio() {
+        if (typeof this._mainHost.requestCreateDrawio === 'function') {
+            this._mainHost.requestCreateDrawio(this.filePath);
+        }
+    }
     openInTextEditor() {}
     copyFilePath() {}
     sendToChat(startLine, endLine, selectedMarkdown) {
@@ -4127,6 +4154,78 @@ class EditorInstance {
         }
     });
 
+    // drawio.svg / drawio.png 用「Open」ボタン (codeblock copy ボタンと同じデザイン系統)
+    // mouseover で対象 img の右上に floating 表示、click で外部アプリ起動 (ファイルリンクと同経路)
+    var drawioOpenBtn = document.createElement('button');
+    drawioOpenBtn.className = 'drawio-open-btn';
+    drawioOpenBtn.textContent = (typeof i18n !== 'undefined' && i18n.openInDrawioDesktopButton) || 'Open';
+    drawioOpenBtn.title = 'Open in external app';
+    drawioOpenBtn.setAttribute('contenteditable', 'false');
+    drawioOpenBtn.style.display = 'none';
+    document.body.appendChild(drawioOpenBtn);
+    var drawioOpenBtnTargetImg = null;
+    var drawioOpenBtnHideTimer = null;
+
+    function isDrawioImg(el) {
+        if (!el || el.tagName !== 'IMG') return false;
+        var p = (el.dataset.markdownPath || el.getAttribute('src') || '').toLowerCase().split('?')[0].split('#')[0];
+        return p.endsWith('.drawio.svg') || p.endsWith('.drawio.png');
+    }
+    function positionDrawioOpenBtn(img) {
+        var rect = img.getBoundingClientRect();
+        drawioOpenBtn.style.top = (rect.top + 4) + 'px';
+        drawioOpenBtn.style.left = (rect.right - drawioOpenBtn.offsetWidth - 4) + 'px';
+    }
+    function showDrawioOpenBtnFor(img) {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+        drawioOpenBtnTargetImg = img;
+        drawioOpenBtn.style.display = 'block';
+        positionDrawioOpenBtn(img);
+        // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
+        requestAnimationFrame(function() { positionDrawioOpenBtn(img); });
+    }
+    function hideDrawioOpenBtnSoon() {
+        if (drawioOpenBtnHideTimer) clearTimeout(drawioOpenBtnHideTimer);
+        drawioOpenBtnHideTimer = setTimeout(function() {
+            drawioOpenBtn.style.display = 'none';
+            drawioOpenBtnTargetImg = null;
+        }, 120);
+    }
+    drawioOpenBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioOpenBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioOpenBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioOpenBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!drawioOpenBtnTargetImg) return;
+        var mdPath = drawioOpenBtnTargetImg.dataset.markdownPath || drawioOpenBtnTargetImg.getAttribute('src') || '';
+        if (!mdPath) return;
+        // ?v=mtime / #fragment を strip して host へ
+        var cleanPath = mdPath.split('?')[0].split('#')[0];
+        if (typeof host !== 'undefined' && host.openLink) {
+            host.openLink(cleanPath);
+        }
+    });
+    editor.addEventListener('mouseover', function(e) {
+        var t = e.target;
+        if (t && t.nodeType === 3) t = t.parentElement;
+        if (isDrawioImg(t)) showDrawioOpenBtnFor(t);
+    });
+    editor.addEventListener('mouseout', function(e) {
+        var t = e.target;
+        if (t && t.nodeType === 3) t = t.parentElement;
+        if (isDrawioImg(t)) {
+            // related target がボタン or 同じ img なら維持
+            var rt = e.relatedTarget;
+            if (rt === drawioOpenBtn || rt === drawioOpenBtnTargetImg) return;
+            hideDrawioOpenBtnSoon();
+        }
+    });
+    // editor 全体から離脱したら隠す (scroll 時の追従ズレも防止)
+    editor.addEventListener('scroll', hideDrawioOpenBtnSoon, true);
+
     editor.addEventListener('click', function(e) {
         // Delegated link click handler
         // e.target can be a text node inside <a>, so walk up to find <a>
@@ -5448,6 +5547,55 @@ class EditorInstance {
         return content;
     }
 
+    /**
+     * cmd+c serialization 時に `<img>` / `<a>` の参照パスを「常に **相対パス** で出力する」ためのヘルパ。
+     *
+     * 優先順序:
+     *   1. data-markdown-path (render 時に必ず set されるはず) → cleanImageSrc 経由で返す
+     *   2. src/href が documentBaseUri 接頭辞で始まる → 接頭辞除去で相対化
+     *   3. それ以外 (cleanImageSrc が webview 接頭辞 strip 後に絶対 fs path を返した等) → 絶対 fs path のまま
+     *
+     * これがないと dataset.markdownPath が undefined (render 経路のうち data-markdown-path 未設定の個所)
+     * の時に src の vscode-resource URL を strip して **絶対 fs path** を MD 出力 → paste で fullpath 化する。
+     */
+    function deriveRelativeRefForCopy(rawSrc) {
+        var src = cleanImageSrc(rawSrc || '');
+        if (!src) return '';
+        // documentBaseUri が webview-resource URL 形式の場合: 接頭辞除去
+        if (typeof documentBaseUri === 'string' && documentBaseUri) {
+            var base = documentBaseUri.replace(/\/$/, '');
+            // raw src が webview URL のまま来た時 (cleanImageSrc で接頭辞が match しなかった場合) もカバー
+            var rawTrim = (rawSrc || '').replace(/\/$/, '');
+            if (rawTrim && rawTrim.indexOf(base) === 0) {
+                var rel = rawTrim.slice(base.length).replace(/^\//, '');
+                if (rel) return rel;
+            }
+            // cleanImageSrc 後の絶対 fs path に対して、base からも絶対 fs path 部分を計算して比較
+            // base は `https://file+.vscode-resource.vscode-cdn.net/<abs_dir>/` 形式
+            // src は `/<abs_dir>/<sub>` 形式 (cleanImageSrc 経由)
+            var baseAbsMatch = base.match(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net(\/.*)$/);
+            if (baseAbsMatch && src.charAt(0) === '/') {
+                var baseAbs = baseAbsMatch[1].replace(/\/$/, '');
+                if (src.indexOf(baseAbs + '/') === 0) {
+                    return src.slice(baseAbs.length + 1);
+                }
+                if (src === baseAbs) return '';
+            }
+        }
+        return src;
+    }
+    function resolveImgRefForCopy(node) {
+        if (node.dataset && node.dataset.markdownPath) {
+            return cleanImageSrc(node.dataset.markdownPath);
+        }
+        return deriveRelativeRefForCopy(node.getAttribute('src') || '');
+    }
+    function resolveLinkRefForCopy(node) {
+        if (node.dataset && node.dataset.markdownPath) {
+            return node.dataset.markdownPath;
+        }
+        return deriveRelativeRefForCopy(node.getAttribute('href') || '');
+    }
     function mdProcessNode(node, listPrefix = '') {
         if (node.nodeType === 3) {
             return node.textContent;
@@ -5597,9 +5745,11 @@ class EditorInstance {
                 // Use mdGetInlineMarkdown to properly normalize nested inline elements
                 return mdGetInlineMarkdown(node);
             case 'img':
-                // Use markdown path if available, otherwise use src
-                const imgSrc = cleanImageSrc(node.dataset.markdownPath || node.getAttribute('src') || '');
-                return '![' + (node.getAttribute('alt') || '') + '](' + imgSrc + ')';
+                // Use markdown path if available, otherwise derive relative path from src+documentBaseUri.
+                // BUG-FIX (![](rel)→![](abs) on cmd+c/v): cleanImageSrc に src だけ渡すと vscode-resource
+                // 接頭辞 strip 後に絶対 fs path が残る → 後段の paste で絶対パスが書き込まれる。
+                // documentBaseUri があれば src の接頭辞として除去し相対パスに戻す。
+                return '![' + (node.getAttribute('alt') || '') + '](' + resolveImgRefForCopy(node) + ')';
             case 'table':
                 return mdProcessTable(node);
             case 'tr':
@@ -5709,7 +5859,8 @@ class EditorInstance {
         if (tag === 'a') {
             // Check if this is a file attachment link
             const isFileAttachment = node.dataset.isFileAttachment === 'true';
-            const href = node.dataset.markdownPath || node.getAttribute('href') || '';
+            // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
+            const href = resolveLinkRefForCopy(node);
 
             if (isFileAttachment) {
                 // File attachment - return as single special entry (like image)
@@ -5745,7 +5896,8 @@ class EditorInstance {
         
         if (tag === 'img') {
             // Image - return as single special entry
-            const src = cleanImageSrc(node.dataset.markdownPath || node.getAttribute('src') || '');
+            // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
+            const src = resolveImgRefForCopy(node);
             const alt = node.getAttribute('alt') || '';
             result.push({
                 char: '',
@@ -6117,10 +6269,12 @@ class EditorInstance {
             } else if (tag === 'del' || tag === 's' || tag === 'strike') {
                 return '~~' + innerContent + '~~';
             } else if (tag === 'a') {
-                const href = node.getAttribute('href') || '';
+                // BUG-FIX: documentBaseUri 経由で相対化
+                const href = resolveLinkRefForCopy(node);
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
-                const src = cleanImageSrc(node.dataset.markdownPath || node.getAttribute('src') || '');
+                // BUG-FIX: documentBaseUri 経由で相対化
+                const src = resolveImgRefForCopy(node);
                 const alt = node.getAttribute('alt') || '';
                 return '![' + alt + '](' + src + ')';
             }
@@ -11505,6 +11659,12 @@ class EditorInstance {
             case 'image':
                 host.requestInsertImage();
                 break;
+            case 'drawio':
+                // MD-47: Cmd+/ → Insert Drawio Diagram
+                if (typeof host.requestCreateDrawio === 'function') {
+                    host.requestCreateDrawio();
+                }
+                break;
             case 'table':
                 var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
                 document.execCommand('insertHTML', false, tableHtml);
@@ -11561,6 +11721,8 @@ class EditorInstance {
         // Group: Insert
         { group: 'insert', action: 'link',    i18nKey: 'insertLink',  icon: 'link' },
         { group: 'insert', action: 'image',   i18nKey: 'insertImage', icon: 'image' },
+        // MD-47: Insert Drawio Diagram (drawio.svg を fileDir に新規生成 + ![]() 挿入)
+        { group: 'insert', action: 'drawio',  i18nKey: 'insertDrawioDiagram', icon: 'image' },
         { group: 'insert', action: 'table',   i18nKey: 'insertTable', icon: 'table' },
     ];
 
@@ -13782,6 +13944,35 @@ class EditorInstance {
             translateLoading = false;
             hideTranslateLoading();
             showTranslateError(message.message || 'Translation failed');
+        } else if (message.type === 'drawioFileChanged') {
+            // MD-48: drawio.svg / drawio.png 外部編集の自動再描画
+            // path basename を抽出 → 全 <img> のうち src の path-suffix が一致するもののみ
+            // ?v=mtime を bump（無関係画像を bump しない）
+            try {
+                var dPath = message.path || '';
+                var dMtime = message.mtime;
+                if (!dPath || dMtime === undefined) return;
+                var lastSlash = Math.max(dPath.lastIndexOf('/'), dPath.lastIndexOf('\\'));
+                var basename = (lastSlash >= 0 ? dPath.slice(lastSlash + 1) : dPath);
+                if (!basename) return;
+                var imgs = document.querySelectorAll('img');
+                for (var ii = 0; ii < imgs.length; ii++) {
+                    var img = imgs[ii];
+                    var src = img.getAttribute('src') || '';
+                    if (!src) continue;
+                    // path 基準で末尾一致を判定（?v=... を除いた形で）
+                    var srcNoQuery = src.split('?')[0].split('#')[0];
+                    // basename match: src が "/<basename>" または完全一致 basename で終わる
+                    var srcLastSlash = Math.max(srcNoQuery.lastIndexOf('/'), srcNoQuery.lastIndexOf('\\'));
+                    var srcBasename = (srcLastSlash >= 0 ? srcNoQuery.slice(srcLastSlash + 1) : srcNoQuery);
+                    if (srcBasename !== basename) continue;
+                    // bump ?v=mtime
+                    var newSrc = srcNoQuery + '?v=' + dMtime;
+                    img.setAttribute('src', newSrc);
+                }
+            } catch (err) {
+                logger.error('drawioFileChanged handler error:', err);
+            }
         }
     });
 
@@ -13882,6 +14073,11 @@ class EditorInstance {
         }, 400);
     }
 
+    // BUG-3 FIX: setupSidePanelHeaderButtons は side panel 開閉のたびに呼ばれるため、
+    // 同じ DOM ボタンに対して click handler を重複登録していた (open N 回で N 重 → 偶数回ならクリックの net 効果がゼロ
+    // → user 視点で「押しても動かない」現象)。
+    // 修正: button を cloneNode で置換して旧 handler を全部捨ててから新 handler を登録する
+    // (named function 参照で removeEventListener する手もあるが、再登録対象が複数 + closure 依存のため clone 方式が確実)。
     function setupSidePanelHeaderButtons() {
         if (!sidePanel || !sidePanelInstance) return;
         var header = sidePanel.querySelector('.side-panel-header');
@@ -13894,10 +14090,18 @@ class EditorInstance {
             if (title) btn.title = title;
         });
 
-        var undoBtn = header.querySelector('[data-action="undo"]');
-        var redoBtn = header.querySelector('[data-action="redo"]');
-        var openTextEditorBtn = header.querySelector('[data-action="openInTextEditor"]');
-        var sourceBtn = header.querySelector('[data-action="source"]');
+        // Clone-replace each action button so prior listeners are dropped
+        function freshButton(action) {
+            var existing = header.querySelector('[data-action="' + action + '"]');
+            if (!existing) return null;
+            var fresh = existing.cloneNode(true);
+            existing.parentNode.replaceChild(fresh, existing);
+            return fresh;
+        }
+        var undoBtn = freshButton('undo');
+        var redoBtn = freshButton('redo');
+        var openTextEditorBtn = freshButton('openInTextEditor');
+        var sourceBtn = freshButton('source');
 
         if (undoBtn) undoBtn.addEventListener('click', function() {
             if (sidePanelInstance) sidePanelInstance._undo();
@@ -14604,6 +14808,26 @@ class EditorInstance {
         return IMAGE_EXTENSIONS.indexOf(ext) !== -1;
     }
 
+    // MD-13/OL-15 拡張: 多重拡張子（.drawio.svg / .drawio.png / .drawio）を前置判定する分類器
+    // 判定順序: drawio.svg → drawio.png → drawio → image → file（順序が要件）
+    // PoC `.harness/poc/.../code/scripts/classify.js` 移植版
+    function classifyDroppedFile(fileName) {
+        if (!fileName) return 'file';
+        var lower = String(fileName).toLowerCase();
+        if (lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png')) return 'drawio-file';
+        if (lower.endsWith('.drawio')) return 'drawio-xml';
+        var dot = lower.lastIndexOf('.');
+        if (dot >= 0) {
+            var ext = lower.slice(dot + 1);
+            if (IMAGE_EXTENSIONS.indexOf(ext) !== -1) return 'image';
+        }
+        return 'file';
+    }
+    // テスト/外部参照のため公開（standalone build で window 経由アクセス）
+    if (typeof window !== 'undefined') {
+        window.__fractalClassifyDroppedFile = classifyDroppedFile;
+    }
+
     if (isMainInstance) document.addEventListener('drop', function(e) {
         var t = findTargetEditor(e.target);
         if (!t) {
@@ -14658,6 +14882,33 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
+        // MD-45: drawio.svg / drawio.png 専用経路 — fileDir に保存しつつ ![]() 挿入
+        function readAndInsertDrawioViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                logger.log('FileReader onload called for drawio');
+                if (typeof h.saveDrawioAndInsert === 'function') {
+                    h.saveDrawioAndInsert(event.target.result, file.name);
+                } else {
+                    // fallback: file 経路（host が saveDrawioAndInsert を持たない場合）
+                    h.saveFileAndInsert(event.target.result, file.name);
+                }
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error (drawio):', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // MD-46: .drawio (XML) 棄却の通知
+        function notifyUnsupportedDrawioXmlViaHost(droppedPath, fileName, h) {
+            if (typeof h.notifyUnsupportedDrawioXml === 'function') {
+                h.notifyUnsupportedDrawioXml(droppedPath, fileName);
+            } else {
+                logger.warn('host has no notifyUnsupportedDrawioXml; ignoring drop');
+            }
+        }
+
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -14665,11 +14916,19 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            if (file.type.startsWith('image/') || isImageFile(file.name)) {
+            // MD-45/MD-46/MD-13拡張: classifyDroppedFile による switch 分岐
+            const cls = classifyDroppedFile(file.name);
+            if (cls === 'drawio-file') {
+                readAndInsertDrawioViaHost(file, targetHost);
+                return;
+            } else if (cls === 'drawio-xml') {
+                // ファイルコピーはせず、警告ダイアログだけ要求（Files 経路では .path がない事が多い）
+                notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
+                return;
+            } else if (cls === 'image' || file.type.startsWith('image/')) {
                 readAndInsertImageViaHost(file, targetHost);
                 return;
             } else {
-                // Non-image file
                 readAndInsertFileViaHost(file, targetHost);
                 return;
             }
@@ -14682,10 +14941,20 @@ class EditorInstance {
                 const item = items[i];
                 logger.log('Item:', item.kind, item.type);
 
-                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                if (item.kind === 'file') {
                     const file = item.getAsFile();
-                    if (file) {
-                        logger.log('Got file from items:', file.name, file.size);
+                    if (!file) continue;
+                    // MD-45/MD-46: drawio classifier first
+                    const itemCls = classifyDroppedFile(file.name);
+                    if (itemCls === 'drawio-file') {
+                        logger.log('Got drawio file from items:', file.name, file.size);
+                        readAndInsertDrawioViaHost(file, targetHost);
+                        return;
+                    } else if (itemCls === 'drawio-xml') {
+                        notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
+                        return;
+                    } else if (item.type.startsWith('image/') || itemCls === 'image') {
+                        logger.log('Got image file from items:', file.name, file.size);
                         readAndInsertImageViaHost(file, targetHost);
                         return;
                     }
@@ -14701,7 +14970,7 @@ class EditorInstance {
 
         // Try to get file path from various sources
         let filePath = null;
-        let isImage = false;
+        let pathFileName = '';
 
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
@@ -14709,17 +14978,9 @@ class EditorInstance {
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
                     const decodedPath = decodeURIComponent(uri.replace('file://', ''));
-                    const fileName = decodedPath.split('/').pop();
-                    if (isImageFile(fileName)) {
-                        filePath = decodedPath;
-                        isImage = true;
-                        break;
-                    } else {
-                        // Non-image file
-                        filePath = decodedPath;
-                        isImage = false;
-                        break;
-                    }
+                    filePath = decodedPath;
+                    pathFileName = decodedPath.split('/').pop();
+                    break;
                 }
             }
         }
@@ -14728,19 +14989,30 @@ class EditorInstance {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
                 const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
-                const fileName = decodedPath.split('/').pop();
                 filePath = decodedPath;
-                isImage = isImageFile(fileName);
+                pathFileName = decodedPath.split('/').pop();
             } else if (plainText.startsWith('/')) {
                 // Direct file path
-                const fileName = plainText.split('/').pop();
                 filePath = plainText;
-                isImage = isImageFile(fileName);
+                pathFileName = plainText.split('/').pop();
             }
         }
 
         if (filePath) {
-            if (isImage) {
+            // MD-45/MD-46/MD-13拡張: classifyDroppedFile で 4 経路に分岐
+            const pathCls = classifyDroppedFile(pathFileName);
+            if (pathCls === 'drawio-file') {
+                logger.log('Found drawio file path:', filePath);
+                if (typeof targetHost.readAndInsertDrawio === 'function') {
+                    targetHost.readAndInsertDrawio(filePath);
+                } else {
+                    // fallback to file path
+                    targetHost.readAndInsertFile(filePath);
+                }
+            } else if (pathCls === 'drawio-xml') {
+                logger.log('Found .drawio (XML) path, rejecting:', filePath);
+                notifyUnsupportedDrawioXmlViaHost(filePath, pathFileName, targetHost);
+            } else if (pathCls === 'image') {
                 logger.log('Found image file path:', filePath);
                 targetHost.readAndInsertImage(filePath);
             } else {
@@ -14865,7 +15137,10 @@ class EditorInstance {
             let md = '';
             
             // Check if the selection is just text (no block elements)
-            const hasBlockElements = tempDiv.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, li, pre, blockquote, table, hr');
+            // BUG-FIX (img-cmd-c-empty): img / a を含む場合は mdProcessNode 経路で serialize する。
+            // (旧: img だけ選択時に selectedText="" → md="" になりクリップボードに image が乗らず、
+            //      cmd+v で HTML clipboard を Turndown が webview URL のまま MD 化 → 絶対 path 化していた)
+            const hasBlockElements = tempDiv.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, li, pre, blockquote, table, hr, img, a');
             
             logger.log('Copy - hasBlockElements:', hasBlockElements ? hasBlockElements.tagName : 'null');
             
@@ -15157,6 +15432,8 @@ class EditorInstance {
             if (host._assetContext) {
                 e.clipboardData.setData('text/x-any-md-context', JSON.stringify(host._assetContext));
             }
+            // cut フラグ: paste 側が move セマンティクス (L1 同 outliner なら複製スキップ) を判定するため
+            e.clipboardData.setData('text/x-any-md-iscut', '1');
         } catch (err) {
             e.clipboardData.setData('text/plain', sel.toString());
         }
@@ -15219,11 +15496,17 @@ class EditorInstance {
         if (assetContext && internalMd && host._assetContext) {
             try {
                 const sourceCtx = JSON.parse(assetContext);
+                const isCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
                 const destCtx = host._assetContext;
-
-                // Compare directories — if different, need asset copy
-                if (sourceCtx.imageDir !== destCtx.imageDir || sourceCtx.fileDir !== destCtx.fileDir) {
-                    // Send to host for file copy + path rewrite
+                const sameOutliner = sourceCtx.imageDir === destCtx.imageDir
+                                  && sourceCtx.fileDir === destCtx.fileDir;
+                // 仕様:
+                // - cmd+c/v (copy): 常にファイル複製 (どこがターゲットでも)
+                // - cmd+x/v (cut) + L1 同 outliner: move セマンティクス → 複製せず内部 MD を直接挿入
+                // - cmd+x/v (cut) + L2/L3 別 outliner: 複製 (file は dest に必要、source は orphan として残る)
+                if (isCut && sameOutliner) {
+                    // fallthrough → pastedMd = internalMd で内部挿入
+                } else {
                     host.pasteWithAssetCopy(internalMd, sourceCtx);
                     return; // Wait for pasteWithAssetCopyResult
                 }

@@ -365,6 +365,11 @@ var Outliner = (function() {
 
     /** Classify dropped file by extension */
     function classifyDroppedFile(file) {
+        // OL-19B 拡張: drawio 多重拡張子は前置判定で 'file' に丸める（filePath 添付経路へ）
+        // outliner では .drawio (XML) も棄却ではなく filePath 添付として受け入れる（既存 OL-19B 「Import any files」原則）
+        var lower = ((file && file.name) || '').toLowerCase();
+        if (lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png')) return 'file';
+        if (lower.endsWith('.drawio')) return 'file';
         var ext = (file.name.split('.').pop() || '').toLowerCase();
         if (ext === 'md') return 'md';
         if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].indexOf(ext) >= 0) return 'image';

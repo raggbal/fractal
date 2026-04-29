@@ -13,6 +13,8 @@ import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHa
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { DrawioWatcherRegistry, extractDrawioReferences } from './shared/drawioWatcher';
+import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -153,11 +155,78 @@ export class NotesEditorProvider {
             { logPrefix: '[Notes]' }
         );
 
+        // --- drawio watcher (MD-48 / Notes 経路): 既存 sidePanelManager とは完全分離 ---
+        // NT-14 / OL-22 / MD-24 を破壊しないため、sidePanelManager / fileManager の経路には触らない。
+        // Notes mode では side panel で .md を開いた際に当該 MD の drawio 参照を抽出し watcher 登録する。
+        const drawioWatcher = new DrawioWatcherRegistry({
+            createFileSystemWatcher: (drawioPath: string) => {
+                // RelativePattern を使うことで workspace 外のファイルも監視可能
+                // (raw string を createFileSystemWatcher に渡すと workspace 内ファイルのみ監視される VSCode API 制限の回避)
+                const dir = path.dirname(drawioPath);
+                const base = path.basename(drawioPath);
+                return vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(vscode.Uri.file(dir), base)
+                );
+            },
+            debounceMs: 200,
+            onChange: (drawioPath: string, mdPaths: string[]) => {
+                // mdPaths のいずれかが現在開いている side panel の .md と一致する場合のみ通知
+                const watched = sidePanel.watchedPath;
+                if (!watched) return;
+                if (mdPaths.indexOf(watched) === -1) return;
+                try {
+                    const stat = fs.statSync(drawioPath);
+                    panel.webview.postMessage({
+                        type: 'sidePanelMessage',
+                        data: {
+                            type: 'drawioFileChanged',
+                            path: drawioPath,
+                            mtime: stat.mtimeMs
+                        }
+                    });
+                } catch {
+                    // file removed etc.
+                }
+            }
+        });
+
+        const refreshDrawioRefsForMd = (mdPath: string) => {
+            try {
+                if (!fs.existsSync(mdPath)) {
+                    drawioWatcher.removeMd(mdPath);
+                    return;
+                }
+                const content = fs.readFileSync(mdPath, 'utf8');
+                const refs = extractDrawioReferences(content, path.dirname(mdPath));
+                drawioWatcher.setReferences(mdPath, refs);
+            } catch (err) {
+                console.warn('[Notes] refreshDrawioRefsForMd error:', err);
+            }
+        };
+
+        // SidePanelManager の onDidChangeTextDocument を観測する独立 listener を追加
+        // (sidePanelManager 自体には触らない — 並走 listener として動作)
+        const sidePanelDocChangeSub = vscode.workspace.onDidChangeTextDocument(e => {
+            const watched = sidePanel.watchedPath;
+            if (!watched) return;
+            if (e.document.uri.fsPath !== watched) return;
+            // sidePanelManager の applyEdit 経路にも同じ event が流れるが、内容差し替えのみ
+            // — ここでは drawio refs だけ更新（document 経路には書き込まない）
+            try {
+                const refs = extractDrawioReferences(e.document.getText(), path.dirname(watched));
+                drawioWatcher.setReferences(watched, refs);
+            } catch (err) {
+                console.warn('[Notes] drawio refs update error:', err);
+            }
+        });
+
         // Register openPage function for external access (in-app page links)
         const panelEntry = this.openPanels.get(folderPath);
         if (panelEntry) {
             panelEntry.openPage = async (filePath: string) => {
                 await sidePanel.openFile(filePath);
+                // MD-48: drawio refs 再スキャン（独立 watcher）
+                refreshDrawioRefsForMd(filePath);
             };
         }
 
@@ -228,6 +297,8 @@ export class NotesEditorProvider {
                     return;
                 }
                 await sidePanel.openFile(filePath);
+                // MD-48: drawio refs 再スキャン
+                refreshDrawioRefsForMd(filePath);
                 // キーワードベースのジャンプを優先（行番号は表示HTMLとずれて失敗するため）
                 if (query) {
                     setTimeout(() => {
@@ -551,6 +622,113 @@ export class NotesEditorProvider {
                     console.error('[Notes] readAndInsertFile error:', e);
                 }
             },
+            // MD-45/46/47: drawio (.drawio.svg / .drawio.png / .drawio (XML))
+            saveDrawioToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
+                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
+                const filesDir = outlinerId
+                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    : path.join(fileManager.getMainFolderPath(), 'files');
+                if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+
+                const safeName = fileName || 'diagram.drawio.svg';
+                const destFileName = buildUniqueDrawioName(safeName, (n) => fs.existsSync(path.join(filesDir, n)));
+                const destPath = path.join(filesDir, destFileName);
+
+                try {
+                    const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
+                    fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
+                    const spDir = path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+                    panel.webview.postMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: relPath,
+                        displayUri: displayUri,
+                        dataUri: dataUrl,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveDrawioToDir error:', e);
+                }
+            },
+            readAndInsertDrawio: (filePath: string, sidePanelFilePath: string) => {
+                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
+                const filesDir = outlinerId
+                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    : path.join(fileManager.getMainFolderPath(), 'files');
+                if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+
+                if (!fs.existsSync(filePath)) {
+                    vscode.window.showErrorMessage(`${t('fileNotFound')}: ${filePath}`);
+                    return;
+                }
+                const originalName = path.basename(filePath);
+                const destFileName = buildUniqueDrawioName(originalName, (n) => fs.existsSync(path.join(filesDir, n)));
+                const destPath = path.join(filesDir, destFileName);
+                try {
+                    fs.copyFileSync(filePath, destPath);
+                    const spDir = path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+                    panel.webview.postMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: relPath,
+                        displayUri: displayUri,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readAndInsertDrawio error:', e);
+                }
+            },
+            notifyUnsupportedDrawioXml: async (droppedPath: string, fileName: string, _sidePanelFilePath: string) => {
+                const noticeMsg = t('unsupportedDrawioXmlNotice');
+                const openBtn = t('openInDrawioDesktopButton');
+                const action = await vscode.window.showWarningMessage(noticeMsg, openBtn);
+                if (action === openBtn && droppedPath) {
+                    try {
+                        await vscode.env.openExternal(vscode.Uri.file(droppedPath));
+                    } catch (err) {
+                        console.error('[Notes] open drawio externally error:', err);
+                    }
+                }
+                void fileName; // unused
+            },
+            requestCreateDrawio: async (sidePanelFilePath: string) => {
+                const inputName = await vscode.window.showInputBox({
+                    prompt: t('drawioFilenamePromptTitle'),
+                    placeHolder: t('drawioFilenamePromptPlaceholder'),
+                    value: 'diagram'
+                });
+                if (!inputName || !inputName.trim()) return;
+
+                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
+                const filesDir = outlinerId
+                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    : path.join(fileManager.getMainFolderPath(), 'files');
+                if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
+
+                let baseName = inputName.trim();
+                if (!baseName.toLowerCase().endsWith('.drawio.svg')) {
+                    if (baseName.toLowerCase().endsWith('.drawio')) {
+                        baseName = baseName + '.svg';
+                    } else {
+                        baseName = baseName + '.drawio.svg';
+                    }
+                }
+                const destFileName = buildUniqueDrawioName(baseName, (n) => fs.existsSync(path.join(filesDir, n)));
+                const destPath = path.join(filesDir, destFileName);
+                try {
+                    fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');
+                    const spDir = path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+                    panel.webview.postMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: relPath,
+                        displayUri: displayUri,
+                    });
+                } catch (e) {
+                    console.error('[Notes] requestCreateDrawio error:', e);
+                }
+            },
             sendSidePanelImageDir: (sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');
@@ -812,6 +990,9 @@ export class NotesEditorProvider {
         panel.onDidDispose(() => {
             fileManager.dispose();
             sidePanel.disposeFileWatcher();
+            // MD-48: drawio watcher dispose
+            try { sidePanelDocChangeSub.dispose(); } catch { /* ignore */ }
+            drawioWatcher.disposeAll();
             // folderWatcher, noteFileWatcher は disposables に含まれているため
             // disposables.forEach で一括dispose（二重disposeを避ける）
             disposables.forEach(d => d.dispose());

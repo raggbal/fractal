@@ -12,6 +12,8 @@ import {
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
+import { DrawioWatcherRegistry, extractDrawioReferences } from './shared/drawioWatcher';
+import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 
 // ============================================
 // DocumentParser: IMAGE_DIR ディレクティブの解析
@@ -130,6 +132,15 @@ function generateUniqueFileNamePreserving(dir: string, originalName: string): st
         }
         counter++;
     }
+}
+
+/**
+ * MD-45 拡張: 多重拡張子（.drawio.svg / .drawio.png）対応の suffix 付与。
+ * `foo.drawio.svg` → `foo-1.drawio.svg`（`foo.drawio-1.svg` ではない）。
+ * 実体は src/shared/drawioTemplate.ts の buildUniqueDrawioName。
+ */
+function generateUniqueDrawioFileName(dir: string, originalName: string): string {
+    return buildUniqueDrawioName(originalName, (name) => fs.existsSync(path.join(dir, name)));
 }
 
 // ============================================
@@ -677,6 +688,48 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         let isActivelyEditing = false;
         let isApplyingOwnEdit = false;
 
+        // --- drawio watcher (MD-48): 既存 fileWatcher / fileChangeSubscription とは完全分離 ---
+        // NT-14 / OL-22 / MD-24 を破壊しないため、document 経路には触らない。
+        // PoC editorProvider.patch.md の指示通りに新 instance + onDidChangeTextDocument 末尾にぶら下げ。
+        const drawioWatcher = new DrawioWatcherRegistry({
+            createFileSystemWatcher: (drawioPath: string) => {
+                // RelativePattern を使うことで workspace 外のファイルも監視可能
+                // (raw string を createFileSystemWatcher に渡すと workspace 内ファイルのみ監視される VSCode API 制限の回避)
+                const dir = path.dirname(drawioPath);
+                const base = path.basename(drawioPath);
+                return vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(vscode.Uri.file(dir), base)
+                );
+            },
+            debounceMs: 200,
+            onChange: (drawioPath: string, mdPaths: string[]) => {
+                if (mdPaths.indexOf(document.uri.fsPath) === -1) return;
+                try {
+                    const stat = fs.statSync(drawioPath);
+                    webviewPanel.webview.postMessage({
+                        type: 'drawioFileChanged',
+                        path: drawioPath,
+                        mtime: stat.mtimeMs
+                    });
+                } catch {
+                    // file removed etc. — ignore
+                }
+            }
+        });
+
+        const updateDrawioRefs = () => {
+            try {
+                const refs = extractDrawioReferences(
+                    document.getText(),
+                    path.dirname(document.uri.fsPath)
+                );
+                drawioWatcher.setReferences(document.uri.fsPath, refs);
+            } catch (err) {
+                console.warn('[Any MD] updateDrawioRefs error:', err);
+            }
+        };
+        updateDrawioRefs();
+
         // Listen for document changes
         const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument(e => {
             if (e.document.uri.toString() !== document.uri.toString()) return;
@@ -697,6 +750,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
             // Update image dir status
             sendImageDirStatus();
+
+            // MD-48: drawio 参照 diff を取り、watcher 追加/削除（既存ロジック無修正）
+            updateDrawioRefs();
         });
 
         // Listen for file system changes (from external editors like Claude)
@@ -868,6 +924,50 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
                     await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath);
+                    break;
+                }
+
+                case 'saveDrawioAndInsert': {
+                    // MD-45: drawio.svg / drawio.png D&D (Files 経路) — fileDir に dataUrl デコード保存
+                    const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
+                    const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
+                    await this.handleSaveDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    break;
+                }
+
+                case 'readAndInsertDrawio': {
+                    // MD-45: drawio.svg / drawio.png D&D (URI 経路) — fileDir にコピー
+                    const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
+                    const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
+                    await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath);
+                    break;
+                }
+
+                case 'notifyUnsupportedDrawioXml': {
+                    // MD-46: .drawio (XML) D&D 棄却ダイアログ
+                    const droppedPath: string = message.droppedPath || '';
+                    const fileNameForXml: string = message.fileName || (droppedPath ? path.basename(droppedPath) : '');
+                    const noticeMsg = t('unsupportedDrawioXmlNotice');
+                    const openBtn = t('openInDrawioDesktopButton');
+                    // 第二引数は modal なし、ボタンを並べる
+                    const action = await vscode.window.showWarningMessage(noticeMsg, openBtn);
+                    if (action === openBtn && droppedPath) {
+                        try {
+                            await vscode.env.openExternal(vscode.Uri.file(droppedPath));
+                        } catch (err) {
+                            console.error('[Any MD] Failed to open drawio file externally:', err);
+                        }
+                    }
+                    // ファイルコピー / insertText は一切行わない（仕様）
+                    void fileNameForXml; // 未使用警告抑止
+                    break;
+                }
+
+                case 'requestCreateDrawio': {
+                    // MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入
+                    const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
+                    const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
+                    await this.handleRequestCreateDrawio(drawDocUri, drawDocContent, webviewPanel.webview);
                     break;
                 }
 
@@ -1253,6 +1353,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             fileChangeSubscription.dispose();
             fileWatcher.dispose();
             sidePanel.disposeFileWatcher();
+            // MD-48: drawio watcher dispose
+            drawioWatcher.disposeAll();
         });
     }
 
@@ -1541,6 +1643,143 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         } catch (error) {
             console.error('Failed to read/copy file:', error);
             vscode.window.showErrorMessage(`${t('failedToProcessFile')}${error}`);
+        }
+    }
+
+    /**
+     * MD-45: drawio.svg / drawio.png を fileDefaultDir に保存（dataUrl デコード）し、
+     * `![<base>](relative)` をエディタに insertText 指示する。
+     */
+    private async handleSaveDrawio(
+        documentUri: vscode.Uri,
+        documentContent: string,
+        webview: vscode.Webview,
+        dataUrl: string,
+        fileName: string
+    ): Promise<void> {
+        const path = require('path');
+        const fs = require('fs');
+        try {
+            const fileDir = fileDirectoryManager.getFileDirectory(documentUri, documentContent);
+            ensureDirectoryExists(fileDir);
+
+            const safeName = fileName || 'diagram.drawio.svg';
+            const uniqueName = generateUniqueDrawioFileName(fileDir, safeName);
+            const destPath = path.join(fileDir, uniqueName);
+
+            const base64Data = dataUrl.replace(/^data:[^;]+;base64,/, '');
+            const buf = Buffer.from(base64Data, 'base64');
+            fs.writeFileSync(destPath, buf);
+
+            const useAbsolute = fileDirectoryManager.shouldUseAbsoluteFilePath(documentUri);
+            const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(documentUri, documentContent);
+            const markdownPath = toMarkdownPath(destPath, documentUri.fsPath, useAbsolute, forceRelative);
+            const webviewUri = webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+
+            // drawio は inline 画像表示のため insertImageHtml を流用（既存 webview 経路で <img> 挿入）
+            webview.postMessage({
+                type: 'insertImageHtml',
+                markdownPath: markdownPath,
+                displayUri: webviewUri,
+                dataUri: dataUrl
+            });
+        } catch (err) {
+            console.error('[Any MD] handleSaveDrawio error:', err);
+            vscode.window.showErrorMessage(`${t('failedToSaveFile')}${err}`);
+        }
+    }
+
+    /**
+     * MD-45 (URI 経路): 既存 drawio.svg / drawio.png を fileDefaultDir にコピーし、
+     * `![<base>](relative)` をエディタに insertText 指示する。
+     */
+    private async handleReadAndInsertDrawio(
+        documentUri: vscode.Uri,
+        documentContent: string,
+        webview: vscode.Webview,
+        filePath: string
+    ): Promise<void> {
+        const path = require('path');
+        const fs = require('fs');
+        try {
+            if (!fs.existsSync(filePath)) {
+                vscode.window.showErrorMessage(`${t('fileNotFound')}: ${filePath}`);
+                return;
+            }
+            const fileDir = fileDirectoryManager.getFileDirectory(documentUri, documentContent);
+            ensureDirectoryExists(fileDir);
+
+            const originalName = path.basename(filePath);
+            const uniqueName = generateUniqueDrawioFileName(fileDir, originalName);
+            const destPath = path.join(fileDir, uniqueName);
+            fs.copyFileSync(filePath, destPath);
+
+            const useAbsolute = fileDirectoryManager.shouldUseAbsoluteFilePath(documentUri);
+            const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(documentUri, documentContent);
+            const markdownPath = toMarkdownPath(destPath, documentUri.fsPath, useAbsolute, forceRelative);
+            const webviewUri = webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+
+            webview.postMessage({
+                type: 'insertImageHtml',
+                markdownPath: markdownPath,
+                displayUri: webviewUri
+            });
+        } catch (err) {
+            console.error('[Any MD] handleReadAndInsertDrawio error:', err);
+            vscode.window.showErrorMessage(`${t('failedToProcessFile')}${err}`);
+        }
+    }
+
+    /**
+     * MD-47: Cmd+/ → Insert Drawio Diagram。InputBox でファイル名入力 →
+     * fileDir/<name>.drawio.svg にテンプレートを書き出し → ![]() を挿入。
+     */
+    private async handleRequestCreateDrawio(
+        documentUri: vscode.Uri,
+        documentContent: string,
+        webview: vscode.Webview
+    ): Promise<void> {
+        const path = require('path');
+        const fs = require('fs');
+        const inputName = await vscode.window.showInputBox({
+            prompt: t('drawioFilenamePromptTitle'),
+            placeHolder: t('drawioFilenamePromptPlaceholder'),
+            value: 'diagram'
+        });
+        if (!inputName || !inputName.trim()) {
+            return; // キャンセル / 空文字
+        }
+        try {
+            const fileDir = fileDirectoryManager.getFileDirectory(documentUri, documentContent);
+            ensureDirectoryExists(fileDir);
+
+            // .drawio.svg 拡張子を自動付加
+            let baseName = inputName.trim();
+            if (!baseName.toLowerCase().endsWith('.drawio.svg')) {
+                // 既存の拡張子があれば剥がしてから付加
+                if (baseName.toLowerCase().endsWith('.drawio')) {
+                    baseName = baseName + '.svg';
+                } else {
+                    baseName = baseName + '.drawio.svg';
+                }
+            }
+            const uniqueName = generateUniqueDrawioFileName(fileDir, baseName);
+            const destPath = path.join(fileDir, uniqueName);
+            fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');
+
+            const useAbsolute = fileDirectoryManager.shouldUseAbsoluteFilePath(documentUri);
+            const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(documentUri, documentContent);
+            const markdownPath = toMarkdownPath(destPath, documentUri.fsPath, useAbsolute, forceRelative);
+            const webviewUri = webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+
+            webview.postMessage({
+                type: 'insertImageHtml',
+                markdownPath: markdownPath,
+                displayUri: webviewUri
+            });
+        } catch (err) {
+            console.error('[Any MD] handleRequestCreateDrawio error:', err);
+            vscode.window.showErrorMessage(`${t('failedToSaveFile')}${err}`);
         }
     }
 

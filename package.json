@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.195.722",
+  "version": "0.195.733",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -432,9 +432,12 @@
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "test:build": "node test/build-standalone.js",
+    "test:build:all": "node test/build-standalone.js && node test/build-standalone-outliner.js && node test/build-standalone-notes.js",
     "test:e2e": "npm run test:build && playwright test",
     "test:e2e:ui": "npm run test:build && playwright test --ui",
     "test:serve": "npx serve test/html -p 3000",
+    "test:parallel": "bash test/run-parallel-tests.sh",
+    "test": "npm run test:parallel",
     "build:locales": "node build-locales.js"
   },
   "devDependencies": {
