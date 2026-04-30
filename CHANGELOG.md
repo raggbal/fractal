@@ -5,6 +5,33 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.758] - 2026-04-30
+
+Documentation catch-up release. Backfills features that landed in earlier builds but were never explicitly captured in CHANGELOG / README. **No code-behavior changes from `0.195.757`** other than version bump and packaging.
+
+### Documented (backfill)
+- **Drawio.svg / drawio.png inline support (MD-45 / MD-46 / MD-47 / MD-48)**
+  - **D&D import**: Drag a `.drawio.svg` or `.drawio.png` from Finder / VSCode Explorer onto the MD editor → file is copied to `fractal.fileDefaultDir` (default `./files`) and `![filename](relative)` is inserted at the cursor (MD-45). All 4 drop sources (Files / items / URI list / plain-text path) are routed through the same handler. File-name collisions get a `-1`, `-2`, ... suffix preserving the multi-extension (`foo.drawio.svg` → `foo-1.drawio.svg`, **not** `foo.drawio-1.svg`).
+  - **`.drawio` (XML) D&D rejection dialog**: Dropping a single-extension `.drawio` (XML) shows a custom warning modal with **"Open in drawio Desktop"** and **"Cancel"** buttons (MD-46). The OK button calls `vscode.env.openExternal` (extension mode) or `shell.openPath` (Electron mode) to open the dropped file in drawio Desktop. Cancel inserts nothing. 7 languages (en/ja/zh-cn/zh-tw/ko/es/fr) via `unsupportedDrawioXmlNotice` / `openInDrawioDesktopButton`.
+  - **Cmd+/ → "Insert Drawio Diagram"** (MD-47): New Insert-group palette item. Prompts for a filename (`.drawio.svg` is auto-appended), creates a placeholder MXFILE template (1 placeholder rect) at `fileDefaultDir/<name>.drawio.svg`, and inserts `![<name>](relative)` at the cursor. i18n key `insertDrawioDiagram`.
+  - **External-edit auto-refresh** (MD-48): Saving the `.drawio.svg` from drawio Desktop / hediet.vscode-drawio re-renders the inline thumbnail in all open MDs that reference it. The dedicated `DrawioWatcherRegistry` (`src/shared/drawioWatcher.ts`) parses MD body for `![](*.drawio.svg)` / `*.drawio.png`, registers per-file `vscode.workspace.createFileSystemWatcher` + `fs.watchFile` polling fallback, and broadcasts `drawioFileChanged` to webviews (debounced 200ms). Same atomic-rename hardening that was made shared via `createDrawioFileWatcher` factory in `0.195.757`.
+  - **Outliner D&D routing**: `.drawio.svg` / `.drawio.png` dropped on the outliner tree creates a 📎 file-attachment node (`OL-19B` path), **not** a thumbnail node (`OL-15` path). Multi-extension classifier `classifyDroppedFile()` is shared by MD editor and outliner.
+  - **Paste-asset-handler (MD-41) drawio recognition**: Pasting a node containing `![](drawio.svg)` across outliners duplicates the file via `fileDir`, **not** `imageDir`.
+
+- **Image fullscreen lightbox: pinch-zoom + drag-to-pan**
+  - Double-click any image in the standalone MD editor / side panel / outliner to open the fullscreen overlay.
+  - **Pinch to zoom** on Mac touchpad (Chromium standard `wheel + ctrlKey` event), zoom range 0.2× – 16×, zoom origin follows the cursor (cursor stays anchored to the same image pixel).
+  - **Drag to pan** when zoomed in (mouse drag with grabbing cursor).
+  - **Double-click image** to reset zoom to 1× / origin.
+  - **ESC** or **click background** to close.
+  - Hint banner at bottom: `Pinch to zoom · Drag to pan · Double-click to reset · ESC to close`.
+
+- **`fractal.imageMaxWidth` setting** (also in v0.195.757 entry below) — Caps inline image width in editor / side panel / outliner page side panel; `<img>` `style="max-width:100%"` inline attribute is overridden by a CSS rule with `!important`. Toolbar/lucide/command-palette icons are excluded.
+
+### Notes
+- The drawio inline features above were originally developed in sprint `20260427-102330-drawio-thumbnail-inline` (never released to master) and have been shipping as runtime code since builds prior to `0.195.757`. This release officially documents them.
+- README "Features" section updated with dedicated entries for drawio support, side panel cmd+/ Add Page, table column-width persistence, side panel back/forward navigation, image pinch zoom, and `fractal.imageMaxWidth`.
+
 ## [0.195.757] - 2026-04-30
 
 Sprint `20260430-151055-md-table-sidepanel-batch` (v16) — md / table / sidepanel batch fixes & enhancements.

@@ -48,16 +48,24 @@ A Typora / Notion-style WYSIWYG markdown editor.
 - **Headers** (H1-H6) with outline navigation
 - **Text formatting** — Bold, Italic, Strikethrough, Inline Code
 - **Lists** — Ordered, Unordered, Task Lists with checkboxes
-- **Tables** — Column resize, alignment, Tab/Shift+Tab cell navigation
+- **Tables** — **Column resize from any cell** (drag right edge of any cell, not just the header) with **persistent widths** saved as a `<!-- fractal-col-widths: ... -->` HTML comment in the markdown source (re-opens at the same width, ignored by other markdown viewers). Alignment, Tab/Shift+Tab cell navigation, Enter to add row, Shift+Enter for in-cell line break
 - **Code blocks** — Syntax highlighting for 24+ languages, expand to VS Code editor tab
 - **Blockquotes** and **Horizontal rules**
 - **Links and Images** — Drag & drop, paste, smart link creation (select text + paste URL)
+  - **Image fullscreen lightbox** — Double-click any image to open it fullscreen. **Pinch to zoom** (Mac touchpad), **drag to pan** when zoomed, double-click to reset, ESC to close
+  - **`fractal.imageMaxWidth` setting** (default 600px) — Cap inline image width
+  - **Right-click → Rename Link** — Edit the visible text of any link without changing its URL
+- **drawio.svg / drawio.png inline support** — Drag a `.drawio.svg` from Finder onto the editor, or use `Cmd+/` → **"Insert Drawio Diagram"** to create a new placeholder. Renders as an inline image in the MD; saving the file from drawio Desktop / `hediet.vscode-drawio` triggers automatic re-render of all open MDs that reference it (powered by a polling-fallback file watcher to catch atomic-rename saves). Dropping a `.drawio` (XML) file shows a "Open in drawio Desktop" guidance dialog instead of inserting raw XML
 - **File attachments** — Drag & drop any file onto the editor to insert a `[📎 filename](path)` link. Click to open with OS default app
 - **Notion-style side panel** — Click a `.md` link to open it in a side peek panel with full WYSIWYG editing. Cmd+Click to open in a new tab instead
+  - **Back / Forward navigation** in the side panel header (or `Opt+Left` / `Opt+Right`) to revisit MD links you've followed inside the panel
+  - **`Cmd+/` Add Page** also works inside the side panel — creates `<sidePanelDir>/pages/<timestamp>.md` and inserts the link
+  - **Outline always visible** — the side panel's heading outline stays open even when the MD has zero headings (shows a placeholder)
+- **Cmd+/ Add Page (link-name modal)** — Press `Cmd+/` → `Add Page` → type the link text → a new MD is created (auto-named) and `<a>{linkName}</a>` is inserted at the cursor. The new MD's H1 is synced from the link name (so the new page is immediately discoverable by title)
 - **Mermaid diagrams** — Rendered inline, click to edit source
 - **KaTeX math equations** — Display-mode equations with live re-rendering
 - **YAML Front Matter** support
-- **Action Palette** (`Cmd+/`) — Quick access to all formatting and insertion actions
+- **Action Palette** (`Cmd+/`) — Quick access to all formatting and insertion actions, including Add Page, Insert Drawio Diagram, and Insert Table
 
 <!-- TODO: Add Markdown editor screenshot -->
 
@@ -245,6 +253,17 @@ These shortcuts are active when the Fractal markdown editor is focused:
 | `Ctrl/Cmd + F` | Find |
 | `Ctrl/Cmd + H` | Find and replace |
 | `Ctrl/Cmd + L` | Open source file with selected lines in text editor |
+
+### Side Panel Shortcuts
+
+These shortcuts apply to the side panel markdown editor (Notion-style peek):
+
+| Shortcut | Action |
+| --- | --- |
+| `Opt+Left` / `Alt+Left` | Navigate back through MD links followed inside the side panel |
+| `Opt+Right` / `Alt+Right` | Navigate forward |
+| `Cmd+/` / `Ctrl+/` → Add Page | Create a new MD under `<sidePanelDir>/pages/` and insert the link |
+| `Esc` | Close the side panel (or close the image lightbox if open) |
 
 ### Outliner Shortcuts
 
@@ -437,6 +456,7 @@ The same rules apply to both images and file attachments:
 | `fractal.fontSize` | Base font size (px) | `16` |
 | `fractal.imageDefaultDir` | Default directory for saved images | `""` (same as markdown file) |
 | `fractal.forceRelativeImagePath` | Force relative paths for images | `false` |
+| `fractal.imageMaxWidth` | Max width (px) for images and `.drawio.svg` thumbnails in the editor / side panel / outliner page side panel. Toolbar / lucide / command-palette icons are excluded. Min `100` | `600` |
 | `fractal.language` | UI language (`default`, `en`, `ja`, `zh-cn`, `zh-tw`, `ko`, `es`, `fr`) | `default` |
 | `fractal.toolbarMode` | Toolbar display mode (`full`, `simple`) | `simple` |
 | `fractal.outlinerPageDir` | Default page directory for outliner | `./pages` |
