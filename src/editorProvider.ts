@@ -12,7 +12,7 @@ import {
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
-import { DrawioWatcherRegistry, extractDrawioReferences } from './shared/drawioWatcher';
+import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 
 // ============================================
@@ -695,51 +695,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // vscode.workspace.createFileSystemWatcher は外部ファイルに対して fire しない。
         // Node の fs.watchFile (1秒 polling) を fallback として併用する。
         const drawioWatcher = new DrawioWatcherRegistry({
-            createFileSystemWatcher: (drawioPath: string) => {
-                const dir = path.dirname(drawioPath);
-                const base = path.basename(drawioPath);
-                const vsWatcher = vscode.workspace.createFileSystemWatcher(
-                    new vscode.RelativePattern(vscode.Uri.file(dir), base)
-                );
-                // fs.watchFile fallback (workspace 外ファイル対応)
-                const changeListeners: Array<() => void> = [];
-                const fsListener = (curr: { mtimeMs: number }, prev: { mtimeMs: number }) => {
-                    if (curr.mtimeMs !== prev.mtimeMs && curr.mtimeMs > 0) {
-                        changeListeners.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
-                    }
-                };
-                try { fs.watchFile(drawioPath, { interval: 1000 }, fsListener); } catch { /* ignore */ }
-                // wrapper: vsWatcher の onDidChange/onDidCreate と fs.watchFile を統合
-                return {
-                    onDidChange: (h: () => void) => {
-                        changeListeners.push(h);
-                        const sub = vsWatcher.onDidChange(h);
-                        return {
-                            dispose: () => {
-                                const i = changeListeners.indexOf(h);
-                                if (i >= 0) changeListeners.splice(i, 1);
-                                try { sub.dispose(); } catch { /* ignore */ }
-                            }
-                        };
-                    },
-                    onDidCreate: (h: () => void) => {
-                        changeListeners.push(h);
-                        const sub = vsWatcher.onDidCreate(h);
-                        return {
-                            dispose: () => {
-                                const i = changeListeners.indexOf(h);
-                                if (i >= 0) changeListeners.splice(i, 1);
-                                try { sub.dispose(); } catch { /* ignore */ }
-                            }
-                        };
-                    },
-                    dispose: () => {
-                        try { fs.unwatchFile(drawioPath, fsListener); } catch { /* ignore */ }
-                        try { vsWatcher.dispose(); } catch { /* ignore */ }
-                        changeListeners.length = 0;
-                    }
-                };
-            },
+            createFileSystemWatcher: (drawioPath: string) =>
+                createDrawioFileWatcher(drawioPath, vscode, fs),
             debounceMs: 200,
             onChange: (drawioPath: string, mdPaths: string[]) => {
                 if (mdPaths.indexOf(document.uri.fsPath) === -1) return;

@@ -1007,23 +1007,31 @@ body {
 .editor td { text-align: left; vertical-align: top; }
 .editor td:focus, .editor th:focus { outline: 2px solid var(--link-color); outline-offset: -2px; }
 
-/* Table column resize handle */
+/* Table column resize handle — appears on the right edge of every cell (header + body).
+   Drag from any cell's right edge to resize the whole column.
+   Slightly wider hit area than visible bar (transparent base = 4px), centered on the cell border. */
 .table-col-resize-handle {
     position: absolute;
     top: 0;
-    right: -3px;
-    width: 6px;
-    height: 100%;
+    bottom: 0;
+    right: -2px;        /* cell の右辺から ±2px に配置 */
+    width: 4px;
     cursor: col-resize;
     background: transparent;
     z-index: 10;
     user-select: none;
 }
-.table-col-resize-handle:hover,
+/* Whole-column hover & resizing highlight — top/bottom -2px で cell ボーダーや内 padding 隙間を完全に塗りつぶす。
+   .col-hover (hover 中) と .resizing (D&D 中) は同じ青色 / 同じ extension を使うので
+   行と行の間に白いギャップが出ない。 */
+.table-col-resize-handle.col-hover,
 .table-col-resize-handle.resizing {
     background: var(--link-color);
-    opacity: 0.5;
+    top: -2px;
+    bottom: -2px;
 }
+.table-col-resize-handle.col-hover { opacity: 0.4; }
+.table-col-resize-handle.resizing  { opacity: 0.9; }
 .table-resizing {
     cursor: col-resize !important;
     user-select: none !important;

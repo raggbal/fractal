@@ -13,7 +13,7 @@ import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHa
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
-import { DrawioWatcherRegistry, extractDrawioReferences } from './shared/drawioWatcher';
+import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 
 /**
@@ -160,15 +160,13 @@ export class NotesEditorProvider {
         // NT-14 / OL-22 / MD-24 を破壊しないため、sidePanelManager / fileManager の経路には触らない。
         // Notes mode では side panel で .md を開いた際に当該 MD の drawio 参照を抽出し watcher 登録する。
         const drawioWatcher = new DrawioWatcherRegistry({
-            createFileSystemWatcher: (drawioPath: string) => {
-                // RelativePattern を使うことで workspace 外のファイルも監視可能
-                // (raw string を createFileSystemWatcher に渡すと workspace 内ファイルのみ監視される VSCode API 制限の回避)
-                const dir = path.dirname(drawioPath);
-                const base = path.basename(drawioPath);
-                return vscode.workspace.createFileSystemWatcher(
-                    new vscode.RelativePattern(vscode.Uri.file(dir), base)
-                );
-            },
+            // BUG-FIX (drawio.svg 外部編集が一部反映されない症状):
+            //   旧実装は vscode.workspace.createFileSystemWatcher のみ。drawio Desktop 等の
+            //   atomic-rename 保存 (write tmp → rename) を取りこぼすケースがあった。
+            //   createDrawioFileWatcher は fs.watchFile (1s polling) を fallback として併用し、
+            //   FileSystemWatcher の取りこぼしを polling で確実に検知する。
+            createFileSystemWatcher: (drawioPath: string) =>
+                createDrawioFileWatcher(drawioPath, vscode, fs),
             debounceMs: 200,
             onChange: (drawioPath: string, mdPaths: string[]) => {
                 // mdPaths のいずれかが現在開いている side panel の .md と一致する場合のみ通知

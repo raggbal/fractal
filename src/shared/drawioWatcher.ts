@@ -210,6 +210,82 @@ export class DrawioWatcherRegistry {
 }
 
 /**
+ * vscode-aware DrawioFileWatcher factory:
+ *   `vscode.workspace.createFileSystemWatcher(RelativePattern(dir, basename))` と
+ *   `fs.watchFile(path, { interval })` を **両方** subscribe して統合する。
+ *
+ * VSCode の FileSystemWatcher は drawio Desktop 等の atomic rename 保存
+ * (write tmp → rename) を取りこぼすことがあり、ファイル変更が反映されない事例が
+ * 報告されている。fs.watchFile は polling で確実に検知できるので fallback として併用する。
+ *
+ * 利用側 (editorProvider / notesEditorProvider / outlinerProvider) は
+ * `createDrawioFileWatcher(path, vscodeNs, fsNs)` を直接 createFileSystemWatcher オプションに渡すだけ。
+ */
+export function createDrawioFileWatcher(
+    drawioPath: string,
+    vscodeNs: {
+        workspace: {
+            createFileSystemWatcher: (pattern: any) => {
+                onDidChange: (h: () => void) => { dispose: () => void };
+                onDidCreate: (h: () => void) => { dispose: () => void };
+                dispose: () => void;
+            };
+        };
+        RelativePattern: new (base: any, pattern: string) => any;
+        Uri: { file: (p: string) => any };
+    },
+    fsNs: {
+        watchFile: (path: string, opts: { interval: number }, listener: (curr: { mtimeMs: number }, prev: { mtimeMs: number }) => void) => void;
+        unwatchFile: (path: string, listener: (...args: any[]) => void) => void;
+    },
+    pollIntervalMs: number = 1000
+): DrawioFileWatcher {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    const dir = path.dirname(drawioPath);
+    const base = path.basename(drawioPath);
+    const vsWatcher = vscodeNs.workspace.createFileSystemWatcher(
+        new vscodeNs.RelativePattern(vscodeNs.Uri.file(dir), base)
+    );
+    const changeListeners: Array<() => void> = [];
+    const fsListener = (curr: { mtimeMs: number }, prev: { mtimeMs: number }) => {
+        if (curr.mtimeMs !== prev.mtimeMs && curr.mtimeMs > 0) {
+            changeListeners.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+        }
+    };
+    try { fsNs.watchFile(drawioPath, { interval: pollIntervalMs }, fsListener); } catch { /* ignore */ }
+    return {
+        onDidChange: (h: () => void) => {
+            changeListeners.push(h);
+            const sub = vsWatcher.onDidChange(h);
+            return {
+                dispose: () => {
+                    const i = changeListeners.indexOf(h);
+                    if (i >= 0) changeListeners.splice(i, 1);
+                    try { sub.dispose(); } catch { /* ignore */ }
+                }
+            };
+        },
+        onDidCreate: (h: () => void) => {
+            changeListeners.push(h);
+            const sub = vsWatcher.onDidCreate(h);
+            return {
+                dispose: () => {
+                    const i = changeListeners.indexOf(h);
+                    if (i >= 0) changeListeners.splice(i, 1);
+                    try { sub.dispose(); } catch { /* ignore */ }
+                }
+            };
+        },
+        dispose: () => {
+            try { fsNs.unwatchFile(drawioPath, fsListener); } catch { /* ignore */ }
+            try { vsWatcher.dispose(); } catch { /* ignore */ }
+            changeListeners.length = 0;
+        }
+    };
+}
+
+/**
  * mdContent から `![](*.drawio.svg)` / `![](*.drawio.png)` を抽出して
  * absolute path のリストを返す。
  *
