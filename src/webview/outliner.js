@@ -1751,6 +1751,13 @@ var Outliner = (function() {
     /** 指定範囲のノードを選択 (fromId〜toId の表示順) */
     function selectRange(fromId, toId) {
         clearSelectionVisual();  // anchorを維持したままビジュアルだけクリア
+        // Bug 5 fix: 複数行選択モードに入る時点で contenteditable のテキスト範囲選択を解除する。
+        // (テキスト範囲が残ったまま cmd+c するとブラウザ標準が走り選択テキストだけコピー
+        // されてしまい、本来コピーされるべき複数ノードが clipboard に入らない症状を防ぐ)
+        var winSel = window.getSelection();
+        if (winSel && winSel.rangeCount > 0 && !winSel.isCollapsed) {
+            winSel.removeAllRanges();
+        }
         var flat = model.getFlattenedIds(true);
         var i1 = flat.indexOf(fromId);
         var i2 = flat.indexOf(toId);
@@ -2058,16 +2065,25 @@ var Outliner = (function() {
             var siblings = parentId ? (model.getNode(parentId).children || []) : model.rootIds;
             var sibIdx = siblings.indexOf(nodeId);
             var insertAfterForEmpty = sibIdx > 0 ? siblings[sibIdx - 1] : null;
+            // Bug 6 fix: 空ノードが兄弟リストの先頭 (sibIdx=0) の時、削除後に
+            // afterId=null で paste すると model.addNode は children 末尾に append してしまう。
+            // insertAtStart フラグで pasteNodesFromText 側で addNodeAtStart を使ってもらう。
+            var insertAtStartForEmpty = sibIdx === 0;
             model.removeNode(nodeId);
-            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, clipSourceKey);
+            pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, clipSourceKey, insertAtStartForEmpty);
         } else {
             // テキストありノード: 現在ノードの後に全行を挿入
             pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, clipSourceKey);
         }
     }
 
-    /** インデント付きテキストからノード階層を構築してモデルに追加 */
-    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, clipSourceKey) {
+    /**
+     * インデント付きテキストからノード階層を構築してモデルに追加。
+     * @param insertAtStart - true の時、最初の level=0 ノードを baseParentId の
+     *   children 先頭 (`addNodeAtStart`) に挿入する。Bug 6 fix: 空の先頭兄弟ノード
+     *   位置で paste した時、貼り付けが parent.children 末尾に飛ぶ症状の回避。
+     */
+    function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, clipSourceKey, insertAtStart) {
         var lines = text.split('\n');
         if (lines.length === 0) { return; }
 
@@ -2150,7 +2166,15 @@ var Outliner = (function() {
                 nodeText = convertUrlsToMarkdownLinks(nodeText);
             }
 
-            var newNode = model.addNode(parentId, after, nodeText);
+            var newNode;
+            // Bug 6 fix: 最初の level=0 ノードのみ insertAtStart で先頭に挿入。
+            // 以降の level=0 は levelToLastId[0] (= 直前に追加した自身) の後に追加される
+            // (上の after = levelToLastId[0] || afterId 経路) ため、自然に [first, second, ..., 既存兄弟] の順に挿入される。
+            if (n === 0 && level === 0 && insertAtStart && !after) {
+                newNode = model.addNodeAtStart(parentId, nodeText);
+            } else {
+                newNode = model.addNode(parentId, after, nodeText);
+            }
 
             // ページメタデータ・画像・collapsed 状態復元
             if (clipboardNodes && clipboardNodes[clipNodeIndexMap[n]]) {

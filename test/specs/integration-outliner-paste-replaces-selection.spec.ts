@@ -24,26 +24,20 @@ test.describe('Outliner: paste replaces text selection', () => {
             });
         });
 
-        // ノードクリックでフォーカス → ダブルクリックで全選択
+        // ノードクリックでフォーカス
         const textEl = page.locator('.outliner-node[data-id="n1"] .outliner-text');
         await textEl.click();
         await page.waitForTimeout(50);
 
-        // 範囲選択を JS で作る (DOM Range)
+        // 範囲選択 + paste を 1 つの evaluate にまとめて、focus 等で selection が失われないようにする
         await page.evaluate(() => {
             const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
+            el.focus();
             const range = document.createRange();
             range.selectNodeContents(el);
             const sel = window.getSelection()!;
             sel.removeAllRanges();
             sel.addRange(range);
-        });
-        await page.waitForTimeout(50);
-
-        // paste イベントを single-line text/plain で dispatch
-        await page.evaluate(() => {
-            const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
-            el.focus();
             const ev = new ClipboardEvent('paste', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
             ev.clipboardData!.setData('text/plain', 'NewText');
             el.dispatchEvent(ev);
@@ -74,10 +68,10 @@ test.describe('Outliner: paste replaces text selection', () => {
         await textEl.click();
         await page.waitForTimeout(50);
 
-        // 'BBB' (offset 4-7) を選択
+        // 'BBB' (offset 4-7) を選択 + paste を 1 つの evaluate にまとめる
         await page.evaluate(() => {
             const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
-            // テキストノードを取得
+            el.focus();
             const tn = el.firstChild as Text;
             const range = document.createRange();
             range.setStart(tn, 4);
@@ -85,12 +79,6 @@ test.describe('Outliner: paste replaces text selection', () => {
             const sel = window.getSelection()!;
             sel.removeAllRanges();
             sel.addRange(range);
-        });
-        await page.waitForTimeout(50);
-
-        await page.evaluate(() => {
-            const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
-            el.focus();
             const ev = new ClipboardEvent('paste', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
             ev.clipboardData!.setData('text/plain', 'XXX');
             el.dispatchEvent(ev);
@@ -118,9 +106,10 @@ test.describe('Outliner: paste replaces text selection', () => {
         await textEl.click();
         await page.waitForTimeout(50);
 
-        // カーソルを offset 5 (Hello の直後) に
+        // カーソル設定 + paste を 1 つの evaluate にまとめる
         await page.evaluate(() => {
             const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
+            el.focus();
             const tn = el.firstChild as Text;
             const range = document.createRange();
             range.setStart(tn, 5);
@@ -128,12 +117,6 @@ test.describe('Outliner: paste replaces text selection', () => {
             const sel = window.getSelection()!;
             sel.removeAllRanges();
             sel.addRange(range);
-        });
-        await page.waitForTimeout(50);
-
-        await page.evaluate(() => {
-            const el = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
-            el.focus();
             const ev = new ClipboardEvent('paste', { clipboardData: new DataTransfer(), bubbles: true, cancelable: true });
             ev.clipboardData!.setData('text/plain', '!');
             el.dispatchEvent(ev);
