@@ -474,7 +474,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         isOutlinerPage: isOutlinerPage,
                         showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
-                        imageMaxWidth: config.get<number>('imageMaxWidth', 600)
+                        imageMaxWidth: config.get<number>('imageMaxWidth', 400)
                     },
                     webviewNonce
                 );

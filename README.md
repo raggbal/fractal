@@ -53,7 +53,7 @@ A Typora / Notion-style WYSIWYG markdown editor.
 - **Blockquotes** and **Horizontal rules**
 - **Links and Images** — Drag & drop, paste, smart link creation (select text + paste URL)
   - **Image fullscreen lightbox** — Double-click any image to open it fullscreen. **Pinch to zoom** (Mac touchpad), **drag to pan** when zoomed, double-click to reset, ESC to close
-  - **`fractal.imageMaxWidth` setting** (default 600px) — Cap inline image width
+  - **`fractal.imageMaxWidth` setting** (default 400px) — Cap inline image width
   - **Right-click → Rename Link** — Edit the visible text of any link without changing its URL
 - **drawio.svg / drawio.png inline support** — Drag a `.drawio.svg` from Finder onto the editor, or use `Cmd+/` → **"Insert Drawio Diagram"** to create a new placeholder. Renders as an inline image in the MD; saving the file from drawio Desktop / `hediet.vscode-drawio` triggers automatic re-render of all open MDs that reference it (powered by a polling-fallback file watcher to catch atomic-rename saves). Dropping a `.drawio` (XML) file shows a "Open in drawio Desktop" guidance dialog instead of inserting raw XML
 - **File attachments** — Drag & drop any file onto the editor to insert a `[📎 filename](path)` link. Click to open with OS default app
@@ -456,7 +456,7 @@ The same rules apply to both images and file attachments:
 | `fractal.fontSize` | Base font size (px) | `16` |
 | `fractal.imageDefaultDir` | Default directory for saved images | `""` (same as markdown file) |
 | `fractal.forceRelativeImagePath` | Force relative paths for images | `false` |
-| `fractal.imageMaxWidth` | Max width (px) for images and `.drawio.svg` thumbnails in the editor / side panel / outliner page side panel. Toolbar / lucide / command-palette icons are excluded. Min `100` | `600` |
+| `fractal.imageMaxWidth` | Max width (px) for images and `.drawio.svg` thumbnails in the editor / side panel / outliner page side panel. Toolbar / lucide / command-palette icons are excluded. Min `100` | `400` |
 | `fractal.language` | UI language (`default`, `en`, `ja`, `zh-cn`, `zh-tw`, `ko`, `es`, `fr`) | `default` |
 | `fractal.toolbarMode` | Toolbar display mode (`full`, `simple`) | `simple` |
 | `fractal.outlinerPageDir` | Default page directory for outliner | `./pages` |

@@ -1052,7 +1052,7 @@ body {
    !important is required to override inline style="max-width:100%" set by editor.js. */
 .editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon),
 .side-panel .editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon) {
-    max-width: var(--image-max-width, 600px) !important;
+    max-width: var(--image-max-width, 400px) !important;
     height: auto;
 }
 

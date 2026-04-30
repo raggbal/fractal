@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.759] - 2026-04-30
+
+### Changed
+- **`fractal.imageMaxWidth` default reduced from `600` → `400`** — New installations and users who haven't set this value explicitly will see images cap at 400px instead of 600px. Existing users with an explicit setting are unaffected. Updated in `package.json` schema, all three TS providers (`editorProvider.ts` / `notesEditorProvider.ts` / `outlinerProvider.ts`), and the CSS `var(--image-max-width, …)` fallback.
+
 ## [0.195.758] - 2026-04-30
 
 Documentation catch-up release. Backfills features that landed in earlier builds but were never explicitly captured in CHANGELOG / README. **No code-behavior changes from `0.195.757`** other than version bump and packaging.

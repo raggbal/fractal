@@ -89,7 +89,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
-                        imageMaxWidth: config.get<number>('imageMaxWidth', 600),
+                        imageMaxWidth: config.get<number>('imageMaxWidth', 400),
                         documentBaseUri: docBaseUri
                     },
                     document.uri.fsPath

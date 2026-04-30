@@ -131,7 +131,7 @@ export class NotesEditorProvider {
                 enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                 outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                 showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
-                imageMaxWidth: config.get<number>('imageMaxWidth', 600),
+                imageMaxWidth: config.get<number>('imageMaxWidth', 400),
                 documentBaseUri: folderBaseUri,
                 folderName: path.basename(folderPath),
             },
@@ -911,7 +911,7 @@ export class NotesEditorProvider {
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
                             showTranslateButtons: refreshConfig.get<boolean>('showTranslateButtons', false),
-                            imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 600),
+                            imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 400),
                             folderName: path.basename(folderPath),
                         },
                         { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), fileChangeId: fileManager.getFileChangeId() }
