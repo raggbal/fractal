@@ -1007,31 +1007,38 @@ body {
 .editor td { text-align: left; vertical-align: top; }
 .editor td:focus, .editor th:focus { outline: 2px solid var(--link-color); outline-offset: -2px; }
 
-/* Table column resize handle — appears on the right edge of every cell (header + body).
-   Drag from any cell's right edge to resize the whole column.
-   Slightly wider hit area than visible bar (transparent base = 4px), centered on the cell border. */
-.table-col-resize-handle {
+/* Table column resize — pseudo-element approach:
+   No `<div class="table-col-resize-handle">` element inside cells (which would trap the
+   contenteditable cursor). Each th/td has a `::after` pseudo-element on the right edge
+   that handles cursor=col-resize and provides the visual blue bar. The pseudo-element
+   is NOT in the DOM, so cursor navigation through cells is completely unaffected.
+   `pointer-events: auto` on the pseudo-element forwards mousedown/mousemove to the cell. */
+.editor th::after,
+.editor td::after {
+    content: '';
     position: absolute;
-    top: 0;
-    bottom: 0;
-    right: -2px;        /* cell の右辺から ±2px に配置 */
+    top: -2px;
+    bottom: -2px;
+    right: -2px;
     width: 4px;
     cursor: col-resize;
     background: transparent;
+    pointer-events: auto;
     z-index: 10;
-    user-select: none;
 }
-/* Whole-column hover & resizing highlight — top/bottom -2px で cell ボーダーや内 padding 隙間を完全に塗りつぶす。
-   .col-hover (hover 中) と .resizing (D&D 中) は同じ青色 / 同じ extension を使うので
-   行と行の間に白いギャップが出ない。 */
-.table-col-resize-handle.col-hover,
-.table-col-resize-handle.resizing {
+/* Hover (mouse within ~6px of right edge) — column-wide blue bar. JS sets .col-resize-hover
+   on all cells in the same column. */
+.editor th.col-resize-hover::after,
+.editor td.col-resize-hover::after {
     background: var(--link-color);
-    top: -2px;
-    bottom: -2px;
+    opacity: 0.4;
 }
-.table-col-resize-handle.col-hover { opacity: 0.4; }
-.table-col-resize-handle.resizing  { opacity: 0.9; }
+/* Active resize — same color, more saturated. */
+.editor th.col-resize-resizing::after,
+.editor td.col-resize-resizing::after {
+    background: var(--link-color);
+    opacity: 0.9;
+}
 .table-resizing {
     cursor: col-resize !important;
     user-select: none !important;

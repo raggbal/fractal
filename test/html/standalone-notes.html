@@ -1013,31 +1013,38 @@ body {
 .editor td { text-align: left; vertical-align: top; }
 .editor td:focus, .editor th:focus { outline: 2px solid var(--link-color); outline-offset: -2px; }
 
-/* Table column resize handle — appears on the right edge of every cell (header + body).
-   Drag from any cell's right edge to resize the whole column.
-   Slightly wider hit area than visible bar (transparent base = 4px), centered on the cell border. */
-.table-col-resize-handle {
+/* Table column resize — pseudo-element approach:
+   No `<div class="table-col-resize-handle">` element inside cells (which would trap the
+   contenteditable cursor). Each th/td has a `::after` pseudo-element on the right edge
+   that handles cursor=col-resize and provides the visual blue bar. The pseudo-element
+   is NOT in the DOM, so cursor navigation through cells is completely unaffected.
+   `pointer-events: auto` on the pseudo-element forwards mousedown/mousemove to the cell. */
+.editor th::after,
+.editor td::after {
+    content: '';
     position: absolute;
-    top: 0;
-    bottom: 0;
-    right: -2px;        /* cell の右辺から ±2px に配置 */
+    top: -2px;
+    bottom: -2px;
+    right: -2px;
     width: 4px;
     cursor: col-resize;
     background: transparent;
+    pointer-events: auto;
     z-index: 10;
-    user-select: none;
 }
-/* Whole-column hover & resizing highlight — top/bottom -2px で cell ボーダーや内 padding 隙間を完全に塗りつぶす。
-   .col-hover (hover 中) と .resizing (D&D 中) は同じ青色 / 同じ extension を使うので
-   行と行の間に白いギャップが出ない。 */
-.table-col-resize-handle.col-hover,
-.table-col-resize-handle.resizing {
+/* Hover (mouse within ~6px of right edge) — column-wide blue bar. JS sets .col-resize-hover
+   on all cells in the same column. */
+.editor th.col-resize-hover::after,
+.editor td.col-resize-hover::after {
     background: var(--link-color);
-    top: -2px;
-    bottom: -2px;
+    opacity: 0.4;
 }
-.table-col-resize-handle.col-hover { opacity: 0.4; }
-.table-col-resize-handle.resizing  { opacity: 0.9; }
+/* Active resize — same color, more saturated. */
+.editor th.col-resize-resizing::after,
+.editor td.col-resize-resizing::after {
+    background: var(--link-color);
+    opacity: 0.9;
+}
 .table-resizing {
     cursor: col-resize !important;
     user-select: none !important;
@@ -8737,29 +8744,17 @@ class EditorInstance {
     let resizingCell = null;
     let resizingTable = null;
     
-    // Add resize handles to header AND body cells (any cell's right edge can resize the column).
+    // Resize-handle DOM approach was abandoned (contenteditable=false elements inside cells
+    // trap the cursor and break ArrowRight/Shift+Enter behavior). Now resize is detected via
+    // mouse position relative to cell's right edge, with visual indicator via CSS ::after
+    // pseudo-element. No DOM elements added to cells.
     //
-    // BUG-FIX: handle は cell の **先頭** に挿入する。末尾に置くと:
-    //   1. ArrowRight で cell 末尾に到達した cursor が handle の前/後に挟まれて右端に居着いてしまう
-    //   2. lastChild 判定する shift+enter ロジック等が壊れる
-    //   先頭に置いても position:absolute なので見た目は変わらず、cursor は通常通り content 末尾で
-    //   次の cell へ抜ける。
+    // Backward compat: if existing tables have stale `.table-col-resize-handle` divs from a
+    // previous render, remove them.
     function addTableResizeHandles(table) {
         if (!table) return;
-
-        const rows = table.querySelectorAll('tr');
-        rows.forEach((row) => {
-            const cells = row.querySelectorAll('th, td');
-            cells.forEach((cell, colIndex) => {
-                if (cell.querySelector(':scope > .table-col-resize-handle')) return;
-                const handle = document.createElement('div');
-                handle.className = 'table-col-resize-handle';
-                handle.setAttribute('contenteditable', 'false');
-                handle.dataset.colIndex = colIndex.toString();
-                // 先頭に挿入 (lastChild が handle にならないようにする)
-                cell.insertBefore(handle, cell.firstChild);
-            });
-        });
+        const stale = table.querySelectorAll('.table-col-resize-handle');
+        stale.forEach((h) => { try { h.remove(); } catch (e) { /* ignore */ } });
     }
     
     // Initialize column widths when starting resize (called on first resize)
@@ -8848,42 +8843,38 @@ class EditorInstance {
         });
     }
     
-    // Handle resize start
+    // Resize start — invoked when mousedown fires near a cell's right edge.
     let resizingColIndex = -1;
     let resizingPendingFrame = 0;
     let resizingPendingClientX = 0;
-    function handleResizeStart(e) {
-        const handle = e.target.closest('.table-col-resize-handle');
-        if (!handle) return;
-
+    function handleResizeStart(e, cell) {
+        if (!cell) return;
         e.preventDefault();
         e.stopPropagation();
 
-        resizingCell = handle.closest('th, td');
-        resizingTable = handle.closest('table');
-        resizingColIndex = parseInt(handle.dataset.colIndex || '0', 10);
+        resizingCell = cell;
+        resizingTable = cell.closest('table');
+        resizingColIndex = cell.cellIndex;
 
-        // Initialize column widths on first resize
         if (resizingTable) {
             initializeTableColumnWidths(resizingTable);
         }
 
         isTableColResizing = true;
         resizeStartX = e.clientX;
+        resizeStartWidth = cell.offsetWidth;
 
-        if (resizingCell) {
-            resizeStartWidth = resizingCell.offsetWidth;
-        }
-
-        // Highlight ALL handles in the same column (visual feedback for whole column)
+        // Highlight ALL cells in the same column with .col-resize-resizing
         if (resizingTable) {
-            resizingTable.querySelectorAll('.table-col-resize-handle[data-col-index="' + resizingColIndex + '"]').forEach((h) => {
-                h.classList.add('resizing');
+            // Clear any hover state first
+            resizingTable.querySelectorAll('.col-resize-hover').forEach((c) => c.classList.remove('col-resize-hover'));
+            resizingTable.querySelectorAll('tr').forEach((row) => {
+                const c = row.cells[resizingColIndex];
+                if (c) c.classList.add('col-resize-resizing');
             });
         }
         document.body.classList.add('table-resizing');
 
-        // Add document-level listeners for drag
         document.addEventListener('mousemove', handleResizeMove);
         document.addEventListener('mouseup', handleResizeEnd);
     }
@@ -8918,13 +8909,12 @@ class EditorInstance {
             resizingPendingFrame = 0;
         }
 
-        // Remove resizing class from ALL handles in the column
+        // Remove resizing class from ALL cells in the column
         if (resizingTable) {
-            resizingTable.querySelectorAll('.table-col-resize-handle.resizing').forEach((h) => {
-                h.classList.remove('resizing');
+            resizingTable.querySelectorAll('.col-resize-resizing').forEach((c) => {
+                c.classList.remove('col-resize-resizing');
             });
-            // Persistence (option C): record final widths to data-col-widths attribute,
-            // then sync — htmlToMarkdown emits `<!-- fractal-col-widths: ... -->` before the table.
+            // Persistence (option C)
             try {
                 const headerCells = resizingTable.querySelectorAll('tr:first-child > th, tr:first-child > td');
                 const widths = [];
@@ -8932,14 +8922,12 @@ class EditorInstance {
                 if (widths.length > 0) {
                     resizingTable.setAttribute('data-col-widths', widths.join(','));
                 }
-                // Trigger sync so the comment line is written to the doc
                 if (typeof syncMarkdown === 'function') syncMarkdown();
             } catch (e2) { /* ignore */ }
         }
 
         document.body.classList.remove('table-resizing');
 
-        // Remove document-level listeners
         document.removeEventListener('mousemove', handleResizeMove);
         document.removeEventListener('mouseup', handleResizeEnd);
 
@@ -8955,122 +8943,58 @@ class EditorInstance {
         });
     }
     
-    // Listen for mousedown on resize handles
-    editor.addEventListener('mousedown', function(e) {
-        const handle = e.target.closest('.table-col-resize-handle');
-        if (handle) {
-            handleResizeStart(e);
-        }
-    });
+    // ===== Cell-edge resize detection (no DOM handles, pure mouse-position based) =====
+    //
+    // Detect mouse near right edge (within EDGE_PX) of any th/td → set hover class on all
+    // cells in the same column. mousedown in that zone starts resize. The pseudo-element
+    // ::after on cells with .col-resize-hover / .col-resize-resizing draws the visual blue bar.
+    const EDGE_PX = 6;
 
-    // Whole-column hover highlight via event delegation.
-    // mouseover: when entering a handle, mark all handles in same column with .col-hover.
-    // mouseout: clear .col-hover unless moving to a sibling handle in the same column.
-    editor.addEventListener('mouseover', function(e) {
-        const handle = e.target.closest && e.target.closest('.table-col-resize-handle');
-        if (!handle) return;
-        const table = handle.closest('table');
+    function findCellEdgeAt(target, clientX) {
+        if (!target || !target.closest) return null;
+        const cell = target.closest('th, td');
+        if (!cell || !editor.contains(cell)) return null;
+        const rect = cell.getBoundingClientRect();
+        const distFromRight = rect.right - clientX;
+        if (distFromRight >= -2 && distFromRight <= EDGE_PX) return cell;
+        return null;
+    }
+
+    function clearColHover(table) {
         if (!table) return;
-        const colIndex = handle.dataset.colIndex;
-        // clear existing col-hover (on any column)
-        table.querySelectorAll('.table-col-resize-handle.col-hover').forEach(h => h.classList.remove('col-hover'));
-        table.querySelectorAll('.table-col-resize-handle[data-col-index="' + colIndex + '"]')
-            .forEach(h => h.classList.add('col-hover'));
-    });
-    editor.addEventListener('mouseout', function(e) {
-        const handle = e.target.closest && e.target.closest('.table-col-resize-handle');
-        if (!handle) return;
-        const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.table-col-resize-handle');
-        if (related && related.dataset.colIndex === handle.dataset.colIndex) return;
-        const table = handle.closest('table');
-        if (!table) return;
-        table.querySelectorAll('.table-col-resize-handle.col-hover').forEach(h => h.classList.remove('col-hover'));
-    });
+        table.querySelectorAll('.col-resize-hover').forEach((c) => c.classList.remove('col-resize-hover'));
+    }
 
-    // ArrowLeft/Right で cell 先頭/末尾に到達した cursor が handle (contenteditable=false)
-    // の前後に「居着く」のを防ぐ。
-    // 先頭に handle を入れたので、ArrowLeft 時の `TD offset = 1` (between handle and content) と
-    // `TD offset = 0` (before handle) の 2 段階を 1 押しでスキップして、前 cell の末尾へ行く。
-    editor.addEventListener('keydown', function(e) {
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-        const sel = window.getSelection();
-        if (!sel || !sel.rangeCount || !sel.isCollapsed) return;
-        const range = sel.getRangeAt(0);
-        const sc = range.startContainer;
-        const cell = sc.nodeType === Node.ELEMENT_NODE
-            ? (sc.tagName === 'TD' || sc.tagName === 'TH' ? sc : null)
-            : null;
-        if (!cell) return;
-        const handle = cell.querySelector(':scope > .table-col-resize-handle');
-        if (!handle) return;
-        const handleIdx = Array.from(cell.childNodes).indexOf(handle);
-        const off = range.startOffset;
-        // 先頭 handle (handleIdx === 0):
-        //   ArrowLeft at offset 0 (before handle) または offset 1 (between handle and content)
-        //     → 前 cell の末尾へ
-        //   ArrowRight at offset 0 (before handle) → offset 1 をスキップして content の先頭へ
-        if (handleIdx === 0) {
-            if (e.key === 'ArrowLeft' && off <= 1) {
-                e.preventDefault();
-                const prevCell = cell.previousElementSibling
-                    || (cell.parentElement && cell.parentElement.previousElementSibling
-                        && cell.parentElement.previousElementSibling.lastElementChild);
-                if (prevCell) {
-                    const r = document.createRange();
-                    r.selectNodeContents(prevCell);
-                    r.collapse(false); // end of prev cell
-                    sel.removeAllRanges();
-                    sel.addRange(r);
-                }
-                return;
-            }
-            if (e.key === 'ArrowRight' && off === 0) {
-                // skip past handle to content start
-                e.preventDefault();
-                const r = document.createRange();
-                if (cell.childNodes.length > 1) {
-                    r.setStart(cell, 1);
-                    r.collapse(true);
-                } else {
-                    r.selectNodeContents(cell);
-                    r.collapse(true);
-                }
-                sel.removeAllRanges();
-                sel.addRange(r);
-                return;
-            }
+    editor.addEventListener('mousemove', function(e) {
+        if (isTableColResizing) return; // resize in progress, don't fiddle with hover
+        const cell = findCellEdgeAt(e.target, e.clientX);
+        if (!cell) {
+            // not on a cell edge → clear all hover in any table within editor
+            editor.querySelectorAll('table').forEach((t) => clearColHover(t));
+            return;
         }
-    });
-
-    // BUG-FIX: Enter/Add Row 等で新規 <tr>/<td> が挿入されても resize handle が付かない問題。
-    // MutationObserver で動的追加を監視 → 親 table に handles を再適用 (idempotent)。
-    try {
-        const _tableMutationObserver = new MutationObserver(function(mutations) {
-            const tablesNeedingHandles = new Set();
-            for (const mut of mutations) {
-                if (mut.type !== 'childList') continue;
-                for (const node of mut.addedNodes) {
-                    if (!node || node.nodeType !== 1) continue;
-                    const tag = node.tagName;
-                    if (tag === 'TABLE') {
-                        tablesNeedingHandles.add(node);
-                    } else if (tag === 'TR' || tag === 'TD' || tag === 'TH') {
-                        const t = node.closest && node.closest('table');
-                        if (t) tablesNeedingHandles.add(t);
-                    } else if (node.querySelectorAll) {
-                        node.querySelectorAll('table').forEach(t => tablesNeedingHandles.add(t));
-                    }
-                }
-            }
-            tablesNeedingHandles.forEach((t) => {
-                if (editor.contains(t)) addTableResizeHandles(t);
-            });
+        const table = cell.closest('table');
+        if (!table) return;
+        clearColHover(table);
+        const colIdx = cell.cellIndex;
+        table.querySelectorAll('tr').forEach((row) => {
+            const c = row.cells[colIdx];
+            if (c) c.classList.add('col-resize-hover');
         });
-        _tableMutationObserver.observe(editor, { childList: true, subtree: true });
-    } catch (e) { /* MutationObserver unavailable in some envs — fall through */ }
+    });
 
-    // Initialize resize handles for existing tables
+    editor.addEventListener('mouseleave', function() {
+        if (isTableColResizing) return;
+        editor.querySelectorAll('table').forEach((t) => clearColHover(t));
+    });
+
+    editor.addEventListener('mousedown', function(e) {
+        const cell = findCellEdgeAt(e.target, e.clientX);
+        if (!cell) return;
+        handleResizeStart(e, cell);
+    });
+
+    // Initialize (cleanup any stale handles from older renders)
     initializeAllTableResizeHandles();
 
     // Track active cell on focus/click and show table toolbar
