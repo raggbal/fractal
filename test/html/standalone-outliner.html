@@ -24109,6 +24109,30 @@ var Outliner = (function() {
         return preRange.toString().length;
     }
 
+    /**
+     * el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
+     * 選択範囲が collapsed (= cursor のみ) の場合は start === end。
+     * Selection が el 外なら null。paste 時にテキスト範囲を置換する用途で使う。
+     */
+    function getCursorRange(el) {
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) { return null; }
+        var range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
+            return null;
+        }
+        var preStart = range.cloneRange();
+        preStart.selectNodeContents(el);
+        preStart.setEnd(range.startContainer, range.startOffset);
+        var start = preStart.toString().length;
+        var preEnd = range.cloneRange();
+        preEnd.selectNodeContents(el);
+        preEnd.setEnd(range.endContainer, range.endOffset);
+        var end = preEnd.toString().length;
+        if (end < start) { var t = start; start = end; end = t; }
+        return { start: start, end: end };
+    }
+
     // --- フォーカス管理 ---
 
     function setFocusedNode(nodeId) {
@@ -24179,14 +24203,31 @@ var Outliner = (function() {
         }
     }
 
-    /** 選択中ノードのテキストをインデント付きで取得 (表示順) */
+    /**
+     * 選択範囲を「子孫を含めた全ノード ID 集合」に拡張する内部ヘルパー。
+     *
+     * Bug fix: 折りたたまれた子ノードは visible flat list に出ないため、
+     * `selectedNodeIds` には含まれていない。cut/copy で子ノードを取りこぼさない
+     * ように、選択された各ノードの descendants を ID set に追加する。
+     */
+    function expandSelectionWithDescendants() {
+        var expanded = new Set(selectedNodeIds);
+        selectedNodeIds.forEach(function(id) {
+            var desc = model.getDescendantIds(id);
+            for (var i = 0; i < desc.length; i++) { expanded.add(desc[i]); }
+        });
+        return expanded;
+    }
+
+    /** 選択中ノード (子孫含む) のテキストをインデント付きで取得 (DFS 順) */
     function getSelectedText() {
-        var flat = model.getFlattenedIds(true);
-        // 選択ノードの最小深さを求めて相対インデントにする
+        var expandedSet = expandSelectionWithDescendants();
+        // skipCollapsed=false で全ノードを DFS 順に取得 → 折りたたみ子も対象
+        var flat = model.getFlattenedIds(false);
         var minDepth = Infinity;
         var selectedFlat = [];
         for (var i = 0; i < flat.length; i++) {
-            if (selectedNodeIds.has(flat[i])) {
+            if (expandedSet.has(flat[i])) {
                 var depth = model.getDepth(flat[i]);
                 if (depth < minDepth) { minDepth = depth; }
                 selectedFlat.push(flat[i]);
@@ -24204,13 +24245,14 @@ var Outliner = (function() {
         return lines.join('\n');
     }
 
-    /** 選択中ノードのテキスト+ページメタデータを取得 (表示順) */
+    /** 選択中ノード (子孫含む) のテキスト+ページメタデータ+collapsed 状態を取得 (DFS 順) */
     function getSelectedNodesData() {
-        var flat = model.getFlattenedIds(true);
+        var expandedSet = expandSelectionWithDescendants();
+        var flat = model.getFlattenedIds(false);
         var minDepth = Infinity;
         var selectedFlat = [];
         for (var i = 0; i < flat.length; i++) {
-            if (selectedNodeIds.has(flat[i])) {
+            if (expandedSet.has(flat[i])) {
                 var depth = model.getDepth(flat[i]);
                 if (depth < minDepth) { minDepth = depth; }
                 selectedFlat.push(flat[i]);
@@ -24227,7 +24269,8 @@ var Outliner = (function() {
                 isPage: nd.isPage || false,
                 pageId: nd.pageId || null,
                 images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
-                filePath: nd.filePath || null
+                filePath: nd.filePath || null,
+                collapsed: !!nd.collapsed
             });
         }
         return nodes;
@@ -24305,20 +24348,26 @@ var Outliner = (function() {
         }
     }
 
-    /** 選択中ノードを削除 */
+    /** 選択中ノード (子孫含む) を削除 */
     function deleteSelectedNodes() {
         if (selectedNodeIds.size === 0) { return; }
         saveSnapshot();
-        var flat = model.getFlattenedIds(true);
-        // 最初の選択ノードの前のノードにフォーカスを戻す
-        var firstIdx = -1;
-        for (var i = 0; i < flat.length; i++) {
-            if (selectedNodeIds.has(flat[i])) { firstIdx = i; break; }
+        // Bug fix: 削除も descendants まで明示的に対象にして、collapsed 子の取り
+        // こぼしを防ぐ。model.removeNode は内部でカスケード削除するので、本来は
+        // 親だけ removeNode すれば子も消えるが、明示的に同じ拡張集合を使うこと
+        // で getSelectedText/Data と挙動を完全揃える。
+        var expandedSet = expandSelectionWithDescendants();
+        var flat = model.getFlattenedIds(false);
+        // 最初の選択ノードの前のノード (visible) にフォーカスを戻す
+        var visibleFlat = model.getFlattenedIds(true);
+        var firstVisibleIdx = -1;
+        for (var fv = 0; fv < visibleFlat.length; fv++) {
+            if (expandedSet.has(visibleFlat[fv])) { firstVisibleIdx = fv; break; }
         }
-        var focusTarget = firstIdx > 0 ? flat[firstIdx - 1] : null;
+        var focusTarget = firstVisibleIdx > 0 ? visibleFlat[firstVisibleIdx - 1] : null;
         // 逆順で削除 (子→親の順)
         for (var j = flat.length - 1; j >= 0; j--) {
-            if (selectedNodeIds.has(flat[j])) {
+            if (expandedSet.has(flat[j]) && model.getNode(flat[j])) {
                 model.removeNode(flat[j]);
             }
         }
@@ -24414,17 +24463,25 @@ var Outliner = (function() {
             return cn.isPage || (cn.images && cn.images.length > 0) || cn.filePath;
         });
 
-        // 単一行かつメタデータなし: 現在ノードのカーソル位置に挿入
+        // 単一行かつメタデータなし: 現在ノードの選択範囲を置換 (or カーソル位置に挿入)
         if (!clipText.includes('\n') && !hasMetadataInClipboard) {
             saveSnapshot();
             // URLペースト自動変換: テキスト中のURLを[URL](URL)形式に変換
             var insertText = convertUrlsToMarkdownLinks(clipText);
-            var curOff = getCursorOffset(textEl);
             var curText = node.text || '';
-            var newSingleText = curText.slice(0, curOff) + insertText + curText.slice(curOff);
+            // Bug fix: 範囲選択 (例: ダブルクリックで全選択) があれば置換、なければカーソル位置に挿入
+            var rng = getCursorRange(textEl);
+            var startOff, endOff;
+            if (rng) {
+                startOff = rng.start;
+                endOff = rng.end;
+            } else {
+                startOff = endOff = getCursorOffset(textEl);
+            }
+            var newSingleText = curText.slice(0, startOff) + insertText + curText.slice(endOff);
             model.updateText(nodeId, newSingleText);
             textEl.innerHTML = renderEditingText(newSingleText);
-            setCursorAtOffset(textEl, curOff + insertText.length);
+            setCursorAtOffset(textEl, startOff + insertText.length);
             scheduleSyncToHost();
             return;
         }
@@ -24534,9 +24591,13 @@ var Outliner = (function() {
 
             var newNode = model.addNode(parentId, after, nodeText);
 
-            // ページメタデータ・画像復元
+            // ページメタデータ・画像・collapsed 状態復元
             if (clipboardNodes && clipboardNodes[clipNodeIndexMap[n]]) {
                 var clipNode = clipboardNodes[clipNodeIndexMap[n]];
+                // Bug fix: 折りたたみ状態を維持して貼り付ける (cmd+x/cmd+c 共通)
+                if (clipNode.collapsed) {
+                    newNode.collapsed = true;
+                }
                 // 同一性判定は outFileKey (絶対パス) で確実に行う。
                 // 相対パス文字列での同一性比較は偶然一致しうるため使わない (retro 教訓①)。
                 var isCrossFile = !!clipSourceKey && clipSourceKey !== currentOutFileKey;

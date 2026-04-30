@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.761] - 2026-04-30
+
+### Fixed
+- **Outliner: cmd+x / cmd+c on a parent node now includes all descendants** — Previously, only the visible (non-collapsed) flat list was iterated when serializing the selection, so children of a folded node (or children that simply weren't part of the user's visual selection) were dropped from the clipboard. The cut path then deleted the parent + cascaded children from the source via `model.removeNode`, but the clipboard payload only had the parent → paste resurrected only one row. Fix: `getSelectedText()` / `getSelectedNodesData()` / `deleteSelectedNodes()` now expand `selectedNodeIds` with `model.getDescendantIds()` before serialization, and walk `getFlattenedIds(false)` (`skipCollapsed=false`).
+- **Outliner: paste preserves the folded (collapsed) state of pasted nodes** — `getSelectedNodesData()` now records `collapsed` per node, and `pasteNodesFromText()` restores it on the new node (`newNode.collapsed = true` when the clipboard entry was folded).
+- **Outliner: cmd+v while a text range is selected within a node now replaces the selection** (instead of inserting before/after the selected text). Previously `handleNodePaste()` used only `getCursorOffset()` (the start of the selection) and ignored the end → result was `<pasted><selected>`. New helper `getCursorRange(textEl)` returns `{ start, end }`; the single-line/no-metadata branch now slices `curText.slice(0, start) + insertText + curText.slice(end)`.
+- **Outliner: intermittent "only one line pastes" on cross-outliner copy/paste** — Same root cause as the cmd+x bug above. When the source selection contained a parent with collapsed children, the multi-line clipboard payload (`text/plain` + `text/html` `data-outliner-clipboard`) only had the parent, so cross-outliner paste reproduced only the parent. The fix to `getSelectedText()` / `getSelectedNodesData()` resolves this for all three clipboard channels (internal, OS `text/html` meta, host-side `OutlinerClipboardStore`).
+
+### Tests
+- **+10 sprint test cases** across 2 new spec files in `test/specs/`:
+  - `integration-outliner-cmd-cut-copy-children.spec.ts` (4) — Bug 1 (parent + visible children) / Bug 2 (folded parent → all descendants + collapsed state) / Round-trip cut→paste / Multi-select with collapsed siblings
+  - `integration-outliner-paste-replaces-selection.spec.ts` (3) — Full-selection replace / Partial-selection replace / Cursor-only (collapsed selection) keeps existing behavior
+
 ## [0.195.760] - 2026-04-30
 
 ### Added
