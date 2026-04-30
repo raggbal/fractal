@@ -89,6 +89,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
+                        imageMaxWidth: config.get<number>('imageMaxWidth', 600),
                         documentBaseUri: docBaseUri
                     },
                     document.uri.fsPath
@@ -484,7 +485,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             vscode.window.showWarningMessage(`Page file not found: ${filePath}`);
                             break;
                         }
-                        await sidePanel.openFile(filePath);
+                        await sidePanel.openFile(filePath, true /* freshOpen — clear nav history */);
                         break;
                     }
 

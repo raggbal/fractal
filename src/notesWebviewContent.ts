@@ -13,6 +13,7 @@ interface NotesConfig {
     documentBaseUri?: string;
     folderName?: string;
     showTranslateButtons?: boolean;
+    imageMaxWidth?: number;
 }
 
 interface NotesInitData {
@@ -120,6 +121,7 @@ export function getNotesWebviewContent(
     <style>${outlinerCss}</style>
     <link rel="stylesheet" href="${katexCssUri}">
     <style>${notesCss}</style>
+    <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
 </head>
 <body>
     <div class="notes-layout" data-note-folder-name="${config.folderName || ''}">

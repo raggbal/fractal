@@ -141,6 +141,7 @@ export const webviewMessages = {
   contextPaste: '貼上',
   contextRenameLink: '重新命名連結',
   promptRenameLink: '請輸入新的連結名稱',
+  outlineEmpty: '沒有標題',
   notesTabNotes: '筆記',
   notesTabSearch: '搜尋',
   notesNewFolder: '新增資料夾',

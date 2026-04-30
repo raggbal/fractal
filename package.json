@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.195.744",
+  "version": "0.195.747",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -278,6 +278,12 @@
           "type": "boolean",
           "default": false,
           "description": "Enable debug logging in the editor. Useful for troubleshooting."
+        },
+        "fractal.imageMaxWidth": {
+          "type": "number",
+          "default": 600,
+          "minimum": 100,
+          "description": "Maximum width (in pixels) for images and drawio.svg in the editor. Double-click an image to view it full screen."
         },
         "fractal.s3AccessKeyId": {
           "type": "string",

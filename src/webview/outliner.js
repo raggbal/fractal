@@ -4759,6 +4759,7 @@ var Outliner = (function() {
     function renderSidePanelToc(toc) {
         if (!sidePanelTocEl) { return; }
         var escapeHtml = window.__editorUtils ? window.__editorUtils.escapeHtml : function(s) { return s; };
+        // 仕様: heading が無くても outline は default ON で表示する。
         if (toc && toc.length > 0) {
             sidePanelTocEl.innerHTML = toc.map(function(item) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
@@ -4766,11 +4767,11 @@ var Outliner = (function() {
                     escapeHtml(item.text) + '</a>';
             }).join('');
             bindSidePanelTocClicks();
-            if (sidePanelTocVisible) { openSidePanelSidebar(); }
         } else {
-            sidePanelTocEl.innerHTML = '';
-            closeSidePanelSidebar();
+            sidePanelTocEl.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+                escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
         }
+        if (sidePanelTocVisible) { openSidePanelSidebar(); }
     }
 
     function bindSidePanelTocClicks() {

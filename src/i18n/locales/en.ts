@@ -172,6 +172,7 @@ export const webviewMessages = {
   contextPaste: 'Paste',
   contextRenameLink: 'Rename Link',
   promptRenameLink: 'Enter new link name',
+  outlineEmpty: 'No headings',
   // Notes left panel
   notesTabNotes: 'Notes',
   notesTabSearch: 'Search',

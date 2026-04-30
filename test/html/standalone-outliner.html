@@ -438,7 +438,7 @@ body {
     outline-offset: -10px;
 }
 .editor img {
-    max-width: 100%;
+    /* max-width handled by .editor img:not(...) rule below using --image-max-width var */
     height: auto;
     display: block;
     margin: 1em 0;
@@ -1038,7 +1038,14 @@ body {
     cursor: col-resize !important;
     user-select: none !important;
 }
-.editor img { max-width: 100%; height: auto; }
+/* Default image max-width — overridden per-webview via CSS variable --image-max-width
+   (set by editorProvider / notesEditorProvider / outlinerProvider from fractal.imageMaxWidth config).
+   !important is required to override inline style="max-width:100%" set by editor.js. */
+.editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon),
+.side-panel .editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon) {
+    max-width: var(--image-max-width, 600px) !important;
+    height: auto;
+}
 
 /* Table floating toolbar */
 .table-toolbar {
@@ -3138,10 +3145,10 @@ body {
                     <button class="menu-btn side-panel-outline-btn" id="sidePanelOpenOutline" title="Open Outline">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
                     </button>
-                    <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateBack" title="Back (Alt+Left)" disabled>
+                    <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateBack" title="Back (Opt+Left)" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                     </button>
-                    <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateForward" title="Forward (Alt+Right)" disabled>
+                    <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateForward" title="Forward (Opt+Right)" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
@@ -18284,6 +18291,8 @@ class EditorInstance {
 
     function renderSidePanelToc(toc) {
         if (!sidePanelToc) return;
+        // 仕様: heading が無くても outline は default ON で表示する。
+        //   user が明示的に閉じた (sidePanelTocVisible=false) 時は隠す。
         if (toc && toc.length > 0) {
             sidePanelToc.innerHTML = toc.map(function(item) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
@@ -18291,13 +18300,13 @@ class EditorInstance {
                     escapeHtml(item.text) + '</a>';
             }).join('');
             bindSidePanelTocClicks();
-            // Show sidebar if it was previously visible or if this is the first open with content
-            if (sidePanelTocVisible) {
-                openSidePanelSidebar();
-            }
         } else {
-            sidePanelToc.innerHTML = '';
-            closeSidePanelSidebar();
+            // 空 placeholder を表示 (sidebar 自体は開いたまま)
+            sidePanelToc.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+                escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
+        }
+        if (sidePanelTocVisible) {
+            openSidePanelSidebar();
         }
     }
 
@@ -26938,6 +26947,7 @@ var Outliner = (function() {
     function renderSidePanelToc(toc) {
         if (!sidePanelTocEl) { return; }
         var escapeHtml = window.__editorUtils ? window.__editorUtils.escapeHtml : function(s) { return s; };
+        // 仕様: heading が無くても outline は default ON で表示する。
         if (toc && toc.length > 0) {
             sidePanelTocEl.innerHTML = toc.map(function(item) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
@@ -26945,11 +26955,11 @@ var Outliner = (function() {
                     escapeHtml(item.text) + '</a>';
             }).join('');
             bindSidePanelTocClicks();
-            if (sidePanelTocVisible) { openSidePanelSidebar(); }
         } else {
-            sidePanelTocEl.innerHTML = '';
-            closeSidePanelSidebar();
+            sidePanelTocEl.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+                escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
         }
+        if (sidePanelTocVisible) { openSidePanelSidebar(); }
     }
 
     function bindSidePanelTocClicks() {

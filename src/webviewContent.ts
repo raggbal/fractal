@@ -24,6 +24,7 @@ interface EditorConfig {
     enableDebugLogging?: boolean;
     isOutlinerPage?: boolean;
     showTranslateButtons?: boolean;
+    imageMaxWidth?: number;
 }
 
 export function getWebviewContent(
@@ -60,7 +61,9 @@ export function getWebviewContent(
         webviewMessages: config?.webviewMessages,
         enableDebugLogging: config?.enableDebugLogging ?? false,
         isOutlinerPage: config?.isOutlinerPage ?? false,
-        showTranslateButtons: config?.showTranslateButtons ?? false
+        showTranslateButtons: config?.showTranslateButtons ?? false,
+        imageMaxWidth: typeof config?.imageMaxWidth === 'number' && config!.imageMaxWidth >= 100
+            ? config!.imageMaxWidth : 600
     };
 
     const nonce = getNonce();
@@ -123,6 +126,7 @@ export function getWebviewContent(
     <style>
         ${styles}
     </style>
+    <style>:root { --image-max-width: ${safeConfig.imageMaxWidth}px; }</style>
 </head>
 <body>
     ${generateEditorBodyHtml(msg, process.platform)}

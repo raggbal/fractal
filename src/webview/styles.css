@@ -432,7 +432,7 @@ body {
     outline-offset: -10px;
 }
 .editor img {
-    max-width: 100%;
+    /* max-width handled by .editor img:not(...) rule below using --image-max-width var */
     height: auto;
     display: block;
     margin: 1em 0;
@@ -1032,7 +1032,14 @@ body {
     cursor: col-resize !important;
     user-select: none !important;
 }
-.editor img { max-width: 100%; height: auto; }
+/* Default image max-width — overridden per-webview via CSS variable --image-max-width
+   (set by editorProvider / notesEditorProvider / outlinerProvider from fractal.imageMaxWidth config).
+   !important is required to override inline style="max-width:100%" set by editor.js. */
+.editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon),
+.side-panel .editor img:not(.toolbar-icon):not(.lucide):not(.command-palette-icon) {
+    max-width: var(--image-max-width, 600px) !important;
+    height: auto;
+}
 
 /* Table floating toolbar */
 .table-toolbar {

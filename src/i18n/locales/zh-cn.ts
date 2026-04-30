@@ -141,6 +141,7 @@ export const webviewMessages = {
   contextPaste: '粘贴',
   contextRenameLink: '重命名链接',
   promptRenameLink: '请输入新的链接名称',
+  outlineEmpty: '没有标题',
   notesTabNotes: '笔记',
   notesTabSearch: '搜索',
   notesNewFolder: '新建文件夹',

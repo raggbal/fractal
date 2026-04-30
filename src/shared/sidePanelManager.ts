@@ -202,8 +202,16 @@ export class SidePanelManager {
     /**
      * サイドパネルでファイルを開く。
      * ファイル読み込み → TOC抽出 → openSidePanel メッセージ送信 → ファイル監視設定。
+     *
+     * @param filePath  開くファイルの絶対パス
+     * @param freshOpen  true: navigation history を clear (= 新規 open)。default false (= navigation 経由)。
+     *                    新規 open 時は webview の back/forward state を初期化するため必ず true で呼ぶ。
      */
-    async openFile(filePath: string): Promise<void> {
+    async openFile(filePath: string, freshOpen: boolean = false): Promise<void> {
+        if (freshOpen) {
+            // 新規 open (outliner click 等) では history を clear → webview の back ボタン無効化
+            this.clearNavigationHistory();
+        }
         const fileUri = vscode.Uri.file(filePath);
         try {
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -221,6 +229,9 @@ export class SidePanelManager {
                 documentBaseUri: spBaseUri
             });
             await this.setupFileWatcher(filePath);
+            // 常に nav state を送信 → webview の back/forward ボタン状態を extension と同期
+            // (handleOpenLink で push 後、ここで canGoBack=true が webview に届く)
+            this.sendNavStateUpdate();
         } catch (e) {
             vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }
@@ -252,8 +263,9 @@ export class SidePanelManager {
                     this._navBackStack.push(sidePanelFilePath);
                     this._navForwardStack = [];
                 }
-                await this.openFile(resolvedUri.fsPath);
-                this.sendNavStateUpdate();
+                // navigation 経由なので freshOpen=false (history 維持)
+                await this.openFile(resolvedUri.fsPath, false);
+                // openFile 内で sendNavStateUpdate される
             } else {
                 vscode.env.openExternal(resolvedUri);
             }
@@ -269,8 +281,7 @@ export class SidePanelManager {
         if (currentSidePanelFilePath && currentSidePanelFilePath !== prev) {
             this._navForwardStack.push(currentSidePanelFilePath);
         }
-        await this.openFile(prev);
-        this.sendNavStateUpdate();
+        await this.openFile(prev, false);
     }
 
     /**
@@ -282,8 +293,7 @@ export class SidePanelManager {
         if (currentSidePanelFilePath && currentSidePanelFilePath !== next) {
             this._navBackStack.push(currentSidePanelFilePath);
         }
-        await this.openFile(next);
-        this.sendNavStateUpdate();
+        await this.openFile(next, false);
     }
 
     /**

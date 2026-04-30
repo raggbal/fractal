@@ -141,6 +141,7 @@ export const webviewMessages = {
   contextPaste: '붙여넣기',
   contextRenameLink: '링크 이름 변경',
   promptRenameLink: '새 링크 이름을 입력하세요',
+  outlineEmpty: '제목이 없습니다',
   notesTabNotes: '노트',
   notesTabSearch: '검색',
   notesNewFolder: '새 폴더',

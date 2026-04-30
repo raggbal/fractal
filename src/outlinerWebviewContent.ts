@@ -11,6 +11,7 @@ interface OutlinerConfig {
     enableDebugLogging?: boolean;
     outlinerPageTitle?: boolean;
     documentBaseUri?: string;
+    imageMaxWidth?: number;
 }
 
 export function getOutlinerWebviewContent(
@@ -101,6 +102,7 @@ export function getOutlinerWebviewContent(
         ${outlinerCss}
     </style>
     <link rel="stylesheet" href="${katexCssUri}">
+    <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
 </head>
 <body>
     <div class="outliner-container">

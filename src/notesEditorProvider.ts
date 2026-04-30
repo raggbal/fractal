@@ -131,6 +131,7 @@ export class NotesEditorProvider {
                 enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                 outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                 showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                imageMaxWidth: config.get<number>('imageMaxWidth', 600),
                 documentBaseUri: folderBaseUri,
                 folderName: path.basename(folderPath),
             },
@@ -224,7 +225,8 @@ export class NotesEditorProvider {
         const panelEntry = this.openPanels.get(folderPath);
         if (panelEntry) {
             panelEntry.openPage = async (filePath: string) => {
-                await sidePanel.openFile(filePath);
+                // External openPage call (e.g., user clicks a page) → fresh open (clear nav history)
+                await sidePanel.openFile(filePath, true);
                 // MD-48: drawio refs 再スキャン（独立 watcher）
                 refreshDrawioRefsForMd(filePath);
             };
@@ -296,7 +298,8 @@ export class NotesEditorProvider {
                     vscode.window.showWarningMessage(`Page file not found: ${filePath}`);
                     return;
                 }
-                await sidePanel.openFile(filePath);
+                // Outliner → side panel = fresh open (clear nav history → back button starts disabled)
+                await sidePanel.openFile(filePath, true);
                 // MD-48: drawio refs 再スキャン
                 refreshDrawioRefsForMd(filePath);
                 // キーワードベースのジャンプを優先（行番号は表示HTMLとずれて失敗するため）
@@ -910,6 +913,7 @@ export class NotesEditorProvider {
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
                             showTranslateButtons: refreshConfig.get<boolean>('showTranslateButtons', false),
+                            imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 600),
                             folderName: path.basename(folderPath),
                         },
                         { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), fileChangeId: fileManager.getFileChangeId() }

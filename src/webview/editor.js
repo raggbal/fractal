@@ -14633,6 +14633,8 @@ class EditorInstance {
 
     function renderSidePanelToc(toc) {
         if (!sidePanelToc) return;
+        // 仕様: heading が無くても outline は default ON で表示する。
+        //   user が明示的に閉じた (sidePanelTocVisible=false) 時は隠す。
         if (toc && toc.length > 0) {
             sidePanelToc.innerHTML = toc.map(function(item) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
@@ -14640,13 +14642,13 @@ class EditorInstance {
                     escapeHtml(item.text) + '</a>';
             }).join('');
             bindSidePanelTocClicks();
-            // Show sidebar if it was previously visible or if this is the first open with content
-            if (sidePanelTocVisible) {
-                openSidePanelSidebar();
-            }
         } else {
-            sidePanelToc.innerHTML = '';
-            closeSidePanelSidebar();
+            // 空 placeholder を表示 (sidebar 自体は開いたまま)
+            sidePanelToc.innerHTML = '<div class="side-panel-toc-empty" style="padding:12px 16px;color:var(--text-muted,#888);font-size:12px;font-style:italic;">' +
+                escapeHtml(i18n.outlineEmpty || 'No headings') + '</div>';
+        }
+        if (sidePanelTocVisible) {
+            openSidePanelSidebar();
         }
     }
 

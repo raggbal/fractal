@@ -172,6 +172,7 @@ export const webviewMessages = {
   contextPaste: '貼り付け',
   contextRenameLink: 'リンク名変更',
   promptRenameLink: '新しいリンク名を入力してください',
+  outlineEmpty: '見出しがありません',
   // Notes left panel
   notesTabNotes: 'ノート',
   notesTabSearch: '検索',

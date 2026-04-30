@@ -473,7 +473,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         webviewMessages: getWebviewMessages(),
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         isOutlinerPage: isOutlinerPage,
-                        showTranslateButtons: config.get<boolean>('showTranslateButtons', false)
+                        showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                        imageMaxWidth: config.get<number>('imageMaxWidth', 600)
                     },
                     webviewNonce
                 );
@@ -1054,7 +1055,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             if (linkOpenMode === 'tab') {
                                 vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
                             } else {
-                                await sidePanel.openFile(resolvedUri.fsPath);
+                                // Main editor link click → opens in side panel as fresh (clear nav history)
+                                await sidePanel.openFile(resolvedUri.fsPath, true);
                             }
                         } else {
                             // Non-MD local file - open with OS default application

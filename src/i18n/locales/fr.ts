@@ -141,6 +141,7 @@ export const webviewMessages = {
   contextPaste: 'Coller',
   contextRenameLink: 'Renommer le lien',
   promptRenameLink: 'Entrez le nouveau nom du lien',
+  outlineEmpty: 'Aucun titre',
   notesTabNotes: 'Notes',
   notesTabSearch: 'Rechercher',
   notesNewFolder: 'Nouveau dossier',
