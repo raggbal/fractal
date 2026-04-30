@@ -7871,26 +7871,50 @@ class EditorInstance {
         });
     }
     
-    // Update column width for all cells in a column
+    // Update column width for all cells in a column.
+    //
+    // BUG-FIX (右列 resize で他列まで縮む):
+    //   旧実装は totalWidth を th.offsetWidth から計算していた。table-layout: fixed では
+    //   sum(col widths) > table.width の時、ブラウザが他列を**縮めて** fit させる。
+    //   その縮んだ offsetWidth を sum すると table.width が誤って小さくなり、他列の
+    //   style.width が事実上無視される連鎖が発生する。
+    //
+    //   修正: 全列の **explicit style.width** を array で管理 → 変更列のみ差し替え →
+    //   table.width = sum(array) を **先に** 反映してから各 cell の style.width を再設定。
+    //   これで他列は元の値のまま保たれる。
     function updateColumnWidth(table, colIndex, newWidth) {
-        const minWidth = 80; // Minimum column width
-        const finalWidth = Math.max(minWidth, newWidth);
-        
-        const rows = table.querySelectorAll('tr');
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('th, td');
-            if (cells[colIndex]) {
-                cells[colIndex].style.width = finalWidth + 'px';
+        const minWidth = 80;
+        const finalWidth = Math.max(minWidth, Math.round(newWidth));
+
+        const headerRow = table.querySelector('tr');
+        if (!headerRow) return;
+        const headerCells = headerRow.querySelectorAll('th, td');
+
+        // 各列の explicit width を集める。設定されていない列は offsetWidth から拾う (初期化用)。
+        const widths = [];
+        headerCells.forEach((c, i) => {
+            if (i === colIndex) {
+                widths.push(finalWidth);
+                return;
             }
+            const sw = c.style.width || '';
+            const m = sw.match(/^(\d+(?:\.\d+)?)px$/);
+            widths.push(m ? Math.round(parseFloat(m[1])) : Math.max(c.offsetWidth, minWidth));
         });
-        
-        // Update table width to be sum of all column widths
-        const headerCells = table.querySelectorAll('th');
-        let totalWidth = 0;
-        headerCells.forEach(th => {
-            totalWidth += th.offsetWidth;
-        });
+
+        const totalWidth = widths.reduce((s, w) => s + w, 0);
+
+        // table.width を **先に** 設定 (sum >= cells の合計 → ブラウザが他列を縮めない)
         table.style.width = totalWidth + 'px';
+
+        // 全 row に同じ widths 配列を適用
+        const allRows = table.querySelectorAll('tr');
+        allRows.forEach((row) => {
+            const cells = row.querySelectorAll('th, td');
+            widths.forEach((w, i) => {
+                if (cells[i]) cells[i].style.width = w + 'px';
+            });
+        });
     }
     
     // Handle resize start

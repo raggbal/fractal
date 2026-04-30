@@ -280,6 +280,45 @@ test.describe('Table column resize', () => {
         expect(md).toMatch(/<!-- fractal-col-widths: 200,150,100 -->/);
     });
 
+    test('resize rightmost column does NOT shrink other columns (regression)', async ({ page }) => {
+        await loadEditor(page, TABLE_MD);
+        // Phase 1: resize column 0 (left) wider
+        const phase1 = await page.evaluate(async () => {
+            const table = document.querySelector('.editor table') as HTMLTableElement;
+            const headerCells = table.querySelectorAll('th');
+            const c0 = headerCells[0] as HTMLElement;
+            const handle = c0.querySelector('.table-col-resize-handle') as HTMLElement;
+            const rect = c0.getBoundingClientRect();
+            handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: rect.right, clientY: rect.top + 5 }));
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: rect.right + 150, clientY: rect.top + 5 }));
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            return Array.from(table.querySelectorAll('th')).map((c: any) => c.offsetWidth);
+        });
+        // Record column widths after phase 1 (col 0 should now be ~+150 wider than initial)
+
+        // Phase 2: resize the RIGHTMOST column (col 2). Column 0 width must not shrink.
+        const phase2 = await page.evaluate(async () => {
+            const table = document.querySelector('.editor table') as HTMLTableElement;
+            const headerCells = table.querySelectorAll('th');
+            const c2 = headerCells[2] as HTMLElement;
+            const handle = c2.querySelector('.table-col-resize-handle') as HTMLElement;
+            const rect = c2.getBoundingClientRect();
+            handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: rect.right, clientY: rect.top + 5 }));
+            document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: rect.right + 100, clientY: rect.top + 5 }));
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            await new Promise<void>((res) => requestAnimationFrame(() => res()));
+            document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            return Array.from(table.querySelectorAll('th')).map((c: any) => c.offsetWidth);
+        });
+        // After resizing col 2, col 0 and col 1 widths should be UNCHANGED
+        expect(phase2[0]).toBe(phase1[0]);
+        expect(phase2[1]).toBe(phase1[1]);
+        // col 2 should be wider after phase 2
+        expect(phase2[2]).toBeGreaterThan(phase1[2]);
+    });
+
     test('drag below min-width clamps and does not throw', async ({ page }) => {
         await loadEditor(page, TABLE_MD);
         const before = await page.evaluate(() => {
