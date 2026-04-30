@@ -6661,6 +6661,8 @@ class EditorInstance {
                     // Text node - escape pipe characters
                     cellText += escapePipeInCell(child.textContent);
                 } else if (child.nodeType === 1) {
+                    // UI elements (resize handle 等 contenteditable=false の補助 div) は skip
+                    if (child.classList && child.classList.contains('table-col-resize-handle')) continue;
                     const tag = child.tagName.toLowerCase();
                     if (tag === 'br') {
                         cellText += '<br>';
@@ -6739,8 +6741,25 @@ class EditorInstance {
                     // Will be filled by data rows
                 }
                 
-                // Process cell content with proper pipe escaping
-                const cellText = processCellContent(cell);
+                // Process cell content with proper pipe escaping.
+                // BUG-FIX: 空 cell (`<td><br></td>`) は markdown 出力時に **空** にする
+                //   ('<br>' は contenteditable の表示確保用にのみ使う)。
+                //   ただし line break として意味のある中間 `<br>` (例: `text<br>line2`) は保持する。
+                //   判定: cell.textContent が空 (whitespace のみ) かつ非 UI 要素が br のみなら empty。
+                let cellText;
+                const _txt = (cell.textContent || '').trim();
+                let _onlyBr = true;
+                for (const _ch of cell.childNodes) {
+                    if (_ch.nodeType !== 1) continue;
+                    // resize handle 等の UI 要素は skip
+                    if (_ch.classList && _ch.classList.contains('table-col-resize-handle')) continue;
+                    if (_ch.tagName.toLowerCase() !== 'br') { _onlyBr = false; break; }
+                }
+                if (_txt === '' && _onlyBr) {
+                    cellText = '';
+                } else {
+                    cellText = processCellContent(cell);
+                }
                 cellContents.push(cellText.trim() || ' ');
             });
             
