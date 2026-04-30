@@ -319,6 +319,74 @@ test.describe('Table column resize', () => {
         expect(phase2[2]).toBeGreaterThan(phase1[2]);
     });
 
+    test('regression: ArrowRight at end of cell content does NOT land at right edge (handle skip)', async ({ page }) => {
+        await loadEditor(page, TABLE_MD);
+        // Place cursor at end of "a1" text in second body row first cell
+        const result = await page.evaluate(() => {
+            const td = document.querySelectorAll('.editor table td')[0] as HTMLElement;
+            // Find the text "a1" inside the cell (after the handle)
+            const textNode = Array.from(td.childNodes).find((n) => n.nodeType === 3 && n.textContent === 'a1') as Text | undefined;
+            if (!textNode) return { err: 'no text' };
+            const r = document.createRange();
+            r.setStart(textNode, textNode.textContent!.length); // end of "a1"
+            r.collapse(true);
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+            return { ok: true };
+        });
+        if ('err' in result) throw new Error(result.err);
+        // Press → twice — should land in next cell, not at TD-after-handle position
+        await page.keyboard.press('ArrowRight');
+        const after1 = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const r = sel.getRangeAt(0);
+            const cell = (r.startContainer.nodeType === 3 ? r.startContainer.parentNode : r.startContainer) as Element;
+            const td = cell.closest ? cell.closest('td, th') : null;
+            const cellIdx = td ? Array.from(td.parentNode!.children).indexOf(td) : -1;
+            return {
+                container: r.startContainer.nodeName,
+                offset: r.startOffset,
+                cellIdx,
+                cellText: td?.textContent
+            };
+        });
+        // Should have moved to next cell (idx 1) — NOT stayed in TD with weird offset
+        expect(after1.cellIdx).toBe(1);
+    });
+
+    test('regression: Shift+Enter in empty cell inserts exactly ONE <br>', async ({ page }) => {
+        await loadEditor(page, TABLE_MD);
+        // Add a new empty row
+        await page.evaluate(() => {
+            const lastTd = document.querySelectorAll('.editor table td')[2] as HTMLElement; // last td of row 1
+            lastTd.focus();
+            const r = document.createRange();
+            r.setStart(lastTd.firstChild!, lastTd.firstChild!.textContent!.length);
+            r.collapse(true);
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(150);
+        // Now in empty cell of new row. Shift+Enter
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(100);
+        const r = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const range = sel.getRangeAt(0);
+            const cell = (range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer) as Element;
+            const td = cell.closest ? cell.closest('td, th') : null;
+            return {
+                cellHTML: td?.innerHTML,
+                brCount: td?.querySelectorAll('br').length
+            };
+        });
+        // Should have exactly 2 brs (the new br + the original empty-cell br) — not 3+
+        expect(r.brCount).toBe(2);
+    });
+
     test('drag below min-width clamps and does not throw', async ({ page }) => {
         await loadEditor(page, TABLE_MD);
         const before = await page.evaluate(() => {

@@ -8737,7 +8737,13 @@ class EditorInstance {
     let resizingCell = null;
     let resizingTable = null;
     
-    // Add resize handles to header AND body cells (any cell's right edge can resize the column)
+    // Add resize handles to header AND body cells (any cell's right edge can resize the column).
+    //
+    // BUG-FIX: handle は cell の **先頭** に挿入する。末尾に置くと:
+    //   1. ArrowRight で cell 末尾に到達した cursor が handle の前/後に挟まれて右端に居着いてしまう
+    //   2. lastChild 判定する shift+enter ロジック等が壊れる
+    //   先頭に置いても position:absolute なので見た目は変わらず、cursor は通常通り content 末尾で
+    //   次の cell へ抜ける。
     function addTableResizeHandles(table) {
         if (!table) return;
 
@@ -8745,18 +8751,15 @@ class EditorInstance {
         rows.forEach((row) => {
             const cells = row.querySelectorAll('th, td');
             cells.forEach((cell, colIndex) => {
-                // Skip if already has a resize handle
                 if (cell.querySelector(':scope > .table-col-resize-handle')) return;
                 const handle = document.createElement('div');
                 handle.className = 'table-col-resize-handle';
                 handle.setAttribute('contenteditable', 'false');
                 handle.dataset.colIndex = colIndex.toString();
-                cell.appendChild(handle);
+                // 先頭に挿入 (lastChild が handle にならないようにする)
+                cell.insertBefore(handle, cell.firstChild);
             });
         });
-
-        // Don't initialize widths here - let browser handle natural widths
-        // Widths will be set when user starts resizing
     }
     
     // Initialize column widths when starting resize (called on first resize)
@@ -8982,6 +8985,62 @@ class EditorInstance {
         const table = handle.closest('table');
         if (!table) return;
         table.querySelectorAll('.table-col-resize-handle.col-hover').forEach(h => h.classList.remove('col-hover'));
+    });
+
+    // ArrowLeft/Right で cell 先頭/末尾に到達した cursor が handle (contenteditable=false)
+    // の前後に「居着く」のを防ぐ。
+    // 先頭に handle を入れたので、ArrowLeft 時の `TD offset = 1` (between handle and content) と
+    // `TD offset = 0` (before handle) の 2 段階を 1 押しでスキップして、前 cell の末尾へ行く。
+    editor.addEventListener('keydown', function(e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount || !sel.isCollapsed) return;
+        const range = sel.getRangeAt(0);
+        const sc = range.startContainer;
+        const cell = sc.nodeType === Node.ELEMENT_NODE
+            ? (sc.tagName === 'TD' || sc.tagName === 'TH' ? sc : null)
+            : null;
+        if (!cell) return;
+        const handle = cell.querySelector(':scope > .table-col-resize-handle');
+        if (!handle) return;
+        const handleIdx = Array.from(cell.childNodes).indexOf(handle);
+        const off = range.startOffset;
+        // 先頭 handle (handleIdx === 0):
+        //   ArrowLeft at offset 0 (before handle) または offset 1 (between handle and content)
+        //     → 前 cell の末尾へ
+        //   ArrowRight at offset 0 (before handle) → offset 1 をスキップして content の先頭へ
+        if (handleIdx === 0) {
+            if (e.key === 'ArrowLeft' && off <= 1) {
+                e.preventDefault();
+                const prevCell = cell.previousElementSibling
+                    || (cell.parentElement && cell.parentElement.previousElementSibling
+                        && cell.parentElement.previousElementSibling.lastElementChild);
+                if (prevCell) {
+                    const r = document.createRange();
+                    r.selectNodeContents(prevCell);
+                    r.collapse(false); // end of prev cell
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                }
+                return;
+            }
+            if (e.key === 'ArrowRight' && off === 0) {
+                // skip past handle to content start
+                e.preventDefault();
+                const r = document.createRange();
+                if (cell.childNodes.length > 1) {
+                    r.setStart(cell, 1);
+                    r.collapse(true);
+                } else {
+                    r.selectNodeContents(cell);
+                    r.collapse(true);
+                }
+                sel.removeAllRanges();
+                sel.addRange(r);
+                return;
+            }
+        }
     });
 
     // BUG-FIX: Enter/Add Row 等で新規 <tr>/<td> が挿入されても resize handle が付かない問題。
