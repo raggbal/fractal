@@ -1341,6 +1341,26 @@ body {
 .side-panel-sidebar.visible {
     display: flex;
 }
+/* TOC drag-resize handle (right edge of sidebar). Only visible while sidebar is .visible. */
+.side-panel-sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 20;
+    background: transparent;
+}
+.side-panel-sidebar-resize-handle:hover,
+.side-panel-sidebar-resize-handle.active {
+    background: var(--vscode-focusBorder, #007acc);
+    width: 3px;
+    right: -1px;
+}
+.side-panel-sidebar:not(.visible) .side-panel-sidebar-resize-handle {
+    display: none;
+}
 .side-panel-sidebar .sidebar-header {
     padding: 16px;
 }

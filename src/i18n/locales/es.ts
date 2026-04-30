@@ -167,6 +167,7 @@ export const webviewMessages = {
   notesSetColor: 'Definir color',
   notesColorNone: 'Ninguno',
   outlinerCopyFilePath: 'Copiar ruta del archivo',
+  outlinerAddToPinnedTags: 'Añadir a etiquetas fijadas',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insertar diagrama Drawio',
 };

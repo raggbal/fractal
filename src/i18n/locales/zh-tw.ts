@@ -167,6 +167,7 @@ export const webviewMessages = {
   notesSetColor: '設定顏色',
   notesColorNone: '無',
   outlinerCopyFilePath: '複製檔案路徑',
+  outlinerAddToPinnedTags: '加入釘選標籤',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 圖表',
 };

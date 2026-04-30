@@ -5,6 +5,25 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.760] - 2026-04-30
+
+### Added
+- **Pinned tag context menu** (F1) — Right-click a `#tag` / `@mention` span on an outliner node to get an **"Add to Pinned Tags"** menu item that adds the tag to the pinned-tag bar. If the tag is already pinned, the item is greyed out (no toggle-to-remove — removal stays explicit via the existing pinned-tag bar UI). 7-language i18n via `outlinerAddToPinnedTags`. Standalone outliner: persisted to `.out`. Notes mode: persisted to the per-`.out` `pinnedTags[]` (unchanged — pinned tags remain a per-outliner concept).
+- **Note-level sidepanel md width persistence** (F2) — In Notes mode, the side panel MD width set by D&D resize is now stored in the note's `outline.note` file (root-level `sidePanelWidth`), so all `.out` files within the same note share one width. Standalone outliner keeps its existing per-`.out` `data.sidePanelWidth` behavior. Fallback chain: `outline.note` → `.out` → default. Backward compatible — existing `.out` `sidePanelWidth` values are still honored when no note-level value is set.
+- **Side panel TOC (outline) drag-resize** (F3) — A 4px resize handle appears on the right edge of the outline sidebar inside the side panel; drag to resize. Visible only when the sidebar is open. Min 100px, max 50% of the side panel width. Persistence:
+  - **Standalone outliner**: width saved to `.out` JSON as `sidePanelOutlineWidth`.
+  - **Notes mode**: width saved to `outline.note` root-level `sidePanelOutlineWidth` (shared across all `.out` in the note).
+
+### Changed
+- **`NoteStructure` schema** (`outline.note`) — Added two optional root-level fields: `sidePanelWidth?: number` and `sidePanelOutlineWidth?: number`. Older `outline.note` files without these fields continue to work (the `panelWidth` field for the left file panel is unchanged).
+
+### Tests
+- 16 new sprint test cases:
+  - `test/specs/integration-pinned-tag-context-menu.spec.ts` (5): right-click on `.outliner-tag` → menu shows; click adds; already-pinned → disabled; non-tag click → no item; @mention also works
+  - `test/specs/integration-sidepanel-toc-resize.spec.ts` (6): handle exists; only visible when sidebar open; CSS col-resize 4px; drag changes width; standalone drag → `data.sidePanelOutlineWidth` in syncData; min 100px clamp
+  - `test/unit/notes-file-manager-sidepanel-width.spec.ts` (5): save/get round-trip; persist across reload; outline.note JSON contains the fields; independence from `panelWidth`
+- All 16 pass; existing `outliner-basic` / `outliner-features` / `inapp-link-contextmenu` / `integration-sidepanel-nav-flow` regress clean (49/49 pass).
+
 ## [0.195.759] - 2026-04-30
 
 ### Changed

@@ -61,6 +61,8 @@ A Typora / Notion-style WYSIWYG markdown editor.
   - **Back / Forward navigation** in the side panel header (or `Opt+Left` / `Opt+Right`) to revisit MD links you've followed inside the panel
   - **`Cmd+/` Add Page** also works inside the side panel — creates `<sidePanelDir>/pages/<timestamp>.md` and inserts the link
   - **Outline always visible** — the side panel's heading outline stays open even when the MD has zero headings (shows a placeholder)
+  - **Outline drag-resize** — Drag the right edge of the outline sidebar to set its width. Standalone `.out`: width saved per-outliner. Notes mode: width shared across all `.out` files in the note (saved to `outline.note`)
+  - **Side panel width per-note** — In Notes mode, the side panel MD width is stored in `outline.note` and shared across all `.out` in the note (consistent reading width for the whole notebook). Standalone `.out` keeps its own per-file width
 - **Cmd+/ Add Page (link-name modal)** — Press `Cmd+/` → `Add Page` → type the link text → a new MD is created (auto-named) and `<a>{linkName}</a>` is inserted at the cursor. The new MD's H1 is synced from the link name (so the new page is immediately discoverable by title)
 - **Mermaid diagrams** — Rendered inline, click to edit source
 - **KaTeX math equations** — Display-mode equations with live re-rendering
@@ -79,7 +81,7 @@ A Dynalist-like outliner built into VS Code.
 - **Collapse / Expand** — Click bullets to fold branches. `Ctrl+.` to toggle, `Ctrl+Shift+.` to toggle all
 - **Subtree scoping** — Focus on any branch with breadcrumb navigation. `Cmd+]` to scope in, `Cmd+[` to scope out
 - **Tags** — `#tag` and `@tag` are auto-highlighted and clickable for instant search
-- **Pinned tags** — Pin frequently used tags for one-click filtering
+- **Pinned tags** — Pin frequently used tags for one-click filtering. Right-click a `#tag` / `@mention` span on a node → **"Add to Pinned Tags"** to add it without leaving the keyboard / context. Already-pinned tags show the menu item greyed out
 - **Search** — Dynalist-compatible queries: AND, OR, NOT, `"phrase"`, `#tag`, `in:title`, `has:children`, `is:page`, `is:task`. Tree mode and focus mode
 - **Page nodes** — Turn any bullet into a page with a full WYSIWYG markdown editor in a resizable side panel
 - **Import .md files** — Import Markdown files (Notion, Obsidian exports) as page nodes via ⋮ menu. Images are auto-copied and paths rewritten

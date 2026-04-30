@@ -115,6 +115,9 @@
         },
         setFileDir: function() {
             api.postMessage({ type: 'setOutlinerFileDir' });
-        }
+        },
+        // standalone outliner: note-level methods are no-ops (width is per-.out via syncData)
+        notesSaveSidePanelWidth: function() { /* no-op for standalone */ },
+        notesSaveSidePanelOutlineWidth: function() { /* no-op for standalone */ }
     });
 })();

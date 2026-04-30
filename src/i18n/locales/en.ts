@@ -154,6 +154,7 @@ export const webviewMessages = {
   outlinerOpenFile: 'Open File',
   outlinerRemoveFile: 'Remove File',
   outlinerCopyFilePath: 'Copy File Path',
+  outlinerAddToPinnedTags: 'Add to Pinned Tags',
   outlinerAddSibling: 'Add Sibling Node',
   outlinerAddChild: 'Add Child Node',
   outlinerIndent: 'Indent',

@@ -31,6 +31,10 @@ export interface NotesPlatformActions {
     requestInsertImage(sidePanelFilePath: string): void;
     /** パネル折り畳み状態を永続化 */
     savePanelCollapsed(collapsed: boolean): void;
+    /** ノート共通の sidepanel md 幅を outline.note に保存 */
+    saveNoteSidePanelWidth?(width: number): void;
+    /** ノート共通の sidepanel TOC 幅を outline.note に保存 */
+    saveNoteSidePanelOutlineWidth?(width: number): void;
     /** ページディレクトリ変更ダイアログ */
     requestSetPageDir(): void;
     /** 画像をディレクトリに保存してマークダウン挿入 */
@@ -580,6 +584,18 @@ export async function handleNotesMessage(
 
         case 'notesTogglePanel':
             platform.savePanelCollapsed(message.collapsed);
+            break;
+
+        case 'notesSetSidePanelWidth':
+            if (typeof message.width === 'number' && platform.saveNoteSidePanelWidth) {
+                platform.saveNoteSidePanelWidth(message.width);
+            }
+            break;
+
+        case 'notesSetSidePanelOutlineWidth':
+            if (typeof message.width === 'number' && platform.saveNoteSidePanelOutlineWidth) {
+                platform.saveNoteSidePanelOutlineWidth(message.width);
+            }
             break;
 
         // ── Folder Operations ──

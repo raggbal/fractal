@@ -23,6 +23,8 @@ interface NotesInitData {
     panelCollapsed: boolean;
     structure?: any;
     panelWidth?: number;
+    noteSidePanelWidth?: number;
+    noteSidePanelOutlineWidth?: number;
     fileChangeId?: number;
 }
 
@@ -180,6 +182,8 @@ export function getNotesWebviewContent(
         window.__outlinerMessages = ${JSON.stringify(config.webviewMessages || {})};
         window.__outlinerImageBaseUri = "${config.documentBaseUri || ''}";
         window.__initialFileChangeId = ${initData.fileChangeId || 0};
+        window.__noteSidePanelWidth = ${JSON.stringify(initData.noteSidePanelWidth ?? null)};
+        window.__noteSidePanelOutlineWidth = ${JSON.stringify(initData.noteSidePanelOutlineWidth ?? null)};
     </script>
     <script nonce="${nonce}">${linkParserScript}</script>
     <script nonce="${nonce}">${sidePanelBridgeScript}</script>

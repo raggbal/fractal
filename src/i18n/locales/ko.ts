@@ -167,6 +167,7 @@ export const webviewMessages = {
   notesSetColor: '색상 설정',
   notesColorNone: '없음',
   outlinerCopyFilePath: '파일 경로 복사',
+  outlinerAddToPinnedTags: '고정 태그에 추가',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio 다이어그램 삽입',
 };

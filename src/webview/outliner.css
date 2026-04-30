@@ -652,8 +652,13 @@ body {
     gap: 12px;
 }
 
-.outliner-context-menu-item:hover {
+.outliner-context-menu-item:hover:not(.disabled) {
     background: var(--outliner-hover-bg);
+}
+
+.outliner-context-menu-item.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .context-menu-label {

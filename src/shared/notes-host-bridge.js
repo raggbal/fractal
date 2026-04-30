@@ -121,6 +121,14 @@
             api.postMessage({ type: 'copyAttachedFilePath', nodeId: nodeId });
         },
 
+        // Note-level sidepanel md width / TOC width 永続化 (outline.note 共通)
+        notesSaveSidePanelWidth: function(width) {
+            api.postMessage({ type: 'notesSetSidePanelWidth', width: width });
+        },
+        notesSaveSidePanelOutlineWidth: function(width) {
+            api.postMessage({ type: 'notesSetSidePanelOutlineWidth', width: width });
+        },
+
         postDailyNotes: function(type, dayOffset, currentDate) {
             if (window.Outliner && window.Outliner.flushSync) {
                 window.Outliner.flushSync();

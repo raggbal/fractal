@@ -32,6 +32,8 @@ export interface NoteStructure {
     rootIds: string[];                    // トップレベルの順序
     items: Record<string, NoteTreeItem>;  // 全アイテムのマップ
     panelWidth?: number;                  // 左パネル幅 (px)
+    sidePanelWidth?: number;              // ノート全体共通の sidepanel md 幅 (px)
+    sidePanelOutlineWidth?: number;       // ノート全体共通の sidepanel TOC 幅 (px)
     s3BucketPath?: string;                // S3バケットパス (例: "my-bucket/notes-backup")
 }
 
@@ -332,6 +334,32 @@ export class NotesFileManager {
      */
     getPanelWidth(): number | undefined {
         return this.getStructure().panelWidth;
+    }
+
+    /**
+     * ノート共通の sidepanel md 幅を outline.note に保存
+     */
+    saveSidePanelWidth(width: number): void {
+        const structure = this.getStructure();
+        structure.sidePanelWidth = width;
+        this.saveStructure();
+    }
+
+    getSidePanelWidth(): number | undefined {
+        return this.getStructure().sidePanelWidth;
+    }
+
+    /**
+     * ノート共通の sidepanel TOC 幅を outline.note に保存
+     */
+    saveSidePanelOutlineWidth(width: number): void {
+        const structure = this.getStructure();
+        structure.sidePanelOutlineWidth = width;
+        this.saveStructure();
+    }
+
+    getSidePanelOutlineWidth(): number | undefined {
+        return this.getStructure().sidePanelOutlineWidth;
     }
 
     /**

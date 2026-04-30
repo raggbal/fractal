@@ -137,6 +137,7 @@ function generateSidePanelHtml(messages) {
                         <span class="filedir-label">${msg.fileDirLabel || 'File save directory:'}</span> <span class="filedir-path" id="sidePanelFileDirPath"></span>
                     </div>
                 </div>
+                <div class="side-panel-sidebar-resize-handle" id="sidePanelSidebarResizeHandle" title="Drag to resize outline"></div>
             </aside>
             <div class="side-panel-editor-container">
                 <div class="side-panel-header">

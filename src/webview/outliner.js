@@ -26,7 +26,16 @@ var Outliner = (function() {
     var searchFocusMode = false;     // true: マッチノード頂点+子のみ, false: ルートまで表示
     var pageDir = null;              // outファイル個別のpageDir設定
     var currentOutFileKey = null;    // 同一性判定用の .out ファイル絶対パス (host から updateData で注入)
-    var sidePanelWidthSetting = null; // outファイル個別のサイドパネル幅
+    var sidePanelWidthSetting = null; // outファイル個別のサイドパネル幅 (standalone) / fallback (notes)
+    var sidePanelOutlineWidthSetting = null; // sidepanel TOC 幅 (px)
+    /**
+     * Notes mode 判定: .notes-layout 要素が存在すれば notes mode。
+     * Notes mode 時は sidePanelWidth / sidePanelOutlineWidth を outline.note (note 共通) に保存。
+     * Standalone 時は .out ファイルの JSON に保存 (data.sidePanelWidth / data.sidePanelOutlineWidth)。
+     */
+    function isNotesMode() {
+        return !!document.querySelector('.notes-layout');
+    }
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
@@ -229,8 +238,17 @@ var Outliner = (function() {
             pinnedTags = data.pinnedTags;
         }
         // JSONからサイドパネル幅を復元
-        if (data && data.sidePanelWidth) {
+        // Notes mode: outline.note の note-level 値を最優先、無ければ .out の値、それも無ければ default
+        // Standalone: .out の値のみ
+        if (isNotesMode() && typeof window.__noteSidePanelWidth === 'number' && window.__noteSidePanelWidth > 0) {
+            sidePanelWidthSetting = window.__noteSidePanelWidth;
+        } else if (data && data.sidePanelWidth) {
             sidePanelWidthSetting = data.sidePanelWidth;
+        }
+        if (isNotesMode() && typeof window.__noteSidePanelOutlineWidth === 'number' && window.__noteSidePanelOutlineWidth > 0) {
+            sidePanelOutlineWidthSetting = window.__noteSidePanelOutlineWidth;
+        } else if (data && data.sidePanelOutlineWidth) {
+            sidePanelOutlineWidthSetting = data.sidePanelOutlineWidth;
         }
 
         treeEl = document.querySelector('.outliner-tree');
@@ -3885,8 +3903,12 @@ var Outliner = (function() {
                 hideContextMenu();
                 return;
             }
+            // Detect right-click on a #tag / @tag span (.outliner-tag).
+            // The tag literal text becomes a candidate for the pinned-tag menu item.
+            var tagEl = e.target.closest && e.target.closest('.outliner-tag');
+            var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
             e.preventDefault();
-            showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY);
+            showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
 
         document.addEventListener('click', function(e) {
@@ -3896,7 +3918,7 @@ var Outliner = (function() {
         });
     }
 
-    function showContextMenu(nodeId, x, y) {
+    function showContextMenu(nodeId, x, y, clickedTag) {
         hideContextMenu();
         var node = model.getNode(nodeId);
         if (!node) { return; }
@@ -3905,6 +3927,20 @@ var Outliner = (function() {
         contextMenuEl.className = 'outliner-context-menu';
         contextMenuEl.style.left = x + 'px';
         contextMenuEl.style.top = y + 'px';
+
+        // --- 固定タグ追加 (右クリック対象が #tag / @tag span だった場合のみ) ---
+        if (clickedTag && /^[#@]\S/.test(clickedTag)) {
+            var alreadyPinned = pinnedTags.indexOf(clickedTag) !== -1;
+            var label = (i18n.outlinerAddToPinnedTags || 'Add to Pinned Tags') + ' (' + clickedTag + ')';
+            addMenuItem(contextMenuEl, label, function() {
+                if (alreadyPinned) { hideContextMenu(); return; }
+                pinnedTags.push(clickedTag);
+                updatePinnedTagBar();
+                syncToHostImmediate();
+                hideContextMenu();
+            }, null, alreadyPinned);
+            addMenuSeparator(contextMenuEl);
+        }
 
         // --- 複数選択時のページパスコピー ---
         if (selectedNodeIds.size > 0) {
@@ -4130,9 +4166,10 @@ var Outliner = (function() {
     var isMacPlatform = navigator.platform.indexOf('Mac') !== -1;
     var modLabel = isMacPlatform ? 'Cmd' : 'Ctrl';
 
-    function addMenuItem(parent, text, handler, shortcut) {
+    function addMenuItem(parent, text, handler, shortcut, disabled) {
         var item = document.createElement('div');
         item.className = 'outliner-context-menu-item';
+        if (disabled) { item.classList.add('disabled'); }
         var labelSpan = document.createElement('span');
         labelSpan.className = 'context-menu-label';
         labelSpan.textContent = text;
@@ -4143,7 +4180,10 @@ var Outliner = (function() {
             kbdSpan.textContent = shortcut;
             item.appendChild(kbdSpan);
         }
-        item.addEventListener('click', handler);
+        item.addEventListener('click', function(e) {
+            if (disabled) { e.stopPropagation(); return; }
+            handler(e);
+        });
         parent.appendChild(item);
     }
 
@@ -4286,8 +4326,9 @@ var Outliner = (function() {
             });
         }
 
-        // Side panel resize
+        // Side panel resize (overall + TOC sidebar)
         setupSidePanelResize();
+        setupSidePanelSidebarResize();
 
         // Open in tab
         var sidePanelOpenTabBtn = document.querySelector('.side-panel-open-tab');
@@ -4437,7 +4478,76 @@ var Outliner = (function() {
             var iframes = sidePanelEl.querySelectorAll('iframe');
             iframes.forEach(function(f) { f.style.pointerEvents = ''; });
             sidePanelWidthSetting = sidePanelEl.offsetWidth;
-            syncToHostImmediate();
+            // Notes mode: note-level に保存 (outline.note 共通)。Standalone: .out に保存。
+            if (isNotesMode()) {
+                window.__noteSidePanelWidth = sidePanelWidthSetting;
+                if (host && host.notesSaveSidePanelWidth) {
+                    host.notesSaveSidePanelWidth(sidePanelWidthSetting);
+                }
+            } else {
+                syncToHostImmediate();
+            }
+        }
+    }
+
+    // sidepanel TOC (sidebar) drag-resize
+    function setupSidePanelSidebarResize() {
+        var sidebar = document.querySelector('.side-panel-sidebar');
+        var handle = document.getElementById('sidePanelSidebarResizeHandle');
+        if (!sidebar || !handle) return;
+
+        // Initial width restore
+        if (sidePanelOutlineWidthSetting) {
+            sidebar.style.width = sidePanelOutlineWidthSetting + 'px';
+        }
+
+        var resizing = false, startX = 0, startW = 0;
+
+        handle.addEventListener('mousedown', function(e) {
+            // 表示されている時のみ反応
+            if (!sidebar.classList.contains('visible')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            resizing = true;
+            startX = e.clientX;
+            startW = sidebar.offsetWidth;
+            handle.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            var iframes = sidePanelEl ? sidePanelEl.querySelectorAll('iframe') : [];
+            iframes.forEach(function(f) { f.style.pointerEvents = 'none'; });
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onEnd);
+        });
+
+        function onMove(e) {
+            if (!resizing) return;
+            var delta = e.clientX - startX;
+            var maxW = (sidePanelEl ? sidePanelEl.offsetWidth : window.innerWidth) * 0.5;
+            var newW = Math.max(100, Math.min(startW + delta, maxW));
+            sidebar.style.width = newW + 'px';
+        }
+
+        function onEnd() {
+            if (!resizing) return;
+            resizing = false;
+            handle.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            var iframes = sidePanelEl ? sidePanelEl.querySelectorAll('iframe') : [];
+            iframes.forEach(function(f) { f.style.pointerEvents = ''; });
+            sidePanelOutlineWidthSetting = sidebar.offsetWidth;
+            // Notes mode: note-level (outline.note 共通)、Standalone: .out
+            if (isNotesMode()) {
+                window.__noteSidePanelOutlineWidth = sidePanelOutlineWidthSetting;
+                if (host && host.notesSaveSidePanelOutlineWidth) {
+                    host.notesSaveSidePanelOutlineWidth(sidePanelOutlineWidthSetting);
+                }
+            } else {
+                syncToHostImmediate();
+            }
         }
     }
 
@@ -4877,7 +4987,22 @@ var Outliner = (function() {
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
         pageDir = data.pageDir || null;
-        sidePanelWidthSetting = data.sidePanelWidth || null;
+        // Notes mode は note-level 値を維持。Standalone は .out から復元。
+        if (isNotesMode()) {
+            if (typeof window.__noteSidePanelWidth === 'number' && window.__noteSidePanelWidth > 0) {
+                sidePanelWidthSetting = window.__noteSidePanelWidth;
+            } else {
+                sidePanelWidthSetting = data.sidePanelWidth || null;
+            }
+            if (typeof window.__noteSidePanelOutlineWidth === 'number' && window.__noteSidePanelOutlineWidth > 0) {
+                sidePanelOutlineWidthSetting = window.__noteSidePanelOutlineWidth;
+            } else {
+                sidePanelOutlineWidthSetting = data.sidePanelOutlineWidth || null;
+            }
+        } else {
+            sidePanelWidthSetting = data.sidePanelWidth || null;
+            sidePanelOutlineWidthSetting = data.sidePanelOutlineWidth || null;
+        }
         pinnedTags = data.pinnedTags || [];
         // isDailyNotes は変更しない（外部変更はファイル切替ではない）
         // currentScope も変更しない（スコープ保持）
@@ -4924,7 +5049,12 @@ var Outliner = (function() {
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
         if (fileDir) { data.fileDir = fileDir; }
-        if (sidePanelWidthSetting) { data.sidePanelWidth = sidePanelWidthSetting; }
+        // Notes mode: 幅は outline.note (note-level) で管理するため .out には書かない。
+        // Standalone: 幅は .out に書く (従来通り)。
+        if (!isNotesMode()) {
+            if (sidePanelWidthSetting) { data.sidePanelWidth = sidePanelWidthSetting; }
+            if (sidePanelOutlineWidthSetting) { data.sidePanelOutlineWidth = sidePanelOutlineWidthSetting; }
+        }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
         host.syncData(JSON.stringify(data, null, 2));
     }

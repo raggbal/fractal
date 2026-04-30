@@ -142,6 +142,8 @@ export class NotesEditorProvider {
                 panelCollapsed,
                 structure: fileManager.getStructure(),
                 panelWidth: fileManager.getPanelWidth(),
+                noteSidePanelWidth: fileManager.getSidePanelWidth(),
+                noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
                 fileChangeId: fileManager.getFileChangeId(),
             }
         );
@@ -365,6 +367,12 @@ export class NotesEditorProvider {
                 this.context.globalState.update(
                     `notesPanelCollapsed:${folderPath}`, collapsed
                 );
+            },
+            saveNoteSidePanelWidth: (width: number) => {
+                fileManager.saveSidePanelWidth(width);
+            },
+            saveNoteSidePanelOutlineWidth: (width: number) => {
+                fileManager.saveSidePanelOutlineWidth(width);
             },
             requestSetPageDir: async () => {
                 if (!fileManager.getCurrentFilePath()) return;
@@ -914,7 +922,7 @@ export class NotesEditorProvider {
                             imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 400),
                             folderName: path.basename(folderPath),
                         },
-                        { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), fileChangeId: fileManager.getFileChangeId() }
+                        { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), noteSidePanelWidth: fileManager.getSidePanelWidth(), noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(), fileChangeId: fileManager.getFileChangeId() }
                     );
                     sendTranslateLangFromConfig();
                 }

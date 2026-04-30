@@ -154,6 +154,7 @@ export const webviewMessages = {
   outlinerOpenFile: 'ファイルを開く',
   outlinerRemoveFile: 'ファイル添付を解除',
   outlinerCopyFilePath: 'ファイルパスをコピー',
+  outlinerAddToPinnedTags: '固定タグに追加',
   outlinerAddSibling: '兄弟ノードを追加',
   outlinerAddChild: '子ノードを追加',
   outlinerIndent: 'インデント',
