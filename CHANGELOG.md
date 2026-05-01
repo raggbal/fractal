@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.766] - 2026-05-01
+
+### Fixed
+- **Outliner: empty nodes (`text === ''`) no longer drop on cmd+c/cmd+x → cmd+v** — The text-line parser in `pasteNodesFromText()` had a `if (content === '') { continue; }` guard that ran regardless of whether `clipboardNodes` (internal copy/cut metadata) was provided, so intentional empty nodes from the source selection were silently dropped during paste. Worse, level normalization on the surviving entries reparented descendants in unexpected ways (e.g. `[a, empty, empty, b@lvl2, c]` → `[a, b@lvl1, c]` with `b` now incorrectly a child of `a`). Fix: when `clipboardNodes` is provided (= internal copy/cut from any clipboard channel — `internalClipboard`, OS `text/html` `data-outliner-clipboard` meta, host-side store), bypass text parsing entirely and feed `clipboardNodes` directly into the `parsed[]` array. External paste (no `clipboardNodes`) keeps the empty-line skip behavior to handle trailing newlines from Notepad/TextEdit etc.
+- **Outliner: pasting on an empty node that has children no longer cascades-deletes the children** — The `currentText === ''` branch of `handleNodePaste()` unconditionally called `model.removeNode(nodeId)`, but `removeNode` is recursive (cascades to all descendants). For an empty node with a deep subtree, the entire subtree was destroyed by paste. Fix: only take the remove+replace path when `currentText === '' && !hasChildren`. Empty nodes with children now follow the same path as non-empty nodes — the node itself is left intact and the pasted content is inserted as siblings immediately after.
+
+### Tests
+- **+7 sprint test cases** across 2 new spec files in `test/specs/`:
+  - `integration-outliner-paste-preserves-empty-nodes.spec.ts` (5) — middle empty in hierarchy / consecutive sibling empties / complex empty-of-empty hierarchy / sibling-level `[empty, A, empty, B, empty]` / regression: external paste still skips blanks
+  - `integration-outliner-paste-empty-with-children.spec.ts` (2) — empty-with-children paste preserves subtree / regression: empty-leaf paste still replaces
+
 ## [0.195.763] - 2026-05-01
 
 ### Added

@@ -2058,8 +2058,11 @@ var Outliner = (function() {
         saveSnapshot();
         var currentText = (node.text || '').trim();
 
-        if (currentText === '') {
-            // 空ノード: 現在ノードを削除して、全行を pasteNodesFromText で挿入
+        // Bug fix: 空ノードでも **children を持つ** 場合は除去せず、テキストありノードと
+        // 同じ「直後に paste」挙動にする。removeNode は cascade 削除なので子孫が全消失する。
+        var hasChildren = !!(node.children && node.children.length > 0);
+        if (currentText === '' && !hasChildren) {
+            // 空 leaf ノード: 現在ノードを削除して、全行を pasteNodesFromText で挿入
             var parentId = node.parentId;
             // 同じ親の兄弟リストから直前のノードを探す
             var siblings = parentId ? (model.getNode(parentId).children || []) : model.rootIds;
@@ -2072,7 +2075,7 @@ var Outliner = (function() {
             model.removeNode(nodeId);
             pasteNodesFromText(clipText, parentId, insertAfterForEmpty, clipNodes, isCutPaste, clipSourceKey, insertAtStartForEmpty);
         } else {
-            // テキストありノード: 現在ノードの後に全行を挿入
+            // テキストありノード or 子持ちノード: 現在ノードの後に全行を挿入 (兄弟として)
             pasteNodesFromText(clipText, node.parentId, nodeId, clipNodes, isCutPaste, clipSourceKey);
         }
     }
