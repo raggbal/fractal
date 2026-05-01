@@ -25146,6 +25146,8 @@ var Outliner = (function() {
                 break;
 
             case 'ArrowLeft':
+                // Opt+Left は outliner Back に予約 (document keydown で処理)。collapse 無効化。
+                if (e.altKey) { break; }
                 if (isAtStart && node.children && node.children.length > 0 && !node.collapsed) {
                     e.preventDefault();
                     toggleCollapse(nodeId);
@@ -25153,6 +25155,8 @@ var Outliner = (function() {
                 break;
 
             case 'ArrowRight':
+                // Opt+Right は outliner Forward に予約。collapse 解除無効化。
+                if (e.altKey) { break; }
                 if (isAtEnd && node.collapsed) {
                     e.preventDefault();
                     toggleCollapse(nodeId);
@@ -25876,6 +25880,20 @@ var Outliner = (function() {
                     var firstMatch = currentSearchResult.values().next().value;
                     focusNode(firstMatch);
                 }
+            } else if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+                // Bug fix: 検索ボックスフォーカス時に cmd+z すると input 要素の native undo が
+                // 走り、削除した検索文字が復活していた (めちゃ分かりづらい)。
+                // 検索ボックスは undo/redo 対象から外す方針: 状態戻しは Back/Forward ボタン経由のみ。
+                // 当 handler で preventDefault することで native undo を無効化し、cmd+z 自体を無動作にする。
+                e.preventDefault();
+                e.stopPropagation();
+            } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                // 検索ボックスフォーカス時の Opt+Left/Right は outliner Back/Forward に委譲
+                // (input 要素の native cursor word-jump を抑制)
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.key === 'ArrowLeft') { navigateBack(); }
+                else { navigateForward(); }
             }
         });
 
@@ -28804,6 +28822,8 @@ var Outliner = (function() {
             if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
                 // ノード内keydownで処理済みの場合はスキップ
                 if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { return; }
+                // 検索ボックスフォーカス時は搜索 input keydown handler 内でハンドル済 (no-op で native undo 抑制)
+                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { return; }
                 // editor.js capture handler で sidepanel markdown の undo が処理済みならスキップ
                 if (e.defaultPrevented) { return; }
                 e.preventDefault();
@@ -28811,10 +28831,25 @@ var Outliner = (function() {
             }
             if ((e.metaKey || e.ctrlKey) && ((e.key === 'z' && e.shiftKey) || e.key === 'y')) {
                 if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { return; }
+                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { return; }
                 // editor.js capture handler で sidepanel markdown の redo が処理済みならスキップ
                 if (e.defaultPrevented) { return; }
                 e.preventDefault();
                 redo();
+            }
+            // Opt+Left / Opt+Right で outliner Back/Forward
+            // sidepanel md editor 内では editor.js の handler が処理する → 当 handler は skip
+            if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+                !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                // sidepanel md フォーカス中なら無視 (editor.js が独自にハンドル)
+                if (e.defaultPrevented) { return; }
+                if (document.activeElement && document.activeElement.closest &&
+                    document.activeElement.closest('.side-panel-editor-root')) { return; }
+                // ノード内 contenteditable フォーカス中の場合: input 要素の native word-jump を抑制
+                // (outliner ノードのテキスト編集は contenteditable で word-jump はそもそも単一行用途)
+                e.preventDefault();
+                if (e.key === 'ArrowLeft') { navigateBack(); }
+                else { navigateForward(); }
             }
         });
     }
