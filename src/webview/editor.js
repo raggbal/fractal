@@ -6833,11 +6833,13 @@ class EditorInstance {
         if (isSourceMode) return;
 
         // v15+: Alt+Left/Right で side panel navigation (history back/forward)
+        // Bug fix: filePath は EditorInstance ではなく host (SidePanelHostBridge) に
+        // 格納されているため、self.filePath は undefined。host.filePath を参照する。
         if (IS_SIDEPANEL && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
             e.preventDefault();
             e.stopPropagation();
-            var spFp = self.filePath;
-            if (spFp && typeof host !== 'undefined') {
+            var spFp = host && host.filePath;
+            if (spFp) {
                 if (e.key === 'ArrowLeft' && typeof host.sidePanelNavigateBack === 'function') {
                     host.sidePanelNavigateBack(spFp);
                 } else if (e.key === 'ArrowRight' && typeof host.sidePanelNavigateForward === 'function') {
@@ -7810,6 +7812,55 @@ class EditorInstance {
 
                 // Check for empty item - only check direct text content, not nested lists
                 const checkbox = listItem.querySelector(':scope > input[type="checkbox"]');
+
+                // Opt+Enter: 子インデント (=現在 LI の nested list 先頭) に新規 LI を追加
+                if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    // 既存 nested list を探す。無ければ同じタグ (ul/ol) で新規作成
+                    let nestedList = listItem.querySelector(':scope > ul, :scope > ol');
+                    if (!nestedList) {
+                        nestedList = document.createElement(list.tagName);
+                        listItem.appendChild(nestedList);
+                    }
+                    // 新規 child LI を作成 (空、checkbox あれば継承)
+                    const childLi = document.createElement('li');
+                    if (checkbox) {
+                        const newCb = document.createElement('input');
+                        newCb.type = 'checkbox';
+                        childLi.appendChild(newCb);
+                    } else {
+                        childLi.innerHTML = '<br>';
+                    }
+                    // nested list の先頭に挿入 (= 現在 LI のすぐ下に来る)
+                    nestedList.insertBefore(childLi, nestedList.firstChild);
+                    // cursor を新規 LI に移動
+                    const childRange = document.createRange();
+                    if (checkbox && childLi.querySelector('input[type="checkbox"]')) {
+                        const cb = childLi.querySelector('input[type="checkbox"]');
+                        const after = cb.nextSibling;
+                        if (after) {
+                            if (after.nodeType === 3) {
+                                childRange.setStart(after, 0);
+                            } else {
+                                childRange.setStartBefore(after);
+                            }
+                        } else {
+                            childRange.setStartAfter(cb);
+                        }
+                    } else {
+                        const fc = childLi.firstChild;
+                        if (fc && fc.tagName && fc.tagName.toLowerCase() === 'br') {
+                            childRange.setStartBefore(fc);
+                        } else {
+                            childRange.setStart(childLi, 0);
+                        }
+                    }
+                    childRange.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(childRange);
+                    syncMarkdown();
+                    return;
+                }
                 const nestedListInItem = listItem.querySelector(':scope > ul, :scope > ol');
                 
                 // Get only direct text content (excluding nested lists and br)
