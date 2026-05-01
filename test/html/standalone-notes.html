@@ -23829,6 +23829,9 @@ var Outliner = (function() {
                 executeSearch();
                 isNavigating = false;
                 updateNavButtons();
+                // searchInput.value を直接代入した時は input event が発火しないため、
+                // クリアボタンの表示更新を明示的に呼ぶ
+                updateSearchClearButton();
                 searchInput.focus();
             }
         });
