@@ -2084,38 +2084,48 @@ var Outliner = (function() {
      *   位置で paste した時、貼り付けが parent.children 末尾に飛ぶ症状の回避。
      */
     function pasteNodesFromText(text, baseParentId, afterId, clipboardNodes, isCut, clipSourceKey, insertAtStart) {
-        var lines = text.split('\n');
-        if (lines.length === 0) { return; }
-
-        // 各行のインデントレベルを計算
-        // 内部コピー形式はタブ区切り。外部ペースト(スペースのみ)にも対応。
-        // タブの後のスペースはテキストの一部として扱う。
         var parsed = [];
         var clipNodeIndexMap = []; // parsed[n] → clipboardNodes[originalIndex] のマッピング
-        for (var i = 0; i < lines.length; i++) {
-            var line = lines[i];
-            var tabs = 0;
-            var j = 0;
-            var sawTab = false;
-            while (j < line.length) {
-                if (line[j] === '\t') { tabs++; j++; sawTab = true; }
-                else if (line[j] === ' ' && !sawTab) {
-                    // スペースのみの行（外部ペースト）: 2〜4スペースを1レベルとして扱う
-                    var spaceCount = 0;
-                    while (j < line.length && line[j] === ' ') { spaceCount++; j++; }
-                    tabs += Math.max(1, Math.round(spaceCount / 2));
+
+        if (clipboardNodes && clipboardNodes.length > 0) {
+            // 内部 copy/cut: clipboardNodes が authoritative。text の行ベースパースは行わない。
+            // これにより**空ノード (text === '') も保持される** (Bug fix: empty node drop on paste)。
+            // node.text が改行を含む場合も正しく扱える。
+            for (var i = 0; i < clipboardNodes.length; i++) {
+                parsed.push({
+                    level: clipboardNodes[i].level || 0,
+                    text: clipboardNodes[i].text || ''
+                });
+                clipNodeIndexMap.push(i);
+            }
+        } else {
+            // 外部 paste (MD editor / TextEdit / 任意 source): text をパースする。
+            // 空行 = 段落区切りや末尾改行であることが多いため**スキップ**する従来挙動。
+            // 内部コピー形式はタブ区切り。外部ペースト(スペースのみ)にも対応。
+            var lines = text.split('\n');
+            if (lines.length === 0) { return; }
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i];
+                var tabs = 0;
+                var j = 0;
+                var sawTab = false;
+                while (j < line.length) {
+                    if (line[j] === '\t') { tabs++; j++; sawTab = true; }
+                    else if (line[j] === ' ' && !sawTab) {
+                        // スペースのみの行（外部ペースト）: 2〜4スペースを1レベルとして扱う
+                        var spaceCount = 0;
+                        while (j < line.length && line[j] === ' ') { spaceCount++; j++; }
+                        tabs += Math.max(1, Math.round(spaceCount / 2));
+                    }
+                    else { break; }
                 }
-                else { break; }
-            }
-            var content = line.substring(j);
-            // 外部ペースト (MD editor 等) から来たリスト: 先頭の `- ` / `* ` / `+ ` / `1.` バレットを除去。
-            // 内部コピー (clipboardNodes あり) はそのまま — ノードのテキストとして保持。
-            if (!clipboardNodes) {
+                var content = line.substring(j);
+                // 外部ペーストから来たリスト: 先頭の `- ` / `* ` / `+ ` / `1.` バレットを除去
                 content = content.replace(/^(?:[-*+]|\d+\.)[ \t]+/, '');
+                if (content === '') { continue; } // 外部 paste のみ空行スキップ
+                parsed.push({ level: tabs, text: content });
+                clipNodeIndexMap.push(i);
             }
-            if (content === '') { continue; } // 空行スキップ
-            parsed.push({ level: tabs, text: content });
-            clipNodeIndexMap.push(i);
         }
         if (parsed.length === 0) { return; }
 
