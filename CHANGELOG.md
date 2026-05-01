@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.763] - 2026-05-01
+
+### Added
+- **MD editor: `Opt+Enter` creates a child list item** — Pressing `Opt+Enter` while the cursor is in a list item now inserts a new empty `<li>` as the **first child** of a nested list (creating the nested list if absent). Standalone editor + side panel both supported. The plain `Enter` continues to create a sibling at the same indent.
+- **Notes file panel: right-click → "Copy Path"** — On any `.out` file in the Notes folder panel, right-click context menu gains a "Copy Path" item that writes the absolute filesystem path (e.g., `/Users/.../notes/foo.out`) to the OS clipboard. Reuses the existing 7-language `copyPath` i18n key (en: "Copy Path" / ja: "パスをコピー" / zh-cn / zh-tw / ko / es / fr).
+
+### Fixed
+- **Side panel: `Opt+Left` / `Opt+Right` shortcut now actually navigates back/forward** — The keydown handler in `editor.js:6839` was reading `self.filePath` to determine the side panel file path, but `filePath` lives on the `host` object (`SidePanelHostBridge`), not on the `EditorInstance`. The lookup always returned `undefined`, causing the `if (spFp && ...)` guard to fail silently. Fix: use `host.filePath` directly.
+
+### Tests
+- **+6 sprint test cases** across 2 new spec files in `test/specs/`:
+  - `integration-md-opt-enter-child-list.spec.ts` (4) — simple `ul` Opt+Enter / type-and-render / sibling regression / existing nested list inserts at top
+  - `integration-notes-file-panel-copy-path.spec.ts` (2) — menu item present / clipboard contents
+
 ## [0.195.761] - 2026-04-30
 
 ### Fixed

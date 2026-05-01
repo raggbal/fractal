@@ -311,6 +311,12 @@ var notesFilePanel = (function() {
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
         });
+        // file.filePath は notesFileManager.listFiles() で path.join(mainFolderPath, entry)
+        // を渡してくる絶対パス。OS clipboard へ直接コピー
+        addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
+            closeContextMenu();
+            try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
+        });
         // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
         addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
             renderColorPalette(contextMenu, currentColor, function(colorName) {
