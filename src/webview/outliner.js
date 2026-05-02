@@ -1287,31 +1287,14 @@ var Outliner = (function() {
 
     /** contenteditable要素から改行を正規化してプレーンテキストを取得 */
     function getSubtextPlainText(element) {
-        var result = '';
-        var children = element.childNodes;
-        for (var i = 0; i < children.length; i++) {
-            var child = children[i];
-            if (child.nodeType === 1 && child.tagName === 'BR') {
-                result += '\n';
-            } else if (child.nodeType === 3) {
-                result += child.textContent;
-            } else if (child.nodeType === 1) {
-                // div等のブロック要素（ブラウザが挿入する場合がある）
-                if (result.length > 0 && result[result.length - 1] !== '\n') {
-                    result += '\n';
-                }
-                result += getSubtextPlainText(child);
-            }
-        }
-        return result;
+        return OutlinerCell.getSubtextPlainText(element);
     }
 
-    /** サブテキストの省略表示テキストを生成 */
+    /** サブテキストの省略表示テキストを生成
+     * 実装は outliner-cell.js (OutlinerCell.getSubtextPreview) に分離 (TASK-A3, Phase 3 split)。
+     */
     function getSubtextPreview(subtext) {
-        if (!subtext) { return ''; }
-        var firstLine = subtext.split('\n')[0];
-        var hasMore = subtext.indexOf('\n') >= 0;
-        return hasMore ? firstLine + ' ...' : firstLine;
+        return OutlinerCell.getSubtextPreview(subtext);
     }
 
     // --- 画像サムネイル ---
@@ -1598,9 +1581,11 @@ var Outliner = (function() {
         return OutlinerCell.buildRenderedToSourceMap(sourceText, renderedText);
     }
 
-    /** contenteditable からプレーンテキストを取得 (NBSPは通常スペースに正規化) */
+    /** contenteditable からプレーンテキストを取得
+     * 実装は outliner-cell.js (OutlinerCell.getPlainText) に分離 (TASK-A3, Phase 3 split)。
+     */
     function getPlainText(el) {
-        return (el.textContent || '').replace(/\u00A0/g, ' ');
+        return OutlinerCell.getPlainText(el);
     }
 
     /**
@@ -1659,86 +1644,29 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
-    // --- カーソル操作 ---
+    // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
 
     function setCursorToEnd(el) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorToEnd(el);
     }
 
     function setCursorToStart(el) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(el);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorToStart(el);
     }
 
     function setCursorAtOffset(el, offset) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-        var textNode = walker.nextNode();
-        if (!textNode) {
-            range.selectNodeContents(el);
-            range.collapse(true);
-        } else {
-            var pos = 0;
-            do {
-                var len = textNode.textContent.length;
-                if (pos + len >= offset) {
-                    range.setStart(textNode, offset - pos);
-                    range.collapse(true);
-                    break;
-                }
-                pos += len;
-            } while ((textNode = walker.nextNode()));
-            if (!textNode) {
-                range.selectNodeContents(el);
-                range.collapse(false);
-            }
-        }
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorAtOffset(el, offset);
     }
 
     function getCursorOffset(el) {
-        var sel = window.getSelection();
-        if (!sel.rangeCount) { return 0; }
-        var range = sel.getRangeAt(0);
-        var preRange = range.cloneRange();
-        preRange.selectNodeContents(el);
-        preRange.setEnd(range.startContainer, range.startOffset);
-        return preRange.toString().length;
+        return OutlinerCell.getCursorOffset(el);
     }
 
-    /**
-     * el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
-     * 選択範囲が collapsed (= cursor のみ) の場合は start === end。
-     * Selection が el 外なら null。paste 時にテキスト範囲を置換する用途で使う。
+    /** el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
+     * 実装は outliner-cell.js (OutlinerCell.getCursorRange) に分離 (TASK-A3, Phase 3 split)。
      */
     function getCursorRange(el) {
-        var sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) { return null; }
-        var range = sel.getRangeAt(0);
-        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
-            return null;
-        }
-        var preStart = range.cloneRange();
-        preStart.selectNodeContents(el);
-        preStart.setEnd(range.startContainer, range.startOffset);
-        var start = preStart.toString().length;
-        var preEnd = range.cloneRange();
-        preEnd.selectNodeContents(el);
-        preEnd.setEnd(range.endContainer, range.endOffset);
-        var end = preEnd.toString().length;
-        if (end < start) { var t = start; start = end; end = t; }
-        return { start: start, end: end };
+        return OutlinerCell.getCursorRange(el);
     }
 
     // --- フォーカス管理 ---

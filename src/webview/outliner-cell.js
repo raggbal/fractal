@@ -256,6 +256,128 @@
         return rendered.length;
     }
 
+    // ─── Phase 3: cursor / DOM helpers ───────────────────────────────────────
+    // These touch document.createRange / window.getSelection. They are DOM-pure
+    // (no model / host dependency) and re-used by Outliner editor + Outliner
+    // Table editor.
+
+    function setCursorToEnd(el) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function setCursorToStart(el) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function setCursorAtOffset(el, offset) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        var textNode = walker.nextNode();
+        if (!textNode) {
+            range.selectNodeContents(el);
+            range.collapse(true);
+        } else {
+            var pos = 0;
+            do {
+                var len = textNode.textContent.length;
+                if (pos + len >= offset) {
+                    range.setStart(textNode, offset - pos);
+                    range.collapse(true);
+                    break;
+                }
+                pos += len;
+            } while ((textNode = walker.nextNode()));
+            if (!textNode) {
+                range.selectNodeContents(el);
+                range.collapse(false);
+            }
+        }
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function getCursorOffset(el) {
+        if (typeof window === 'undefined') { return 0; }
+        var sel = window.getSelection();
+        if (!sel.rangeCount) { return 0; }
+        var range = sel.getRangeAt(0);
+        var preRange = range.cloneRange();
+        preRange.selectNodeContents(el);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        return preRange.toString().length;
+    }
+
+    /**
+     * el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
+     * Selection が el 外なら null。
+     */
+    function getCursorRange(el) {
+        if (typeof window === 'undefined') { return null; }
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) { return null; }
+        var range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
+            return null;
+        }
+        var preStart = range.cloneRange();
+        preStart.selectNodeContents(el);
+        preStart.setEnd(range.startContainer, range.startOffset);
+        var start = preStart.toString().length;
+        var preEnd = range.cloneRange();
+        preEnd.selectNodeContents(el);
+        preEnd.setEnd(range.endContainer, range.endOffset);
+        var end = preEnd.toString().length;
+        if (end < start) { var t = start; start = end; end = t; }
+        return { start: start, end: end };
+    }
+
+    /** contenteditable からプレーンテキストを取得 (NBSPは通常スペースに正規化) */
+    function getPlainText(el) {
+        return (el.textContent || '').replace(/\u00A0/g, ' ');
+    }
+
+    /** contenteditable要素から改行を正規化してプレーンテキストを取得 (subtext用) */
+    function getSubtextPlainText(element) {
+        var result = '';
+        var children = element.childNodes;
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            if (child.nodeType === 1 && child.tagName === 'BR') {
+                result += '\n';
+            } else if (child.nodeType === 3) {
+                result += child.textContent;
+            } else if (child.nodeType === 1) {
+                if (result.length > 0 && result[result.length - 1] !== '\n') {
+                    result += '\n';
+                }
+                result += getSubtextPlainText(child);
+            }
+        }
+        return result;
+    }
+
+    /** サブテキストの省略表示テキストを生成 */
+    function getSubtextPreview(subtext) {
+        if (!subtext) { return ''; }
+        var firstLine = subtext.split('\n')[0];
+        var hasMore = subtext.indexOf('\n') >= 0;
+        return hasMore ? firstLine + ' ...' : firstLine;
+    }
+
     return {
         renderInlineText: renderInlineText,
         classifyLinkHref: classifyLinkHref,
@@ -264,6 +386,26 @@
         convertUrlsToMarkdownLinks: convertUrlsToMarkdownLinks,
         buildRenderedToSourceMap: buildRenderedToSourceMap,
         renderedOffsetToSource: renderedOffsetToSource,
-        sourceOffsetToRendered: sourceOffsetToRendered
+        sourceOffsetToRendered: sourceOffsetToRendered,
+        // Phase 3 — cursor / DOM helpers
+        // namespaced API (per tasks.md TASK-A3)
+        setCursor: {
+            toEnd: setCursorToEnd,
+            toStart: setCursorToStart,
+            atOffset: setCursorAtOffset
+        },
+        getCursor: {
+            offset: getCursorOffset,
+            range: getCursorRange
+        },
+        // flat aliases for direct callsite compatibility
+        setCursorToEnd: setCursorToEnd,
+        setCursorToStart: setCursorToStart,
+        setCursorAtOffset: setCursorAtOffset,
+        getCursorOffset: getCursorOffset,
+        getCursorRange: getCursorRange,
+        getPlainText: getPlainText,
+        getSubtextPlainText: getSubtextPlainText,
+        getSubtextPreview: getSubtextPreview
     };
 }));
