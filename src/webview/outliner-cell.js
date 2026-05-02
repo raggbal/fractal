@@ -5,12 +5,17 @@
  *   - outliner editor (existing)
  *   - outliner-table editor (Notion / Coda style table view, new in this sprint)
  *
- * Public API (Phase 1):
+ * Public API (Phase 1+2):
  *   OutlinerCell.renderInlineText(text)
  *   OutlinerCell.classifyLinkHref(href)
+ *   OutlinerCell.stripInlineMarkers(text)
+ *   OutlinerCell.renderEditingText(text)
+ *   OutlinerCell.convertUrlsToMarkdownLinks(text)
+ *   OutlinerCell.renderedOffsetToSource(sourceText, renderedOffset)
+ *   OutlinerCell.sourceOffsetToRendered(sourceText, sourceOffset)
+ *   OutlinerCell.buildRenderedToSourceMap(sourceText, renderedText)
  *
- * Phase 2〜5 will add: stripInlineMarkers, renderEditingText,
- * convertUrlsToMarkdownLinks, cursor / DOM helpers, image helpers,
+ * Phase 3〜5 will add: cursor / DOM helpers, image helpers,
  * applyInlineFormat / subtext open/close (host inject).
  *
  * Depends on global `MarkdownLinkParser` (loaded before this script).
@@ -134,8 +139,131 @@
         return html;
     }
 
+    /**
+     * ソーステキスト（マーカー付き）からマーカーを除去してレンダリング後テキストを返す。
+     * renderInlineText と同じ正規表現順序で処理する。
+     */
+    function stripInlineMarkers(text) {
+        if (!text) { return ''; }
+        text = text.replace(/`([^`]+)`/g, '$1');
+        text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+        text = text.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1');
+        text = text.replace(/~~([^~]+)~~/g, '$1');
+        return text;
+    }
+
+    /**
+     * 編集モード用のテキストレンダリング。
+     * マーカー(*、**、~~、`)はそのまま表示し、タグのみハイライトする。
+     * textContent がソーステキストと一致するため、オフセット計算が安全。
+     */
+    function renderEditingText(text) {
+        if (!text) { return ''; }
+        var html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        // タグのみハイライト (テキスト内容を変えないのでオフセットに影響なし)
+        // URL内の@をタグ化しないよう、URLを一時退避してからタグ変換
+        var urlPlaceholders = [];
+        html = html.replace(/https?:\/\/\S+/g, function(match) {
+            urlPlaceholders.push(match);
+            return '\x00URL' + (urlPlaceholders.length - 1) + '\x00';
+        });
+        html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
+        html = html.replace(/\x00URL(\d+)\x00/g, function(_, idx) {
+            return urlPlaceholders[parseInt(idx, 10)];
+        });
+        // 末尾スペースをNBSPに変換
+        html = html.replace(/ $/, ' ');
+        return html;
+    }
+
+    /**
+     * テキスト中のURLをMarkdownリンク形式 [URL](URL) に変換する。
+     * 既にMarkdownリンク内にあるURL（[text](url) の url 部分）は変換しない。
+     */
+    function convertUrlsToMarkdownLinks(text) {
+        if (!text) { return text; }
+        var MLP = getMLP();
+        if (!MLP) { return text; }
+        // balanced paren 対応で 1 パス走査: URL 内の () をネスト追跡、末尾句読点を除外。
+        // 既に Markdown link 内 ([ の直後 or ]( の直後) にある URL はスキップする。
+        var out = '';
+        var i = 0;
+        var len = text.length;
+        while (i < len) {
+            var head = text.slice(i, i + 8).toLowerCase();
+            if (head.indexOf('http://') === 0 || head.indexOf('https://') === 0) {
+                var prevCh = i > 0 ? text.charAt(i - 1) : '';
+                var prev2 = i > 1 ? text.slice(i - 2, i) : '';
+                var inLink = prevCh === '[' || prev2 === '](';
+                if (!inLink) {
+                    var found = MLP.extractUrlWithBalancedParens(text, i);
+                    if (found) {
+                        out += '[' + found.url + '](' + found.url + ')';
+                        i = found.endIndex;
+                        continue;
+                    }
+                }
+            }
+            out += text.charAt(i);
+            i++;
+        }
+        return out;
+    }
+
+    /**
+     * レンダリング後テキストの各位置がソーステキストのどの位置に対応するかのマップを構築。
+     * map[renderedPos] = sourcePos
+     */
+    function buildRenderedToSourceMap(sourceText, renderedText) {
+        var map = [];
+        var si = 0;
+        for (var ri = 0; ri < renderedText.length; ri++) {
+            while (si < sourceText.length && sourceText[si] !== renderedText[ri]) {
+                si++;
+            }
+            map.push(si);
+            si++;
+        }
+        // 末尾位置
+        map.push(sourceText.length);
+        return map;
+    }
+
+    /**
+     * レンダリング後テキストのオフセットをソーステキストのオフセットに変換する。
+     * sourceText: マーカー付きテキスト, renderedOffset: マーカー除去後のオフセット
+     */
+    function renderedOffsetToSource(sourceText, renderedOffset) {
+        var rendered = stripInlineMarkers(sourceText);
+        var map = buildRenderedToSourceMap(sourceText, rendered);
+        if (renderedOffset >= map.length) { return sourceText.length; }
+        return map[renderedOffset];
+    }
+
+    /**
+     * ソーステキストのオフセットをレンダリング後テキストのオフセットに変換する。
+     */
+    function sourceOffsetToRendered(sourceText, sourceOffset) {
+        var rendered = stripInlineMarkers(sourceText);
+        var map = buildRenderedToSourceMap(sourceText, rendered);
+        // mapの中からsourceOffset以上の最初のエントリのインデックスを返す
+        for (var i = 0; i < map.length; i++) {
+            if (map[i] >= sourceOffset) { return i; }
+        }
+        return rendered.length;
+    }
+
     return {
         renderInlineText: renderInlineText,
-        classifyLinkHref: classifyLinkHref
+        classifyLinkHref: classifyLinkHref,
+        stripInlineMarkers: stripInlineMarkers,
+        renderEditingText: renderEditingText,
+        convertUrlsToMarkdownLinks: convertUrlsToMarkdownLinks,
+        buildRenderedToSourceMap: buildRenderedToSourceMap,
+        renderedOffsetToSource: renderedOffsetToSource,
+        sourceOffsetToRendered: sourceOffsetToRendered
     };
 }));
