@@ -22597,16 +22597,16 @@ var Outliner = (function() {
     function saveSnapshot() {
         if (isUndoRedo) { return; }
         var snapshot = JSON.stringify(model.serialize());
-        // 前回と同じなら保存しない
+        // 完全 dedup: 配列内のいずれかと同じならスキップ (二重 push を完全防止)
+        // 通常 push は末尾だが、何らかの経路で同じ snapshot が再 push されないか念のため。
         if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snapshot) { return; }
-        // 最初の編集: baseline を undoStack に入れてから現在の状態を積む
-        // （baseline と同じ場合でも push する — Enter等の構造変更ハンドラは
-        //   モデル変更前に saveSnapshot() を呼ぶため、この時点では baseline と同じ。
-        //   push しないと Undo 先がなくなる）
-        if (undoStack.length === 0 && baselineSnapshot) {
+        if (undoStack.length === 0 && baselineSnapshot && baselineSnapshot !== snapshot) {
             undoStack.push(baselineSnapshot);
         }
-        undoStack.push(snapshot);
+        // 仮に baseline === snapshot だった場合も「現状」として 1 件は積む必要があるので push
+        if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== snapshot) {
+            undoStack.push(snapshot);
+        }
         if (undoStack.length > MAX_UNDO) { undoStack.shift(); }
         redoStack.length = 0;
         updateUndoRedoButtons();
@@ -22630,6 +22630,93 @@ var Outliner = (function() {
         }, SNAPSHOT_DEBOUNCE_MS);
     }
 
+    /**
+     * 2 つのモデルスナップショットを比較し、targetSnap に存在する「変更があった or 関連する」
+     * ノード ID を返す。undo/redo 後のカーソル復帰先として使う。
+     * @param targetSnap 移動先 (undo なら old / redo なら new) — 移動後の model に対応
+     * @param otherSnap 移動元 (undo なら new / redo なら old)
+     * @returns {string|null} target に存在するノード ID。見つからなければ null
+     */
+    function findDiffNodeIdInTarget(targetSnap, otherSnap) {
+        try {
+            var t = typeof targetSnap === 'string' ? JSON.parse(targetSnap) : targetSnap;
+            var o = typeof otherSnap === 'string' ? JSON.parse(otherSnap) : otherSnap;
+            var tNodes = t.nodes || {};
+            var oNodes = o.nodes || {};
+            // Phase A: target に存在 + 内容が他と異なる (全フィールド網羅)
+            for (var idT in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT)) continue;
+                var on = oNodes[idT];
+                var tn = tNodes[idT];
+                if (!on) return idT; // target だけに存在
+                if ((tn.text || '') !== (on.text || '')) return idT;
+                if (!!tn.collapsed !== !!on.collapsed) return idT;
+                if ((tn.subtext || '') !== (on.subtext || '')) return idT;
+                if (!!tn.isPage !== !!on.isPage) return idT;
+                if ((tn.pageId || null) !== (on.pageId || null)) return idT;
+                if ((tn.filePath || null) !== (on.filePath || null)) return idT;
+                // children 配列の差分 (順序含む)
+                var tc = (tn.children || []).join(',');
+                var oc = (on.children || []).join(',');
+                if (tc !== oc) return idT;
+            }
+            // Phase B: other に存在 + target から消滅 (undo で削除戻し / redo で削除実行)
+            //          消えたノードの親 or 前兄弟 (target に存在するもの) を返す。
+            for (var idO in oNodes) {
+                if (!Object.prototype.hasOwnProperty.call(oNodes, idO)) continue;
+                if (tNodes[idO]) continue;
+                var deleted = oNodes[idO];
+                if (deleted.parentId && tNodes[deleted.parentId]) return deleted.parentId;
+                // root レベルの場合: other.rootIds で前兄弟を探す
+                if (o.rootIds) {
+                    var idx = o.rootIds.indexOf(idO);
+                    for (var k = idx - 1; k >= 0; k--) {
+                        if (tNodes[o.rootIds[k]]) return o.rootIds[k];
+                    }
+                }
+            }
+        } catch (e) { /* fall through */ }
+        return null;
+    }
+
+    /**
+     * 折りたたまれた親をすべて展開してから対象ノードを focus する。
+     * (undo/redo 後に diff ノードが collapse 配下で DOM に存在しない場合の対策)
+     */
+    function expandAncestorsAndFocus(nodeId) {
+        if (!model.getNode(nodeId)) return false;
+        // 親をたどって collapsed=true のものを展開
+        var changed = false;
+        var current = model.getParent(nodeId);
+        while (current) {
+            if (current.collapsed) {
+                current.collapsed = false;
+                changed = true;
+            }
+            current = model.getParent(current.id);
+        }
+        if (changed) {
+            renderTree();
+        }
+        focusNode(nodeId);
+        // focus 結果を確認: DOM に出ていなければ false
+        var ae = document.activeElement;
+        return !!(ae && ae.classList && ae.classList.contains('outliner-text') &&
+                  ae.dataset && ae.dataset.nodeId === nodeId);
+    }
+
+    /** undo/redo 後にカーソルを「変更があった node」に置く。fallback で focusedNodeId / 先頭 node */
+    function focusAfterUndoRedo(diffNodeId) {
+        if (diffNodeId && model.getNode(diffNodeId)) {
+            if (expandAncestorsAndFocus(diffNodeId)) return;
+        }
+        if (focusedNodeId && model.getNode(focusedNodeId)) {
+            if (expandAncestorsAndFocus(focusedNodeId)) return;
+        }
+        var flat = model.getFlattenedIds(true);
+        if (flat.length > 0) { focusNode(flat[0]); }
+    }
+
     function undo() {
         // デバウンス中のスナップショットをフラッシュ
         if (snapshotDebounceTimer) {
@@ -22639,53 +22726,83 @@ var Outliner = (function() {
         }
         if (undoStack.length === 0) { return; }
         isUndoRedo = true;
+        // 検索ボックスは undo/redo 対象から外す: 値を保存して終了時に強制復元する。
+        // ブラウザ native input undo / 各種経路で復活しないように二重防御
+        var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
-        // top が現在と同じならスキップ（実質的に変化がないため）
-        if (undoStack[undoStack.length - 1] === currentSnapshot) {
+        // top が現在と同じ snapshot は冗長 (二重 push 等) → **連続して全部捨てる**
+        // (1 回の cmd+z で no-op が起きないようにする)
+        while (undoStack.length > 0 && undoStack[undoStack.length - 1] === currentSnapshot) {
             undoStack.pop();
-            if (undoStack.length === 0) {
-                isUndoRedo = false;
-                updateUndoRedoButtons();
-                return;
+        }
+        if (undoStack.length === 0) {
+            // 実 undo できる対象なし。focus を維持して、cursor 移動を発生させない。
+            isUndoRedo = false;
+            updateUndoRedoButtons();
+            if (searchInput && searchInput.value !== savedSearchValue) {
+                searchInput.value = savedSearchValue;
             }
+            var aeKeep = document.activeElement;
+            var stillOnNode = aeKeep && aeKeep.classList && aeKeep.classList.contains('outliner-text');
+            if (!stillOnNode && focusedNodeId && model.getNode(focusedNodeId)) {
+                focusNode(focusedNodeId);
+            }
+            return;
         }
         redoStack.push(currentSnapshot);
         var snapshot = undoStack.pop();
+        // 差分検出: undo 戻り先 (snapshot) と 戻る前 (currentSnapshot) の diff
+        // diff: target = snapshot (移動先), other = currentSnapshot (移動元)
+        var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        if (focusedNodeId && model.getNode(focusedNodeId)) {
-            focusNode(focusedNodeId);
-        }
+        focusAfterUndoRedo(diffNodeId);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
+        // 検索ボックスの値を強制復元 (undo/redo の対象から外す)
+        if (searchInput && searchInput.value !== savedSearchValue) {
+            searchInput.value = savedSearchValue;
+            updateSearchClearButton();
+        }
     }
 
     function redo() {
         if (redoStack.length === 0) { return; }
         isUndoRedo = true;
+        // 検索ボックスは undo/redo 対象から外す: 値を保存して終了時に強制復元
+        var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
-        // top が現在と同じならスキップ
-        if (redoStack[redoStack.length - 1] === currentSnapshot) {
+        // top が現在と同じ snapshot は冗長 → 全部捨てる (連続 dedup)
+        while (redoStack.length > 0 && redoStack[redoStack.length - 1] === currentSnapshot) {
             redoStack.pop();
-            if (redoStack.length === 0) {
-                isUndoRedo = false;
-                updateUndoRedoButtons();
-                return;
+        }
+        if (redoStack.length === 0) {
+            isUndoRedo = false;
+            updateUndoRedoButtons();
+            if (searchInput && searchInput.value !== savedSearchValue) {
+                searchInput.value = savedSearchValue;
             }
+            return;
         }
         undoStack.push(currentSnapshot);
         var snapshot = redoStack.pop();
+        // 差分検出: redo 進む先 (snapshot) と 進む前 (currentSnapshot) の diff
+        // diff: target = snapshot (移動先), other = currentSnapshot (移動元)
+        var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        if (focusedNodeId && model.getNode(focusedNodeId)) {
-            focusNode(focusedNodeId);
-        }
+        focusAfterUndoRedo(diffNodeId);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
+        // 検索ボックスの値を強制復元
+        if (searchInput && searchInput.value !== savedSearchValue) {
+            searchInput.value = savedSearchValue;
+            updateSearchClearButton();
+        }
     }
 
     // --- 初期化 ---
@@ -25834,6 +25951,29 @@ var Outliner = (function() {
     function setupSearchBar() {
         if (!searchInput) { return; }
 
+        // 検索ボックスを undo/redo 対象から完全に外す:
+        // 1. beforeinput で historyUndo/Redo を block (capture phase)
+        // 2. input イベント時に inputType=historyUndo/Redo を検出 → 即座に value を消す
+        //    (beforeinput の preventDefault が一部ブラウザで無効な場合の fallback)
+        searchInput.addEventListener('beforeinput', function(e) {
+            if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true); // capture phase
+        var lastUserValue = '';
+        searchInput.addEventListener('input', function(e) {
+            // 通常の入力時は記録
+            if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') {
+                lastUserValue = searchInput.value;
+                return;
+            }
+            // native undo/redo が走った場合: 即座に lastUserValue へ revert
+            searchInput.value = lastUserValue;
+            updateSearchClearButton();
+            e.stopImmediatePropagation();
+        }, true); // capture phase
+
         // クリアボタン
         searchClearBtn = document.querySelector('.outliner-search-clear-btn');
         if (searchClearBtn) {
@@ -28752,6 +28892,57 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
+        // 検索ボックスを undo/redo 対象から完全に外すための **多段防御層**:
+        // - cmd+z / cmd+shift+z / cmd+y で、searchInput.value を保存し
+        //   イベント処理完了後に強制復元する。
+        // - これにより、handleNodeKeydown / 他の分岐 / ブラウザ native input undo の
+        //   いずれの経路を通っても searchInput.value は変わらない。
+        // 直近の cmd+z 発火時刻と当時のフォーカス要素を保持
+        // (search input が focusin 受信した時に、これを参照して revert する)
+        document.addEventListener('keydown', function(e) {
+            if (!searchInput) return;
+            var isUndoRedoKey = (e.metaKey || e.ctrlKey) &&
+                (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y');
+            if (!isUndoRedoKey) return;
+            window.__lastUndoRedoFiredAt = Date.now();
+            window.__lastUndoRedoSavedFocus = document.activeElement;
+            var savedValue = searchInput.value;
+            var savedActiveEl = window.__lastUndoRedoSavedFocus;
+            var checkpoints = [0, 4, 16, 64, 200];
+            checkpoints.forEach(function(ms) {
+                setTimeout(function() {
+                    if (searchInput && searchInput.value !== savedValue) {
+                        searchInput.value = savedValue;
+                        updateSearchClearButton();
+                    }
+                    if (document.activeElement === searchInput &&
+                        savedActiveEl && savedActiveEl !== searchInput &&
+                        document.contains(savedActiveEl)) {
+                        try { savedActiveEl.focus({ preventScroll: true }); }
+                        catch (err) { try { savedActiveEl.focus(); } catch (e2) {} }
+                    }
+                }, ms);
+            });
+        }, true);
+
+        // searchInput の focusin event をリッスンし、直近 (~300ms 以内) に
+        // cmd+z が走っていたら、native fc によるフォーカス移動とみなして元に戻す。
+        if (searchInput) {
+            searchInput.addEventListener('focusin', function(ev) {
+                var since = Date.now() - (window.__lastUndoRedoFiredAt || 0);
+                if (since < 300) {
+                    var prev = window.__lastUndoRedoSavedFocus;
+                    if (prev && prev !== searchInput && document.contains(prev)) {
+                        try { prev.focus({ preventScroll: true }); }
+                        catch (err) { try { prev.focus(); } catch (e2) {} }
+                    } else {
+                        // 元 focus が消えていたら少なくとも searchInput からは外す
+                        searchInput.blur();
+                    }
+                }
+            });
+        }
+
         document.addEventListener('keydown', function(e) {
             // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
             //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)

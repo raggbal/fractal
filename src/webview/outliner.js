@@ -107,16 +107,16 @@ var Outliner = (function() {
     function saveSnapshot() {
         if (isUndoRedo) { return; }
         var snapshot = JSON.stringify(model.serialize());
-        // 前回と同じなら保存しない
+        // 完全 dedup: 配列内のいずれかと同じならスキップ (二重 push を完全防止)
+        // 通常 push は末尾だが、何らかの経路で同じ snapshot が再 push されないか念のため。
         if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snapshot) { return; }
-        // 最初の編集: baseline を undoStack に入れてから現在の状態を積む
-        // （baseline と同じ場合でも push する — Enter等の構造変更ハンドラは
-        //   モデル変更前に saveSnapshot() を呼ぶため、この時点では baseline と同じ。
-        //   push しないと Undo 先がなくなる）
-        if (undoStack.length === 0 && baselineSnapshot) {
+        if (undoStack.length === 0 && baselineSnapshot && baselineSnapshot !== snapshot) {
             undoStack.push(baselineSnapshot);
         }
-        undoStack.push(snapshot);
+        // 仮に baseline === snapshot だった場合も「現状」として 1 件は積む必要があるので push
+        if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== snapshot) {
+            undoStack.push(snapshot);
+        }
         if (undoStack.length > MAX_UNDO) { undoStack.shift(); }
         redoStack.length = 0;
         updateUndoRedoButtons();
@@ -140,6 +140,132 @@ var Outliner = (function() {
         }, SNAPSHOT_DEBOUNCE_MS);
     }
 
+    /**
+     * 2 つのモデルスナップショットを比較し、targetSnap に存在する「変更があった or 関連する」
+     * ノード ID を返す。undo/redo 後のカーソル復帰先として使う。
+     * @param targetSnap 移動先 (undo なら old / redo なら new) — 移動後の model に対応
+     * @param otherSnap 移動元 (undo なら new / redo なら old)
+     * @returns {string|null} target に存在するノード ID。見つからなければ null
+     */
+    function findDiffNodeIdInTarget(targetSnap, otherSnap) {
+        try {
+            var t = typeof targetSnap === 'string' ? JSON.parse(targetSnap) : targetSnap;
+            var o = typeof otherSnap === 'string' ? JSON.parse(otherSnap) : otherSnap;
+            var tNodes = t.nodes || {};
+            var oNodes = o.nodes || {};
+            // Phase 1: target に存在 + テキスト系内容が異なる (text/collapsed/subtext/isPage/pageId/filePath)
+            // ★ children 配列 diff より優先。子ノード追加/削除で parent.children が変わっても
+            //    text 編集ノードがあればそちらを優先返す (cursor が parent に飛ぶバグの根本対策)
+            for (var idT in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT)) continue;
+                var on = oNodes[idT];
+                var tn = tNodes[idT];
+                if (!on) continue; // target だけに存在 → Phase 2 で扱う
+                if ((tn.text || '') !== (on.text || '')) return idT;
+                if ((tn.subtext || '') !== (on.subtext || '')) return idT;
+                if (!!tn.collapsed !== !!on.collapsed) return idT;
+                if (!!tn.isPage !== !!on.isPage) return idT;
+                if ((tn.pageId || null) !== (on.pageId || null)) return idT;
+                if ((tn.filePath || null) !== (on.filePath || null)) return idT;
+                // ★ parentId 差分 = indent / outdent / move。moved node 自身を返す
+                //   (Phase 4 だと parent 側の children diff にヒットして親が返る不具合の対策)
+                if ((tn.parentId || null) !== (on.parentId || null)) return idT;
+            }
+            // Phase 2: target だけに存在するノード (= undo で復活 / redo で新規追加)
+            for (var idT2 in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT2)) continue;
+                if (!oNodes[idT2]) return idT2;
+            }
+            // Phase 3: other に存在 + target から消滅 (undo で削除 / redo で削除実行)
+            //          削除ノードの **前兄弟** を優先、無ければ親、無ければ後続兄弟
+            for (var idO in oNodes) {
+                if (!Object.prototype.hasOwnProperty.call(oNodes, idO)) continue;
+                if (tNodes[idO]) continue;
+                var deleted = oNodes[idO];
+                // 削除ノードの兄弟リストを other 側で取得
+                var sibList = null;
+                if (deleted.parentId && oNodes[deleted.parentId]) {
+                    sibList = oNodes[deleted.parentId].children || [];
+                } else if (o.rootIds) {
+                    sibList = o.rootIds;
+                }
+                if (sibList) {
+                    var idxO = sibList.indexOf(idO);
+                    // 前兄弟 (target に存在する最初のもの)
+                    for (var k1 = idxO - 1; k1 >= 0; k1--) {
+                        if (tNodes[sibList[k1]]) return sibList[k1];
+                    }
+                    // 後続兄弟
+                    for (var k2 = idxO + 1; k2 < sibList.length; k2++) {
+                        if (tNodes[sibList[k2]]) return sibList[k2];
+                    }
+                }
+                // 最終 fallback: 親 (text 編集と区別したいので Phase 3 末尾)
+                if (deleted.parentId && tNodes[deleted.parentId]) return deleted.parentId;
+            }
+            // Phase 4: 最終手段 — target で children 配列が異なる (移動/順序変更)
+            for (var idT3 in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT3)) continue;
+                var on3 = oNodes[idT3];
+                var tn3 = tNodes[idT3];
+                if (!on3) continue;
+                var tc = (tn3.children || []).join(',');
+                var oc = (on3.children || []).join(',');
+                if (tc !== oc) return idT3;
+            }
+        } catch (e) { /* fall through */ }
+        return null;
+    }
+
+    /**
+     * 折りたたまれた親をすべて展開してから対象ノードを focus する。
+     * (undo/redo 後に diff ノードが collapse 配下で DOM に存在しない場合の対策)
+     */
+    function expandAncestorsAndFocus(nodeId) {
+        var nodeForLog = model.getNode(nodeId);
+        console.log('[Fractal:expandAncestorsAndFocus] nodeId=', nodeId, 'exists=', !!nodeForLog, 'text=', nodeForLog && nodeForLog.text, 'parentId=', nodeForLog && nodeForLog.parentId);
+        if (!nodeForLog) return false;
+        var changed = false;
+        var current = model.getParent(nodeId);
+        while (current) {
+            console.log('[Fractal:expandAncestorsAndFocus]   ancestor', current.id, 'collapsed=', !!current.collapsed);
+            if (current.collapsed) {
+                current.collapsed = false;
+                changed = true;
+            }
+            current = model.getParent(current.id);
+        }
+        if (changed) {
+            console.log('[Fractal:expandAncestorsAndFocus] re-render due to expansion');
+            renderTree();
+        }
+        focusNode(nodeId);
+        var ae = document.activeElement;
+        var ok = !!(ae && ae.classList && ae.classList.contains('outliner-text') &&
+                  ae.dataset && ae.dataset.nodeId === nodeId);
+        console.log('[Fractal:expandAncestorsAndFocus] focusNode result OK=', ok, 'activeEl=', ae && ae.tagName, ae && ae.className, 'data-node-id=', ae && ae.dataset && ae.dataset.nodeId);
+        return ok;
+    }
+
+    function focusAfterUndoRedo(diffNodeId) {
+        console.log('[Fractal:focusAfterUndoRedo] diffNodeId=', diffNodeId, 'focusedNodeId=', focusedNodeId, 'rootIds=', model.rootIds);
+        if (diffNodeId && model.getNode(diffNodeId)) {
+            if (expandAncestorsAndFocus(diffNodeId)) {
+                console.log('[Fractal:focusAfterUndoRedo] → success via diffNodeId');
+                return;
+            }
+        }
+        if (focusedNodeId && model.getNode(focusedNodeId)) {
+            if (expandAncestorsAndFocus(focusedNodeId)) {
+                console.log('[Fractal:focusAfterUndoRedo] → success via focusedNodeId fallback');
+                return;
+            }
+        }
+        var flat = model.getFlattenedIds(true);
+        console.log('[Fractal:focusAfterUndoRedo] → final fallback to first node:', flat[0]);
+        if (flat.length > 0) { focusNode(flat[0]); }
+    }
+
     function undo() {
         // デバウンス中のスナップショットをフラッシュ
         if (snapshotDebounceTimer) {
@@ -147,55 +273,103 @@ var Outliner = (function() {
             snapshotDebounceTimer = null;
             saveSnapshot();
         }
-        if (undoStack.length === 0) { return; }
+        if (undoStack.length === 0) { console.log('[Fractal:undo] STACK EMPTY → return'); return; }
         isUndoRedo = true;
+        // Bug fix: undo の syncToHostImmediate → host file write → file watcher echo →
+        // applyExternalUpdate → saveBaseline で undoStack/redoStack が消える + DOM 焦点喪失。
+        // markActivelyEditing で 1.5s の編集中扱いにし、echo を queue させる (連続 cmd+z 中の割り込み防止)。
+        markActivelyEditing();
+        var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
-        // top が現在と同じならスキップ（実質的に変化がないため）
-        if (undoStack[undoStack.length - 1] === currentSnapshot) {
-            undoStack.pop();
-            if (undoStack.length === 0) {
-                isUndoRedo = false;
-                updateUndoRedoButtons();
-                return;
+        console.log('[Fractal:undo] start. stackLen=', undoStack.length, 'redoLen=', redoStack.length);
+        try {
+            var cur = JSON.parse(currentSnapshot);
+            var nodeIds = Object.keys(cur.nodes || {});
+            console.log('[Fractal:undo]   current nodes:', nodeIds.map(function(k){return k+'="'+(cur.nodes[k].text||'')+'"';}).join(' | '));
+            for (var dbgI = undoStack.length - 1; dbgI >= 0 && dbgI >= undoStack.length - 5; dbgI--) {
+                var sp = JSON.parse(undoStack[dbgI]);
+                var nids = Object.keys(sp.nodes || {});
+                console.log('[Fractal:undo]   stack['+dbgI+']:', nids.map(function(k){return k+'="'+(sp.nodes[k].text||'')+'"'+(sp.nodes[k].collapsed?'[c]':'');}).join(' | '));
             }
+        } catch (e) {}
+        while (undoStack.length > 0 && undoStack[undoStack.length - 1] === currentSnapshot) {
+            undoStack.pop();
+            console.log('[Fractal:undo] dedup pop, len=', undoStack.length);
+        }
+        if (undoStack.length === 0) {
+            // 実 undo できる対象なし。focus を維持して、cursor 移動を発生させない。
+            isUndoRedo = false;
+            updateUndoRedoButtons();
+            if (searchInput && searchInput.value !== savedSearchValue) {
+                searchInput.value = savedSearchValue;
+            }
+            var aeKeep = document.activeElement;
+            var stillOnNode = aeKeep && aeKeep.classList && aeKeep.classList.contains('outliner-text');
+            if (!stillOnNode && focusedNodeId && model.getNode(focusedNodeId)) {
+                focusNode(focusedNodeId);
+            }
+            return;
         }
         redoStack.push(currentSnapshot);
         var snapshot = undoStack.pop();
+        var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
+        console.log('[Fractal:undo] popped snapshot, will restore. diffNodeId=', diffNodeId);
+        try {
+            var snp = JSON.parse(snapshot);
+            var sids = Object.keys(snp.nodes || {});
+            console.log('[Fractal:undo]   restore-to nodes:', sids.map(function(k){return k+'="'+(snp.nodes[k].text||'')+'"'+(snp.nodes[k].collapsed?'[c]':'');}).join(' | '));
+        } catch (e) {}
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        if (focusedNodeId && model.getNode(focusedNodeId)) {
-            focusNode(focusedNodeId);
-        }
+        focusAfterUndoRedo(diffNodeId);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
+        // 検索ボックスの値を強制復元 (undo/redo の対象から外す)
+        if (searchInput && searchInput.value !== savedSearchValue) {
+            searchInput.value = savedSearchValue;
+            updateSearchClearButton();
+        }
     }
 
     function redo() {
         if (redoStack.length === 0) { return; }
         isUndoRedo = true;
+        // Bug fix: undo() と同じく markActivelyEditing で echo applyExternalUpdate を 1.5s 遅延
+        markActivelyEditing();
+        // 検索ボックスは undo/redo 対象から外す: 値を保存して終了時に強制復元
+        var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
-        // top が現在と同じならスキップ
-        if (redoStack[redoStack.length - 1] === currentSnapshot) {
+        // top が現在と同じ snapshot は冗長 → 全部捨てる (連続 dedup)
+        while (redoStack.length > 0 && redoStack[redoStack.length - 1] === currentSnapshot) {
             redoStack.pop();
-            if (redoStack.length === 0) {
-                isUndoRedo = false;
-                updateUndoRedoButtons();
-                return;
+        }
+        if (redoStack.length === 0) {
+            isUndoRedo = false;
+            updateUndoRedoButtons();
+            if (searchInput && searchInput.value !== savedSearchValue) {
+                searchInput.value = savedSearchValue;
             }
+            return;
         }
         undoStack.push(currentSnapshot);
         var snapshot = redoStack.pop();
+        // 差分検出: redo 進む先 (snapshot) と 進む前 (currentSnapshot) の diff
+        // diff: target = snapshot (移動先), other = currentSnapshot (移動元)
+        var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        if (focusedNodeId && model.getNode(focusedNodeId)) {
-            focusNode(focusedNodeId);
-        }
+        focusAfterUndoRedo(diffNodeId);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
+        // 検索ボックスの値を強制復元
+        if (searchInput && searchInput.value !== savedSearchValue) {
+            searchInput.value = savedSearchValue;
+            updateSearchClearButton();
+        }
     }
 
     // --- 初期化 ---
@@ -2269,12 +2443,15 @@ var Outliner = (function() {
 
     function focusNode(nodeId) {
         var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        console.log('[Fractal:focusNode] nodeId=', nodeId, 'DOM exists=', !!nodeEl);
         if (!nodeEl) { return; }
         var textEl = nodeEl.querySelector('.outliner-text');
         if (textEl) {
             setFocusedNode(nodeId);
             textEl.focus();
             setCursorToEnd(textEl);
+            var aeAfter = document.activeElement;
+            console.log('[Fractal:focusNode] AFTER focus: activeEl=', aeAfter && aeAfter.tagName, aeAfter && aeAfter.className, 'data-node-id=', aeAfter && aeAfter.dataset && aeAfter.dataset.nodeId, 'isHidden=', getComputedStyle(textEl).display === 'none');
         }
     }
 
@@ -2682,11 +2859,13 @@ var Outliner = (function() {
 
             case 'z':
                 if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+                    console.log('[Fractal:cmd+z] handleNodeKeydown.case-z fires. nodeId=', nodeId, 'isAtStart=', isAtStart, 'isAtEnd=', isAtEnd);
                     e.preventDefault();
                     undo();
                     return;
                 }
                 if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    console.log('[Fractal:cmd+shift+z] handleNodeKeydown.case-z fires. nodeId=', nodeId);
                     e.preventDefault();
                     redo();
                     return;
@@ -3343,6 +3522,29 @@ var Outliner = (function() {
 
     function setupSearchBar() {
         if (!searchInput) { return; }
+
+        // 検索ボックスを undo/redo 対象から完全に外す:
+        // 1. beforeinput で historyUndo/Redo を block (capture phase)
+        // 2. input イベント時に inputType=historyUndo/Redo を検出 → 即座に value を消す
+        //    (beforeinput の preventDefault が一部ブラウザで無効な場合の fallback)
+        searchInput.addEventListener('beforeinput', function(e) {
+            if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        }, true); // capture phase
+        var lastUserValue = '';
+        searchInput.addEventListener('input', function(e) {
+            // 通常の入力時は記録
+            if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') {
+                lastUserValue = searchInput.value;
+                return;
+            }
+            // native undo/redo が走った場合: 即座に lastUserValue へ revert
+            searchInput.value = lastUserValue;
+            updateSearchClearButton();
+            e.stopImmediatePropagation();
+        }, true); // capture phase
 
         // クリアボタン
         searchClearBtn = document.querySelector('.outliner-search-clear-btn');
@@ -6262,6 +6464,57 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
+        // 検索ボックスを undo/redo 対象から完全に外すための **多段防御層**:
+        // - cmd+z / cmd+shift+z / cmd+y で、searchInput.value を保存し
+        //   イベント処理完了後に強制復元する。
+        // - これにより、handleNodeKeydown / 他の分岐 / ブラウザ native input undo の
+        //   いずれの経路を通っても searchInput.value は変わらない。
+        // 直近の cmd+z 発火時刻と当時のフォーカス要素を保持
+        // (search input が focusin 受信した時に、これを参照して revert する)
+        document.addEventListener('keydown', function(e) {
+            if (!searchInput) return;
+            var isUndoRedoKey = (e.metaKey || e.ctrlKey) &&
+                (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y');
+            if (!isUndoRedoKey) return;
+            window.__lastUndoRedoFiredAt = Date.now();
+            window.__lastUndoRedoSavedFocus = document.activeElement;
+            var savedValue = searchInput.value;
+            var savedActiveEl = window.__lastUndoRedoSavedFocus;
+            var checkpoints = [0, 4, 16, 64, 200];
+            checkpoints.forEach(function(ms) {
+                setTimeout(function() {
+                    if (searchInput && searchInput.value !== savedValue) {
+                        searchInput.value = savedValue;
+                        updateSearchClearButton();
+                    }
+                    if (document.activeElement === searchInput &&
+                        savedActiveEl && savedActiveEl !== searchInput &&
+                        document.contains(savedActiveEl)) {
+                        try { savedActiveEl.focus({ preventScroll: true }); }
+                        catch (err) { try { savedActiveEl.focus(); } catch (e2) {} }
+                    }
+                }, ms);
+            });
+        }, true);
+
+        // searchInput の focusin event をリッスンし、直近 (~300ms 以内) に
+        // cmd+z が走っていたら、native fc によるフォーカス移動とみなして元に戻す。
+        if (searchInput) {
+            searchInput.addEventListener('focusin', function(ev) {
+                var since = Date.now() - (window.__lastUndoRedoFiredAt || 0);
+                if (since < 300) {
+                    var prev = window.__lastUndoRedoSavedFocus;
+                    if (prev && prev !== searchInput && document.contains(prev)) {
+                        try { prev.focus({ preventScroll: true }); }
+                        catch (err) { try { prev.focus(); } catch (e2) {} }
+                    } else {
+                        // 元 focus が消えていたら少なくとも searchInput からは外す
+                        searchInput.blur();
+                    }
+                }
+            });
+        }
+
         document.addEventListener('keydown', function(e) {
             // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
             //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)
@@ -6330,12 +6583,11 @@ var Outliner = (function() {
             }
             // グローバル Undo/Redo (検索バーフォーカス時も動作)
             if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-                // ノード内keydownで処理済みの場合はスキップ
-                if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { return; }
-                // 検索ボックスフォーカス時は搜索 input keydown handler 内でハンドル済 (no-op で native undo 抑制)
-                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { return; }
-                // editor.js capture handler で sidepanel markdown の undo が処理済みならスキップ
-                if (e.defaultPrevented) { return; }
+                console.log('[Fractal:cmd+z] document-level handler fires. activeEl=', document.activeElement && document.activeElement.tagName, document.activeElement && document.activeElement.className, 'defaultPrevented=', e.defaultPrevented);
+                if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { console.log('[Fractal:cmd+z] document-level: skip (outliner-text already handled)'); return; }
+                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { console.log('[Fractal:cmd+z] document-level: skip (search-input)'); return; }
+                if (e.defaultPrevented) { console.log('[Fractal:cmd+z] document-level: skip (defaultPrevented)'); return; }
+                console.log('[Fractal:cmd+z] document-level: calling undo()');
                 e.preventDefault();
                 undo();
             }

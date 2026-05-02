@@ -5,6 +5,24 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.195.781] - 2026-05-02
+
+### Fixed
+- **Outliner: cmd+z / cmd+shift+z で「編集対象ノード」に正しくカーソル復帰** — `findDiffNodeIdInTarget()` の差分検知ロジックを 4 phase に再構成。Phase 1 で `text/subtext/collapsed/isPage/pageId/filePath/parentId` を最優先比較し、children 配列 diff (Phase 4) より前に評価する。これにより:
+  - 子ノードの追加/削除取消時に親ノードへ飛んでしまうバグを解消（旧: `parent.children` 配列 diff にヒット → 親が返る）
+  - Tab/Shift+Tab で indent / outdent した直後の cmd+z / cmd+shift+z で、moved node 自身にカーソル復帰（旧: 移動先親ノードへ飛んでしまう）
+  - 削除ノードの兄弟検索ロジックを Phase 3 に分離し、前兄弟 → 後続兄弟 → 親の優先順で focus 候補を選ぶ
+- **Outliner: cmd+z 1 回で複数の重複 snapshot を一括 pop** — undo() / redo() に while-loop dedup を入れ、stack に積まれた連続同一 snapshot を 1 操作で全て消費。「最初の cmd+z で何も起きず、2 回目で undo 実行」現象を解消
+- **Outliner: 検索ボックスで cmd+z 押下時の native input undo 抑止** — document-level の capture-phase keydown listener を追加し、`searchInput.value` が native の input history で書き換わるのを防ぐ多層防御 (5 層)
+- **Outliner: undo/redo 後のフォーカス保護** — `markActivelyEditing()` を undo/redo に呼び出し、外部ファイル変更通知 (file watcher echo) で `undoStack` がリセットされるレースを防ぐ
+- **Outliner: collapse された祖先配下のノードへ undo フォーカスする時に展開** — `expandAncestorsAndFocus()` で全祖先を展開してから focus
+
+### Added
+- **Integration tests** for undo/redo cursor behavior:
+  - `test/specs/integration-outliner-undo-redo-cursor.spec.ts`
+  - `test/specs/integration-outliner-undo-2step-trace.spec.ts`
+  - `test/specs/integration-outliner-search-undo-and-nav-shortcut.spec.ts` (拡張)
+
 ## [0.195.766] - 2026-05-01
 
 ### Fixed

@@ -115,34 +115,104 @@ test.describe('Outliner: search box not in undo + nav shortcut', () => {
         expect(afterFwdDisabled).toBe(false);
     });
 
-    test('(1)b 検索入力 → 削除 → ノードフォーカス → cmd+z で検索文字が復活しない', async ({ page }) => {
+    test('(1)b 検索入力 → 削除 → ノードフォーカス → cmd+z で検索文字が復活しない (実際の typing 再現)', async ({ page }) => {
         await page.evaluate(() => {
             (window as any).__testApi.initOutliner({
                 version: 1,
                 rootIds: ['n1'],
                 nodes: {
-                    n1: { id: 'n1', parentId: null, children: [], text: 'TODO', tags: [] }
+                    n1: { id: 'n1', parentId: null, children: [], text: 'TODO match', tags: [] }
                 }
             });
         });
 
-        // 1. search box 入力 → debounce 待ち
-        await page.locator('.outliner-search-input').fill('foobar');
-        await page.waitForTimeout(250);
+        // 1. search box にフォーカスして実際にキー入力 (match させる文字列で表示維持)
+        await page.locator('.outliner-search-input').click();
+        await page.keyboard.type('TODO', { delay: 80 });
+        await page.waitForTimeout(300);
 
-        // 2. 削除
-        await page.locator('.outliner-search-input').fill('');
-        await page.waitForTimeout(250);
+        // 2. 削除: Playwright で完全削除を確実にするため evaluate で value='' + input event dispatch
+        //    (実際の native input undo stack には typing 部分のみ残る)
+        await page.evaluate(() => {
+            var inp = document.querySelector('.outliner-search-input') as HTMLInputElement;
+            if (inp) {
+                inp.value = '';
+                inp.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true }));
+            }
+        });
+        await page.waitForTimeout(300);
+        const beforeFocusValue = await page.evaluate(() => {
+            return (document.querySelector('.outliner-search-input') as HTMLInputElement)?.value;
+        });
+        expect(beforeFocusValue).toBe('');
 
-        // 3. ノードにフォーカス移動
-        await page.locator('.outliner-node[data-id="n1"] .outliner-text').click();
+        // 3. ノードにフォーカス移動 (DOM レベルで focus 確実に移動)
+        await page.evaluate(() => {
+            const textEl = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
+            textEl.focus();
+        });
         await page.waitForTimeout(100);
+
+        // focus が確実に node に移ったか確認
+        const focusOnNode = await page.evaluate(() =>
+            document.activeElement?.classList.contains('outliner-text'));
+        expect(focusOnNode).toBe(true);
 
         // 4. cmd+z (focus は node)
         await page.keyboard.press('Meta+z');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(500);
 
-        // 5. 検索ボックスは空のまま
+        // 5. 検索ボックスは空のまま + フォーカスは node に維持されている
+        const result = await page.evaluate(() => {
+            const input = document.querySelector('.outliner-search-input') as HTMLInputElement;
+            const ae = document.activeElement;
+            return {
+                value: input?.value,
+                focusOnSearch: ae === input,
+                focusOnNode: !!(ae && ae.classList.contains('outliner-text'))
+            };
+        });
+        expect(result.value).toBe('');
+        expect(result.focusOnSearch).toBe(false);
+        expect(result.focusOnNode).toBe(true);
+    });
+
+    test('(1)c 連打 cmd+z (5 回) でも検索文字は復活しない', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'hello match', tags: [] }
+                }
+            });
+        });
+
+        await page.locator('.outliner-search-input').click();
+        await page.keyboard.type('hello', { delay: 80 });
+        await page.waitForTimeout(300);
+        await page.evaluate(() => {
+            var inp = document.querySelector('.outliner-search-input') as HTMLInputElement;
+            if (inp) {
+                inp.value = '';
+                inp.dispatchEvent(new InputEvent('input', { inputType: 'deleteContentBackward', bubbles: true }));
+            }
+        });
+        await page.waitForTimeout(300);
+
+        await page.evaluate(() => {
+            const textEl = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
+            textEl.focus();
+        });
+        await page.waitForTimeout(100);
+
+        // cmd+z 連打
+        for (var j = 0; j < 5; j++) {
+            await page.keyboard.press('Meta+z');
+            await page.waitForTimeout(80);
+        }
+        await page.waitForTimeout(200);
+
         const value = await page.evaluate(() => {
             const input = document.querySelector('.outliner-search-input') as HTMLInputElement;
             return input?.value;
