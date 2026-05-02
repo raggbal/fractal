@@ -72,6 +72,8 @@ export function getNotesWebviewContent(
         path.join(__dirname, 'shared', 'notes-host-bridge.js'), 'utf8');
 
     // Load outliner scripts
+    const outlinerCellScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'outliner-cell.js'), 'utf8');
     const outlinerModelScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'outliner-model.js'), 'utf8');
     const outlinerSearchScript = fs.readFileSync(
@@ -190,6 +192,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${notesHostBridgeScript}</script>
     <script nonce="${nonce}">${editorUtilsScript}</script>
     <script nonce="${nonce}">${editorScript}</script>
+    <script nonce="${nonce}">${outlinerCellScript}</script>
     <script nonce="${nonce}">${outlinerModelScript}</script>
     <script nonce="${nonce}">${outlinerSearchScript}</script>
     <script nonce="${nonce}">${outlinerScript}</script>

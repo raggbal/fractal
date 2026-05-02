@@ -47,6 +47,8 @@ export function getOutlinerWebviewContent(
     const hostBridgeScript = fs.readFileSync(hostBridgePath, 'utf8');
 
     // Load outliner scripts
+    const outlinerCellScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'outliner-cell.js'), 'utf8');
     const outlinerModelScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'outliner-model.js'), 'utf8');
     const outlinerSearchScript = fs.readFileSync(
@@ -154,6 +156,9 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${hostBridgeScript}
+    </script>
+    <script nonce="${nonce}">
+        ${outlinerCellScript}
     </script>
     <script nonce="${nonce}">
         ${outlinerModelScript}

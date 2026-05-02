@@ -15,6 +15,7 @@ const path = require('path');
 const editorJsPath = path.join(__dirname, '../src/webview/editor.js');
 const editorUtilsJsPath = path.join(__dirname, '../src/webview/editor-utils.js');
 const outlinerJsPath = path.join(__dirname, '../src/webview/outliner.js');
+const outlinerCellJsPath = path.join(__dirname, '../src/webview/outliner-cell.js');
 const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.js');
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
 const outlinerCssPath = path.join(__dirname, '../src/webview/outliner.css');
@@ -62,6 +63,7 @@ editorScript = editorScript
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
+const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
@@ -268,6 +270,9 @@ const html = `<!DOCTYPE html>
     __TEST_HOST_BRIDGE__
     </script>
     <script>
+    __OUTLINER_CELL_SCRIPT__
+    </script>
+    <script>
     __OUTLINER_MODEL_SCRIPT__
     </script>
     <script>
@@ -304,6 +309,7 @@ result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testOutlinerHostBridge);
+result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);

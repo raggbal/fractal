@@ -21707,6 +21707,150 @@ window.__createSidePanelBridgeMethods = function(postFn) {
     </script>
     <script>
     /**
+ * OutlinerCell — single-cell rich-text rendering helpers
+ *
+ * Pure functions extracted from outliner.js for re-use across:
+ *   - outliner editor (existing)
+ *   - outliner-table editor (Notion / Coda style table view, new in this sprint)
+ *
+ * Public API (Phase 1):
+ *   OutlinerCell.renderInlineText(text)
+ *   OutlinerCell.classifyLinkHref(href)
+ *
+ * Phase 2〜5 will add: stripInlineMarkers, renderEditingText,
+ * convertUrlsToMarkdownLinks, cursor / DOM helpers, image helpers,
+ * applyInlineFormat / subtext open/close (host inject).
+ *
+ * Depends on global `MarkdownLinkParser` (loaded before this script).
+ *
+ * UMD pattern: works as `window.OutlinerCell` in webview / standalone HTML
+ * AND as `module.exports` in Node.js (CommonJS) for unit tests.
+ */
+(function (root, factory) {
+    if (typeof exports === 'object' && typeof module !== 'undefined') {
+        // Node.js / CommonJS — accept MarkdownLinkParser via require if available
+        var MarkdownLinkParserDep = null;
+        try {
+            // eslint-disable-next-line global-require
+            MarkdownLinkParserDep = require('../shared/markdown-link-parser.js');
+        } catch (_e) {
+            // MarkdownLinkParser optional in pure unit tests
+            MarkdownLinkParserDep = null;
+        }
+        module.exports = factory(MarkdownLinkParserDep);
+    } else {
+        // Browser global — read MarkdownLinkParser from window (loaded earlier)
+        root.OutlinerCell = factory(typeof MarkdownLinkParser !== 'undefined' ? MarkdownLinkParser : null);
+    }
+}(typeof self !== 'undefined' ? self : this, function (MarkdownLinkParserParam) {
+    'use strict';
+
+    // Look up MarkdownLinkParser dynamically: in browser the global may be
+    // defined after this UMD wrapper executes, in tests we may pass it in.
+    function getMLP() {
+        if (MarkdownLinkParserParam) { return MarkdownLinkParserParam; }
+        if (typeof MarkdownLinkParser !== 'undefined') { return MarkdownLinkParser; }
+        return null;
+    }
+
+    /** リンクhrefからリンク種別のCSSクラスを返す */
+    function classifyLinkHref(href) {
+        if (!href) { return ''; }
+        if (href.startsWith('fractal://note/')) {
+            return /\/page\/[^/?]+$/.test(href) ? 'link-fractal-page' : 'link-fractal-node';
+        }
+        if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#') &&
+            /\.(?:md|markdown)(?:[#?]|$)/i.test(href)) {
+            return 'link-internal-md';
+        }
+        return '';
+    }
+
+    /** プレーンテキストからインラインMarkdownをHTMLに変換 */
+    function renderInlineText(text) {
+        if (!text) { return ''; }
+
+        // エスケープ
+        var html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        // インラインコード (先に処理してコード内を保護)
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+        // 太字
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+        // 斜体 — **の一部である*にマッチしないよう lookbehind/lookahead を使用
+        html = html.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '<em>$1</em>');
+
+        // 取り消し線
+        html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+        // リンク — Markdownリンクと生URLを一時退避してからタグ変換（URL内の@をタグ化しない）
+        var linkPlaceholders = [];
+        var MLP = getMLP();
+        // まず Markdown リンク [text](url) を balanced paren parser で退避
+        if (MLP) {
+            var inlineLinks = MLP.parseMarkdownLinks(html);
+            // end 降順に置換 (index ズレ回避)
+            var sortedInline = inlineLinks.slice().sort(function(a, b) { return b.end - a.end; });
+            for (var ili = 0; ili < sortedInline.length; ili++) {
+                var il = sortedInline[ili];
+                if (il.kind === 'link' && il.alt.length > 0) {
+                    var ilClass = classifyLinkHref(il.url);
+                    var ilClassAttr = ilClass ? ' class="' + ilClass + '"' : '';
+                    var ilTag = '<a href="' + il.url + '"' + ilClassAttr + ' title="' + il.url + '">' + il.alt + '</a>';
+                    linkPlaceholders.push(ilTag);
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                } else if (il.kind === 'image') {
+                    // image syntax in outliner は通常のテキストとして表示するので退避のみ
+                    linkPlaceholders.push(html.slice(il.start, il.end));
+                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
+                }
+            }
+        }
+        // 次に生 URL (https://...) も balanced paren 対応で退避
+        var rawUrlOut = '';
+        var rawUrlI = 0;
+        while (rawUrlI < html.length) {
+            var rawHead = html.slice(rawUrlI, rawUrlI + 8).toLowerCase();
+            if ((rawHead.indexOf('http://') === 0 || rawHead.indexOf('https://') === 0) && MLP) {
+                var rawFound = MLP.extractUrlWithBalancedParens(html, rawUrlI);
+                if (rawFound) {
+                    linkPlaceholders.push(rawFound.url);
+                    rawUrlOut += '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
+                    rawUrlI = rawFound.endIndex;
+                    continue;
+                }
+            }
+            rawUrlOut += html.charAt(rawUrlI);
+            rawUrlI++;
+        }
+        html = rawUrlOut;
+
+        // タグ (#tag / @tag) — \w では日本語にマッチしないため Unicode プロパティを使用
+        html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
+        html = html.replace(/\x00LINK(\d+)\x00/g, function(_, idx) {
+            return linkPlaceholders[parseInt(idx, 10)];
+        });
+
+        // 末尾スペースをNBSPに変換 (contenteditableで末尾空白が描画されない問題を回避)
+        html = html.replace(/ $/, ' ');
+
+        return html;
+    }
+
+    return {
+        renderInlineText: renderInlineText,
+        classifyLinkHref: classifyLinkHref
+    };
+}));
+
+    </script>
+    <script>
+    /**
  * OutlinerModel — アウトライナのデータモデル
  *
  * ツリー構造の CRUD 操作、タグ解析、シリアライズを担当。
@@ -22643,37 +22787,65 @@ var Outliner = (function() {
             var o = typeof otherSnap === 'string' ? JSON.parse(otherSnap) : otherSnap;
             var tNodes = t.nodes || {};
             var oNodes = o.nodes || {};
-            // Phase A: target に存在 + 内容が他と異なる (全フィールド網羅)
+            // Phase 1: target に存在 + テキスト系内容が異なる (text/collapsed/subtext/isPage/pageId/filePath)
+            // ★ children 配列 diff より優先。子ノード追加/削除で parent.children が変わっても
+            //    text 編集ノードがあればそちらを優先返す (cursor が parent に飛ぶバグの根本対策)
             for (var idT in tNodes) {
                 if (!Object.prototype.hasOwnProperty.call(tNodes, idT)) continue;
                 var on = oNodes[idT];
                 var tn = tNodes[idT];
-                if (!on) return idT; // target だけに存在
+                if (!on) continue; // target だけに存在 → Phase 2 で扱う
                 if ((tn.text || '') !== (on.text || '')) return idT;
-                if (!!tn.collapsed !== !!on.collapsed) return idT;
                 if ((tn.subtext || '') !== (on.subtext || '')) return idT;
+                if (!!tn.collapsed !== !!on.collapsed) return idT;
                 if (!!tn.isPage !== !!on.isPage) return idT;
                 if ((tn.pageId || null) !== (on.pageId || null)) return idT;
                 if ((tn.filePath || null) !== (on.filePath || null)) return idT;
-                // children 配列の差分 (順序含む)
-                var tc = (tn.children || []).join(',');
-                var oc = (on.children || []).join(',');
-                if (tc !== oc) return idT;
+                // ★ parentId 差分 = indent / outdent / move。moved node 自身を返す
+                //   (Phase 4 だと parent 側の children diff にヒットして親が返る不具合の対策)
+                if ((tn.parentId || null) !== (on.parentId || null)) return idT;
             }
-            // Phase B: other に存在 + target から消滅 (undo で削除戻し / redo で削除実行)
-            //          消えたノードの親 or 前兄弟 (target に存在するもの) を返す。
+            // Phase 2: target だけに存在するノード (= undo で復活 / redo で新規追加)
+            for (var idT2 in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT2)) continue;
+                if (!oNodes[idT2]) return idT2;
+            }
+            // Phase 3: other に存在 + target から消滅 (undo で削除 / redo で削除実行)
+            //          削除ノードの **前兄弟** を優先、無ければ親、無ければ後続兄弟
             for (var idO in oNodes) {
                 if (!Object.prototype.hasOwnProperty.call(oNodes, idO)) continue;
                 if (tNodes[idO]) continue;
                 var deleted = oNodes[idO];
-                if (deleted.parentId && tNodes[deleted.parentId]) return deleted.parentId;
-                // root レベルの場合: other.rootIds で前兄弟を探す
-                if (o.rootIds) {
-                    var idx = o.rootIds.indexOf(idO);
-                    for (var k = idx - 1; k >= 0; k--) {
-                        if (tNodes[o.rootIds[k]]) return o.rootIds[k];
+                // 削除ノードの兄弟リストを other 側で取得
+                var sibList = null;
+                if (deleted.parentId && oNodes[deleted.parentId]) {
+                    sibList = oNodes[deleted.parentId].children || [];
+                } else if (o.rootIds) {
+                    sibList = o.rootIds;
+                }
+                if (sibList) {
+                    var idxO = sibList.indexOf(idO);
+                    // 前兄弟 (target に存在する最初のもの)
+                    for (var k1 = idxO - 1; k1 >= 0; k1--) {
+                        if (tNodes[sibList[k1]]) return sibList[k1];
+                    }
+                    // 後続兄弟
+                    for (var k2 = idxO + 1; k2 < sibList.length; k2++) {
+                        if (tNodes[sibList[k2]]) return sibList[k2];
                     }
                 }
+                // 最終 fallback: 親 (text 編集と区別したいので Phase 3 末尾)
+                if (deleted.parentId && tNodes[deleted.parentId]) return deleted.parentId;
+            }
+            // Phase 4: 最終手段 — target で children 配列が異なる (移動/順序変更)
+            for (var idT3 in tNodes) {
+                if (!Object.prototype.hasOwnProperty.call(tNodes, idT3)) continue;
+                var on3 = oNodes[idT3];
+                var tn3 = tNodes[idT3];
+                if (!on3) continue;
+                var tc = (tn3.children || []).join(',');
+                var oc = (on3.children || []).join(',');
+                if (tc !== oc) return idT3;
             }
         } catch (e) { /* fall through */ }
         return null;
@@ -22684,11 +22856,13 @@ var Outliner = (function() {
      * (undo/redo 後に diff ノードが collapse 配下で DOM に存在しない場合の対策)
      */
     function expandAncestorsAndFocus(nodeId) {
-        if (!model.getNode(nodeId)) return false;
-        // 親をたどって collapsed=true のものを展開
+        var nodeForLog = model.getNode(nodeId);
+        console.log('[Fractal:expandAncestorsAndFocus] nodeId=', nodeId, 'exists=', !!nodeForLog, 'text=', nodeForLog && nodeForLog.text, 'parentId=', nodeForLog && nodeForLog.parentId);
+        if (!nodeForLog) return false;
         var changed = false;
         var current = model.getParent(nodeId);
         while (current) {
+            console.log('[Fractal:expandAncestorsAndFocus]   ancestor', current.id, 'collapsed=', !!current.collapsed);
             if (current.collapsed) {
                 current.collapsed = false;
                 changed = true;
@@ -22696,24 +22870,33 @@ var Outliner = (function() {
             current = model.getParent(current.id);
         }
         if (changed) {
+            console.log('[Fractal:expandAncestorsAndFocus] re-render due to expansion');
             renderTree();
         }
         focusNode(nodeId);
-        // focus 結果を確認: DOM に出ていなければ false
         var ae = document.activeElement;
-        return !!(ae && ae.classList && ae.classList.contains('outliner-text') &&
+        var ok = !!(ae && ae.classList && ae.classList.contains('outliner-text') &&
                   ae.dataset && ae.dataset.nodeId === nodeId);
+        console.log('[Fractal:expandAncestorsAndFocus] focusNode result OK=', ok, 'activeEl=', ae && ae.tagName, ae && ae.className, 'data-node-id=', ae && ae.dataset && ae.dataset.nodeId);
+        return ok;
     }
 
-    /** undo/redo 後にカーソルを「変更があった node」に置く。fallback で focusedNodeId / 先頭 node */
     function focusAfterUndoRedo(diffNodeId) {
+        console.log('[Fractal:focusAfterUndoRedo] diffNodeId=', diffNodeId, 'focusedNodeId=', focusedNodeId, 'rootIds=', model.rootIds);
         if (diffNodeId && model.getNode(diffNodeId)) {
-            if (expandAncestorsAndFocus(diffNodeId)) return;
+            if (expandAncestorsAndFocus(diffNodeId)) {
+                console.log('[Fractal:focusAfterUndoRedo] → success via diffNodeId');
+                return;
+            }
         }
         if (focusedNodeId && model.getNode(focusedNodeId)) {
-            if (expandAncestorsAndFocus(focusedNodeId)) return;
+            if (expandAncestorsAndFocus(focusedNodeId)) {
+                console.log('[Fractal:focusAfterUndoRedo] → success via focusedNodeId fallback');
+                return;
+            }
         }
         var flat = model.getFlattenedIds(true);
+        console.log('[Fractal:focusAfterUndoRedo] → final fallback to first node:', flat[0]);
         if (flat.length > 0) { focusNode(flat[0]); }
     }
 
@@ -22724,16 +22907,28 @@ var Outliner = (function() {
             snapshotDebounceTimer = null;
             saveSnapshot();
         }
-        if (undoStack.length === 0) { return; }
+        if (undoStack.length === 0) { console.log('[Fractal:undo] STACK EMPTY → return'); return; }
         isUndoRedo = true;
-        // 検索ボックスは undo/redo 対象から外す: 値を保存して終了時に強制復元する。
-        // ブラウザ native input undo / 各種経路で復活しないように二重防御
+        // Bug fix: undo の syncToHostImmediate → host file write → file watcher echo →
+        // applyExternalUpdate → saveBaseline で undoStack/redoStack が消える + DOM 焦点喪失。
+        // markActivelyEditing で 1.5s の編集中扱いにし、echo を queue させる (連続 cmd+z 中の割り込み防止)。
+        markActivelyEditing();
         var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
-        // top が現在と同じ snapshot は冗長 (二重 push 等) → **連続して全部捨てる**
-        // (1 回の cmd+z で no-op が起きないようにする)
+        console.log('[Fractal:undo] start. stackLen=', undoStack.length, 'redoLen=', redoStack.length);
+        try {
+            var cur = JSON.parse(currentSnapshot);
+            var nodeIds = Object.keys(cur.nodes || {});
+            console.log('[Fractal:undo]   current nodes:', nodeIds.map(function(k){return k+'="'+(cur.nodes[k].text||'')+'"';}).join(' | '));
+            for (var dbgI = undoStack.length - 1; dbgI >= 0 && dbgI >= undoStack.length - 5; dbgI--) {
+                var sp = JSON.parse(undoStack[dbgI]);
+                var nids = Object.keys(sp.nodes || {});
+                console.log('[Fractal:undo]   stack['+dbgI+']:', nids.map(function(k){return k+'="'+(sp.nodes[k].text||'')+'"'+(sp.nodes[k].collapsed?'[c]':'');}).join(' | '));
+            }
+        } catch (e) {}
         while (undoStack.length > 0 && undoStack[undoStack.length - 1] === currentSnapshot) {
             undoStack.pop();
+            console.log('[Fractal:undo] dedup pop, len=', undoStack.length);
         }
         if (undoStack.length === 0) {
             // 実 undo できる対象なし。focus を維持して、cursor 移動を発生させない。
@@ -22751,9 +22946,13 @@ var Outliner = (function() {
         }
         redoStack.push(currentSnapshot);
         var snapshot = undoStack.pop();
-        // 差分検出: undo 戻り先 (snapshot) と 戻る前 (currentSnapshot) の diff
-        // diff: target = snapshot (移動先), other = currentSnapshot (移動元)
         var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
+        console.log('[Fractal:undo] popped snapshot, will restore. diffNodeId=', diffNodeId);
+        try {
+            var snp = JSON.parse(snapshot);
+            var sids = Object.keys(snp.nodes || {});
+            console.log('[Fractal:undo]   restore-to nodes:', sids.map(function(k){return k+'="'+(snp.nodes[k].text||'')+'"'+(snp.nodes[k].collapsed?'[c]':'');}).join(' | '));
+        } catch (e) {}
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
@@ -22771,6 +22970,8 @@ var Outliner = (function() {
     function redo() {
         if (redoStack.length === 0) { return; }
         isUndoRedo = true;
+        // Bug fix: undo() と同じく markActivelyEditing で echo applyExternalUpdate を 1.5s 遅延
+        markActivelyEditing();
         // 検索ボックスは undo/redo 対象から外す: 値を保存して終了時に強制復元
         var savedSearchValue = searchInput ? searchInput.value : '';
         var currentSnapshot = JSON.stringify(model.serialize());
@@ -23990,92 +24191,22 @@ var Outliner = (function() {
         return out;
     }
 
-    /** リンクhrefからリンク種別のCSSクラスを返す */
+    /**
+     * リンクhrefからリンク種別のCSSクラスを返す。
+     * 実装は outliner-cell.js (OutlinerCell.classifyLinkHref) に分離 (TASK-A1, Phase 1 split)。
+     * この wrapper を残して既存 callsite (renderInlineText 内, ensureLinkSpans 等) は無変更。
+     */
     function classifyLinkHref(href) {
-        if (!href) return '';
-        if (href.startsWith('fractal://note/')) {
-            return /\/page\/[^/?]+$/.test(href) ? 'link-fractal-page' : 'link-fractal-node';
-        }
-        if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#') &&
-            /\.(?:md|markdown)(?:[#?]|$)/i.test(href)) {
-            return 'link-internal-md';
-        }
-        return '';
+        return OutlinerCell.classifyLinkHref(href);
     }
 
-    /** プレーンテキストからインラインMarkdownをHTMLに変換 */
+    /**
+     * プレーンテキストからインラインMarkdownをHTMLに変換。
+     * 実装は outliner-cell.js (OutlinerCell.renderInlineText) に分離 (TASK-A1, Phase 1 split)。
+     * MarkdownLinkParser global は outliner-cell.js が直接参照する。
+     */
     function renderInlineText(text) {
-        if (!text) { return ''; }
-
-        // エスケープ
-        var html = text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-
-        // インラインコード (先に処理してコード内を保護)
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-        // 太字
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-        // 斜体 — **の一部である*にマッチしないよう lookbehind/lookahead を使用
-        html = html.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '<em>$1</em>');
-
-        // 取り消し線
-        html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-
-        // リンク — Markdownリンクと生URLを一時退避してからタグ変換（URL内の@をタグ化しない）
-        var linkPlaceholders = [];
-        // まず Markdown リンク [text](url) を balanced paren parser で退避
-        if (typeof MarkdownLinkParser !== 'undefined') {
-            var inlineLinks = MarkdownLinkParser.parseMarkdownLinks(html);
-            // end 降順に置換 (index ズレ回避)
-            var sortedInline = inlineLinks.slice().sort(function(a, b) { return b.end - a.end; });
-            for (var ili = 0; ili < sortedInline.length; ili++) {
-                var il = sortedInline[ili];
-                if (il.kind === 'link' && il.alt.length > 0) {
-                    var ilClass = classifyLinkHref(il.url);
-                    var ilClassAttr = ilClass ? ' class="' + ilClass + '"' : '';
-                    var ilTag = '<a href="' + il.url + '"' + ilClassAttr + ' title="' + il.url + '">' + il.alt + '</a>';
-                    linkPlaceholders.push(ilTag);
-                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
-                } else if (il.kind === 'image') {
-                    // image syntax in outliner は通常のテキストとして表示するので退避のみ
-                    linkPlaceholders.push(html.slice(il.start, il.end));
-                    html = html.slice(0, il.start) + '\x00LINK' + (linkPlaceholders.length - 1) + '\x00' + html.slice(il.end);
-                }
-            }
-        }
-        // 次に生 URL (https://...) も balanced paren 対応で退避
-        var rawUrlOut = '';
-        var rawUrlI = 0;
-        while (rawUrlI < html.length) {
-            var rawHead = html.slice(rawUrlI, rawUrlI + 8).toLowerCase();
-            if ((rawHead.indexOf('http://') === 0 || rawHead.indexOf('https://') === 0) && typeof MarkdownLinkParser !== 'undefined') {
-                var rawFound = MarkdownLinkParser.extractUrlWithBalancedParens(html, rawUrlI);
-                if (rawFound) {
-                    linkPlaceholders.push(rawFound.url);
-                    rawUrlOut += '\x00LINK' + (linkPlaceholders.length - 1) + '\x00';
-                    rawUrlI = rawFound.endIndex;
-                    continue;
-                }
-            }
-            rawUrlOut += html.charAt(rawUrlI);
-            rawUrlI++;
-        }
-        html = rawUrlOut;
-
-        // タグ (#tag / @tag) — \w では日本語にマッチしないため Unicode プロパティを使用
-        html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
-        html = html.replace(/\x00LINK(\d+)\x00/g, function(_, idx) {
-            return linkPlaceholders[parseInt(idx, 10)];
-        });
-
-        // 末尾スペースをNBSPに変換 (contenteditableで末尾空白が描画されない問題を回避)
-        html = html.replace(/ $/, '\u00A0');
-
-        return html;
+        return OutlinerCell.renderInlineText(text);
     }
 
     /**
@@ -24876,12 +25007,15 @@ var Outliner = (function() {
 
     function focusNode(nodeId) {
         var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        console.log('[Fractal:focusNode] nodeId=', nodeId, 'DOM exists=', !!nodeEl);
         if (!nodeEl) { return; }
         var textEl = nodeEl.querySelector('.outliner-text');
         if (textEl) {
             setFocusedNode(nodeId);
             textEl.focus();
             setCursorToEnd(textEl);
+            var aeAfter = document.activeElement;
+            console.log('[Fractal:focusNode] AFTER focus: activeEl=', aeAfter && aeAfter.tagName, aeAfter && aeAfter.className, 'data-node-id=', aeAfter && aeAfter.dataset && aeAfter.dataset.nodeId, 'isHidden=', getComputedStyle(textEl).display === 'none');
         }
     }
 
@@ -25289,11 +25423,13 @@ var Outliner = (function() {
 
             case 'z':
                 if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+                    console.log('[Fractal:cmd+z] handleNodeKeydown.case-z fires. nodeId=', nodeId, 'isAtStart=', isAtStart, 'isAtEnd=', isAtEnd);
                     e.preventDefault();
                     undo();
                     return;
                 }
                 if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    console.log('[Fractal:cmd+shift+z] handleNodeKeydown.case-z fires. nodeId=', nodeId);
                     e.preventDefault();
                     redo();
                     return;
@@ -29011,12 +29147,11 @@ var Outliner = (function() {
             }
             // グローバル Undo/Redo (検索バーフォーカス時も動作)
             if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-                // ノード内keydownで処理済みの場合はスキップ
-                if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { return; }
-                // 検索ボックスフォーカス時は搜索 input keydown handler 内でハンドル済 (no-op で native undo 抑制)
-                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { return; }
-                // editor.js capture handler で sidepanel markdown の undo が処理済みならスキップ
-                if (e.defaultPrevented) { return; }
+                console.log('[Fractal:cmd+z] document-level handler fires. activeEl=', document.activeElement && document.activeElement.tagName, document.activeElement && document.activeElement.className, 'defaultPrevented=', e.defaultPrevented);
+                if (document.activeElement && document.activeElement.classList.contains('outliner-text')) { console.log('[Fractal:cmd+z] document-level: skip (outliner-text already handled)'); return; }
+                if (document.activeElement && document.activeElement.classList.contains('outliner-search-input')) { console.log('[Fractal:cmd+z] document-level: skip (search-input)'); return; }
+                if (e.defaultPrevented) { console.log('[Fractal:cmd+z] document-level: skip (defaultPrevented)'); return; }
+                console.log('[Fractal:cmd+z] document-level: calling undo()');
                 e.preventDefault();
                 undo();
             }
