@@ -170,4 +170,18 @@ export const webviewMessages = {
   outlinerAddToPinnedTags: '고정 태그에 추가',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio 다이어그램 삽입',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: '테이블 보기로 전환',
+  outlinerSwitchToOutliner: '아웃라이너 보기로 전환',
+  tableAddColumn: '열 추가',
+  tableRemoveColumn: '열 삭제',
+  tableConfirmRemoveColumn: '"{name}" 열을 삭제하시겠습니까?',
+  tableSearchOrCreate: '검색 또는 생성...',
+  tableCreateOption: '+ "{label}" 생성',
+  tableColumnNameLabel: '열 이름',
+  tableColumnTypeLabel: '열 유형',
+  tableColumnTypeText: '텍스트',
+  tableColumnTypeMultiselect: '다중 선택',
+  tableColumnTypeOutliner: '아웃라인',
+  tableSearchPlaceholder: '검색...',
 };

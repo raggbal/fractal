@@ -170,4 +170,18 @@ export const webviewMessages = {
   outlinerAddToPinnedTags: 'Ajouter aux tags épinglés',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insérer un diagramme Drawio',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: 'Passer en vue tableau',
+  outlinerSwitchToOutliner: 'Passer en vue plan',
+  tableAddColumn: 'Ajouter une colonne',
+  tableRemoveColumn: 'Supprimer la colonne',
+  tableConfirmRemoveColumn: 'Supprimer la colonne "{name}" ?',
+  tableSearchOrCreate: 'Rechercher ou créer...',
+  tableCreateOption: '+ Créer "{label}"',
+  tableColumnNameLabel: 'Nom de la colonne',
+  tableColumnTypeLabel: 'Type de colonne',
+  tableColumnTypeText: 'Texte',
+  tableColumnTypeMultiselect: 'Sélection multiple',
+  tableColumnTypeOutliner: 'Plan',
+  tableSearchPlaceholder: 'Rechercher...',
 };

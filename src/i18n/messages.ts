@@ -143,6 +143,20 @@ export interface WebviewMessages {
   notesS3Continue: string;
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram?: string;
+  // TBE-14: Outliner Table editor (TASK-B7 + TASK-B5/B6 + TASK-C2)
+  outlinerSwitchToTable?: string;
+  outlinerSwitchToOutliner?: string;
+  tableAddColumn?: string;
+  tableRemoveColumn?: string;
+  tableConfirmRemoveColumn?: string;
+  tableSearchOrCreate?: string;
+  tableCreateOption?: string;
+  tableColumnNameLabel?: string;
+  tableColumnTypeLabel?: string;
+  tableColumnTypeText?: string;
+  tableColumnTypeMultiselect?: string;
+  tableColumnTypeOutliner?: string;
+  tableSearchPlaceholder?: string;
 }
 
 // Supported locales

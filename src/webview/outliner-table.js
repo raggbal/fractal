@@ -104,7 +104,7 @@
             columns.unshift({
                 id: 'col_outliner',
                 type: 'outliner',
-                name: 'Outline',
+                name: i18nT('tableColumnTypeOutliner', 'Outline'),
                 order: -1
             });
             injected = true;
@@ -460,7 +460,7 @@
         var addBtn = document.createElement('div');
         addBtn.className = 'otable-add-column-btn';
         addBtn.textContent = '+';
-        addBtn.title = 'Add column';
+        addBtn.title = i18nT('tableAddColumn', 'Add column');
         addBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -608,30 +608,30 @@
 
         var title = document.createElement('div');
         title.className = 'otable-modal-title';
-        title.textContent = 'Add column';
+        title.textContent = i18nT('tableAddColumn', 'Add column');
         modal.appendChild(title);
 
         var nameLabel = document.createElement('label');
         nameLabel.className = 'otable-modal-label';
-        nameLabel.textContent = 'Name';
+        nameLabel.textContent = i18nT('tableColumnNameLabel', 'Column name');
         modal.appendChild(nameLabel);
         var nameInput = document.createElement('input');
         nameInput.className = 'otable-modal-input';
         nameInput.type = 'text';
         nameInput.value = '';
-        nameInput.placeholder = 'Column name';
+        nameInput.placeholder = i18nT('tableColumnNameLabel', 'Column name');
         modal.appendChild(nameInput);
 
         var typeLabel = document.createElement('label');
         typeLabel.className = 'otable-modal-label';
-        typeLabel.textContent = 'Type';
+        typeLabel.textContent = i18nT('tableColumnTypeLabel', 'Column type');
         modal.appendChild(typeLabel);
         var typeSelect = document.createElement('select');
         typeSelect.className = 'otable-modal-select';
         var optText = document.createElement('option');
-        optText.value = 'text'; optText.textContent = 'Text';
+        optText.value = 'text'; optText.textContent = i18nT('tableColumnTypeText', 'Text');
         var optMulti = document.createElement('option');
-        optMulti.value = 'multiselect'; optMulti.textContent = 'Multiselect';
+        optMulti.value = 'multiselect'; optMulti.textContent = i18nT('tableColumnTypeMultiselect', 'Multi-select');
         typeSelect.appendChild(optText);
         typeSelect.appendChild(optMulti);
         modal.appendChild(typeSelect);
@@ -684,7 +684,7 @@
 
         var deleteItem = document.createElement('div');
         deleteItem.className = 'otable-context-menu-item';
-        deleteItem.textContent = 'Delete column';
+        deleteItem.textContent = i18nT('tableRemoveColumn', 'Remove column');
         deleteItem.dataset.colId = col.id;
         if (col.type === 'outliner') {
             deleteItem.classList.add('disabled');
@@ -722,12 +722,13 @@
 
         var title = document.createElement('div');
         title.className = 'otable-modal-title';
-        title.textContent = 'Delete column?';
+        title.textContent = i18nT('tableRemoveColumn', 'Remove column');
         modal.appendChild(title);
 
         var msg = document.createElement('div');
         msg.className = 'otable-modal-message';
-        msg.textContent = 'Are you sure you want to delete column "' + (col.name || col.id) + '"? All values in this column will be removed.';
+        var confirmTpl = i18nT('tableConfirmRemoveColumn', 'Remove column "{name}"?');
+        msg.textContent = confirmTpl.replace('{name}', col.name || col.id);
         modal.appendChild(msg);
 
         var btnRow = document.createElement('div');

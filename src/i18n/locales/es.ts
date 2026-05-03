@@ -170,4 +170,18 @@ export const webviewMessages = {
   outlinerAddToPinnedTags: 'Añadir a etiquetas fijadas',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insertar diagrama Drawio',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: 'Cambiar a vista de tabla',
+  outlinerSwitchToOutliner: 'Cambiar a vista de esquema',
+  tableAddColumn: 'Añadir columna',
+  tableRemoveColumn: 'Eliminar columna',
+  tableConfirmRemoveColumn: '¿Eliminar la columna "{name}"?',
+  tableSearchOrCreate: 'Buscar o crear...',
+  tableCreateOption: '+ Crear "{label}"',
+  tableColumnNameLabel: 'Nombre de columna',
+  tableColumnTypeLabel: 'Tipo de columna',
+  tableColumnTypeText: 'Texto',
+  tableColumnTypeMultiselect: 'Selección múltiple',
+  tableColumnTypeOutliner: 'Esquema',
+  tableSearchPlaceholder: 'Buscar...',
 };

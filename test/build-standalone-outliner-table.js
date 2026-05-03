@@ -64,6 +64,26 @@ const testTableHostBridge = `
         lastSyncData: null
     };
 
+    // TASK-B9: i18n messages mock — tests can override per-spec via
+    // window.__outlinerMessages = {...} before initOutlinerTable.
+    if (typeof window.__outlinerMessages === 'undefined') {
+        window.__outlinerMessages = {
+            outlinerSwitchToTable: 'Switch to Table view',
+            outlinerSwitchToOutliner: 'Switch to Outliner view',
+            tableAddColumn: 'Add column',
+            tableRemoveColumn: 'Remove column',
+            tableConfirmRemoveColumn: 'Remove column "{name}"?',
+            tableSearchOrCreate: 'Search or create...',
+            tableCreateOption: '+ Create "{label}"',
+            tableColumnNameLabel: 'Column name',
+            tableColumnTypeLabel: 'Column type',
+            tableColumnTypeText: 'Text',
+            tableColumnTypeMultiselect: 'Multi-select',
+            tableColumnTypeOutliner: 'Outline',
+            tableSearchPlaceholder: 'Search...'
+        };
+    }
+
     var post = function(msg) { window.__testApi.messages.push(msg); };
 
     window.outlinerTableHostBridge = {

@@ -207,4 +207,18 @@ export const webviewMessages = {
   notesColorNone: 'なし',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio ダイアグラムを挿入',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: 'テーブル表示に切替',
+  outlinerSwitchToOutliner: 'アウトライン表示に切替',
+  tableAddColumn: '列を追加',
+  tableRemoveColumn: '列を削除',
+  tableConfirmRemoveColumn: '列「{name}」を削除しますか?',
+  tableSearchOrCreate: '検索 または 新規作成...',
+  tableCreateOption: '+「{label}」を作成',
+  tableColumnNameLabel: '列名',
+  tableColumnTypeLabel: '列タイプ',
+  tableColumnTypeText: 'テキスト',
+  tableColumnTypeMultiselect: 'マルチセレクト',
+  tableColumnTypeOutliner: 'アウトライン',
+  tableSearchPlaceholder: '検索...',
 };

@@ -207,4 +207,18 @@ export const webviewMessages = {
   notesColorNone: 'None',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insert Drawio Diagram',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: 'Switch to Table view',
+  outlinerSwitchToOutliner: 'Switch to Outliner view',
+  tableAddColumn: 'Add column',
+  tableRemoveColumn: 'Remove column',
+  tableConfirmRemoveColumn: 'Remove column "{name}"?',
+  tableSearchOrCreate: 'Search or create...',
+  tableCreateOption: '+ Create "{label}"',
+  tableColumnNameLabel: 'Column name',
+  tableColumnTypeLabel: 'Column type',
+  tableColumnTypeText: 'Text',
+  tableColumnTypeMultiselect: 'Multi-select',
+  tableColumnTypeOutliner: 'Outline',
+  tableSearchPlaceholder: 'Search...',
 };

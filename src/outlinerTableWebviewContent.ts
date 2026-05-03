@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getNonce } from './webviewContent';
+import { getWebviewMessages } from './i18n/messages';
 
 /**
  * outlinerTableWebviewContent — fractal.outlinerTable view 用 webview HTML
@@ -64,6 +65,11 @@ export function getOutlinerTableWebviewContent(
         <!-- .otable-body は OutlinerTable.init() で動的に生成される -->
     </div>
 
+    <script nonce="${nonce}">
+        // TASK-B9: i18n bridge — exposes per-locale strings to outliner-table.js
+        // via window.__outlinerMessages (same global the Outliner editor uses).
+        window.__outlinerMessages = ${JSON.stringify(getWebviewMessages() || {})};
+    </script>
     <script nonce="${nonce}">${linkParserScript}</script>
     <script nonce="${nonce}">${cellScript}</script>
     <script nonce="${nonce}">${modelScript}</script>

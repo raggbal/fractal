@@ -170,4 +170,18 @@ export const webviewMessages = {
   outlinerAddToPinnedTags: '加入釘選標籤',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 圖表',
+  // TBE-14: Outliner Table editor (TASK-B6/B7/B9 + TASK-C2)
+  outlinerSwitchToTable: '切換到表格檢視',
+  outlinerSwitchToOutliner: '切換到大綱檢視',
+  tableAddColumn: '新增欄位',
+  tableRemoveColumn: '刪除欄位',
+  tableConfirmRemoveColumn: '刪除欄位 "{name}"?',
+  tableSearchOrCreate: '搜尋或建立...',
+  tableCreateOption: '+ 建立 "{label}"',
+  tableColumnNameLabel: '欄位名稱',
+  tableColumnTypeLabel: '欄位類型',
+  tableColumnTypeText: '文字',
+  tableColumnTypeMultiselect: '多選',
+  tableColumnTypeOutliner: '大綱',
+  tableSearchPlaceholder: '搜尋...',
 };
