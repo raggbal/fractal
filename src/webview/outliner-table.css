@@ -261,3 +261,94 @@
     cursor: not-allowed;
     pointer-events: none;
 }
+
+/* TASK-B6: header search box */
+.otable-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.otable-search-input-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: auto;
+    flex: 0 1 320px;
+    min-width: 160px;
+}
+.otable-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 24px 4px 8px;
+    background: var(--vscode-input-background, #fff);
+    color: var(--vscode-input-foreground, #333);
+    border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    outline: none;
+    font: inherit;
+}
+.otable-search-input:focus {
+    border-color: var(--vscode-focusBorder, #007acc);
+}
+.otable-search-clear-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: 0;
+    color: var(--vscode-descriptionForeground, #888);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 4px;
+}
+.otable-search-clear-btn:hover {
+    color: var(--vscode-foreground, #333);
+}
+
+/* TASK-B6: hidden rows (search filter) — display:none keeps DOM but
+ * removes layout impact, preserving cursor on still-visible rows. */
+.otable-row.otable-row-hidden {
+    display: none;
+}
+
+/* TASK-B7: Switch view button (Outliner ⇄ Table) */
+.otable-switch-view {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    color: var(--vscode-foreground, #333);
+    font-size: 14px;
+    line-height: 1;
+    user-select: none;
+    flex: 0 0 auto;
+}
+.otable-switch-view:hover {
+    background: rgba(127, 127, 255, 0.08);
+}
+.outliner-switch-view-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    color: var(--vscode-foreground, #333);
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1;
+    user-select: none;
+    flex: 0 0 auto;
+}
+.outliner-switch-view-btn:hover {
+    background: rgba(127, 127, 255, 0.08);
+}

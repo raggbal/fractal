@@ -49,6 +49,12 @@
     var rootEl = null;
     var focusedNodeId = null;
 
+    // TASK-B6: search filter state. null = no filter, Set<string> = visible node ids.
+    var currentSearchQuery = null;
+    var currentSearchVisible = null;
+    var searchInputEl = null;
+    var searchClearBtnEl = null;
+
     // undo / redo stacks (cell-local; Table editor 単独の stack)
     var undoStack = [];
     var redoStack = [];
@@ -154,6 +160,8 @@
         undoStack = [];
         redoStack = [];
 
+        // TASK-B6 / B7: render header UI (search box + Switch view button) once
+        ensureHeaderUi();
         renderTable();
     }
 
@@ -169,6 +177,11 @@
         OutlinerTableState._hadOriginalColumns = hadOriginalColumns;
         OutlinerTableState._autoOutlinerInjected = injected && !hadOriginalColumns;
         rawDataExtras = captureRawDataExtras(initialData);
+        ensureHeaderUi();
+        // re-evaluate filter against the new model
+        if (currentSearchQuery) {
+            currentSearchVisible = computeSearchVisible(currentSearchQuery);
+        }
         renderTable();
     }
 
@@ -1338,6 +1351,259 @@
         } else {
             renderRows(body);
         }
+        // TASK-B6: re-apply search filter visibility after re-render
+        applySearchVisibility();
+    }
+
+    // ── TASK-B6: header search box ──
+
+    /**
+     * Render header content (Switch button, search input, clear button).
+     * Idempotent — safe to call multiple times; does not duplicate.
+     * Header DOM element is provided by the host webview (.otable-header).
+     */
+    function ensureHeaderUi() {
+        if (!rootEl) { return; }
+        var headerEl = rootEl.querySelector('.otable-header');
+        if (!headerEl) {
+            headerEl = document.createElement('header');
+            headerEl.className = 'otable-header';
+            rootEl.insertBefore(headerEl, rootEl.firstChild);
+        }
+        // TASK-B7: Switch view button (Outliner) — left side
+        var switchBtn = headerEl.querySelector('.otable-switch-view');
+        if (!switchBtn) {
+            switchBtn = document.createElement('button');
+            switchBtn.type = 'button';
+            switchBtn.className = 'otable-switch-view';
+            switchBtn.title = i18nT('outlinerSwitchToOutliner', 'Switch to Outliner view');
+            switchBtn.setAttribute('aria-label', i18nT('outlinerSwitchToOutliner', 'Switch to Outliner view'));
+            switchBtn.textContent = '\u{1F333}'; // tree icon (fallback if i18n unavailable)
+            switchBtn.addEventListener('click', function () {
+                if (host && typeof host.requestReopenAs === 'function') {
+                    host.requestReopenAs('fractal.outliner');
+                }
+            });
+            headerEl.insertBefore(switchBtn, headerEl.firstChild);
+        } else {
+            switchBtn.title = i18nT('outlinerSwitchToOutliner', 'Switch to Outliner view');
+            switchBtn.setAttribute('aria-label', i18nT('outlinerSwitchToOutliner', 'Switch to Outliner view'));
+        }
+
+        // Search box
+        var wrapper = headerEl.querySelector('.otable-search-input-wrapper');
+        if (!wrapper) {
+            wrapper = document.createElement('div');
+            wrapper.className = 'otable-search-input-wrapper';
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'otable-search-input';
+            input.placeholder = i18nT('tableSearchPlaceholder', 'Search...');
+            wrapper.appendChild(input);
+            var clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'otable-search-clear-btn';
+            clearBtn.title = 'Clear search';
+            clearBtn.textContent = '×';
+            clearBtn.style.display = 'none';
+            wrapper.appendChild(clearBtn);
+            headerEl.appendChild(wrapper);
+            attachSearchHandlers(input, clearBtn);
+            searchInputEl = input;
+            searchClearBtnEl = clearBtn;
+        } else {
+            searchInputEl = wrapper.querySelector('.otable-search-input');
+            searchClearBtnEl = wrapper.querySelector('.otable-search-clear-btn');
+            if (searchInputEl) {
+                searchInputEl.placeholder = i18nT('tableSearchPlaceholder', 'Search...');
+            }
+        }
+    }
+
+    function attachSearchHandlers(input, clearBtn) {
+        var debounceTimer = null;
+        var isComposing = false;
+        function execute() {
+            applySearchFilter(input.value || '');
+            clearBtn.style.display = (input.value || '').length > 0 ? '' : 'none';
+        }
+        input.addEventListener('compositionstart', function () { isComposing = true; });
+        input.addEventListener('compositionend', function () {
+            isComposing = false;
+            clearTimeout(debounceTimer);
+            execute();
+        });
+        input.addEventListener('input', function () {
+            if (isComposing) { return; }
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(execute, 150);
+        });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                input.value = '';
+                clearTimeout(debounceTimer);
+                execute();
+            }
+        });
+        clearBtn.addEventListener('click', function () {
+            input.value = '';
+            clearTimeout(debounceTimer);
+            execute();
+            input.focus();
+        });
+    }
+
+    /**
+     * Apply a search query and update visible-row state.
+     * @param {string} queryString
+     */
+    function applySearchFilter(queryString) {
+        var trimmed = (queryString || '').trim();
+        if (!trimmed) {
+            currentSearchQuery = null;
+            currentSearchVisible = null;
+            applySearchVisibility();
+            return;
+        }
+        if (typeof OutlinerSearch === 'undefined' || !OutlinerSearch || !OutlinerSearch.parseQuery) {
+            currentSearchQuery = null;
+            currentSearchVisible = null;
+            applySearchVisibility();
+            return;
+        }
+        var parsed = OutlinerSearch.parseQuery(trimmed);
+        if (!parsed) {
+            currentSearchQuery = null;
+            currentSearchVisible = null;
+            applySearchVisibility();
+            return;
+        }
+        currentSearchQuery = parsed;
+        currentSearchVisible = computeSearchVisible(parsed);
+        applySearchVisibility();
+    }
+
+    /**
+     * Compute Set<string> of visible nodeIds for a parsed query.
+     * Strategy: build augmented engine that searches against
+     *   node.text + " " + each text col value + " " + each multiselect option label
+     * and add ancestors + descendants of matched nodes (tree mode).
+     */
+    function computeSearchVisible(parsed) {
+        if (!model || !model.nodes) { return new Set(); }
+        var visible = new Set();
+        var ids = Object.keys(model.nodes);
+        for (var i = 0; i < ids.length; i++) {
+            var nodeId = ids[i];
+            if (matchesNodeWithColumns(nodeId, parsed)) {
+                visible.add(nodeId);
+                // Ancestors
+                var anc = model.getNode(nodeId);
+                while (anc && anc.parentId) {
+                    visible.add(anc.parentId);
+                    anc = model.getNode(anc.parentId);
+                }
+                // Descendants
+                var desc = (typeof model.getDescendantIds === 'function')
+                    ? model.getDescendantIds(nodeId) : [];
+                for (var d = 0; d < desc.length; d++) { visible.add(desc[d]); }
+            }
+        }
+        return visible;
+    }
+
+    /**
+     * Determine if a node matches a parsed query, considering both:
+     *   - the existing OutlinerSearch engine (text/tag/operator) on the augmented node
+     *   - text from text columns + multiselect option labels
+     *
+     * We accomplish this by constructing a shallow node clone whose `text`
+     * contains the original text plus all column-derived strings, then
+     * delegating to OutlinerSearch.SearchEngine.
+     */
+    function matchesNodeWithColumns(nodeId, parsed) {
+        var node = model.getNode(nodeId);
+        if (!node) { return false; }
+        var augmentedText = String(node.text || '');
+        if (node.columnValues) {
+            for (var c = 0; c < columns.length; c++) {
+                var col = columns[c];
+                if (!col || col.type === 'outliner') { continue; }
+                var v = node.columnValues[col.id];
+                if (col.type === 'text') {
+                    if (typeof v === 'string') { augmentedText += ' ' + v; }
+                } else if (col.type === 'multiselect' && Array.isArray(v) && Array.isArray(col.options)) {
+                    for (var k = 0; k < v.length; k++) {
+                        var optId = v[k];
+                        for (var o = 0; o < col.options.length; o++) {
+                            if (col.options[o] && col.options[o].id === optId) {
+                                augmentedText += ' ' + (col.options[o].label || '');
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // build a synthetic model { nodes, getNode, getDescendantIds } that
+        // exposes augmented text only for matching purposes
+        var fakeNode = {
+            id: node.id,
+            text: augmentedText,
+            subtext: node.subtext || '',
+            tags: node.tags || [],
+            children: node.children || [],
+            isPage: node.isPage,
+            checked: node.checked
+        };
+        var fakeNodes = {};
+        fakeNodes[nodeId] = fakeNode;
+        var engine = new OutlinerSearch.SearchEngine({
+            nodes: fakeNodes,
+            getNode: function (id) { return id === nodeId ? fakeNode : null; },
+            getDescendantIds: function () { return []; }
+        });
+        // SearchEngine.search returns Set; for single-node check use _matches directly
+        // (Set-based search with all-id candidate would be O(n^2)).
+        return engine._matches(nodeId, parsed);
+    }
+
+    /**
+     * Toggle row visibility by toggling a class. Uses display: none via CSS.
+     * Preserves DOM identity (cursor / focus state intact for filtered rows).
+     */
+    function applySearchVisibility() {
+        if (!rootEl) { return; }
+        var rows = rootEl.querySelectorAll('.otable-rows .otable-row');
+        if (!currentSearchVisible) {
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].classList.remove('otable-row-hidden');
+            }
+            return;
+        }
+        for (var j = 0; j < rows.length; j++) {
+            var row = rows[j];
+            var nid = row.dataset.nodeId;
+            if (nid && currentSearchVisible.has(nid)) {
+                row.classList.remove('otable-row-hidden');
+            } else {
+                row.classList.add('otable-row-hidden');
+            }
+        }
+    }
+
+    /**
+     * Lightweight i18n lookup from window.__outlinerMessages with fallback.
+     * Phase B6/B7 use this to keep i18n integration without a full module.
+     */
+    function i18nT(key, fallback) {
+        try {
+            var msgs = (typeof window !== 'undefined' && window.__outlinerMessages) || {};
+            return (msgs && typeof msgs[key] === 'string' && msgs[key]) || fallback || key;
+        } catch (_) {
+            return fallback || key;
+        }
     }
 
     // --- collapse / expand ---
@@ -1918,6 +2184,18 @@
         reorderColumns: reorderColumns,
         _openAddColumnModal: openAddColumnModal,
         _openColumnHeaderMenu: openColumnHeaderMenu,
-        _openConfirmRemoveColumnModal: openConfirmRemoveColumnModal
+        _openConfirmRemoveColumnModal: openConfirmRemoveColumnModal,
+        // TASK-B6 — search
+        applySearchFilter: applySearchFilter,
+        _computeSearchVisible: computeSearchVisible,
+        _matchesNodeWithColumns: matchesNodeWithColumns,
+        _getSearchVisible: function () { return currentSearchVisible; },
+        _getSearchInputEl: function () { return searchInputEl; },
+        _ensureHeaderUi: ensureHeaderUi,
+        // TASK-B8 — undo/redo
+        undo: undo,
+        redo: redo,
+        _getUndoStack: function () { return undoStack.slice(); },
+        _getRedoStack: function () { return redoStack.slice(); }
     };
 }));

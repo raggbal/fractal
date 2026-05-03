@@ -72,7 +72,9 @@ const testTableHostBridge = `
             window.__testApi.lastSyncData = jsonString;
         },
         requestReopenAs: function(viewType) {
-            post({ type: 'requestReopenAs', viewType: viewType });
+            // Accept either a string or {viewType:string} payload
+            var vt = (viewType && typeof viewType === 'object') ? viewType.viewType : viewType;
+            post({ type: 'requestReopenAs', viewType: vt });
         },
         // TASK-B2: full host bridge for outliner cell operations
         openMdPage: function(payload) { post({ type: 'openMdPage', payload: payload }); },
