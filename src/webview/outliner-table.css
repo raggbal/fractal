@@ -1,0 +1,85 @@
+/* outliner-table.css — Outliner Table Editor (Phase B skeleton)
+ * design: design/system.md §4.6
+ *
+ * Phase B1 では skeleton のみ。後続 task で chip / dropdown / drag handle / etc. を追加。
+ */
+
+.otable-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    font-family: var(--vscode-font-family, sans-serif);
+    color: var(--vscode-foreground, #333);
+    background: var(--vscode-editor-background, #fff);
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.otable-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--vscode-editor-foreground, #ccc);
+    flex: 0 0 auto;
+}
+
+.otable-body {
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+}
+
+/* 列ヘッダー / 行とも同じ grid 定義を使う (列数に応じて動的) */
+.otable-column-headers,
+.otable-row {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(auto-fill, minmax(140px, 1fr));
+    border-bottom: 1px solid rgba(127, 127, 127, 0.2);
+    box-sizing: border-box;
+}
+
+.otable-column-headers {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--vscode-editor-background, #fff);
+    font-weight: 600;
+}
+
+.otable-column-header {
+    padding: 6px 8px;
+    cursor: default;
+    user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.otable-row {
+    min-height: 28px;
+}
+
+.otable-cell {
+    padding: 4px 8px;
+    min-height: 24px;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.otable-cell-outliner {
+    padding: 4px 8px;
+}
+
+.otable-cell-text {
+    /* TASK-B3 で contenteditable 化 */
+}
+
+.otable-cell-multiselect {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}

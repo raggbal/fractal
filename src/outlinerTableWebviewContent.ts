@@ -1,51 +1,121 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { getNonce } from './webviewContent';
 
 /**
- * outlinerTableWebviewContent — fractal.outlinerTable view 用 (stub)
+ * outlinerTableWebviewContent — fractal.outlinerTable view 用 webview HTML
  *
- * TASK-A7 (Phase A 完了): customEditors[] 登録のための最低限 Provider + Webview。
- * 本実装 (列定義の load / save、cell render、search 等) は Phase B (TASK-B1〜B9) で行う。
+ * TASK-B1: outliner-cell.js + outliner-model.js + outliner-search.js + outliner-table.js を
+ * 注入し、Table editor 本体を bootstrap する。
  *
- * design: .harness/sprint/.../design/system.md §4.4 / §4.5
+ * 既存 outlinerWebviewContent.ts と同じ流儀で:
+ *   - markdown-link-parser → outliner-cell → outliner-model → outliner-search → outliner-table の順
+ *   - CSP は default-src 'none' + nonce script + 必要 style-src
+ *
+ * design: design/system.md §4.5
  */
 export function getOutlinerTableWebviewContent(
     webview: vscode.Webview,
-    _extensionUri: vscode.Uri
+    extensionUri: vscode.Uri
 ): string {
     const nonce = getNonce();
     const cspSource = webview.cspSource;
+
+    // CSS
+    const tableCssPath = path.join(__dirname, 'webview', 'outliner-table.css');
+    const tableCss = fs.existsSync(tableCssPath) ? fs.readFileSync(tableCssPath, 'utf8') : '';
+    const stylesPath = path.join(__dirname, 'webview', 'styles.css');
+    const baseStyles = fs.existsSync(stylesPath)
+        ? fs.readFileSync(stylesPath, 'utf8').replace('__FONT_SIZE__', '14')
+        : '';
+
+    // Scripts
+    const linkParserPath = path.join(__dirname, 'shared', 'markdown-link-parser.js');
+    const linkParserScript = fs.existsSync(linkParserPath) ? fs.readFileSync(linkParserPath, 'utf8') : '';
+
+    const cellPath = path.join(__dirname, 'webview', 'outliner-cell.js');
+    const cellScript = fs.existsSync(cellPath) ? fs.readFileSync(cellPath, 'utf8') : '';
+
+    const modelPath = path.join(__dirname, 'webview', 'outliner-model.js');
+    const modelScript = fs.existsSync(modelPath) ? fs.readFileSync(modelPath, 'utf8') : '';
+
+    const searchPath = path.join(__dirname, 'webview', 'outliner-search.js');
+    const searchScript = fs.existsSync(searchPath) ? fs.readFileSync(searchPath, 'utf8') : '';
+
+    const tableJsPath = path.join(__dirname, 'webview', 'outliner-table.js');
+    const tableScript = fs.existsSync(tableJsPath) ? fs.readFileSync(tableJsPath, 'utf8') : '';
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data: blob:; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fractal Outliner Table (stub)</title>
-    <style nonce="${nonce}">
-        body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 16px; }
-        .otable-root { display: flex; flex-direction: column; gap: 8px; }
-        .otable-stub-msg { font-size: 14px; }
-        .otable-stub-hint { font-size: 12px; opacity: 0.7; }
-    </style>
+    <title>Fractal Outliner Table</title>
+    <style nonce="${nonce}">${baseStyles}</style>
+    <style nonce="${nonce}">${tableCss}</style>
 </head>
 <body>
     <div class="otable-root">
-        <div class="otable-stub-msg">Outliner Table Editor (stub)</div>
-        <div class="otable-stub-hint">Phase A scaffolding. Full implementation: Phase B (TASK-B1+).</div>
+        <header class="otable-header">
+            <span class="otable-title"></span>
+        </header>
+        <!-- .otable-body は OutlinerTable.init() で動的に生成される -->
     </div>
+
+    <script nonce="${nonce}">${linkParserScript}</script>
+    <script nonce="${nonce}">${cellScript}</script>
+    <script nonce="${nonce}">${modelScript}</script>
+    <script nonce="${nonce}">${searchScript}</script>
     <script nonce="${nonce}">
-        (function() {
-            var vscode = acquireVsCodeApi();
-            window.addEventListener('message', function(e) {
-                // Phase A: just record init for diagnostics
-                if (e.data && e.data.type === 'init') {
-                    // no-op stub
+    (function() {
+        var vscode = acquireVsCodeApi();
+        var pendingInit = null;
+        // Minimum host bridge for Phase B1: syncData / requestReopenAs。
+        // Phase B 以降で page / image / file 系を追加。
+        window.outlinerTableHostBridge = {
+            syncData: function(jsonString) {
+                vscode.postMessage({ type: 'syncData', payload: jsonString });
+            },
+            requestReopenAs: function(viewType) {
+                vscode.postMessage({ type: 'requestReopenAs', viewType: viewType });
+            }
+        };
+
+        window.addEventListener('message', function(e) {
+            var data = e.data;
+            if (!data || typeof data !== 'object') { return; }
+            if (data.type === 'init') {
+                if (window.OutlinerTable && window.OutlinerTable.init) {
+                    window.OutlinerTable.init(data.data || {}, window.outlinerTableHostBridge);
+                } else {
+                    pendingInit = data.data || {};
                 }
-            });
-            // notify host that webview is ready (for Phase B init data send)
-            vscode.postMessage({ type: 'ready' });
-        })();
+            } else if (data.type === 'externalUpdate') {
+                if (window.OutlinerTable && window.OutlinerTable.applyExternalUpdate) {
+                    window.OutlinerTable.applyExternalUpdate(data.data || {});
+                }
+            }
+        });
+
+        // ready 通知 (Provider が init message を返してくる)
+        vscode.postMessage({ type: 'ready' });
+
+        // OutlinerTable script 後置読み込みなので、reload 時 race を考慮
+        window.__bootOutlinerTableIfPending = function() {
+            if (pendingInit && window.OutlinerTable && window.OutlinerTable.init) {
+                window.OutlinerTable.init(pendingInit, window.outlinerTableHostBridge);
+                pendingInit = null;
+            }
+        };
+    })();
+    </script>
+    <script nonce="${nonce}">${tableScript}</script>
+    <script nonce="${nonce}">
+    if (typeof window.__bootOutlinerTableIfPending === 'function') {
+        window.__bootOutlinerTableIfPending();
+    }
     </script>
 </body>
 </html>`;
