@@ -177,6 +177,16 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "fractal.outlinerTable",
+        "displayName": "Fractal Outliner Table",
+        "selector": [
+          {
+            "filenamePattern": "*.out"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "configuration": {
