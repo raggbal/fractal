@@ -135,3 +135,129 @@
     gap: 4px;
     align-items: center;
 }
+
+/* TASK-B5: add column button */
+.otable-add-column-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--vscode-descriptionForeground, #888);
+    font-weight: 600;
+    border-left: 1px solid rgba(127, 127, 127, 0.2);
+    background: transparent;
+}
+.otable-add-column-btn:hover {
+    background: rgba(127, 127, 255, 0.06);
+    color: var(--vscode-foreground, #333);
+}
+
+/* TASK-B5: column drag/drop visual feedback */
+.otable-column-header.otable-col-dragging {
+    opacity: 0.5;
+}
+.otable-column-header.otable-col-drop-target {
+    background: rgba(0, 122, 204, 0.12);
+    box-shadow: inset -2px 0 0 var(--vscode-focusBorder, #007acc);
+}
+
+/* TASK-B5: modal */
+.otable-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.otable-modal {
+    background: var(--vscode-editor-background, #fff);
+    color: var(--vscode-foreground, #333);
+    border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.4));
+    border-radius: 6px;
+    padding: 16px 18px;
+    min-width: 320px;
+    max-width: 480px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    box-sizing: border-box;
+}
+.otable-modal-title {
+    font-weight: 600;
+    font-size: 1.05em;
+    margin-bottom: 12px;
+}
+.otable-modal-label {
+    display: block;
+    font-size: 0.85em;
+    margin: 8px 0 4px;
+}
+.otable-modal-input,
+.otable-modal-select {
+    width: 100%;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    background: var(--vscode-input-background, #fff);
+    color: var(--vscode-input-foreground, #333);
+    border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    outline: none;
+}
+.otable-modal-input:focus,
+.otable-modal-select:focus {
+    border-color: var(--vscode-focusBorder, #007acc);
+}
+.otable-modal-message {
+    font-size: 0.95em;
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+.otable-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+}
+.otable-modal-buttons button {
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    border: 1px solid var(--vscode-button-border, rgba(127, 127, 127, 0.4));
+    background: var(--vscode-button-secondaryBackground, #eee);
+    color: var(--vscode-button-secondaryForeground, #333);
+}
+.otable-modal-buttons .otable-modal-ok {
+    background: var(--vscode-button-background, #007acc);
+    color: var(--vscode-button-foreground, #fff);
+    border-color: var(--vscode-button-background, #007acc);
+}
+
+/* TASK-B5: context menu */
+.otable-context-menu {
+    position: fixed;
+    background: var(--vscode-menu-background, #fff);
+    color: var(--vscode-menu-foreground, #333);
+    border: 1px solid var(--vscode-menu-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    min-width: 160px;
+    z-index: 1100;
+}
+.otable-context-menu-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.9em;
+    user-select: none;
+}
+.otable-context-menu-item:hover {
+    background: var(--vscode-menu-selectionBackground, rgba(127, 127, 127, 0.12));
+}
+.otable-context-menu-item.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}

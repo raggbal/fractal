@@ -377,10 +377,309 @@
             th.className = 'otable-column-header otable-column-type-' + col.type;
             th.dataset.colId = col.id;
             th.textContent = col.name || col.type;
+            // TASK-B5: D&D handle for column reorder + context menu for delete
+            th.draggable = true;
+            attachColumnHeaderHandlers(th, col);
             headerRow.appendChild(th);
         }
+        // TASK-B5: "+ add column" button at the right end
+        var addBtn = document.createElement('div');
+        addBtn.className = 'otable-add-column-btn';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add column';
+        addBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openAddColumnModal();
+        });
+        headerRow.appendChild(addBtn);
         body.appendChild(headerRow);
         return headerRow;
+    }
+
+    // ── TASK-B5: column header D&D + right-click context menu ──
+
+    var _draggingColId = null;
+
+    function attachColumnHeaderHandlers(th, col) {
+        th.addEventListener('dragstart', function (e) {
+            _draggingColId = col.id;
+            try { e.dataTransfer.effectAllowed = 'move'; } catch (_) { /* ignore */ }
+            try { e.dataTransfer.setData('text/plain', col.id); } catch (_) { /* ignore */ }
+            th.classList.add('otable-col-dragging');
+        });
+        th.addEventListener('dragend', function () {
+            th.classList.remove('otable-col-dragging');
+            _draggingColId = null;
+            var headers = document.querySelectorAll('.otable-column-header');
+            for (var i = 0; i < headers.length; i++) {
+                headers[i].classList.remove('otable-col-drop-target');
+            }
+        });
+        th.addEventListener('dragover', function (e) {
+            if (!_draggingColId || _draggingColId === col.id) { return; }
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (_) { /* ignore */ }
+            th.classList.add('otable-col-drop-target');
+        });
+        th.addEventListener('dragleave', function () {
+            th.classList.remove('otable-col-drop-target');
+        });
+        th.addEventListener('drop', function (e) {
+            if (!_draggingColId || _draggingColId === col.id) { return; }
+            e.preventDefault();
+            th.classList.remove('otable-col-drop-target');
+            var fromCol = columns.find(function (c) { return c.id === _draggingColId; });
+            var toCol = col;
+            if (!fromCol || !toCol) { return; }
+            var sorted = columns.slice().sort(function (a, b) { return a.order - b.order; });
+            var fromIdx = sorted.findIndex(function (c) { return c.id === fromCol.id; });
+            var toIdx = sorted.findIndex(function (c) { return c.id === toCol.id; });
+            if (fromIdx < 0 || toIdx < 0) { return; }
+            reorderColumns(fromIdx, toIdx);
+        });
+        th.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openColumnHeaderMenu(col, e.clientX, e.clientY);
+        });
+    }
+
+    // ── TASK-B5: column add / remove / reorder ──
+
+    function addColumn(type, name) {
+        if (type !== 'text' && type !== 'multiselect') { return null; }
+        var maxOrder = -1;
+        for (var i = 0; i < columns.length; i++) {
+            if (columns[i].order > maxOrder) { maxOrder = columns[i].order; }
+        }
+        saveSnapshot();
+        var newCol = {
+            id: generateColumnId(),
+            type: type,
+            name: name || (type === 'text' ? 'Text' : 'Tags'),
+            order: maxOrder + 1
+        };
+        if (type === 'multiselect') { newCol.options = []; }
+        columns.push(newCol);
+        ensureColumnsValid();
+        // adding any column flips _hadOriginalColumns true so serialize emits columns
+        OutlinerTableState._hadOriginalColumns = true;
+        OutlinerTableState._autoOutlinerInjected = false;
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+        return newCol;
+    }
+
+    function removeColumn(colId) {
+        var col = null;
+        for (var i = 0; i < columns.length; i++) {
+            if (columns[i].id === colId) { col = columns[i]; break; }
+        }
+        if (!col || col.type === 'outliner') { return false; }
+        saveSnapshot();
+        columns = columns.filter(function (c) { return c.id !== colId; });
+        // cleanup columnValues across all nodes
+        if (model && model.nodes) {
+            for (var nid in model.nodes) {
+                if (Object.prototype.hasOwnProperty.call(model.nodes, nid)) {
+                    var n = model.nodes[nid];
+                    if (n.columnValues && Object.prototype.hasOwnProperty.call(n.columnValues, colId)) {
+                        delete n.columnValues[colId];
+                    }
+                }
+            }
+        }
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+        return true;
+    }
+
+    function reorderColumns(fromOrder, toOrder) {
+        if (fromOrder === toOrder) { return; }
+        saveSnapshot();
+        var sorted = columns.slice().sort(function (a, b) { return a.order - b.order; });
+        if (fromOrder < 0 || fromOrder >= sorted.length) { return; }
+        if (toOrder < 0 || toOrder >= sorted.length) { return; }
+        var moved = sorted.splice(fromOrder, 1)[0];
+        sorted.splice(toOrder, 0, moved);
+        for (var i = 0; i < sorted.length; i++) { sorted[i].order = i; }
+        columns = sorted;
+        OutlinerTableState._hadOriginalColumns = true;
+        OutlinerTableState._autoOutlinerInjected = false;
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+    }
+
+    function forceRebuildRows() {
+        if (!rootEl) { return; }
+        var existing = rootEl.querySelector('.otable-rows');
+        if (existing) { existing.parentNode.removeChild(existing); }
+    }
+
+    // ── TASK-B5: add column modal ──
+
+    function openAddColumnModal() {
+        var existing = document.querySelector('.otable-modal-overlay');
+        if (existing) { existing.parentNode.removeChild(existing); }
+
+        var overlay = document.createElement('div');
+        overlay.className = 'otable-modal-overlay otable-add-column-modal';
+
+        var modal = document.createElement('div');
+        modal.className = 'otable-modal';
+
+        var title = document.createElement('div');
+        title.className = 'otable-modal-title';
+        title.textContent = 'Add column';
+        modal.appendChild(title);
+
+        var nameLabel = document.createElement('label');
+        nameLabel.className = 'otable-modal-label';
+        nameLabel.textContent = 'Name';
+        modal.appendChild(nameLabel);
+        var nameInput = document.createElement('input');
+        nameInput.className = 'otable-modal-input';
+        nameInput.type = 'text';
+        nameInput.value = '';
+        nameInput.placeholder = 'Column name';
+        modal.appendChild(nameInput);
+
+        var typeLabel = document.createElement('label');
+        typeLabel.className = 'otable-modal-label';
+        typeLabel.textContent = 'Type';
+        modal.appendChild(typeLabel);
+        var typeSelect = document.createElement('select');
+        typeSelect.className = 'otable-modal-select';
+        var optText = document.createElement('option');
+        optText.value = 'text'; optText.textContent = 'Text';
+        var optMulti = document.createElement('option');
+        optMulti.value = 'multiselect'; optMulti.textContent = 'Multiselect';
+        typeSelect.appendChild(optText);
+        typeSelect.appendChild(optMulti);
+        modal.appendChild(typeSelect);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'otable-modal-buttons';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'otable-modal-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { closeModal(overlay); });
+        var okBtn = document.createElement('button');
+        okBtn.className = 'otable-modal-ok';
+        okBtn.textContent = 'Add';
+        okBtn.addEventListener('click', function () {
+            var nameVal = (nameInput.value || '').trim() || (typeSelect.value === 'text' ? 'Text' : 'Tags');
+            addColumn(typeSelect.value, nameVal);
+            closeModal(overlay);
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(okBtn);
+        modal.appendChild(btnRow);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        nameInput.focus();
+
+        nameInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { closeModal(overlay); }
+            else if (e.key === 'Enter') { okBtn.click(); }
+        });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) { closeModal(overlay); }
+        });
+    }
+
+    function closeModal(overlay) {
+        if (overlay && overlay.parentNode) { overlay.parentNode.removeChild(overlay); }
+    }
+
+    // ── TASK-B5: column header context menu ──
+
+    function openColumnHeaderMenu(col, x, y) {
+        var existing = document.querySelector('.otable-context-menu');
+        if (existing) { existing.parentNode.removeChild(existing); }
+
+        var menu = document.createElement('div');
+        menu.className = 'otable-context-menu';
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+
+        var deleteItem = document.createElement('div');
+        deleteItem.className = 'otable-context-menu-item';
+        deleteItem.textContent = 'Delete column';
+        deleteItem.dataset.colId = col.id;
+        if (col.type === 'outliner') {
+            deleteItem.classList.add('disabled');
+            deleteItem.dataset.disabled = 'true';
+            deleteItem.title = 'Outliner column cannot be deleted';
+        } else {
+            deleteItem.addEventListener('click', function () {
+                removeMenu();
+                openConfirmRemoveColumnModal(col);
+            });
+        }
+        menu.appendChild(deleteItem);
+
+        document.body.appendChild(menu);
+
+        function removeMenu() {
+            if (menu.parentNode) { menu.parentNode.removeChild(menu); }
+            document.removeEventListener('click', outsideClick, true);
+        }
+        function outsideClick(e) {
+            if (!menu.contains(e.target)) { removeMenu(); }
+        }
+        setTimeout(function () {
+            document.addEventListener('click', outsideClick, true);
+        }, 0);
+    }
+
+    function openConfirmRemoveColumnModal(col) {
+        var existing = document.querySelector('.otable-modal-overlay');
+        if (existing) { existing.parentNode.removeChild(existing); }
+        var overlay = document.createElement('div');
+        overlay.className = 'otable-modal-overlay otable-remove-column-modal';
+        var modal = document.createElement('div');
+        modal.className = 'otable-modal';
+
+        var title = document.createElement('div');
+        title.className = 'otable-modal-title';
+        title.textContent = 'Delete column?';
+        modal.appendChild(title);
+
+        var msg = document.createElement('div');
+        msg.className = 'otable-modal-message';
+        msg.textContent = 'Are you sure you want to delete column "' + (col.name || col.id) + '"? All values in this column will be removed.';
+        modal.appendChild(msg);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'otable-modal-buttons';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'otable-modal-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { closeModal(overlay); });
+        var okBtn = document.createElement('button');
+        okBtn.className = 'otable-modal-ok';
+        okBtn.textContent = 'Delete';
+        okBtn.addEventListener('click', function () {
+            removeColumn(col.id);
+            closeModal(overlay);
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(okBtn);
+        modal.appendChild(btnRow);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        cancelBtn.focus();
+
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) { closeModal(overlay); }
+        });
     }
 
     /**
@@ -1612,6 +1911,13 @@
             if (!body) { return null; }
             return syncRowsToVisibleIds(body);
         },
-        _buildRow: buildRow
+        _buildRow: buildRow,
+        // TASK-B5 — column management
+        addColumn: addColumn,
+        removeColumn: removeColumn,
+        reorderColumns: reorderColumns,
+        _openAddColumnModal: openAddColumnModal,
+        _openColumnHeaderMenu: openColumnHeaderMenu,
+        _openConfirmRemoveColumnModal: openConfirmRemoveColumnModal
     };
 }));

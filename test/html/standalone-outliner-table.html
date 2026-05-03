@@ -1798,6 +1798,132 @@ body {
     gap: 4px;
     align-items: center;
 }
+
+/* TASK-B5: add column button */
+.otable-add-column-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--vscode-descriptionForeground, #888);
+    font-weight: 600;
+    border-left: 1px solid rgba(127, 127, 127, 0.2);
+    background: transparent;
+}
+.otable-add-column-btn:hover {
+    background: rgba(127, 127, 255, 0.06);
+    color: var(--vscode-foreground, #333);
+}
+
+/* TASK-B5: column drag/drop visual feedback */
+.otable-column-header.otable-col-dragging {
+    opacity: 0.5;
+}
+.otable-column-header.otable-col-drop-target {
+    background: rgba(0, 122, 204, 0.12);
+    box-shadow: inset -2px 0 0 var(--vscode-focusBorder, #007acc);
+}
+
+/* TASK-B5: modal */
+.otable-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.otable-modal {
+    background: var(--vscode-editor-background, #fff);
+    color: var(--vscode-foreground, #333);
+    border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.4));
+    border-radius: 6px;
+    padding: 16px 18px;
+    min-width: 320px;
+    max-width: 480px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    box-sizing: border-box;
+}
+.otable-modal-title {
+    font-weight: 600;
+    font-size: 1.05em;
+    margin-bottom: 12px;
+}
+.otable-modal-label {
+    display: block;
+    font-size: 0.85em;
+    margin: 8px 0 4px;
+}
+.otable-modal-input,
+.otable-modal-select {
+    width: 100%;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    background: var(--vscode-input-background, #fff);
+    color: var(--vscode-input-foreground, #333);
+    border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    outline: none;
+}
+.otable-modal-input:focus,
+.otable-modal-select:focus {
+    border-color: var(--vscode-focusBorder, #007acc);
+}
+.otable-modal-message {
+    font-size: 0.95em;
+    margin-bottom: 12px;
+    line-height: 1.4;
+}
+.otable-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+}
+.otable-modal-buttons button {
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    border: 1px solid var(--vscode-button-border, rgba(127, 127, 127, 0.4));
+    background: var(--vscode-button-secondaryBackground, #eee);
+    color: var(--vscode-button-secondaryForeground, #333);
+}
+.otable-modal-buttons .otable-modal-ok {
+    background: var(--vscode-button-background, #007acc);
+    color: var(--vscode-button-foreground, #fff);
+    border-color: var(--vscode-button-background, #007acc);
+}
+
+/* TASK-B5: context menu */
+.otable-context-menu {
+    position: fixed;
+    background: var(--vscode-menu-background, #fff);
+    color: var(--vscode-menu-foreground, #333);
+    border: 1px solid var(--vscode-menu-border, rgba(127, 127, 127, 0.4));
+    border-radius: 4px;
+    padding: 4px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    min-width: 160px;
+    z-index: 1100;
+}
+.otable-context-menu-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 0.9em;
+    user-select: none;
+}
+.otable-context-menu-item:hover {
+    background: var(--vscode-menu-selectionBackground, rgba(127, 127, 127, 0.12));
+}
+.otable-context-menu-item.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
 </style>
 </head>
 <body>
@@ -4058,10 +4184,309 @@ if (typeof module !== 'undefined' && module.exports) {
             th.className = 'otable-column-header otable-column-type-' + col.type;
             th.dataset.colId = col.id;
             th.textContent = col.name || col.type;
+            // TASK-B5: D&D handle for column reorder + context menu for delete
+            th.draggable = true;
+            attachColumnHeaderHandlers(th, col);
             headerRow.appendChild(th);
         }
+        // TASK-B5: "+ add column" button at the right end
+        var addBtn = document.createElement('div');
+        addBtn.className = 'otable-add-column-btn';
+        addBtn.textContent = '+';
+        addBtn.title = 'Add column';
+        addBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openAddColumnModal();
+        });
+        headerRow.appendChild(addBtn);
         body.appendChild(headerRow);
         return headerRow;
+    }
+
+    // ── TASK-B5: column header D&D + right-click context menu ──
+
+    var _draggingColId = null;
+
+    function attachColumnHeaderHandlers(th, col) {
+        th.addEventListener('dragstart', function (e) {
+            _draggingColId = col.id;
+            try { e.dataTransfer.effectAllowed = 'move'; } catch (_) { /* ignore */ }
+            try { e.dataTransfer.setData('text/plain', col.id); } catch (_) { /* ignore */ }
+            th.classList.add('otable-col-dragging');
+        });
+        th.addEventListener('dragend', function () {
+            th.classList.remove('otable-col-dragging');
+            _draggingColId = null;
+            var headers = document.querySelectorAll('.otable-column-header');
+            for (var i = 0; i < headers.length; i++) {
+                headers[i].classList.remove('otable-col-drop-target');
+            }
+        });
+        th.addEventListener('dragover', function (e) {
+            if (!_draggingColId || _draggingColId === col.id) { return; }
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (_) { /* ignore */ }
+            th.classList.add('otable-col-drop-target');
+        });
+        th.addEventListener('dragleave', function () {
+            th.classList.remove('otable-col-drop-target');
+        });
+        th.addEventListener('drop', function (e) {
+            if (!_draggingColId || _draggingColId === col.id) { return; }
+            e.preventDefault();
+            th.classList.remove('otable-col-drop-target');
+            var fromCol = columns.find(function (c) { return c.id === _draggingColId; });
+            var toCol = col;
+            if (!fromCol || !toCol) { return; }
+            var sorted = columns.slice().sort(function (a, b) { return a.order - b.order; });
+            var fromIdx = sorted.findIndex(function (c) { return c.id === fromCol.id; });
+            var toIdx = sorted.findIndex(function (c) { return c.id === toCol.id; });
+            if (fromIdx < 0 || toIdx < 0) { return; }
+            reorderColumns(fromIdx, toIdx);
+        });
+        th.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openColumnHeaderMenu(col, e.clientX, e.clientY);
+        });
+    }
+
+    // ── TASK-B5: column add / remove / reorder ──
+
+    function addColumn(type, name) {
+        if (type !== 'text' && type !== 'multiselect') { return null; }
+        var maxOrder = -1;
+        for (var i = 0; i < columns.length; i++) {
+            if (columns[i].order > maxOrder) { maxOrder = columns[i].order; }
+        }
+        saveSnapshot();
+        var newCol = {
+            id: generateColumnId(),
+            type: type,
+            name: name || (type === 'text' ? 'Text' : 'Tags'),
+            order: maxOrder + 1
+        };
+        if (type === 'multiselect') { newCol.options = []; }
+        columns.push(newCol);
+        ensureColumnsValid();
+        // adding any column flips _hadOriginalColumns true so serialize emits columns
+        OutlinerTableState._hadOriginalColumns = true;
+        OutlinerTableState._autoOutlinerInjected = false;
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+        return newCol;
+    }
+
+    function removeColumn(colId) {
+        var col = null;
+        for (var i = 0; i < columns.length; i++) {
+            if (columns[i].id === colId) { col = columns[i]; break; }
+        }
+        if (!col || col.type === 'outliner') { return false; }
+        saveSnapshot();
+        columns = columns.filter(function (c) { return c.id !== colId; });
+        // cleanup columnValues across all nodes
+        if (model && model.nodes) {
+            for (var nid in model.nodes) {
+                if (Object.prototype.hasOwnProperty.call(model.nodes, nid)) {
+                    var n = model.nodes[nid];
+                    if (n.columnValues && Object.prototype.hasOwnProperty.call(n.columnValues, colId)) {
+                        delete n.columnValues[colId];
+                    }
+                }
+            }
+        }
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+        return true;
+    }
+
+    function reorderColumns(fromOrder, toOrder) {
+        if (fromOrder === toOrder) { return; }
+        saveSnapshot();
+        var sorted = columns.slice().sort(function (a, b) { return a.order - b.order; });
+        if (fromOrder < 0 || fromOrder >= sorted.length) { return; }
+        if (toOrder < 0 || toOrder >= sorted.length) { return; }
+        var moved = sorted.splice(fromOrder, 1)[0];
+        sorted.splice(toOrder, 0, moved);
+        for (var i = 0; i < sorted.length; i++) { sorted[i].order = i; }
+        columns = sorted;
+        OutlinerTableState._hadOriginalColumns = true;
+        OutlinerTableState._autoOutlinerInjected = false;
+        forceRebuildRows();
+        renderTable();
+        scheduleSyncToHost();
+    }
+
+    function forceRebuildRows() {
+        if (!rootEl) { return; }
+        var existing = rootEl.querySelector('.otable-rows');
+        if (existing) { existing.parentNode.removeChild(existing); }
+    }
+
+    // ── TASK-B5: add column modal ──
+
+    function openAddColumnModal() {
+        var existing = document.querySelector('.otable-modal-overlay');
+        if (existing) { existing.parentNode.removeChild(existing); }
+
+        var overlay = document.createElement('div');
+        overlay.className = 'otable-modal-overlay otable-add-column-modal';
+
+        var modal = document.createElement('div');
+        modal.className = 'otable-modal';
+
+        var title = document.createElement('div');
+        title.className = 'otable-modal-title';
+        title.textContent = 'Add column';
+        modal.appendChild(title);
+
+        var nameLabel = document.createElement('label');
+        nameLabel.className = 'otable-modal-label';
+        nameLabel.textContent = 'Name';
+        modal.appendChild(nameLabel);
+        var nameInput = document.createElement('input');
+        nameInput.className = 'otable-modal-input';
+        nameInput.type = 'text';
+        nameInput.value = '';
+        nameInput.placeholder = 'Column name';
+        modal.appendChild(nameInput);
+
+        var typeLabel = document.createElement('label');
+        typeLabel.className = 'otable-modal-label';
+        typeLabel.textContent = 'Type';
+        modal.appendChild(typeLabel);
+        var typeSelect = document.createElement('select');
+        typeSelect.className = 'otable-modal-select';
+        var optText = document.createElement('option');
+        optText.value = 'text'; optText.textContent = 'Text';
+        var optMulti = document.createElement('option');
+        optMulti.value = 'multiselect'; optMulti.textContent = 'Multiselect';
+        typeSelect.appendChild(optText);
+        typeSelect.appendChild(optMulti);
+        modal.appendChild(typeSelect);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'otable-modal-buttons';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'otable-modal-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { closeModal(overlay); });
+        var okBtn = document.createElement('button');
+        okBtn.className = 'otable-modal-ok';
+        okBtn.textContent = 'Add';
+        okBtn.addEventListener('click', function () {
+            var nameVal = (nameInput.value || '').trim() || (typeSelect.value === 'text' ? 'Text' : 'Tags');
+            addColumn(typeSelect.value, nameVal);
+            closeModal(overlay);
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(okBtn);
+        modal.appendChild(btnRow);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        nameInput.focus();
+
+        nameInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') { closeModal(overlay); }
+            else if (e.key === 'Enter') { okBtn.click(); }
+        });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) { closeModal(overlay); }
+        });
+    }
+
+    function closeModal(overlay) {
+        if (overlay && overlay.parentNode) { overlay.parentNode.removeChild(overlay); }
+    }
+
+    // ── TASK-B5: column header context menu ──
+
+    function openColumnHeaderMenu(col, x, y) {
+        var existing = document.querySelector('.otable-context-menu');
+        if (existing) { existing.parentNode.removeChild(existing); }
+
+        var menu = document.createElement('div');
+        menu.className = 'otable-context-menu';
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+
+        var deleteItem = document.createElement('div');
+        deleteItem.className = 'otable-context-menu-item';
+        deleteItem.textContent = 'Delete column';
+        deleteItem.dataset.colId = col.id;
+        if (col.type === 'outliner') {
+            deleteItem.classList.add('disabled');
+            deleteItem.dataset.disabled = 'true';
+            deleteItem.title = 'Outliner column cannot be deleted';
+        } else {
+            deleteItem.addEventListener('click', function () {
+                removeMenu();
+                openConfirmRemoveColumnModal(col);
+            });
+        }
+        menu.appendChild(deleteItem);
+
+        document.body.appendChild(menu);
+
+        function removeMenu() {
+            if (menu.parentNode) { menu.parentNode.removeChild(menu); }
+            document.removeEventListener('click', outsideClick, true);
+        }
+        function outsideClick(e) {
+            if (!menu.contains(e.target)) { removeMenu(); }
+        }
+        setTimeout(function () {
+            document.addEventListener('click', outsideClick, true);
+        }, 0);
+    }
+
+    function openConfirmRemoveColumnModal(col) {
+        var existing = document.querySelector('.otable-modal-overlay');
+        if (existing) { existing.parentNode.removeChild(existing); }
+        var overlay = document.createElement('div');
+        overlay.className = 'otable-modal-overlay otable-remove-column-modal';
+        var modal = document.createElement('div');
+        modal.className = 'otable-modal';
+
+        var title = document.createElement('div');
+        title.className = 'otable-modal-title';
+        title.textContent = 'Delete column?';
+        modal.appendChild(title);
+
+        var msg = document.createElement('div');
+        msg.className = 'otable-modal-message';
+        msg.textContent = 'Are you sure you want to delete column "' + (col.name || col.id) + '"? All values in this column will be removed.';
+        modal.appendChild(msg);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'otable-modal-buttons';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'otable-modal-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { closeModal(overlay); });
+        var okBtn = document.createElement('button');
+        okBtn.className = 'otable-modal-ok';
+        okBtn.textContent = 'Delete';
+        okBtn.addEventListener('click', function () {
+            removeColumn(col.id);
+            closeModal(overlay);
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(okBtn);
+        modal.appendChild(btnRow);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        cancelBtn.focus();
+
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) { closeModal(overlay); }
+        });
     }
 
     /**
@@ -5293,7 +5718,14 @@ if (typeof module !== 'undefined' && module.exports) {
             if (!body) { return null; }
             return syncRowsToVisibleIds(body);
         },
-        _buildRow: buildRow
+        _buildRow: buildRow,
+        // TASK-B5 — column management
+        addColumn: addColumn,
+        removeColumn: removeColumn,
+        reorderColumns: reorderColumns,
+        _openAddColumnModal: openAddColumnModal,
+        _openColumnHeaderMenu: openColumnHeaderMenu,
+        _openConfirmRemoveColumnModal: openConfirmRemoveColumnModal
     };
 }));
 
