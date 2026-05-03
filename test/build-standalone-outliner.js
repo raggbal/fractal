@@ -171,6 +171,11 @@ const testOutlinerHostBridge = `
         showConfirm: function(id, message) {
             window.__testApi.messages.push({ type: 'showConfirm', id: id, message: message });
         },
+        // TASK-B7: Switch view (Outliner ⇄ Table)
+        requestReopenAs: function(viewType) {
+            var vt = (viewType && typeof viewType === 'object') ? viewType.viewType : viewType;
+            window.__testApi.messages.push({ type: 'requestReopenAs', viewType: vt });
+        },
         onMessage: function(handler) {
             window.__hostMessageHandler = handler;
         }

@@ -118,6 +118,13 @@
         },
         // standalone outliner: note-level methods are no-ops (width is per-.out via syncData)
         notesSaveSidePanelWidth: function() { /* no-op for standalone */ },
-        notesSaveSidePanelOutlineWidth: function() { /* no-op for standalone */ }
+        notesSaveSidePanelOutlineWidth: function() { /* no-op for standalone */ },
+
+        // TASK-B7: Switch view (Outliner ⇄ Table)
+        requestReopenAs: function(viewType) {
+            // Accept either a string or {viewType:string} payload
+            var vt = (viewType && typeof viewType === 'object') ? viewType.viewType : viewType;
+            api.postMessage({ type: 'requestReopenAs', viewType: vt });
+        }
     });
 })();
