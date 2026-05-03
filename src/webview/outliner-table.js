@@ -67,6 +67,13 @@
     var syncDebounceTimer = null;
     var SYNC_DEBOUNCE_MS = 1000;
 
+    // TASK-E1 / E2 (sync iteration 2): column width defaults / clamp.
+    // design/system.md §4.5-A: テーブル全体幅 = 列幅合計 + 横スクロール、
+    // resize 時は MIN_COLUMN_WIDTH で clamp。
+    var DEFAULT_OUTLINER_WIDTH = 320;
+    var DEFAULT_OTHER_WIDTH = 200;
+    var MIN_COLUMN_WIDTH = 120;
+
     // outliner.js と同じ knownKeys 集合 + columns。
     // columns は Table editor が直接管理するため、rawDataExtras には入れない。
     // schemaVersion は v7.3 で撤回された field、知っているが書かない (drop)。
@@ -469,6 +476,55 @@
         headerRow.appendChild(addBtn);
         body.appendChild(headerRow);
         return headerRow;
+    }
+
+    // ── TASK-E1 (sync iteration 2): column width application ──
+    //
+    // design/system.md §4.5-A: 各列に固定幅 (px) を割り当て、
+    //   - .otable-column-headers / .otable-row の grid-template-columns を動的設定
+    //   - .otable-column-headers / .otable-row / .otable-rows の width = 列幅合計
+    //   - 画面幅にフィットさせない → 列が増えると横スクロール出る
+    //
+    // column.width 未指定時:
+    //   - outliner 列: DEFAULT_OUTLINER_WIDTH (320px)
+    //   - text / multiselect 列: DEFAULT_OTHER_WIDTH (200px)
+    function _resolveColumnWidth(col) {
+        // design/system.md §4.5-A:
+        //   - col.width が数値で MIN_COLUMN_WIDTH 以上 → そのまま使用
+        //   - 数値だが MIN 未満 → MIN_COLUMN_WIDTH に clamp
+        //   - 未指定 / 非数値 → 型別デフォルト
+        if (col && typeof col.width === 'number' && col.width > 0) {
+            return col.width >= MIN_COLUMN_WIDTH ? col.width : MIN_COLUMN_WIDTH;
+        }
+        return col && col.type === 'outliner' ? DEFAULT_OUTLINER_WIDTH : DEFAULT_OTHER_WIDTH;
+    }
+
+    function applyColumnWidths() {
+        if (!rootEl || !columns || columns.length === 0) { return; }
+        // ensureColumnsValid() で order ソート済みだが、order 順で template を構築
+        var sorted = columns.slice().sort(function (a, b) {
+            return (a.order || 0) - (b.order || 0);
+        });
+        var widthsPx = sorted.map(_resolveColumnWidth);
+        var template = widthsPx.map(function (w) { return w + 'px'; }).join(' ');
+        var totalWidth = widthsPx.reduce(function (sum, w) { return sum + w; }, 0);
+
+        var headerEls = rootEl.querySelectorAll('.otable-column-headers');
+        for (var i = 0; i < headerEls.length; i++) {
+            headerEls[i].style.gridTemplateColumns = template;
+            headerEls[i].style.width = totalWidth + 'px';
+        }
+        var rowEls = rootEl.querySelectorAll('.otable-row');
+        for (var j = 0; j < rowEls.length; j++) {
+            rowEls[j].style.gridTemplateColumns = template;
+            rowEls[j].style.width = totalWidth + 'px';
+        }
+        // .otable-rows 自体も width を設定 (block container — sticky header と
+        // 行群とでスクロール幅を揃えるため)
+        var rowsContainerEls = rootEl.querySelectorAll('.otable-rows');
+        for (var k = 0; k < rowsContainerEls.length; k++) {
+            rowsContainerEls[k].style.width = totalWidth + 'px';
+        }
     }
 
     // ── TASK-B5: column header D&D + right-click context menu ──
@@ -1678,6 +1734,10 @@
         }
         // TASK-B6: re-apply search filter visibility after re-render
         applySearchVisibility();
+        // TASK-E1 (sync iteration 2): apply fixed column widths + total table
+        // width AFTER rows exist. Header / rows / .otable-rows wrapper all get
+        // grid-template-columns + width set.
+        applyColumnWidths();
     }
 
     // ── TASK-B6: header search box ──
@@ -2507,6 +2567,12 @@
         addColumn: addColumn,
         removeColumn: removeColumn,
         reorderColumns: reorderColumns,
+        // TASK-E1 (sync iteration 2) — column widths
+        _applyColumnWidths: applyColumnWidths,
+        _resolveColumnWidth: _resolveColumnWidth,
+        _getDefaultOutlinerWidth: function () { return DEFAULT_OUTLINER_WIDTH; },
+        _getDefaultOtherWidth: function () { return DEFAULT_OTHER_WIDTH; },
+        _getMinColumnWidth: function () { return MIN_COLUMN_WIDTH; },
         _openAddColumnModal: openAddColumnModal,
         _openColumnHeaderMenu: openColumnHeaderMenu,
         _openConfirmRemoveColumnModal: openConfirmRemoveColumnModal,

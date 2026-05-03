@@ -25,17 +25,24 @@
     flex: 0 0 auto;
 }
 
+/* TASK-E1 (sync iteration 2): overflow-x: auto で横スクロール出す */
 .otable-body {
     flex: 1 1 auto;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: auto;
     min-height: 0;
 }
 
-/* 列ヘッダー / 行とも同じ grid 定義を使う (列数に応じて動的) */
+/* TASK-E1: rows wrapper as block so per-row width applies cleanly */
+.otable-rows {
+    display: block;
+}
+
+/* TASK-E1 (sync iteration 2): grid-template-columns / width は applyColumnWidths() が
+ * JS で動的設定 (列幅合計 = テーブル幅、画面幅にはフィットしない) */
 .otable-column-headers,
 .otable-row {
     display: grid;
-    grid-template-columns: minmax(220px, 2fr) repeat(auto-fill, minmax(140px, 1fr));
     border-bottom: 1px solid rgba(127, 127, 127, 0.2);
     box-sizing: border-box;
 }

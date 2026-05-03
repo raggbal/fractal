@@ -1162,3 +1162,67 @@ Outliner cell の renderInlineText / multiselect chip render コミ込みでも
 
 **次の step**: `reviewer` agent を呼び出し、独立 context で全テスト実行 +
 品質レビュー → 結果に応じて release / 修正 iteration へ。
+
+---
+
+# Iteration 2 (sync 反映後) — 予定
+
+## 経緯
+
+iteration 1 完了 (23/23 task) + reviewer PASSED 後、ユーザー手動 review 中に **テーブルレイアウトの design_gap + requirement_gap** を発見:
+- CSS Grid auto-fill による画面幅フィット問題 (列増えても横スクロール出ない)
+- 列幅 D&D resize 未実装 (v1 範囲外と判断したが、実際は必須)
+
+`/sync 20260502-230053-outliner-table-editor-mode` で Phase E (TASK-E1, E2) を sprint に追加。詳細は `session-log.md` 「2026-05-03 [sync iteration 2]」参照。
+
+## iteration 2 で実装する task
+
+### TASK-E1: テーブル幅 = 列幅合計 + 横スクロール
+
+- 修正: `src/webview/outliner-table.js` (`applyColumnWidths` 関数追加、`renderTable` で呼ぶ)
+- 修正: `src/webview/outliner-table.css` (auto-fill 廃止、`.otable-body { overflow-x: auto }`)
+- 新規 testcase: TC-906, TC-909
+- 新規 spec ファイル: `test/specs/integration-outliner-table-column-width.spec.ts`
+
+### TASK-E2: 列幅 D&D resize + 永続化
+
+- 修正: `src/webview/outliner-table.js` (`attachColumnResizeHandles` / `startColumnResize`、`column.width` 更新、永続化)
+- 修正: `src/webview/outliner-table.css` (`.otable-col-resize-handle` + `body.is-otable-resizing`)
+- 新規 testcase: TC-907, TC-908
+- 既存 spec ファイルに追加: `integration-outliner-table-column-width.spec.ts`
+
+## 完了基準 (iteration 2)
+
+- [ ] TC-906〜909 全 green
+- [ ] 既存 sprint spec 全 green (TC-001〜1402)
+- [ ] 既存 outliner regression 0 件
+- [ ] 手動 US-22 OK
+- [ ] commits: `[TASK-E1] ...` + `[TASK-E2] ...`
+
+---
+
+## Iteration 2 — 実装記録
+
+### 2026-05-03 [iteration 2 開始]
+
+### TASK-E1 完了 (テーブル幅 = 列幅合計 + 横スクロール)
+
+実装:
+- `src/webview/outliner-table.js`:
+  - 定数追加: `DEFAULT_OUTLINER_WIDTH = 320`, `DEFAULT_OTHER_WIDTH = 200`, `MIN_COLUMN_WIDTH = 120`
+  - 新規関数 `_resolveColumnWidth(col)` — 数値 width で 0 < w < MIN なら MIN にクランプ、未指定なら型別デフォルト
+  - 新規関数 `applyColumnWidths()` — `.otable-column-headers` / `.otable-row` / `.otable-rows` の `gridTemplateColumns` + `width` を JS で動的設定
+  - `renderTable()` の最後で `applyColumnWidths()` を呼ぶ
+  - 公開 API: `_applyColumnWidths`, `_resolveColumnWidth`, `_getDefault*Width`, `_getMinColumnWidth`
+- `src/webview/outliner-table.css`:
+  - `.otable-body { overflow-x: auto; overflow-y: auto }` で横スクロール (auto から分離)
+  - `.otable-rows { display: block }` 新設 (sticky header と行群のスクロール幅を揃える)
+  - `.otable-column-headers, .otable-row` から `grid-template-columns: minmax(220px, 2fr) repeat(auto-fill, minmax(140px, 1fr))` を削除 (JS が動的設定)
+- `test/html/standalone-outliner-table.html` 再生成 (build-standalone-outliner-table.js)
+- 新規 spec: `test/specs/integration-outliner-table-column-width.spec.ts`
+  - TC-906: 5 列 (1120px) + viewport 800px で `scrollWidth > clientWidth` 横スクロール検証
+  - TC-909: デフォルト列幅 (Outliner 320 / その他 200)、`gridTemplateColumns = '320px 200px'`、total width 520px
+
+テスト結果: TC-906, TC-909 green / 既存 outliner-table 全 spec regression 0
+
+commit: `[TASK-E1] Table fixed column widths + horizontal scroll`
