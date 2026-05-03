@@ -619,6 +619,169 @@
         }
     }
 
+    // ─── Phase 5: applyInlineFormat / subtext open/close (model + host inject) ───
+
+    /**
+     * インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
+     * Args: { nodeId, textEl, marker, model, host, saveSnapshot }
+     *   - model: outliner-model with getNode / updateText
+     *   - host: { scheduleSyncToHost, setCursorAtOffset (optional override) }
+     *   - saveSnapshot: optional snapshot fn (Phase 5 doesn't currently use,
+     *     but exposed for caller-side undo support)
+     */
+    function applyInlineFormat(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var textEl = args.textEl;
+        var marker = args.marker;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !textEl || !marker) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var text = node.text || '';
+        var sel = window.getSelection();
+        var off = getCursorOffset(textEl);
+
+        if (sel && !sel.isCollapsed) {
+            var range = sel.getRangeAt(0);
+            var preRange = range.cloneRange();
+            preRange.selectNodeContents(textEl);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            var startOff = preRange.toString().length;
+            var endOff = startOff + range.toString().length;
+
+            var selected = text.slice(startOff, endOff);
+            var before = text.slice(0, startOff);
+            var after = text.slice(endOff);
+
+            if (before.endsWith(marker) && after.startsWith(marker)) {
+                var newText = before.slice(0, -marker.length) + selected + after.slice(marker.length);
+                model.updateText(nodeId, newText);
+                textEl.innerHTML = renderEditingText(newText);
+                setCursorAtOffset(textEl, endOff - marker.length);
+            } else if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length > 2 * marker.length) {
+                var stripped = selected.slice(marker.length, -marker.length);
+                var newText1b = before + stripped + after;
+                model.updateText(nodeId, newText1b);
+                textEl.innerHTML = renderEditingText(newText1b);
+                setCursorAtOffset(textEl, startOff + stripped.length);
+            } else {
+                var newText2 = before + marker + selected + marker + after;
+                model.updateText(nodeId, newText2);
+                textEl.innerHTML = renderEditingText(newText2);
+                setCursorAtOffset(textEl, endOff + 2 * marker.length);
+            }
+        } else {
+            var newText3 = text.slice(0, off) + marker + marker + text.slice(off);
+            model.updateText(nodeId, newText3);
+            textEl.innerHTML = renderEditingText(newText3);
+            setCursorAtOffset(textEl, off + marker.length);
+        }
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+    }
+
+    /**
+     * Open subtext for editing.
+     * Args: { nodeId, treeEl, model } — host: not needed (read-only DOM ops + model.getNode)
+     */
+    function openSubtext(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var treeEl = args.treeEl;
+        var model = args.model;
+        if (!treeEl || !model) { return; }
+        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (!nodeEl) { return; }
+        var subtextEl = nodeEl.querySelector('.outliner-subtext');
+        if (!subtextEl) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+
+        subtextEl.contentEditable = 'true';
+        subtextEl.classList.add('is-editing');
+        subtextEl.classList.add('has-content');
+        subtextEl.textContent = node.subtext || '';
+        subtextEl.focus();
+
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(subtextEl);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    /**
+     * Close subtext (commit value).
+     * Args: { nodeId, subtextEl, model, host: { scheduleSyncToHost, focusNode } }
+     */
+    function closeSubtext(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var subtextEl = args.subtextEl;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !subtextEl) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+
+        var raw = getSubtextPlainText(subtextEl);
+        if (model.updateSubtext) { model.updateSubtext(nodeId, raw); }
+
+        subtextEl.contentEditable = 'false';
+        subtextEl.classList.remove('is-editing');
+        if (raw) {
+            subtextEl.classList.add('has-content');
+            subtextEl.textContent = raw;
+        } else {
+            subtextEl.classList.remove('has-content');
+            subtextEl.textContent = '';
+        }
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+
+        if (host.focusNode) { host.focusNode(nodeId); }
+    }
+
+    /**
+     * Subtext keydown handler.
+     * Args: { event, nodeId, subtextEl, model, host: { scheduleSyncToHost, focusNode, save, syncToHostImmediate } }
+     */
+    function handleSubtextKeydown(args) {
+        if (!args) { return; }
+        var e = args.event;
+        var nodeId = args.nodeId;
+        var subtextEl = args.subtextEl;
+        var model = args.model;
+        var host = args.host || {};
+        if (!e || !model || !subtextEl) { return; }
+        if (e.isComposing || e.keyCode === 229) { return; }
+
+        if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault();
+            closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
+            return;
+        }
+
+        if (e.key === 'Enter' && !e.shiftKey) {
+            return;
+        }
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
+            return;
+        }
+
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            e.preventDefault();
+            var raw = getSubtextPlainText(subtextEl);
+            if (model.updateSubtext) { model.updateSubtext(nodeId, raw); }
+            if (host.syncToHostImmediate) { host.syncToHostImmediate(); }
+            if (host.save) { host.save(); }
+        }
+    }
+
     return {
         renderInlineText: renderInlineText,
         classifyLinkHref: classifyLinkHref,
@@ -655,6 +818,11 @@
         clearImageDropIndicators: clearImageDropIndicators,
         clearImageSelection: clearImageSelection,
         showImageOverlay: showImageOverlay,
-        renderNodeImages: renderNodeImages
+        renderNodeImages: renderNodeImages,
+        // Phase 5 — applyInlineFormat / subtext open/close (model + host inject)
+        applyInlineFormat: applyInlineFormat,
+        openSubtext: openSubtext,
+        closeSubtext: closeSubtext,
+        handleSubtextKeydown: handleSubtextKeydown
     };
 }));

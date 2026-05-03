@@ -1425,60 +1425,17 @@ var Outliner = (function() {
         return OutlinerCell.getPlainText(el);
     }
 
-    /**
-     * インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
-     * テキスト選択中: 選択範囲をマーカーで囲む / すでに囲まれていたら除去
-     * 選択なし: カーソル位置にマーカーペアを挿入してその間にカーソル配置
+    /** インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
+     * 実装は outliner-cell.js (OutlinerCell.applyInlineFormat) に分離 (TASK-A5, Phase 5 split)。
      */
     function applyInlineFormat(nodeId, textEl, marker) {
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-        var text = node.text;
-        var sel = window.getSelection();
-        var off = getCursorOffset(textEl);
-
-        if (sel && !sel.isCollapsed) {
-            // 選択範囲あり (編集モードなのでオフセットはソーステキスト空間)
-            var range = sel.getRangeAt(0);
-            var preRange = range.cloneRange();
-            preRange.selectNodeContents(textEl);
-            preRange.setEnd(range.startContainer, range.startOffset);
-            var startOff = preRange.toString().length;
-            var endOff = startOff + range.toString().length;
-
-            var selected = text.slice(startOff, endOff);
-            var before = text.slice(0, startOff);
-            var after = text.slice(endOff);
-
-            // トグル: すでにマーカーで囲まれている場合は除去
-            if (before.endsWith(marker) && after.startsWith(marker)) {
-                // ケース1: マーカーが選択範囲の外側にある (例: **|text|**)
-                var newText = before.slice(0, -marker.length) + selected + after.slice(marker.length);
-                model.updateText(nodeId, newText);
-                textEl.innerHTML = renderEditingText(newText);
-                setCursorAtOffset(textEl, endOff - marker.length);
-            } else if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length > 2 * marker.length) {
-                // ケース2: マーカーが選択範囲の内側にある (例: |**text**| を選択してCmd+B)
-                var stripped = selected.slice(marker.length, -marker.length);
-                var newText1b = before + stripped + after;
-                model.updateText(nodeId, newText1b);
-                textEl.innerHTML = renderEditingText(newText1b);
-                setCursorAtOffset(textEl, startOff + stripped.length);
-            } else {
-                var newText2 = before + marker + selected + marker + after;
-                model.updateText(nodeId, newText2);
-                textEl.innerHTML = renderEditingText(newText2);
-                // カーソルを閉じマーカーの直後に配置
-                setCursorAtOffset(textEl, endOff + 2 * marker.length);
-            }
-        } else {
-            // 選択なし: マーカーペア挿入
-            var newText3 = text.slice(0, off) + marker + marker + text.slice(off);
-            model.updateText(nodeId, newText3);
-            textEl.innerHTML = renderEditingText(newText3);
-            setCursorAtOffset(textEl, off + marker.length);
-        }
-        scheduleSyncToHost();
+        return OutlinerCell.applyInlineFormat({
+            nodeId: nodeId,
+            textEl: textEl,
+            marker: marker,
+            model: model,
+            host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
+        });
     }
 
     // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
@@ -2838,88 +2795,45 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
-    /** サブテキストを開いてフォーカス */
+    function _outlinerSubtextHost() {
+        return {
+            scheduleSyncToHost: function() { scheduleSyncToHost(); },
+            syncToHostImmediate: function() { syncToHostImmediate(); },
+            focusNode: function(id) { focusNode(id); },
+            save: function() { host.save(); }
+        };
+    }
+
+    /** サブテキストを開いてフォーカス
+     * 実装は outliner-cell.js (OutlinerCell.openSubtext) に分離 (TASK-A5, Phase 5 split)。
+     */
     function openSubtext(nodeId) {
-        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
-        if (!nodeEl) { return; }
-        var subtextEl = nodeEl.querySelector('.outliner-subtext');
-        if (!subtextEl) { return; }
-
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-
-        // 編集モードに切替
-        subtextEl.contentEditable = 'true';
-        subtextEl.classList.add('is-editing');
-        subtextEl.classList.add('has-content');
-        subtextEl.textContent = node.subtext || '';
-        subtextEl.focus();
-
-        // カーソルを末尾に
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(subtextEl);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.openSubtext({ nodeId: nodeId, treeEl: treeEl, model: model });
     }
 
-    /** サブテキストから抜ける */
+    /** サブテキストから抜ける
+     * 実装は outliner-cell.js (OutlinerCell.closeSubtext) に分離 (TASK-A5, Phase 5 split)。
+     */
     function closeSubtext(nodeId, subtextEl) {
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-
-        // テキスト保存
-        var raw = getSubtextPlainText(subtextEl);
-        model.updateSubtext(nodeId, raw);
-
-        // 編集モード解除 — ノードにフォーカスが残るので全文表示にする
-        subtextEl.contentEditable = 'false';
-        subtextEl.classList.remove('is-editing');
-        if (raw) {
-            subtextEl.classList.add('has-content');
-            subtextEl.textContent = raw;  // 全文表示（フォーカスノードなので省略しない）
-        } else {
-            subtextEl.classList.remove('has-content');
-            subtextEl.textContent = '';
-        }
-        scheduleSyncToHost();
-
-        // メインテキストにフォーカス戻す
-        focusNode(nodeId);
+        return OutlinerCell.closeSubtext({
+            nodeId: nodeId,
+            subtextEl: subtextEl,
+            model: model,
+            host: _outlinerSubtextHost()
+        });
     }
 
-    /** サブテキスト用キーハンドラ */
+    /** サブテキスト用キーハンドラ
+     * 実装は outliner-cell.js (OutlinerCell.handleSubtextKeydown) に分離 (TASK-A5, Phase 5 split)。
+     */
     function handleSubtextKeydown(e, nodeId, subtextEl, textEl) {
-        if (e.isComposing || e.keyCode === 229) { return; }
-
-        if (e.key === 'Enter' && e.shiftKey) {
-            // Shift+Enter: サブテキストから抜ける
-            e.preventDefault();
-            closeSubtext(nodeId, subtextEl);
-            return;
-        }
-
-        if (e.key === 'Enter' && !e.shiftKey) {
-            // Enter: サブテキスト内で改行 (デフォルト動作を許可)
-            // ただし contenteditable の改行は insertLineBreak で処理
-            return;
-        }
-
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeSubtext(nodeId, subtextEl);
-            return;
-        }
-
-        // Cmd+S: 保存
-        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-            e.preventDefault();
-            var raw = getSubtextPlainText(subtextEl);
-            model.updateSubtext(nodeId, raw);
-            syncToHostImmediate();
-            host.save();
-        }
+        return OutlinerCell.handleSubtextKeydown({
+            event: e,
+            nodeId: nodeId,
+            subtextEl: subtextEl,
+            model: model,
+            host: _outlinerSubtextHost()
+        });
     }
 
     function handleBackspaceAtStart(node, textEl) {
