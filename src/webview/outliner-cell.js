@@ -378,6 +378,247 @@
         return hasMore ? firstLine + ' ...' : firstLine;
     }
 
+    // ─── Phase 4: image cell helpers ─────────────────────────────────────────
+    // renderNodeImages takes a `host` object with the following methods:
+    //   host.getImageBaseUri()         — returns webview-asset base URI (or null)
+    //   host.getModel()                — returns model with moveImage(nodeId, from, to), getNode(id)
+    //   host.saveSnapshot()            — push undo snapshot
+    //   host.scheduleSyncToHost()      — debounced save
+    //   host.getImageDragState()       — { nodeId, fromIndex } | null
+    //   host.setImageDragState(s)      — setter
+    //   host.getSelectedImageInfo()    — { nodeId, index, element } | null
+    //   host.setSelectedImageInfo(s)   — setter
+    //   host.isReadOnly()              — boolean (skips drag/click handlers when true)
+
+    function resolveImageSrc(imagePath, baseUri) {
+        if (!baseUri) {
+            // browser: fall back to window.__outlinerImageBaseUri for back-compat
+            if (typeof window !== 'undefined' && window.__outlinerImageBaseUri) {
+                baseUri = window.__outlinerImageBaseUri;
+            }
+        }
+        if (!baseUri) { return imagePath; }
+        return baseUri + '/' + imagePath.replace(/^\.\//, '');
+    }
+
+    /** コンテナ内のマウス位置から最も近いドロップインデックスを算出 */
+    function getImageDropIndex(container, clientX, clientY) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        if (thumbs.length === 0) { return 0; }
+        var bestIdx = 0;
+        var bestDist = Infinity;
+        for (var i = 0; i < thumbs.length; i++) {
+            var rect = thumbs[i].getBoundingClientRect();
+            var leftEdge = rect.left;
+            var rightEdge = rect.right;
+            var centerY = rect.top + rect.height / 2;
+            var dy = Math.abs(clientY - centerY);
+            var dLeft = Math.sqrt(Math.pow(clientX - leftEdge, 2) + Math.pow(dy, 2));
+            if (dLeft < bestDist) { bestDist = dLeft; bestIdx = i; }
+            var dRight = Math.sqrt(Math.pow(clientX - rightEdge, 2) + Math.pow(dy, 2));
+            if (dRight < bestDist) { bestDist = dRight; bestIdx = i + 1; }
+        }
+        return bestIdx;
+    }
+
+    /** ドロップインジケーターを表示（指定インデックスの左に青線） */
+    function showImageDropIndicator(container, dropIdx) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        for (var t = 0; t < thumbs.length; t++) {
+            thumbs[t].classList.remove('drop-before', 'drop-after');
+        }
+        if (dropIdx <= 0 && thumbs.length > 0) {
+            thumbs[0].classList.add('drop-before');
+        } else if (dropIdx >= thumbs.length && thumbs.length > 0) {
+            thumbs[thumbs.length - 1].classList.add('drop-after');
+        } else if (dropIdx > 0 && dropIdx < thumbs.length) {
+            thumbs[dropIdx].classList.add('drop-before');
+        }
+    }
+
+    function clearImageDropIndicators(container) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        for (var t = 0; t < thumbs.length; t++) {
+            thumbs[t].classList.remove('drop-before', 'drop-after', 'is-dragging');
+        }
+    }
+
+    function clearImageSelection(host) {
+        if (!host || !host.getSelectedImageInfo) { return; }
+        var sel = host.getSelectedImageInfo();
+        if (sel) {
+            if (sel.element) { sel.element.classList.remove('is-selected'); }
+            host.setSelectedImageInfo(null);
+        }
+    }
+
+    function showImageOverlay(src) {
+        var overlay = document.createElement('div');
+        overlay.className = 'outliner-image-overlay';
+
+        var largeImg = document.createElement('img');
+        largeImg.className = 'outliner-image-large';
+        largeImg.src = src;
+
+        overlay.appendChild(largeImg);
+
+        var hint = document.createElement('div');
+        hint.className = 'outliner-image-overlay-hint';
+        hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
+        document.body.appendChild(overlay);
+
+        var scale = 1, tx = 0, ty = 0;
+        var isDragging = false, dragStartX = 0, dragStartY = 0;
+        var MIN_SCALE = 0.2, MAX_SCALE = 16;
+        function apply() {
+            largeImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey) return;
+            ev.preventDefault();
+            var delta = -ev.deltaY * 0.01;
+            var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            var rect = largeImg.getBoundingClientRect();
+            var ox = ev.clientX - rect.left;
+            var oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            apply();
+        }, { passive: false });
+        largeImg.addEventListener('mousedown', function(ev) {
+            ev.preventDefault();
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            largeImg.style.cursor = 'grabbing';
+        });
+        var onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            apply();
+        };
+        var onUp = function() {
+            isDragging = false;
+            largeImg.style.cursor = 'default';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+        largeImg.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            apply();
+        });
+
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) { overlay.remove(); }
+        });
+        var escHandler = function(ev) {
+            if (ev.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    }
+
+    /**
+     * Render <img.outliner-image-thumb> elements for node.images[] into container.
+     * host: object with getImageBaseUri / getModel / saveSnapshot / scheduleSyncToHost /
+     *       getImageDragState / setImageDragState / getSelectedImageInfo / setSelectedImageInfo
+     */
+    function renderNodeImages(container, node, host) {
+        if (!container) { return; }
+        container.innerHTML = '';
+        if (!node || !node.images || node.images.length === 0) { return; }
+
+        var baseUri = host && host.getImageBaseUri ? host.getImageBaseUri() : null;
+        var isReadOnly = host && host.isReadOnly ? host.isReadOnly() : false;
+
+        for (var i = 0; i < node.images.length; i++) {
+            (function(idx) {
+                var img = document.createElement('img');
+                img.className = 'outliner-image-thumb';
+                img.dataset.index = idx;
+                img.dataset.nodeId = node.id;
+                img.src = resolveImageSrc(node.images[idx], baseUri);
+                img.draggable = !isReadOnly;
+                img.alt = '';
+
+                if (!isReadOnly && host) {
+                    img.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        clearImageSelection(host);
+                        img.classList.add('is-selected');
+                        host.setSelectedImageInfo({ nodeId: node.id, index: idx, element: img });
+                    });
+
+                    img.addEventListener('dblclick', function(e) {
+                        e.stopPropagation();
+                        showImageOverlay(img.src);
+                    });
+
+                    img.addEventListener('dragstart', function(e) {
+                        e.stopPropagation();
+                        host.setImageDragState({ nodeId: node.id, fromIndex: idx });
+                        img.classList.add('is-dragging');
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', 'outliner-image');
+                    });
+
+                    img.addEventListener('dragend', function() {
+                        host.setImageDragState(null);
+                        clearImageDropIndicators(container);
+                    });
+                }
+
+                container.appendChild(img);
+            })(i);
+        }
+
+        if (!isReadOnly && host) {
+            container.addEventListener('dragover', function(e) {
+                var st = host.getImageDragState();
+                if (!st || st.nodeId !== node.id) { return; }
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'move';
+                var dropIdx = getImageDropIndex(container, e.clientX, e.clientY);
+                showImageDropIndicator(container, dropIdx);
+            });
+
+            container.addEventListener('dragleave', function(e) {
+                if (container.contains(e.relatedTarget)) { return; }
+                clearImageDropIndicators(container);
+            });
+
+            container.addEventListener('drop', function(e) {
+                var st = host.getImageDragState();
+                if (!st || st.nodeId !== node.id) { return; }
+                e.preventDefault();
+                e.stopPropagation();
+                var toIdx = getImageDropIndex(container, e.clientX, e.clientY);
+                if (st.fromIndex !== toIdx && st.fromIndex !== toIdx - 1) {
+                    if (host.saveSnapshot) { host.saveSnapshot(); }
+                    var model = host.getModel ? host.getModel() : null;
+                    if (model && model.moveImage) {
+                        model.moveImage(node.id, st.fromIndex, toIdx);
+                        renderNodeImages(container, model.getNode(node.id), host);
+                    }
+                    if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+                }
+                host.setImageDragState(null);
+                clearImageDropIndicators(container);
+            });
+        }
+    }
+
     return {
         renderInlineText: renderInlineText,
         classifyLinkHref: classifyLinkHref,
@@ -406,6 +647,14 @@
         getCursorRange: getCursorRange,
         getPlainText: getPlainText,
         getSubtextPlainText: getSubtextPlainText,
-        getSubtextPreview: getSubtextPreview
+        getSubtextPreview: getSubtextPreview,
+        // Phase 4 — image cell helpers (host inject pattern)
+        resolveImageSrc: resolveImageSrc,
+        getImageDropIndex: getImageDropIndex,
+        showImageDropIndicator: showImageDropIndicator,
+        clearImageDropIndicators: clearImageDropIndicators,
+        clearImageSelection: clearImageSelection,
+        showImageOverlay: showImageOverlay,
+        renderNodeImages: renderNodeImages
     };
 }));
