@@ -4064,6 +4064,158 @@ if (typeof module !== 'undefined' && module.exports) {
         return headerRow;
     }
 
+    /**
+     * Build a single row DOM element with all cells for a node.
+     * Used by both initial render and TASK-B4 row recycling.
+     */
+    function buildRow(nodeId) {
+        var node = model.getNode(nodeId);
+        if (!node) { return null; }
+        var row = document.createElement('div');
+        row.className = 'otable-row';
+        row.dataset.nodeId = nodeId;
+        for (var k = 0; k < columns.length; k++) {
+            var col = columns[k];
+            var cell = document.createElement('div');
+            cell.className = 'otable-cell otable-cell-' + col.type;
+            cell.dataset.colId = col.id;
+            cell.dataset.nodeId = nodeId;
+            if (col.type === 'outliner') {
+                renderOutlinerCell(cell, node);
+            } else if (col.type === 'text') {
+                renderTextCell(cell, node, col);
+            } else if (col.type === 'multiselect') {
+                renderMultiselectCellSkeleton(cell, node, col);
+            }
+            row.appendChild(cell);
+        }
+        // tag row col signature so we can detect schema-level cell mismatch
+        row.dataset.colSig = _colSignature();
+        return row;
+    }
+
+    /**
+     * Update an existing row's cells in-place (preserving the row DOM element).
+     * Outliner cell is fully re-rendered (collapse/children/depth change handling).
+     * Text cell is re-rendered only if its value differs from current model state
+     * (to preserve cursor when an unrelated row's structure changes).
+     *
+     * If `opts.preserveFocus` is true and the active focus is inside this row's
+     * outliner-text or otable-text-content, the corresponding cell is not
+     * clobbered (cursor preservation for live editing).
+     */
+    function updateRowInPlace(row, nodeId, opts) {
+        opts = opts || {};
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        // schema mismatch (column count/order changed) → rebuild
+        if (row.dataset.colSig !== _colSignature()) {
+            var rebuilt = buildRow(nodeId);
+            if (rebuilt) { row.parentNode.replaceChild(rebuilt, row); }
+            return;
+        }
+        var cells = row.querySelectorAll('.otable-cell');
+        for (var k = 0; k < columns.length && k < cells.length; k++) {
+            var col = columns[k];
+            var cell = cells[k];
+            if (col.type === 'outliner') {
+                var textInside = cell.querySelector('.outliner-text');
+                if (opts.preserveFocus && textInside && document.activeElement === textInside) {
+                    var bullet = cell.querySelector('.outliner-bullet');
+                    if (bullet) { _updateBullet(bullet, node); }
+                    continue;
+                }
+                renderOutlinerCell(cell, node);
+            } else if (col.type === 'text') {
+                var textEl = cell.querySelector('.otable-text-content');
+                var currentValue = getTextCellValue(nodeId, col.id);
+                if (textEl) {
+                    if (opts.preserveFocus && document.activeElement === textEl) {
+                        continue;
+                    }
+                    var lastValue = textEl.dataset.lastValue;
+                    if (lastValue !== currentValue) {
+                        textEl.innerHTML = OutlinerCell.renderInlineText(currentValue);
+                        textEl.dataset.lastValue = currentValue;
+                    }
+                } else {
+                    renderTextCell(cell, node, col);
+                }
+            } else if (col.type === 'multiselect') {
+                renderMultiselectCellSkeleton(cell, node, col);
+            }
+        }
+    }
+
+    function _updateBullet(bullet, node) {
+        bullet.dataset.nodeId = node.id;
+        if (node.children && node.children.length > 0) {
+            bullet.dataset.hasChildren = 'true';
+            bullet.dataset.collapsed = node.collapsed ? 'true' : 'false';
+        } else {
+            bullet.removeAttribute('data-has-children');
+            bullet.removeAttribute('data-collapsed');
+        }
+    }
+
+    function _colSignature() {
+        return columns.map(function (c) { return c.id + ':' + c.type; }).join('|');
+    }
+
+    /**
+     * TASK-B4: row recycling — reconcile DOM rows with model.getFlattenedIds().
+     * Existing rows are recycled by nodeId; new ones are built; obsolete ones
+     * removed. Order is restored via insertAdjacentElement.
+     */
+    function syncRowsToVisibleIds(body, opts) {
+        opts = opts || {};
+        var rowsContainer = body.querySelector('.otable-rows');
+        if (!rowsContainer) {
+            rowsContainer = document.createElement('div');
+            rowsContainer.className = 'otable-rows';
+            body.appendChild(rowsContainer);
+        }
+        var visibleIds = model.getFlattenedIds(true);
+        var existingRows = {};
+        var rowEls = rowsContainer.querySelectorAll('.otable-row');
+        for (var i = 0; i < rowEls.length; i++) {
+            existingRows[rowEls[i].dataset.nodeId] = rowEls[i];
+        }
+        // 1. remove obsolete rows
+        for (var id in existingRows) {
+            if (Object.prototype.hasOwnProperty.call(existingRows, id) && visibleIds.indexOf(id) === -1) {
+                existingRows[id].parentNode.removeChild(existingRows[id]);
+            }
+        }
+        // 2. iterate visibleIds and ensure DOM order matches
+        var prev = null;
+        for (var j = 0; j < visibleIds.length; j++) {
+            var nodeId = visibleIds[j];
+            var row = existingRows[nodeId];
+            if (!row) {
+                row = buildRow(nodeId);
+                if (!row) { continue; }
+            } else {
+                updateRowInPlace(row, nodeId, opts);
+            }
+            if (prev) {
+                if (row.previousElementSibling !== prev) {
+                    prev.insertAdjacentElement('afterend', row);
+                }
+            } else {
+                if (rowsContainer.firstElementChild !== row) {
+                    rowsContainer.insertBefore(row, rowsContainer.firstElementChild);
+                }
+            }
+            prev = row;
+        }
+        return rowsContainer;
+    }
+
+    /**
+     * Legacy `renderRows`: full rebuild — used only on first render.
+     * Subsequent updates use `syncRowsToVisibleIds` (row recycling, TASK-B4).
+     */
     function renderRows(body) {
         var existing = body.querySelector('.otable-rows');
         if (existing) { existing.parentNode.removeChild(existing); }
@@ -4072,30 +4224,8 @@ if (typeof module !== 'undefined' && module.exports) {
 
         var visibleIds = model.getFlattenedIds(true);
         for (var j = 0; j < visibleIds.length; j++) {
-            var nodeId = visibleIds[j];
-            var node = model.getNode(nodeId);
-            if (!node) { continue; }
-            var row = document.createElement('div');
-            row.className = 'otable-row';
-            row.dataset.nodeId = nodeId;
-
-            for (var k = 0; k < columns.length; k++) {
-                var col = columns[k];
-                var cell = document.createElement('div');
-                cell.className = 'otable-cell otable-cell-' + col.type;
-                cell.dataset.colId = col.id;
-                cell.dataset.nodeId = nodeId;
-
-                if (col.type === 'outliner') {
-                    renderOutlinerCell(cell, node);
-                } else if (col.type === 'text') {
-                    renderTextCell(cell, node, col);
-                } else if (col.type === 'multiselect') {
-                    renderMultiselectCellSkeleton(cell, node, col);
-                }
-                row.appendChild(cell);
-            }
-            rowsContainer.appendChild(row);
+            var row = buildRow(visibleIds[j]);
+            if (row) { rowsContainer.appendChild(row); }
         }
         body.appendChild(rowsContainer);
         return rowsContainer;
@@ -4572,12 +4702,24 @@ if (typeof module !== 'undefined' && module.exports) {
         cell.textContent = '';
     }
 
-    function renderTable() {
+    /**
+     * Render entry. If rows already exist, use TASK-B4 row recycling.
+     * Otherwise full build.
+     *
+     * opts.preserveFocus: if true, skip clobbering the currently focused
+     *   outliner-text or otable-text-content (cursor preservation).
+     */
+    function renderTable(opts) {
         if (!rootEl) { return; }
         var body = ensureBodyEl();
         if (!body) { return; }
         renderColumnHeaders(body);
-        renderRows(body);
+        var existingRows = body.querySelector('.otable-rows');
+        if (existingRows && existingRows.children.length > 0) {
+            syncRowsToVisibleIds(body, opts);
+        } else {
+            renderRows(body);
+        }
     }
 
     // --- collapse / expand ---
@@ -5143,7 +5285,15 @@ if (typeof module !== 'undefined' && module.exports) {
         // TASK-B3 — text cell helpers
         _getTextCellValue: getTextCellValue,
         _setTextCellValue: setTextCellValue,
-        _textCellModelAdapter: _textCellModelAdapter
+        _textCellModelAdapter: _textCellModelAdapter,
+        // TASK-B4 — row recycling
+        _syncRowsToVisibleIds: function () {
+            if (!rootEl) { return null; }
+            var body = rootEl.querySelector('.otable-body');
+            if (!body) { return null; }
+            return syncRowsToVisibleIds(body);
+        },
+        _buildRow: buildRow
     };
 }));
 
