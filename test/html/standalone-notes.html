@@ -23800,6 +23800,17 @@ var Outliner = (function() {
     function isNotesMode() {
         return !!document.querySelector('.notes-layout');
     }
+    // Phase F (2026-05-04): DOM render mode
+    //   'hierarchical' (default): 既存の .outliner-children ネスト DOM (既存挙動完全保持)
+    //   'flat': 全 row が同階層に並ぶ flat DOM (table mode 統合のための準備)
+    // Phase F1.x で 'flat' 実装を段階追加、F1.5 で hierarchical 削除して flat 単一化予定。
+    var RENDER_MODE = 'hierarchical';
+    function _setRenderModeForTesting(mode) {
+        if (mode !== 'hierarchical' && mode !== 'flat') return;
+        RENDER_MODE = mode;
+    }
+    function _getRenderModeForTesting() { return RENDER_MODE; }
+
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
@@ -24559,6 +24570,13 @@ var Outliner = (function() {
     }
 
     function renderNodes(nodeIds, parentEl, depth, searchQuery) {
+        // Phase F (2026-05-04): DOM render mode 分岐
+        // RENDER_MODE === 'flat' 時は flat DOM 描画 (TASK-F1.2 で実装)
+        // default 'hierarchical' は既存実装そのまま
+        if (RENDER_MODE === 'flat') {
+            return renderNodesFlat(nodeIds, parentEl, depth, searchQuery);
+        }
+
         for (var i = 0; i < nodeIds.length; i++) {
             var nodeId = nodeIds[i];
             var node = model.getNode(nodeId);
@@ -24583,6 +24601,23 @@ var Outliner = (function() {
                 renderNodes(node.children, childrenEl, depth + 1, searchQuery);
                 parentEl.appendChild(childrenEl);
             }
+        }
+    }
+
+    /**
+     * Phase F1.2 (TASK-F1.2): flat DOM 描画パス (stub)
+     *
+     * 現時点では呼ばれない (RENDER_MODE='hierarchical' default)。
+     * TASK-F1.2 で本体を実装。それまでは stub として fallback で hierarchical を呼ぶ。
+     */
+    function renderNodesFlat(nodeIds, parentEl, depth, searchQuery) {
+        // F1.2 で実装。stub では hierarchical 経路に fallback してリスクゼロに保つ。
+        var savedMode = RENDER_MODE;
+        RENDER_MODE = 'hierarchical';
+        try {
+            renderNodes(nodeIds, parentEl, depth, searchQuery);
+        } finally {
+            RENDER_MODE = savedMode;
         }
     }
 
@@ -29979,7 +30014,10 @@ var Outliner = (function() {
             currentScope = { type: 'document' };
             if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
             if (typeof renderTree === 'function') renderTree();
-        }
+        },
+        // Phase F (TASK-F1.1): RENDER_MODE 切替 (spec / 開発専用、本番 UI からは使わない)
+        _setRenderMode: _setRenderModeForTesting,
+        _getRenderMode: _getRenderModeForTesting
     };
 })();
 
