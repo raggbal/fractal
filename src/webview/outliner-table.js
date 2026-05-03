@@ -461,6 +461,8 @@
             // TASK-B5: D&D handle for column reorder + context menu for delete
             th.draggable = true;
             attachColumnHeaderHandlers(th, col);
+            // TASK-E2 (sync iteration 2): 列幅 resize handle (右端 6px)
+            th.appendChild(buildColumnResizeHandle(col));
             headerRow.appendChild(th);
         }
         // TASK-B5: "+ add column" button at the right end
@@ -525,6 +527,73 @@
         for (var k = 0; k < rowsContainerEls.length; k++) {
             rowsContainerEls[k].style.width = totalWidth + 'px';
         }
+    }
+
+    // ── TASK-E2 (sync iteration 2): column resize handle ──
+    //
+    // design/system.md §4.5-A 仕様:
+    //   - 列ヘッダー右端 6px に handle、cursor: col-resize
+    //   - mousedown → mousemove で col.width を更新 → applyColumnWidths()
+    //   - mouseup で saveSnapshot + scheduleSyncToHost
+    //   - resize 中は body.is-otable-resizing class (cursor 維持 + select 抑止)
+    //   - reorder D&D との衝突を防ぐため stopPropagation
+    function buildColumnResizeHandle(col) {
+        var handle = document.createElement('div');
+        handle.className = 'otable-col-resize-handle';
+        handle.dataset.colId = col.id;
+        // mousedown を draggable=true な親 (header) に bubble させない
+        // (reorder D&D との衝突防止)
+        handle.addEventListener('mousedown', function (e) {
+            // mousedown propagation 抑止 + native drag 起動防止
+            e.preventDefault();
+            e.stopPropagation();
+            startColumnResize(col, e.clientX);
+        });
+        // dragstart は native browser が mousedown 直後に発火するので、
+        // header の draggable=true による drag を必ず止める
+        handle.addEventListener('dragstart', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        });
+        // click が outside-click handler 等に到達しないように
+        handle.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        return handle;
+    }
+
+    function startColumnResize(col, startX) {
+        if (!col) { return; }
+        var startWidth = _resolveColumnWidth(col);
+        if (typeof document !== 'undefined' && document.body) {
+            document.body.classList.add('is-otable-resizing');
+        }
+        var moved = false;
+
+        function onMove(e) {
+            moved = true;
+            var newWidth = Math.max(MIN_COLUMN_WIDTH, startWidth + (e.clientX - startX));
+            col.width = newWidth;
+            applyColumnWidths();
+        }
+        function onUp() {
+            if (typeof document !== 'undefined' && document.body) {
+                document.body.classList.remove('is-otable-resizing');
+            }
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            if (moved) {
+                // resize した場合のみ undo / persist を発火
+                OutlinerTableState._hadOriginalColumns = true;
+                OutlinerTableState._autoOutlinerInjected = false;
+                saveSnapshot();
+                scheduleSyncToHost();
+            }
+        }
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
     }
 
     // ── TASK-B5: column header D&D + right-click context menu ──
@@ -2567,9 +2636,10 @@
         addColumn: addColumn,
         removeColumn: removeColumn,
         reorderColumns: reorderColumns,
-        // TASK-E1 (sync iteration 2) — column widths
+        // TASK-E1 / E2 (sync iteration 2) — column widths
         _applyColumnWidths: applyColumnWidths,
         _resolveColumnWidth: _resolveColumnWidth,
+        _startColumnResize: startColumnResize,
         _getDefaultOutlinerWidth: function () { return DEFAULT_OUTLINER_WIDTH; },
         _getDefaultOtherWidth: function () { return DEFAULT_OTHER_WIDTH; },
         _getMinColumnWidth: function () { return MIN_COLUMN_WIDTH; },

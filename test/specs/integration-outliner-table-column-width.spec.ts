@@ -1,11 +1,11 @@
 /**
- * Outliner Table Editor — Column width + horizontal scroll
+ * Outliner Table Editor — Column width + horizontal scroll + resize
  * (Phase E, sync iteration 2).
  *
- * TC-906, TC-909
+ * TC-906〜TC-909
  *
- * design: design/system.md §3.1 (ColumnDef.width) / §4.6 (CSS)
- * task: TASK-E1
+ * design: design/system.md §3.1 (ColumnDef.width) / §4.5-A (resize spec) / §4.6 (CSS)
+ * task: TASK-E1, TASK-E2
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -133,4 +133,128 @@ test('TC-906 5 columns produce horizontal scroll when total width > viewport', a
     expect(scroll!.scrollWidth).toBeGreaterThan(scroll!.clientWidth);
     // 横スクロール量 = 全体幅 - viewport ぐらい (誤差許容)
     expect(scroll!.scrollWidth - scroll!.clientWidth).toBeGreaterThan(200);
+});
+
+// ---------------------------------------------------------------------------
+// TC-907: 列幅 D&D resize (mousedown → mousemove → mouseup) + min-width clamp
+// ---------------------------------------------------------------------------
+test('TC-907 drag resize updates col.width and clamps to MIN_COLUMN_WIDTH', async ({ page }) => {
+    await setupTable(page, baseData());
+
+    // 1) text 列 (col_text1) を +50px resize
+    const beforeWidth = await page.evaluate(() => {
+        const cols = (window as any).OutlinerTable._getColumns();
+        return (window as any).OutlinerTable._resolveColumnWidth(
+            cols.find((c: any) => c.id === 'col_text1')
+        );
+    });
+    expect(beforeWidth).toBe(200);
+
+    // simulate startColumnResize via API + manual mousemove dispatch on document
+    await page.evaluate(() => {
+        const col = (window as any).OutlinerTable._getColumns().find((c: any) => c.id === 'col_text1');
+        // startX = 100 (任意)
+        (window as any).OutlinerTable._startColumnResize(col, 100);
+    });
+    // mousemove +50px
+    await page.evaluate(() => {
+        const ev = new MouseEvent('mousemove', { clientX: 150, bubbles: true });
+        document.dispatchEvent(ev);
+    });
+    // verify intermediate state
+    const midWidth = await page.evaluate(() => {
+        const cols = (window as any).OutlinerTable._getColumns();
+        return cols.find((c: any) => c.id === 'col_text1').width;
+    });
+    expect(midWidth).toBe(250); // 200 + 50
+    // body has resizing class
+    const hasClass = await page.evaluate(() =>
+        document.body.classList.contains('is-otable-resizing')
+    );
+    expect(hasClass).toBe(true);
+
+    // grid-template-columns 反映
+    const template = await page.evaluate(() => {
+        const h = document.querySelector('.otable-column-headers') as HTMLElement;
+        return h ? h.style.gridTemplateColumns : '';
+    });
+    expect(template).toBe('320px 250px');
+
+    // mouseup で commit
+    await page.evaluate(() => {
+        const ev = new MouseEvent('mouseup', { bubbles: true });
+        document.dispatchEvent(ev);
+    });
+    // body class removed
+    const stillResizing = await page.evaluate(() =>
+        document.body.classList.contains('is-otable-resizing')
+    );
+    expect(stillResizing).toBe(false);
+
+    // 2) min-width clamp test: extreme negative move (-500) should clamp to 120
+    await page.evaluate(() => {
+        const col = (window as any).OutlinerTable._getColumns().find((c: any) => c.id === 'col_text1');
+        // startWidth は今 250 — そこから -500 移動 → 250 - 500 = -250 だが MIN_COLUMN_WIDTH = 120 で clamp
+        (window as any).OutlinerTable._startColumnResize(col, 500);
+    });
+    await page.evaluate(() => {
+        const ev = new MouseEvent('mousemove', { clientX: 0, bubbles: true });
+        document.dispatchEvent(ev);
+    });
+    const clampedWidth = await page.evaluate(() => {
+        const cols = (window as any).OutlinerTable._getColumns();
+        return cols.find((c: any) => c.id === 'col_text1').width;
+    });
+    expect(clampedWidth).toBe(120); // clamped to MIN_COLUMN_WIDTH
+
+    await page.evaluate(() => {
+        const ev = new MouseEvent('mouseup', { bubbles: true });
+        document.dispatchEvent(ev);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// TC-908: 列幅永続化 round-trip — resize → syncData payload → reload で復元
+// ---------------------------------------------------------------------------
+test('TC-908 width persists round-trip via syncData payload', async ({ page }) => {
+    await setupTable(page, baseData());
+
+    // resize col_text1 to 200 + 80 = 280
+    await page.evaluate(() => {
+        const col = (window as any).OutlinerTable._getColumns().find((c: any) => c.id === 'col_text1');
+        (window as any).OutlinerTable._startColumnResize(col, 100);
+        const move = new MouseEvent('mousemove', { clientX: 180, bubbles: true });
+        document.dispatchEvent(move);
+        const up = new MouseEvent('mouseup', { bubbles: true });
+        document.dispatchEvent(up);
+    });
+    // sync 即時反映
+    await page.evaluate(() => (window as any).__testApi.flushSync());
+    await page.waitForTimeout(40);
+
+    // payload に width が乗っているか
+    const payload = await page.evaluate(() => (window as any).__testApi.getSerializedData());
+    expect(payload).toBeTruthy();
+    expect(Array.isArray(payload.columns)).toBe(true);
+    const persistedTextCol = payload.columns.find((c: any) => c.id === 'col_text1');
+    expect(persistedTextCol).toBeTruthy();
+    expect(persistedTextCol.width).toBe(280);
+
+    // reload: applyExternalUpdate(payload) で再構築 → width が DOM に反映される
+    await page.evaluate((data) => {
+        (window as any).__testApi.applyExternalUpdate(data);
+    }, payload);
+    await page.waitForTimeout(80);
+
+    const restoredWidth = await page.evaluate(() => {
+        const cols = (window as any).OutlinerTable._getColumns();
+        return cols.find((c: any) => c.id === 'col_text1').width;
+    });
+    expect(restoredWidth).toBe(280);
+
+    const restoredTemplate = await page.evaluate(() => {
+        const h = document.querySelector('.otable-column-headers') as HTMLElement;
+        return h ? h.style.gridTemplateColumns : '';
+    });
+    expect(restoredTemplate).toBe('320px 280px');
 });

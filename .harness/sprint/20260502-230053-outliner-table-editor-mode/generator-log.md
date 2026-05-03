@@ -1226,3 +1226,43 @@ iteration 1 完了 (23/23 task) + reviewer PASSED 後、ユーザー手動 revie
 テスト結果: TC-906, TC-909 green / 既存 outliner-table 全 spec regression 0
 
 commit: `[TASK-E1] Table fixed column widths + horizontal scroll`
+
+### TASK-E2 完了 (列幅 D&D resize + 永続化)
+
+実装:
+- `src/webview/outliner-table.js`:
+  - 新規関数 `buildColumnResizeHandle(col)` — 列ヘッダー右端に 6px の resize handle を生成。
+    - mousedown は `e.preventDefault() + stopPropagation()` で reorder D&D との衝突を防ぐ
+    - dragstart も明示的に suppress (header の `draggable=true` による drag 起動を防止)
+    - click も stopPropagation (outside-click handler への到達防止)
+  - 新規関数 `startColumnResize(col, startX)`:
+    - `document` 全体に mousemove / mouseup listener
+    - `MIN_COLUMN_WIDTH (120)` で clamp、`col.width` 更新 → `applyColumnWidths()` 即時反映
+    - mouseup で `body.is-otable-resizing` class 解除、`moved` フラグが立っている場合のみ `OutlinerTableState._hadOriginalColumns = true` (serialize で columns を emit) + `saveSnapshot()` + `scheduleSyncToHost()`
+  - `renderColumnHeaders()` で各 column header に resize handle を append
+  - 公開 API: `_startColumnResize`
+- `src/webview/outliner-table.css`:
+  - `.otable-column-header { position: relative }` (handle の absolute positioning anchor)
+  - `.otable-col-resize-handle` 新設: absolute、right:0、width:6px、cursor:col-resize、hover/resizing 時に背景色
+  - `body.is-otable-resizing { cursor: col-resize !important }` + `* { user-select: none !important }` (resize 中の cursor 維持 + text selection 抑止)
+- `test/html/standalone-outliner-table.html` 再生成
+- `test/specs/integration-outliner-table-column-width.spec.ts` に追加:
+  - TC-907: `_startColumnResize` API → mousemove +50px → `col.width = 250`、`grid-template-columns = '320px 250px'`、`body.is-otable-resizing` クラス検証、極端な負方向 movement で `MIN_COLUMN_WIDTH (120)` clamp 検証
+  - TC-908: resize → `flushSync()` → payload の `columns[].width = 280` 検証 → `applyExternalUpdate(payload)` で reload → `col.width = 280` 復元 + DOM の `gridTemplateColumns` も復元
+
+設計判断:
+- `column.width` の永続化は既存 `serialize()` の `columns.slice()` 経路で自動カバー (新たな serialize 改修不要)
+- column resize 後に `_hadOriginalColumns = true` を立てて、列が 1 個 (outliner のみ) で auto-injected な場合でも `width` が永続化されるようにした
+- `buildColumnResizeHandle` 内の `dragstart` 抑止は HTML5 drag spec 上重要 — `preventDefault` on mousedown だけでは parent の `dragstart` が走るブラウザがある (multi-process renderer 等)
+
+テスト結果: TC-907, TC-908 green / 既存 outliner-table 全 72 spec (5 skip = 手動 US) regression 0
+
+commit: `[TASK-E2] Column drag resize with persistence`
+
+## 完了サマリ (iteration 2)
+
+- TC-906, TC-907, TC-908, TC-909 全 green
+- 既存 outliner-table sprint spec (72 件 + 5 skip) regression 0 件
+- `npm run compile` 成功
+- 2 commits: `[TASK-E1]` + `[TASK-E2]`
+- 次の step: reviewer iteration 2 を呼び出して全 spec 走査と品質レビュー
