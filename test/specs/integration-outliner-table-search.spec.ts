@@ -153,7 +153,10 @@ test.describe('TC-1002 — Dynalist operators (is:page, has:children)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// TC-1003: multiselect option label search
+// TC-1003: multiselect option label search (TASK-C4)
+// matchesNodeWithColumns augments node.text with each multiselect option label
+// of selected option ids — so search hits work against the human label, not
+// the internal opt_xxxx id.
 // ---------------------------------------------------------------------------
 test.describe('TC-1003 — multiselect option label search', () => {
     test('TC-1003 matches against option label, not just option id', async ({ page }) => {
@@ -180,5 +183,59 @@ test.describe('TC-1003 — multiselect option label search', () => {
         const visible = await getVisibleNodeIds(page);
         expect(visible).toContain('n1');
         expect(visible).not.toContain('n2');
+    });
+
+    test('TC-1003-B partial match against label is honored', async ({ page }) => {
+        const data = {
+            rootIds: ['n1', 'n2'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'a', tags: [],
+                    columnValues: { col_tags: ['opt_a'] } },
+                n2: { id: 'n2', parentId: null, children: [], text: 'b', tags: [],
+                    columnValues: { col_tags: ['opt_b'] } }
+            },
+            columns: [
+                { id: 'col_outliner', type: 'outliner', name: 'Outline', order: 0 },
+                { id: 'col_tags', type: 'multiselect', name: 'Tags', order: 1,
+                    options: [
+                        { id: 'opt_a', label: 'urgent', color: 'red' },
+                        { id: 'opt_b', label: 'review', color: 'blue' }
+                    ]
+                }
+            ]
+        };
+        await setupTable(page, data);
+        await applyFilter(page, 'urg'); // partial
+        const visible = await getVisibleNodeIds(page);
+        expect(visible).toContain('n1');
+        expect(visible).not.toContain('n2');
+    });
+
+    test('TC-1003-C orphan option id is not matched by label search (no label registered)', async ({ page }) => {
+        // n1 has an option id opt_orphan that is NOT in column.options[].
+        // Searching for the would-be label should NOT match — only registered
+        // option labels are augmented into the search corpus.
+        const data = {
+            rootIds: ['n1', 'n2'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'a', tags: [],
+                    columnValues: { col_tags: ['opt_orphan'] } },
+                n2: { id: 'n2', parentId: null, children: [], text: 'b', tags: [],
+                    columnValues: { col_tags: ['opt_known'] } }
+            },
+            columns: [
+                { id: 'col_outliner', type: 'outliner', name: 'Outline', order: 0 },
+                { id: 'col_tags', type: 'multiselect', name: 'Tags', order: 1,
+                    options: [
+                        { id: 'opt_known', label: 'shipping', color: 'green' }
+                    ]
+                }
+            ]
+        };
+        await setupTable(page, data);
+        await applyFilter(page, 'shipping');
+        const visible = await getVisibleNodeIds(page);
+        expect(visible).toContain('n2');
+        expect(visible).not.toContain('n1');
     });
 });
