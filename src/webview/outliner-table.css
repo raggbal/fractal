@@ -116,7 +116,17 @@
 }
 
 .otable-cell-text {
-    /* TASK-B3 で contenteditable 化 */
+    /* TASK-B3: text cell with contenteditable child */
+}
+.otable-cell-text .otable-text-content {
+    outline: none;
+    width: 100%;
+    min-height: 18px;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.otable-cell-text .otable-text-content:focus {
+    background: rgba(127, 127, 255, 0.05);
 }
 
 .otable-cell-multiselect {

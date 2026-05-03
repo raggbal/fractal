@@ -1779,7 +1779,17 @@ body {
 }
 
 .otable-cell-text {
-    /* TASK-B3 で contenteditable 化 */
+    /* TASK-B3: text cell with contenteditable child */
+}
+.otable-cell-text .otable-text-content {
+    outline: none;
+    width: 100%;
+    min-height: 18px;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.otable-cell-text .otable-text-content:focus {
+    background: rgba(127, 127, 255, 0.05);
 }
 
 .otable-cell-multiselect {
@@ -4079,7 +4089,7 @@ if (typeof module !== 'undefined' && module.exports) {
                 if (col.type === 'outliner') {
                     renderOutlinerCell(cell, node);
                 } else if (col.type === 'text') {
-                    renderTextCellSkeleton(cell, node, col);
+                    renderTextCell(cell, node, col);
                 } else if (col.type === 'multiselect') {
                     renderMultiselectCellSkeleton(cell, node, col);
                 }
@@ -4355,18 +4365,206 @@ if (typeof module !== 'undefined' && module.exports) {
         });
     }
 
-    /** Text cell skeleton (TASK-B3 で本実装) */
-    function renderTextCellSkeleton(cell, node, col) {
-        var raw = '';
+    /**
+     * Text cell — TASK-B3 本実装。
+     *
+     * cell DOM 構造:
+     *   <div class="otable-cell otable-cell-text">
+     *     <div class="otable-text-content" contenteditable>...</div>
+     *   </div>
+     *
+     * 値は `node.columnValues[col.id]` (string)。
+     * - blur 時に `OutlinerCell.renderInlineText` で render (太字 / 斜体 / 取消 / link / tag)
+     * - focus 時に `OutlinerCell.renderEditingText` で raw text 表示 (markdown syntax 見える)
+     * - cmd+B/I/E/Shift+S は applyInlineFormat に **mock model** を inject して、
+     *   `model.getNode` を `{text: columnValue}` 風に返し、`model.updateText` で
+     *   columnValues[colId] を書き換える redirect adapter を渡す
+     * - URL paste は `convertUrlsToMarkdownLinks` で auto convert
+     */
+    function renderTextCell(cell, node, col) {
+        cell.innerHTML = '';
+        var nodeId = node.id;
+        var colId = col.id;
+        var rawValue = '';
         if (node.columnValues && typeof node.columnValues === 'object') {
-            var v = node.columnValues[col.id];
-            if (typeof v === 'string') { raw = v; }
+            var v = node.columnValues[colId];
+            if (typeof v === 'string') { rawValue = v; }
         }
-        if (typeof OutlinerCell !== 'undefined' && OutlinerCell.renderInlineText) {
-            cell.innerHTML = OutlinerCell.renderInlineText(raw);
-        } else {
-            cell.textContent = raw;
+        var textEl = document.createElement('div');
+        textEl.className = 'otable-text-content';
+        textEl.contentEditable = 'true';
+        textEl.spellcheck = false;
+        textEl.dataset.colId = colId;
+        textEl.dataset.nodeId = nodeId;
+        textEl.innerHTML = OutlinerCell.renderInlineText(rawValue);
+
+        attachTextCellHandlers(textEl, nodeId, colId);
+        cell.appendChild(textEl);
+    }
+
+    function getTextCellValue(nodeId, colId) {
+        var node = model.getNode(nodeId);
+        if (!node) { return ''; }
+        if (!node.columnValues || typeof node.columnValues !== 'object') { return ''; }
+        var v = node.columnValues[colId];
+        return (typeof v === 'string') ? v : '';
+    }
+
+    function setTextCellValue(nodeId, colId, value) {
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        if (!node.columnValues || typeof node.columnValues !== 'object') {
+            node.columnValues = {};
         }
+        node.columnValues[colId] = value;
+    }
+
+    /**
+     * Mock model adapter for text cells: forwards getNode→{text:value} and
+     * updateText→writes columnValues[colId] back. Allows reuse of
+     * OutlinerCell.applyInlineFormat (which assumes node-text editing).
+     */
+    function _textCellModelAdapter(nodeId, colId) {
+        return {
+            getNode: function (id) {
+                if (id !== nodeId) { return null; }
+                return { id: id, text: getTextCellValue(nodeId, colId) };
+            },
+            updateText: function (id, text) {
+                if (id !== nodeId) { return; }
+                setTextCellValue(nodeId, colId, text);
+            }
+        };
+    }
+
+    function attachTextCellHandlers(textEl, nodeId, colId) {
+        var isComposing = false;
+
+        textEl.addEventListener('focus', function () {
+            focusedNodeId = nodeId;
+            var sourceText = getTextCellValue(nodeId, colId);
+            var renderedOff = OutlinerCell.getCursorOffset
+                ? OutlinerCell.getCursorOffset(textEl) : 0;
+            textEl.innerHTML = OutlinerCell.renderEditingText(sourceText);
+            if (renderedOff > 0 && OutlinerCell.renderedOffsetToSource && OutlinerCell.setCursorAtOffset) {
+                var sourceOff = OutlinerCell.renderedOffsetToSource(sourceText, renderedOff);
+                OutlinerCell.setCursorAtOffset(textEl, sourceOff);
+            }
+        });
+
+        textEl.addEventListener('blur', function () {
+            var raw = OutlinerCell.getPlainText(textEl);
+            // URL auto-conversion (paste 等で素 URL が入った場合のセーフティネット)
+            if (OutlinerCell.convertUrlsToMarkdownLinks) {
+                raw = OutlinerCell.convertUrlsToMarkdownLinks(raw);
+            }
+            setTextCellValue(nodeId, colId, raw);
+            textEl.innerHTML = OutlinerCell.renderInlineText(raw);
+            saveSnapshot();
+            scheduleSyncToHost();
+        });
+
+        textEl.addEventListener('compositionstart', function () { isComposing = true; });
+        textEl.addEventListener('compositionend', function () {
+            isComposing = false;
+            var plain = OutlinerCell.getPlainText(textEl);
+            setTextCellValue(nodeId, colId, plain);
+            var off = OutlinerCell.getCursorOffset(textEl);
+            textEl.innerHTML = OutlinerCell.renderEditingText(plain);
+            OutlinerCell.setCursorAtOffset(textEl, off);
+            scheduleSyncToHost();
+        });
+
+        textEl.addEventListener('input', function () {
+            var plain = OutlinerCell.getPlainText(textEl);
+            setTextCellValue(nodeId, colId, plain);
+            if (!isComposing) {
+                var off = OutlinerCell.getCursorOffset(textEl);
+                textEl.innerHTML = OutlinerCell.renderEditingText(plain);
+                OutlinerCell.setCursorAtOffset(textEl, off);
+            }
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        textEl.addEventListener('paste', function (e) {
+            // URL paste: convert to [url](url) on paste (TC-703)
+            if (e.clipboardData) {
+                var t = e.clipboardData.getData('text/plain') || '';
+                var trimmed = t.trim();
+                if (/^https?:\/\//i.test(trimmed) && OutlinerCell.convertUrlsToMarkdownLinks) {
+                    e.preventDefault();
+                    var converted = OutlinerCell.convertUrlsToMarkdownLinks(trimmed);
+                    var sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                        sel.getRangeAt(0).deleteContents();
+                        document.execCommand('insertText', false, converted);
+                    } else {
+                        document.execCommand('insertText', false, converted);
+                    }
+                    var raw = OutlinerCell.getPlainText(textEl);
+                    setTextCellValue(nodeId, colId, raw);
+                    var off = OutlinerCell.getCursorOffset(textEl);
+                    textEl.innerHTML = OutlinerCell.renderEditingText(raw);
+                    OutlinerCell.setCursorAtOffset(textEl, off);
+                    saveSnapshotDebounced();
+                    scheduleSyncToHost();
+                    return;
+                }
+            }
+        });
+
+        textEl.addEventListener('keydown', function (e) {
+            if (e.isComposing || e.keyCode === 229) { return; }
+            var modKey = (e.metaKey || e.ctrlKey);
+
+            // cmd+z / shift+z (undo / redo) — re-use Table's undo stack
+            if (modKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                var pending = OutlinerCell.getPlainText(textEl);
+                setTextCellValue(nodeId, colId, pending);
+                saveSnapshot();
+                if (e.shiftKey) { redo(); } else { undo(); }
+                return;
+            }
+
+            if (modKey && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+                e.preventDefault();
+                saveSnapshot();
+                OutlinerCell.applyInlineFormat({
+                    nodeId: nodeId, textEl: textEl, marker: '**',
+                    model: _textCellModelAdapter(nodeId, colId), host: _cellHost()
+                });
+                return;
+            }
+            if (modKey && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+                e.preventDefault();
+                saveSnapshot();
+                OutlinerCell.applyInlineFormat({
+                    nodeId: nodeId, textEl: textEl, marker: '*',
+                    model: _textCellModelAdapter(nodeId, colId), host: _cellHost()
+                });
+                return;
+            }
+            if (modKey && !e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+                e.preventDefault();
+                saveSnapshot();
+                OutlinerCell.applyInlineFormat({
+                    nodeId: nodeId, textEl: textEl, marker: '`',
+                    model: _textCellModelAdapter(nodeId, colId), host: _cellHost()
+                });
+                return;
+            }
+            if (modKey && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                saveSnapshot();
+                OutlinerCell.applyInlineFormat({
+                    nodeId: nodeId, textEl: textEl, marker: '~~',
+                    model: _textCellModelAdapter(nodeId, colId), host: _cellHost()
+                });
+                return;
+            }
+        });
     }
 
     /** Multiselect cell skeleton (TASK-C1 で本実装) */
@@ -4941,7 +5139,11 @@ if (typeof module !== 'undefined' && module.exports) {
         _redo: redo,
         _saveSnapshot: saveSnapshot,
         _getInternalClipboard: function () { return _internalClipboard; },
-        _setInternalClipboard: function (cb) { _internalClipboard = cb; }
+        _setInternalClipboard: function (cb) { _internalClipboard = cb; },
+        // TASK-B3 — text cell helpers
+        _getTextCellValue: getTextCellValue,
+        _setTextCellValue: setTextCellValue,
+        _textCellModelAdapter: _textCellModelAdapter
     };
 }));
 
