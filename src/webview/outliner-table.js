@@ -163,6 +163,34 @@
         // TASK-B6 / B7: render header UI (search box + Switch view button) once
         ensureHeaderUi();
         renderTable();
+
+        // TASK-B8: document-level undo/redo handler (covers cases where focus
+        // is on the search input, a button, or no contenteditable cell). Cell
+        // handlers still preempt with their own preventDefault for context-
+        // specific commit behavior; this listener fires only when no other
+        // handler claimed the event.
+        if (rootEl && !rootEl.dataset.tableUndoBound) {
+            rootEl.dataset.tableUndoBound = '1';
+            rootEl.addEventListener('keydown', function (e) {
+                if (e.defaultPrevented) { return; }
+                var modKey = (e.metaKey || e.ctrlKey);
+                if (!modKey) { return; }
+                if (e.key === 'z' || e.key === 'Z') {
+                    // skip if focus is inside the search input — the search
+                    // box has its own undo/redo behavior (browsers' input
+                    // history). Cell-level handlers also already handle z/Z.
+                    var ae = document.activeElement;
+                    if (ae && (
+                        ae.classList.contains('outliner-text') ||
+                        ae.classList.contains('otable-text-content') ||
+                        ae.classList.contains('outliner-subtext') ||
+                        ae.classList.contains('otable-search-input')
+                    )) { return; }
+                    e.preventDefault();
+                    if (e.shiftKey) { redo(); } else { undo(); }
+                }
+            });
+        }
     }
 
     function applyExternalUpdate(newData) {
@@ -236,10 +264,28 @@
     }
 
     // --- undo / redo (cell-local; Table editor 単独の stack) ---
+    //
+    // TASK-B8: snapshot format extended to include columns + state flags.
+    // Snapshots are JSON strings of:
+    //   { model: <model.serialize()>, columns: <columns>,
+    //     state: { _hadOriginalColumns, _autoOutlinerInjected } }
+    // applyUndoSnapshot reconstructs all three. This makes column add/remove/
+    // reorder operations reversible.
+
+    function _captureSnapshot() {
+        return JSON.stringify({
+            model: model.serialize(),
+            columns: columns.slice(),
+            state: {
+                _hadOriginalColumns: !!OutlinerTableState._hadOriginalColumns,
+                _autoOutlinerInjected: !!OutlinerTableState._autoOutlinerInjected
+            }
+        });
+    }
 
     function saveSnapshot() {
         if (isUndoRedo) { return; }
-        var snapshot = JSON.stringify(model.serialize());
+        var snapshot = _captureSnapshot();
         if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snapshot) { return; }
         undoStack.push(snapshot);
         if (undoStack.length > MAX_UNDO) { undoStack.shift(); }
@@ -258,22 +304,37 @@
     function applyUndoSnapshot(snapshot) {
         try {
             var parsed = JSON.parse(snapshot);
-            // 既存 columns / rawDataExtras を保ったまま model 部分だけ差し替え
             var ModelCtor = (typeof OutlinerModel !== 'undefined') ? OutlinerModel
                 : (typeof require === 'function' ? require('./outliner-model') : null);
             if (!ModelCtor) { return; }
-            // model serialize() の出力には columns 等は含まないので、既存 initialData の補助 fields を merge
-            var merged = Object.assign({}, parsed);
-            model = new ModelCtor(merged);
+
+            // Backward compatibility: pre-B8 snapshots were just the model serialize() result.
+            if (parsed && parsed.model && (parsed.columns || parsed.state)) {
+                model = new ModelCtor(parsed.model);
+                if (Array.isArray(parsed.columns)) {
+                    columns = parsed.columns.slice();
+                    ensureColumnsValid();
+                }
+                if (parsed.state) {
+                    OutlinerTableState._hadOriginalColumns = !!parsed.state._hadOriginalColumns;
+                    OutlinerTableState._autoOutlinerInjected = !!parsed.state._autoOutlinerInjected;
+                }
+            } else {
+                model = new ModelCtor(parsed);
+            }
+            // schema may have changed → force a clean rebuild so row colSig matches
+            forceRebuildRows();
+            // re-evaluate filter against new model
+            if (currentSearchQuery) {
+                currentSearchVisible = computeSearchVisible(currentSearchQuery);
+            }
             renderTable();
         } catch (_) { /* ignore */ }
     }
 
     function undo() {
         if (undoStack.length < 1) { return false; }
-        // current state を redo stack に push してから undo stack から取り出す
-        var current = JSON.stringify(model.serialize());
-        // 末尾が current と同じなら 1 個 pop して 1 つ前に戻る
+        var current = _captureSnapshot();
         var target;
         if (undoStack[undoStack.length - 1] === current && undoStack.length >= 2) {
             redoStack.push(undoStack.pop());
@@ -293,7 +354,7 @@
     function redo() {
         if (redoStack.length < 1) { return false; }
         var target = redoStack.pop();
-        var current = JSON.stringify(model.serialize());
+        var current = _captureSnapshot();
         undoStack.push(current);
         isUndoRedo = true;
         applyUndoSnapshot(target);
