@@ -1056,3 +1056,34 @@ flake / pre-existing failure (Sprint commit 範囲外)。
   踏まえ、各 shard の output を別 log file へ capture。集約は grep ベースで実施
 - shard truncation 影響が無いことを確認 (sprint spec 123 件 + 21 unique 失敗
   spec の 79 件 = 計 1695、fully accounted for)
+
+---
+
+## Iteration 7 (TASK-D2) — 2026-05-03
+
+### TASK-D2: 性能ベンチマーク (1000 行 < 1500ms)
+
+**実装ファイル**: 新規 `test/specs/perf-outliner-table-render.spec.ts`
+
+**実装内容**:
+- `buildSyntheticOutTableData(rowCount)` — 1000 行 × 4 列 (outliner + text +
+  multiselect × 2) の合成 .out を JS で生成 (PoC bh02-perf.html の合成データ
+  ロジックを sprint 側へ移植)
+- `measureInitialRender(page, data)` — `__testApi.initOutlinerTable(data)` の
+  **前後** で `performance.now()` を取り、rAF×2 で paint 確定後の合計 ms を返す
+- TC-401 / NFR-01: 1000 行 × 4 列 < 1500ms (assert)
+- 補助 ref test: 500 行 × 4 列 < 800ms (regression 早期検出用)
+
+**測定結果** (`npx playwright test perf-outliner-table-render --workers=1`):
+
+```
+[perf] rows=1000 jsMs=63.4 totalMs=265.6   ← 閾値 1500ms に対し 5.6× 余裕
+[perf] rows=500  jsMs=34.8 totalMs=133.9   ← 閾値 800ms に対し 6.0× 余裕
+2 passed (12.2s)
+```
+
+PoC `bh02-run-perf.mjs` 計測 (1000 行 × 3 列 = 92.5ms) より重い 4 列 +
+Outliner cell の renderInlineText / multiselect chip render コミ込みでも
+**265.6ms** で完了。NFR-01 (1.5s) を **5.6× の余裕**で満たす。
+
+**結論**: TC-401 PASS。virtual scroll 不要 (PoC 結論を正式 spec で確認)。
