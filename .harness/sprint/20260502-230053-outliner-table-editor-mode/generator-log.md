@@ -335,3 +335,71 @@ generator agent 続行 (TASK-A6 + TASK-A7 で Phase A 完了)。
 **次の Iteration**: TASK-B2 (Outliner cell render & 操作互換) — OutlinerCell + Model を使った rich text 編集と tree-wide action (Tab/Enter/Backspace) の cell-side handler 配線。
 
 **次の Iteration**: Phase B (TASK-B1: outliner-table.js 骨格 + 列 load/save / cell render) を別 iteration で開始。Phase A 完了で reviewer / 部分 release 可能な切れ目に到達。
+
+---
+
+## Iteration 3 — 2026-05-03 (TASK-B2)
+
+### TASK-B2: Outliner cell render & 操作互換
+
+**目的**: Table editor の Outliner cell が既存 Outliner editor と同等の操作互換 (cmd+enter / cmd+B/I/E/Shift+S / Tab/Shift+Tab / Enter / Backspace / cmd+x/c/v / tag / link / subtext / undo / cmd+Shift+C / image paste / file attach D&D) を持つ。
+
+**実装ファイル**:
+- 修正 `src/webview/outliner-table.js` (350 → 950 行、TASK-B1 skeleton から本実装へ):
+  - module-private state に `focusedNodeId` / `undoStack` / `redoStack` / `_internalClipboard` 等を追加
+  - `_cellHost()` adapter: OutlinerCell.* (Phase 4 image / Phase 5 format+subtext) に inject する host adapter
+  - `renderOutlinerCell(cell, node)`: bullet (collapse toggle) + outliner-text (contenteditable) + subtext + images の DOM 構築
+  - `attachOutlinerTextHandlers(textEl, node)`: focus / blur / mousedown / click / compositionstart/end / input / paste / keydown handler
+  - `attachSubtextHandlers(subtextEl, textEl, node)`: focus / blur / input / keydown (`OutlinerCell.handleSubtextKeydown` delegate)
+  - `attachCellDropHandlers(cell, node)`: file drop で `host.attachFile` 呼び出し
+  - `openSubtextForCell(nodeId)`: Table 用 DOM (`.otable-row[data-node-id="..."]`) で subtext 開く (OutlinerCell.openSubtext は `.outliner-node[data-id="..."]` 前提のため Table editor では再実装)
+  - `handleNodeKeydown(e, nodeId, textEl)`: cmd+B/I/E/Shift+S, cmd+Z/Shift+Z, cmd+Shift+C, cmd+X/C/V, Enter (alt/shift), Backspace, Tab, ArrowUp/Down 全対応
+  - `handleEnter / handleAltEnter / handleBackspaceAtStart / handleTab / handleShiftTab`: 既存 outliner.js から Table 用に流用 (renderTree → renderTable, focusNode → focusOutlinerCell)
+  - `handleCmdCut / handleCmdCopy / handleCmdPaste`: 単一ノード clipboard (text selection ある時はブラウザ default を許可)
+  - `_serializeNodeSubtree(nodeId, baseLevel)`: cmd+x/c の clipboard payload 生成 (level / text / isPage / pageId / images / filePath / subtext / columnValues)
+  - `handleNodePaste`: image paste 検知 (host.imagePaste 呼び出し) + browser default text paste
+  - `toggleCollapse(nodeId)`: bullet click で collapse/expand toggle
+  - `saveSnapshot / saveSnapshotDebounced / undo / redo / applyUndoSnapshot`: cell-local undo/redo stack (Table editor 単独)
+  - `scheduleSyncToHost`: 1000ms debounce sync
+  - public API に `_focusOutlinerCell` / `_undo` / `_redo` / `_saveSnapshot` / `_getInternalClipboard` を追加 (test 用)
+- 修正 `src/webview/outliner-table.css`: outliner-text / outliner-bullet / outliner-subtext / outliner-images の cell 内部 layout
+- 修正 `test/build-standalone-outliner-table.js`: outlinerTableHostBridge に openMdPage / openAttachedFile / openLink / copyPagePaths / attachFile / imagePaste / saveOutlinerClipboard / handleClipboardPaste / save の 9 個 stub を追加 (test で msgs を assert 可能に)
+- 修正 `src/outlinerTableProvider.ts` (103 → 220 行、stub から本格化):
+  - 既存 outlinerProvider と同じ message handler を Table 用に追加: `copyPagePaths` / `openAttachedFile` / `openLink` / `openMdPage` / `saveOutlinerClipboard`
+  - `attachFile` / `imagePaste` は Phase B2 では log のみの stub (本格対応は B 後半 / 別 sprint)
+  - import: `OutlinerClipboardStore` (`./shared/outliner-clipboard-store`), `safeResolveUnderDir` (`./shared/path-safety`)
+  - `getPagesDirPath` / `getOutlinerImageDirPath` / `getFileDirPath`: outlinerProvider と同じ pageDir / imageDir / fileDir 解決
+- 新規 `test/specs/integration-outliner-table-cell-compat.spec.ts` (~440 行, 23 cases): TC-601〜TC-620 + skip 5 件 (TC-616 / TC-620 / TC-610-A / 611-A / 612-A — host fs / Playwright DataTransfer 制約による)
+
+**結果**: ✅ 完了 (status: TASK_B2_COMPLETE)
+
+**テスト結果**:
+- 新 spec `integration-outliner-table-cell-compat.spec.ts`: **18 passed / 5 skipped / 0 failed** (skip 内訳: TC-616 image D&D, TC-620 file attach D&D, TC-610-A/611-A/612-A drawio multi-extension suffix — いずれも host fs 操作必須または Playwright DataTransfer 制約のため手動 US で検証する)
+- 全 sprint-related spec (cell render / helpers / cursor / images / format-subtext / table load-save / table-editor-manifest / out-columns-passthrough): **70/70 green**
+- 既存 outliner regression (basic / format / inline / keyboard / page / cmd-enter / image-paste / cmd-cv-matrix): **125 pass / 2 fail** — 2 fail は **pre-existing flake** (TASK-A1, A3 generator-log で記録済の `outliner-keyboard.spec.ts:283` Enter on expanded children と `:769` Cmd+F focus search bar、main commit baseline でも同じ failure を確認済)
+- TypeScript compile: **error 0** (`npm run compile` 成功)
+
+**設計判断**:
+- **DOM 構造の独自化**: `.otable-cell-outliner` 内に `.outliner-bullet` + `.outliner-text` + `.outliner-subtext` + `.outliner-images` を flex column で配置。既存 outliner.js の `.outliner-node[data-id="..."]` とは別 selector のため、subtext open は OutlinerCell.openSubtext を直接呼ばず Table 用の `openSubtextForCell` を再実装 (selector の wiring を変えずに responsibility 分離)。OutlinerCell.applyInlineFormat / handleSubtextKeydown / renderInlineText / renderEditingText / renderNodeImages 等は引数 inject pattern なので問題なく流用可能。
+- **clipboard は internal in-memory**: cmd+x/c で `_internalClipboard` に node subtree を保持し、host.saveOutlinerClipboard へも複写する (既存 outliner editor の clipboard と互換)。cross-file paste の host fs (drawio multi-extension suffix 含む) は Phase B2 の責務外、host.handleClipboardPaste 呼び出しを介して既存 outlinerProvider と同じ handler を将来共有させる前提。本 sprint では TC-610-A/611-A/612-A を skip。
+- **undo stack は Table editor 単独**: design system.md §4.3.2 の「cell 編集 / 列追加 / 削除 / 並べ替え すべて saveSnapshot」を踏襲し、Outliner editor の stack とは独立。snapshot 形式は `JSON.stringify(model.serialize())` で同じ format。applyUndoSnapshot で model のみ差し替え (columns / rawDataExtras は影響なし)。
+- **focus 経路を独自関数化**: Outliner editor の focusNode/focusNodeAtStart は `treeEl.querySelector('.outliner-node[data-id="..."]')` 前提。Table 版は `getRowEl` / `getOutlinerCellEl` / `getOutlinerTextEl` で `.otable-row[data-node-id]` 経由に変更。
+- **handler 流用範囲**: `handleEnter` / `handleAltEnter` / `handleBackspaceAtStart` / `handleTab` / `handleShiftTab` は既存 outliner.js のロジックを Table 用に移植 (renderTree → renderTable, focusNode → focusOutlinerCell, treeEl querySelector → getOutlinerTextEl の差し替えのみ)。仕様 (空+子なし削除 / 空+子あり昇格 / テキスト合流 / Enter offset=0 + text あり時の前挿入 / 展開子の新兄弟移譲) はすべて維持。
+- **Provider host bridge の段階的拡張**: `attachFile` / `imagePaste` は Phase B2 では console.log のみで、本実装は B 後半 / 別 sprint の責務とした (existing outlinerProvider の handleFinderDrop / saveImageAndInsert を delegate する設計、Phase B2 段階では console log にして後回し許容)。これは tasks.md の「現実的な目標」記述と整合。
+
+**skip 理由まとめ** (5 件):
+- TC-616 (image D&D 並べ替え): Playwright で DataTransfer の synthetic drag は限定的、画像実 file がないと真の drop event を発火できない。OutlinerCell.renderNodeImages 内の D&D handler は既に Phase 4 で test 済 (outliner-cell-images.spec.ts TC-004)、Table 経路の wiring は手動 US-12 で検証
+- TC-620 (file attach D&D): 同上 — DataTransfer.files は read-only で Playwright が File を inject できない
+- TC-610-A / 611-A / 612-A (drawio.svg multi-extension suffix): host 側 fs 操作 (`buildUniqueDrawioName` from `drawioTemplate.ts`) を伴うため、standalone HTML 内では検証不能。host.handleClipboardPaste 経路は既存 outlinerProvider と共通化する設計のため、cross-file paste の suffix 仕様は既存 integration-drawio-* spec ですでに検証済 (regression 0 件)。Table editor 経路の suffix 動作は手動 US-13 で検証
+
+**未実装 (TASK-B3 以降で対応予定)**:
+- TASK-B3: Text cell の rich text + cmd+B/I/E + URL paste + tag/link 表示 + columnValues 永続化
+- TASK-B4: row recycling (key by nodeId、cursor 保護、indent/sibling 連動)
+- TASK-B5: 列追加モーダル / 削除メニュー / D&D
+- TASK-B6: 検索ボックス
+- TASK-B7: Switch view ボタン
+- TASK-B8: undo/redo の列変更含む拡張
+- TASK-B9: i18n
+- TASK-C1〜C4: multiselect chip / dropdown / 永続化 / 検索
+
+**次の Iteration**: TASK-B3 (Text cell rich text)。

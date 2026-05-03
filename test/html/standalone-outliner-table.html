@@ -1734,6 +1734,48 @@ body {
 
 .otable-cell-outliner {
     padding: 4px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: relative;
+}
+
+/* TASK-B2: Outliner cell internal structure */
+.otable-cell-outliner .outliner-bullet {
+    cursor: pointer;
+    user-select: none;
+    flex: 0 0 auto;
+    margin-right: 6px;
+    display: inline-block;
+    color: var(--vscode-foreground, #666);
+    font-size: 0.9em;
+}
+.otable-cell-outliner .outliner-bullet[data-collapsed="true"] {
+    color: var(--vscode-textLink-foreground, #007acc);
+}
+.otable-cell-outliner .outliner-text {
+    outline: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.otable-cell-outliner .outliner-subtext {
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground, #888);
+    margin-top: 2px;
+    min-height: 1em;
+    outline: none;
+    word-break: break-word;
+}
+.otable-cell-outliner .outliner-subtext:not(.has-content):not(.is-editing) {
+    display: none;
+}
+.otable-cell-outliner .outliner-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
 }
 
 .otable-cell-text {
@@ -3607,6 +3649,20 @@ if (typeof module !== 'undefined' && module.exports) {
         requestReopenAs: function(viewType) {
             post({ type: 'requestReopenAs', viewType: viewType });
         },
+        // TASK-B2: full host bridge for outliner cell operations
+        openMdPage: function(payload) { post({ type: 'openMdPage', payload: payload }); },
+        openAttachedFile: function(nodeId) { post({ type: 'openAttachedFile', nodeId: nodeId }); },
+        openLink: function(href) { post({ type: 'openLink', href: href }); },
+        copyPagePaths: function(pageIds) { post({ type: 'copyPagePaths', pageIds: pageIds }); },
+        attachFile: function(payload) { post({ type: 'attachFile', payload: payload }); },
+        imagePaste: function(payload) { post({ type: 'imagePaste', payload: payload }); },
+        saveOutlinerClipboard: function(payload) {
+            post({ type: 'saveOutlinerClipboard', isCut: payload.isCut, nodes: payload.nodes, plainText: payload.plainText });
+        },
+        handleClipboardPaste: function(payload) {
+            post({ type: 'handleClipboardPaste', payload: payload });
+        },
+        save: function() { post({ type: 'save' }); },
         onMessage: function(handler) { window.__hostMessageHandler = handler; }
     };
 })();
@@ -3616,24 +3672,35 @@ if (typeof module !== 'undefined' && module.exports) {
     /**
  * OutlinerTable — Outliner Table Editor (Notion / Coda style table view)
  *
- * Phase B (TASK-B1) skeleton: load / save / column auto-completion / minimal row render.
+ * Phase B (TASK-B2): Outliner cell render & operation compatibility.
+ *
+ * Provides full Outliner-cell editing parity with the existing Outliner editor:
+ *   - cmd+B / cmd+I / cmd+E / cmd+Shift+S inline format toggle
+ *   - cmd+enter -> host.openMdPage / openAttachedFile
+ *   - Tab / Shift+Tab tree-wide indent / outdent
+ *   - Enter sibling add (handles offset / leading children move)
+ *   - Backspace at start (delete + child promotion)
+ *   - cmd+x / cmd+c / cmd+v node clipboard
+ *   - tag / link rendering (delegates to OutlinerCell.renderInlineText)
+ *   - Shift+Enter subtext open/close
+ *   - cmd+z / cmd+shift+z undo/redo (cell-local snapshot stack)
+ *   - cmd+Shift+C copy page path (host.copyPagePaths)
+ *   - file attach via D&D (host.attachFile)
  *
  * Subsequent tasks add:
- *   - TASK-B2: Outliner cell render & 操作互換 (rich text, indent, sibling, etc.)
  *   - TASK-B3: Text cell rich text
  *   - TASK-B4: Row recycling (collapse/indent 連動)
  *   - TASK-B5: Column add/remove/reorder UI
  *   - TASK-B6: Header search box
  *   - TASK-B7: Switch view button (Outliner ↔ Table)
- *   - TASK-B8: Undo / redo
+ *   - TASK-B8: Undo / redo improvements
  *   - TASK-B9: i18n
  *   - TASK-C*: Multiselect column (chips, dropdown)
  *
  * UMD pattern (mirrors outliner-cell.js): works as `window.OutlinerTable` in webview /
  * standalone HTML AND as `module.exports` in Node.js (for unit-level tests).
  *
- * design: design/system.md §4.3
- * testcases: TC-1101, TC-1102, TC-201, TC-202, TC-203, TC-204
+ * design: design/system.md §4.3 / §4.3.4 (Cell ↔ Tree boundary)
  */
 (function (root, factory) {
     if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -3651,6 +3718,19 @@ if (typeof module !== 'undefined' && module.exports) {
     var host = null;
     var initialData = null;
     var rootEl = null;
+    var focusedNodeId = null;
+
+    // undo / redo stacks (cell-local; Table editor 単独の stack)
+    var undoStack = [];
+    var redoStack = [];
+    var MAX_UNDO = 100;
+    var isUndoRedo = false;
+    var snapshotDebounceTimer = null;
+    var SNAPSHOT_DEBOUNCE_MS = 500;
+
+    // sync-to-host debounce
+    var syncDebounceTimer = null;
+    var SYNC_DEBOUNCE_MS = 1000;
 
     // outliner.js と同じ knownKeys 集合 + columns。
     // columns は Table editor が直接管理するため、rawDataExtras には入れない。
@@ -3678,9 +3758,6 @@ if (typeof module !== 'undefined' && module.exports) {
      *  - 1 個以上の type:'outliner' 列が必ず存在
      *  - 無ければ自動補完 (order = -1, 先頭に置く)
      *  - その後 order でソート
-     *
-     * 注意: ここで「自動補完が起きたかどうか」を呼び出し側に通知するため、
-     *      _autoOutlinerInjected フラグを返す。clean-by-default 制御に使う。
      */
     function ensureColumnsValid() {
         var injected = false;
@@ -3697,8 +3774,7 @@ if (typeof module !== 'undefined' && module.exports) {
             });
             injected = true;
         }
-        // 安定 sort: a.order - b.order が等しい場合は元順序を維持 (Array.prototype.sort は不安定の可能性あり、
-        // mapping を使って tie-breaker)
+        // 安定 sort: a.order - b.order が等しい場合は元順序を維持
         columns = columns
             .map(function (c, idx) { return { c: c, idx: idx }; })
             .sort(function (a, b) {
@@ -3724,9 +3800,6 @@ if (typeof module !== 'undefined' && module.exports) {
 
     /**
      * 初期化エントリ。
-     * @param {Object} data - .out JSON (parsed)
-     * @param {Object} hostBridge - postMessage 等の host bridge interface
-     * @param {Element} [container] - root element (default: document.querySelector('.otable-root'))
      */
     function init(data, hostBridge, container) {
         host = hostBridge || (typeof window !== 'undefined' ? window.outlinerTableHostBridge : null);
@@ -3741,26 +3814,20 @@ if (typeof module !== 'undefined' && module.exports) {
         model = new ModelCtor(initialData);
 
         columns = Array.isArray(initialData.columns) ? initialData.columns.slice() : [];
-        // 元データに columns があったか (clean-by-default 判定で使う)
         var hadOriginalColumns = Array.isArray(initialData.columns);
         var injected = ensureColumnsValid();
-        // 「auto 補完しただけ」状態を後で識別するためフラグを保存
         OutlinerTableState._hadOriginalColumns = hadOriginalColumns;
         OutlinerTableState._autoOutlinerInjected = injected && !hadOriginalColumns;
 
         rawDataExtras = captureRawDataExtras(initialData);
 
+        // baseline snapshot (undo)
+        undoStack = [];
+        redoStack = [];
+
         renderTable();
     }
 
-    /**
-     * 外部 (host file watcher) からの更新を反映。
-     * シナリオ A/B/C (design/system.md §6.4) のいずれにも対応するため、
-     *   - model 再構築
-     *   - columns / rawDataExtras 再構築
-     *   - render
-     * を一括で行う。
-     */
     function applyExternalUpdate(newData) {
         initialData = newData || {};
         var ModelCtor = (typeof OutlinerModel !== 'undefined') ? OutlinerModel
@@ -3776,19 +3843,9 @@ if (typeof module !== 'undefined' && module.exports) {
         renderTable();
     }
 
-    /**
-     * 現在の state を .out 形式 JSON にシリアライズ。
-     * - model.serialize() を起点
-     * - 既存 known fields (pageDir / fileDir / imageDir / pinnedTags / searchFocusMode 等) は
-     *   initialData から merge (Phase B では Table editor 自身がこれらを編集しないため initialData の値を保持)
-     * - columns は本 editor が直接管理。clean-by-default で
-     *   元データに columns 無し AND 自動補完 outliner 列のみ → 書き出さない。
-     * - rawDataExtras は最後に passthrough で merge (knownKeys と被るキーは上書きしない)
-     */
     function serialize() {
         var data = model.serialize();
 
-        // 既存 known fields の passthrough (Table editor は編集しない、initialData の値を維持)
         if (initialData.pageDir) { data.pageDir = initialData.pageDir; }
         if (initialData.fileDir) { data.fileDir = initialData.fileDir; }
         if (initialData.imageDir) { data.imageDir = initialData.imageDir; }
@@ -3799,24 +3856,18 @@ if (typeof module !== 'undefined' && module.exports) {
         if (initialData.sidePanelWidth) { data.sidePanelWidth = initialData.sidePanelWidth; }
         if (initialData.sidePanelOutlineWidth) { data.sidePanelOutlineWidth = initialData.sidePanelOutlineWidth; }
 
-        // columns: clean-by-default
-        // 元データに無く、自動補完された outliner 列のみなら書き出さない。
-        // それ以外 (元データにあった OR ユーザーが明示的に列を増やした) は書き出す。
         var shouldEmitColumns = false;
         if (OutlinerTableState._hadOriginalColumns) {
             shouldEmitColumns = true;
         } else if (columns.length > 1) {
-            // auto-injected outliner 列以外に列がある (Phase B5 以降の列追加)
             shouldEmitColumns = true;
         } else if (columns.length === 1 && !OutlinerTableState._autoOutlinerInjected) {
-            // 元データに無い 1 列 (理論上のエッジケース)
             shouldEmitColumns = true;
         }
         if (shouldEmitColumns) {
             data.columns = columns.slice();
         }
 
-        // rawDataExtras passthrough
         for (var rk in rawDataExtras) {
             if (Object.prototype.hasOwnProperty.call(rawDataExtras, rk) && !(rk in data)) {
                 data[rk] = rawDataExtras[rk];
@@ -3827,11 +3878,153 @@ if (typeof module !== 'undefined' && module.exports) {
 
     function syncToHostImmediate() {
         if (!host || typeof host.syncData !== 'function') { return; }
+        clearTimeout(syncDebounceTimer);
+        syncDebounceTimer = null;
         var data = serialize();
         host.syncData(JSON.stringify(data, null, 2));
     }
 
-    // --- rendering (skeleton) ---
+    function scheduleSyncToHost() {
+        if (!host || typeof host.syncData !== 'function') { return; }
+        clearTimeout(syncDebounceTimer);
+        syncDebounceTimer = setTimeout(function () {
+            syncDebounceTimer = null;
+            syncToHostImmediate();
+        }, SYNC_DEBOUNCE_MS);
+    }
+
+    // --- undo / redo (cell-local; Table editor 単独の stack) ---
+
+    function saveSnapshot() {
+        if (isUndoRedo) { return; }
+        var snapshot = JSON.stringify(model.serialize());
+        if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snapshot) { return; }
+        undoStack.push(snapshot);
+        if (undoStack.length > MAX_UNDO) { undoStack.shift(); }
+        redoStack.length = 0;
+    }
+
+    function saveSnapshotDebounced() {
+        if (isUndoRedo) { return; }
+        clearTimeout(snapshotDebounceTimer);
+        snapshotDebounceTimer = setTimeout(function () {
+            snapshotDebounceTimer = null;
+            saveSnapshot();
+        }, SNAPSHOT_DEBOUNCE_MS);
+    }
+
+    function applyUndoSnapshot(snapshot) {
+        try {
+            var parsed = JSON.parse(snapshot);
+            // 既存 columns / rawDataExtras を保ったまま model 部分だけ差し替え
+            var ModelCtor = (typeof OutlinerModel !== 'undefined') ? OutlinerModel
+                : (typeof require === 'function' ? require('./outliner-model') : null);
+            if (!ModelCtor) { return; }
+            // model serialize() の出力には columns 等は含まないので、既存 initialData の補助 fields を merge
+            var merged = Object.assign({}, parsed);
+            model = new ModelCtor(merged);
+            renderTable();
+        } catch (_) { /* ignore */ }
+    }
+
+    function undo() {
+        if (undoStack.length < 1) { return false; }
+        // current state を redo stack に push してから undo stack から取り出す
+        var current = JSON.stringify(model.serialize());
+        // 末尾が current と同じなら 1 個 pop して 1 つ前に戻る
+        var target;
+        if (undoStack[undoStack.length - 1] === current && undoStack.length >= 2) {
+            redoStack.push(undoStack.pop());
+            target = undoStack[undoStack.length - 1];
+        } else {
+            target = undoStack.pop();
+            redoStack.push(current);
+        }
+        if (!target) { return false; }
+        isUndoRedo = true;
+        applyUndoSnapshot(target);
+        isUndoRedo = false;
+        scheduleSyncToHost();
+        return true;
+    }
+
+    function redo() {
+        if (redoStack.length < 1) { return false; }
+        var target = redoStack.pop();
+        var current = JSON.stringify(model.serialize());
+        undoStack.push(current);
+        isUndoRedo = true;
+        applyUndoSnapshot(target);
+        isUndoRedo = false;
+        scheduleSyncToHost();
+        return true;
+    }
+
+    // --- cell host adapter (provides everything OutlinerCell needs) ---
+
+    function _cellHost() {
+        return {
+            // image host adapter (Phase 4)
+            getImageBaseUri: function () { return ''; }, // standalone test 環境では空 prefix
+            getModel: function () { return model; },
+            saveSnapshot: function () { saveSnapshot(); },
+            scheduleSyncToHost: function () { scheduleSyncToHost(); },
+            syncToHostImmediate: function () { syncToHostImmediate(); },
+            getImageDragState: function () { return _imageDragState; },
+            setImageDragState: function (s) { _imageDragState = s; },
+            getSelectedImageInfo: function () { return _selectedImageInfo; },
+            setSelectedImageInfo: function (s) { _selectedImageInfo = s; },
+            isReadOnly: function () { return false; },
+            // subtext host adapter (Phase 5)
+            focusNode: function (id) { focusOutlinerCell(id); },
+            save: function () { syncToHostImmediate(); }
+        };
+    }
+    var _imageDragState = null;
+    var _selectedImageInfo = null;
+
+    // --- DOM utilities ---
+
+    function getRowEl(nodeId) {
+        if (!rootEl) { return null; }
+        return rootEl.querySelector('.otable-row[data-node-id="' + nodeId + '"]');
+    }
+
+    function getOutlinerCellEl(nodeId) {
+        var row = getRowEl(nodeId);
+        if (!row) { return null; }
+        return row.querySelector('.otable-cell-outliner');
+    }
+
+    function getOutlinerTextEl(nodeId) {
+        var cell = getOutlinerCellEl(nodeId);
+        if (!cell) { return null; }
+        return cell.querySelector('.outliner-text');
+    }
+
+    function focusOutlinerCell(nodeId) {
+        focusedNodeId = nodeId;
+        var textEl = getOutlinerTextEl(nodeId);
+        if (textEl && typeof textEl.focus === 'function') {
+            textEl.focus();
+            if (OutlinerCell && OutlinerCell.setCursorToEnd) {
+                OutlinerCell.setCursorToEnd(textEl);
+            }
+        }
+    }
+
+    function focusOutlinerCellAtStart(nodeId) {
+        focusedNodeId = nodeId;
+        var textEl = getOutlinerTextEl(nodeId);
+        if (textEl && typeof textEl.focus === 'function') {
+            textEl.focus();
+            if (OutlinerCell && OutlinerCell.setCursorToStart) {
+                OutlinerCell.setCursorToStart(textEl);
+            }
+        }
+    }
+
+    // --- rendering ---
 
     function ensureBodyEl() {
         if (!rootEl) { return null; }
@@ -3884,7 +4077,7 @@ if (typeof module !== 'undefined' && module.exports) {
                 cell.dataset.nodeId = nodeId;
 
                 if (col.type === 'outliner') {
-                    renderOutlinerCellSkeleton(cell, node);
+                    renderOutlinerCell(cell, node);
                 } else if (col.type === 'text') {
                     renderTextCellSkeleton(cell, node, col);
                 } else if (col.type === 'multiselect') {
@@ -3898,18 +4091,271 @@ if (typeof module !== 'undefined' && module.exports) {
         return rowsContainer;
     }
 
-    /** Outliner cell skeleton (TASK-B2 で正式実装、ここでは text の安全 render のみ) */
-    function renderOutlinerCellSkeleton(cell, node) {
-        if (typeof OutlinerCell !== 'undefined' && OutlinerCell.renderInlineText) {
-            // 既存 outliner-cell.js の renderInlineText (XSS 安全) を使う
-            cell.innerHTML = OutlinerCell.renderInlineText(node.text || '');
-        } else {
-            // テスト環境フォールバック (textContent で安全)
-            cell.textContent = node.text || '';
+    /**
+     * Outliner cell render — TASK-B2 本実装。
+     *
+     * cell DOM 構造:
+     *   <div class="otable-cell otable-cell-outliner">
+     *     <div class="outliner-bullet" data-collapsed="false">●</div>
+     *     <div class="outliner-text" contenteditable>...</div>
+     *     <div class="outliner-subtext">...</div>
+     *     <div class="outliner-images">...</div>
+     *   </div>
+     */
+    function renderOutlinerCell(cell, node) {
+        cell.innerHTML = '';
+        cell.dataset.depth = String(model.getDepth ? model.getDepth(node.id) : 0);
+
+        // Bullet (collapse/expand toggle)
+        var bullet = document.createElement('div');
+        bullet.className = 'outliner-bullet';
+        bullet.dataset.nodeId = node.id;
+        if (node.children && node.children.length > 0) {
+            bullet.dataset.hasChildren = 'true';
+            bullet.dataset.collapsed = node.collapsed ? 'true' : 'false';
+            if (node.collapsed) {
+                var countEl = document.createElement('span');
+                countEl.className = 'outliner-child-count';
+                countEl.textContent = String(node.children.length);
+                bullet.appendChild(countEl);
+            }
         }
+        bullet.textContent = bullet.textContent || '●';
+        bullet.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (node.children && node.children.length > 0) {
+                toggleCollapse(node.id);
+            }
+        });
+        cell.appendChild(bullet);
+
+        // Text element
+        var textEl = document.createElement('div');
+        textEl.className = 'outliner-text';
+        textEl.contentEditable = 'true';
+        textEl.spellcheck = false;
+        textEl.dataset.nodeId = node.id;
+        textEl.innerHTML = OutlinerCell.renderInlineText(node.text || '');
+
+        attachOutlinerTextHandlers(textEl, node);
+
+        cell.appendChild(textEl);
+
+        // Subtext
+        var subtextEl = document.createElement('div');
+        subtextEl.className = 'outliner-subtext';
+        subtextEl.dataset.nodeId = node.id;
+        if (node.subtext) {
+            subtextEl.classList.add('has-content');
+            subtextEl.textContent = OutlinerCell.getSubtextPreview
+                ? OutlinerCell.getSubtextPreview(node.subtext)
+                : (node.subtext.split('\n')[0] || '');
+        }
+        attachSubtextHandlers(subtextEl, textEl, node);
+        cell.appendChild(subtextEl);
+
+        // Images
+        var imagesEl = document.createElement('div');
+        imagesEl.className = 'outliner-images';
+        imagesEl.dataset.nodeId = node.id;
+        if (node.images && node.images.length > 0) {
+            try {
+                OutlinerCell.renderNodeImages(imagesEl, node, _cellHost());
+            } catch (err) {
+                // standalone 環境で resolveImageSrc が失敗するケース等は無視
+            }
+        }
+        cell.appendChild(imagesEl);
+
+        // Drop target for files (drag & drop attach)
+        attachCellDropHandlers(cell, node);
     }
 
-    /** Text cell skeleton (TASK-B3 で rich text + edit handler を追加) */
+    function attachOutlinerTextHandlers(textEl, node) {
+        var nodeId = node.id;
+        var isComposing = false;
+
+        textEl.addEventListener('focus', function () {
+            focusedNodeId = nodeId;
+            var sourceText = node.text || '';
+            var renderedOff = OutlinerCell.getCursorOffset
+                ? OutlinerCell.getCursorOffset(textEl) : 0;
+            textEl.innerHTML = OutlinerCell.renderEditingText(sourceText);
+            if (renderedOff > 0 && OutlinerCell.renderedOffsetToSource && OutlinerCell.setCursorAtOffset) {
+                var sourceOff = OutlinerCell.renderedOffsetToSource(sourceText, renderedOff);
+                OutlinerCell.setCursorAtOffset(textEl, sourceOff);
+            }
+        });
+
+        textEl.addEventListener('blur', function () {
+            // commit and re-render in display mode
+            var plain = OutlinerCell.getPlainText(textEl);
+            model.updateText(nodeId, plain);
+            textEl.innerHTML = OutlinerCell.renderInlineText(plain);
+        });
+
+        // Link click handling (when not focused)
+        textEl.addEventListener('mousedown', function (e) {
+            if (focusedNodeId !== nodeId && !e.shiftKey) {
+                var a = e.target.closest ? e.target.closest('a') : null;
+                if (a && a.getAttribute('href')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (host && typeof host.openLink === 'function') {
+                        host.openLink(a.getAttribute('href'));
+                    }
+                    return;
+                }
+            }
+        });
+        textEl.addEventListener('click', function (e) {
+            var a = e.target.closest ? e.target.closest('a') : null;
+            if (a) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+
+        textEl.addEventListener('compositionstart', function () { isComposing = true; });
+        textEl.addEventListener('compositionend', function () {
+            isComposing = false;
+            var plain = OutlinerCell.getPlainText(textEl);
+            model.updateText(nodeId, plain);
+            var off = OutlinerCell.getCursorOffset(textEl);
+            textEl.innerHTML = OutlinerCell.renderEditingText(plain);
+            OutlinerCell.setCursorAtOffset(textEl, off);
+            scheduleSyncToHost();
+        });
+
+        textEl.addEventListener('input', function () {
+            var plain = OutlinerCell.getPlainText(textEl);
+            model.updateText(nodeId, plain);
+            if (!isComposing) {
+                var off = OutlinerCell.getCursorOffset(textEl);
+                textEl.innerHTML = OutlinerCell.renderEditingText(plain);
+                OutlinerCell.setCursorAtOffset(textEl, off);
+            }
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        textEl.addEventListener('paste', function (e) {
+            handleNodePaste(e, nodeId, textEl);
+        });
+
+        textEl.addEventListener('keydown', function (e) {
+            handleNodeKeydown(e, nodeId, textEl);
+        });
+    }
+
+    /**
+     * Open subtext in the Table editor's cell DOM (different selectors than outliner.js).
+     * OutlinerCell.openSubtext is hard-coded to `.outliner-node[data-id="..."]` so we
+     * implement the equivalent locally for `.otable-row[data-node-id="..."]`.
+     */
+    function openSubtextForCell(nodeId) {
+        var cell = getOutlinerCellEl(nodeId);
+        if (!cell) { return; }
+        var subtextEl = cell.querySelector('.outliner-subtext');
+        if (!subtextEl) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        subtextEl.contentEditable = 'true';
+        subtextEl.classList.add('is-editing');
+        subtextEl.classList.add('has-content');
+        subtextEl.textContent = node.subtext || '';
+        subtextEl.focus();
+        try {
+            var range = document.createRange();
+            var sel = window.getSelection();
+            range.selectNodeContents(subtextEl);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        } catch (_) { /* ignore selection errors */ }
+    }
+
+    function attachSubtextHandlers(subtextEl, textEl, node) {
+        var nodeId = node.id;
+
+        subtextEl.addEventListener('focus', function () {
+            subtextEl.classList.add('is-editing');
+            subtextEl.classList.add('has-content');
+            subtextEl.textContent = node.subtext || '';
+        });
+
+        subtextEl.addEventListener('blur', function () {
+            var raw = OutlinerCell.getSubtextPlainText
+                ? OutlinerCell.getSubtextPlainText(subtextEl)
+                : (subtextEl.textContent || '');
+            model.updateSubtext(nodeId, raw);
+            subtextEl.classList.remove('is-editing');
+            if (raw) {
+                subtextEl.classList.add('has-content');
+                subtextEl.textContent = OutlinerCell.getSubtextPreview
+                    ? OutlinerCell.getSubtextPreview(raw)
+                    : raw.split('\n')[0];
+            } else {
+                subtextEl.classList.remove('has-content');
+                subtextEl.textContent = '';
+            }
+            scheduleSyncToHost();
+        });
+
+        subtextEl.addEventListener('input', function () {
+            var raw = OutlinerCell.getSubtextPlainText
+                ? OutlinerCell.getSubtextPlainText(subtextEl)
+                : (subtextEl.textContent || '');
+            model.updateSubtext(nodeId, raw);
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        subtextEl.addEventListener('keydown', function (e) {
+            OutlinerCell.handleSubtextKeydown({
+                event: e,
+                nodeId: nodeId,
+                subtextEl: subtextEl,
+                model: model,
+                host: _cellHost()
+            });
+        });
+    }
+
+    function attachCellDropHandlers(cell, node) {
+        cell.addEventListener('dragover', function (e) {
+            // file drop only (image and other files attach to node)
+            if (e.dataTransfer && e.dataTransfer.types && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') !== -1) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            }
+        });
+        cell.addEventListener('drop', function (e) {
+            if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            var files = e.dataTransfer.files;
+            // Convert files to a serializable shape and forward to host.attachFile
+            var fileInfos = [];
+            for (var i = 0; i < files.length; i++) {
+                var f = files[i];
+                fileInfos.push({
+                    name: f.name,
+                    type: f.type || '',
+                    size: f.size || 0,
+                    path: f.path || '' // not all environments have path
+                });
+            }
+            if (host && typeof host.attachFile === 'function') {
+                host.attachFile({ nodeId: node.id, files: fileInfos });
+            }
+        });
+    }
+
+    /** Text cell skeleton (TASK-B3 で本実装) */
     function renderTextCellSkeleton(cell, node, col) {
         var raw = '';
         if (node.columnValues && typeof node.columnValues === 'object') {
@@ -3923,9 +4369,8 @@ if (typeof module !== 'undefined' && module.exports) {
         }
     }
 
-    /** Multiselect cell skeleton (TASK-C1 で chip + dropdown を追加) */
+    /** Multiselect cell skeleton (TASK-C1 で本実装) */
     function renderMultiselectCellSkeleton(cell, node, col) {
-        // Phase B1 では空表示 (chip render は TASK-C1 の責務)
         cell.textContent = '';
     }
 
@@ -3935,6 +4380,536 @@ if (typeof module !== 'undefined' && module.exports) {
         if (!body) { return; }
         renderColumnHeaders(body);
         renderRows(body);
+    }
+
+    // --- collapse / expand ---
+
+    function toggleCollapse(nodeId) {
+        var node = model.getNode(nodeId);
+        if (!node || !node.children || node.children.length === 0) { return; }
+        node.collapsed = !node.collapsed;
+        renderTable();
+        scheduleSyncToHost();
+    }
+
+    // --- key handling (cell -> tree-wide actions) ---
+
+    function handleNodeKeydown(e, nodeId, textEl) {
+        if (e.isComposing || e.keyCode === 229) { return; }
+
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+
+        var offset = OutlinerCell.getCursorOffset(textEl);
+        var textLen = (textEl.textContent || '').length;
+        var isAtStart = (offset === 0);
+
+        var modKey = (e.metaKey || e.ctrlKey);
+
+        // cmd+z / cmd+shift+z (undo / redo)
+        if (modKey && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault();
+            // commit any pending input first
+            var pending = OutlinerCell.getPlainText(textEl);
+            model.updateText(nodeId, pending);
+            // ensure baseline is captured
+            saveSnapshot();
+            if (e.shiftKey) {
+                redo();
+            } else {
+                undo();
+            }
+            return;
+        }
+
+        // cmd+B / cmd+I / cmd+E / cmd+Shift+S
+        if (modKey && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+            e.preventDefault();
+            saveSnapshot();
+            OutlinerCell.applyInlineFormat({
+                nodeId: nodeId, textEl: textEl, marker: '**',
+                model: model, host: _cellHost()
+            });
+            return;
+        }
+        if (modKey && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+            e.preventDefault();
+            saveSnapshot();
+            OutlinerCell.applyInlineFormat({
+                nodeId: nodeId, textEl: textEl, marker: '*',
+                model: model, host: _cellHost()
+            });
+            return;
+        }
+        if (modKey && !e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+            e.preventDefault();
+            saveSnapshot();
+            OutlinerCell.applyInlineFormat({
+                nodeId: nodeId, textEl: textEl, marker: '`',
+                model: model, host: _cellHost()
+            });
+            return;
+        }
+        if (modKey && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+            e.preventDefault();
+            saveSnapshot();
+            OutlinerCell.applyInlineFormat({
+                nodeId: nodeId, textEl: textEl, marker: '~~',
+                model: model, host: _cellHost()
+            });
+            return;
+        }
+
+        // cmd+Shift+C — copy page path
+        if (modKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+            if (node.isPage && node.pageId) {
+                e.preventDefault();
+                if (host && typeof host.copyPagePaths === 'function') {
+                    host.copyPagePaths([node.pageId]);
+                } else if (host && typeof host.copyPagePath === 'function') {
+                    host.copyPagePath(node.pageId);
+                }
+                return;
+            }
+        }
+
+        // cmd+x / cmd+c / cmd+v
+        if (modKey && !e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+            handleCmdCut(e, nodeId, textEl);
+            return;
+        }
+        if (modKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+            handleCmdCopy(e, nodeId, textEl);
+            return;
+        }
+        if (modKey && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+            handleCmdPaste(e, nodeId, textEl);
+            return;
+        }
+
+        switch (e.key) {
+            case 'Enter':
+                if (modKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (node.isPage && node.pageId) {
+                        if (host && typeof host.openMdPage === 'function') {
+                            host.openMdPage({ nodeId: nodeId, pageId: node.pageId });
+                        }
+                    } else if (node.filePath) {
+                        if (host && typeof host.openAttachedFile === 'function') {
+                            host.openAttachedFile(nodeId);
+                        }
+                    }
+                    return;
+                }
+                e.preventDefault();
+                saveSnapshot();
+                if (e.shiftKey) {
+                    openSubtextForCell(nodeId);
+                } else if (e.altKey) {
+                    handleAltEnter(node, textEl, offset);
+                } else {
+                    handleEnter(node, textEl, offset);
+                }
+                break;
+
+            case 'Backspace': {
+                var sel = window.getSelection();
+                var hasSelection = sel && !sel.isCollapsed;
+                if (hasSelection) {
+                    saveSnapshot();
+                    break;
+                }
+                if (isAtStart) {
+                    e.preventDefault();
+                    saveSnapshot();
+                    handleBackspaceAtStart(node, textEl);
+                }
+                break;
+            }
+
+            case 'Tab':
+                e.preventDefault();
+                saveSnapshot();
+                if (e.shiftKey) {
+                    handleShiftTab(node, textEl);
+                } else {
+                    handleTab(node, textEl);
+                }
+                break;
+
+            case 'ArrowUp':
+                if (modKey && e.shiftKey) {
+                    e.preventDefault();
+                    saveSnapshot();
+                    if (model.moveUp(nodeId)) {
+                        renderTable();
+                        focusOutlinerCell(nodeId);
+                        scheduleSyncToHost();
+                    }
+                } else if (!e.shiftKey) {
+                    var prev = model.getPreviousVisibleId(nodeId);
+                    if (prev) {
+                        e.preventDefault();
+                        focusOutlinerCell(prev);
+                    }
+                }
+                break;
+
+            case 'ArrowDown':
+                if (modKey && e.shiftKey) {
+                    e.preventDefault();
+                    saveSnapshot();
+                    if (model.moveDown(nodeId)) {
+                        renderTable();
+                        focusOutlinerCell(nodeId);
+                        scheduleSyncToHost();
+                    }
+                } else if (!e.shiftKey) {
+                    var next = model.getNextVisibleId(nodeId);
+                    if (next) {
+                        e.preventDefault();
+                        focusOutlinerCell(next);
+                    }
+                }
+                break;
+        }
+    }
+
+    function handleEnter(node, textEl, offset) {
+        var text = node.text || '';
+        var beforeText = text.slice(0, offset);
+        var afterText = text.slice(offset);
+
+        var newNode;
+        if (offset === 0 && text.length > 0) {
+            // 現ノードは変更せず、前に空ノードを挿入
+            var siblings = node.parentId
+                ? (model.getNode(node.parentId) || {}).children || []
+                : model.rootIds;
+            var idxInSiblings = siblings.indexOf(node.id);
+            if (idxInSiblings <= 0) {
+                newNode = model.addNodeAtStart(node.parentId, '');
+            } else {
+                newNode = model.addNode(node.parentId, siblings[idxInSiblings - 1], '');
+            }
+        } else {
+            model.updateText(node.id, beforeText);
+            newNode = model.addNode(node.parentId, node.id, afterText);
+            // 展開された子は新兄弟へ移す
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                var movingChildren = node.children.slice();
+                for (var mc = 0; mc < movingChildren.length; mc++) {
+                    var childNode = model.getNode(movingChildren[mc]);
+                    if (childNode) { childNode.parentId = newNode.id; }
+                }
+                newNode.children = movingChildren;
+                node.children = [];
+            }
+        }
+
+        renderTable();
+        focusOutlinerCellAtStart(newNode.id);
+        scheduleSyncToHost();
+    }
+
+    function handleAltEnter(node, textEl, offset) {
+        var text = node.text || '';
+        var beforeText = text.slice(0, offset);
+        var afterText = text.slice(offset);
+        model.updateText(node.id, beforeText);
+        var newNode = model.addNodeAtStart(node.id, afterText);
+        if (node.collapsed) { node.collapsed = false; }
+        renderTable();
+        focusOutlinerCellAtStart(newNode.id);
+        scheduleSyncToHost();
+    }
+
+    function handleBackspaceAtStart(node, textEl) {
+        var prevId = model.getPreviousVisibleId(node.id);
+        if (!prevId) {
+            if ((node.text || '').length === 0 && model.rootIds.length > 1) {
+                var nextId = model.getNextVisibleId(node.id);
+                model.removeNode(node.id);
+                renderTable();
+                if (nextId) { focusOutlinerCellAtStart(nextId); }
+                scheduleSyncToHost();
+            }
+            return;
+        }
+        var prevNode = model.getNode(prevId);
+        if (!prevNode) { return; }
+
+        if ((node.text || '').length === 0 && (!node.children || node.children.length === 0)) {
+            // 空 + 子なし: 単純削除
+            model.removeNode(node.id);
+            renderTable();
+            focusOutlinerCell(prevId);
+            scheduleSyncToHost();
+        } else if ((node.text || '').length === 0 && node.children && node.children.length > 0) {
+            // 空 + 子あり: 子を親レベルに昇格
+            var emptyParentId = node.parentId;
+            var parentSiblings = emptyParentId ? model.getNode(emptyParentId).children : model.rootIds;
+            var emptyIndex = parentSiblings.indexOf(node.id);
+            var promotedIds = node.children.slice();
+            node.children = [];
+            parentSiblings.splice(emptyIndex, 1);
+            delete model.nodes[node.id];
+            for (var ci = 0; ci < promotedIds.length; ci++) {
+                var promotedNode = model.nodes[promotedIds[ci]];
+                if (promotedNode) {
+                    promotedNode.parentId = emptyParentId;
+                    parentSiblings.splice(emptyIndex + ci, 0, promotedIds[ci]);
+                }
+            }
+            renderTable();
+            focusOutlinerCell(prevId);
+            scheduleSyncToHost();
+        } else {
+            // テキスト合流
+            var prevText = prevNode.text || '';
+            var curText = node.text || '';
+            var cursorPos = prevText.length;
+            model.updateText(prevId, prevText + curText);
+            if (node.children && node.children.length > 0) {
+                for (var i = 0; i < node.children.length; i++) {
+                    var childId = node.children[i];
+                    model.nodes[childId].parentId = prevId;
+                    prevNode.children.push(childId);
+                }
+            }
+            model.removeNode(node.id);
+            renderTable();
+            var newTextEl = getOutlinerTextEl(prevId);
+            if (newTextEl) {
+                newTextEl.focus();
+                if (OutlinerCell.setCursorAtOffset) {
+                    OutlinerCell.setCursorAtOffset(newTextEl, cursorPos);
+                }
+            }
+            scheduleSyncToHost();
+        }
+    }
+
+    function handleTab(node, textEl) {
+        if (model.indentNode(node.id)) {
+            var off = OutlinerCell.getCursorOffset(textEl);
+            renderTable();
+            var newTextEl = getOutlinerTextEl(node.id);
+            if (newTextEl) {
+                newTextEl.focus();
+                if (OutlinerCell.setCursorAtOffset) {
+                    OutlinerCell.setCursorAtOffset(newTextEl, off);
+                }
+            }
+            scheduleSyncToHost();
+        }
+    }
+
+    function handleShiftTab(node, textEl) {
+        if (model.outdentNode(node.id)) {
+            var off = OutlinerCell.getCursorOffset(textEl);
+            renderTable();
+            var newTextEl = getOutlinerTextEl(node.id);
+            if (newTextEl) {
+                newTextEl.focus();
+                if (OutlinerCell.setCursorAtOffset) {
+                    OutlinerCell.setCursorAtOffset(newTextEl, off);
+                }
+            }
+            scheduleSyncToHost();
+        }
+    }
+
+    // --- clipboard (cmd+x / cmd+c / cmd+v) ---
+    // 単一ノードのみサポート (multi-select は tree wide selection 機能が無いため、
+    // current focused node のみ対象)。drawio.svg multi-extension suffix は host 側
+    // copy logic (host.attachFile / host.copyImagesCross) に委ねる (本 sprint では
+    // 実 fs を使う TC-610-A/611-A/612-A は手動 US で検証する設計)。
+
+    var _internalClipboard = null; // { isCut, nodes: [{id, text, level, isPage, pageId, images, filePath, subtext, columnValues}] }
+
+    function _serializeNodeSubtree(nodeId, baseLevel) {
+        // 単一ノード+子孫を flatten して clipboard 形式に変換
+        var arr = [];
+        function visit(id, level) {
+            var n = model.getNode(id);
+            if (!n) { return; }
+            arr.push({
+                id: n.id,
+                text: n.text || '',
+                level: level,
+                isPage: !!n.isPage,
+                pageId: n.pageId || null,
+                images: (n.images || []).slice(),
+                filePath: n.filePath || null,
+                subtext: n.subtext || '',
+                tags: (n.tags || []).slice(),
+                checked: (typeof n.checked !== 'undefined') ? n.checked : null,
+                columnValues: n.columnValues ? Object.assign({}, n.columnValues) : undefined
+            });
+            if (n.children && n.children.length > 0 && !n.collapsed) {
+                for (var i = 0; i < n.children.length; i++) {
+                    visit(n.children[i], level + 1);
+                }
+            }
+        }
+        visit(nodeId, baseLevel);
+        return arr;
+    }
+
+    function handleCmdCopy(e, nodeId, textEl) {
+        // text selection コピー → ブラウザのデフォルト挙動を許可
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed && textEl.contains(sel.anchorNode)) {
+            return; // browser default copies text
+        }
+        e.preventDefault();
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var nodes = _serializeNodeSubtree(nodeId, 0);
+        var plainText = nodes.map(function (nd) {
+            var indent = '';
+            for (var i = 0; i < nd.level; i++) { indent += '  '; }
+            return indent + '- ' + nd.text;
+        }).join('\n');
+        _internalClipboard = { isCut: false, nodes: nodes, plainText: plainText };
+        if (host && typeof host.saveOutlinerClipboard === 'function') {
+            host.saveOutlinerClipboard({ isCut: false, nodes: nodes, plainText: plainText });
+        }
+    }
+
+    function handleCmdCut(e, nodeId, textEl) {
+        var sel = window.getSelection();
+        if (sel && !sel.isCollapsed && textEl.contains(sel.anchorNode)) {
+            return; // browser default cuts text
+        }
+        e.preventDefault();
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var nodes = _serializeNodeSubtree(nodeId, 0);
+        var plainText = nodes.map(function (nd) {
+            var indent = '';
+            for (var i = 0; i < nd.level; i++) { indent += '  '; }
+            return indent + '- ' + nd.text;
+        }).join('\n');
+        _internalClipboard = { isCut: true, nodes: nodes, plainText: plainText };
+        if (host && typeof host.saveOutlinerClipboard === 'function') {
+            host.saveOutlinerClipboard({ isCut: true, nodes: nodes, plainText: plainText });
+        }
+        // delete the source row
+        saveSnapshot();
+        var nextId = model.getNextVisibleId(nodeId) || model.getPreviousVisibleId(nodeId);
+        model.removeNode(nodeId);
+        renderTable();
+        if (nextId) { focusOutlinerCell(nextId); }
+        scheduleSyncToHost();
+    }
+
+    function handleCmdPaste(e, nodeId, textEl) {
+        // If there is internal clipboard from the same session, paste node-wise.
+        // Otherwise, allow browser default text paste.
+        if (!_internalClipboard || !_internalClipboard.nodes || _internalClipboard.nodes.length === 0) {
+            return;
+        }
+        e.preventDefault();
+        saveSnapshot();
+        var clip = _internalClipboard;
+        // Insert as siblings after current node (level offset = current node's level)
+        var anchorNode = model.getNode(nodeId);
+        if (!anchorNode) { return; }
+        var levelStack = []; // [{level, parentId, lastInsertedId}]
+        var anchorParentId = anchorNode.parentId;
+        var afterId = nodeId;
+        var lastInsertedId = nodeId;
+        levelStack[0] = { level: 0, parentId: anchorParentId, lastInsertedId: nodeId };
+        var insertedIds = [];
+
+        for (var i = 0; i < clip.nodes.length; i++) {
+            var clipNode = clip.nodes[i];
+            // find parent for this level
+            var lvl = clipNode.level;
+            // truncate levelStack
+            while (levelStack.length > lvl + 1) { levelStack.pop(); }
+            var parentInfo = levelStack[lvl] || levelStack[levelStack.length - 1];
+            var parentForInsert = parentInfo.parentId;
+            var afterForInsert = parentInfo.lastInsertedId;
+
+            var newNd;
+            if (lvl === 0) {
+                newNd = model.addNode(parentForInsert, afterForInsert, clipNode.text || '');
+            } else {
+                // child of last inserted at lvl-1
+                var pInfo = levelStack[lvl - 1];
+                newNd = model.addNodeAtStart(pInfo.lastInsertedId, clipNode.text || '');
+            }
+            if (clipNode.isPage && clipNode.pageId) {
+                newNd.isPage = true;
+                newNd.pageId = clipNode.pageId;
+            }
+            if (clipNode.filePath) {
+                newNd.filePath = clipNode.filePath;
+            }
+            if (clipNode.images && clipNode.images.length > 0) {
+                newNd.images = clipNode.images.slice();
+            }
+            if (clipNode.subtext) { newNd.subtext = clipNode.subtext; }
+            if (clipNode.checked !== null && typeof clipNode.checked !== 'undefined') { newNd.checked = clipNode.checked; }
+            if (clipNode.columnValues) { newNd.columnValues = Object.assign({}, clipNode.columnValues); }
+
+            // update levelStack at this level
+            levelStack[lvl] = {
+                level: lvl,
+                parentId: (lvl === 0) ? parentForInsert : levelStack[lvl - 1].lastInsertedId,
+                lastInsertedId: newNd.id
+            };
+            insertedIds.push(newNd.id);
+            if (lvl === 0) { lastInsertedId = newNd.id; }
+        }
+
+        // notify host (cross-file paste needs host file copy logic)
+        if (host && typeof host.handleClipboardPaste === 'function') {
+            host.handleClipboardPaste({
+                targetNodeId: nodeId,
+                insertedIds: insertedIds,
+                isCut: clip.isCut,
+                nodes: clip.nodes
+            });
+        }
+
+        renderTable();
+        if (insertedIds.length > 0) {
+            focusOutlinerCell(insertedIds[insertedIds.length - 1]);
+        }
+        scheduleSyncToHost();
+    }
+
+    function handleNodePaste(e, nodeId, textEl) {
+        // image paste?
+        if (e.clipboardData && e.clipboardData.items) {
+            var items = e.clipboardData.items;
+            var imageItem = null;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+                    imageItem = items[i];
+                    break;
+                }
+            }
+            if (imageItem) {
+                e.preventDefault();
+                if (host && typeof host.imagePaste === 'function') {
+                    var f = imageItem.getAsFile ? imageItem.getAsFile() : null;
+                    host.imagePaste({
+                        nodeId: nodeId,
+                        type: imageItem.type,
+                        name: f ? f.name : ('paste.' + imageItem.type.split('/')[1])
+                    });
+                }
+                return;
+            }
+        }
+        // default text paste — let browser handle, then run input handler
     }
 
     // --- internal state container (test 用に exported) ---
@@ -3948,6 +4923,7 @@ if (typeof module !== 'undefined' && module.exports) {
         init: init,
         applyExternalUpdate: applyExternalUpdate,
         syncToHostImmediate: syncToHostImmediate,
+        scheduleSyncToHost: scheduleSyncToHost,
         serialize: serialize,
         renderTable: renderTable,
         // exported for tests / future tasks
@@ -3959,7 +4935,13 @@ if (typeof module !== 'undefined' && module.exports) {
         _getRawDataExtras: function () { return Object.assign({}, rawDataExtras); },
         _getModel: function () { return model; },
         _getState: function () { return OutlinerTableState; },
-        _setColumnsForTest: function (cols) { columns = cols.slice(); }
+        _setColumnsForTest: function (cols) { columns = cols.slice(); },
+        _focusOutlinerCell: focusOutlinerCell,
+        _undo: undo,
+        _redo: redo,
+        _saveSnapshot: saveSnapshot,
+        _getInternalClipboard: function () { return _internalClipboard; },
+        _setInternalClipboard: function (cb) { _internalClipboard = cb; }
     };
 }));
 

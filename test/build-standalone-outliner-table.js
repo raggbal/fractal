@@ -74,6 +74,20 @@ const testTableHostBridge = `
         requestReopenAs: function(viewType) {
             post({ type: 'requestReopenAs', viewType: viewType });
         },
+        // TASK-B2: full host bridge for outliner cell operations
+        openMdPage: function(payload) { post({ type: 'openMdPage', payload: payload }); },
+        openAttachedFile: function(nodeId) { post({ type: 'openAttachedFile', nodeId: nodeId }); },
+        openLink: function(href) { post({ type: 'openLink', href: href }); },
+        copyPagePaths: function(pageIds) { post({ type: 'copyPagePaths', pageIds: pageIds }); },
+        attachFile: function(payload) { post({ type: 'attachFile', payload: payload }); },
+        imagePaste: function(payload) { post({ type: 'imagePaste', payload: payload }); },
+        saveOutlinerClipboard: function(payload) {
+            post({ type: 'saveOutlinerClipboard', isCut: payload.isCut, nodes: payload.nodes, plainText: payload.plainText });
+        },
+        handleClipboardPaste: function(payload) {
+            post({ type: 'handleClipboardPaste', payload: payload });
+        },
+        save: function() { post({ type: 'save' }); },
         onMessage: function(handler) { window.__hostMessageHandler = handler; }
     };
 })();
