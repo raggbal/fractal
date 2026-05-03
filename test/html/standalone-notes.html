@@ -22155,12 +22155,17 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
  *   - outliner editor (existing)
  *   - outliner-table editor (Notion / Coda style table view, new in this sprint)
  *
- * Public API (Phase 1):
+ * Public API (Phase 1+2):
  *   OutlinerCell.renderInlineText(text)
  *   OutlinerCell.classifyLinkHref(href)
+ *   OutlinerCell.stripInlineMarkers(text)
+ *   OutlinerCell.renderEditingText(text)
+ *   OutlinerCell.convertUrlsToMarkdownLinks(text)
+ *   OutlinerCell.renderedOffsetToSource(sourceText, renderedOffset)
+ *   OutlinerCell.sourceOffsetToRendered(sourceText, sourceOffset)
+ *   OutlinerCell.buildRenderedToSourceMap(sourceText, renderedText)
  *
- * Phase 2〜5 will add: stripInlineMarkers, renderEditingText,
- * convertUrlsToMarkdownLinks, cursor / DOM helpers, image helpers,
+ * Phase 3〜5 will add: cursor / DOM helpers, image helpers,
  * applyInlineFormat / subtext open/close (host inject).
  *
  * Depends on global `MarkdownLinkParser` (loaded before this script).
@@ -22284,9 +22289,691 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
         return html;
     }
 
+    /**
+     * ソーステキスト（マーカー付き）からマーカーを除去してレンダリング後テキストを返す。
+     * renderInlineText と同じ正規表現順序で処理する。
+     */
+    function stripInlineMarkers(text) {
+        if (!text) { return ''; }
+        text = text.replace(/`([^`]+)`/g, '$1');
+        text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+        text = text.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1');
+        text = text.replace(/~~([^~]+)~~/g, '$1');
+        return text;
+    }
+
+    /**
+     * 編集モード用のテキストレンダリング。
+     * マーカー(*、**、~~、`)はそのまま表示し、タグのみハイライトする。
+     * textContent がソーステキストと一致するため、オフセット計算が安全。
+     */
+    function renderEditingText(text) {
+        if (!text) { return ''; }
+        var html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        // タグのみハイライト (テキスト内容を変えないのでオフセットに影響なし)
+        // URL内の@をタグ化しないよう、URLを一時退避してからタグ変換
+        var urlPlaceholders = [];
+        html = html.replace(/https?:\/\/\S+/g, function(match) {
+            urlPlaceholders.push(match);
+            return '\x00URL' + (urlPlaceholders.length - 1) + '\x00';
+        });
+        html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
+        html = html.replace(/\x00URL(\d+)\x00/g, function(_, idx) {
+            return urlPlaceholders[parseInt(idx, 10)];
+        });
+        // 末尾スペースをNBSPに変換
+        html = html.replace(/ $/, ' ');
+        return html;
+    }
+
+    /**
+     * テキスト中のURLをMarkdownリンク形式 [URL](URL) に変換する。
+     * 既にMarkdownリンク内にあるURL（[text](url) の url 部分）は変換しない。
+     */
+    function convertUrlsToMarkdownLinks(text) {
+        if (!text) { return text; }
+        var MLP = getMLP();
+        if (!MLP) { return text; }
+        // balanced paren 対応で 1 パス走査: URL 内の () をネスト追跡、末尾句読点を除外。
+        // 既に Markdown link 内 ([ の直後 or ]( の直後) にある URL はスキップする。
+        var out = '';
+        var i = 0;
+        var len = text.length;
+        while (i < len) {
+            var head = text.slice(i, i + 8).toLowerCase();
+            if (head.indexOf('http://') === 0 || head.indexOf('https://') === 0) {
+                var prevCh = i > 0 ? text.charAt(i - 1) : '';
+                var prev2 = i > 1 ? text.slice(i - 2, i) : '';
+                var inLink = prevCh === '[' || prev2 === '](';
+                if (!inLink) {
+                    var found = MLP.extractUrlWithBalancedParens(text, i);
+                    if (found) {
+                        out += '[' + found.url + '](' + found.url + ')';
+                        i = found.endIndex;
+                        continue;
+                    }
+                }
+            }
+            out += text.charAt(i);
+            i++;
+        }
+        return out;
+    }
+
+    /**
+     * レンダリング後テキストの各位置がソーステキストのどの位置に対応するかのマップを構築。
+     * map[renderedPos] = sourcePos
+     */
+    function buildRenderedToSourceMap(sourceText, renderedText) {
+        var map = [];
+        var si = 0;
+        for (var ri = 0; ri < renderedText.length; ri++) {
+            while (si < sourceText.length && sourceText[si] !== renderedText[ri]) {
+                si++;
+            }
+            map.push(si);
+            si++;
+        }
+        // 末尾位置
+        map.push(sourceText.length);
+        return map;
+    }
+
+    /**
+     * レンダリング後テキストのオフセットをソーステキストのオフセットに変換する。
+     * sourceText: マーカー付きテキスト, renderedOffset: マーカー除去後のオフセット
+     */
+    function renderedOffsetToSource(sourceText, renderedOffset) {
+        var rendered = stripInlineMarkers(sourceText);
+        var map = buildRenderedToSourceMap(sourceText, rendered);
+        if (renderedOffset >= map.length) { return sourceText.length; }
+        return map[renderedOffset];
+    }
+
+    /**
+     * ソーステキストのオフセットをレンダリング後テキストのオフセットに変換する。
+     */
+    function sourceOffsetToRendered(sourceText, sourceOffset) {
+        var rendered = stripInlineMarkers(sourceText);
+        var map = buildRenderedToSourceMap(sourceText, rendered);
+        // mapの中からsourceOffset以上の最初のエントリのインデックスを返す
+        for (var i = 0; i < map.length; i++) {
+            if (map[i] >= sourceOffset) { return i; }
+        }
+        return rendered.length;
+    }
+
+    // ─── Phase 3: cursor / DOM helpers ───────────────────────────────────────
+    // These touch document.createRange / window.getSelection. They are DOM-pure
+    // (no model / host dependency) and re-used by Outliner editor + Outliner
+    // Table editor.
+
+    function setCursorToEnd(el) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function setCursorToStart(el) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function setCursorAtOffset(el, offset) {
+        if (typeof document === 'undefined') { return; }
+        var range = document.createRange();
+        var sel = window.getSelection();
+        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
+        var textNode = walker.nextNode();
+        if (!textNode) {
+            range.selectNodeContents(el);
+            range.collapse(true);
+        } else {
+            var pos = 0;
+            do {
+                var len = textNode.textContent.length;
+                if (pos + len >= offset) {
+                    range.setStart(textNode, offset - pos);
+                    range.collapse(true);
+                    break;
+                }
+                pos += len;
+            } while ((textNode = walker.nextNode()));
+            if (!textNode) {
+                range.selectNodeContents(el);
+                range.collapse(false);
+            }
+        }
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    function getCursorOffset(el) {
+        if (typeof window === 'undefined') { return 0; }
+        var sel = window.getSelection();
+        if (!sel.rangeCount) { return 0; }
+        var range = sel.getRangeAt(0);
+        var preRange = range.cloneRange();
+        preRange.selectNodeContents(el);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        return preRange.toString().length;
+    }
+
+    /**
+     * el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
+     * Selection が el 外なら null。
+     */
+    function getCursorRange(el) {
+        if (typeof window === 'undefined') { return null; }
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) { return null; }
+        var range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
+            return null;
+        }
+        var preStart = range.cloneRange();
+        preStart.selectNodeContents(el);
+        preStart.setEnd(range.startContainer, range.startOffset);
+        var start = preStart.toString().length;
+        var preEnd = range.cloneRange();
+        preEnd.selectNodeContents(el);
+        preEnd.setEnd(range.endContainer, range.endOffset);
+        var end = preEnd.toString().length;
+        if (end < start) { var t = start; start = end; end = t; }
+        return { start: start, end: end };
+    }
+
+    /** contenteditable からプレーンテキストを取得 (NBSPは通常スペースに正規化) */
+    function getPlainText(el) {
+        return (el.textContent || '').replace(/\u00A0/g, ' ');
+    }
+
+    /** contenteditable要素から改行を正規化してプレーンテキストを取得 (subtext用) */
+    function getSubtextPlainText(element) {
+        var result = '';
+        var children = element.childNodes;
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            if (child.nodeType === 1 && child.tagName === 'BR') {
+                result += '\n';
+            } else if (child.nodeType === 3) {
+                result += child.textContent;
+            } else if (child.nodeType === 1) {
+                if (result.length > 0 && result[result.length - 1] !== '\n') {
+                    result += '\n';
+                }
+                result += getSubtextPlainText(child);
+            }
+        }
+        return result;
+    }
+
+    /** サブテキストの省略表示テキストを生成 */
+    function getSubtextPreview(subtext) {
+        if (!subtext) { return ''; }
+        var firstLine = subtext.split('\n')[0];
+        var hasMore = subtext.indexOf('\n') >= 0;
+        return hasMore ? firstLine + ' ...' : firstLine;
+    }
+
+    // ─── Phase 4: image cell helpers ─────────────────────────────────────────
+    // renderNodeImages takes a `host` object with the following methods:
+    //   host.getImageBaseUri()         — returns webview-asset base URI (or null)
+    //   host.getModel()                — returns model with moveImage(nodeId, from, to), getNode(id)
+    //   host.saveSnapshot()            — push undo snapshot
+    //   host.scheduleSyncToHost()      — debounced save
+    //   host.getImageDragState()       — { nodeId, fromIndex } | null
+    //   host.setImageDragState(s)      — setter
+    //   host.getSelectedImageInfo()    — { nodeId, index, element } | null
+    //   host.setSelectedImageInfo(s)   — setter
+    //   host.isReadOnly()              — boolean (skips drag/click handlers when true)
+
+    function resolveImageSrc(imagePath, baseUri) {
+        if (!baseUri) {
+            // browser: fall back to window.__outlinerImageBaseUri for back-compat
+            if (typeof window !== 'undefined' && window.__outlinerImageBaseUri) {
+                baseUri = window.__outlinerImageBaseUri;
+            }
+        }
+        if (!baseUri) { return imagePath; }
+        return baseUri + '/' + imagePath.replace(/^\.\//, '');
+    }
+
+    /** コンテナ内のマウス位置から最も近いドロップインデックスを算出 */
+    function getImageDropIndex(container, clientX, clientY) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        if (thumbs.length === 0) { return 0; }
+        var bestIdx = 0;
+        var bestDist = Infinity;
+        for (var i = 0; i < thumbs.length; i++) {
+            var rect = thumbs[i].getBoundingClientRect();
+            var leftEdge = rect.left;
+            var rightEdge = rect.right;
+            var centerY = rect.top + rect.height / 2;
+            var dy = Math.abs(clientY - centerY);
+            var dLeft = Math.sqrt(Math.pow(clientX - leftEdge, 2) + Math.pow(dy, 2));
+            if (dLeft < bestDist) { bestDist = dLeft; bestIdx = i; }
+            var dRight = Math.sqrt(Math.pow(clientX - rightEdge, 2) + Math.pow(dy, 2));
+            if (dRight < bestDist) { bestDist = dRight; bestIdx = i + 1; }
+        }
+        return bestIdx;
+    }
+
+    /** ドロップインジケーターを表示（指定インデックスの左に青線） */
+    function showImageDropIndicator(container, dropIdx) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        for (var t = 0; t < thumbs.length; t++) {
+            thumbs[t].classList.remove('drop-before', 'drop-after');
+        }
+        if (dropIdx <= 0 && thumbs.length > 0) {
+            thumbs[0].classList.add('drop-before');
+        } else if (dropIdx >= thumbs.length && thumbs.length > 0) {
+            thumbs[thumbs.length - 1].classList.add('drop-after');
+        } else if (dropIdx > 0 && dropIdx < thumbs.length) {
+            thumbs[dropIdx].classList.add('drop-before');
+        }
+    }
+
+    function clearImageDropIndicators(container) {
+        var thumbs = container.querySelectorAll('.outliner-image-thumb');
+        for (var t = 0; t < thumbs.length; t++) {
+            thumbs[t].classList.remove('drop-before', 'drop-after', 'is-dragging');
+        }
+    }
+
+    function clearImageSelection(host) {
+        if (!host || !host.getSelectedImageInfo) { return; }
+        var sel = host.getSelectedImageInfo();
+        if (sel) {
+            if (sel.element) { sel.element.classList.remove('is-selected'); }
+            host.setSelectedImageInfo(null);
+        }
+    }
+
+    function showImageOverlay(src) {
+        var overlay = document.createElement('div');
+        overlay.className = 'outliner-image-overlay';
+
+        var largeImg = document.createElement('img');
+        largeImg.className = 'outliner-image-large';
+        largeImg.src = src;
+
+        overlay.appendChild(largeImg);
+
+        var hint = document.createElement('div');
+        hint.className = 'outliner-image-overlay-hint';
+        hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
+        document.body.appendChild(overlay);
+
+        var scale = 1, tx = 0, ty = 0;
+        var isDragging = false, dragStartX = 0, dragStartY = 0;
+        var MIN_SCALE = 0.2, MAX_SCALE = 16;
+        function apply() {
+            largeImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey) return;
+            ev.preventDefault();
+            var delta = -ev.deltaY * 0.01;
+            var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            var rect = largeImg.getBoundingClientRect();
+            var ox = ev.clientX - rect.left;
+            var oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            apply();
+        }, { passive: false });
+        largeImg.addEventListener('mousedown', function(ev) {
+            ev.preventDefault();
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            largeImg.style.cursor = 'grabbing';
+        });
+        var onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            apply();
+        };
+        var onUp = function() {
+            isDragging = false;
+            largeImg.style.cursor = 'default';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+        largeImg.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            apply();
+        });
+
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) { overlay.remove(); }
+        });
+        var escHandler = function(ev) {
+            if (ev.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    }
+
+    /**
+     * Render <img.outliner-image-thumb> elements for node.images[] into container.
+     * host: object with getImageBaseUri / getModel / saveSnapshot / scheduleSyncToHost /
+     *       getImageDragState / setImageDragState / getSelectedImageInfo / setSelectedImageInfo
+     */
+    function renderNodeImages(container, node, host) {
+        if (!container) { return; }
+        container.innerHTML = '';
+        if (!node || !node.images || node.images.length === 0) { return; }
+
+        var baseUri = host && host.getImageBaseUri ? host.getImageBaseUri() : null;
+        var isReadOnly = host && host.isReadOnly ? host.isReadOnly() : false;
+
+        for (var i = 0; i < node.images.length; i++) {
+            (function(idx) {
+                var img = document.createElement('img');
+                img.className = 'outliner-image-thumb';
+                img.dataset.index = idx;
+                img.dataset.nodeId = node.id;
+                img.src = resolveImageSrc(node.images[idx], baseUri);
+                img.draggable = !isReadOnly;
+                img.alt = '';
+
+                if (!isReadOnly && host) {
+                    img.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        clearImageSelection(host);
+                        img.classList.add('is-selected');
+                        host.setSelectedImageInfo({ nodeId: node.id, index: idx, element: img });
+                    });
+
+                    img.addEventListener('dblclick', function(e) {
+                        e.stopPropagation();
+                        showImageOverlay(img.src);
+                    });
+
+                    img.addEventListener('dragstart', function(e) {
+                        e.stopPropagation();
+                        host.setImageDragState({ nodeId: node.id, fromIndex: idx });
+                        img.classList.add('is-dragging');
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', 'outliner-image');
+                    });
+
+                    img.addEventListener('dragend', function() {
+                        host.setImageDragState(null);
+                        clearImageDropIndicators(container);
+                    });
+                }
+
+                container.appendChild(img);
+            })(i);
+        }
+
+        if (!isReadOnly && host) {
+            container.addEventListener('dragover', function(e) {
+                var st = host.getImageDragState();
+                if (!st || st.nodeId !== node.id) { return; }
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = 'move';
+                var dropIdx = getImageDropIndex(container, e.clientX, e.clientY);
+                showImageDropIndicator(container, dropIdx);
+            });
+
+            container.addEventListener('dragleave', function(e) {
+                if (container.contains(e.relatedTarget)) { return; }
+                clearImageDropIndicators(container);
+            });
+
+            container.addEventListener('drop', function(e) {
+                var st = host.getImageDragState();
+                if (!st || st.nodeId !== node.id) { return; }
+                e.preventDefault();
+                e.stopPropagation();
+                var toIdx = getImageDropIndex(container, e.clientX, e.clientY);
+                if (st.fromIndex !== toIdx && st.fromIndex !== toIdx - 1) {
+                    if (host.saveSnapshot) { host.saveSnapshot(); }
+                    var model = host.getModel ? host.getModel() : null;
+                    if (model && model.moveImage) {
+                        model.moveImage(node.id, st.fromIndex, toIdx);
+                        renderNodeImages(container, model.getNode(node.id), host);
+                    }
+                    if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+                }
+                host.setImageDragState(null);
+                clearImageDropIndicators(container);
+            });
+        }
+    }
+
+    // ─── Phase 5: applyInlineFormat / subtext open/close (model + host inject) ───
+
+    /**
+     * インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
+     * Args: { nodeId, textEl, marker, model, host, saveSnapshot }
+     *   - model: outliner-model with getNode / updateText
+     *   - host: { scheduleSyncToHost, setCursorAtOffset (optional override) }
+     *   - saveSnapshot: optional snapshot fn (Phase 5 doesn't currently use,
+     *     but exposed for caller-side undo support)
+     */
+    function applyInlineFormat(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var textEl = args.textEl;
+        var marker = args.marker;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !textEl || !marker) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var text = node.text || '';
+        var sel = window.getSelection();
+        var off = getCursorOffset(textEl);
+
+        if (sel && !sel.isCollapsed) {
+            var range = sel.getRangeAt(0);
+            var preRange = range.cloneRange();
+            preRange.selectNodeContents(textEl);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            var startOff = preRange.toString().length;
+            var endOff = startOff + range.toString().length;
+
+            var selected = text.slice(startOff, endOff);
+            var before = text.slice(0, startOff);
+            var after = text.slice(endOff);
+
+            if (before.endsWith(marker) && after.startsWith(marker)) {
+                var newText = before.slice(0, -marker.length) + selected + after.slice(marker.length);
+                model.updateText(nodeId, newText);
+                textEl.innerHTML = renderEditingText(newText);
+                setCursorAtOffset(textEl, endOff - marker.length);
+            } else if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length > 2 * marker.length) {
+                var stripped = selected.slice(marker.length, -marker.length);
+                var newText1b = before + stripped + after;
+                model.updateText(nodeId, newText1b);
+                textEl.innerHTML = renderEditingText(newText1b);
+                setCursorAtOffset(textEl, startOff + stripped.length);
+            } else {
+                var newText2 = before + marker + selected + marker + after;
+                model.updateText(nodeId, newText2);
+                textEl.innerHTML = renderEditingText(newText2);
+                setCursorAtOffset(textEl, endOff + 2 * marker.length);
+            }
+        } else {
+            var newText3 = text.slice(0, off) + marker + marker + text.slice(off);
+            model.updateText(nodeId, newText3);
+            textEl.innerHTML = renderEditingText(newText3);
+            setCursorAtOffset(textEl, off + marker.length);
+        }
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+    }
+
+    /**
+     * Open subtext for editing.
+     * Args: { nodeId, treeEl, model } — host: not needed (read-only DOM ops + model.getNode)
+     */
+    function openSubtext(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var treeEl = args.treeEl;
+        var model = args.model;
+        if (!treeEl || !model) { return; }
+        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (!nodeEl) { return; }
+        var subtextEl = nodeEl.querySelector('.outliner-subtext');
+        if (!subtextEl) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+
+        subtextEl.contentEditable = 'true';
+        subtextEl.classList.add('is-editing');
+        subtextEl.classList.add('has-content');
+        subtextEl.textContent = node.subtext || '';
+        subtextEl.focus();
+
+        var range = document.createRange();
+        var sel = window.getSelection();
+        range.selectNodeContents(subtextEl);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    }
+
+    /**
+     * Close subtext (commit value).
+     * Args: { nodeId, subtextEl, model, host: { scheduleSyncToHost, focusNode } }
+     */
+    function closeSubtext(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var subtextEl = args.subtextEl;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !subtextEl) { return; }
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+
+        var raw = getSubtextPlainText(subtextEl);
+        if (model.updateSubtext) { model.updateSubtext(nodeId, raw); }
+
+        subtextEl.contentEditable = 'false';
+        subtextEl.classList.remove('is-editing');
+        if (raw) {
+            subtextEl.classList.add('has-content');
+            subtextEl.textContent = raw;
+        } else {
+            subtextEl.classList.remove('has-content');
+            subtextEl.textContent = '';
+        }
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+
+        if (host.focusNode) { host.focusNode(nodeId); }
+    }
+
+    /**
+     * Subtext keydown handler.
+     * Args: { event, nodeId, subtextEl, model, host: { scheduleSyncToHost, focusNode, save, syncToHostImmediate } }
+     */
+    function handleSubtextKeydown(args) {
+        if (!args) { return; }
+        var e = args.event;
+        var nodeId = args.nodeId;
+        var subtextEl = args.subtextEl;
+        var model = args.model;
+        var host = args.host || {};
+        if (!e || !model || !subtextEl) { return; }
+        if (e.isComposing || e.keyCode === 229) { return; }
+
+        if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault();
+            closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
+            return;
+        }
+
+        if (e.key === 'Enter' && !e.shiftKey) {
+            return;
+        }
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
+            return;
+        }
+
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            e.preventDefault();
+            var raw = getSubtextPlainText(subtextEl);
+            if (model.updateSubtext) { model.updateSubtext(nodeId, raw); }
+            if (host.syncToHostImmediate) { host.syncToHostImmediate(); }
+            if (host.save) { host.save(); }
+        }
+    }
+
     return {
         renderInlineText: renderInlineText,
-        classifyLinkHref: classifyLinkHref
+        classifyLinkHref: classifyLinkHref,
+        stripInlineMarkers: stripInlineMarkers,
+        renderEditingText: renderEditingText,
+        convertUrlsToMarkdownLinks: convertUrlsToMarkdownLinks,
+        buildRenderedToSourceMap: buildRenderedToSourceMap,
+        renderedOffsetToSource: renderedOffsetToSource,
+        sourceOffsetToRendered: sourceOffsetToRendered,
+        // Phase 3 — cursor / DOM helpers
+        // namespaced API (per tasks.md TASK-A3)
+        setCursor: {
+            toEnd: setCursorToEnd,
+            toStart: setCursorToStart,
+            atOffset: setCursorAtOffset
+        },
+        getCursor: {
+            offset: getCursorOffset,
+            range: getCursorRange
+        },
+        // flat aliases for direct callsite compatibility
+        setCursorToEnd: setCursorToEnd,
+        setCursorToStart: setCursorToStart,
+        setCursorAtOffset: setCursorAtOffset,
+        getCursorOffset: getCursorOffset,
+        getCursorRange: getCursorRange,
+        getPlainText: getPlainText,
+        getSubtextPlainText: getSubtextPlainText,
+        getSubtextPreview: getSubtextPreview,
+        // Phase 4 — image cell helpers (host inject pattern)
+        resolveImageSrc: resolveImageSrc,
+        getImageDropIndex: getImageDropIndex,
+        showImageDropIndicator: showImageDropIndicator,
+        clearImageDropIndicators: clearImageDropIndicators,
+        clearImageSelection: clearImageSelection,
+        showImageOverlay: showImageOverlay,
+        renderNodeImages: renderNodeImages,
+        // Phase 5 — applyInlineFormat / subtext open/close (model + host inject)
+        applyInlineFormat: applyInlineFormat,
+        openSubtext: openSubtext,
+        closeSubtext: closeSubtext,
+        handleSubtextKeydown: handleSubtextKeydown
     };
 }));
 
@@ -23158,6 +23845,31 @@ var Outliner = (function() {
     var selectedImageInfo = null;  // { nodeId, index, element } or null
     var imageDragState = null;     // { nodeId, fromIndex } or null
 
+    // --- rawDataExtras: 未知 top-level fields を passthrough するための保持領域 (TBE-03 / TASK-A6)
+    // outliner editor は columns / 将来追加 fields を直接表示・編集しないが、
+    // save 時に破壊しないため raw data から「既知でない」 top-level fields を保持しておき、
+    // syncToHostImmediate で merge する。
+    // schemaVersion は v7.3 で撤回された field のため knownKeys 扱い (passthrough しない = drop)。
+    var rawDataExtras = {};
+    var RAW_DATA_KNOWN_KEYS = [
+        'title', 'pageDir', 'fileDir', 'imageDir', 'rootIds', 'nodes',
+        'pinnedTags', 'searchFocusMode', 'sidePanelWidth', 'sidePanelOutlineWidth',
+        'schemaVersion'
+    ];
+
+    function captureRawDataExtras(data) {
+        var extras = {};
+        if (data && typeof data === 'object') {
+            for (var k in data) {
+                if (Object.prototype.hasOwnProperty.call(data, k) &&
+                    RAW_DATA_KNOWN_KEYS.indexOf(k) === -1) {
+                    extras[k] = data[k];
+                }
+            }
+        }
+        return extras;
+    }
+
     // --- Undo/Redo ---
     //
     // 設計:
@@ -23463,6 +24175,7 @@ var Outliner = (function() {
         host = window.outlinerHostBridge;
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
+        rawDataExtras = captureRawDataExtras(data);
         if (outFileKey) {
             currentOutFileKey = outFileKey;
         }
@@ -24363,274 +25076,69 @@ var Outliner = (function() {
 
     /** contenteditable要素から改行を正規化してプレーンテキストを取得 */
     function getSubtextPlainText(element) {
-        var result = '';
-        var children = element.childNodes;
-        for (var i = 0; i < children.length; i++) {
-            var child = children[i];
-            if (child.nodeType === 1 && child.tagName === 'BR') {
-                result += '\n';
-            } else if (child.nodeType === 3) {
-                result += child.textContent;
-            } else if (child.nodeType === 1) {
-                // div等のブロック要素（ブラウザが挿入する場合がある）
-                if (result.length > 0 && result[result.length - 1] !== '\n') {
-                    result += '\n';
-                }
-                result += getSubtextPlainText(child);
-            }
-        }
-        return result;
+        return OutlinerCell.getSubtextPlainText(element);
     }
 
-    /** サブテキストの省略表示テキストを生成 */
+    /** サブテキストの省略表示テキストを生成
+     * 実装は outliner-cell.js (OutlinerCell.getSubtextPreview) に分離 (TASK-A3, Phase 3 split)。
+     */
     function getSubtextPreview(subtext) {
-        if (!subtext) { return ''; }
-        var firstLine = subtext.split('\n')[0];
-        var hasMore = subtext.indexOf('\n') >= 0;
-        return hasMore ? firstLine + ' ...' : firstLine;
+        return OutlinerCell.getSubtextPreview(subtext);
     }
 
-    // --- 画像サムネイル ---
+    // --- 画像サムネイル (TASK-A4, Phase 4 split → OutlinerCell) ---
+    // outliner.js は OutlinerCell の image helpers を host inject pattern で呼ぶ。
+    // host adapter は outliner.js のローカル状態 (selectedImageInfo / imageDragState /
+    // model / saveSnapshot / scheduleSyncToHost / window.__outlinerImageBaseUri) を bridge する。
+
+    function _outlinerImageHost() {
+        return {
+            getImageBaseUri: function() { return window.__outlinerImageBaseUri || null; },
+            getModel: function() { return model; },
+            saveSnapshot: function() { saveSnapshot(); },
+            scheduleSyncToHost: function() { scheduleSyncToHost(); },
+            getImageDragState: function() { return imageDragState; },
+            setImageDragState: function(s) { imageDragState = s; },
+            getSelectedImageInfo: function() { return selectedImageInfo; },
+            setSelectedImageInfo: function(s) { selectedImageInfo = s; },
+            isReadOnly: function() { return false; }
+        };
+    }
 
     function resolveImageSrc(imagePath) {
-        var baseUri = window.__outlinerImageBaseUri;
-        if (!baseUri) { return imagePath; }
-        return baseUri + '/' + imagePath.replace(/^\.\//, '');
+        return OutlinerCell.resolveImageSrc(imagePath, window.__outlinerImageBaseUri || null);
     }
 
-    /** コンテナ内のマウス位置から最も近いドロップインデックスを算出 */
     function getImageDropIndex(container, clientX, clientY) {
-        var thumbs = container.querySelectorAll('.outliner-image-thumb');
-        if (thumbs.length === 0) { return 0; }
-        var bestIdx = 0;
-        var bestDist = Infinity;
-        for (var i = 0; i < thumbs.length; i++) {
-            var rect = thumbs[i].getBoundingClientRect();
-            var leftEdge = rect.left;
-            var rightEdge = rect.right;
-            var centerY = rect.top + rect.height / 2;
-            var dy = Math.abs(clientY - centerY);
-            // 左端との距離 → before this image
-            var dLeft = Math.sqrt(Math.pow(clientX - leftEdge, 2) + Math.pow(dy, 2));
-            if (dLeft < bestDist) { bestDist = dLeft; bestIdx = i; }
-            // 右端との距離 → after this image
-            var dRight = Math.sqrt(Math.pow(clientX - rightEdge, 2) + Math.pow(dy, 2));
-            if (dRight < bestDist) { bestDist = dRight; bestIdx = i + 1; }
-        }
-        return bestIdx;
+        return OutlinerCell.getImageDropIndex(container, clientX, clientY);
     }
 
-    /** ドロップインジケーターを表示（指定インデックスの左に青線） */
     function showImageDropIndicator(container, dropIdx) {
-        var thumbs = container.querySelectorAll('.outliner-image-thumb');
-        for (var t = 0; t < thumbs.length; t++) {
-            thumbs[t].classList.remove('drop-before', 'drop-after');
-        }
-        if (dropIdx <= 0 && thumbs.length > 0) {
-            thumbs[0].classList.add('drop-before');
-        } else if (dropIdx >= thumbs.length && thumbs.length > 0) {
-            thumbs[thumbs.length - 1].classList.add('drop-after');
-        } else if (dropIdx > 0 && dropIdx < thumbs.length) {
-            thumbs[dropIdx].classList.add('drop-before');
-        }
+        return OutlinerCell.showImageDropIndicator(container, dropIdx);
     }
 
     function clearImageDropIndicators(container) {
-        var thumbs = container.querySelectorAll('.outliner-image-thumb');
-        for (var t = 0; t < thumbs.length; t++) {
-            thumbs[t].classList.remove('drop-before', 'drop-after', 'is-dragging');
-        }
+        return OutlinerCell.clearImageDropIndicators(container);
     }
 
     function renderNodeImages(container, node) {
-        container.innerHTML = '';
-        if (!node || !node.images || node.images.length === 0) { return; }
-
-        for (var i = 0; i < node.images.length; i++) {
-            (function(idx) {
-                var img = document.createElement('img');
-                img.className = 'outliner-image-thumb';
-                img.dataset.index = idx;
-                img.dataset.nodeId = node.id;
-                img.src = resolveImageSrc(node.images[idx]);
-                img.draggable = true;
-                img.alt = '';
-
-                img.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    clearImageSelection();
-                    img.classList.add('is-selected');
-                    selectedImageInfo = { nodeId: node.id, index: idx, element: img };
-                });
-
-                img.addEventListener('dblclick', function(e) {
-                    e.stopPropagation();
-                    showImageOverlay(img.src);
-                });
-
-                img.addEventListener('dragstart', function(e) {
-                    e.stopPropagation();
-                    imageDragState = { nodeId: node.id, fromIndex: idx };
-                    img.classList.add('is-dragging');
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', 'outliner-image');
-                });
-
-                img.addEventListener('dragend', function() {
-                    imageDragState = null;
-                    clearImageDropIndicators(container);
-                });
-
-                container.appendChild(img);
-            })(i);
-        }
-
-        // コンテナレベルでのD&D（画像間の隙間でもドロップ可能にする）
-        container.addEventListener('dragover', function(e) {
-            if (!imageDragState || imageDragState.nodeId !== node.id) { return; }
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-            var dropIdx = getImageDropIndex(container, e.clientX, e.clientY);
-            showImageDropIndicator(container, dropIdx);
-        });
-
-        container.addEventListener('dragleave', function(e) {
-            if (container.contains(e.relatedTarget)) { return; }
-            clearImageDropIndicators(container);
-        });
-
-        container.addEventListener('drop', function(e) {
-            if (!imageDragState || imageDragState.nodeId !== node.id) { return; }
-            e.preventDefault();
-            e.stopPropagation();
-            var toIdx = getImageDropIndex(container, e.clientX, e.clientY);
-            if (imageDragState.fromIndex !== toIdx && imageDragState.fromIndex !== toIdx - 1) {
-                saveSnapshot();
-                model.moveImage(node.id, imageDragState.fromIndex, toIdx);
-                renderNodeImages(container, model.getNode(node.id));
-                scheduleSyncToHost();
-            }
-            imageDragState = null;
-            clearImageDropIndicators(container);
-        });
+        return OutlinerCell.renderNodeImages(container, node, _outlinerImageHost());
     }
 
     function clearImageSelection() {
-        if (selectedImageInfo) {
-            selectedImageInfo.element.classList.remove('is-selected');
-            selectedImageInfo = null;
-        }
+        return OutlinerCell.clearImageSelection(_outlinerImageHost());
     }
 
     function showImageOverlay(src) {
-        var overlay = document.createElement('div');
-        overlay.className = 'outliner-image-overlay';
-
-        var largeImg = document.createElement('img');
-        largeImg.className = 'outliner-image-large';
-        largeImg.src = src;
-
-        overlay.appendChild(largeImg);
-
-        var hint = document.createElement('div');
-        hint.className = 'outliner-image-overlay-hint';
-        hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
-        overlay.appendChild(hint);
-
-        document.body.appendChild(overlay);
-
-        // Pinch zoom + drag pan (Mac touchpad pinch reports as wheel + ctrlKey)
-        var scale = 1, tx = 0, ty = 0;
-        var isDragging = false, dragStartX = 0, dragStartY = 0;
-        var MIN_SCALE = 0.2, MAX_SCALE = 16;
-        function apply() {
-            largeImg.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
-        }
-        overlay.addEventListener('wheel', function(ev) {
-            if (!ev.ctrlKey) return;
-            ev.preventDefault();
-            var delta = -ev.deltaY * 0.01;
-            var newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
-            if (newScale === scale) return;
-            var rect = largeImg.getBoundingClientRect();
-            var ox = ev.clientX - rect.left;
-            var oy = ev.clientY - rect.top;
-            tx += ox * (1 - newScale / scale);
-            ty += oy * (1 - newScale / scale);
-            scale = newScale;
-            apply();
-        }, { passive: false });
-        largeImg.addEventListener('mousedown', function(ev) {
-            ev.preventDefault();
-            isDragging = true;
-            dragStartX = ev.clientX - tx;
-            dragStartY = ev.clientY - ty;
-            largeImg.style.cursor = 'grabbing';
-        });
-        var onMove = function(ev) {
-            if (!isDragging) return;
-            tx = ev.clientX - dragStartX;
-            ty = ev.clientY - dragStartY;
-            apply();
-        };
-        var onUp = function() {
-            isDragging = false;
-            largeImg.style.cursor = 'default';
-        };
-        overlay.addEventListener('mousemove', onMove);
-        overlay.addEventListener('mouseup', onUp);
-        overlay.addEventListener('mouseleave', onUp);
-        largeImg.addEventListener('dblclick', function(ev) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            scale = 1; tx = 0; ty = 0;
-            apply();
-        });
-
-        overlay.addEventListener('click', function(ev) {
-            if (ev.target === overlay) { overlay.remove(); }
-        });
-        var escHandler = function(ev) {
-            if (ev.key === 'Escape') {
-                overlay.remove();
-                document.removeEventListener('keydown', escHandler);
-            }
-        };
-        document.addEventListener('keydown', escHandler);
+        return OutlinerCell.showImageOverlay(src);
     }
 
     /**
      * テキスト中のURLをMarkdownリンク形式 [URL](URL) に変換する。
-     * 既にMarkdownリンク内にあるURL（[text](url) の url 部分）は変換しない。
+     * 実装は outliner-cell.js (OutlinerCell.convertUrlsToMarkdownLinks) に分離 (TASK-A2, Phase 2 split)。
      */
     function convertUrlsToMarkdownLinks(text) {
-        if (!text) { return text; }
-        if (typeof MarkdownLinkParser === 'undefined') { return text; }
-        // balanced paren 対応で 1 パス走査: URL 内の () をネスト追跡、末尾句読点を除外。
-        // 既に Markdown link 内 ([ の直後 or ]( の直後) にある URL はスキップする。
-        var out = '';
-        var i = 0;
-        var len = text.length;
-        while (i < len) {
-            var head = text.slice(i, i + 8).toLowerCase();
-            if (head.indexOf('http://') === 0 || head.indexOf('https://') === 0) {
-                var prevCh = i > 0 ? text.charAt(i - 1) : '';
-                var prev2 = i > 1 ? text.slice(i - 2, i) : '';
-                var inLink = prevCh === '[' || prev2 === '](';
-                if (!inLink) {
-                    var found = MarkdownLinkParser.extractUrlWithBalancedParens(text, i);
-                    if (found) {
-                        out += '[' + found.url + '](' + found.url + ')';
-                        i = found.endIndex;
-                        continue;
-                    }
-                }
-            }
-            out += text.charAt(i);
-            i++;
-        }
-        return out;
+        return OutlinerCell.convertUrlsToMarkdownLinks(text);
     }
 
     /**
@@ -24653,228 +25161,95 @@ var Outliner = (function() {
 
     /**
      * ソーステキスト（マーカー付き）からマーカーを除去してレンダリング後テキストを返す。
-     * renderInlineText と同じ正規表現順序で処理する。
+     * 実装は outliner-cell.js (OutlinerCell.stripInlineMarkers) に分離 (TASK-A2, Phase 2 split)。
      */
     function stripInlineMarkers(text) {
-        if (!text) { return ''; }
-        text = text.replace(/`([^`]+)`/g, '$1');
-        text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
-        text = text.replace(/(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g, '$1');
-        text = text.replace(/~~([^~]+)~~/g, '$1');
-        return text;
+        return OutlinerCell.stripInlineMarkers(text);
     }
 
     /**
      * 編集モード用のテキストレンダリング。
-     * マーカー(*、**、~~、`)はそのまま表示し、タグのみハイライトする。
-     * textContent がソーステキストと一致するため、オフセット計算が安全。
+     * 実装は outliner-cell.js (OutlinerCell.renderEditingText) に分離 (TASK-A2, Phase 2 split)。
      */
     function renderEditingText(text) {
-        if (!text) { return ''; }
-        var html = text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-        // タグのみハイライト (テキスト内容を変えないのでオフセットに影響なし)
-        // URL内の@をタグ化しないよう、URLを一時退避してからタグ変換
-        var urlPlaceholders = [];
-        html = html.replace(/https?:\/\/\S+/g, function(match) {
-            urlPlaceholders.push(match);
-            return '\x00URL' + (urlPlaceholders.length - 1) + '\x00';
-        });
-        html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
-        html = html.replace(/\x00URL(\d+)\x00/g, function(_, idx) {
-            return urlPlaceholders[parseInt(idx, 10)];
-        });
-        // 末尾スペースをNBSPに変換
-        html = html.replace(/ $/, '\u00A0');
+        return OutlinerCell.renderEditingText(text);
+    }
+
+/* legacy body removed in TASK-A2 (Phase 2 split → OutlinerCell)
+    function _LEGACY_REMOVED_renderEditingText(text) {
+        // 末尾スペースをNBSPに変換 (' ' replacement)
+        // legacy NBSP replace removed
         return html;
     }
+*/
 
     /**
      * レンダリング後テキストのオフセットをソーステキストのオフセットに変換する。
-     * sourceText: マーカー付きテキスト, renderedOffset: マーカー除去後のオフセット
+     * 実装は outliner-cell.js (OutlinerCell.renderedOffsetToSource) に分離 (TASK-A2, Phase 2 split)。
      */
     function renderedOffsetToSource(sourceText, renderedOffset) {
-        var rendered = stripInlineMarkers(sourceText);
-        var map = buildRenderedToSourceMap(sourceText, rendered);
-        if (renderedOffset >= map.length) { return sourceText.length; }
-        return map[renderedOffset];
+        return OutlinerCell.renderedOffsetToSource(sourceText, renderedOffset);
     }
 
     /**
      * ソーステキストのオフセットをレンダリング後テキストのオフセットに変換する。
+     * 実装は outliner-cell.js (OutlinerCell.sourceOffsetToRendered) に分離 (TASK-A2, Phase 2 split)。
      */
     function sourceOffsetToRendered(sourceText, sourceOffset) {
-        var rendered = stripInlineMarkers(sourceText);
-        var map = buildRenderedToSourceMap(sourceText, rendered);
-        // mapの中からsourceOffset以上の最初のエントリのインデックスを返す
-        for (var i = 0; i < map.length; i++) {
-            if (map[i] >= sourceOffset) { return i; }
-        }
-        return rendered.length;
+        return OutlinerCell.sourceOffsetToRendered(sourceText, sourceOffset);
     }
 
     /**
      * レンダリング後テキストの各位置がソーステキストのどの位置に対応するかのマップを構築。
-     * map[renderedPos] = sourcePos
+     * 実装は outliner-cell.js (OutlinerCell.buildRenderedToSourceMap) に分離 (TASK-A2, Phase 2 split)。
      */
     function buildRenderedToSourceMap(sourceText, renderedText) {
-        var map = [];
-        var si = 0;
-        for (var ri = 0; ri < renderedText.length; ri++) {
-            while (si < sourceText.length && sourceText[si] !== renderedText[ri]) {
-                si++;
-            }
-            map.push(si);
-            si++;
-        }
-        // 末尾位置
-        map.push(sourceText.length);
-        return map;
+        return OutlinerCell.buildRenderedToSourceMap(sourceText, renderedText);
     }
 
-    /** contenteditable からプレーンテキストを取得 (NBSPは通常スペースに正規化) */
+    /** contenteditable からプレーンテキストを取得
+     * 実装は outliner-cell.js (OutlinerCell.getPlainText) に分離 (TASK-A3, Phase 3 split)。
+     */
     function getPlainText(el) {
-        return (el.textContent || '').replace(/\u00A0/g, ' ');
+        return OutlinerCell.getPlainText(el);
     }
 
-    /**
-     * インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
-     * テキスト選択中: 選択範囲をマーカーで囲む / すでに囲まれていたら除去
-     * 選択なし: カーソル位置にマーカーペアを挿入してその間にカーソル配置
+    /** インラインフォーマット適用 (Cmd+B/I/E, Cmd+Shift+S)
+     * 実装は outliner-cell.js (OutlinerCell.applyInlineFormat) に分離 (TASK-A5, Phase 5 split)。
      */
     function applyInlineFormat(nodeId, textEl, marker) {
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-        var text = node.text;
-        var sel = window.getSelection();
-        var off = getCursorOffset(textEl);
-
-        if (sel && !sel.isCollapsed) {
-            // 選択範囲あり (編集モードなのでオフセットはソーステキスト空間)
-            var range = sel.getRangeAt(0);
-            var preRange = range.cloneRange();
-            preRange.selectNodeContents(textEl);
-            preRange.setEnd(range.startContainer, range.startOffset);
-            var startOff = preRange.toString().length;
-            var endOff = startOff + range.toString().length;
-
-            var selected = text.slice(startOff, endOff);
-            var before = text.slice(0, startOff);
-            var after = text.slice(endOff);
-
-            // トグル: すでにマーカーで囲まれている場合は除去
-            if (before.endsWith(marker) && after.startsWith(marker)) {
-                // ケース1: マーカーが選択範囲の外側にある (例: **|text|**)
-                var newText = before.slice(0, -marker.length) + selected + after.slice(marker.length);
-                model.updateText(nodeId, newText);
-                textEl.innerHTML = renderEditingText(newText);
-                setCursorAtOffset(textEl, endOff - marker.length);
-            } else if (selected.startsWith(marker) && selected.endsWith(marker) && selected.length > 2 * marker.length) {
-                // ケース2: マーカーが選択範囲の内側にある (例: |**text**| を選択してCmd+B)
-                var stripped = selected.slice(marker.length, -marker.length);
-                var newText1b = before + stripped + after;
-                model.updateText(nodeId, newText1b);
-                textEl.innerHTML = renderEditingText(newText1b);
-                setCursorAtOffset(textEl, startOff + stripped.length);
-            } else {
-                var newText2 = before + marker + selected + marker + after;
-                model.updateText(nodeId, newText2);
-                textEl.innerHTML = renderEditingText(newText2);
-                // カーソルを閉じマーカーの直後に配置
-                setCursorAtOffset(textEl, endOff + 2 * marker.length);
-            }
-        } else {
-            // 選択なし: マーカーペア挿入
-            var newText3 = text.slice(0, off) + marker + marker + text.slice(off);
-            model.updateText(nodeId, newText3);
-            textEl.innerHTML = renderEditingText(newText3);
-            setCursorAtOffset(textEl, off + marker.length);
-        }
-        scheduleSyncToHost();
+        return OutlinerCell.applyInlineFormat({
+            nodeId: nodeId,
+            textEl: textEl,
+            marker: marker,
+            model: model,
+            host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
+        });
     }
 
-    // --- カーソル操作 ---
+    // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
 
     function setCursorToEnd(el) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorToEnd(el);
     }
 
     function setCursorToStart(el) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(el);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorToStart(el);
     }
 
     function setCursorAtOffset(el, offset) {
-        var range = document.createRange();
-        var sel = window.getSelection();
-        var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null, false);
-        var textNode = walker.nextNode();
-        if (!textNode) {
-            range.selectNodeContents(el);
-            range.collapse(true);
-        } else {
-            var pos = 0;
-            do {
-                var len = textNode.textContent.length;
-                if (pos + len >= offset) {
-                    range.setStart(textNode, offset - pos);
-                    range.collapse(true);
-                    break;
-                }
-                pos += len;
-            } while ((textNode = walker.nextNode()));
-            if (!textNode) {
-                range.selectNodeContents(el);
-                range.collapse(false);
-            }
-        }
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.setCursorAtOffset(el, offset);
     }
 
     function getCursorOffset(el) {
-        var sel = window.getSelection();
-        if (!sel.rangeCount) { return 0; }
-        var range = sel.getRangeAt(0);
-        var preRange = range.cloneRange();
-        preRange.selectNodeContents(el);
-        preRange.setEnd(range.startContainer, range.startOffset);
-        return preRange.toString().length;
+        return OutlinerCell.getCursorOffset(el);
     }
 
-    /**
-     * el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
-     * 選択範囲が collapsed (= cursor のみ) の場合は start === end。
-     * Selection が el 外なら null。paste 時にテキスト範囲を置換する用途で使う。
+    /** el (contenteditable) 内の現在の Selection の範囲を { start, end } で返す。
+     * 実装は outliner-cell.js (OutlinerCell.getCursorRange) に分離 (TASK-A3, Phase 3 split)。
      */
     function getCursorRange(el) {
-        var sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) { return null; }
-        var range = sel.getRangeAt(0);
-        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
-            return null;
-        }
-        var preStart = range.cloneRange();
-        preStart.selectNodeContents(el);
-        preStart.setEnd(range.startContainer, range.startOffset);
-        var start = preStart.toString().length;
-        var preEnd = range.cloneRange();
-        preEnd.selectNodeContents(el);
-        preEnd.setEnd(range.endContainer, range.endOffset);
-        var end = preEnd.toString().length;
-        if (end < start) { var t = start; start = end; end = t; }
-        return { start: start, end: end };
+        return OutlinerCell.getCursorRange(el);
     }
 
     // --- フォーカス管理 ---
@@ -26209,88 +26584,45 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
-    /** サブテキストを開いてフォーカス */
+    function _outlinerSubtextHost() {
+        return {
+            scheduleSyncToHost: function() { scheduleSyncToHost(); },
+            syncToHostImmediate: function() { syncToHostImmediate(); },
+            focusNode: function(id) { focusNode(id); },
+            save: function() { host.save(); }
+        };
+    }
+
+    /** サブテキストを開いてフォーカス
+     * 実装は outliner-cell.js (OutlinerCell.openSubtext) に分離 (TASK-A5, Phase 5 split)。
+     */
     function openSubtext(nodeId) {
-        var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
-        if (!nodeEl) { return; }
-        var subtextEl = nodeEl.querySelector('.outliner-subtext');
-        if (!subtextEl) { return; }
-
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-
-        // 編集モードに切替
-        subtextEl.contentEditable = 'true';
-        subtextEl.classList.add('is-editing');
-        subtextEl.classList.add('has-content');
-        subtextEl.textContent = node.subtext || '';
-        subtextEl.focus();
-
-        // カーソルを末尾に
-        var range = document.createRange();
-        var sel = window.getSelection();
-        range.selectNodeContents(subtextEl);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        return OutlinerCell.openSubtext({ nodeId: nodeId, treeEl: treeEl, model: model });
     }
 
-    /** サブテキストから抜ける */
+    /** サブテキストから抜ける
+     * 実装は outliner-cell.js (OutlinerCell.closeSubtext) に分離 (TASK-A5, Phase 5 split)。
+     */
     function closeSubtext(nodeId, subtextEl) {
-        var node = model.getNode(nodeId);
-        if (!node) { return; }
-
-        // テキスト保存
-        var raw = getSubtextPlainText(subtextEl);
-        model.updateSubtext(nodeId, raw);
-
-        // 編集モード解除 — ノードにフォーカスが残るので全文表示にする
-        subtextEl.contentEditable = 'false';
-        subtextEl.classList.remove('is-editing');
-        if (raw) {
-            subtextEl.classList.add('has-content');
-            subtextEl.textContent = raw;  // 全文表示（フォーカスノードなので省略しない）
-        } else {
-            subtextEl.classList.remove('has-content');
-            subtextEl.textContent = '';
-        }
-        scheduleSyncToHost();
-
-        // メインテキストにフォーカス戻す
-        focusNode(nodeId);
+        return OutlinerCell.closeSubtext({
+            nodeId: nodeId,
+            subtextEl: subtextEl,
+            model: model,
+            host: _outlinerSubtextHost()
+        });
     }
 
-    /** サブテキスト用キーハンドラ */
+    /** サブテキスト用キーハンドラ
+     * 実装は outliner-cell.js (OutlinerCell.handleSubtextKeydown) に分離 (TASK-A5, Phase 5 split)。
+     */
     function handleSubtextKeydown(e, nodeId, subtextEl, textEl) {
-        if (e.isComposing || e.keyCode === 229) { return; }
-
-        if (e.key === 'Enter' && e.shiftKey) {
-            // Shift+Enter: サブテキストから抜ける
-            e.preventDefault();
-            closeSubtext(nodeId, subtextEl);
-            return;
-        }
-
-        if (e.key === 'Enter' && !e.shiftKey) {
-            // Enter: サブテキスト内で改行 (デフォルト動作を許可)
-            // ただし contenteditable の改行は insertLineBreak で処理
-            return;
-        }
-
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeSubtext(nodeId, subtextEl);
-            return;
-        }
-
-        // Cmd+S: 保存
-        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-            e.preventDefault();
-            var raw = getSubtextPlainText(subtextEl);
-            model.updateSubtext(nodeId, raw);
-            syncToHostImmediate();
-            host.save();
-        }
+        return OutlinerCell.handleSubtextKeydown({
+            event: e,
+            nodeId: nodeId,
+            subtextEl: subtextEl,
+            model: model,
+            host: _outlinerSubtextHost()
+        });
     }
 
     function handleBackspaceAtStart(node, textEl) {
@@ -28313,6 +28645,9 @@ var Outliner = (function() {
 
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
+        // TBE-03 / TASK-A6 シナリオ C: rawDataExtras を必ず再構築する。
+        // (Table editor が columns 等を変更 → external update の時点で新 snapshot に合わせる)
+        rawDataExtras = captureRawDataExtras(data);
         pageDir = data.pageDir || null;
         // Notes mode は note-level 値を維持。Standalone は .out から復元。
         if (isNotesMode()) {
@@ -28383,6 +28718,13 @@ var Outliner = (function() {
             if (sidePanelOutlineWidthSetting) { data.sidePanelOutlineWidth = sidePanelOutlineWidthSetting; }
         }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
+        // TBE-03 / TASK-A6: 未知 top-level fields (columns 等) を passthrough。
+        // 既知 fields と被るキーは上書きしない (rawDataExtras はあくまで未知 fields の保持領域)。
+        for (var rk in rawDataExtras) {
+            if (Object.prototype.hasOwnProperty.call(rawDataExtras, rk) && !(rk in data)) {
+                data[rk] = rawDataExtras[rk];
+            }
+        }
         host.syncData(JSON.stringify(data, null, 2));
     }
 
@@ -28623,6 +28965,8 @@ var Outliner = (function() {
                         var savedFocus = focusedNodeId;
                         model = new OutlinerModel(msg.data);
                         searchEngine = new OutlinerSearch.SearchEngine(model);
+                        // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
+                        rawDataExtras = captureRawDataExtras(msg.data);
                         pageDir = msg.data.pageDir || null;
                         sidePanelWidthSetting = msg.data.sidePanelWidth || null;
                         pinnedTags = msg.data.pinnedTags || [];

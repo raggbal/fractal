@@ -82,6 +82,31 @@ var Outliner = (function() {
     var selectedImageInfo = null;  // { nodeId, index, element } or null
     var imageDragState = null;     // { nodeId, fromIndex } or null
 
+    // --- rawDataExtras: 未知 top-level fields を passthrough するための保持領域 (TBE-03 / TASK-A6)
+    // outliner editor は columns / 将来追加 fields を直接表示・編集しないが、
+    // save 時に破壊しないため raw data から「既知でない」 top-level fields を保持しておき、
+    // syncToHostImmediate で merge する。
+    // schemaVersion は v7.3 で撤回された field のため knownKeys 扱い (passthrough しない = drop)。
+    var rawDataExtras = {};
+    var RAW_DATA_KNOWN_KEYS = [
+        'title', 'pageDir', 'fileDir', 'imageDir', 'rootIds', 'nodes',
+        'pinnedTags', 'searchFocusMode', 'sidePanelWidth', 'sidePanelOutlineWidth',
+        'schemaVersion'
+    ];
+
+    function captureRawDataExtras(data) {
+        var extras = {};
+        if (data && typeof data === 'object') {
+            for (var k in data) {
+                if (Object.prototype.hasOwnProperty.call(data, k) &&
+                    RAW_DATA_KNOWN_KEYS.indexOf(k) === -1) {
+                    extras[k] = data[k];
+                }
+            }
+        }
+        return extras;
+    }
+
     // --- Undo/Redo ---
     //
     // 設計:
@@ -387,6 +412,7 @@ var Outliner = (function() {
         host = window.outlinerHostBridge;
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
+        rawDataExtras = captureRawDataExtras(data);
         if (outFileKey) {
             currentOutFileKey = outFileKey;
         }
@@ -4856,6 +4882,9 @@ var Outliner = (function() {
 
         model = new OutlinerModel(data);
         searchEngine = new OutlinerSearch.SearchEngine(model);
+        // TBE-03 / TASK-A6 シナリオ C: rawDataExtras を必ず再構築する。
+        // (Table editor が columns 等を変更 → external update の時点で新 snapshot に合わせる)
+        rawDataExtras = captureRawDataExtras(data);
         pageDir = data.pageDir || null;
         // Notes mode は note-level 値を維持。Standalone は .out から復元。
         if (isNotesMode()) {
@@ -4926,6 +4955,13 @@ var Outliner = (function() {
             if (sidePanelOutlineWidthSetting) { data.sidePanelOutlineWidth = sidePanelOutlineWidthSetting; }
         }
         if (pinnedTags && pinnedTags.length > 0) { data.pinnedTags = pinnedTags; }
+        // TBE-03 / TASK-A6: 未知 top-level fields (columns 等) を passthrough。
+        // 既知 fields と被るキーは上書きしない (rawDataExtras はあくまで未知 fields の保持領域)。
+        for (var rk in rawDataExtras) {
+            if (Object.prototype.hasOwnProperty.call(rawDataExtras, rk) && !(rk in data)) {
+                data[rk] = rawDataExtras[rk];
+            }
+        }
         host.syncData(JSON.stringify(data, null, 2));
     }
 
@@ -5166,6 +5202,8 @@ var Outliner = (function() {
                         var savedFocus = focusedNodeId;
                         model = new OutlinerModel(msg.data);
                         searchEngine = new OutlinerSearch.SearchEngine(model);
+                        // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
+                        rawDataExtras = captureRawDataExtras(msg.data);
                         pageDir = msg.data.pageDir || null;
                         sidePanelWidthSetting = msg.data.sidePanelWidth || null;
                         pinnedTags = msg.data.pinnedTags || [];
