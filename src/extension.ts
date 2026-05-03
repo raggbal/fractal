@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { AnyMarkdownEditorProvider } from './editorProvider';
 import { OutlinerProvider } from './outlinerProvider';
-import { OutlinerTableProvider } from './outlinerTableProvider';
 import { NotesFolderProvider } from './notesFolderProvider';
 import { NotesEditorProvider } from './notesEditorProvider';
 import { initLocale, t } from './i18n/messages';
@@ -74,22 +73,6 @@ export function activate(context: vscode.ExtensionContext) {
                     retainContextWhenHidden: true,
                 },
                 supportsMultipleEditorsPerDocument: false,
-            }
-        )
-    );
-
-    // Register the outliner Table provider for .out files (TASK-A7, Phase A stub)
-    // priority: option (existing fractal.outliner is priority: default)
-    const outlinerTableProvider = new OutlinerTableProvider(context);
-    context.subscriptions.push(
-        vscode.window.registerCustomEditorProvider(
-            'fractal.outlinerTable',
-            outlinerTableProvider,
-            {
-                webviewOptions: {
-                    retainContextWhenHidden: true,
-                },
-                supportsMultipleEditorsPerDocument: true,
             }
         )
     );

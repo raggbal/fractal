@@ -5,7 +5,6 @@ cd "$(dirname "$0")/.."
 node test/build-standalone.js
 node test/build-standalone-outliner.js
 node test/build-standalone-notes.js
-node test/build-standalone-outliner-table.js
 
 if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
   npx serve test/html -l 3000 > /dev/null 2>&1 &

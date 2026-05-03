@@ -1776,26 +1776,6 @@ body {
     background: var(--outliner-hover-bg);
 }
 
-/* TASK-B7: Switch to Table view button */
-.outliner-switch-view-btn {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: var(--outliner-search-fg);
-    cursor: pointer;
-    padding: 4px 6px;
-    margin-right: 4px;
-    line-height: 1;
-    opacity: 0.5;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.outliner-switch-view-btn:hover {
-    opacity: 1;
-    background: var(--outliner-hover-bg);
-}
 
 .outliner-search-input-wrapper {
     width: 250px;
@@ -26881,39 +26861,6 @@ var Outliner = (function() {
 
     function setupSearchBar() {
         if (!searchInput) { return; }
-
-        // TASK-B7: Switch to Table view button — inserted to the left of the
-        // search input wrapper. Layout constraint: search wrapper is to the
-        // right of the search-mode-toggle and to the left of undo/redo/menu;
-        // the Switch button slots between toggle and the input wrapper so it
-        // is visually adjacent to the search input but does not overlap with
-        // the pinned tag bar (which lives in a separate row below).
-        try {
-            var bar = searchInput.closest ? searchInput.closest('.outliner-search-bar') : null;
-            var wrapper = searchInput.closest ? searchInput.closest('.outliner-search-input-wrapper') : null;
-            if (bar && wrapper && !bar.querySelector('.outliner-switch-view-btn')) {
-                var switchBtn = document.createElement('button');
-                switchBtn.type = 'button';
-                switchBtn.className = 'outliner-switch-view-btn';
-                var label = (i18n.outlinerSwitchToTable || 'Switch to Table view');
-                switchBtn.title = label;
-                switchBtn.setAttribute('aria-label', label);
-                switchBtn.innerHTML =
-                    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"' +
-                    ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"' +
-                    ' stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>' +
-                    '<line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>' +
-                    '<line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
-                switchBtn.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (host && typeof host.requestReopenAs === 'function') {
-                        host.requestReopenAs('fractal.outlinerTable');
-                    }
-                });
-                bar.insertBefore(switchBtn, wrapper);
-            }
-        } catch (_) { /* ignore — non-critical UI */ }
 
         // 検索ボックスを undo/redo 対象から完全に外す:
         // 1. beforeinput で historyUndo/Redo を block (capture phase)

@@ -189,17 +189,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
                         break;
 
-                    case 'requestReopenAs':
-                        // TASK-B7: Switch view (Outliner ⇄ Table)
-                        if (message.viewType && typeof message.viewType === 'string') {
-                            await vscode.commands.executeCommand(
-                                'vscode.openWith',
-                                document.uri,
-                                message.viewType
-                            );
-                        }
-                        break;
-
                     case 'copyFilePath':
                         await vscode.env.clipboard.writeText(document.uri.fsPath);
                         break;

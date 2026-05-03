@@ -171,6 +171,7 @@ export async function handleNotesMessage(
             platform.openInTextEditor?.();
             break;
 
+
         case 'copyFilePath':
             platform.copyFilePath?.();
             break;
