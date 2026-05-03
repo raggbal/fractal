@@ -1390,9 +1390,272 @@
         });
     }
 
-    /** Multiselect cell skeleton (TASK-C1 で本実装) */
-    function renderMultiselectCellSkeleton(cell, node, col) {
+    // ── TASK-C1〜C4: Multiselect column ──
+
+    /**
+     * 8-color palette (design/system.md §6.4).
+     * inline option creation cycles through palette[N % 8].
+     */
+    var MULTISELECT_PALETTE = [
+        'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'zinc'
+    ];
+
+    /**
+     * Render a multiselect cell (TASK-C1).
+     * Wires:
+     *  - chip render with color class (otable-chip-color-<palette>)
+     *  - ✕ remove handler per chip
+     *  - "+" opener → openMultiselectDropdown (TASK-C2)
+     */
+    function renderMultiselectCell(nodeId, column, cell) {
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var values = (node.columnValues && node.columnValues[column.id]) || [];
+        var options = column.options || [];
+
         cell.textContent = '';
+        cell.classList.add('otable-cell-multiselect');
+
+        for (var i = 0; i < values.length; i++) {
+            var optId = values[i];
+            var opt = null;
+            for (var j = 0; j < options.length; j++) {
+                if (options[j] && options[j].id === optId) { opt = options[j]; break; }
+            }
+            if (!opt) { continue; } // orphan: skip render but keep data
+            var chip = document.createElement('span');
+            chip.className = 'otable-chip otable-chip-color-' + (opt.color || 'zinc');
+            chip.dataset.optId = optId;
+
+            var label = document.createElement('span');
+            label.className = 'otable-chip-label';
+            label.textContent = opt.label;
+            chip.appendChild(label);
+
+            var remove = document.createElement('span');
+            remove.className = 'otable-chip-remove';
+            remove.textContent = '✕'; // ✕
+            remove.title = 'Remove';
+            (function (capturedOptId) {
+                remove.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    saveSnapshot();
+                    var nd = model.getNode(nodeId);
+                    if (!nd) { return; }
+                    var current = (nd.columnValues && nd.columnValues[column.id]) || [];
+                    var updated = current.filter(function (id) { return id !== capturedOptId; });
+                    if (!nd.columnValues) { nd.columnValues = {}; }
+                    nd.columnValues[column.id] = updated;
+                    renderMultiselectCell(nodeId, column, cell);
+                    scheduleSyncToHost();
+                });
+            }(optId));
+            chip.appendChild(remove);
+            cell.appendChild(chip);
+        }
+
+        // + opener
+        var plusBtn = document.createElement('button');
+        plusBtn.type = 'button';
+        plusBtn.className = 'otable-chip-add';
+        plusBtn.textContent = '+';
+        plusBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            e.preventDefault();
+            openMultiselectDropdown(nodeId, column, cell);
+        });
+        cell.appendChild(plusBtn);
+    }
+
+    /** Backward-compatible alias for the legacy buildRow callsite. */
+    function renderMultiselectCellSkeleton(cell, node, col) {
+        renderMultiselectCell(node.id, col, cell);
+    }
+
+    /**
+     * Open a Notion-style dropdown for a multiselect cell (TASK-C2).
+     *
+     * Provides:
+     *  - input (search filter / inline create)
+     *  - existing option list with ☑/□ toggle (multi-select)
+     *  - "+ Create <label>" appended when input doesn't match any existing option
+     *  - outside click closes
+     *
+     * Each toggle / create operation:
+     *  - calls saveSnapshot() (undo-able)
+     *  - mutates node.columnValues / column.options
+     *  - re-renders the cell + dropdown
+     *  - scheduleSyncToHost()
+     */
+    function openMultiselectDropdown(nodeId, column, cell) {
+        closeMultiselectDropdown();
+
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var current = (node.columnValues && node.columnValues[column.id]) || [];
+
+        // anchor positioning relative to cell
+        if (getComputedStyle(cell).position === 'static') {
+            cell.style.position = 'relative';
+        }
+
+        var dropdown = document.createElement('div');
+        dropdown.className = 'otable-multiselect-dropdown';
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'otable-multiselect-dropdown-input';
+        input.placeholder = i18nT('tableSearchOrCreate', 'Search or create new...');
+        dropdown.appendChild(input);
+
+        var list = document.createElement('div');
+        list.className = 'otable-multiselect-dropdown-list';
+        dropdown.appendChild(list);
+
+        function renderList() {
+            list.textContent = '';
+            var query = input.value.trim().toLowerCase();
+            var options = column.options || [];
+            var filtered = options.filter(function (o) {
+                if (!o) { return false; }
+                if (!query) { return true; }
+                return (o.label || '').toLowerCase().indexOf(query) !== -1;
+            });
+
+            filtered.forEach(function (opt) {
+                var row = document.createElement('div');
+                row.className = 'otable-multiselect-dropdown-option';
+                row.dataset.optId = opt.id;
+                var checked = current.indexOf(opt.id) !== -1;
+
+                var chip = document.createElement('span');
+                chip.className = 'otable-chip otable-chip-color-' + (opt.color || 'zinc');
+                var lbl = document.createElement('span');
+                lbl.className = 'otable-chip-label';
+                lbl.textContent = opt.label;
+                chip.appendChild(lbl);
+                row.appendChild(chip);
+
+                var check = document.createElement('span');
+                check.className = 'otable-multiselect-dropdown-check';
+                check.textContent = checked ? '☑' : '☐';
+                row.appendChild(check);
+
+                row.addEventListener('mousedown', function (e) {
+                    // mousedown so we win the outside-click race
+                    e.preventDefault();
+                });
+                row.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    saveSnapshot();
+                    var nd = model.getNode(nodeId);
+                    if (!nd) { return; }
+                    if (!nd.columnValues) { nd.columnValues = {}; }
+                    if (!Array.isArray(nd.columnValues[column.id])) {
+                        nd.columnValues[column.id] = [];
+                    }
+                    if (checked) {
+                        nd.columnValues[column.id] = nd.columnValues[column.id]
+                            .filter(function (id) { return id !== opt.id; });
+                    } else {
+                        nd.columnValues[column.id] = nd.columnValues[column.id].concat([opt.id]);
+                    }
+                    current = nd.columnValues[column.id];
+                    renderList();
+                    renderMultiselectCell(nodeId, column, cell);
+                    cell.appendChild(dropdown); // keep dropdown after re-render
+                    scheduleSyncToHost();
+                });
+
+                list.appendChild(row);
+            });
+
+            var trimmed = input.value.trim();
+            var hasExact = (column.options || []).some(function (o) {
+                return o && o.label === trimmed;
+            });
+            if (trimmed && !hasExact) {
+                var createRow = document.createElement('div');
+                createRow.className = 'otable-multiselect-dropdown-create';
+                var template = i18nT('tableCreateOption', 'Create "{label}"');
+                createRow.textContent = template.replace('{label}', trimmed);
+                createRow.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                });
+                createRow.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    saveSnapshot();
+                    var nd = model.getNode(nodeId);
+                    if (!nd) { return; }
+                    if (!Array.isArray(column.options)) { column.options = []; }
+                    var newOpt = {
+                        id: generateOptionId(),
+                        label: trimmed,
+                        color: MULTISELECT_PALETTE[column.options.length % MULTISELECT_PALETTE.length]
+                    };
+                    column.options.push(newOpt);
+                    if (!nd.columnValues) { nd.columnValues = {}; }
+                    if (!Array.isArray(nd.columnValues[column.id])) {
+                        nd.columnValues[column.id] = [];
+                    }
+                    nd.columnValues[column.id] = nd.columnValues[column.id].concat([newOpt.id]);
+                    current = nd.columnValues[column.id];
+                    input.value = '';
+                    renderList();
+                    renderMultiselectCell(nodeId, column, cell);
+                    cell.appendChild(dropdown); // keep dropdown after re-render
+                    scheduleSyncToHost();
+                    input.focus();
+                });
+                list.appendChild(createRow);
+            }
+        }
+
+        input.addEventListener('input', renderList);
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeMultiselectDropdown();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                var firstCreate = list.querySelector('.otable-multiselect-dropdown-create');
+                var firstOpt = list.querySelector('.otable-multiselect-dropdown-option');
+                var first = firstCreate || firstOpt;
+                if (first) { first.click(); }
+            }
+        });
+
+        renderList();
+
+        cell.appendChild(dropdown);
+        input.focus();
+
+        // outside click closes (defer attach so the opener click doesn't immediately close it)
+        setTimeout(function () {
+            document.addEventListener('mousedown', _multiselectOutsideClickHandler, true);
+        }, 0);
+    }
+
+    function _multiselectOutsideClickHandler(e) {
+        var dropdowns = document.querySelectorAll('.otable-multiselect-dropdown');
+        var insideAny = false;
+        for (var i = 0; i < dropdowns.length; i++) {
+            if (dropdowns[i].contains(e.target)) { insideAny = true; break; }
+        }
+        if (!insideAny) { closeMultiselectDropdown(); }
+    }
+
+    function closeMultiselectDropdown() {
+        var dropdowns = document.querySelectorAll('.otable-multiselect-dropdown');
+        for (var i = 0; i < dropdowns.length; i++) {
+            if (dropdowns[i].parentNode) {
+                dropdowns[i].parentNode.removeChild(dropdowns[i]);
+            }
+        }
+        document.removeEventListener('mousedown', _multiselectOutsideClickHandler, true);
     }
 
     /**
@@ -2258,6 +2521,11 @@
         undo: undo,
         redo: redo,
         _getUndoStack: function () { return undoStack.slice(); },
-        _getRedoStack: function () { return redoStack.slice(); }
+        _getRedoStack: function () { return redoStack.slice(); },
+        // TASK-C1〜C4 — multiselect column
+        _renderMultiselectCell: renderMultiselectCell,
+        _openMultiselectDropdown: openMultiselectDropdown,
+        _closeMultiselectDropdown: closeMultiselectDropdown,
+        _getMultiselectPalette: function () { return MULTISELECT_PALETTE.slice(); }
     };
 }));
