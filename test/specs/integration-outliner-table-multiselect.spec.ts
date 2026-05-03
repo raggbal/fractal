@@ -10,8 +10,9 @@
  *   - TC-803 dropdown open + input focus (TASK-C2)
  *   - TC-804 dropdown filter + multi-toggle (☑/☐) (TASK-C2)
  *   - TC-805 inline option create with palette[N % 8] color (TASK-C2)
+ *   - TC-806 option master persistence (load/save round-trip) (TASK-C3)
  *
- * TASK-C3 / TASK-C4 commits append TC-806 / TC-1003 reinforcement.
+ * TASK-C4 reinforces TC-1003 in integration-outliner-table-search.spec.ts.
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -288,3 +289,52 @@ test('TC-805 — typing a non-matching label shows + Create row and adds option 
 });
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// TC-806: option master persistence (TASK-C3)
+// ---------------------------------------------------------------------------
+test('TC-806 — multiselect option master + cell values round-trip through serialize', async ({ page }) => {
+    await setupTable(page, baseData());
+
+    // Add a new option through the dropdown
+    await page.locator(
+        '.otable-row[data-node-id="n1"] .otable-cell-multiselect .otable-chip-add'
+    ).click();
+    await page.waitForTimeout(40);
+    await page.locator('.otable-multiselect-dropdown-input').fill('important');
+    await page.waitForTimeout(40);
+    await page.locator('.otable-multiselect-dropdown-create').click();
+    await page.waitForTimeout(60);
+
+    // Serialize & re-init in fresh state
+    const serialized = await page.evaluate(() => {
+        return (window as any).OutlinerTable.serialize();
+    });
+    expect(serialized.columns).toBeDefined();
+    const tagCol = serialized.columns.find((c: any) => c.id === 'col_tags');
+    expect(tagCol.options.length).toBe(3);
+    const importantOpt = tagCol.options.find((o: any) => o.label === 'important');
+    expect(importantOpt).toBeDefined();
+    expect(importantOpt.color).toBe('yellow'); // palette[2 % 8]
+
+    // n1 has urgent + review + important
+    expect(serialized.nodes.n1.columnValues.col_tags.length).toBe(3);
+    expect(serialized.nodes.n1.columnValues.col_tags).toContain(importantOpt.id);
+
+    // Re-init from serialized output (round-trip)
+    await page.evaluate((d) => {
+        (window as any).__testApi.initOutlinerTable(d);
+    }, serialized);
+    await page.waitForTimeout(60);
+
+    const colsAfter = await page.evaluate(() => (window as any).OutlinerTable._getColumns());
+    const tagColAfter = colsAfter.find((c: any) => c.id === 'col_tags');
+    expect(tagColAfter.options.length).toBe(3);
+    expect(tagColAfter.options.map((o: any) => o.label).sort()).toEqual(['important', 'review', 'urgent']);
+
+    // n1 chip count restored to 3 (direct chip children only)
+    const chipCountAfter = await page.$$eval(
+        '.otable-row[data-node-id="n1"] .otable-cell-multiselect > .otable-chip',
+        (els) => els.length
+    );
+    expect(chipCountAfter).toBe(3);
+});
