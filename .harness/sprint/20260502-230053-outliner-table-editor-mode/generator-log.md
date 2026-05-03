@@ -1087,3 +1087,78 @@ Outliner cell の renderInlineText / multiselect chip render コミ込みでも
 **265.6ms** で完了。NFR-01 (1.5s) を **5.6× の余裕**で満たす。
 
 **結論**: TC-401 PASS。virtual scroll 不要 (PoC 結論を正式 spec で確認)。
+
+---
+
+## Iteration 7 (TASK-D3) — 2026-05-03
+
+### TASK-D3: PoC artifact 整合確認 + .vsix ビルド
+
+**手順**:
+1. `.harness/poc/.../v1/poc-report.md` の design phase finding と sprint 実装の
+   対応を 1 件ずつ確認
+2. `.poc-worktree/` の不在を確認 (`ls .poc-worktree` → No such file or directory)
+3. `git branch -a | grep poc/outliner-table-editor` で再現用 branch 残存を確認
+   (✓ exists)
+4. `npm run package` で .vsix ビルド成功を確認
+
+**PoC finding 対応マトリクス**:
+
+| PoC finding | 対応 task | commit |
+|---|---|---|
+| 1. `outliner.js syncToHostImmediate` で top-level `columns` を保持する必要 | TASK-A6 | `5d5e4a2` |
+| 2. 段階的 split (Phase 1-5, ~600 行) | TASK-A1〜A5 | `4b6491d` 他 |
+| 3. table editor の Cell ↔ Tree 境界設計 | TASK-B1〜B5 | `eade501` 〜 `9dcbc51` |
+| `outliner-cell.js` 新規 (Phase 1 PoC) | TASK-A1 | `4b6491d` |
+| `outliner-table.js` 主実装 | TASK-B1〜B9 | `eade501` 〜 `5e797a2` |
+| `outliner-table.css` | TASK-B1 / C1 | `eade501` / `d1a6b2d` |
+| `outlinerTableProvider.ts` (stub→本番) | TASK-A7 | `a969ca3` |
+| `outlinerTableWebviewContent.ts` | TASK-A7 | `a969ca3` |
+| `package.json customEditors[]` | TASK-A7 | `a969ca3` |
+| `extension.ts` Provider 登録 | TASK-A7 | `a969ca3` |
+| `integration-outliner-table-cell-compat.spec.ts` | TASK-B2 | `39a0c04` |
+| regression 0 件保持 | TASK-D1 | `fdbe6b0` |
+| virtual scroll 不要 (1000 行 < 1500ms) | TASK-D2 | `b9cd33c` |
+
+**全 PoC finding 対応済 (13/13)**。
+
+**worktree / branch 状態**:
+- `.poc-worktree/` → 不在 (PoC 完了時に削除済)
+- `git worktree list` → main worktree のみ
+- `git branch -a | grep poc/outliner-table-editor` → ✓ branch 残存 (再現用、削除しない)
+
+**.vsix ビルド** (`npm run package`):
+- file: `fractal-0.195.781.vsix` (project root, gitignored via `*.vsix`)
+- size: **2.28 MB** (2340 KB)
+- file count: **155** (PoC bh05 build の 149 から +6 — sprint で追加された
+  outliner-cell.js / outliner-table.js / outliner-table.css / Provider /
+  WebviewContent / standalone build script)
+- Note: version は **0.195.781 のまま** (release skill が version bump を
+  行うため、generator では bump しない)
+
+### Phase D 完了サマリ
+
+✅ **TASK-D1 + D2 + D3 全 3 task 完了**
+
+**規模**:
+- 新規 spec: `test/specs/perf-outliner-table-render.spec.ts` (143 行、TC-401 +
+  ref test)
+- generator-log 加筆: 本 iteration 7 セクション (D1 / D2 / D3)
+- 既存 source / test の改変: なし (検証のみ + standalone-notes.html の TASK-B7
+  CSS regen)
+
+**Sprint 全体の最終結果**:
+- **23/23 task 完了** (Phase A 7 + Phase B 9 + Phase C 4 + Phase D 3)
+- 並列フル実行 1695 tests: **1595 pass / 79 fail (pre-existing) / 21 skip**
+- Sprint 関連 spec: **123 pass / 0 fail** (regression 0 — TASK-D1 で確認)
+- 性能: 1000 行 × 4 列 = **265.6ms** (NFR-01 1500ms threshold の 5.6× 余裕)
+- .vsix: **2.28 MB / 155 files** (build success)
+- PoC finding **13/13 対応**、PoC branch `poc/outliner-table-editor` 保持
+
+**3 commits (1 per task)**:
+- `fdbe6b0` [TASK-D1] Full regression sweep results (Phase A-C complete)
+- `b9cd33c` [TASK-D2] Performance benchmark spec (1000 rows < 1500ms)
+- `[TASK-D3] PoC artifact reconciliation + final vsix build` (本コミット)
+
+**次の step**: `reviewer` agent を呼び出し、独立 context で全テスト実行 +
+品質レビュー → 結果に応じて release / 修正 iteration へ。
