@@ -27104,7 +27104,9 @@ var Outliner = (function() {
                 pageId: nd.pageId || null,
                 images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
                 filePath: nd.filePath || null,
-                collapsed: !!nd.collapsed
+                collapsed: !!nd.collapsed,
+                // Phase F2: 列値も保持 (paste 時に同一 outliner なら復元)
+                columnValues: nd.columnValues ? JSON.parse(JSON.stringify(nd.columnValues)) : null
             });
         }
         return nodes;
@@ -27465,6 +27467,11 @@ var Outliner = (function() {
                 // 同一性判定は outFileKey (絶対パス) で確実に行う。
                 // 相対パス文字列での同一性比較は偶然一致しうるため使わない (retro 教訓①)。
                 var isCrossFile = !!clipSourceKey && clipSourceKey !== currentOutFileKey;
+                // Phase F2: 列値は同一 outliner の時のみ復元 (列定義 / option id が共有のため)。
+                // 別 outliner は列構成が違う → outline 列のみで OK
+                if (!isCrossFile && clipNode.columnValues) {
+                    newNode.columnValues = JSON.parse(JSON.stringify(clipNode.columnValues));
+                }
                 var clipImages = clipNode.images || [];
                 // 画像配列はまず placeholder として流用。host からの updateNodeImages postback で上書きされる。
                 if (clipImages.length > 0) {
