@@ -275,9 +275,9 @@ body {
 }
 .outliner-breadcrumb-top:hover { opacity: 1; }
 
-/* --- Scroll wrapper (新): title + search-bar + tree を含む scroll context ---
- * title はスクロールで消え、search-bar は sticky top:0 で固定される。
- * table mode の col-header はさらに search-bar 直下に sticky。 */
+/* --- Scroll wrapper: 縦スクロール (常時) + 横スクロール (table mode のみ)。
+ * title はスクロールで消える。search-bar は sticky top:0 + left:0 で
+ * 縦・横どちらのスクロールでも固定。 */
 .outliner-scroll-content {
     flex: 1;
     overflow-y: auto;
@@ -285,7 +285,7 @@ body {
     display: flex;
     flex-direction: column;
 }
-/* table mode の場合、横スクロールも outer wrapper に持たせる */
+/* table mode は横スクロールも outer wrapper に持たせる */
 .outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-scroll-content {
     overflow-x: auto;
 }
@@ -293,29 +293,42 @@ body {
 /* --- Tree --- */
 .outliner-tree {
     flex: 1;
-    /* overflow は outer wrapper で制御。tree 自身はスクロールしない */
+    /* スクロールは outer wrapper で制御。tree 自身はスクロールしない */
     padding: 8px 0;
     margin: 0 var(--outliner-gutter);
     border-top: 1px solid var(--outliner-border);
 }
 
-/* table mode は内側 scroll を持たない (outer wrapper が処理)。上 padding / 左右 margin 全削除 */
 .outliner-tree[data-view-mode="table"] {
-    overflow-x: visible;
+    overflow: visible;
     padding: 0;
     margin: 0 !important;
     border-top: none;
 }
 
-/* search bar を scroll 領域内で sticky top: 0 に固定 */
+/* title: スクロールで縦には消える。横方向は sticky left:0 で固定 (table mode のみ意味あり) */
+.outliner-scroll-content > .outliner-page-title,
+.outliner-scroll-content > .outliner-scope-search-indicator {
+    position: sticky;
+    left: 0;
+    width: 100%;
+    z-index: 25;
+    background: var(--outliner-bg);
+}
+
+/* search-bar: 縦も横もスクロールから外す (sticky top:0 + left:0、viewport width 固定) */
 .outliner-scroll-content > .outliner-search-bar {
     position: sticky;
     top: 0;
+    left: 0;
+    width: 100%;
     z-index: 30;
     background: var(--outliner-bg);
 }
 
-/* table mode の col-header は search-bar の直下に sticky で残る (top: 約 search-bar 高さ) */
+/* breadcrumb: sticky 不要 (tree と同時にスクロールしてよい) */
+
+/* table mode の col-header: search-bar 直下 (~40px) に縦固定。横はテーブルと一緒に動く */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
     top: 40px;
 }

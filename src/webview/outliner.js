@@ -1332,6 +1332,19 @@ var Outliner = (function() {
             }
         });
 
+        // リンククリック → 外部ブラウザで開く (blur 状態 / 非編集時のみ)
+        el.addEventListener('mousedown', function (e) {
+            // セルがフォーカス中 (編集中) は contenteditable のテキスト操作を優先
+            if (document.activeElement === el) return;
+            if (e.shiftKey) return;
+            var a = e.target.closest && e.target.closest('a');
+            if (a && a.getAttribute('href')) {
+                e.preventDefault();
+                e.stopPropagation();
+                host.openLink(a.getAttribute('href'));
+            }
+        });
+
         var isComposing = false;
 
         el.addEventListener('focus', function () {
