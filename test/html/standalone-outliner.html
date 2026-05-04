@@ -3162,16 +3162,18 @@ body {
     margin-top: 0;
 }
 
+/* ヘッダー背景: VSCode webview は body に data-vscode-theme-kind を付与する。
+   - "vscode-light" / "vscode-high-contrast-light" → 白系
+   - "vscode-dark"  / "vscode-high-contrast"       → 黒系
+   変数を介さず hardcode で確実に分岐させる (theme 変数が不安定なため) */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
-    /* sticky で常に表示 (縦スクロール時に追従) */
     position: sticky;
     top: 0;
     z-index: 10;
-    /* editor-background は light theme = 白、dark theme = エディタ黒 を確実に追従 (要望通り) */
-    background-color: var(--vscode-editor-background) !important;
-    color: var(--vscode-editor-foreground, var(--vscode-foreground, inherit));
+    /* デフォルトは light 想定の白。theme 検出で dark に上書き */
+    background-color: #ffffff !important;
+    color: #1f1f1f !important;
     padding: 4px 8px;
-    /* 線は bottom のみ */
     border: none;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
     font-weight: 600;
@@ -3180,6 +3182,19 @@ body {
     align-items: center;
     box-sizing: border-box;
     cursor: grab;
+}
+/* dark theme webview */
+body[data-vscode-theme-kind="vscode-dark"] .outliner-tree[data-view-mode="table"] .outliner-col-header,
+body[data-vscode-theme-kind="vscode-high-contrast"] .outliner-tree[data-view-mode="table"] .outliner-col-header {
+    background-color: #1e1e1e !important;
+    color: #e0e0e0 !important;
+}
+/* prefers-color-scheme fallback (data-vscode-theme-kind 未設定の standalone test 等) */
+@media (prefers-color-scheme: dark) {
+    body:not([data-vscode-theme-kind="vscode-light"]):not([data-vscode-theme-kind="vscode-high-contrast-light"]) .outliner-tree[data-view-mode="table"] .outliner-col-header {
+        background-color: #1e1e1e !important;
+        color: #e0e0e0 !important;
+    }
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header:active {
     cursor: grabbing;
