@@ -50,13 +50,22 @@ function generateNotesFilePanelHtml(options) {
             overflow: hidden;
         }
         .notes-file-panel.collapsed { width: 0; border-right: none; }
+        /* 0 幅のハンドル + ::before で前後 3px 程度 hit area を overlap させる。
+           通常時は flex 上のスペースを取らず、hover/active で青ラインが出る。 */
         .notes-resize-handle {
-            width: 4px; cursor: col-resize; background: transparent;
-            flex-shrink: 0; position: relative; z-index: 10;
+            width: 0; flex-shrink: 0; position: relative; z-index: 10;
         }
-        .notes-resize-handle:hover,
-        .notes-resize-handle.active {
+        .notes-resize-handle::before {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0;
+            left: -3px; right: -3px;
+            cursor: col-resize;
+        }
+        .notes-resize-handle:hover::before,
+        .notes-resize-handle.active::before {
             background: var(--vscode-focusBorder, #007acc);
+            left: -1px; right: -1px;
         }
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
