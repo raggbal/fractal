@@ -166,6 +166,7 @@ body {
 .outliner-nav-forward-btn,
 .outliner-undo-btn,
 .outliner-redo-btn,
+.outliner-view-toggle-btn,
 .outliner-menu-btn {
     background: transparent;
     border: none;
@@ -185,6 +186,7 @@ body {
 .outliner-nav-forward-btn:hover:not(:disabled),
 .outliner-undo-btn:hover:not(:disabled),
 .outliner-redo-btn:hover:not(:disabled),
+.outliner-view-toggle-btn:hover:not(:disabled),
 .outliner-menu-btn:hover {
     opacity: 1;
     background: var(--outliner-hover-bg);
@@ -192,7 +194,8 @@ body {
 .outliner-nav-back-btn:disabled,
 .outliner-nav-forward-btn:disabled,
 .outliner-undo-btn:disabled,
-.outliner-redo-btn:disabled {
+.outliner-redo-btn:disabled,
+.outliner-view-toggle-btn:disabled {
     opacity: 0.3;
     cursor: default;
 }

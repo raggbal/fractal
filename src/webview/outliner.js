@@ -1549,11 +1549,7 @@ var Outliner = (function() {
         var selectedOptIds = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
 
         if (selectedOptIds.length === 0) {
-            // 空セル placeholder (click hint)
-            var placeholder = document.createElement('span');
-            placeholder.className = 'outliner-cell-multiselect-placeholder';
-            placeholder.textContent = 'Click to select';
-            el.appendChild(placeholder);
+            // 空セル: 何も表示しない (placeholder 廃止)
         } else {
             // chip 表示
             for (var i = 0; i < selectedOptIds.length; i++) {
