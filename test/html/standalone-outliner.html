@@ -1938,22 +1938,49 @@ body {
 }
 .outliner-breadcrumb-top:hover { opacity: 1; }
 
-/* --- Tree --- */
-.outliner-tree {
+/* --- Scroll wrapper (新): title + search-bar + tree を含む scroll context ---
+ * title はスクロールで消え、search-bar は sticky top:0 で固定される。
+ * table mode の col-header はさらに search-bar 直下に sticky。 */
+.outliner-scroll-content {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+}
+/* table mode の場合、横スクロールも outer wrapper に持たせる */
+.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-scroll-content {
+    overflow-x: auto;
+}
+
+/* --- Tree --- */
+.outliner-tree {
+    flex: 1;
+    /* overflow は outer wrapper で制御。tree 自身はスクロールしない */
     padding: 8px 0;
     margin: 0 var(--outliner-gutter);
     border-top: 1px solid var(--outliner-border);
 }
 
-/* table mode は横スクロール許可、上 padding / 左右 margin 全削除 */
+/* table mode は内側 scroll を持たない (outer wrapper が処理)。上 padding / 左右 margin 全削除 */
 .outliner-tree[data-view-mode="table"] {
-    overflow-x: auto;
+    overflow-x: visible;
     padding: 0;
     margin: 0 !important;
     border-top: none;
+}
+
+/* search bar を scroll 領域内で sticky top: 0 に固定 */
+.outliner-scroll-content > .outliner-search-bar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--outliner-bg);
+}
+
+/* table mode の col-header は search-bar の直下に sticky で残る (top: 約 search-bar 高さ) */
+.outliner-tree[data-view-mode="table"] .outliner-col-header {
+    top: 40px;
 }
 
 /* table mode 時は outliner-container 配下の他要素の右 padding も詰める
@@ -3181,7 +3208,8 @@ body {
    Fractal page の見た目と一致しないことがあるため、ここでは使わない */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
     position: sticky;
-    top: 0;
+    /* search-bar (sticky top:0、高さ ~40px) の直下に固定 */
+    top: 40px;
     z-index: 10;
     background-color: var(--outliner-bg) !important;
     color: var(--outliner-fg, inherit) !important;
@@ -29937,32 +29965,16 @@ var Outliner = (function() {
     // --- 固定タグバー & Daily Notes ナビバー (統合) ---
 
     function updatePinnedTagBar() {
-        var bar = document.querySelector('.outliner-pinned-nav-bar');
-        if (!bar) return;
-
-        // 固定タグボタン生成
-        var tagsArea = bar.querySelector('.outliner-pinned-tags-area');
-        if (tagsArea) {
-            tagsArea.innerHTML = '';
-            for (var i = 0; i < pinnedTags.length; i++) {
-                var btn = document.createElement('button');
-                btn.className = 'outliner-pinned-tag-btn';
-                btn.textContent = pinnedTags[i];
-                btn.dataset.tag = pinnedTags[i];
-                if (isTagInSearchText(searchInput ? searchInput.value.trim() : '', pinnedTags[i])) {
-                    btn.classList.add('is-active');
-                }
-                btn.addEventListener('click', handlePinnedTagClick);
-                tagsArea.appendChild(btn);
-            }
-        }
-
-        // Daily Nav表示制御
-        var dailyArea = bar.querySelector('.outliner-daily-nav-area');
+        // pinned-nav-bar は header redesign で廃止。pinned tags 機能も削除済。
+        // 残存責務は daily-nav-area の表示制御のみ。
+        var dailyArea = document.querySelector('.outliner-daily-nav-area');
         if (dailyArea) {
             dailyArea.style.display = isDailyNotes ? 'flex' : 'none';
         }
 
+        // 旧 tagsArea は DOM に存在しないが、念のためクリア (互換)
+        var tagsArea = document.querySelector('.outliner-pinned-tags-area');
+        if (tagsArea) tagsArea.innerHTML = '';
     }
 
     /** 検索テキスト内にタグがトークンとして含まれているか判定 */
@@ -30041,7 +30053,8 @@ var Outliner = (function() {
     }
 
     function setupDailyNavBar() {
-        dailyNavBar = document.querySelector('.outliner-pinned-nav-bar');
+        // header redesign で daily-nav-area は search-bar 内に直接配置されている
+        dailyNavBar = document.querySelector('.outliner-daily-nav-area');
         if (!dailyNavBar) return;
 
         var todayBtn = document.getElementById('dailyNavToday');

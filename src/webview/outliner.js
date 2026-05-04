@@ -6223,32 +6223,16 @@ var Outliner = (function() {
     // --- 固定タグバー & Daily Notes ナビバー (統合) ---
 
     function updatePinnedTagBar() {
-        var bar = document.querySelector('.outliner-pinned-nav-bar');
-        if (!bar) return;
-
-        // 固定タグボタン生成
-        var tagsArea = bar.querySelector('.outliner-pinned-tags-area');
-        if (tagsArea) {
-            tagsArea.innerHTML = '';
-            for (var i = 0; i < pinnedTags.length; i++) {
-                var btn = document.createElement('button');
-                btn.className = 'outliner-pinned-tag-btn';
-                btn.textContent = pinnedTags[i];
-                btn.dataset.tag = pinnedTags[i];
-                if (isTagInSearchText(searchInput ? searchInput.value.trim() : '', pinnedTags[i])) {
-                    btn.classList.add('is-active');
-                }
-                btn.addEventListener('click', handlePinnedTagClick);
-                tagsArea.appendChild(btn);
-            }
-        }
-
-        // Daily Nav表示制御
-        var dailyArea = bar.querySelector('.outliner-daily-nav-area');
+        // pinned-nav-bar は header redesign で廃止。pinned tags 機能も削除済。
+        // 残存責務は daily-nav-area の表示制御のみ。
+        var dailyArea = document.querySelector('.outliner-daily-nav-area');
         if (dailyArea) {
             dailyArea.style.display = isDailyNotes ? 'flex' : 'none';
         }
 
+        // 旧 tagsArea は DOM に存在しないが、念のためクリア (互換)
+        var tagsArea = document.querySelector('.outliner-pinned-tags-area');
+        if (tagsArea) tagsArea.innerHTML = '';
     }
 
     /** 検索テキスト内にタグがトークンとして含まれているか判定 */
@@ -6327,7 +6311,8 @@ var Outliner = (function() {
     }
 
     function setupDailyNavBar() {
-        dailyNavBar = document.querySelector('.outliner-pinned-nav-bar');
+        // header redesign で daily-nav-area は search-bar 内に直接配置されている
+        dailyNavBar = document.querySelector('.outliner-daily-nav-area');
         if (!dailyNavBar) return;
 
         var todayBtn = document.getElementById('dailyNavToday');
