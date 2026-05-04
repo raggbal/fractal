@@ -1476,27 +1476,32 @@ body {
    Phase F2: Table editor mode
    ============================================================ */
 
-/* parent (.outliner-tree-wrapper or直接) は overflow-x: auto を持つ前提。
-   table mode 時は max-content 幅で広がり、横スクロールを発生させる */
+/* table mode の grid container。
+   tree 自身が overflow-x: auto を持ち、列幅合計 > viewport 時に横スクロールバー表示 */
 .outliner-tree[data-view-mode="table"] {
     display: grid;
     /* 各行は内容の自然高さに合わせる */
     grid-auto-rows: minmax(min-content, max-content);
     align-items: start;
-    width: max-content;
-    min-width: 100%;
+    /* width / min-width はデフォルト (parent 幅相当)。grid 列の合計が
+       これを超えると overflow-x: auto により横スクロール発生。
+       max-content にすると親要素を超えて広がってスクロール不可になるので使わない */
     /* 上のツールバーとの隙間を詰める */
     padding-top: 0;
     margin-top: 0;
 }
 
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
-    /* sticky を解除 (背景色に黒が残る不具合) → 通常の grid item に戻し、
-       テーマ追従は background-color のみで実現 */
+    /* sticky で常に表示 (縦スクロール時に追従) */
+    position: sticky;
+    top: 0;
     z-index: 10;
-    /* テーマ追従: vscode サイドバー / リスト系の bg を使う (light theme で確実に白系) */
-    background-color: var(--vscode-sideBar-background, var(--vscode-editor-background, transparent));
-    color: var(--vscode-sideBar-foreground, var(--vscode-foreground, inherit));
+    /* テーマ追従:
+       editor-background = 本文と同じ (light: 白 / dark: ほぼ黒)
+       editorGroupHeader-tabsBackground = タブ行と同じトーン (light: 薄灰 / dark: ダーク灰)
+       多くのテーマで sidebar-background は dark theme に固定なので使わない */
+    background-color: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
+    color: var(--vscode-foreground, inherit);
     padding: 4px 8px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
     font-weight: 600;
@@ -1505,7 +1510,6 @@ body {
     align-items: center;
     box-sizing: border-box;
     cursor: grab;
-    position: relative;  /* resize handle を絶対配置するため */
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header:active {
     cursor: grabbing;
