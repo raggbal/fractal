@@ -3162,19 +3162,19 @@ body {
     margin-top: 0;
 }
 
-/* ヘッダー背景: editor 本文と同じ色 (変数経由で **実際の編集領域色**を取得)。
-   data-vscode-theme-kind は「テーマの基底」(dark/light) を示すだけで、
-   editor の実色とは一致しないテーマ (dark 基底なのに editor は白) があるため、
-   theme-kind 判定では分岐せず var(--vscode-editor-background) のみ使う */
+/* ヘッダー背景: Fractal Outliner 独自テーマの --outliner-bg / --outliner-fg を使う。
+   .outliner-container で data-theme="github" 等が設定され、--outliner-bg が page 本文と
+   同じ色になる。VSCode の --vscode-editor-background は VSCode 側のテーマで、
+   Fractal page の見た目と一致しないことがあるため、ここでは使わない */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
     position: sticky;
     top: 0;
     z-index: 10;
-    background-color: var(--vscode-editor-background) !important;
-    color: var(--vscode-editor-foreground, var(--vscode-foreground, inherit)) !important;
+    background-color: var(--outliner-bg) !important;
+    color: var(--outliner-fg, inherit) !important;
     padding: 4px 8px;
     border: none;
-    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
+    border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     font-weight: 600;
     user-select: none;
     display: flex;
