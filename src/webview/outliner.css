@@ -1755,11 +1755,18 @@ body {
     font-size: 13px;
     background: transparent;
     color: var(--outliner-fg);
+    font-weight: 500;
 }
 .outliner-add-col-buttons button:first-child {
     border-color: var(--outliner-border, rgba(127,127,127,0.4));
 }
+/* primary action button: solid な tag color を使い、--outliner-active (半透明) を避ける */
 .outliner-add-col-buttons button:last-child {
-    background: var(--outliner-active, var(--outliner-tag-color, #2196F3));
-    color: var(--outliner-accent-fg, #fff);
+    background: var(--outliner-tag-color, #2196F3);
+    color: #ffffff;
+    font-weight: 600;
+    border-color: var(--outliner-tag-color, #2196F3);
+}
+.outliner-add-col-buttons button:last-child:hover {
+    filter: brightness(1.08);
 }
