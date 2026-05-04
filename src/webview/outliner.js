@@ -1131,13 +1131,15 @@ var Outliner = (function() {
         label.textContent = col.name || '';
         el.appendChild(label);
 
-        // outliner 列以外は: 右クリック menu (F2.3) / D&D 並べ替え (F2.3)
+        // outliner 列以外: D&D 並べ替え + 右クリック menu (rename / insert / remove)
+        // outliner 列: D&D 不可、右クリック menu のみ (rename / insert right)
         if (col.type !== 'outliner') {
             el.draggable = true;
             el.title = 'Drag to reorder. Right-click for menu.';
             attachColumnHeaderHandlers(el, col);
         } else {
-            el.title = 'Outline (fixed)';
+            el.title = 'Right-click for menu';
+            attachColumnHeaderContextOnly(el, col);
         }
         // resize handle (右端 6px、F2.3 で実装)
         var resizeHandle = document.createElement('div');
@@ -1526,6 +1528,7 @@ var Outliner = (function() {
         dropdown.style.left = rect.left + 'px';
         dropdown.style.top = rect.bottom + 'px';
         dropdown.style.minWidth = Math.max(rect.width, 200) + 'px';
+        dropdown.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
         var input = document.createElement('input');
         input.type = 'text';
@@ -1631,6 +1634,15 @@ var Outliner = (function() {
     // ----- F2.3: column header drag (reorder) / right-click menu / resize -----
     var columnDragState = null;
 
+    /** outliner 列ヘッダー専用: 右クリック menu だけ取り付ける (D&D / drop は無効) */
+    function attachColumnHeaderContextOnly(el, col) {
+        el.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openColumnContextMenu(e, col);
+        });
+    }
+
     function attachColumnHeaderHandlers(el, col) {
         el.addEventListener('dragstart', function (e) {
             columnDragState = { colId: col.id };
@@ -1679,6 +1691,8 @@ var Outliner = (function() {
         menu.style.position = 'fixed';
         menu.style.left = e.clientX + 'px';
         menu.style.top = e.clientY + 'px';
+        // popup 内での右クリック (Copy/Cut/Paste system menu) を抑制
+        menu.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
         function addItem(label, handler, opts) {
             var item = document.createElement('div');
@@ -1754,6 +1768,7 @@ var Outliner = (function() {
         dialog.style.left = '50%';
         dialog.style.top = '40%';
         dialog.style.transform = 'translate(-50%, -50%)';
+        dialog.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
         var label = document.createElement('div');
         label.className = 'outliner-add-col-label';
@@ -1832,6 +1847,7 @@ var Outliner = (function() {
         dialog.style.left = '50%';
         dialog.style.top = '40%';
         dialog.style.transform = 'translate(-50%, -50%)';
+        dialog.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
         var label = document.createElement('div');
         label.className = 'outliner-add-col-label';
