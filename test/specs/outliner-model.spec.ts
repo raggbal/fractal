@@ -35,11 +35,18 @@ async function nodeText(page: import('@playwright/test').Page, nth: number): Pro
 }
 
 async function nestedNodeCount(page: import('@playwright/test').Page): Promise<number> {
-    return page.locator('.outliner-children .outliner-node').count();
+    // Phase F flat mode: data-depth >= 1 の node を集計
+    return page.evaluate(() => {
+        return Array.from(document.querySelectorAll('.outliner-node')).filter((el) => {
+            const d = parseInt(el.getAttribute('data-depth') || '0', 10);
+            return d >= 1;
+        }).length;
+    });
 }
 
 async function topLevelNodeCount(page: import('@playwright/test').Page): Promise<number> {
-    return page.locator('.outliner-tree > .outliner-node').count();
+    // Phase F flat mode: data-depth=0 の direct children のみ集計
+    return page.locator('.outliner-tree > .outliner-node[data-depth="0"]').count();
 }
 
 async function focusedId(page: import('@playwright/test').Page): Promise<string | null> {

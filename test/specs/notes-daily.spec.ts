@@ -616,7 +616,8 @@ test.describe('Notes Daily Notes & パネルUI', () => {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(200);
 
-        const nestedCount = await page.locator('.outliner-children .outliner-node').count();
+        // Phase F flat mode: depth=1 の node を集計
+        const nestedCount = await page.locator('.outliner-node[data-depth="1"]').count();
         expect(nestedCount).toBe(1);
     });
 

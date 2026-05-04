@@ -23364,10 +23364,10 @@ var Outliner = (function() {
         return !!document.querySelector('.notes-layout');
     }
     // Phase F (2026-05-04): DOM render mode
-    //   'hierarchical' (default): 既存の .outliner-children ネスト DOM (既存挙動完全保持)
-    //   'flat': 全 row が同階層に並ぶ flat DOM (table mode 統合のための準備)
-    // Phase F1.x で 'flat' 実装を段階追加、F1.5 で hierarchical 削除して flat 単一化予定。
-    var RENDER_MODE = 'hierarchical';
+    //   'hierarchical': 既存の .outliner-children ネスト DOM
+    //   'flat' (default, Phase F1.3 で切替): 全 row が同階層に並ぶ flat DOM
+    // F1.5 で hierarchical コードパス削除予定。
+    var RENDER_MODE = 'flat';
     function _setRenderModeForTesting(mode) {
         if (mode !== 'hierarchical' && mode !== 'flat') return;
         RENDER_MODE = mode;
@@ -24250,6 +24250,7 @@ var Outliner = (function() {
                 directMatches.push(nid);
             }
         }
+        var flat = (RENDER_MODE === 'flat');
         // 各マッチノードを頂点 (depth=0) として描画
         for (var m = 0; m < directMatches.length; m++) {
             var matchId = directMatches[m];
@@ -24264,17 +24265,23 @@ var Outliner = (function() {
             parentEl.appendChild(nodeEl);
             // 子孫を通常描画 (フィルタなし、全子を表示)
             if (node.children && node.children.length > 0) {
-                var childrenEl = document.createElement('div');
-                childrenEl.className = 'outliner-children';
-                childrenEl.dataset.parent = matchId;
-                renderFocusChildren(node.children, childrenEl, 1, searchQuery);
-                parentEl.appendChild(childrenEl);
+                if (flat) {
+                    // flat: 子孫を parentEl 直下に depth+1 で並べる
+                    renderFocusChildren(node.children, parentEl, 1, searchQuery);
+                } else {
+                    var childrenEl = document.createElement('div');
+                    childrenEl.className = 'outliner-children';
+                    childrenEl.dataset.parent = matchId;
+                    renderFocusChildren(node.children, childrenEl, 1, searchQuery);
+                    parentEl.appendChild(childrenEl);
+                }
             }
         }
     }
 
     /** フォーカスモード用: 子孫を全て表示 (検索フィルタなし) */
     function renderFocusChildren(nodeIds, parentEl, depth, searchQuery) {
+        var flat = (RENDER_MODE === 'flat');
         for (var i = 0; i < nodeIds.length; i++) {
             var nodeId = nodeIds[i];
             var node = model.getNode(nodeId);
@@ -24282,14 +24289,21 @@ var Outliner = (function() {
             var nodeEl = createNodeElement(node, depth, searchQuery);
             parentEl.appendChild(nodeEl);
             if (node.children && node.children.length > 0) {
-                var childrenEl = document.createElement('div');
-                childrenEl.className = 'outliner-children';
-                childrenEl.dataset.parent = nodeId;
-                if (node.collapsed) {
-                    childrenEl.classList.add('is-collapsed');
+                if (flat) {
+                    // flat: collapsed 親の子は描画しない
+                    if (!node.collapsed) {
+                        renderFocusChildren(node.children, parentEl, depth + 1, searchQuery);
+                    }
+                } else {
+                    var childrenEl = document.createElement('div');
+                    childrenEl.className = 'outliner-children';
+                    childrenEl.dataset.parent = nodeId;
+                    if (node.collapsed) {
+                        childrenEl.classList.add('is-collapsed');
+                    }
+                    renderFocusChildren(node.children, childrenEl, depth + 1, searchQuery);
+                    parentEl.appendChild(childrenEl);
                 }
-                renderFocusChildren(node.children, childrenEl, depth + 1, searchQuery);
-                parentEl.appendChild(childrenEl);
             }
         }
     }
@@ -26369,6 +26383,14 @@ var Outliner = (function() {
         if (!node || !node.children || node.children.length === 0) { return; }
 
         node.collapsed = !node.collapsed;
+
+        // Phase F1.3: flat mode では .outliner-children ラッパーが存在しないため、
+        // model 状態だけ更新して renderTree() で再描画する。
+        if (RENDER_MODE === 'flat') {
+            renderTree();
+            scheduleSyncToHost();
+            return;
+        }
 
         var childrenEl = treeEl.querySelector('.outliner-children[data-parent="' + nodeId + '"]');
         if (childrenEl) {
@@ -29617,6 +29639,8 @@ var Outliner = (function() {
         }
         return null;
     };
+    // Phase F: spec から Outliner.getModel() / _setRenderMode 等にアクセスするためのショートカット
+    window.__testApi.getModel = function() { return Outliner.getModel(); };
     // 空データで初期化
     window.__testApi.initOutliner();
     </script>

@@ -233,9 +233,12 @@ test.describe('Outliner File Node Features', () => {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(600);
 
-        // Verify child exists in DOM
-        const childNodes = page.locator('.outliner-children[data-parent="n1"] .outliner-node');
-        expect(await childNodes.count()).toBeGreaterThanOrEqual(1);
+        // Phase F flat mode: model 上で n1 の子が居ることを確認
+        const childCount = await page.evaluate(() => {
+            const api = (window as any).__testApi;
+            return (api.getModel().getNode('n1')?.children || []).length;
+        });
+        expect(childCount).toBeGreaterThanOrEqual(1);
     });
 
     // =========================================================

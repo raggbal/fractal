@@ -197,12 +197,10 @@ test.describe('Outliner multi-select indent/outdent', () => {
         });
         await page.waitForTimeout(300);
 
-        // DOM構造で検証: n2がn1のchildren container内にあるか
+        // Phase F flat mode: モデル上で n2 の parentId が n1 になっていることを確認
         const n2Parent = await page.evaluate(() => {
-            const n2El = document.querySelector('.outliner-node[data-id="n2"]');
-            if (!n2El) return null;
-            const childrenContainer = n2El.closest('.outliner-children');
-            return childrenContainer ? childrenContainer.getAttribute('data-parent') : 'root';
+            const api = (window as any).__testApi;
+            return api.getModel().getNode('n2')?.parentId || 'root';
         });
 
         expect(n2Parent).toBe('n1');

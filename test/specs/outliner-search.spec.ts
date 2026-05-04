@@ -325,9 +325,14 @@ test.describe('Outliner 検索テスト', () => {
                 });
             });
 
-            // 折りたたみ確認
-            const collapsedBefore = await page.locator('.outliner-children.is-collapsed').count();
+            // Phase F flat mode: 折りたたみ確認 (model 上の collapsed フラグ + child が DOM に出ない)
+            const collapsedBefore = await page.evaluate(() => {
+                const api = (window as any).__testApi;
+                return api.getModel().getNode('n1')?.collapsed ? 1 : 0;
+            });
             expect(collapsedBefore).toBe(1);
+            const childInDom = await page.locator('.outliner-node[data-id="n2"]').count();
+            expect(childInDom).toBe(0);
 
             // 検索で子ノードにマッチ
             const searchInput = page.locator('.outliner-search-input');

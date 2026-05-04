@@ -139,9 +139,11 @@ test.describe('Outliner 基本テスト', () => {
         await page.keyboard.press('Tab');
         await page.waitForTimeout(200);
 
-        // n2 が n1 の子になっている（.outliner-children は .outliner-node の兄弟要素）
-        const nestedNodeCount = await page.locator('.outliner-children .outliner-node').count();
-        expect(nestedNodeCount).toBe(1);
+        // Phase F flat mode: n2 は data-depth=1 で indent される
+        const n2Depth = await page.locator('.outliner-node[data-id="n2"]').getAttribute('data-depth');
+        expect(n2Depth).toBe('1');
+        const n2Parent = await page.evaluate(() => (window as any).__testApi.getModel().getNode('n2').parentId);
+        expect(n2Parent).toBe('n1');
     });
 
     // --- Shift+Tab でアウトデント ---
@@ -158,15 +160,21 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
-        // ネストされたノードにフォーカス
-        const nestedText = page.locator('.outliner-children .outliner-text').first();
+        // Phase F flat mode: n2 (depth=1) のテキストにフォーカス
+        const nestedText = page.locator('.outliner-node[data-id="n2"] .outliner-text').first();
         await nestedText.click();
 
         await page.keyboard.press('Shift+Tab');
         await page.waitForTimeout(200);
 
-        // n2 がトップレベルに戻っている
-        const topLevelCount = await page.locator('.outliner-tree > .outliner-node').count();
+        // n2 がトップレベルに戻っている (depth=0、parentId=null)
+        const n2Depth = await page.locator('.outliner-node[data-id="n2"]').getAttribute('data-depth');
+        expect(n2Depth).toBe('0');
+        const n2Parent = await page.evaluate(() => (window as any).__testApi.getModel().getNode('n2').parentId);
+        expect(n2Parent).toBe(null);
+        // .outliner-tree の直接子として 2 つ並ぶ
+        // Phase F flat mode: data-depth=0 の node 数
+        const topLevelCount = await page.locator('.outliner-tree > .outliner-node[data-depth="0"]').count();
         expect(topLevelCount).toBe(2);
     });
 
@@ -184,22 +192,18 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
-        // 子ノードが表示されていることを確認
-        const childBefore = await page.locator('.outliner-children .outliner-node').count();
+        // Phase F flat mode: 子ノードが flat に並ぶ (n1 + n2 が同階層)
+        const childBefore = await page.locator('.outliner-node[data-id="n2"]').count();
         expect(childBefore).toBe(1);
 
-        // バレットをクリック（.outliner-bullet は .outliner-node の直接子要素）
-        const bullet = page.locator('.outliner-tree > .outliner-node > .outliner-bullet').first();
+        // バレットをクリック (n1 の bullet)
+        const bullet = page.locator('.outliner-node[data-id="n1"] .outliner-bullet').first();
         await bullet.click();
         await page.waitForTimeout(300);
 
-        // 折りたたみ後の状態を確認
-        const childrenVisible = await page.evaluate(() => {
-            const children = document.querySelector('.outliner-children');
-            if (!children) return false;
-            return children.getBoundingClientRect().height > 0;
-        });
-        expect(childrenVisible).toBe(false);
+        // 折りたたみ後: n2 row が DOM から消える (flat mode は collapsed parent の子を描画しない)
+        const n2Visible = await page.locator('.outliner-node[data-id="n2"]').count();
+        expect(n2Visible).toBe(0);
     });
 
     // --- タグ検出 ---

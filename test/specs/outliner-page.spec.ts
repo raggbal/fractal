@@ -465,8 +465,8 @@ test.describe('Outliner ページ機能・クリップボード', () => {
         await addChildItem.click();
         await page.waitForTimeout(300);
 
-        // Should now have a nested child node
-        const childNodes = page.locator('.outliner-children .outliner-node');
+        // Phase F flat mode: 新しい子は data-depth=1 で並ぶ
+        const childNodes = page.locator('.outliner-node[data-depth="1"]');
         expect(await childNodes.count()).toBe(1);
     });
 

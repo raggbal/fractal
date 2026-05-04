@@ -135,14 +135,24 @@ async function focusedId(page: import('@playwright/test').Page): Promise<string 
     });
 }
 
-/** Return a count of nested .outliner-node elements (children of any parent). */
+/** Return a count of nested .outliner-node elements (children of any parent).
+ *  Phase F flat mode: data-depth >= 1 の node を集計 (旧 .outliner-children .outliner-node 相当)
+ */
 async function nestedNodeCount(page: import('@playwright/test').Page): Promise<number> {
-    return page.locator('.outliner-children .outliner-node').count();
+    return page.evaluate(() => {
+        return Array.from(document.querySelectorAll('.outliner-node')).filter((el) => {
+            const d = parseInt(el.getAttribute('data-depth') || '0', 10);
+            return d >= 1;
+        }).length;
+    });
 }
 
-/** Return the count of top-level nodes (direct children of .outliner-tree). */
+/** Return the count of top-level (depth=0) nodes.
+ *  Phase F flat mode: 全 node が .outliner-tree 直下に並ぶので
+ *  data-depth="0" でフィルタする
+ */
 async function topLevelNodeCount(page: import('@playwright/test').Page): Promise<number> {
-    return page.locator('.outliner-tree > .outliner-node').count();
+    return page.locator('.outliner-tree > .outliner-node[data-depth="0"]').count();
 }
 
 /** Return data-ids of all .is-selected nodes. */
@@ -280,20 +290,35 @@ test.describe('Outliner Keyboard Operations', () => {
             expect(await nodeCount(page)).toBe(3);
         });
 
-        test('4. Enter on node with expanded children inserts new node as first child', async ({ page }) => {
+        test('4. Enter on node with expanded children inserts new sibling and moves children under it', async ({ page }) => {
+            // Phase F: 実装は Enter で兄弟挿入し、現在の expanded children は新兄弟に move する
+            // (handleEnter: "node の children を newNode に移す" 分岐)
             await init(page, parentChild('parent', 'child'));
             await focusNode(page, 0); // focus parent
             await page.keyboard.press('End');
             await page.keyboard.press('Enter');
             await page.waitForTimeout(300);
 
-            // parent + new child (first) + original child = 3
+            // parent + new empty sibling + original child = 3
             expect(await nodeCount(page)).toBe(3);
-            // The new node should be the first child (empty), before 'child'
-            const childrenTexts = await page.locator('.outliner-children .outliner-text').allTextContents();
-            expect(childrenTexts.length).toBeGreaterThanOrEqual(2);
-            expect(childrenTexts[0].trim()).toBe('');
-            expect(childrenTexts[1]).toContain('child');
+
+            // モデル上で children が新兄弟へ移っていることを確認
+            const layout = await page.evaluate(() => {
+                const api = (window as any).__testApi;
+                const m = api.getModel();
+                const parent = m.getNode('p1');
+                const child = m.getNode('c1');
+                return {
+                    parentChildren: parent?.children || [],
+                    childParentId: child?.parentId,
+                    rootIds: m.rootIds.slice(),
+                };
+            });
+            expect(layout.parentChildren).toEqual([]);
+            // 子は新兄弟（root 配列の 2 番目）の下に居る
+            expect(layout.rootIds.length).toBe(2);
+            expect(layout.rootIds[0]).toBe('p1');
+            expect(layout.childParentId).toBe(layout.rootIds[1]);
         });
 
         test('5. Enter on task node (checked) creates new node with checked=false', async ({ page }) => {
@@ -329,8 +354,8 @@ test.describe('Outliner Keyboard Operations', () => {
 
             expect(await nodeCount(page)).toBe(2);
             expect(await nestedNodeCount(page)).toBe(1);
-            // The new child should be empty
-            const childText = await page.locator('.outliner-children .outliner-text').first().textContent();
+            // The new child should be empty (Phase F flat: depth=1 の最初の text)
+            const childText = await page.locator('.outliner-node[data-depth="1"] .outliner-text').first().textContent();
             expect((childText ?? '').trim()).toBe('');
         });
     });
@@ -494,13 +519,15 @@ test.describe('Outliner Keyboard Operations', () => {
             await page.keyboard.press('ArrowLeft');
             await page.waitForTimeout(300);
 
+            // Phase F flat mode: collapsed の判定はモデル + DOM 上の child 非表示で確認
             const isCollapsed = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="p1"]');
-                return children?.classList.contains('is-collapsed') ?? false;
+                const api = (window as any).__testApi;
+                const node = api.getModel().getNode('p1');
+                return !!node?.collapsed;
             });
-            // If the cursor was truly at offset 0, ArrowLeft triggers collapse.
-            // If not (e.g., renderEditingText tags shift offset), check via model.
+            const childInDom = await page.locator('.outliner-node[data-id="c1"]').count();
             expect(isCollapsed).toBe(true);
+            expect(childInDom).toBe(0);
         });
 
         test('20. ArrowRight at end with collapsed children expands node', async ({ page }) => {
@@ -518,11 +545,15 @@ test.describe('Outliner Keyboard Operations', () => {
             await page.keyboard.press('ArrowRight');
             await page.waitForTimeout(300);
 
+            // Phase F flat mode: expand 後は child が DOM 上に出る
             const isCollapsed = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="p1"]');
-                return children?.classList.contains('is-collapsed') ?? false;
+                const api = (window as any).__testApi;
+                const node = api.getModel().getNode('p1');
+                return !!node?.collapsed;
             });
+            const childInDom = await page.locator('.outliner-node[data-id="c1"]').count();
             expect(isCollapsed).toBe(false);
+            expect(childInDom).toBe(1);
         });
     });
 
@@ -766,14 +797,16 @@ test.describe('Outliner Keyboard Operations', () => {
 
     test.describe('Cmd+F', () => {
 
-        test('34. Cmd+F focuses search bar', async ({ page }) => {
+        test('34. Cmd+F focuses in-document text search input', async ({ page }) => {
             await init(page, singleNode('n1', 'test'));
             await focusNode(page, 0);
             await page.keyboard.press('Meta+f');
             await page.waitForTimeout(200);
 
+            // Cmd+F は openTextSearchBox() が走り、.outliner-search-replace-box .search-input にフォーカス
+            // (.outliner-search-input はヘッダフィルタ用で、こちらは Cmd+Shift+F)
             const isFocused = await page.evaluate(() => {
-                const searchInput = document.querySelector('.outliner-search-input');
+                const searchInput = document.querySelector('.outliner-search-replace-box .search-input');
                 return document.activeElement === searchInput;
             });
             expect(isFocused).toBe(true);
@@ -792,33 +825,32 @@ test.describe('Outliner Keyboard Operations', () => {
             expect(await nestedNodeCount(page)).toBe(1);
 
             // Collapse via bullet click (same selector as outliner-basic.spec.ts)
-            const bullet = page.locator('.outliner-tree > .outliner-node > .outliner-bullet').first();
+            const bullet = page.locator('.outliner-tree > .outliner-node[data-id="p1"] > .outliner-bullet').first();
             await bullet.click();
             await page.waitForTimeout(300);
 
+            // Phase F flat mode: collapsed parent の child は DOM から消える
             const isCollapsed = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="p1"]');
-                return children?.classList.contains('is-collapsed') ?? false;
+                const api = (window as any).__testApi;
+                return !!api.getModel().getNode('p1')?.collapsed;
             });
             expect(isCollapsed).toBe(true);
 
-            // Children should be hidden
-            const childrenVisible = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="p1"]');
-                if (!children) return false;
-                return (children as HTMLElement).getBoundingClientRect().height > 0;
-            });
-            expect(childrenVisible).toBe(false);
+            // Child node should be removed from DOM
+            const childInDom = await page.locator('.outliner-node[data-id="c1"]').count();
+            expect(childInDom).toBe(0);
 
             // Toggle back
             await bullet.click();
             await page.waitForTimeout(300);
 
             const isCollapsedAfter = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="p1"]');
-                return children?.classList.contains('is-collapsed') ?? false;
+                const api = (window as any).__testApi;
+                return !!api.getModel().getNode('p1')?.collapsed;
             });
             expect(isCollapsedAfter).toBe(false);
+            const childInDomAfter = await page.locator('.outliner-node[data-id="c1"]').count();
+            expect(childInDomAfter).toBe(1);
         });
     });
 
@@ -886,7 +918,7 @@ test.describe('Outliner Keyboard Operations', () => {
 
         test('ArrowUp from child navigates to parent', async ({ page }) => {
             await init(page, parentChild('parent', 'child'));
-            const childText = page.locator('.outliner-children .outliner-text').first();
+            const childText = page.locator('.outliner-node[data-depth="1"] .outliner-text').first();
             await childText.click();
             await page.waitForTimeout(100);
             await page.keyboard.press('ArrowUp');
@@ -921,9 +953,10 @@ test.describe('Outliner Keyboard Operations', () => {
             await dispatchKey(page, { key: '.', code: 'Period', metaKey: true });
             await page.waitForTimeout(200);
 
+            // Phase F flat mode: 子のないノードは collapsed にならない
             const isCollapsed = await page.evaluate(() => {
-                const children = document.querySelector('.outliner-children[data-parent="n1"]');
-                return children?.classList.contains('is-collapsed') ?? false;
+                const api = (window as any).__testApi;
+                return !!api.getModel().getNode('n1')?.collapsed;
             });
             expect(isCollapsed).toBe(false);
         });

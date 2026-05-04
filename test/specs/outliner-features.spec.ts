@@ -76,11 +76,11 @@ test.describe('折りたたみ/展開', () => {
         await setup(page);
     });
 
-    test('1. バレットクリック → 折りたたみ（子ノードが非表示、heightが0）', async ({ page }) => {
+    test('1. バレットクリック → 折りたたみ（子ノードが非表示、DOM上から消失）', async ({ page }) => {
         await init(page, parentChildData());
 
-        // 子ノードが表示されていることを確認
-        const childBefore = await page.locator('.outliner-children .outliner-node').count();
+        // Phase F flat mode: 子ノードが表示されていることを確認 (depth=1)
+        const childBefore = await page.locator('.outliner-node[data-depth="1"]').count();
         expect(childBefore).toBe(2);
 
         // 親ノードのバレットをクリック
@@ -88,13 +88,9 @@ test.describe('折りたたみ/展開', () => {
         await bullet.click();
         await page.waitForTimeout(300);
 
-        // 折りたたみ後、子要素の高さが0
-        const childrenHeight = await page.evaluate(() => {
-            const children = document.querySelector('.outliner-children[data-parent="p1"]');
-            if (!children) return -1;
-            return children.getBoundingClientRect().height;
-        });
-        expect(childrenHeight).toBe(0);
+        // Phase F flat mode: collapsed parent の子は DOM から消える
+        const childAfter = await page.locator('.outliner-node[data-depth="1"]').count();
+        expect(childAfter).toBe(0);
     });
 
     test('2. 折りたたみ後に再度バレットクリック → 展開（子ノード表示）', async ({ page }) => {
@@ -110,12 +106,9 @@ test.describe('折りたたみ/展開', () => {
         await bullet.click();
         await page.waitForTimeout(300);
 
-        const childrenHeight = await page.evaluate(() => {
-            const children = document.querySelector('.outliner-children[data-parent="p1"]');
-            if (!children) return 0;
-            return children.getBoundingClientRect().height;
-        });
-        expect(childrenHeight).toBeGreaterThan(0);
+        // Phase F flat mode: expand 後に子 (depth=1) が再表示
+        const childCount = await page.locator('.outliner-node[data-depth="1"]').count();
+        expect(childCount).toBe(2);
     });
 
     test('3. 折りたたみ時にバレットに子の数を表示', async ({ page }) => {
@@ -151,9 +144,12 @@ test.describe('折りたたみ/展開', () => {
         const nodeCountAfter = await page.locator('.outliner-node').count();
         expect(nodeCountAfter).toBe(nodeCountBefore);
 
-        // collapsed クラスが付いていない
-        const isCollapsed = await page.locator('.outliner-node[data-id="n1"] > .outliner-children.is-collapsed').count();
-        expect(isCollapsed).toBe(0);
+        // Phase F flat mode: 子のないノードは collapsed にならない
+        const isCollapsed = await page.evaluate(() => {
+            const api = (window as any).__testApi;
+            return !!api.getModel().getNode('n1')?.collapsed;
+        });
+        expect(isCollapsed).toBe(false);
     });
 });
 

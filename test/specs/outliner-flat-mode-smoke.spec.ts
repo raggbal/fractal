@@ -13,7 +13,7 @@ import { test, expect } from '@playwright/test';
 const STANDALONE_URL = 'http://localhost:3000/standalone-outliner.html';
 
 test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
-    test('hierarchical (default) で .outliner-children が出る', async ({ page }) => {
+    test('hierarchical 切替で .outliner-children が出る (F1.5 で削除予定の互換確認)', async ({ page }) => {
         await page.goto(STANDALONE_URL);
         await page.waitForSelector('.outliner-tree');
 
@@ -29,6 +29,9 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
                 }
             };
             (window as any).Outliner.init(initialData);
+            // 明示的に hierarchical へ切替（F1.3 でデフォルトは flat）
+            (window as any).Outliner._setRenderMode('hierarchical');
+            (window as any).Outliner.resetSearchAndScope();
         });
 
         await page.waitForTimeout(100);

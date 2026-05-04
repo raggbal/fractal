@@ -300,6 +300,8 @@ const html = `<!DOCTYPE html>
         }
         return null;
     };
+    // Phase F: spec から Outliner.getModel() / _setRenderMode 等にアクセスするためのショートカット
+    window.__testApi.getModel = function() { return Outliner.getModel(); };
     // 空データで初期化
     window.__testApi.initOutliner();
     </script>
