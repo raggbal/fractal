@@ -282,6 +282,14 @@ body {
     border-top: 1px solid var(--outliner-border);
 }
 
+/* table mode は横スクロール許可、上 padding 削除 */
+.outliner-tree[data-view-mode="table"] {
+    overflow-x: auto;
+    padding: 0;
+    margin: 0;
+    border-top: none;
+}
+
 /* --- Node --- */
 .outliner-node {
     display: flex;
@@ -1468,26 +1476,33 @@ body {
    Phase F2: Table editor mode
    ============================================================ */
 
+/* parent (.outliner-tree-wrapper or直接) は overflow-x: auto を持つ前提。
+   table mode 時は max-content 幅で広がり、横スクロールを発生させる */
 .outliner-tree[data-view-mode="table"] {
     display: grid;
     width: max-content;
     min-width: 100%;
+    /* 上のツールバーとの隙間を詰める */
+    padding-top: 0;
+    margin-top: 0;
 }
 
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: var(--vscode-editor-background, #1e1e1e);
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    /* テーマ追従: editorWidget や input の bg を採用 (light/dark 両対応) */
+    background: var(--vscode-editorWidget-background, var(--vscode-input-background, var(--vscode-editor-background)));
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
     font-weight: 600;
     user-select: none;
     display: flex;
     align-items: center;
     box-sizing: border-box;
     cursor: grab;
+    position: relative;  /* resize handle を絶対配置するため */
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header:active {
     cursor: grabbing;
@@ -1501,33 +1516,44 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* resize handle: header 右端に絶対配置、列境界とぴったり重なる */
 .outliner-col-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -3px;
     width: 6px;
-    height: 100%;
-    margin-right: -3px;
     cursor: col-resize;
     background: transparent;
+    z-index: 11;
 }
-.outliner-col-resize-handle:hover {
+.outliner-col-resize-handle:hover,
+.outliner-col-resize-handle:active {
     background: var(--vscode-focusBorder, #007acc);
-    opacity: 0.5;
+    opacity: 0.6;
 }
 
-/* table mode の各 grid item は box-sizing: border-box */
+/* table mode の各 grid item: 行線無し、列セルは内容に合わせて高さ可変 */
 .outliner-tree[data-view-mode="table"] > .outliner-node,
 .outliner-tree[data-view-mode="table"] > .outliner-cell-text,
 .outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect {
     box-sizing: border-box;
-    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.2));
     padding: 4px 8px;
-    overflow: hidden;
-    min-height: 32px;
+    /* 行線・列線を出さない (ユーザー要望) */
+    border: none;
+}
+
+/* Outliner cell (table mode) は既存 .outliner-node がそのまま入るので height auto */
+.outliner-tree[data-view-mode="table"] > .outliner-node {
+    align-self: stretch;
 }
 
 .outliner-cell-text {
     outline: none;
     line-height: 1.5;
+    /* テキスト折り返しに合わせて高さ可変 */
+    word-break: break-word;
+    white-space: pre-wrap;
 }
 .outliner-cell-text:focus {
     outline: 1px solid var(--vscode-focusBorder, #007acc);
@@ -1540,7 +1566,19 @@ body {
     flex-wrap: wrap;
     gap: 4px;
     align-items: flex-start;
+    align-content: flex-start;
     cursor: pointer;
+    min-height: 24px;
+    outline: none;
+}
+.outliner-cell-multiselect:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007acc);
+    outline-offset: -1px;
+}
+.outliner-cell-multiselect-placeholder {
+    color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
+    font-style: italic;
+    font-size: 12px;
 }
 
 .outliner-chip {
@@ -1637,6 +1675,11 @@ body {
     background: rgba(127, 127, 127, 0.18);
 }
 .outliner-col-ctx-remove { color: #f47b7b; }
+.outliner-col-ctx-sep {
+    height: 1px;
+    background: var(--vscode-panel-border, rgba(127,127,127,0.3));
+    margin: 4px 0;
+}
 
 /* add-column dialog */
 .outliner-add-col-dialog {
