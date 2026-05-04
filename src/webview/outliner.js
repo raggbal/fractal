@@ -1038,9 +1038,13 @@ var Outliner = (function() {
         node.columnValues[colId] = value;
     }
 
-    /** table mode の renderTree。F2.2 以降で本実装。 */
+    /** table mode の renderTree。
+     *  注意: renderTree() 経由で呼ばれる時は innerHTML が既にクリア済だが、
+     *  操作ハンドラから直接呼ばれる場合があるので、この関数自身で必ずクリアする。 */
     function renderTableMode() {
         ensureColumnsForTable();
+        treeEl.innerHTML = '';
+        treeEl.dataset.viewMode = 'table';
         updateBreadcrumb();
 
         var cols = model.columns;
@@ -1048,8 +1052,9 @@ var Outliner = (function() {
         var widthSpec = cols.map(function (c) { return c.width + 'px'; }).join(' ');
         treeEl.style.display = 'grid';
         treeEl.style.gridTemplateColumns = widthSpec;
-        treeEl.style.width = 'max-content';
-        treeEl.style.minWidth = '100%';
+        // width / min-width は inline で書かない (CSS で overflow-x: auto を効かせる)
+        treeEl.style.width = '';
+        treeEl.style.minWidth = '';
 
         // 列ヘッダー row
         var headerFragment = document.createDocumentFragment();
