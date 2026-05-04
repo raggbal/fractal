@@ -25171,21 +25171,24 @@ var Outliner = (function() {
             }
         });
 
-        // paste: rich text を plaintext 変換 (URL は markdown link 化を applyInlineFormat 系に委ねず簡易処理)
+        // paste: plaintext 変換 + URL は markdown link 化 (outline 列と同じ挙動)
         el.addEventListener('paste', function (e) {
             e.preventDefault();
             var text = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
             if (!text) return;
             saveSnapshot();
-            // 既存テキストの cursor 位置に挿入
+            // URL を [URL](URL) 形式に変換 (outline 列と同じ helper)
+            var insertText = (typeof convertUrlsToMarkdownLinks === 'function')
+                ? convertUrlsToMarkdownLinks(text)
+                : text;
             var current = getCellValue(node.id, col.id, 'text') || '';
             var off = 0;
             try { off = getCursorOffset(el); } catch (e2) {}
             var sourceOff = renderedOffsetToSource(current, off);
-            var newText = current.slice(0, sourceOff) + text + current.slice(sourceOff);
+            var newText = current.slice(0, sourceOff) + insertText + current.slice(sourceOff);
             setCellValue(node.id, col.id, newText);
             el.innerHTML = renderEditingText(newText);
-            try { setCursorAtOffset(el, sourceOff + text.length); } catch (e2) {}
+            try { setCursorAtOffset(el, sourceOff + insertText.length); } catch (e2) {}
             scheduleSyncToHost();
         });
 
