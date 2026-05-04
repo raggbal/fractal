@@ -2453,7 +2453,18 @@ var Outliner = (function() {
                 if (e.altKey) { break; }
                 if (isAtStart && node.children && node.children.length > 0 && !node.collapsed) {
                     e.preventDefault();
+                    var leftOffset = getCursorOffset(textEl);
                     toggleCollapse(nodeId);
+                    // toggleCollapse は renderTree() を呼ぶので textEl が stale。
+                    // 同じ node に focus を戻し、cursor 位置 (先頭) を維持する。
+                    var leftNodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+                    if (leftNodeEl) {
+                        var leftNewTextEl = leftNodeEl.querySelector('.outliner-text');
+                        if (leftNewTextEl) {
+                            leftNewTextEl.focus();
+                            setCursorAtOffset(leftNewTextEl, leftOffset);
+                        }
+                    }
                 }
                 break;
 
@@ -2462,7 +2473,17 @@ var Outliner = (function() {
                 if (e.altKey) { break; }
                 if (isAtEnd && node.collapsed) {
                     e.preventDefault();
+                    var rightOffset = getCursorOffset(textEl);
                     toggleCollapse(nodeId);
+                    // 同じ node に focus を戻し、cursor 位置 (末尾) を維持する。
+                    var rightNodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+                    if (rightNodeEl) {
+                        var rightNewTextEl = rightNodeEl.querySelector('.outliner-text');
+                        if (rightNewTextEl) {
+                            rightNewTextEl.focus();
+                            setCursorAtOffset(rightNewTextEl, rightOffset);
+                        }
+                    }
                 }
                 break;
 
