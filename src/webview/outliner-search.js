@@ -196,6 +196,8 @@ var OutlinerSearch = (function() {
                 for (var i = 0; i < (node.tags || []).length; i++) {
                     if (node.tags[i].toLowerCase() === tagLower) { return true; }
                 }
+                // Phase F2.5+: multiselect 列のタグ option もタグ検索対象に
+                if (this._matchesColumnTags(node, tagLower)) return true;
                 return false;
 
             case 'NOT':
@@ -219,6 +221,27 @@ var OutlinerSearch = (function() {
             default:
                 return false;
         }
+    };
+
+    /** Phase F2.5+: tag query (#xxx / @xxx) で multiselect option label にマッチ判定 */
+    SearchEngine.prototype._matchesColumnTags = function(node, lowerTag) {
+        if (!node.columnValues) return false;
+        var cols = (this.model && this.model.columns) || [];
+        for (var i = 0; i < cols.length; i++) {
+            var col = cols[i];
+            if (col.type !== 'multiselect') continue;
+            var v = node.columnValues[col.id];
+            if (!Array.isArray(v)) continue;
+            var opts = col.options || [];
+            for (var j = 0; j < v.length; j++) {
+                for (var k = 0; k < opts.length; k++) {
+                    if (opts[k].id === v[j] && (opts[k].label || '').toLowerCase() === lowerTag) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     };
 
     /** Phase F2.5: node.columnValues / model.columns を辿って lowercase でマッチ判定。 */

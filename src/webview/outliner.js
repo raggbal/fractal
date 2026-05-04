@@ -1248,6 +1248,21 @@ var Outliner = (function() {
         var rawValue = getCellValue(node.id, col.id, 'text') || '';
         el.innerHTML = renderInlineText(rawValue);
 
+        // タグダブルクリック → 検索ボックスに反映 (outline 列と同じ挙動)
+        el.addEventListener('dblclick', function (e) {
+            var tag = e.target.closest && e.target.closest('.outliner-tag');
+            if (!tag) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (searchInput) {
+                if (typeof pushNavState === 'function') pushNavState();
+                searchInput.value = tag.textContent;
+                if (typeof executeSearch === 'function') executeSearch();
+                if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+                searchInput.focus();
+            }
+        });
+
         var isComposing = false;
 
         el.addEventListener('focus', function () {
@@ -1399,19 +1414,30 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
-    // ----- F2.4: multiselect cell -----
+    // ----- F2.4: multiselect cell (tag-based) -----
+    // 各 option = タグ。label は "#tag" または "@tag" 形式 (prefix なしなら # を自動付与)。
+    // chip クリック → dropdown、chip ダブルクリック → 検索ボックスに反映 (outline タグと同じ)。
     var MULTISELECT_PALETTE = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'zinc'];
 
     function ensureColumnOptions(col) {
         if (!col.options) col.options = [];
     }
 
-    /** option のラベル正規化 (大文字小文字 / trim) で重複検出 */
+    /** タグ形式に正規化: 先頭 # / @ がなければ # を付与 */
+    function normalizeTagLabel(label) {
+        var s = (label || '').trim();
+        if (!s) return s;
+        var first = s.charAt(0);
+        if (first === '#' || first === '@') return s;
+        return '#' + s;
+    }
+
+    /** option のラベル正規化 (case-insensitive) で重複検出 */
     function findOptionByLabel(col, label) {
         ensureColumnOptions(col);
-        var norm = (label || '').trim().toLowerCase();
+        var norm = normalizeTagLabel(label).toLowerCase();
         for (var i = 0; i < col.options.length; i++) {
-            if ((col.options[i].label || '').trim().toLowerCase() === norm) {
+            if (normalizeTagLabel(col.options[i].label).toLowerCase() === norm) {
                 return col.options[i];
             }
         }
@@ -1425,11 +1451,23 @@ var Outliner = (function() {
         var color = MULTISELECT_PALETTE[col.options.length % MULTISELECT_PALETTE.length];
         var newOpt = {
             id: 'opt_' + Math.random().toString(36).slice(2, 10),
-            label: label.trim(),
+            label: normalizeTagLabel(label),
             color: color
         };
         col.options.push(newOpt);
         return newOpt;
+    }
+
+    /** column からタグ option を削除し、全 node の columnValues からも該当 option id を削除 */
+    function deleteMultiselectOption(col, optId) {
+        ensureColumnOptions(col);
+        col.options = col.options.filter(function (o) { return o.id !== optId; });
+        for (var nid in model.nodes) {
+            var n = model.nodes[nid];
+            if (n.columnValues && Array.isArray(n.columnValues[col.id])) {
+                n.columnValues[col.id] = n.columnValues[col.id].filter(function (id) { return id !== optId; });
+            }
+        }
     }
 
     function createMultiselectCellElement(node, col) {
@@ -1496,10 +1534,27 @@ var Outliner = (function() {
         var span = document.createElement('span');
         span.className = 'outliner-chip outliner-chip-color-' + opt.color;
         span.dataset.optId = opt.id;
-        span.textContent = opt.label;
+        // タグラベル本体は textContent で別 span に入れる (× ボタンと分離)
+        var labelEl = document.createElement('span');
+        labelEl.className = 'outliner-chip-label';
+        labelEl.textContent = opt.label;
+        span.appendChild(labelEl);
+        // ダブルクリック → 検索ボックスに反映
+        span.addEventListener('dblclick', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (searchInput) {
+                if (typeof pushNavState === 'function') pushNavState();
+                searchInput.value = opt.label;
+                if (typeof executeSearch === 'function') executeSearch();
+                if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+                searchInput.focus();
+            }
+        });
         var remove = document.createElement('span');
         remove.className = 'outliner-chip-remove';
         remove.textContent = '×';
+        remove.title = 'Remove from this cell';
         remove.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -1533,7 +1588,7 @@ var Outliner = (function() {
         var input = document.createElement('input');
         input.type = 'text';
         input.className = 'outliner-multiselect-input';
-        input.placeholder = 'Search or create...';
+        input.placeholder = '#tag or @tag';
         dropdown.appendChild(input);
 
         var list = document.createElement('div');
@@ -1543,9 +1598,13 @@ var Outliner = (function() {
         function refreshList() {
             list.innerHTML = '';
             var filter = (input.value || '').trim().toLowerCase();
+            // フィルタは prefix # / @ を無視して match
+            var filterCore = filter.replace(/^[#@]/, '');
             var current = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
             var matched = (col.options || []).filter(function (o) {
-                return !filter || (o.label || '').toLowerCase().indexOf(filter) >= 0;
+                if (!filter) return true;
+                var labLower = (o.label || '').toLowerCase();
+                return labLower.indexOf(filter) >= 0 || labLower.indexOf(filterCore) >= 0;
             });
             for (var i = 0; i < matched.length; i++) {
                 (function (opt) {
@@ -1561,7 +1620,25 @@ var Outliner = (function() {
                     chip.className = 'outliner-chip outliner-chip-color-' + opt.color;
                     chip.textContent = opt.label;
                     item.appendChild(chip);
+                    // tag master からの削除ボタン
+                    var del = document.createElement('span');
+                    del.className = 'outliner-multiselect-item-delete';
+                    del.textContent = '🗑';
+                    del.title = 'Delete this tag from all cells';
+                    del.addEventListener('mousedown', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        saveSnapshot();
+                        deleteMultiselectOption(col, opt.id);
+                        scheduleSyncToHost();
+                        // この dropdown は閉じて全 row 再描画 (他 cell も影響)
+                        closeMultiselectDropdown();
+                        renderTableMode();
+                    });
+                    item.appendChild(del);
                     item.addEventListener('mousedown', function (e) {
+                        // 削除ボタン以外のクリックで toggle
+                        if (e.target === del || del.contains(e.target)) return;
                         e.preventDefault();
                         e.stopPropagation();
                         saveSnapshot();
@@ -1571,7 +1648,6 @@ var Outliner = (function() {
                         else arr.push(opt.id);
                         setCellValue(node.id, col.id, arr);
                         scheduleSyncToHost();
-                        // re-render cell + dropdown list
                         var newCell = createMultiselectCellElement(node, col);
                         cellEl.parentNode.replaceChild(newCell, cellEl);
                         cellEl = newCell;
@@ -1581,12 +1657,13 @@ var Outliner = (function() {
                 })(matched[i]);
             }
 
-            // フィルタにマッチしない場合のみ「+ Create "<filter>"」を表示
+            // フィルタにマッチする option が無い時のみ「+ Create」を表示
             var filterRaw = (input.value || '').trim();
             if (filterRaw && !findOptionByLabel(col, filterRaw)) {
+                var willBe = normalizeTagLabel(filterRaw);
                 var createItem = document.createElement('div');
                 createItem.className = 'outliner-multiselect-create';
-                createItem.textContent = '+ Create "' + filterRaw + '"';
+                createItem.textContent = '+ Create ' + willBe;
                 createItem.addEventListener('mousedown', function (e) {
                     e.preventDefault();
                     e.stopPropagation();

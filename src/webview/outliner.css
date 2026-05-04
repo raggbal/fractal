@@ -570,22 +570,32 @@ body {
     background: var(--outliner-tag-hover-bg);
 }
 
-/* --- Inline elements --- */
-.outliner-text strong { font-weight: 600; }
-.outliner-text em { font-style: italic; }
-.outliner-text del { text-decoration: line-through; opacity: 0.6; }
-.outliner-text code {
+/* --- Inline elements (outline 列 + table mode の text cell 共通) --- */
+.outliner-text strong, .outliner-cell-text strong { font-weight: 600; }
+.outliner-text em, .outliner-cell-text em { font-style: italic; }
+.outliner-text del, .outliner-cell-text del { text-decoration: line-through; opacity: 0.6; }
+.outliner-text code, .outliner-cell-text code {
     background: var(--outliner-code-bg);
     padding: 1px 4px;
     border-radius: 3px;
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     font-size: 0.9em;
 }
-.outliner-text a {
+.outliner-text a, .outliner-cell-text a {
     color: var(--outliner-tag-color);
     text-decoration: underline;
     cursor: pointer;
 }
+/* tag span は outline / cell どちらでも共通の見た目 */
+.outliner-cell-text .outliner-tag {
+    color: var(--outliner-tag-color);
+    background: var(--outliner-tag-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.outliner-cell-text .outliner-tag:hover { background: var(--outliner-tag-hover-bg); }
 .outliner-text a.link-fractal-node::before,
 .outliner-text a.link-fractal-page::before,
 .outliner-text a.link-internal-md::before {
@@ -1684,6 +1694,21 @@ body {
     font-family: monospace;
     width: 16px;
     text-align: center;
+}
+.outliner-multiselect-item .outliner-chip { flex: 1; }
+/* タグ master の削除ボタン (dropdown item の右端) */
+.outliner-multiselect-item-delete {
+    margin-left: auto;
+    width: 22px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0.4;
+    font-size: 12px;
+    line-height: 1;
+}
+.outliner-multiselect-item-delete:hover {
+    opacity: 1;
+    color: var(--outliner-error-color, #d32f2f);
 }
 .outliner-multiselect-create {
     color: var(--outliner-tag-color, var(--outliner-fg));
