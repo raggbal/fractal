@@ -144,6 +144,7 @@ export function getNotesWebviewContent(
                     <div class="outliner-search-input-wrapper"><input type="text" class="outliner-search-input" placeholder="Search... (e.g. #tag, keyword, is:page)" /><button class="outliner-search-clear-btn" style="display:none" title="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
                     <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
                     <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
+                    <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
                     <button class="outliner-menu-btn" title="Menu"></button>
                 </div>
                 <div class="outliner-pinned-nav-bar">

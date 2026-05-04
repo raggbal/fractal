@@ -1463,3 +1463,223 @@ body {
     background-color: rgba(255, 165, 0, 0.6);
     border-radius: 2px;
 }
+
+/* ============================================================
+   Phase F2: Table editor mode
+   ============================================================ */
+
+.outliner-tree[data-view-mode="table"] {
+    display: grid;
+    width: max-content;
+    min-width: 100%;
+}
+
+.outliner-tree[data-view-mode="table"] .outliner-col-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--vscode-editor-background, #1e1e1e);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    font-weight: 600;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    cursor: grab;
+}
+.outliner-tree[data-view-mode="table"] .outliner-col-header:active {
+    cursor: grabbing;
+}
+.outliner-tree[data-view-mode="table"] .outliner-col-header[data-col-type="outliner"] {
+    cursor: default;
+}
+.outliner-col-header-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.outliner-col-resize-handle {
+    width: 6px;
+    height: 100%;
+    margin-right: -3px;
+    cursor: col-resize;
+    background: transparent;
+}
+.outliner-col-resize-handle:hover {
+    background: var(--vscode-focusBorder, #007acc);
+    opacity: 0.5;
+}
+
+/* table mode の各 grid item は box-sizing: border-box */
+.outliner-tree[data-view-mode="table"] > .outliner-node,
+.outliner-tree[data-view-mode="table"] > .outliner-cell-text,
+.outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect {
+    box-sizing: border-box;
+    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.2));
+    padding: 4px 8px;
+    overflow: hidden;
+    min-height: 32px;
+}
+
+.outliner-cell-text {
+    outline: none;
+    line-height: 1.5;
+}
+.outliner-cell-text:focus {
+    outline: 1px solid var(--vscode-focusBorder, #007acc);
+    outline-offset: -1px;
+}
+
+/* multiselect cell */
+.outliner-cell-multiselect {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: flex-start;
+    cursor: pointer;
+}
+
+.outliner-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    user-select: none;
+    line-height: 1.4;
+}
+.outliner-chip-remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 11px;
+}
+.outliner-chip-remove:hover { opacity: 1; }
+
+/* 8 色 palette */
+.outliner-chip-color-red    { background: rgba(244, 67, 54, 0.18); color: #ff8a80; }
+.outliner-chip-color-orange { background: rgba(255, 152, 0, 0.18); color: #ffb74d; }
+.outliner-chip-color-yellow { background: rgba(255, 235, 59, 0.20); color: #fff176; }
+.outliner-chip-color-green  { background: rgba(76, 175, 80, 0.18); color: #81c784; }
+.outliner-chip-color-blue   { background: rgba(33, 150, 243, 0.18); color: #64b5f6; }
+.outliner-chip-color-purple { background: rgba(156, 39, 176, 0.18); color: #ba68c8; }
+.outliner-chip-color-pink   { background: rgba(233, 30, 99, 0.18); color: #f06292; }
+.outliner-chip-color-zinc   { background: rgba(120, 120, 120, 0.18); color: #bdbdbd; }
+
+/* multiselect dropdown */
+.outliner-multiselect-dropdown {
+    background: var(--vscode-editor-background, #252526);
+    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 200;
+    padding: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.outliner-multiselect-input {
+    width: 100%;
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ddd);
+    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    border-radius: 3px;
+    box-sizing: border-box;
+    font-size: 12px;
+}
+.outliner-multiselect-list {
+    display: flex;
+    flex-direction: column;
+}
+.outliner-multiselect-item, .outliner-multiselect-create {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 12px;
+}
+.outliner-multiselect-item:hover, .outliner-multiselect-create:hover {
+    background: rgba(127, 127, 127, 0.15);
+}
+.outliner-multiselect-checkbox {
+    font-family: monospace;
+    width: 16px;
+    text-align: center;
+}
+.outliner-multiselect-create {
+    color: var(--vscode-textLink-foreground, #4ec9b0);
+    font-style: italic;
+}
+
+/* column context menu */
+.outliner-col-ctx-menu {
+    background: var(--vscode-editor-background, #252526);
+    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 200;
+    padding: 4px 0;
+    min-width: 160px;
+}
+.outliner-col-ctx-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.outliner-col-ctx-item:hover {
+    background: rgba(127, 127, 127, 0.18);
+}
+.outliner-col-ctx-remove { color: #f47b7b; }
+
+/* add-column dialog */
+.outliner-add-col-dialog {
+    background: var(--vscode-editor-background, #252526);
+    border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 300;
+    padding: 16px;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.outliner-add-col-label { font-weight: 600; }
+.outliner-add-col-name, .outliner-add-col-type {
+    width: 100%;
+    background: var(--vscode-input-background, #3c3c3c);
+    color: var(--vscode-input-foreground, #ddd);
+    border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
+    padding: 6px 8px;
+    border-radius: 3px;
+    box-sizing: border-box;
+    font-size: 13px;
+}
+.outliner-add-col-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.outliner-add-col-buttons button {
+    padding: 6px 14px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-size: 13px;
+}
+.outliner-add-col-buttons button:first-child {
+    background: transparent;
+    color: var(--vscode-foreground, #ddd);
+    border-color: var(--outliner-border, rgba(127,127,127,0.4));
+}
+.outliner-add-col-buttons button:last-child {
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+}

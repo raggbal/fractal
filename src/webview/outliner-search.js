@@ -178,13 +178,18 @@ var OutlinerSearch = (function() {
         switch (query.type) {
             case 'text':
                 var tq = query.value.toLowerCase();
-                return node.text.toLowerCase().indexOf(tq) >= 0
-                    || (node.subtext && node.subtext.toLowerCase().indexOf(tq) >= 0);
+                if (node.text.toLowerCase().indexOf(tq) >= 0) return true;
+                if (node.subtext && node.subtext.toLowerCase().indexOf(tq) >= 0) return true;
+                // Phase F2.5: 列値 (text / multiselect option label) も検索対象
+                if (this._matchesColumnValues(node, tq)) return true;
+                return false;
 
             case 'phrase':
                 var pq = query.value.toLowerCase();
-                return node.text.toLowerCase().indexOf(pq) >= 0
-                    || (node.subtext && node.subtext.toLowerCase().indexOf(pq) >= 0);
+                if (node.text.toLowerCase().indexOf(pq) >= 0) return true;
+                if (node.subtext && node.subtext.toLowerCase().indexOf(pq) >= 0) return true;
+                if (this._matchesColumnValues(node, pq)) return true;
+                return false;
 
             case 'tag':
                 var tagLower = query.value.toLowerCase();
@@ -214,6 +219,31 @@ var OutlinerSearch = (function() {
             default:
                 return false;
         }
+    };
+
+    /** Phase F2.5: node.columnValues / model.columns を辿って lowercase でマッチ判定。 */
+    SearchEngine.prototype._matchesColumnValues = function(node, lowerQuery) {
+        if (!node.columnValues) return false;
+        var cols = (this.model && this.model.columns) || [];
+        for (var i = 0; i < cols.length; i++) {
+            var col = cols[i];
+            var v = node.columnValues[col.id];
+            if (v === undefined || v === null) continue;
+            if (col.type === 'text') {
+                if (typeof v === 'string' && v.toLowerCase().indexOf(lowerQuery) >= 0) return true;
+            } else if (col.type === 'multiselect' && Array.isArray(v)) {
+                var opts = col.options || [];
+                for (var j = 0; j < v.length; j++) {
+                    var optId = v[j];
+                    var opt = null;
+                    for (var k = 0; k < opts.length; k++) {
+                        if (opts[k].id === optId) { opt = opts[k]; break; }
+                    }
+                    if (opt && (opt.label || '').toLowerCase().indexOf(lowerQuery) >= 0) return true;
+                }
+            }
+        }
+        return false;
     };
 
     SearchEngine.prototype._matchOperator = function(node, name, value) {

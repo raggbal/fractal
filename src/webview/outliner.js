@@ -41,11 +41,46 @@ var Outliner = (function() {
     // .outliner-node-indent (width = depth * 24px) で表現する。
     // 旧 .outliner-children ラッパーは生成しない (CSS は legacy として残す)。
 
+    // Phase F2.1 (2026-05-04): VIEW_MODE flag 追加。
+    //   'outliner' (default): 既存 flat outliner DOM (1 列)
+    //   'table'           : 列ヘッダー + 各 outliner row に列セルを並べる (table editor)
+    // 列定義は model.columns で永続化、各 node の値は node.columnValues で保持。
+    // F2.1 段階では 'table' は stub (= outliner と同じ描画)。F2.2 で実装。
+    var VIEW_MODE = 'outliner';
+    function getViewMode() { return VIEW_MODE; }
+    function setViewMode(mode) {
+        if (mode !== 'outliner' && mode !== 'table') return;
+        if (VIEW_MODE === mode) return;
+        VIEW_MODE = mode;
+        if (mode === 'table') ensureColumnsForTable();
+        if (treeEl) {
+            // table mode → outliner に戻す時は inline grid styles を解除
+            if (mode === 'outliner') {
+                treeEl.style.display = '';
+                treeEl.style.gridTemplateColumns = '';
+                treeEl.style.width = '';
+                treeEl.style.minWidth = '';
+            }
+            renderTree();
+        }
+        updateViewToggleButton();
+    }
+    function updateViewToggleButton() {
+        if (!viewToggleBtn) return;
+        // 現在 outliner なら「table に切替えたい」アイコン (table icon)
+        // 現在 table なら「outliner に切替えたい」アイコン (outline icon)
+        viewToggleBtn.innerHTML = (VIEW_MODE === 'outliner') ? ICON_VIEW_TABLE : ICON_VIEW_OUTLINE;
+        viewToggleBtn.title = (VIEW_MODE === 'outliner')
+            ? 'Switch to Table view'
+            : 'Switch to Outline view';
+    }
+
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
     var undoBtn = null;              // undo button element
     var redoBtn = null;              // redo button element
+    var viewToggleBtn = null;        // Phase F3: outliner ⇄ table view toggle
     var contextMenuEl = null;
 
     var syncDebounceTimer = null;
@@ -96,7 +131,9 @@ var Outliner = (function() {
     var RAW_DATA_KNOWN_KEYS = [
         'title', 'pageDir', 'fileDir', 'imageDir', 'rootIds', 'nodes',
         'pinnedTags', 'searchFocusMode', 'sidePanelWidth', 'sidePanelOutlineWidth',
-        'schemaVersion'
+        'schemaVersion',
+        // Phase F2: 列定義は model 側で serialize されるので known
+        'columns'
     ];
 
     function captureRawDataExtras(data) {
@@ -527,6 +564,9 @@ var Outliner = (function() {
     var ICON_MENU = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>';
     var ICON_UNDO = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 0 1 3-7.7A9 9 0 0 1 21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.7-3"/></svg>';
     var ICON_REDO = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M21 13a9 9 0 0 0-3-7.7A9 9 0 0 0 3 12a9 9 0 0 0 9 9 9 9 0 0 0 6.7-3"/></svg>';
+    // Phase F3: outliner / table view 切替アイコン
+    var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
+    var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
 
     function init(data, outFileKey) {
         host = window.outlinerHostBridge;
@@ -581,6 +621,7 @@ var Outliner = (function() {
         redoBtn = document.querySelector('.outliner-redo-btn');
         navBackBtn = document.querySelector('.outliner-nav-back-btn');
         navForwardBtn = document.querySelector('.outliner-nav-forward-btn');
+        viewToggleBtn = document.querySelector('.outliner-view-toggle-btn');
 
         // ページタイトル
         pageTitleEl = document.querySelector('.outliner-page-title');
@@ -602,6 +643,13 @@ var Outliner = (function() {
         }
         if (redoBtn) {
             redoBtn.innerHTML = ICON_REDO;
+        }
+        if (viewToggleBtn) {
+            updateViewToggleButton();
+            viewToggleBtn.addEventListener('click', function () {
+                setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
+                updateViewToggleButton();
+            });
         }
 
         renderTree();
@@ -836,6 +884,13 @@ var Outliner = (function() {
 
     function renderTree() {
         treeEl.innerHTML = '';
+        // Phase F2.1: data-view-mode 属性を treeEl に反映 (CSS / 列ヘッダー描画判定で使用)
+        treeEl.dataset.viewMode = VIEW_MODE;
+        // table mode は F2.2 以降で列ヘッダー + grid layout を追加。F2.1 は stub。
+        if (VIEW_MODE === 'table') {
+            renderTableMode();
+            return;
+        }
         updateBreadcrumb();
 
         if (model.rootIds.length === 0) {
@@ -912,6 +967,752 @@ var Outliner = (function() {
             renderNodes(rootIds, fragment, 0, searchQuery);
         }
         treeEl.appendChild(fragment);
+    }
+
+    // ========================================================================
+    // Phase F2: Table mode (table editor)
+    // ========================================================================
+
+    // 列幅 / 列タイプ defaults
+    var DEFAULT_OUTLINER_COL_WIDTH = 320;
+    var DEFAULT_OTHER_COL_WIDTH = 200;
+    var MIN_COLUMN_WIDTH = 120;
+
+    /** 列定義が空でも outliner 列だけは常に存在する。table mode 切替時に補完。 */
+    function ensureColumnsForTable() {
+        if (!model.columns || !Array.isArray(model.columns) || model.columns.length === 0) {
+            model.columns = [
+                {
+                    id: 'col_outliner',
+                    type: 'outliner',
+                    name: 'Outline',
+                    width: DEFAULT_OUTLINER_COL_WIDTH
+                }
+            ];
+        }
+        // outliner 列は常に存在し、必ず先頭。無ければ insert、ずれていたら sort
+        var hasOutliner = model.columns.some(function (c) { return c.type === 'outliner'; });
+        if (!hasOutliner) {
+            model.columns.unshift({
+                id: 'col_outliner',
+                type: 'outliner',
+                name: 'Outline',
+                width: DEFAULT_OUTLINER_COL_WIDTH
+            });
+        }
+        // outliner 列を強制的に先頭に
+        model.columns.sort(function (a, b) {
+            if (a.type === 'outliner' && b.type !== 'outliner') return -1;
+            if (a.type !== 'outliner' && b.type === 'outliner') return 1;
+            return 0;
+        });
+        // 各列に width 補完
+        for (var i = 0; i < model.columns.length; i++) {
+            var col = model.columns[i];
+            if (typeof col.width !== 'number' || col.width < MIN_COLUMN_WIDTH) {
+                col.width = (col.type === 'outliner')
+                    ? DEFAULT_OUTLINER_COL_WIDTH
+                    : DEFAULT_OTHER_COL_WIDTH;
+            }
+        }
+    }
+
+    /** node.columnValues[colId] を読む。値が無ければ default を返す。 */
+    function getCellValue(nodeId, colId, colType) {
+        var node = model.getNode(nodeId);
+        if (!node || !node.columnValues) {
+            return colType === 'multiselect' ? [] : '';
+        }
+        var v = node.columnValues[colId];
+        if (v === undefined || v === null) {
+            return colType === 'multiselect' ? [] : '';
+        }
+        return v;
+    }
+
+    /** node.columnValues[colId] に値を書く。*/
+    function setCellValue(nodeId, colId, value) {
+        var node = model.getNode(nodeId);
+        if (!node) return;
+        if (!node.columnValues) node.columnValues = {};
+        node.columnValues[colId] = value;
+    }
+
+    /** table mode の renderTree。F2.2 以降で本実装。 */
+    function renderTableMode() {
+        ensureColumnsForTable();
+        updateBreadcrumb();
+
+        var cols = model.columns;
+        // grid-template-columns: 各列の width を px で並べる
+        var widthSpec = cols.map(function (c) { return c.width + 'px'; }).join(' ');
+        treeEl.style.display = 'grid';
+        treeEl.style.gridTemplateColumns = widthSpec;
+        treeEl.style.width = 'max-content';
+        treeEl.style.minWidth = '100%';
+
+        // 列ヘッダー row
+        var headerFragment = document.createDocumentFragment();
+        for (var ci = 0; ci < cols.length; ci++) {
+            var col = cols[ci];
+            var headerEl = createColumnHeaderElement(col, ci);
+            headerFragment.appendChild(headerEl);
+        }
+        treeEl.appendChild(headerFragment);
+
+        // 各 visible node の row + 各列セル
+        var searchQuery = null;
+        if (currentSearchResult && searchInput) {
+            searchQuery = OutlinerSearch.parseQuery(searchInput.value || '');
+        }
+
+        // 検索フォーカスモードは table mode では未対応 (F2.5 で対応予定)
+        var rootIds;
+        if (currentScope.type === 'subtree' && currentScope.rootId) {
+            var scopeNode = model.getNode(currentScope.rootId);
+            rootIds = (scopeNode && scopeNode.children) ? scopeNode.children : [];
+        } else {
+            rootIds = model.rootIds;
+        }
+
+        var rowFragment = document.createDocumentFragment();
+        renderTableRows(rootIds, rowFragment, 0, searchQuery, cols);
+        treeEl.appendChild(rowFragment);
+    }
+
+    function renderTableRows(nodeIds, parentEl, depth, searchQuery, cols) {
+        if (!nodeIds || nodeIds.length === 0) return;
+        for (var i = 0; i < nodeIds.length; i++) {
+            var nodeId = nodeIds[i];
+            var node = model.getNode(nodeId);
+            if (!node) continue;
+            if (currentSearchResult && !currentSearchResult.has(nodeId)) continue;
+
+            // 各 row につき col 個の grid item を append
+            for (var c = 0; c < cols.length; c++) {
+                var col = cols[c];
+                var cellEl;
+                if (col.type === 'outliner') {
+                    // Outliner 列: 既存の outliner-node 構造をそのまま grid item に
+                    cellEl = createNodeElement(node, depth, searchQuery);
+                    cellEl.classList.add('outliner-cell-outliner');
+                } else if (col.type === 'text') {
+                    cellEl = createTextCellElement(node, col, searchQuery);
+                } else if (col.type === 'multiselect') {
+                    cellEl = createMultiselectCellElement(node, col);
+                } else {
+                    cellEl = document.createElement('div');
+                    cellEl.className = 'outliner-cell-unknown';
+                    cellEl.textContent = '';
+                }
+                parentEl.appendChild(cellEl);
+            }
+
+            // 子: collapsed なら描画しない
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                renderTableRows(node.children, parentEl, depth + 1, searchQuery, cols);
+            }
+        }
+    }
+
+    function createColumnHeaderElement(col, index) {
+        var el = document.createElement('div');
+        el.className = 'outliner-col-header';
+        el.dataset.colId = col.id;
+        el.dataset.colType = col.type;
+        el.dataset.colIndex = String(index);
+        var label = document.createElement('span');
+        label.className = 'outliner-col-header-label';
+        label.textContent = col.name || '';
+        el.appendChild(label);
+
+        // outliner 列以外は: 右クリック menu (F2.3) / D&D 並べ替え (F2.3)
+        if (col.type !== 'outliner') {
+            el.draggable = true;
+            el.title = 'Drag to reorder. Right-click for menu.';
+            attachColumnHeaderHandlers(el, col);
+        } else {
+            el.title = 'Outline (fixed)';
+        }
+        // resize handle (右端 6px、F2.3 で実装)
+        var resizeHandle = document.createElement('div');
+        resizeHandle.className = 'outliner-col-resize-handle';
+        attachColumnResizeHandler(resizeHandle, col);
+        el.appendChild(resizeHandle);
+
+        // 右端「+ Add column」ボタンは最後の列のヘッダー右に置く (renderTableMode 終端で追加)
+        return el;
+    }
+
+    /** Add column ボタン (一番右の列の resize handle 横に置く想定。F2.3 で full impl) */
+    function createAddColumnButton() {
+        var btn = document.createElement('button');
+        btn.className = 'outliner-col-add-btn';
+        btn.type = 'button';
+        btn.textContent = '+';
+        btn.title = 'Add column';
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openAddColumnDialog();
+        });
+        return btn;
+    }
+
+    // ----- F2.2: Text cell -----
+    function createTextCellElement(node, col, searchQuery) {
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-text';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        el.contentEditable = 'true';
+        el.spellcheck = false;
+        var rawValue = getCellValue(node.id, col.id, 'text') || '';
+        el.innerHTML = renderInlineText(rawValue);
+
+        var isComposing = false;
+
+        el.addEventListener('focus', function () {
+            // 編集モード: マーカー表示
+            var sourceText = (typeof getCellValue === 'function') ? (getCellValue(node.id, col.id, 'text') || '') : '';
+            var renderedOff = 0;
+            try { renderedOff = getCursorOffset(el); } catch (e) {}
+            el.innerHTML = renderEditingText(sourceText);
+            if (renderedOff > 0) {
+                var sourceOff = renderedOffsetToSource(sourceText, renderedOff);
+                try { setCursorAtOffset(el, sourceOff); } catch (e) {}
+            }
+        });
+
+        el.addEventListener('blur', function () {
+            var v = getCellValue(node.id, col.id, 'text') || '';
+            el.innerHTML = renderInlineText(v);
+        });
+
+        el.addEventListener('compositionstart', function () { isComposing = true; });
+        el.addEventListener('compositionend', function () {
+            isComposing = false;
+            var plain = getPlainText(el);
+            setCellValue(node.id, col.id, plain);
+            var off = 0;
+            try { off = getCursorOffset(el); } catch (e) {}
+            el.innerHTML = renderEditingText(plain);
+            try { setCursorAtOffset(el, off); } catch (e) {}
+            scheduleSyncToHost();
+        });
+
+        el.addEventListener('input', function () {
+            var plain = getPlainText(el);
+            setCellValue(node.id, col.id, plain);
+            if (!isComposing) {
+                var off = 0;
+                try { off = getCursorOffset(el); } catch (e) {}
+                el.innerHTML = renderEditingText(plain);
+                try { setCursorAtOffset(el, off); } catch (e) {}
+            }
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        // Cmd+B / Cmd+I / Cmd+E / Cmd+Shift+S - applyInlineFormat に委譲
+        el.addEventListener('keydown', function (e) {
+            // Tab で次セル / Shift+Tab で前セル (簡易)
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                var rowCells = Array.prototype.slice.call(
+                    treeEl.querySelectorAll('[data-node-id="' + node.id + '"]')
+                );
+                var ci = rowCells.indexOf(el);
+                var next = e.shiftKey ? rowCells[ci - 1] : rowCells[ci + 1];
+                if (next) {
+                    var focusable = next.querySelector('.outliner-text') || next;
+                    if (focusable && typeof focusable.focus === 'function') focusable.focus();
+                }
+                return;
+            }
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+                if (e.key === 'b') {
+                    e.preventDefault();
+                    saveSnapshot();
+                    applyInlineFormatToCell(node, col, el, '**');
+                    return;
+                }
+                if (e.key === 'i') {
+                    e.preventDefault();
+                    saveSnapshot();
+                    applyInlineFormatToCell(node, col, el, '*');
+                    return;
+                }
+                if (e.key === 'e') {
+                    e.preventDefault();
+                    saveSnapshot();
+                    applyInlineFormatToCell(node, col, el, '`');
+                    return;
+                }
+                if (e.key === 'z') {
+                    // 通常 undo / redo は document handler で処理されるので break しない
+                }
+            }
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                saveSnapshot();
+                applyInlineFormatToCell(node, col, el, '~~');
+                return;
+            }
+        });
+
+        // paste: rich text を plaintext 変換 (URL は markdown link 化を applyInlineFormat 系に委ねず簡易処理)
+        el.addEventListener('paste', function (e) {
+            e.preventDefault();
+            var text = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
+            if (!text) return;
+            saveSnapshot();
+            // 既存テキストの cursor 位置に挿入
+            var current = getCellValue(node.id, col.id, 'text') || '';
+            var off = 0;
+            try { off = getCursorOffset(el); } catch (e2) {}
+            var sourceOff = renderedOffsetToSource(current, off);
+            var newText = current.slice(0, sourceOff) + text + current.slice(sourceOff);
+            setCellValue(node.id, col.id, newText);
+            el.innerHTML = renderEditingText(newText);
+            try { setCursorAtOffset(el, sourceOff + text.length); } catch (e2) {}
+            scheduleSyncToHost();
+        });
+
+        return el;
+    }
+
+    /** text cell に対する inline format toggle (cmd+B/I/E/shift+S)。
+     *  outliner.js の applyInlineFormat は node.text 用なので、cell 用に簡易実装。 */
+    function applyInlineFormatToCell(node, col, el, marker) {
+        var sourceText = getCellValue(node.id, col.id, 'text') || '';
+        var off = 0;
+        try { off = getCursorOffset(el); } catch (e) {}
+        // 簡略実装: 選択範囲があればそれを marker で囲む。なければカーソル位置に marker ペア挿入
+        var winSel = window.getSelection();
+        if (winSel && winSel.rangeCount > 0 && !winSel.isCollapsed) {
+            var range = winSel.getRangeAt(0);
+            var selectedText = range.toString();
+            if (!selectedText) return;
+            // 単純: source 文字列を再構築 (renderedOffsetToSource を用いて position を変換)
+            var startRendered = off - selectedText.length;
+            var startSource = renderedOffsetToSource(sourceText, startRendered);
+            var endSource = renderedOffsetToSource(sourceText, off);
+            var pre = sourceText.slice(0, startSource);
+            var mid = sourceText.slice(startSource, endSource);
+            var post = sourceText.slice(endSource);
+            var newText = pre + marker + mid + marker + post;
+            setCellValue(node.id, col.id, newText);
+            el.innerHTML = renderEditingText(newText);
+            try { setCursorAtOffset(el, startSource + marker.length + mid.length + marker.length); } catch (e) {}
+        } else {
+            var sourceOff = renderedOffsetToSource(sourceText, off);
+            var newText2 = sourceText.slice(0, sourceOff) + marker + marker + sourceText.slice(sourceOff);
+            setCellValue(node.id, col.id, newText2);
+            el.innerHTML = renderEditingText(newText2);
+            try { setCursorAtOffset(el, sourceOff + marker.length); } catch (e) {}
+        }
+        scheduleSyncToHost();
+    }
+
+    // ----- F2.4: multiselect cell -----
+    var MULTISELECT_PALETTE = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'zinc'];
+
+    function ensureColumnOptions(col) {
+        if (!col.options) col.options = [];
+    }
+
+    /** option のラベル正規化 (大文字小文字 / trim) で重複検出 */
+    function findOptionByLabel(col, label) {
+        ensureColumnOptions(col);
+        var norm = (label || '').trim().toLowerCase();
+        for (var i = 0; i < col.options.length; i++) {
+            if ((col.options[i].label || '').trim().toLowerCase() === norm) {
+                return col.options[i];
+            }
+        }
+        return null;
+    }
+
+    function createMultiselectOption(col, label) {
+        ensureColumnOptions(col);
+        var existing = findOptionByLabel(col, label);
+        if (existing) return existing;
+        var color = MULTISELECT_PALETTE[col.options.length % MULTISELECT_PALETTE.length];
+        var newOpt = {
+            id: 'opt_' + Math.random().toString(36).slice(2, 10),
+            label: label.trim(),
+            color: color
+        };
+        col.options.push(newOpt);
+        return newOpt;
+    }
+
+    function createMultiselectCellElement(node, col) {
+        ensureColumnOptions(col);
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-multiselect';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        var selectedOptIds = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
+
+        // chip 表示
+        for (var i = 0; i < selectedOptIds.length; i++) {
+            var optId = selectedOptIds[i];
+            var opt = (col.options || []).find(function (o) { return o.id === optId; });
+            if (!opt) continue;
+            el.appendChild(createChip(opt, function (removeOptId) {
+                var current = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
+                var idx = current.indexOf(removeOptId);
+                if (idx >= 0) {
+                    saveSnapshot();
+                    current.splice(idx, 1);
+                    setCellValue(node.id, col.id, current);
+                    renderTableMode();
+                    scheduleSyncToHost();
+                }
+            }));
+        }
+
+        // クリック → dropdown 表示
+        el.addEventListener('click', function (e) {
+            if (e.target && e.target.classList && e.target.classList.contains('outliner-chip-remove')) {
+                return;
+            }
+            e.stopPropagation();
+            openMultiselectDropdown(el, node, col);
+        });
+
+        return el;
+    }
+
+    function createChip(opt, onRemove) {
+        var span = document.createElement('span');
+        span.className = 'outliner-chip outliner-chip-color-' + opt.color;
+        span.dataset.optId = opt.id;
+        span.textContent = opt.label;
+        var remove = document.createElement('span');
+        remove.className = 'outliner-chip-remove';
+        remove.textContent = '×';
+        remove.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove(opt.id);
+        });
+        span.appendChild(remove);
+        return span;
+    }
+
+    var activeDropdownEl = null;
+    function closeMultiselectDropdown() {
+        if (activeDropdownEl && activeDropdownEl.parentNode) {
+            activeDropdownEl.parentNode.removeChild(activeDropdownEl);
+        }
+        activeDropdownEl = null;
+    }
+
+    function openMultiselectDropdown(cellEl, node, col) {
+        closeMultiselectDropdown();
+        ensureColumnOptions(col);
+
+        var dropdown = document.createElement('div');
+        dropdown.className = 'outliner-multiselect-dropdown';
+        var rect = cellEl.getBoundingClientRect();
+        dropdown.style.position = 'fixed';
+        dropdown.style.left = rect.left + 'px';
+        dropdown.style.top = rect.bottom + 'px';
+        dropdown.style.minWidth = Math.max(rect.width, 200) + 'px';
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'outliner-multiselect-input';
+        input.placeholder = 'Search or create...';
+        dropdown.appendChild(input);
+
+        var list = document.createElement('div');
+        list.className = 'outliner-multiselect-list';
+        dropdown.appendChild(list);
+
+        function refreshList() {
+            list.innerHTML = '';
+            var filter = (input.value || '').trim().toLowerCase();
+            var current = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
+            var matched = (col.options || []).filter(function (o) {
+                return !filter || (o.label || '').toLowerCase().indexOf(filter) >= 0;
+            });
+            for (var i = 0; i < matched.length; i++) {
+                (function (opt) {
+                    var item = document.createElement('div');
+                    item.className = 'outliner-multiselect-item';
+                    var checked = current.indexOf(opt.id) >= 0;
+                    item.dataset.checked = checked ? 'true' : 'false';
+                    var box = document.createElement('span');
+                    box.className = 'outliner-multiselect-checkbox';
+                    box.textContent = checked ? '☑' : '☐';
+                    item.appendChild(box);
+                    var chip = document.createElement('span');
+                    chip.className = 'outliner-chip outliner-chip-color-' + opt.color;
+                    chip.textContent = opt.label;
+                    item.appendChild(chip);
+                    item.addEventListener('mousedown', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        saveSnapshot();
+                        var arr = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
+                        var idx = arr.indexOf(opt.id);
+                        if (idx >= 0) arr.splice(idx, 1);
+                        else arr.push(opt.id);
+                        setCellValue(node.id, col.id, arr);
+                        scheduleSyncToHost();
+                        // re-render cell + dropdown list
+                        var newCell = createMultiselectCellElement(node, col);
+                        cellEl.parentNode.replaceChild(newCell, cellEl);
+                        cellEl = newCell;
+                        refreshList();
+                    });
+                    list.appendChild(item);
+                })(matched[i]);
+            }
+
+            // フィルタにマッチしない場合のみ「+ Create "<filter>"」を表示
+            var filterRaw = (input.value || '').trim();
+            if (filterRaw && !findOptionByLabel(col, filterRaw)) {
+                var createItem = document.createElement('div');
+                createItem.className = 'outliner-multiselect-create';
+                createItem.textContent = '+ Create "' + filterRaw + '"';
+                createItem.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveSnapshot();
+                    var newOpt = createMultiselectOption(col, filterRaw);
+                    var arr = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
+                    arr.push(newOpt.id);
+                    setCellValue(node.id, col.id, arr);
+                    scheduleSyncToHost();
+                    input.value = '';
+                    var newCell = createMultiselectCellElement(node, col);
+                    cellEl.parentNode.replaceChild(newCell, cellEl);
+                    cellEl = newCell;
+                    refreshList();
+                });
+                list.appendChild(createItem);
+            }
+        }
+
+        input.addEventListener('input', refreshList);
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeMultiselectDropdown();
+            }
+        });
+
+        document.body.appendChild(dropdown);
+        activeDropdownEl = dropdown;
+        refreshList();
+        setTimeout(function () { input.focus(); }, 0);
+
+        // 外側クリックで close
+        function outsideHandler(ev) {
+            if (!dropdown.contains(ev.target)) {
+                closeMultiselectDropdown();
+                document.removeEventListener('mousedown', outsideHandler, true);
+            }
+        }
+        setTimeout(function () {
+            document.addEventListener('mousedown', outsideHandler, true);
+        }, 0);
+    }
+
+    // ----- F2.3: column header drag (reorder) / right-click menu / resize -----
+    var columnDragState = null;
+
+    function attachColumnHeaderHandlers(el, col) {
+        el.addEventListener('dragstart', function (e) {
+            columnDragState = { colId: col.id };
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', col.id); } catch (er) {}
+        });
+        el.addEventListener('dragover', function (e) {
+            if (!columnDragState) return;
+            // outliner 列はドロップ対象外
+            if (col.type === 'outliner') return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+        el.addEventListener('drop', function (e) {
+            if (!columnDragState) return;
+            e.preventDefault();
+            var srcId = columnDragState.colId;
+            columnDragState = null;
+            if (col.type === 'outliner') return;
+            if (srcId === col.id) return;
+            saveSnapshot();
+            var cols = model.columns;
+            var srcIdx = cols.findIndex(function (c) { return c.id === srcId; });
+            var destIdx = cols.findIndex(function (c) { return c.id === col.id; });
+            if (srcIdx < 0 || destIdx < 0) return;
+            var moved = cols.splice(srcIdx, 1)[0];
+            cols.splice(destIdx, 0, moved);
+            // outliner 列を必ず先頭に
+            ensureColumnsForTable();
+            renderTableMode();
+            scheduleSyncToHost();
+        });
+        el.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openColumnContextMenu(e, col);
+        });
+    }
+
+    function openColumnContextMenu(e, col) {
+        // 既存 contextMenu があれば消す
+        var existing = document.querySelector('.outliner-col-ctx-menu');
+        if (existing) existing.parentNode.removeChild(existing);
+        var menu = document.createElement('div');
+        menu.className = 'outliner-col-ctx-menu';
+        menu.style.position = 'fixed';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+
+        var renameItem = document.createElement('div');
+        renameItem.className = 'outliner-col-ctx-item';
+        renameItem.textContent = 'Rename column';
+        renameItem.addEventListener('click', function () {
+            menu.remove();
+            var newName = window.prompt('New column name:', col.name || '');
+            if (newName === null) return;
+            saveSnapshot();
+            col.name = newName;
+            renderTableMode();
+            scheduleSyncToHost();
+        });
+        menu.appendChild(renameItem);
+
+        if (col.type !== 'outliner') {
+            var removeItem = document.createElement('div');
+            removeItem.className = 'outliner-col-ctx-item outliner-col-ctx-remove';
+            removeItem.textContent = 'Remove column';
+            removeItem.addEventListener('click', function () {
+                menu.remove();
+                if (!window.confirm('Remove column "' + col.name + '"? Values in this column will be deleted.')) return;
+                saveSnapshot();
+                model.columns = model.columns.filter(function (c) { return c.id !== col.id; });
+                // 各 node の columnValues からも削除
+                for (var nid in model.nodes) {
+                    if (model.nodes[nid].columnValues) {
+                        delete model.nodes[nid].columnValues[col.id];
+                    }
+                }
+                renderTableMode();
+                scheduleSyncToHost();
+            });
+            menu.appendChild(removeItem);
+        }
+        document.body.appendChild(menu);
+        function outside(ev) {
+            if (!menu.contains(ev.target)) {
+                if (menu.parentNode) menu.parentNode.removeChild(menu);
+                document.removeEventListener('mousedown', outside, true);
+            }
+        }
+        setTimeout(function () { document.addEventListener('mousedown', outside, true); }, 0);
+    }
+
+    function attachColumnResizeHandler(handle, col) {
+        handle.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var startX = e.clientX;
+            var startWidth = col.width;
+            saveSnapshot();
+            function onMove(ev) {
+                var dx = ev.clientX - startX;
+                var newW = Math.max(MIN_COLUMN_WIDTH, startWidth + dx);
+                col.width = newW;
+                // grid-template-columns を更新 (全 row が同時 reflow)
+                var spec = model.columns.map(function (c) { return c.width + 'px'; }).join(' ');
+                treeEl.style.gridTemplateColumns = spec;
+            }
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                scheduleSyncToHost();
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    }
+
+    function openAddColumnDialog() {
+        var existing = document.querySelector('.outliner-add-col-dialog');
+        if (existing) existing.parentNode.removeChild(existing);
+        var dialog = document.createElement('div');
+        dialog.className = 'outliner-add-col-dialog';
+        dialog.style.position = 'fixed';
+        dialog.style.left = '50%';
+        dialog.style.top = '40%';
+        dialog.style.transform = 'translate(-50%, -50%)';
+
+        var label = document.createElement('div');
+        label.className = 'outliner-add-col-label';
+        label.textContent = 'Add column';
+        dialog.appendChild(label);
+
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Column name';
+        nameInput.className = 'outliner-add-col-name';
+        dialog.appendChild(nameInput);
+
+        var typeSelect = document.createElement('select');
+        typeSelect.className = 'outliner-add-col-type';
+        var optText = document.createElement('option'); optText.value = 'text'; optText.textContent = 'Text';
+        var optMs = document.createElement('option'); optMs.value = 'multiselect'; optMs.textContent = 'Multi-select';
+        typeSelect.appendChild(optText);
+        typeSelect.appendChild(optMs);
+        dialog.appendChild(typeSelect);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'outliner-add-col-buttons';
+        var cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function () { dialog.remove(); });
+        var addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.textContent = 'Add';
+        addBtn.addEventListener('click', function () {
+            var name = (nameInput.value || '').trim();
+            if (!name) { nameInput.focus(); return; }
+            var type = typeSelect.value;
+            saveSnapshot();
+            var newCol = {
+                id: 'col_' + Math.random().toString(36).slice(2, 10),
+                type: type,
+                name: name,
+                width: DEFAULT_OTHER_COL_WIDTH
+            };
+            if (type === 'multiselect') newCol.options = [];
+            model.columns = (model.columns || []).slice();
+            model.columns.push(newCol);
+            ensureColumnsForTable();
+            renderTableMode();
+            scheduleSyncToHost();
+            dialog.remove();
+        });
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(addBtn);
+        dialog.appendChild(btnRow);
+
+        document.body.appendChild(dialog);
+        setTimeout(function () { nameInput.focus(); }, 0);
+
+        nameInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { addBtn.click(); }
+            else if (e.key === 'Escape') { dialog.remove(); }
+        });
     }
 
     /**
@@ -6323,5 +7124,8 @@ var Outliner = (function() {
             if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
             if (typeof renderTree === 'function') renderTree();
         },
+        // Phase F2/F3: view mode 切替 API (テスト + 外部から)
+        getViewMode: getViewMode,
+        setViewMode: setViewMode,
     };
 })();

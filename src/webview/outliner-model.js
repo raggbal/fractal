@@ -54,6 +54,8 @@ var OutlinerModel = (function() {
         this.title = (data.title !== undefined) ? data.title : '';
         this.rootIds = data.rootIds || [];
         this.nodes = {};
+        // Phase F2: table editor 列定義 (存在時のみ反映)
+        this.columns = (data.columns && Array.isArray(data.columns)) ? data.columns.slice() : [];
 
         // nodes のマップ化
         if (data.nodes) {
@@ -504,6 +506,10 @@ var OutlinerModel = (function() {
         };
         if (this.title) {
             data.title = this.title;
+        }
+        // Phase F2: table editor 列定義 (存在時のみ)
+        if (this.columns && Array.isArray(this.columns) && this.columns.length > 0) {
+            data.columns = JSON.parse(JSON.stringify(this.columns));
         }
         return data;
     };
