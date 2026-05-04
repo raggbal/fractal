@@ -1,48 +1,15 @@
 /**
- * Phase F TASK-F1.2: flat DOM 描画パスの smoke test
+ * Phase F TASK-F1.5: flat DOM 描画パスの smoke test
  *
- * RENDER_MODE='flat' に切り替えて renderTree した時、各 node が
- * `.outliner-children` ネスト無しに、grid root の直接子として
- * flat に並ぶことを確認する。
- *
- * 機能 spec ではない (機能は F1.3/F1.4 で取り組む)。あくまで
- * 「flat mode が DOM 構造を返せる」段階の smoke 確認。
+ * outliner.js は flat DOM 単一描画。各 node が `.outliner-children` ネスト無しに
+ * grid root の直接子として flat に並ぶことを確認する。
  */
 import { test, expect } from '@playwright/test';
 
 const STANDALONE_URL = 'http://localhost:3000/standalone-outliner.html';
 
-test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
-    test('hierarchical 切替で .outliner-children が出る (F1.5 で削除予定の互換確認)', async ({ page }) => {
-        await page.goto(STANDALONE_URL);
-        await page.waitForSelector('.outliner-tree');
-
-        // Sample data: 2 root nodes, 1 child
-        await page.evaluate(() => {
-            const initialData = {
-                version: 1,
-                rootIds: ['n1', 'n2'],
-                nodes: {
-                    n1: { id: 'n1', parentId: null, children: ['n1a'], text: 'Project A', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [] },
-                    n1a: { id: 'n1a', parentId: 'n1', children: [], text: 'Subtask 1', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [] },
-                    n2: { id: 'n2', parentId: null, children: [], text: 'Project B', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [] }
-                }
-            };
-            (window as any).Outliner.init(initialData);
-            // 明示的に hierarchical へ切替（F1.3 でデフォルトは flat）
-            (window as any).Outliner._setRenderMode('hierarchical');
-            (window as any).Outliner.resetSearchAndScope();
-        });
-
-        await page.waitForTimeout(100);
-        const childrenWrapperCount = await page.locator('.outliner-children').count();
-        expect(childrenWrapperCount).toBeGreaterThan(0);
-
-        const nodeCount = await page.locator('.outliner-node').count();
-        expect(nodeCount).toBe(3);
-    });
-
-    test('flat mode 切替後、.outliner-children が出ない', async ({ page }) => {
+test.describe('Phase F TASK-F1.5 — flat mode smoke', () => {
+    test('flat DOM: .outliner-children が出ない', async ({ page }) => {
         await page.goto(STANDALONE_URL);
         await page.waitForSelector('.outliner-tree');
 
@@ -57,9 +24,6 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
                 }
             };
             (window as any).Outliner.init(initialData);
-            (window as any).Outliner._setRenderMode('flat');
-            // 再描画
-            (window as any).Outliner.resetSearchAndScope();
         });
 
         await page.waitForTimeout(100);
@@ -77,7 +41,7 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
         expect(depths).toEqual(['0', '1', '0']);
     });
 
-    test('flat mode でも node の indent (data-depth + .outliner-node-indent) が表現される', async ({ page }) => {
+    test('flat mode: indent (data-depth + .outliner-node-indent) が表現される', async ({ page }) => {
         await page.goto(STANDALONE_URL);
         await page.waitForSelector('.outliner-tree');
 
@@ -92,8 +56,6 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
                 }
             };
             (window as any).Outliner.init(initialData);
-            (window as any).Outliner._setRenderMode('flat');
-            (window as any).Outliner.resetSearchAndScope();
         });
 
         await page.waitForTimeout(100);
@@ -105,7 +67,7 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
         expect(indentWidths).toEqual(['0px', '24px', '48px']);
     });
 
-    test('flat mode で collapsed parent の子は描画されない', async ({ page }) => {
+    test('flat mode: collapsed parent の子は描画されない', async ({ page }) => {
         await page.goto(STANDALONE_URL);
         await page.waitForSelector('.outliner-tree');
 
@@ -120,8 +82,6 @@ test.describe('Phase F TASK-F1.2 — flat mode smoke', () => {
                 }
             };
             (window as any).Outliner.init(initialData);
-            (window as any).Outliner._setRenderMode('flat');
-            (window as any).Outliner.resetSearchAndScope();
         });
 
         await page.waitForTimeout(100);

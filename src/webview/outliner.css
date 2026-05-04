@@ -609,14 +609,7 @@ body {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
 
-/* --- Children container --- */
-.outliner-children {
-    /* 折りたたみ時は display: none */
-}
-
-.outliner-children.is-collapsed {
-    display: none;
-}
+/* Phase F1.5: .outliner-children ラッパーは flat DOM では生成されない (削除済) */
 
 /* 接続線 (optional visual guide) */
 .outliner-node::after {

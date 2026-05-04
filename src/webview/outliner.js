@@ -36,16 +36,10 @@ var Outliner = (function() {
     function isNotesMode() {
         return !!document.querySelector('.notes-layout');
     }
-    // Phase F (2026-05-04): DOM render mode
-    //   'hierarchical': 既存の .outliner-children ネスト DOM
-    //   'flat' (default, Phase F1.3 で切替): 全 row が同階層に並ぶ flat DOM
-    // F1.5 で hierarchical コードパス削除予定。
-    var RENDER_MODE = 'flat';
-    function _setRenderModeForTesting(mode) {
-        if (mode !== 'hierarchical' && mode !== 'flat') return;
-        RENDER_MODE = mode;
-    }
-    function _getRenderModeForTesting() { return RENDER_MODE; }
+    // Phase F1.5 (2026-05-04): flat DOM に単一化。hierarchical 描画は廃止。
+    // 各 row は .outliner-tree 直下に並び、indent は createNodeElement の
+    // .outliner-node-indent (width = depth * 24px) で表現する。
+    // 旧 .outliner-children ラッパーは生成しない (CSS は legacy として残す)。
 
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
@@ -805,55 +799,16 @@ var Outliner = (function() {
         treeEl.appendChild(fragment);
     }
 
-    function renderNodes(nodeIds, parentEl, depth, searchQuery) {
-        // Phase F (2026-05-04): DOM render mode 分岐
-        // RENDER_MODE === 'flat' 時は flat DOM 描画 (TASK-F1.2 で実装)
-        // default 'hierarchical' は既存実装そのまま
-        if (RENDER_MODE === 'flat') {
-            return renderNodesFlat(nodeIds, parentEl, depth, searchQuery);
-        }
-
-        for (var i = 0; i < nodeIds.length; i++) {
-            var nodeId = nodeIds[i];
-            var node = model.getNode(nodeId);
-            if (!node) { continue; }
-
-            // 検索結果フィルタ
-            if (currentSearchResult && !currentSearchResult.has(nodeId)) {
-                continue;
-            }
-
-            var nodeEl = createNodeElement(node, depth, searchQuery);
-            parentEl.appendChild(nodeEl);
-
-            // 子ノード
-            if (node.children && node.children.length > 0) {
-                var childrenEl = document.createElement('div');
-                childrenEl.className = 'outliner-children';
-                childrenEl.dataset.parent = nodeId;
-                if (node.collapsed && !currentSearchResult) {
-                    childrenEl.classList.add('is-collapsed');
-                }
-                renderNodes(node.children, childrenEl, depth + 1, searchQuery);
-                parentEl.appendChild(childrenEl);
-            }
-        }
-    }
-
     /**
-     * Phase F1.2 (TASK-F1.2): flat DOM 描画パス
+     * Phase F1.5: flat DOM 単一描画パス
      *
-     * 各 visible node を parentEl の直接子として配置 (.outliner-children でネストしない)。
-     * indent は createNodeElement 内の .outliner-node-indent (width: depth * 24px) で
-     * そのまま機能するので CSS は無変更。
+     * 各 visible node を parentEl (= .outliner-tree もしくは fragment) の直接子として配置。
+     * indent は createNodeElement 内の .outliner-node-indent (width: depth * 24px) で表現。
      *
      * - 検索結果フィルタを尊重 (currentSearchResult があれば該当 node のみ描画)
      * - node.collapsed は **子を再帰しない** ことで実現 (子 row が DOM に存在しない)
-     * - hierarchical との違いは「.outliner-children ラッパーを生成しない」だけ
-     *
-     * collapse toggle / D&D / scope / search の挙動詳細は TASK-F1.4 で flat 対応する。
      */
-    function renderNodesFlat(nodeIds, parentEl, depth, searchQuery) {
+    function renderNodes(nodeIds, parentEl, depth, searchQuery) {
         if (!nodeIds || nodeIds.length === 0) return;
         for (var i = 0; i < nodeIds.length; i++) {
             var nodeId = nodeIds[i];
@@ -870,7 +825,7 @@ var Outliner = (function() {
 
             // 子: collapsed なら描画しない、検索結果フィルタ中はそのままフィルタを通す
             if (node.children && node.children.length > 0 && !node.collapsed) {
-                renderNodesFlat(node.children, parentEl, depth + 1, searchQuery);
+                renderNodes(node.children, parentEl, depth + 1, searchQuery);
             }
         }
     }
@@ -907,7 +862,7 @@ var Outliner = (function() {
         return breadcrumbEl;
     }
 
-    /** フォーカスモード: マッチノードを頂点として、その子孫のみ表示 */
+    /** フォーカスモード: マッチノードを頂点として、その子孫のみ表示 (flat) */
     function renderFocusNodes(parentEl, searchQuery) {
         // マッチノード（子孫でも祖先でもなく、直接マッチしたもの）を検索で再判定
         var query = OutlinerSearch.parseQuery(searchInput.value || '');
@@ -923,8 +878,7 @@ var Outliner = (function() {
                 directMatches.push(nid);
             }
         }
-        var flat = (RENDER_MODE === 'flat');
-        // 各マッチノードを頂点 (depth=0) として描画
+        // 各マッチノードを頂点 (depth=0) として描画 + 子孫を parentEl 直下に並べる (flat)
         for (var m = 0; m < directMatches.length; m++) {
             var matchId = directMatches[m];
             var node = model.getNode(matchId);
@@ -938,45 +892,22 @@ var Outliner = (function() {
             parentEl.appendChild(nodeEl);
             // 子孫を通常描画 (フィルタなし、全子を表示)
             if (node.children && node.children.length > 0) {
-                if (flat) {
-                    // flat: 子孫を parentEl 直下に depth+1 で並べる
-                    renderFocusChildren(node.children, parentEl, 1, searchQuery);
-                } else {
-                    var childrenEl = document.createElement('div');
-                    childrenEl.className = 'outliner-children';
-                    childrenEl.dataset.parent = matchId;
-                    renderFocusChildren(node.children, childrenEl, 1, searchQuery);
-                    parentEl.appendChild(childrenEl);
-                }
+                renderFocusChildren(node.children, parentEl, 1, searchQuery);
             }
         }
     }
 
-    /** フォーカスモード用: 子孫を全て表示 (検索フィルタなし) */
+    /** フォーカスモード用: 子孫を全て表示 (検索フィルタなし、flat) */
     function renderFocusChildren(nodeIds, parentEl, depth, searchQuery) {
-        var flat = (RENDER_MODE === 'flat');
         for (var i = 0; i < nodeIds.length; i++) {
             var nodeId = nodeIds[i];
             var node = model.getNode(nodeId);
             if (!node) { continue; }
             var nodeEl = createNodeElement(node, depth, searchQuery);
             parentEl.appendChild(nodeEl);
-            if (node.children && node.children.length > 0) {
-                if (flat) {
-                    // flat: collapsed 親の子は描画しない
-                    if (!node.collapsed) {
-                        renderFocusChildren(node.children, parentEl, depth + 1, searchQuery);
-                    }
-                } else {
-                    var childrenEl = document.createElement('div');
-                    childrenEl.className = 'outliner-children';
-                    childrenEl.dataset.parent = nodeId;
-                    if (node.collapsed) {
-                        childrenEl.classList.add('is-collapsed');
-                    }
-                    renderFocusChildren(node.children, childrenEl, depth + 1, searchQuery);
-                    parentEl.appendChild(childrenEl);
-                }
+            // collapsed 親の子は描画しない
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                renderFocusChildren(node.children, parentEl, depth + 1, searchQuery);
             }
         }
     }
@@ -3049,7 +2980,7 @@ var Outliner = (function() {
         }
     }
 
-    // --- 折りたたみ ---
+    // --- 折りたたみ (Phase F1.5: flat 単一化) ---
 
     function toggleCollapse(nodeId) {
         var node = model.getNode(nodeId);
@@ -3057,43 +2988,8 @@ var Outliner = (function() {
 
         node.collapsed = !node.collapsed;
 
-        // Phase F1.3: flat mode では .outliner-children ラッパーが存在しないため、
-        // model 状態だけ更新して renderTree() で再描画する。
-        if (RENDER_MODE === 'flat') {
-            renderTree();
-            scheduleSyncToHost();
-            return;
-        }
-
-        var childrenEl = treeEl.querySelector('.outliner-children[data-parent="' + nodeId + '"]');
-        if (childrenEl) {
-            if (node.collapsed) {
-                childrenEl.classList.add('is-collapsed');
-            } else {
-                childrenEl.classList.remove('is-collapsed');
-            }
-        }
-
-        var bulletEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"] .outliner-bullet');
-        if (bulletEl) {
-            if (node.collapsed) {
-                bulletEl.dataset.collapsed = 'true';
-                // 子の数を表示
-                var existingCount = bulletEl.querySelector('.outliner-child-count');
-                if (!existingCount && node.children.length > 0) {
-                    var countEl = document.createElement('span');
-                    countEl.className = 'outliner-child-count';
-                    countEl.textContent = String(node.children.length);
-                    bulletEl.appendChild(countEl);
-                }
-            } else {
-                delete bulletEl.dataset.collapsed;
-                // 子の数を非表示
-                var countEl = bulletEl.querySelector('.outliner-child-count');
-                if (countEl) { countEl.remove(); }
-            }
-        }
-
+        // flat mode: collapsed parent の子は DOM から消える/再表示されるので renderTree で再描画
+        renderTree();
         scheduleSyncToHost();
     }
 
@@ -6291,8 +6187,5 @@ var Outliner = (function() {
             if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
             if (typeof renderTree === 'function') renderTree();
         },
-        // Phase F (TASK-F1.1): RENDER_MODE 切替 (spec / 開発専用、本番 UI からは使わない)
-        _setRenderMode: _setRenderModeForTesting,
-        _getRenderMode: _getRenderModeForTesting
     };
 })();
