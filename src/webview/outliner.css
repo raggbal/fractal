@@ -282,12 +282,20 @@ body {
     border-top: 1px solid var(--outliner-border);
 }
 
-/* table mode は横スクロール許可、上 padding 削除 */
+/* table mode は横スクロール許可、上 padding / 左右 margin 全削除 */
 .outliner-tree[data-view-mode="table"] {
     overflow-x: auto;
     padding: 0;
-    margin: 0;
+    margin: 0 !important;
     border-top: none;
+}
+
+/* table mode 時は outliner-container 配下の他要素の右 padding も詰める
+   (table 自体は full width、toolbar も視覚的に違和感を出さないため右 padding を 0 に) */
+.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-page-title,
+.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-search-bar,
+.outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-pinned-nav-bar {
+    padding-right: 8px;
 }
 
 /* --- Node --- */
@@ -1496,13 +1504,12 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
-    /* テーマ追従:
-       editor-background = 本文と同じ (light: 白 / dark: ほぼ黒)
-       editorGroupHeader-tabsBackground = タブ行と同じトーン (light: 薄灰 / dark: ダーク灰)
-       多くのテーマで sidebar-background は dark theme に固定なので使わない */
-    background-color: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
-    color: var(--vscode-foreground, inherit);
+    /* editor-background は light theme = 白、dark theme = エディタ黒 を確実に追従 (要望通り) */
+    background-color: var(--vscode-editor-background) !important;
+    color: var(--vscode-editor-foreground, var(--vscode-foreground, inherit));
     padding: 4px 8px;
+    /* 線は bottom のみ */
+    border: none;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
     font-weight: 600;
     user-select: none;
