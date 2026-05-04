@@ -1480,6 +1480,9 @@ body {
    table mode 時は max-content 幅で広がり、横スクロールを発生させる */
 .outliner-tree[data-view-mode="table"] {
     display: grid;
+    /* 各行は内容の自然高さに合わせる */
+    grid-auto-rows: minmax(min-content, max-content);
+    align-items: start;
     width: max-content;
     min-width: 100%;
     /* 上のツールバーとの隙間を詰める */
@@ -1488,12 +1491,12 @@ body {
 }
 
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
-    position: sticky;
-    top: 0;
+    /* sticky を解除 (背景色に黒が残る不具合) → 通常の grid item に戻し、
+       テーマ追従は background-color のみで実現 */
     z-index: 10;
-    /* テーマ追従: editorWidget や input の bg を採用 (light/dark 両対応) */
-    background: var(--vscode-editorWidget-background, var(--vscode-input-background, var(--vscode-editor-background)));
-    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    /* テーマ追従: vscode サイドバー / リスト系の bg を使う (light theme で確実に白系) */
+    background-color: var(--vscode-sideBar-background, var(--vscode-editor-background, transparent));
+    color: var(--vscode-sideBar-foreground, var(--vscode-foreground, inherit));
     padding: 4px 8px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.4));
     font-weight: 600;
@@ -1541,11 +1544,29 @@ body {
     padding: 4px 8px;
     /* 行線・列線を出さない (ユーザー要望) */
     border: none;
+    /* 各セルは row の自然高さに自身を合わせる */
+    align-self: stretch;
+    overflow: visible;
+    height: auto;
 }
 
-/* Outliner cell (table mode) は既存 .outliner-node がそのまま入るので height auto */
+/* Outliner cell (table mode) は既存 .outliner-node がそのまま入る。
+ * 内部に画像 / subtext / 折り返しテキストを含むため、natural height が必要。 */
 .outliner-tree[data-view-mode="table"] > .outliner-node {
-    align-self: stretch;
+    /* flex の子 (.outliner-node-content) が幅制限内で wrap するように */
+    min-width: 0;
+}
+/* 内部の text wrapper が幅を超えて拡張しないように */
+.outliner-tree[data-view-mode="table"] > .outliner-node .outliner-node-content {
+    min-width: 0;
+    flex: 1 1 auto;
+    /* 子の長文 / 画像で expand する */
+    width: 0;  /* hack: flex-basis 0 + min-width 0 で wrap を強制 */
+}
+.outliner-tree[data-view-mode="table"] > .outliner-node .outliner-text {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-wrap;
 }
 
 .outliner-cell-text {
