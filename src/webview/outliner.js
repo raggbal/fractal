@@ -841,19 +841,37 @@ var Outliner = (function() {
     }
 
     /**
-     * Phase F1.2 (TASK-F1.2): flat DOM 描画パス (stub)
+     * Phase F1.2 (TASK-F1.2): flat DOM 描画パス
      *
-     * 現時点では呼ばれない (RENDER_MODE='hierarchical' default)。
-     * TASK-F1.2 で本体を実装。それまでは stub として fallback で hierarchical を呼ぶ。
+     * 各 visible node を parentEl の直接子として配置 (.outliner-children でネストしない)。
+     * indent は createNodeElement 内の .outliner-node-indent (width: depth * 24px) で
+     * そのまま機能するので CSS は無変更。
+     *
+     * - 検索結果フィルタを尊重 (currentSearchResult があれば該当 node のみ描画)
+     * - node.collapsed は **子を再帰しない** ことで実現 (子 row が DOM に存在しない)
+     * - hierarchical との違いは「.outliner-children ラッパーを生成しない」だけ
+     *
+     * collapse toggle / D&D / scope / search の挙動詳細は TASK-F1.4 で flat 対応する。
      */
     function renderNodesFlat(nodeIds, parentEl, depth, searchQuery) {
-        // F1.2 で実装。stub では hierarchical 経路に fallback してリスクゼロに保つ。
-        var savedMode = RENDER_MODE;
-        RENDER_MODE = 'hierarchical';
-        try {
-            renderNodes(nodeIds, parentEl, depth, searchQuery);
-        } finally {
-            RENDER_MODE = savedMode;
+        if (!nodeIds || nodeIds.length === 0) return;
+        for (var i = 0; i < nodeIds.length; i++) {
+            var nodeId = nodeIds[i];
+            var node = model.getNode(nodeId);
+            if (!node) continue;
+
+            // 検索結果フィルタ
+            if (currentSearchResult && !currentSearchResult.has(nodeId)) {
+                continue;
+            }
+
+            var nodeEl = createNodeElement(node, depth, searchQuery);
+            parentEl.appendChild(nodeEl);
+
+            // 子: collapsed なら描画しない、検索結果フィルタ中はそのままフィルタを通す
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                renderNodesFlat(node.children, parentEl, depth + 1, searchQuery);
+            }
         }
     }
 
