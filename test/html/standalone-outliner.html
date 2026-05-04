@@ -24818,6 +24818,13 @@ var Outliner = (function() {
             var matchId = directMatches[m];
             var node = model.getNode(matchId);
             if (!node) continue;
+            // 親 chain がある match には breadcrumb (祖先パンくず) を表示。
+            // grid-column: 1 / -1 で全列分の幅を占有。
+            var ancestryEl = createFocusAncestryBreadcrumb(matchId);
+            if (ancestryEl) {
+                ancestryEl.style.gridColumn = '1 / -1';
+                parentEl.appendChild(ancestryEl);
+            }
             // この match を depth=0 として 1 row 描画 + 子孫を depth+1 で並べる
             renderTableRowSingle(node, 0, searchQuery, cols, parentEl);
             if (node.children && node.children.length > 0 && !node.collapsed) {
