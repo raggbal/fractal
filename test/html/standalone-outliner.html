@@ -23448,45 +23448,110 @@ var Outliner = (function() {
     //
     var undoStack = [];
     var redoStack = [];
+    // 並列 focus 配列: undoStack[i] / redoStack[i] と同じ index で
+    // snapshot 時点の { nodeId, offset } を保持する。undo/redo 後の cursor 復帰に使用。
+    var undoFocusStack = [];
+    var redoFocusStack = [];
+    // 並列 type 配列: 'initial' (baseline) / 'action' (pre-action saveSnapshot) /
+    // 'edit' (post-edit saveSnapshotDebounced)
+    // 'action' を pop した場合 → savedFocus (操作開始位置) 優先
+    // 'edit' / 'initial' を pop した場合 → dedupFocus (直前 edit 位置) 優先
+    var undoTypeStack = [];
+    var redoTypeStack = [];
     var MAX_UNDO = 200;
     var isUndoRedo = false;
     var snapshotDebounceTimer = null;
     var SNAPSHOT_DEBOUNCE_MS = 500;
     var baselineSnapshot = null; // 初期状態（undoStackには入れない）
+    var baselineFocus = null;
 
-    function saveSnapshot() {
+    /** 現在 active な outliner-text 要素から { nodeId, offset } を取得。
+     *  active な outliner-text が無ければ focusedNodeId のみ返す (offset=null)。 */
+    function captureCurrentFocus() {
+        var ae = document.activeElement;
+        if (ae && ae.classList && ae.classList.contains('outliner-text')) {
+            var nodeEl = ae.closest('.outliner-node');
+            var nid = nodeEl ? nodeEl.dataset.id : null;
+            if (nid) {
+                try {
+                    return { nodeId: nid, offset: getCursorOffset(ae) };
+                } catch (e) {
+                    return { nodeId: nid, offset: null };
+                }
+            }
+        }
+        if (focusedNodeId) {
+            return { nodeId: focusedNodeId, offset: null };
+        }
+        return null;
+    }
+
+    function saveSnapshot(focusOverride, typeOverride) {
         if (isUndoRedo) { return; }
         var snapshot = JSON.stringify(model.serialize());
+        // focusOverride が指定された場合 (= saveSnapshotDebounced 経由) はそれを使う。
+        // それ以外 (= action ops の事前 saveSnapshot) は現在の focus を取得。
+        var focusSnap = (focusOverride !== undefined && focusOverride !== null)
+            ? focusOverride
+            : captureCurrentFocus();
+        // type 推定: typeOverride 指定時はそれを使う。
+        // 指定なし → focusOverride が指定されていれば 'edit' (debounced)、それ以外は 'action' (pre-action)
+        var snapType = typeOverride
+            || ((focusOverride !== undefined && focusOverride !== null) ? 'edit' : 'action');
         // 完全 dedup: 配列内のいずれかと同じならスキップ (二重 push を完全防止)
         // 通常 push は末尾だが、何らかの経路で同じ snapshot が再 push されないか念のため。
         if (undoStack.length > 0 && undoStack[undoStack.length - 1] === snapshot) { return; }
         if (undoStack.length === 0 && baselineSnapshot && baselineSnapshot !== snapshot) {
             undoStack.push(baselineSnapshot);
+            undoFocusStack.push(baselineFocus);
+            undoTypeStack.push('initial');
         }
         // 仮に baseline === snapshot だった場合も「現状」として 1 件は積む必要があるので push
         if (undoStack.length === 0 || undoStack[undoStack.length - 1] !== snapshot) {
             undoStack.push(snapshot);
+            undoFocusStack.push(focusSnap);
+            undoTypeStack.push(snapType);
         }
-        if (undoStack.length > MAX_UNDO) { undoStack.shift(); }
+        if (undoStack.length > MAX_UNDO) {
+            undoStack.shift();
+            undoFocusStack.shift();
+            undoTypeStack.shift();
+        }
         redoStack.length = 0;
+        redoFocusStack.length = 0;
+        redoTypeStack.length = 0;
         updateUndoRedoButtons();
     }
 
     /** 初期状態を記録（undoStackには入れない） */
     function saveBaseline() {
         baselineSnapshot = JSON.stringify(model.serialize());
+        baselineFocus = captureCurrentFocus();
         undoStack.length = 0;
         redoStack.length = 0;
+        undoFocusStack.length = 0;
+        redoFocusStack.length = 0;
+        undoTypeStack.length = 0;
+        redoTypeStack.length = 0;
         updateUndoRedoButtons();
     }
 
-    /** テキスト入力用デバウンス付きスナップショット（500ms後に保存） */
+    /** テキスト入力用デバウンス付きスナップショット（500ms後に保存）
+     *  focus 情報は **入力時 (= 関数呼び出し時)** にキャプチャして保持する。
+     *  saveSnapshot 発火時 (debounce 終了 / undo flush) では既に focus が別の場所に
+     *  移っている可能性があるため。 */
+    var pendingDebounceFocus = null;
     function saveSnapshotDebounced() {
         if (isUndoRedo) { return; }
+        // 入力時の focus を pendingDebounceFocus に保持。
+        // 同じ debounce 周期内は最初の focus を維持しても OK だが、
+        // 連続入力時はその時点の focus に更新する (= 最後の入力時の focus)。
+        pendingDebounceFocus = captureCurrentFocus();
         clearTimeout(snapshotDebounceTimer);
         snapshotDebounceTimer = setTimeout(function() {
             snapshotDebounceTimer = null;
-            saveSnapshot();
+            saveSnapshot(pendingDebounceFocus, 'edit');
+            pendingDebounceFocus = null;
         }, SNAPSHOT_DEBOUNCE_MS);
     }
 
@@ -23597,8 +23662,26 @@ var Outliner = (function() {
         return ok;
     }
 
-    function focusAfterUndoRedo(diffNodeId) {
-        console.log('[Fractal:focusAfterUndoRedo] diffNodeId=', diffNodeId, 'focusedNodeId=', focusedNodeId, 'rootIds=', model.rootIds);
+    function focusAfterUndoRedo(diffNodeId, savedFocus) {
+        console.log('[Fractal:focusAfterUndoRedo] diffNodeId=', diffNodeId, 'savedFocus=', savedFocus, 'focusedNodeId=', focusedNodeId, 'rootIds=', model.rootIds);
+        // 最優先: snapshot 時点で記録した focus (nodeId + offset)。
+        //   - target 復帰後のモデルにそのノードが存在することが条件。
+        //   - これにより Enter / Opt+Enter の undo で「操作前にカーソルがあったノード」へ戻る。
+        if (savedFocus && savedFocus.nodeId && model.getNode(savedFocus.nodeId)) {
+            if (expandAncestorsAndFocus(savedFocus.nodeId)) {
+                if (savedFocus.offset !== null && savedFocus.offset !== undefined) {
+                    var nodeEl = treeEl.querySelector('.outliner-node[data-id="' + savedFocus.nodeId + '"]');
+                    if (nodeEl) {
+                        var textEl = nodeEl.querySelector('.outliner-text');
+                        if (textEl) {
+                            try { setCursorAtOffset(textEl, savedFocus.offset); } catch (e) {}
+                        }
+                    }
+                }
+                console.log('[Fractal:focusAfterUndoRedo] → success via savedFocus');
+                return;
+            }
+        }
         if (diffNodeId && model.getNode(diffNodeId)) {
             if (expandAncestorsAndFocus(diffNodeId)) {
                 console.log('[Fractal:focusAfterUndoRedo] → success via diffNodeId');
@@ -23617,11 +23700,13 @@ var Outliner = (function() {
     }
 
     function undo() {
-        // デバウンス中のスナップショットをフラッシュ
+        // デバウンス中のスナップショットをフラッシュ。
+        // pendingDebounceFocus を引き継いで、入力時の focus を保持したまま snapshot を取る。
         if (snapshotDebounceTimer) {
             clearTimeout(snapshotDebounceTimer);
             snapshotDebounceTimer = null;
-            saveSnapshot();
+            saveSnapshot(pendingDebounceFocus, 'edit');
+            pendingDebounceFocus = null;
         }
         if (undoStack.length === 0) { console.log('[Fractal:undo] STACK EMPTY → return'); return; }
         isUndoRedo = true;
@@ -23642,8 +23727,13 @@ var Outliner = (function() {
                 console.log('[Fractal:undo]   stack['+dbgI+']:', nids.map(function(k){return k+'="'+(sp.nodes[k].text||'')+'"'+(sp.nodes[k].collapsed?'[c]':'');}).join(' | '));
             }
         } catch (e) {}
+        // dedup loop: top === currentSnapshot を全部 pop。
+        // dedup で **最後に消えた focus** を「直前の編集場所」として記録する。
+        var dedupFocus = null;
         while (undoStack.length > 0 && undoStack[undoStack.length - 1] === currentSnapshot) {
             undoStack.pop();
+            dedupFocus = undoFocusStack.pop() || dedupFocus;
+            undoTypeStack.pop();
             console.log('[Fractal:undo] dedup pop, len=', undoStack.length);
         }
         if (undoStack.length === 0) {
@@ -23660,10 +23750,26 @@ var Outliner = (function() {
             }
             return;
         }
+        var currentFocusSnap = captureCurrentFocus();
         redoStack.push(currentSnapshot);
+        redoFocusStack.push(currentFocusSnap);
+        redoTypeStack.push('current');
         var snapshot = undoStack.pop();
+        var savedFocus = undoFocusStack.pop();
+        var savedType = undoTypeStack.pop();
+        // 焦点復帰の優先度:
+        //   - popped snapshot が 'action' (= 操作の事前 saveSnapshot) → savedFocus を使う
+        //     (ユーザー期待: 操作前にカーソルがあったノードに戻る)
+        //   - 'edit' / 'initial' → dedupFocus を優先 (= 直前 edit の入力位置)
+        //     fallback として savedFocus
+        var preferredFocus;
+        if (savedType === 'action') {
+            preferredFocus = savedFocus || dedupFocus;
+        } else {
+            preferredFocus = dedupFocus || savedFocus;
+        }
         var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
-        console.log('[Fractal:undo] popped snapshot, will restore. diffNodeId=', diffNodeId);
+        console.log('[Fractal:undo] popped snapshot, will restore. diffNodeId=', diffNodeId, 'savedType=', savedType, 'preferredFocus=', preferredFocus);
         try {
             var snp = JSON.parse(snapshot);
             var sids = Object.keys(snp.nodes || {});
@@ -23672,7 +23778,7 @@ var Outliner = (function() {
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        focusAfterUndoRedo(diffNodeId);
+        focusAfterUndoRedo(diffNodeId, preferredFocus);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
@@ -23694,6 +23800,8 @@ var Outliner = (function() {
         // top が現在と同じ snapshot は冗長 → 全部捨てる (連続 dedup)
         while (redoStack.length > 0 && redoStack[redoStack.length - 1] === currentSnapshot) {
             redoStack.pop();
+            redoFocusStack.pop();
+            redoTypeStack.pop();
         }
         if (redoStack.length === 0) {
             isUndoRedo = false;
@@ -23703,15 +23811,22 @@ var Outliner = (function() {
             }
             return;
         }
+        var currentFocusSnap = captureCurrentFocus();
         undoStack.push(currentSnapshot);
+        undoFocusStack.push(currentFocusSnap);
+        undoTypeStack.push('current'); // redo 操作の現在状態 (後で undo でも可逆)
         var snapshot = redoStack.pop();
+        redoFocusStack.pop(); // stack 整合のため pop だけはする (redo では savedFocus 使わない)
+        redoTypeStack.pop();
         // 差分検出: redo 進む先 (snapshot) と 進む前 (currentSnapshot) の diff
         // diff: target = snapshot (移動先), other = currentSnapshot (移動元)
+        // redo では「アクション後の自然な focus」が欲しいので diff ベースに戻す
+        // (snapshot 時点の focus = 操作前の focus なので redo には合わない)
         var diffNodeId = findDiffNodeIdInTarget(JSON.parse(snapshot), JSON.parse(currentSnapshot));
         model = new OutlinerModel(JSON.parse(snapshot));
         searchEngine = new OutlinerSearch.SearchEngine(model);
         renderTree();
-        focusAfterUndoRedo(diffNodeId);
+        focusAfterUndoRedo(diffNodeId, null);
         syncToHostImmediate();
         isUndoRedo = false;
         updateUndoRedoButtons();
@@ -25773,7 +25888,18 @@ var Outliner = (function() {
                 if (e.altKey) { break; }
                 if (isAtStart && node.children && node.children.length > 0 && !node.collapsed) {
                     e.preventDefault();
+                    var leftOffset = getCursorOffset(textEl);
                     toggleCollapse(nodeId);
+                    // toggleCollapse は renderTree() を呼ぶので textEl が stale。
+                    // 同じ node に focus を戻し、cursor 位置 (先頭) を維持する。
+                    var leftNodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+                    if (leftNodeEl) {
+                        var leftNewTextEl = leftNodeEl.querySelector('.outliner-text');
+                        if (leftNewTextEl) {
+                            leftNewTextEl.focus();
+                            setCursorAtOffset(leftNewTextEl, leftOffset);
+                        }
+                    }
                 }
                 break;
 
@@ -25782,7 +25908,17 @@ var Outliner = (function() {
                 if (e.altKey) { break; }
                 if (isAtEnd && node.collapsed) {
                     e.preventDefault();
+                    var rightOffset = getCursorOffset(textEl);
                     toggleCollapse(nodeId);
+                    // 同じ node に focus を戻し、cursor 位置 (末尾) を維持する。
+                    var rightNodeEl = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+                    if (rightNodeEl) {
+                        var rightNewTextEl = rightNodeEl.querySelector('.outliner-text');
+                        if (rightNewTextEl) {
+                            rightNewTextEl.focus();
+                            setCursorAtOffset(rightNewTextEl, rightOffset);
+                        }
+                    }
                 }
                 break;
 
