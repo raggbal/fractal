@@ -24782,18 +24782,80 @@ var Outliner = (function() {
             searchQuery = OutlinerSearch.parseQuery(searchInput.value || '');
         }
 
-        // 検索フォーカスモードは table mode では未対応 (F2.5 で対応予定)
-        var rootIds;
-        if (currentScope.type === 'subtree' && currentScope.rootId) {
-            var scopeNode = model.getNode(currentScope.rootId);
-            rootIds = (scopeNode && scopeNode.children) ? scopeNode.children : [];
-        } else {
-            rootIds = model.rootIds;
-        }
-
         var rowFragment = document.createDocumentFragment();
-        renderTableRows(rootIds, rowFragment, 0, searchQuery, cols);
+        if (searchFocusMode && currentSearchResult) {
+            // フォーカスモード: マッチした node を全部 (どの階層でも) flat に並べ、
+            // 各マッチの直下に子孫を depth+1 以降で並べる
+            renderTableFocusRows(rowFragment, searchQuery, cols);
+        } else {
+            var rootIds;
+            if (currentScope.type === 'subtree' && currentScope.rootId) {
+                var scopeNode = model.getNode(currentScope.rootId);
+                rootIds = (scopeNode && scopeNode.children) ? scopeNode.children : [];
+            } else {
+                rootIds = model.rootIds;
+            }
+            renderTableRows(rootIds, rowFragment, 0, searchQuery, cols);
+        }
         treeEl.appendChild(rowFragment);
+    }
+
+    /** table mode フォーカス検索: マッチ node を depth=0 として並べ、子孫は depth+1 以降 */
+    function renderTableFocusRows(parentEl, searchQuery, cols) {
+        var query = OutlinerSearch.parseQuery(searchInput.value || '');
+        if (!query) return;
+        var allNodeIds = (currentScope.type === 'subtree' && currentScope.rootId)
+            ? [currentScope.rootId].concat(model.getDescendantIds(currentScope.rootId))
+            : Object.keys(model.nodes);
+        var directMatches = [];
+        for (var i = 0; i < allNodeIds.length; i++) {
+            var nid = allNodeIds[i];
+            if (searchEngine._matches(nid, query)) {
+                directMatches.push(nid);
+            }
+        }
+        for (var m = 0; m < directMatches.length; m++) {
+            var matchId = directMatches[m];
+            var node = model.getNode(matchId);
+            if (!node) continue;
+            // この match を depth=0 として 1 row 描画 + 子孫を depth+1 で並べる
+            renderTableRowSingle(node, 0, searchQuery, cols, parentEl);
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                renderTableFocusDescendants(node.children, parentEl, 1, searchQuery, cols);
+            }
+        }
+    }
+
+    /** focus mode: 子孫を全描画 (検索フィルタなし、ただし collapsed を尊重) */
+    function renderTableFocusDescendants(nodeIds, parentEl, depth, searchQuery, cols) {
+        for (var i = 0; i < nodeIds.length; i++) {
+            var node = model.getNode(nodeIds[i]);
+            if (!node) continue;
+            renderTableRowSingle(node, depth, searchQuery, cols, parentEl);
+            if (node.children && node.children.length > 0 && !node.collapsed) {
+                renderTableFocusDescendants(node.children, parentEl, depth + 1, searchQuery, cols);
+            }
+        }
+    }
+
+    /** 1 node = 1 row (col 個の grid item) を append する内部 helper */
+    function renderTableRowSingle(node, depth, searchQuery, cols, parentEl) {
+        for (var c = 0; c < cols.length; c++) {
+            var col = cols[c];
+            var cellEl;
+            if (col.type === 'outliner') {
+                cellEl = createNodeElement(node, depth, searchQuery);
+                cellEl.classList.add('outliner-cell-outliner');
+            } else if (col.type === 'text') {
+                cellEl = createTextCellElement(node, col, searchQuery);
+            } else if (col.type === 'multiselect') {
+                cellEl = createMultiselectCellElement(node, col);
+            } else {
+                cellEl = document.createElement('div');
+                cellEl.className = 'outliner-cell-unknown';
+            }
+            parentEl.appendChild(cellEl);
+        }
     }
 
     function renderTableRows(nodeIds, parentEl, depth, searchQuery, cols) {
