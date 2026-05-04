@@ -1719,8 +1719,9 @@ var Outliner = (function() {
 
         if (col.type !== 'outliner') {
             addSeparator();
+            // 確認ダイアログは webview で window.confirm がブロックされる場合があるので使わない。
+            // 操作は saveSnapshot 済なので Cmd+Z で復元可能。
             addItem('Remove column', function () {
-                if (!window.confirm('Remove column "' + col.name + '"? Values in this column will be deleted.')) return;
                 saveSnapshot();
                 model.columns = model.columns.filter(function (c) { return c.id !== col.id; });
                 for (var nid in model.nodes) {

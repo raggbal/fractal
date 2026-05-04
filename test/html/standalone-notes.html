@@ -3306,7 +3306,8 @@ body {
 
 /* multiselect dropdown */
 .outliner-multiselect-dropdown {
-    background: var(--vscode-editor-background, #252526);
+    background: var(--outliner-bg);
+    color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     border-radius: 4px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -3317,8 +3318,8 @@ body {
 }
 .outliner-multiselect-input {
     width: 100%;
-    background: var(--vscode-input-background, #3c3c3c);
-    color: var(--vscode-input-foreground, #ddd);
+    background: var(--outliner-search-bg, var(--outliner-bg));
+    color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
     padding: 4px 6px;
     margin-bottom: 4px;
@@ -3340,7 +3341,7 @@ body {
     font-size: 12px;
 }
 .outliner-multiselect-item:hover, .outliner-multiselect-create:hover {
-    background: rgba(127, 127, 127, 0.15);
+    background: var(--outliner-hover-bg, rgba(127, 127, 127, 0.15));
 }
 .outliner-multiselect-checkbox {
     font-family: monospace;
@@ -3348,16 +3349,17 @@ body {
     text-align: center;
 }
 .outliner-multiselect-create {
-    color: var(--vscode-textLink-foreground, #4ec9b0);
+    color: var(--outliner-tag-color, var(--outliner-fg));
     font-style: italic;
 }
 
 /* column context menu */
 .outliner-col-ctx-menu {
-    background: var(--vscode-editor-background, #252526);
+    background: var(--outliner-bg);
+    color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
     z-index: 200;
     padding: 4px 0;
     min-width: 160px;
@@ -3366,23 +3368,25 @@ body {
     padding: 6px 12px;
     cursor: pointer;
     font-size: 13px;
+    color: var(--outliner-fg);
 }
 .outliner-col-ctx-item:hover {
-    background: rgba(127, 127, 127, 0.18);
+    background: var(--outliner-hover-bg, rgba(127, 127, 127, 0.18));
 }
-.outliner-col-ctx-remove { color: #f47b7b; }
+.outliner-col-ctx-remove { color: var(--outliner-error-color, #d32f2f); }
 .outliner-col-ctx-sep {
     height: 1px;
-    background: var(--vscode-panel-border, rgba(127,127,127,0.3));
+    background: var(--outliner-border, rgba(127,127,127,0.3));
     margin: 4px 0;
 }
 
 /* add-column dialog */
 .outliner-add-col-dialog {
-    background: var(--vscode-editor-background, #252526);
+    background: var(--outliner-bg);
+    color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     z-index: 300;
     padding: 16px;
     min-width: 280px;
@@ -3390,11 +3394,11 @@ body {
     flex-direction: column;
     gap: 8px;
 }
-.outliner-add-col-label { font-weight: 600; }
+.outliner-add-col-label { font-weight: 600; color: var(--outliner-fg); }
 .outliner-add-col-name, .outliner-add-col-type {
     width: 100%;
-    background: var(--vscode-input-background, #3c3c3c);
-    color: var(--vscode-input-foreground, #ddd);
+    background: var(--outliner-search-bg, var(--outliner-bg));
+    color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
     padding: 6px 8px;
     border-radius: 3px;
@@ -3412,15 +3416,15 @@ body {
     border: 1px solid transparent;
     cursor: pointer;
     font-size: 13px;
+    background: transparent;
+    color: var(--outliner-fg);
 }
 .outliner-add-col-buttons button:first-child {
-    background: transparent;
-    color: var(--vscode-foreground, #ddd);
     border-color: var(--outliner-border, rgba(127,127,127,0.4));
 }
 .outliner-add-col-buttons button:last-child {
-    background: var(--vscode-button-background, #0e639c);
-    color: var(--vscode-button-foreground, #fff);
+    background: var(--outliner-active, var(--outliner-tag-color, #2196F3));
+    color: var(--outliner-accent-fg, #fff);
 }
 </style>
     <style>
@@ -25817,8 +25821,9 @@ var Outliner = (function() {
 
         if (col.type !== 'outliner') {
             addSeparator();
+            // 確認ダイアログは webview で window.confirm がブロックされる場合があるので使わない。
+            // 操作は saveSnapshot 済なので Cmd+Z で復元可能。
             addItem('Remove column', function () {
-                if (!window.confirm('Remove column "' + col.name + '"? Values in this column will be deleted.')) return;
                 saveSnapshot();
                 model.columns = model.columns.filter(function (c) { return c.id !== col.id; });
                 for (var nid in model.nodes) {
