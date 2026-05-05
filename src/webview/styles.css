@@ -126,6 +126,8 @@ body {
     line-height: 1.6;
     color: var(--text-color);
     background-color: var(--bg-color);
+    /* デフォルト全体縮小 (cmd+- 1 ステップ相当)。outliner.css と統一。 */
+    zoom: var(--fractal-zoom, 0.9);
 }
 .container { display: flex; height: 100vh; }
 

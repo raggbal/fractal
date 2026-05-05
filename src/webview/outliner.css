@@ -43,6 +43,11 @@ body {
     overflow: hidden;
     height: 100vh;
     margin: 0;
+    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小)。
+       テキスト・アイコン・padding・インデント等が全て同じ比率で小さくなる。
+       fractal.zoom で上書き可能 (extension.ts → webviewContent で注入されるが、
+       未注入時はこの値が使われる) */
+    zoom: var(--fractal-zoom, 0.9);
 }
 
 /* --- Container --- */
