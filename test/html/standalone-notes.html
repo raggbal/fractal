@@ -24123,21 +24123,35 @@ var OutlinerSearch = (function() {
         }
     };
 
-    /** Phase F2.5+: tag query (#xxx / @xxx) で multiselect option label にマッチ判定 */
+    /** Phase F2.5+: tag query (#xxx / @xxx) で
+     *  - multiselect 列の option label
+     *  - text 列に含まれる #xxx / @xxx
+     *  にマッチ判定 */
     SearchEngine.prototype._matchesColumnTags = function(node, lowerTag) {
         if (!node.columnValues) return false;
         var cols = (this.model && this.model.columns) || [];
+        // text 列内の literal タグを検出する正規表現 (parseTags と同じパターン)
+        var textTagRegex = /(?:^|[^&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
         for (var i = 0; i < cols.length; i++) {
             var col = cols[i];
-            if (col.type !== 'multiselect') continue;
             var v = node.columnValues[col.id];
-            if (!Array.isArray(v)) continue;
-            var opts = col.options || [];
-            for (var j = 0; j < v.length; j++) {
-                for (var k = 0; k < opts.length; k++) {
-                    if (opts[k].id === v[j] && (opts[k].label || '').toLowerCase() === lowerTag) {
-                        return true;
+            if (v === undefined || v === null) continue;
+            if (col.type === 'multiselect' && Array.isArray(v)) {
+                var opts = col.options || [];
+                for (var j = 0; j < v.length; j++) {
+                    for (var k = 0; k < opts.length; k++) {
+                        if (opts[k].id === v[j] && (opts[k].label || '').toLowerCase() === lowerTag) {
+                            return true;
+                        }
                     }
+                }
+            } else if (col.type === 'text' && typeof v === 'string') {
+                // インラインコード / URL 中のタグは除外
+                var cleaned = v.replace(/`[^`]*`/g, '').replace(/https?:\/\/\S+/g, '');
+                textTagRegex.lastIndex = 0;
+                var m;
+                while ((m = textTagRegex.exec(cleaned)) !== null) {
+                    if ((m[1] || '').toLowerCase() === lowerTag) return true;
                 }
             }
         }
