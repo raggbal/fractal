@@ -1583,6 +1583,8 @@ body {
 }
 .outliner-tree[data-view-mode="table"] .outliner-col-header[data-col-type="outliner"] {
     cursor: default;
+    /* 1 列目 (Outline 列) のみ左右 padding を広めに */
+    padding: 4px 20px;
 }
 .outliner-col-header-label {
     flex: 1;
