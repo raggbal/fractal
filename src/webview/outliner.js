@@ -1145,7 +1145,7 @@ var Outliner = (function() {
             } else if (col.type === 'text') {
                 cellEl = createTextCellElement(node, col, searchQuery);
             } else if (col.type === 'multiselect') {
-                cellEl = createMultiselectCellElement(node, col);
+                cellEl = createMultiselectCellElement(node, col, searchQuery);
             } else {
                 cellEl = document.createElement('div');
                 cellEl.className = 'outliner-cell-unknown';
@@ -1173,7 +1173,7 @@ var Outliner = (function() {
                 } else if (col.type === 'text') {
                     cellEl = createTextCellElement(node, col, searchQuery);
                 } else if (col.type === 'multiselect') {
-                    cellEl = createMultiselectCellElement(node, col);
+                    cellEl = createMultiselectCellElement(node, col, searchQuery);
                 } else {
                     cellEl = document.createElement('div');
                     cellEl.className = 'outliner-cell-unknown';
@@ -1306,6 +1306,15 @@ var Outliner = (function() {
         return moveTableCell(cellEl, dir);
     }
 
+    /** Phase F2: 行の状態 (focus/selected/search-match) を non-outline cell に反映 */
+    function applyRowStateClasses(cellEl, node, searchQuery) {
+        if (focusedNodeId === node.id) cellEl.classList.add('is-focused');
+        if (selectedNodeIds && selectedNodeIds.has(node.id)) cellEl.classList.add('is-selected');
+        if (searchQuery && currentSearchResult && searchEngine._matches(node.id, searchQuery)) {
+            cellEl.classList.add('is-search-match');
+        }
+    }
+
     // ----- F2.2: Text cell -----
     function createTextCellElement(node, col, searchQuery) {
         var el = document.createElement('div');
@@ -1316,6 +1325,7 @@ var Outliner = (function() {
         el.spellcheck = false;
         var rawValue = getCellValue(node.id, col.id, 'text') || '';
         el.innerHTML = renderInlineText(rawValue);
+        applyRowStateClasses(el, node, searchQuery);
 
         // タグダブルクリック → 検索ボックスに反映 (outline 列と同じ挙動)
         el.addEventListener('dblclick', function (e) {
@@ -1555,13 +1565,14 @@ var Outliner = (function() {
         }
     }
 
-    function createMultiselectCellElement(node, col) {
+    function createMultiselectCellElement(node, col, searchQuery) {
         ensureColumnOptions(col);
         var el = document.createElement('div');
         el.className = 'outliner-cell-multiselect';
         el.dataset.nodeId = node.id;
         el.dataset.colId = col.id;
         el.tabIndex = 0;
+        applyRowStateClasses(el, node, searchQuery);
         var selectedOptIds = (getCellValue(node.id, col.id, 'multiselect') || []).slice();
 
         if (selectedOptIds.length === 0) {
@@ -2761,6 +2772,18 @@ var Outliner = (function() {
 
     // --- フォーカス管理 ---
 
+    /** Phase F2: table mode で row 全体 (text/multiselect cell も) に class を toggle */
+    function toggleRowCellsClass(nodeId, cls, add) {
+        if (!treeEl || !nodeId) return;
+        var cells = treeEl.querySelectorAll(
+            '.outliner-cell-text[data-node-id="' + nodeId + '"], .outliner-cell-multiselect[data-node-id="' + nodeId + '"]'
+        );
+        for (var i = 0; i < cells.length; i++) {
+            if (add) cells[i].classList.add(cls);
+            else cells[i].classList.remove(cls);
+        }
+    }
+
     function setFocusedNode(nodeId) {
         if (focusedNodeId === nodeId) { return; }
         if (focusedNodeId) {
@@ -2776,6 +2799,7 @@ var Outliner = (function() {
                     }
                 }
             }
+            toggleRowCellsClass(focusedNodeId, 'is-focused', false);
         }
         focusedNodeId = nodeId;
         var el = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
@@ -2790,6 +2814,7 @@ var Outliner = (function() {
                 }
             }
         }
+        toggleRowCellsClass(nodeId, 'is-focused', true);
     }
 
     // --- 複数ノード選択管理 ---
@@ -2799,6 +2824,7 @@ var Outliner = (function() {
         selectedNodeIds.forEach(function(id) {
             var el = treeEl.querySelector('.outliner-node[data-id="' + id + '"]');
             if (el) { el.classList.remove('is-selected'); }
+            toggleRowCellsClass(id, 'is-selected', false);
         });
         selectedNodeIds.clear();
         selectionAnchorId = null;
@@ -2809,6 +2835,7 @@ var Outliner = (function() {
         selectedNodeIds.forEach(function(id) {
             var el = treeEl.querySelector('.outliner-node[data-id="' + id + '"]');
             if (el) { el.classList.remove('is-selected'); }
+            toggleRowCellsClass(id, 'is-selected', false);
         });
         selectedNodeIds.clear();
     }
@@ -2833,6 +2860,7 @@ var Outliner = (function() {
             selectedNodeIds.add(flat[i]);
             var el = treeEl.querySelector('.outliner-node[data-id="' + flat[i] + '"]');
             if (el) { el.classList.add('is-selected'); }
+            toggleRowCellsClass(flat[i], 'is-selected', true);
         }
     }
 
