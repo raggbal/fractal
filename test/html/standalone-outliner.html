@@ -16343,6 +16343,23 @@ class EditorInstance {
                             } catch (eFoc) { /* ignore */ }
                         }
                     } catch (e) { /* ignore — fallback to focus-based insertion */ }
+                    // BUG-FIX (drawio insertion 失敗対策): marker が DOM 操作 (updateFromMarkdown
+                    // diff/patch、外部ファイル変更 echo 等) で消失しても fallback できるよう、
+                    // cursor 位置を JS 変数にも別途保存しておく。
+                    try {
+                        window.__pendingDrawioCursor = null;
+                        var dwSel3 = window.getSelection();
+                        if (dwSel3 && dwSel3.rangeCount) {
+                            var r = dwSel3.getRangeAt(0);
+                            if (editor.contains(r.startContainer) || r.startContainer === editor) {
+                                window.__pendingDrawioCursor = {
+                                    node: r.startContainer,
+                                    offset: r.startOffset,
+                                    timestamp: Date.now()
+                                };
+                            }
+                        }
+                    } catch (eSav) { /* ignore */ }
                     host.requestCreateDrawio();
                 }
                 break;
@@ -18541,6 +18558,32 @@ class EditorInstance {
                 return;
             }
 
+            // BUG-FIX: marker が消失 (updateFromMarkdown patch / 外部 echo / 他編集) した場合、
+            // 直前に JS 変数に保存した cursor 位置を使って復元
+            try {
+                var pending = window.__pendingDrawioCursor;
+                if (pending && pending.node && editor.contains(pending.node) &&
+                    Date.now() - pending.timestamp < 60000 /* 60s 以内 */) {
+                    editor.focus();
+                    var pRange = document.createRange();
+                    var maxOff = (pending.node.nodeType === 3 /* text */) ?
+                        pending.node.textContent.length :
+                        pending.node.childNodes.length;
+                    var safeOff = Math.min(pending.offset, maxOff);
+                    pRange.setStart(pending.node, safeOff);
+                    pRange.setEnd(pending.node, safeOff);
+                    pRange.insertNode(img);
+                    pRange.setStartAfter(img);
+                    pRange.setEndAfter(img);
+                    var pSel = window.getSelection();
+                    pSel.removeAllRanges();
+                    pSel.addRange(pRange);
+                    window.__pendingDrawioCursor = null;
+                    syncMarkdown();
+                    return;
+                }
+            } catch (ePend) { /* ignore — fall through to default */ }
+
             editor.focus();
             const sel = window.getSelection();
             // BUG-FIX: marker 不在 + selection が editor 外の時、insertNode は editor 外に挿入される。
@@ -18602,8 +18645,14 @@ class EditorInstance {
                     sel.addRange(range);
                 }
             } else {
-                editor.appendChild(img);
+                // 最終 fallback: <p> で wrap して editor 末尾に append (raw <img> は markdown
+                // 化で位置が不安定になる可能性があるため)
+                const tailP = document.createElement('p');
+                tailP.appendChild(img);
+                editor.appendChild(tailP);
             }
+            // 念のため pending cursor も clear
+            window.__pendingDrawioCursor = null;
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertFileLink') {

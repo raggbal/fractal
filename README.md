@@ -13,17 +13,28 @@ Each `.out` (outliner) and `.md` (markdown) file also works standalone — but t
 ## Visual
 ### Outliner Editor
 The Outliner Editor can be used by first adding a Note (any folder) from Fractal Notes in the VSCode Activity Bar.
-The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.![assets/images/1775404974903.png](assets/images/1775404974903.png)
+The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.
+
+Overview![1778048683075.png](1778048683075.png)
+Outline View
+![1778048858635.png](1778048858635.png)
+
+Table View:  ≒ TreeViewTable
+![1778048833886.png](1778048833886.png)
+
+
 
 ### Side Panel Markdown Editor
 Each node in the outliner can easily embed a Markdown file as a page using the `@page` command. Nodes with an attached page display a page icon, and pressing Cmd+Enter opens the Markdown editor in the side panel.
-![assets/images/1775405114239.png](assets/images/1775405114239.png)
+![1778048882019.png](1778048882019.png)
 
 ### Markdown Editor (Standalone)
 The Markdown editor can be launched in standalone mode from the side panel. The functionality is the same, but standalone mode offers the advantage of a larger editing area. It can also be set as the default Markdown editor, allowing you to edit any Markdown file with the Fractal Markdown editor.
-![assets/images/1772631963888.png](assets/images/1772631963888.png)
+![1778048566296.png](1778048566296.png)
+
 **Action Palette (Cmd+/ / Ctrl+/)**
-![assets/images/1772632052456.png](assets/images/1772632052456.png)
+![1778048652638.png](1778048652638.png)
+
 
 ## 🎬 Demo (gif)
 
@@ -53,13 +64,13 @@ A Typora / Notion-style WYSIWYG markdown editor.
 - **Blockquotes** and **Horizontal rules**
 - **Links and Images** — Drag & drop, paste, smart link creation (select text + paste URL)
   - **Image fullscreen lightbox** — Double-click any image to open it fullscreen. **Pinch to zoom** (Mac touchpad), **drag to pan** when zoomed, double-click to reset, ESC to close
-  - **`fractal.imageMaxWidth` setting** (default 400px) — Cap inline image width
+  - `fractal.imageMaxWidth`** setting** (default 400px) — Cap inline image width
   - **Right-click → Rename Link** — Edit the visible text of any link without changing its URL
 - **drawio.svg / drawio.png inline support** — Drag a `.drawio.svg` from Finder onto the editor, or use `Cmd+/` → **"Insert Drawio Diagram"** to create a new placeholder. Renders as an inline image in the MD; saving the file from drawio Desktop / `hediet.vscode-drawio` triggers automatic re-render of all open MDs that reference it (powered by a polling-fallback file watcher to catch atomic-rename saves). Dropping a `.drawio` (XML) file shows a "Open in drawio Desktop" guidance dialog instead of inserting raw XML
 - **File attachments** — Drag & drop any file onto the editor to insert a `[📎 filename](path)` link. Click to open with OS default app
 - **Notion-style side panel** — Click a `.md` link to open it in a side peek panel with full WYSIWYG editing. Cmd+Click to open in a new tab instead
   - **Back / Forward navigation** in the side panel header (or `Opt+Left` / `Opt+Right`) to revisit MD links you've followed inside the panel
-  - **`Cmd+/` Add Page** also works inside the side panel — creates `<sidePanelDir>/pages/<timestamp>.md` and inserts the link
+  - `Cmd+/`** Add Page** also works inside the side panel — creates `<sidePanelDir>/pages/<timestamp>.md` and inserts the link
   - **Outline always visible** — the side panel's heading outline stays open even when the MD has zero headings (shows a placeholder)
   - **Outline drag-resize** — Drag the right edge of the outline sidebar to set its width. Standalone `.out`: width saved per-outliner. Notes mode: width shared across all `.out` files in the note (saved to `outline.note`)
   - **Side panel width per-note** — In Notes mode, the side panel MD width is stored in `outline.note` and shared across all `.out` in the note (consistent reading width for the whole notebook). Standalone `.out` keeps its own per-file width
