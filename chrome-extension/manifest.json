@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Fractal Web Clipper",
+  "version": "0.1.0",
+  "description": "Clip the current web page into a Fractal Outliner (.out) as a new top-level node + page MD.",
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Clip to Fractal Outliner",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  }
+}

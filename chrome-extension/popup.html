@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Fractal Web Clipper</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            margin: 0;
+            padding: 14px;
+            min-width: 320px;
+            color: #2b2b2b;
+        }
+        h1 { font-size: 14px; margin: 0 0 8px; }
+        button {
+            padding: 8px 12px;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            background: #f7f7f7;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button.primary {
+            background: #0969da;
+            color: #fff;
+            border-color: #0969da;
+            font-weight: 600;
+        }
+        button.primary:hover { background: #0860c4; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        .target {
+            font-size: 12px;
+            color: #555;
+            background: #f0f0f0;
+            padding: 6px 8px;
+            border-radius: 3px;
+            margin: 6px 0;
+            word-break: break-all;
+        }
+        .status {
+            font-size: 12px;
+            padding: 6px 8px;
+            border-radius: 3px;
+            margin-top: 8px;
+        }
+        .status.ok { background: #e6f7f2; color: #066; }
+        .status.err { background: #fce8e8; color: #c33; }
+        .status.info { background: #f0f4f8; color: #335; }
+        a { color: #0969da; text-decoration: none; font-size: 12px; }
+        a:hover { text-decoration: underline; }
+        .row { margin-top: 8px; text-align: right; }
+    </style>
+</head>
+<body>
+    <h1>📥 Clip to Fractal</h1>
+    <div class="target" id="target">読み込み中...</div>
+    <button id="clipBtn" class="primary" disabled>Clip this page</button>
+    <div id="status" class="status info" style="display:none"></div>
+    <div class="row"><a href="#" id="optionsLink">⚙️ 設定を変更</a></div>
+
+    <script src="lib/idb.js"></script>
+    <script src="lib/turndown.js"></script>
+    <script src="lib/turndown-plugin-gfm.js"></script>
+    <script src="lib/Readability.js"></script>
+    <script src="lib/fractal-md.js"></script>
+    <script src="lib/clipper-core.js"></script>
+    <script src="popup.js"></script>
+</body>
+</html>

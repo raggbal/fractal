@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Fractal Web Clipper - Options</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 13px;
+            color: #2b2b2b;
+            background: #fff;
+            margin: 0;
+            padding: 24px;
+            max-width: 600px;
+        }
+        h1 { font-size: 18px; margin: 0 0 16px; }
+        h2 { font-size: 14px; margin: 24px 0 8px; color: #444; }
+        button {
+            padding: 8px 14px;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            background: #f7f7f7;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #ececec; }
+        button.primary {
+            background: #0969da;
+            color: #fff;
+            border-color: #0969da;
+        }
+        button.primary:hover { background: #0860c4; }
+        .row { margin: 8px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .row label { min-width: 120px; }
+        select, input[type=text] {
+            padding: 6px 8px;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            min-width: 240px;
+            font-family: inherit;
+        }
+        .status {
+            font-size: 12px;
+            color: #555;
+            padding: 6px 8px;
+            background: #f0f0f0;
+            border-radius: 3px;
+        }
+        .status.ok { color: #066; background: #e6f7f2; }
+        .status.err { color: #c33; background: #fce8e8; }
+        .hint { font-size: 12px; color: #888; margin-top: 6px; }
+        ul.outlist {
+            list-style: none;
+            padding: 0;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        ul.outlist li {
+            padding: 5px 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        ul.outlist li:hover { background: #f3f6fa; }
+        ul.outlist li.selected { background: #d4eafe; font-weight: 600; }
+        code { font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 2px; }
+    </style>
+</head>
+<body>
+    <h1>Fractal Web Clipper — Settings</h1>
+
+    <h2>1. Notes フォルダ</h2>
+    <div class="row">
+        <button id="pickFolderBtn">📁 Pick Notes Folder…</button>
+        <span id="folderStatus" class="status">未設定</span>
+    </div>
+    <div class="hint">対象 Notes フォルダ (=複数 .out が入った Fractal の管理ディレクトリ) を選択。許可は永続化され、毎回聞かれません。</div>
+
+    <h2>2. 対象 .out ファイル</h2>
+    <ul id="outList" class="outlist"><li style="cursor:default; color:#999">(まず Notes フォルダを設定してください)</li></ul>
+    <div class="hint">フォルダ内 (サブフォルダ含む) の <code>.out</code> ファイル一覧。clip 先を 1 つ選んでください。</div>
+
+    <h2>3. 確認</h2>
+    <div class="row">
+        <span>選択中:</span>
+        <code id="currentTarget">(未設定)</code>
+    </div>
+
+    <script src="lib/idb.js"></script>
+    <script src="options.js"></script>
+</body>
+</html>
