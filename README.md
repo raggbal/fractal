@@ -35,12 +35,14 @@ The Markdown editor can be launched in standalone mode from the side panel. The 
 **Action Palette (Cmd+/ / Ctrl+/)**
 ![1778048652638.png](1778048652638.png)
 
+Darawio embed
+![1778050575689.png](1778050575689.png)
 
 ## 🎬 Demo (gif)
 
 You can freely use markdown using only the keyboard.
 lists, tables, code blocks, and everything else! And when you want to request AI Chat, select the range and press cmd+l (ctr+l).
-![Demo](assets/videos/movie.gif)
+<movie now construction>
 > Note: The editor design shown in the gif above is from an older version.
 
 ---
@@ -415,6 +417,48 @@ E = mc^2
 - Invalid LaTeX is shown as a red error message (does not break the layout)
 - Empty blocks show "Empty expression"
 - Navigate in/out with arrow keys, just like code blocks and Mermaid diagrams
+
+### draw.io Diagrams
+
+Insert and edit draw.io / diagrams.net diagrams **directly inside Markdown** without leaving VS Code. The diagram is stored as an `.drawio.svg` file (a real SVG that draw.io can re-open) and embedded in markdown as a regular `![](...)` image — fully portable, viewable on GitHub, and editable from any draw.io client.
+
+#### Insert a new diagram
+
+- **Slash command** — Type `/` in the editor to open the action panel, then choose **Insert Drawio Diagram**
+- **Cmd+/** opens the action panel keyboard shortcut
+- A draw.io editor tab opens; design your diagram and save (`Cmd+S`)
+- The diagram is saved into the configured `outlinerFileDir` (default `./files`) as `<filename>.drawio.svg`
+- An image reference `![](./files/<filename>.drawio.svg)` is inserted at the cursor position automatically
+- The thumbnail rendered inline in the markdown editor is the actual SVG — no separate preview file is generated
+
+#### Edit an existing diagram
+
+- **Click the rendered thumbnail** to reopen the diagram in the draw.io editor
+- Save (`Cmd+S`) to update the underlying `.drawio.svg` — the markdown thumbnail refreshes automatically (file watcher echoes the change back to the editor)
+
+#### Robust insertion (resilient to DOM updates)
+
+- The cursor position is captured **both as an invisible DOM marker and as a JS-side coordinate** before opening the draw.io editor (which may take seconds while the user designs the diagram)
+- When the resulting image arrives back from the host, insertion priority is:
+  1. Marker still present → replace marker with image (most precise)
+  2. Marker lost (e.g., from external file change / sync diff-patch) but saved cursor still valid → insert at saved coordinates
+  3. Selection still inside the editor → insert at current cursor
+  4. Final fallback → wrap image in `<p>` and append to editor end
+- This means clicking **Insert Drawio Diagram**, then doing other edits or letting auto-save run while choosing your design, will not "lose" the diagram
+
+#### Outliner integration
+
+- In Outliner (`.out`), draw.io diagrams are inserted as image nodes with the same `.drawio.svg` mechanism
+- Multi-page Outliner setups work: each page MD can have its own draw.io diagrams under `pageDir/files/`
+
+#### Storage layout
+
+| File | Location | Purpose |
+| --- | --- | --- |
+| `name.drawio.svg` | `outlinerFileDir` (default `./files`) | The actual diagram (real SVG, draw.io can re-open) |
+| `![](./files/name.drawio.svg)` | inside the markdown | Reference embedded in your `.md` / `.out` |
+
+No separate `.drawio` source file is needed; the SVG itself contains the editable diagram data.
 
 ---
 
