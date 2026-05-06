@@ -3563,7 +3563,9 @@ body {
         .notes-resize-handle:hover::before,
         .notes-resize-handle.active::before {
             background: var(--vscode-focusBorder, #007acc);
-            left: -1px; right: -1px;
+            /* hover bar は file panel 側のみ (右側 = editor 側には拡張しない)
+               editor の左 border のように見える二重表示を防止 */
+            left: -2px; right: 0;
         }
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
