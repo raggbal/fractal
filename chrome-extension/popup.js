@@ -8,26 +8,6 @@ const optionsLink = document.getElementById('optionsLink');
 
 openOptionsBtn.addEventListener('click', () => chrome.runtime.openOptionsPage());
 
-/** 重い library を script tag 動的注入で load (重複 load 防止) */
-let heavyLibsLoaded = null;
-function loadHeavyLibs() {
-    if (heavyLibsLoaded) return heavyLibsLoaded;
-    const sources = [
-        'lib/turndown.js',
-        'lib/turndown-plugin-gfm.js',
-        'lib/Readability.js',
-        'lib/fractal-md.js'
-    ];
-    heavyLibsLoaded = sources.reduce((p, src) => p.then(() => new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Failed to load ' + src));
-        document.head.appendChild(s);
-    })), Promise.resolve());
-    return heavyLibsLoaded;
-}
-
 function setStatus(text, kind = 'info') {
     statusEl.style.display = '';
     statusEl.className = 'status ' + kind;
@@ -127,10 +107,6 @@ clipBtn.addEventListener('click', async () => {
     try {
         const { folderHandle, targetOutPath } = await loadSetup();
         if (!folderHandle || !targetOutPath) throw new Error('未設定');
-
-        // 0. 重い library を初回のみ load (turndown / Readability / fractal-md 合計 ~120KB)
-        setStatus('変換 library 準備中…', 'info');
-        await loadHeavyLibs();
 
         // 1. 許可確認
         const ok = await ensurePermission(folderHandle);
