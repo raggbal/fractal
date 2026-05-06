@@ -4401,8 +4401,96 @@ var Outliner = (function() {
         }
     }
 
+    /** 全 node の tags + multiselect option label を集計し、頻度降順で配列を返す */
+    function computeAllTagsSorted() {
+        var counts = {};
+        if (!model || !model.nodes) return [];
+        for (var nid in model.nodes) {
+            var n = model.nodes[nid];
+            if (n.tags && n.tags.length) {
+                for (var i = 0; i < n.tags.length; i++) {
+                    var t = n.tags[i];
+                    counts[t] = (counts[t] || 0) + 1;
+                }
+            }
+            // multiselect 列の選択された option label もタグ集計
+            if (n.columnValues && model.columns) {
+                for (var ci = 0; ci < model.columns.length; ci++) {
+                    var col = model.columns[ci];
+                    if (col.type !== 'multiselect') continue;
+                    var v = n.columnValues[col.id];
+                    if (!Array.isArray(v) || !col.options) continue;
+                    for (var vi = 0; vi < v.length; vi++) {
+                        for (var oi = 0; oi < col.options.length; oi++) {
+                            if (col.options[oi].id === v[vi]) {
+                                var lbl = col.options[oi].label || '';
+                                if (lbl) counts[lbl] = (counts[lbl] || 0) + 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        var arr = Object.keys(counts).map(function (t) { return { tag: t, count: counts[t] }; });
+        arr.sort(function (a, b) {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.tag.localeCompare(b.tag);
+        });
+        return arr;
+    }
+
+    var tagSuggestBar = null;
+    function renderTagSuggestBar() {
+        if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
+        if (!tagSuggestBar) return;
+        var tags = computeAllTagsSorted();
+        if (tags.length === 0) {
+            tagSuggestBar.innerHTML = '';
+            tagSuggestBar.style.display = 'none';
+            return;
+        }
+        tagSuggestBar.innerHTML = '';
+        for (var i = 0; i < tags.length; i++) {
+            (function (t) {
+                var btn = document.createElement('span');
+                btn.className = 'outliner-tag-suggest-item';
+                btn.textContent = t.tag;
+                btn.title = t.tag + ' (' + t.count + ')';
+                btn.addEventListener('mousedown', function (ev) {
+                    // input の blur を阻止して click を成立させる
+                    ev.preventDefault();
+                });
+                btn.addEventListener('click', function (ev) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    var current = (searchInput.value || '').trim();
+                    var newVal = current ? (current + ' ' + t.tag) : t.tag;
+                    searchInput.value = newVal;
+                    if (typeof executeSearch === 'function') executeSearch();
+                    if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+                    searchInput.focus();
+                });
+                tagSuggestBar.appendChild(btn);
+            })(tags[i]);
+        }
+        tagSuggestBar.style.display = 'flex';
+    }
+
+    function hideTagSuggestBar() {
+        if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
+        if (tagSuggestBar) tagSuggestBar.style.display = 'none';
+    }
+
     function setupSearchBar() {
         if (!searchInput) { return; }
+
+        // タグ候補バー: focus で表示、blur で非表示 (click を成立させるため少し遅延)
+        searchInput.addEventListener('focus', function () {
+            renderTagSuggestBar();
+        });
+        searchInput.addEventListener('blur', function () {
+            setTimeout(hideTagSuggestBar, 150);
+        });
 
         // 検索ボックスを undo/redo 対象から完全に外す:
         // 1. beforeinput で historyUndo/Redo を block (capture phase)
