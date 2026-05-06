@@ -1,7 +1,10 @@
 'use strict';
 
+console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
+
 // 初回 install 時のみ Options を自動 open
 chrome.runtime.onInstalled.addListener((details) => {
+    console.log('[Fractal Clipper] onInstalled', details);
     if (details.reason === 'install') {
         chrome.runtime.openOptionsPage();
     }
@@ -116,10 +119,12 @@ function resolvePageDir(outData) {
 
 // メイン: icon クリックで起動
 chrome.action.onClicked.addListener(async (tab) => {
+    console.log('[Fractal Clipper] action.onClicked fired, tab:', tab?.id, tab?.url);
     try {
         const folderHandle = await idbGet('notesFolderHandle');
         const folderName = await idbGet('notesFolderName');
         const targetOutPath = await idbGet('targetOutPath');
+        console.log('[Fractal Clipper] setup:', !!folderHandle, folderName, targetOutPath);
 
         if (!folderHandle || !targetOutPath) {
             notify('未設定', 'Notes フォルダ + .out ファイルを Options で設定してください', true);
@@ -129,9 +134,11 @@ chrome.action.onClicked.addListener(async (tab) => {
 
         // 許可確認 (queryPermission は user gesture 不要)
         const perm = await folderHandle.queryPermission({ mode: 'readwrite' });
+        console.log('[Fractal Clipper] perm:', perm);
         if (perm !== 'granted') {
             // requestPermission は user gesture 必要 → action click 経由なので OK のはず
             const req = await folderHandle.requestPermission({ mode: 'readwrite' });
+            console.log('[Fractal Clipper] req perm:', req);
             if (req !== 'granted') {
                 notify('許可が得られませんでした', 'Options を開いてフォルダを再選択してください', true);
                 chrome.runtime.openOptionsPage();
@@ -199,9 +206,10 @@ chrome.action.onClicked.addListener(async (tab) => {
         // .out 書き戻し
         await writeJsonFile(outFileHandle, nodeResult.outData);
 
+        console.log('[Fractal Clipper] DONE');
         notify('✅ Clip 完了', title + '\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath);
     } catch (e) {
-        console.error('[Fractal Clipper]', e);
+        console.error('[Fractal Clipper] ERROR', e);
         notify('Clip 失敗', e.message || String(e), true);
     }
 });
