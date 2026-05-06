@@ -56,15 +56,14 @@
 <body>
     <h1>📥 Clip to Fractal</h1>
     <div class="target" id="target">読み込み中...</div>
-    <button id="clipBtn" class="primary" disabled>Clip this page</button>
+    <button id="clipBtn" class="primary" style="display:none">Clip this page</button>
+    <button id="openOptionsBtn" class="primary" style="display:none">⚙️ Open Settings</button>
     <div id="status" class="status info" style="display:none"></div>
     <div class="row"><a href="#" id="optionsLink">⚙️ 設定を変更</a></div>
 
+    <!-- popup を瞬時に表示するため、軽量な idb.js / clipper-core.js のみ初期 load。
+         turndown / Readability / fractal-md は clip ボタン押下時に lazy load (popup.js 内) -->
     <script src="lib/idb.js"></script>
-    <script src="lib/turndown.js"></script>
-    <script src="lib/turndown-plugin-gfm.js"></script>
-    <script src="lib/Readability.js"></script>
-    <script src="lib/fractal-md.js"></script>
     <script src="lib/clipper-core.js"></script>
     <script src="popup.js"></script>
 </body>
