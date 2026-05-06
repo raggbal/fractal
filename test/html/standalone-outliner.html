@@ -125,7 +125,8 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
+html, body { overflow: hidden; }
+html { height: 100%; }
 body {
     font-family: var(--font-family);
     font-size: var(--font-size);
@@ -134,6 +135,9 @@ body {
     background-color: var(--bg-color);
     /* デフォルト全体縮小 (cmd+- 1 ステップ相当)。outliner.css と統一。 */
     zoom: var(--fractal-zoom, 0.9);
+    /* zoom 補正: body 自身の layout 高さを 1/zoom で拡張して viewport を埋める */
+    height: calc(100vh / var(--fractal-zoom, 0.9));
+    width: calc(100vw / var(--fractal-zoom, 0.9));
 }
 .container { display: flex; height: 100vh; }
 
@@ -1706,13 +1710,14 @@ body {
 body {
     position: relative;
     overflow: hidden;
-    height: 100vh;
     margin: 0;
-    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小)。
-       テキスト・アイコン・padding・インデント等が全て同じ比率で小さくなる。
-       fractal.zoom で上書き可能 (extension.ts → webviewContent で注入されるが、
-       未注入時はこの値が使われる) */
+    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小) */
     zoom: var(--fractal-zoom, 0.9);
+    /* zoom で box が 0.9x rendered になるため、layout 上の body サイズを 1/0.9 倍に
+       拡張して viewport を埋める (= 約 111.11vh / 111.11vw)。
+       これで「下に謎の空白」を防止 */
+    height: calc(100vh / var(--fractal-zoom, 0.9));
+    width: calc(100vw / var(--fractal-zoom, 0.9));
 }
 
 /* --- Container --- */
@@ -3236,6 +3241,8 @@ body {
     padding: 4px 8px;
     border: none;
     border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
+    /* 列間の縦線: 列ヘッダーの右端のみ */
+    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
     font-weight: 600;
     user-select: none;
     display: flex;

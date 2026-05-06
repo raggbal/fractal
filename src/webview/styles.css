@@ -119,7 +119,8 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; }
+html, body { overflow: hidden; }
+html { height: 100%; }
 body {
     font-family: var(--font-family);
     font-size: var(--font-size);
@@ -128,6 +129,9 @@ body {
     background-color: var(--bg-color);
     /* デフォルト全体縮小 (cmd+- 1 ステップ相当)。outliner.css と統一。 */
     zoom: var(--fractal-zoom, 0.9);
+    /* zoom 補正: body 自身の layout 高さを 1/zoom で拡張して viewport を埋める */
+    height: calc(100vh / var(--fractal-zoom, 0.9));
+    width: calc(100vw / var(--fractal-zoom, 0.9));
 }
 .container { display: flex; height: 100vh; }
 

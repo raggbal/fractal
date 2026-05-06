@@ -41,13 +41,14 @@
 body {
     position: relative;
     overflow: hidden;
-    height: 100vh;
     margin: 0;
-    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小)。
-       テキスト・アイコン・padding・インデント等が全て同じ比率で小さくなる。
-       fractal.zoom で上書き可能 (extension.ts → webviewContent で注入されるが、
-       未注入時はこの値が使われる) */
+    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小) */
     zoom: var(--fractal-zoom, 0.9);
+    /* zoom で box が 0.9x rendered になるため、layout 上の body サイズを 1/0.9 倍に
+       拡張して viewport を埋める (= 約 111.11vh / 111.11vw)。
+       これで「下に謎の空白」を防止 */
+    height: calc(100vh / var(--fractal-zoom, 0.9));
+    width: calc(100vw / var(--fractal-zoom, 0.9));
 }
 
 /* --- Container --- */
@@ -1571,6 +1572,8 @@ body {
     padding: 4px 8px;
     border: none;
     border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
+    /* 列間の縦線: 列ヘッダーの右端のみ */
+    border-right: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
     font-weight: 600;
     user-select: none;
     display: flex;
