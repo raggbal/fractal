@@ -1518,10 +1518,15 @@ var Outliner = (function() {
         if (!col.options) col.options = [];
     }
 
-    /** タグ形式に正規化: 先頭 # / @ がなければ # を付与 */
+    /** タグ形式に正規化:
+     *  - 先頭 # / @ がなければ # を付与
+     *  - 内部の whitespace は - に変換 (検索は whitespace で token 分割するため
+     *    "#AWS Service" だと #AWS と Service の AND query になり機能しない) */
     function normalizeTagLabel(label) {
         var s = (label || '').trim();
         if (!s) return s;
+        // すべての空白文字 (半角・全角・タブ等) を - に変換
+        s = s.replace(/[\s　]+/g, '-');
         var first = s.charAt(0);
         if (first === '#' || first === '@') return s;
         return '#' + s;
