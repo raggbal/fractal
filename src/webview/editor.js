@@ -16449,22 +16449,41 @@ class EditorInstance {
                 // Custom rule: Robust fenced code block with language extraction
                 // Handles Shiki-styled code blocks (language= attribute instead of class=)
                 // and code blocks with indented whitespace before <code>
+                // Medium 等の <pre><span class="hljs-*">...<br>...</pre> (code 要素なし、改行 <br>) も対応
                 turndownService.addRule('fencedCodeWithLang', {
                     filter: function(node) {
-                        return node.nodeName === 'PRE' && node.querySelector('code');
+                        if (node.nodeName !== 'PRE') return false;
+                        if (node.querySelector('code')) return true;
+                        // hljs-* クラスを持つ子孫があれば code block 判定 (Medium / dev.to 等)
+                        if (node.querySelector('[class*="hljs-"]')) return true;
+                        return false;
                     },
                     replacement: function(content, node) {
                         var code = node.querySelector('code');
-                        var cls = code.className || '';
-                        // Extract language from: class="language-xxx", language="xxx" attr, or data-lang="xxx"
-                        var lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                        if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                        if (!lang) lang = node.getAttribute('data-lang') || '';
+                        var lang = '';
+                        var text;
+                        if (code) {
+                            var cls = code.className || '';
+                            // Extract language from: class="language-xxx", language="xxx" attr, or data-lang="xxx"
+                            lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                            if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                            if (!lang) lang = node.getAttribute('data-lang') || '';
+                            text = code.textContent || '';
+                        } else {
+                            // Medium-style: <br> を \n に変換してから textContent
+                            var clone = node.cloneNode(true);
+                            var brs = clone.querySelectorAll('br');
+                            brs.forEach(function(br) {
+                                br.replaceWith(clone.ownerDocument.createTextNode('\n'));
+                            });
+                            text = clone.textContent || '';
+                            var langEl = node.querySelector('[class*="language-"]');
+                            if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                        }
                         // Clean language: remove non-alphanumeric suffixes like "theme={null}"
-                        lang = lang.split(/\s+/)[0] || '';
+                        lang = (lang || '').split(/\s+/)[0] || '';
                         // Filter out non-language class names
                         if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
-                        var text = code.textContent || '';
                         return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
                     }
                 });

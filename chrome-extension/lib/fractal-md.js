@@ -102,19 +102,41 @@
         });
 
         // fenced code with language extraction
+        // 通常: <pre><code class="language-xxx">...</code></pre>
+        // Medium 等: <pre><span class="hljs-keyword">def</span>...<br>...</pre>
+        //   (code 要素なし、hljs-* クラスで syntax highlight、改行は <br>)
         turndownService.addRule('fencedCodeWithLang', {
             filter: function (node) {
-                return node.nodeName === 'PRE' && node.querySelector('code');
+                if (node.nodeName !== 'PRE') return false;
+                if (node.querySelector('code')) return true;
+                // hljs-* クラスを持つ子孫があれば code block と判定 (Medium / dev.to 等)
+                if (node.querySelector('[class*="hljs-"]')) return true;
+                return false;
             },
             replacement: function (content, node) {
                 var code = node.querySelector('code');
-                var cls = code.className || '';
-                var lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                if (!lang) lang = node.getAttribute('data-lang') || '';
-                lang = lang.split(/\s+/)[0] || '';
+                var lang = '';
+                var text;
+                if (code) {
+                    var cls = code.className || '';
+                    lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                    if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                    if (!lang) lang = node.getAttribute('data-lang') || '';
+                    text = code.textContent || '';
+                } else {
+                    // Medium-style: <br> を \n に変換してから textContent
+                    var clone = node.cloneNode(true);
+                    var brs = clone.querySelectorAll('br');
+                    brs.forEach(function (br) {
+                        br.replaceWith(clone.ownerDocument.createTextNode('\n'));
+                    });
+                    text = clone.textContent || '';
+                    // language-* クラスがどこかにあれば拾う
+                    var langEl = node.querySelector('[class*="language-"]');
+                    if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                }
+                lang = (lang || '').split(/\s+/)[0] || '';
                 if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
-                var text = code.textContent || '';
                 return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
             }
         });
