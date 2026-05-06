@@ -44,15 +44,14 @@ function generateNotesFilePanelHtml(options) {
         }
         .notes-file-panel {
             width: var(--notes-panel-width, 220px); min-width: 0; flex-shrink: 0;
-            /* border-right は廃止 (resize-handle の hover bar が視覚的な境界を担う)。
-               border + handle の二重線で「左右どちらにもバーが出る」見え方を防止 */
+            border-right: 1px solid var(--outliner-border, #e0e0e0);
             display: flex; flex-direction: column;
             background: var(--outliner-bg, #fafafa);
             overflow: hidden;
         }
-        .notes-file-panel.collapsed { width: 0; }
+        .notes-file-panel.collapsed { width: 0; border-right: none; }
         /* 0 幅のハンドル + ::before で前後 3px 程度 hit area を overlap させる。
-           通常時は中央 1px の薄い区切り線、hover/active で青ライン (2px) に拡張。 */
+           通常時は flex 上のスペースを取らず、hover/active で青ラインが出る。 */
         .notes-resize-handle {
             width: 0; flex-shrink: 0; position: relative; z-index: 10;
         }
@@ -63,25 +62,10 @@ function generateNotesFilePanelHtml(options) {
             left: -3px; right: -3px;
             cursor: col-resize;
         }
-        /* 常時の薄い 1px 区切り線 */
-        .notes-resize-handle::after {
-            content: '';
-            position: absolute;
-            top: 0; bottom: 0;
-            left: 0;
-            width: 1px;
-            background: var(--outliner-border, #e0e0e0);
-            pointer-events: none;
-        }
         .notes-resize-handle:hover::before,
         .notes-resize-handle.active::before {
             background: var(--vscode-focusBorder, #007acc);
             left: -1px; right: -1px;
-        }
-        /* hover/active 時は ::after の薄い線を隠して二重表示を回避 */
-        .notes-resize-handle:hover::after,
-        .notes-resize-handle.active::after {
-            opacity: 0;
         }
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
