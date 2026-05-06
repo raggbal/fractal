@@ -130,6 +130,12 @@
                 var title = node.getAttribute('title');
                 if (title) title = ' "' + title.replace(/"/g, '\\"') + '"';
                 else title = '';
+                // <a> がテキストを持たず <img> だけを wrap してる場合は、内側の image markdown
+                // だけを返す。`[![alt](src)](href)` を `![alt](src)` に簡略化
+                // (note.com 等の見出し画像 link を綺麗な image embed に)
+                if ((node.textContent || '').trim() === '' && node.querySelector && node.querySelector('img')) {
+                    return content;
+                }
                 content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                 if (!content) return '';
                 var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
