@@ -20,13 +20,13 @@ Outline View
 ![1778048858635.png](assets/images/1778048858635.png)
 
 Table View:  ≒ TreeViewTable
-![1778048833886.png](1778048833886.png)
+![1778048833886.png](assets/images/1778048833886.png)
 
 
 
 ### Side Panel Markdown Editor
 Each node in the outliner can easily embed a Markdown file as a page using the `@page` command. Nodes with an attached page display a page icon, and pressing Cmd+Enter opens the Markdown editor in the side panel.
-![assets/images/1778048882019.png](1778048882019.png)
+![assets/images/1778048882019.png](assets/images/1778048882019.png)
 
 ### Markdown Editor (Standalone)
 The Markdown editor can be launched in standalone mode from the side panel. The functionality is the same, but standalone mode offers the advantage of a larger editing area. It can also be set as the default Markdown editor, allowing you to edit any Markdown file with the Fractal Markdown editor.
