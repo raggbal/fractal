@@ -139,7 +139,7 @@ body {
     height: calc(100vh / var(--fractal-zoom, 0.9));
     width: calc(100vw / var(--fractal-zoom, 0.9));
 }
-.container { display: flex; height: 100vh; }
+.container { display: flex; height: 100%; }
 
 .sidebar {
     width: 260px;
@@ -1725,7 +1725,9 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    /* zoom 適用時は vh が viewport 基準なので body 内側で 100vh だと縮む。
+       parent (body) の高さを継承する 100% に変更 */
+    height: 100%;
     background: var(--outliner-bg);
     color: var(--outliner-fg);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -3536,7 +3538,7 @@ body {
 </style>
     <style>
         .notes-layout {
-            display: flex; height: 100vh; overflow: hidden;
+            display: flex; height: 100%; overflow: hidden;
         }
         .notes-file-panel {
             width: var(--notes-panel-width, 220px); min-width: 0; flex-shrink: 0;

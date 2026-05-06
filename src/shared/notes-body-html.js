@@ -40,7 +40,7 @@ function generateNotesFilePanelHtml(options) {
 
     var css = `
         .notes-layout {
-            display: flex; height: 100vh; overflow: hidden;
+            display: flex; height: 100%; overflow: hidden;
         }
         .notes-file-panel {
             width: var(--notes-panel-width, 220px); min-width: 0; flex-shrink: 0;

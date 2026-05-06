@@ -56,7 +56,9 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    /* zoom 適用時は vh が viewport 基準なので body 内側で 100vh だと縮む。
+       parent (body) の高さを継承する 100% に変更 */
+    height: 100%;
     background: var(--outliner-bg);
     color: var(--outliner-fg);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;

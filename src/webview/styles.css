@@ -133,7 +133,7 @@ body {
     height: calc(100vh / var(--fractal-zoom, 0.9));
     width: calc(100vw / var(--fractal-zoom, 0.9));
 }
-.container { display: flex; height: 100vh; }
+.container { display: flex; height: 100%; }
 
 .sidebar {
     width: 260px;
