@@ -15,9 +15,9 @@ Each `.out` (outliner) and `.md` (markdown) file also works standalone — but t
 The Outliner Editor can be used by first adding a Note (any folder) from Fractal Notes in the VSCode Activity Bar.
 The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.
 
-Overview![1778048683075.png](1778048683075.png)
+Overview![1778048683075.png](assets/images/1778048683075.png)
 Outline View
-![1778048858635.png](1778048858635.png)
+![1778048858635.png](assets/images/1778048858635.png)
 
 Table View:  ≒ TreeViewTable
 ![1778048833886.png](1778048833886.png)
@@ -26,17 +26,17 @@ Table View:  ≒ TreeViewTable
 
 ### Side Panel Markdown Editor
 Each node in the outliner can easily embed a Markdown file as a page using the `@page` command. Nodes with an attached page display a page icon, and pressing Cmd+Enter opens the Markdown editor in the side panel.
-![1778048882019.png](1778048882019.png)
+![assets/images/1778048882019.png](1778048882019.png)
 
 ### Markdown Editor (Standalone)
 The Markdown editor can be launched in standalone mode from the side panel. The functionality is the same, but standalone mode offers the advantage of a larger editing area. It can also be set as the default Markdown editor, allowing you to edit any Markdown file with the Fractal Markdown editor.
-![1778048566296.png](1778048566296.png)
+![1778048566296.png](assets/images/1778048566296.png)
 
 **Action Palette (Cmd+/ / Ctrl+/)**
-![1778048652638.png](1778048652638.png)
+![1778048652638.png](assets/images/1778048652638.png)
 
 Darawio embed
-![1778050575689.png](1778050575689.png)
+![1778050575689.png](assets/images/1778050575689.png)
 
 ## 🎬 Demo (gif)
 
@@ -421,6 +421,7 @@ E = mc^2
 ### draw.io Diagrams
 
 Insert and edit draw.io / diagrams.net diagrams **directly inside Markdown** without leaving VS Code. The diagram is stored as an `.drawio.svg` file (a real SVG that draw.io can re-open) and embedded in markdown as a regular `![](...)` image — fully portable, viewable on GitHub, and editable from any draw.io client.
+![1778050810701.png](assets/images/1778050810701.png)
 
 #### Insert a new diagram
 
@@ -435,28 +436,6 @@ Insert and edit draw.io / diagrams.net diagrams **directly inside Markdown** wit
 
 - **Click the rendered thumbnail** to reopen the diagram in the draw.io editor
 - Save (`Cmd+S`) to update the underlying `.drawio.svg` — the markdown thumbnail refreshes automatically (file watcher echoes the change back to the editor)
-
-#### Robust insertion (resilient to DOM updates)
-
-- The cursor position is captured **both as an invisible DOM marker and as a JS-side coordinate** before opening the draw.io editor (which may take seconds while the user designs the diagram)
-- When the resulting image arrives back from the host, insertion priority is:
-  1. Marker still present → replace marker with image (most precise)
-  2. Marker lost (e.g., from external file change / sync diff-patch) but saved cursor still valid → insert at saved coordinates
-  3. Selection still inside the editor → insert at current cursor
-  4. Final fallback → wrap image in `<p>` and append to editor end
-- This means clicking **Insert Drawio Diagram**, then doing other edits or letting auto-save run while choosing your design, will not "lose" the diagram
-
-#### Outliner integration
-
-- In Outliner (`.out`), draw.io diagrams are inserted as image nodes with the same `.drawio.svg` mechanism
-- Multi-page Outliner setups work: each page MD can have its own draw.io diagrams under `pageDir/files/`
-
-#### Storage layout
-
-| File | Location | Purpose |
-| --- | --- | --- |
-| `name.drawio.svg` | `outlinerFileDir` (default `./files`) | The actual diagram (real SVG, draw.io can re-open) |
-| `![](./files/name.drawio.svg)` | inside the markdown | Reference embedded in your `.md` / `.out` |
 
 No separate `.drawio` source file is needed; the SVG itself contains the editable diagram data.
 
