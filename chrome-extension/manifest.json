@@ -12,7 +12,8 @@
     "activeTab",
     "scripting",
     "storage",
-    "notifications"
+    "notifications",
+    "contextMenus"
   ],
   "action": {
     "default_title": "Clip to Fractal Outliner",
@@ -20,6 +21,15 @@
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
+    }
+  },
+  "commands": {
+    "clip-to-fractal": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Alt+Shift+F"
+      },
+      "description": "Clip current page to Fractal"
     }
   },
   "options_page": "options.html",
