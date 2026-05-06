@@ -15,7 +15,9 @@ Each `.out` (outliner) and `.md` (markdown) file also works standalone — but t
 The Outliner Editor can be used by first adding a Note (any folder) from Fractal Notes in the VSCode Activity Bar.
 The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.
 
-Overview![1778048683075.png](assets/images/1778048683075.png)
+Overview
+![1778078522878.png](assets/images/1778078522878.png)
+
 Outline View
 ![1778048858635.png](assets/images/1778048858635.png)
 
