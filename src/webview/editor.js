@@ -16449,40 +16449,54 @@ class EditorInstance {
                 // Custom rule: Robust fenced code block with language extraction
                 // Handles Shiki-styled code blocks (language= attribute instead of class=)
                 // and code blocks with indented whitespace before <code>
+                // <pre> 配下を再帰 walk して text 抽出 (<br> を \n に置換)
+                function preToText(n) {
+                    var out = '';
+                    var child = n.firstChild;
+                    while (child) {
+                        if (child.nodeType === 3) {
+                            out += child.nodeValue || '';
+                        } else if (child.nodeName === 'BR') {
+                            out += '\n';
+                        } else if (child.nodeType === 1) {
+                            out += preToText(child);
+                        }
+                        child = child.nextSibling;
+                    }
+                    return out;
+                }
+
                 // Medium 等の <pre><span class="hljs-*">...<br>...</pre> (code 要素なし、改行 <br>) も対応
                 turndownService.addRule('fencedCodeWithLang', {
                     filter: function(node) {
                         if (node.nodeName !== 'PRE') return false;
                         if (node.querySelector('code')) return true;
-                        // hljs-* クラスを持つ子孫があれば code block 判定 (Medium / dev.to 等)
                         if (node.querySelector('[class*="hljs-"]')) return true;
+                        if (node.querySelector('br')) return true;
                         return false;
                     },
                     replacement: function(content, node) {
                         var code = node.querySelector('code');
                         var lang = '';
-                        var text;
-                        if (code) {
-                            var cls = code.className || '';
-                            // Extract language from: class="language-xxx", language="xxx" attr, or data-lang="xxx"
-                            lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                            if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                            if (!lang) lang = node.getAttribute('data-lang') || '';
-                            text = code.textContent || '';
-                        } else {
-                            // Medium-style: <br> を \n に変換してから textContent
-                            var clone = node.cloneNode(true);
-                            var brs = clone.querySelectorAll('br');
-                            brs.forEach(function(br) {
-                                br.replaceWith(clone.ownerDocument.createTextNode('\n'));
-                            });
-                            text = clone.textContent || '';
-                            var langEl = node.querySelector('[class*="language-"]');
-                            if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                        var text = '';
+                        try {
+                            if (code) {
+                                var cls = code.className || '';
+                                lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                                if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                                if (!lang) lang = node.getAttribute('data-lang') || '';
+                                text = code.textContent || '';
+                            } else {
+                                text = preToText(node);
+                                var langEl = node.querySelector('[class*="language-"]');
+                                if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                            }
+                        } catch (e) {
+                            text = '';
                         }
-                        // Clean language: remove non-alphanumeric suffixes like "theme={null}"
+                        // フォールバック: 何があっても text は空にしない
+                        if (!text) text = node.textContent || content || '';
                         lang = (lang || '').split(/\s+/)[0] || '';
-                        // Filter out non-language class names
                         if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
                         return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
                     }

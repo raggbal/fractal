@@ -101,6 +101,24 @@
             }
         });
 
+        // <pre> 配下を再帰的に walk して text 抽出 (<br> を \n に置換)
+        // cloneNode + replaceWith は Turndown の内部 DOM で動作しないケースがあるため walk 方式
+        function preToText(n) {
+            var out = '';
+            var child = n.firstChild;
+            while (child) {
+                if (child.nodeType === 3) {
+                    out += child.nodeValue || '';
+                } else if (child.nodeName === 'BR') {
+                    out += '\n';
+                } else if (child.nodeType === 1) {
+                    out += preToText(child);
+                }
+                child = child.nextSibling;
+            }
+            return out;
+        }
+
         // fenced code with language extraction
         // 通常: <pre><code class="language-xxx">...</code></pre>
         // Medium 等: <pre><span class="hljs-keyword">def</span>...<br>...</pre>
@@ -109,32 +127,32 @@
             filter: function (node) {
                 if (node.nodeName !== 'PRE') return false;
                 if (node.querySelector('code')) return true;
-                // hljs-* クラスを持つ子孫があれば code block と判定 (Medium / dev.to 等)
                 if (node.querySelector('[class*="hljs-"]')) return true;
+                // pre 内に <br> があれば code 扱い (通常 prose は pre+br を使わない)
+                if (node.querySelector('br')) return true;
                 return false;
             },
             replacement: function (content, node) {
                 var code = node.querySelector('code');
                 var lang = '';
-                var text;
-                if (code) {
-                    var cls = code.className || '';
-                    lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                    if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                    if (!lang) lang = node.getAttribute('data-lang') || '';
-                    text = code.textContent || '';
-                } else {
-                    // Medium-style: <br> を \n に変換してから textContent
-                    var clone = node.cloneNode(true);
-                    var brs = clone.querySelectorAll('br');
-                    brs.forEach(function (br) {
-                        br.replaceWith(clone.ownerDocument.createTextNode('\n'));
-                    });
-                    text = clone.textContent || '';
-                    // language-* クラスがどこかにあれば拾う
-                    var langEl = node.querySelector('[class*="language-"]');
-                    if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                var text = '';
+                try {
+                    if (code) {
+                        var cls = code.className || '';
+                        lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                        if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                        if (!lang) lang = node.getAttribute('data-lang') || '';
+                        text = code.textContent || '';
+                    } else {
+                        text = preToText(node);
+                        var langEl = node.querySelector('[class*="language-"]');
+                        if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                    }
+                } catch (e) {
+                    text = '';
                 }
+                // フォールバック: 何があっても text は空にしない
+                if (!text) text = node.textContent || content || '';
                 lang = (lang || '').split(/\s+/)[0] || '';
                 if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
                 return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
