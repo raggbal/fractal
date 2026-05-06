@@ -559,6 +559,20 @@ Available in Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 ---
 
+## 🌐 Chrome Extension (Web Clipper)
+
+Save any web page as a new top-level node in your Fractal Outliner — directly from Chrome, without launching VS Code.
+
+- Located in `chrome-extension/` of this repo (load as **unpacked extension** in `chrome://extensions/`).
+- Click the extension icon (or `Alt+Shift+F`) on any web page → page is extracted with **Mozilla Readability**, converted to Markdown using **Fractal's own HTML→MD pipeline** (same logic as the MD editor's `Cmd+V` paste — supports tables, code blocks with `<br>`-style Medium / dev.to highlight, image-wrap link unwrap, GFM, etc.), and prepended as a `pageId`-linked node to your selected `.out` file.
+- Configure target Notes folder + `.out` file once via the extension's Options page (uses **File System Access API** — no VS Code communication needed; the file is updated directly on disk).
+- In-page banner shows clip progress / completion / errors (works even when OS notifications are disabled).
+- Concurrent clicks across tabs are **serialized in a queue** to prevent `.out` write conflicts.
+
+See `chrome-extension/README.md` for installation and usage details.
+
+---
+
 ## 🔄 External File Changes
 
 When another tool (e.g., AI coding assistants like Claude Code, Cursor, etc.) modifies the same markdown file while you have it open in Fractal:

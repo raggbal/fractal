@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.203.8] - 2026-05-07
+
+### Added
+- **🌐 Chrome Extension (Web Clipper)** — `chrome-extension/` 配下に Chrome 拡張機能を新設。Chrome でブラウズ中の任意の Web ページを Fractal `.out` の最上位 node として直接取り込める (VSCode 起動不要、File System Access API で直接 `.out` / page MD を書き込み)
+  - ツールバーアイコン or `Alt+Shift+F` で発火 → Mozilla Readability で本文抽出 → Fractal の HTML→MD パイプラインで Markdown 化 (MD editor の cmd+v paste と同一ロジック) → `pageId` 付きの新 node を `.out` 先頭に追加 + page MD を `pages/` 配下に保存
+  - Options 画面で対象 Notes フォルダ + `.out` ファイルを 1 度だけ選択 (`showDirectoryPicker` + IndexedDB に handle 永続化)
+  - **In-page banner** で進捗 / 完了 / エラーを必ず可視化 (OS 通知許可 OFF 環境でも見える)。chrome.notifications も併用
+  - **複数タブ同時クリックを queue で直列化** — 同一 `.out` への並列書き込み競合 (10s+ 肥大) を防止。待機中は banner で「⏳ Clip 待機中 (N 件目)」表示
+  - SW 起動中はアイコン disable + badge `⋯` で「準備中」を視覚化、warmup 後 enable
+  - インストール: `chrome://extensions/` で「パッケージ化されていない拡張機能を読み込む」→ `chrome-extension/` フォルダを選択。詳細は `chrome-extension/README.md`
+
+### Fixed
+- **HTML → Markdown 変換: `<a><img></a>` を `[![alt](src)](href)` ではなく `![alt](src)` に簡略化** — note.com の見出し画像のように、`<a>` がテキストを持たず `<img>` だけを wrap してる場合は link wrapper を捨てて pure image embed として出力。MD editor の `Cmd+V` paste と Chrome ext の Web Clipper 両方に適用
+- **HTML → Markdown 変換: Medium 等の `<code>` 無し code block を fenced code block として出力** — Medium / dev.to は `<pre><span class="hljs-*">...<br>...</pre>` (code 要素なし、改行 `<br>`) の構造で、従来は plain text として出力されていた。`hljs-*` クラスまたは `<br>` を含む `<pre>` を code 判定 + 再帰 walk で `<br>` を `\n` に変換 + textContent + 多段フォールバック (絶対に code block を消失させない設計)。MD editor / Chrome ext 両方に適用
+
 ## [0.203.0] - 2026-05-06
 
 ### Added
