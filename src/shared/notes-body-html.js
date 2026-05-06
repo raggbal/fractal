@@ -40,10 +40,10 @@ function generateNotesFilePanelHtml(options) {
 
     var css = `
         .notes-layout {
-            display: flex; height: 100%; overflow: hidden;
+            display: flex; height: 100vh; overflow: hidden;
         }
         .notes-file-panel {
-            width: var(--notes-panel-width, 220px); min-width: 0; flex-shrink: 0;
+            width: var(--notes-panel-width, 198px); min-width: 0; flex-shrink: 0;
             border-right: 1px solid var(--outliner-border, #e0e0e0);
             display: flex; flex-direction: column;
             background: var(--outliner-bg, #fafafa);
@@ -72,15 +72,15 @@ function generateNotesFilePanelHtml(options) {
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 8px 12px; border-bottom: 1px solid var(--outliner-border, #e0e0e0);
+            padding: 7px 11px; border-bottom: 1px solid var(--outliner-border, #e0e0e0);
             box-sizing: border-box;
         }
-        .file-panel-title { font-weight: 600; font-size: 13px; white-space: nowrap; }
+        .file-panel-title { font-weight: 600; font-size: 12px; white-space: nowrap; }
         .file-panel-actions { display: flex; gap: 4px; align-items: center; }
         .file-panel-btn {
             background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
             border-radius: 4px; cursor: pointer; color: inherit;
-            padding: 7px 8px; line-height: 1; font-size: 13px;
+            padding: 6px 7px; line-height: 1; font-size: 12px;
             display: flex; align-items: center; justify-content: center;
             opacity: 0.7;
         }
@@ -89,20 +89,20 @@ function generateNotesFilePanelHtml(options) {
 
         /* ── File item ── */
         .file-panel-item {
-            padding: 6px 12px; cursor: pointer; font-size: 13px;
+            padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border-radius: 4px; margin: 1px 4px;
-            display: flex; align-items: center; gap: 6px;
+            display: flex; align-items: center; gap: 5px;
         }
         .file-panel-item:hover { background: var(--outliner-hover, #e8e8e8); }
         .file-panel-item.active { background: var(--outliner-active, #d8e8f8); font-weight: 500; }
-        .file-panel-item-icon { flex-shrink: 0; opacity: 0.5; width: 14px; height: 14px; }
+        .file-panel-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         /* ── Folder ── */
         .file-panel-folder { }
         .file-panel-folder-header {
-            padding: 6px 12px; cursor: pointer; font-size: 13px;
+            padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border-radius: 4px; margin: 1px 4px;
             display: flex; align-items: center; gap: 4px;
@@ -110,7 +110,7 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-folder-header:hover { background: var(--outliner-hover, #e8e8e8); }
         .file-panel-folder-chevron {
-            flex-shrink: 0; width: 14px; height: 14px;
+            flex-shrink: 0; width: 13px; height: 13px;
             display: flex; align-items: center; justify-content: center;
             transition: transform 0.15s;
             opacity: 0.6;
@@ -118,10 +118,10 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-folder.collapsed > .file-panel-folder-header > .file-panel-folder-chevron {
             transform: rotate(-90deg);
         }
-        .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 14px; height: 14px; }
+        .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-folder-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .file-panel-folder-children {
-            padding-left: 28px;  /* v11: was 12px. chevron(14) + gap(4) + folder icon(14) 相当 */
+            padding-left: 25px;  /* v11: was 11px. chevron(14) + gap(4) + folder icon(14) 相当 */
         }
         .file-panel-folder.collapsed > .file-panel-folder-children {
             display: none;
@@ -138,28 +138,28 @@ function generateNotesFilePanelHtml(options) {
         [draggable="true"]:active { cursor: grabbing; }
 
         .file-panel-empty {
-            padding: 16px 12px; color: var(--outliner-subtext, #999); font-size: 12px; text-align: center;
+            padding: 14px 11px; color: var(--outliner-subtext, #999); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
         .notes-panel-toggle-btn {
             background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
-            border-radius: 4px; cursor: pointer; padding: 4px 6px; line-height: 1;
-            display: none; color: inherit; opacity: 0.7; font-size: 13px;
-            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 6px;
+            border-radius: 4px; cursor: pointer; padding: 4px 5px; line-height: 1;
+            display: none; color: inherit; opacity: 0.7; font-size: 12px;
+            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
         }
         .notes-panel-toggle-btn:hover { opacity: 1; border-color: var(--vscode-focusBorder, #007acc); }
         .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
         .file-panel-rename-input {
-            width: 100%; padding: 4px 8px; font-size: 13px; border: 1px solid var(--outliner-active, #4a9eff);
+            width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--outliner-active, #4a9eff);
             border-radius: 3px; outline: none; background: var(--outliner-bg, #fff); color: inherit;
         }
         .file-panel-context-menu {
             position: fixed; background: var(--outliner-bg, #fff); border: 1px solid var(--outliner-border, #ddd);
-            border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; z-index: 1000;
-            min-width: 140px;
+            border-radius: 5px; box-shadow: 0 4px 11px rgba(0,0,0,0.15); padding: 4px 0; z-index: 1000;
+            min-width: 126px;
         }
         .file-panel-context-item {
-            padding: 6px 16px; cursor: pointer; font-size: 13px; white-space: nowrap;
+            padding: 5px 14px; cursor: pointer; font-size: 12px; white-space: nowrap;
         }
         .file-panel-context-item:hover { background: var(--outliner-hover, #e8e8e8); }
         .file-panel-context-item.danger { color: #e55; }
@@ -171,8 +171,8 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-tab {
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-            padding: 8px 4px; border: none; background: none; cursor: pointer;
-            font-size: 12px; opacity: 0.6; color: inherit;
+            padding: 7px 4px; border: none; background: none; cursor: pointer;
+            font-size: 11px; opacity: 0.6; color: inherit;
             border-bottom: 2px solid transparent; transition: opacity 0.15s;
         }
         .file-panel-tab:hover { opacity: 0.85; }
@@ -180,18 +180,18 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-tab svg { flex-shrink: 0; }
         .file-panel-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
         .file-panel-content-actions {
-            display: flex; gap: 4px; padding: 6px 8px;
+            display: flex; gap: 4px; padding: 5px 7px;
             border-bottom: 1px solid var(--outliner-border, #e0e0e0); flex-shrink: 0;
         }
-        .file-panel-content-actions .file-panel-btn { font-size: 12px; padding: 4px 8px; }
+        .file-panel-content-actions .file-panel-btn { font-size: 11px; padding: 4px 7px; }
 
         /* ── Search ── */
         .file-panel-search-input-wrap {
-            padding: 8px; display: flex; flex-direction: column; gap: 4px;
+            padding: 7px; display: flex; flex-direction: column; gap: 4px;
             border-bottom: 1px solid var(--outliner-border, #e0e0e0);
         }
         .file-panel-search-input {
-            width: 100%; padding: 4px 8px; font-size: 13px;
+            width: 100%; padding: 4px 7px; font-size: 12px;
             border: 1px solid var(--outliner-border, #e0e0e0); border-radius: 4px;
             background: var(--outliner-bg, #fff); color: inherit; outline: none;
             box-sizing: border-box;
@@ -199,7 +199,7 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-search-input:focus { border-color: var(--vscode-focusBorder, #007acc); }
         .file-panel-search-options { display: flex; gap: 2px; }
         .file-panel-search-opt-btn {
-            padding: 2px 6px; font-size: 11px; border: 1px solid transparent;
+            padding: 2px 5px; font-size: 10px; border: 1px solid transparent;
             border-radius: 3px; cursor: pointer; opacity: 0.6; background: transparent; color: inherit;
         }
         .file-panel-search-opt-btn:hover { opacity: 0.8; }
@@ -207,16 +207,16 @@ function generateNotesFilePanelHtml(options) {
             border-color: var(--vscode-focusBorder, #007acc); opacity: 1;
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
-        .file-panel-search-section { margin-bottom: 6px; }
+        .file-panel-search-section { margin-bottom: 5px; }
         .file-panel-search-section-title {
-            padding: 6px 10px 4px; font-size: 11px; font-weight: 700;
+            padding: 5px 9px 4px; font-size: 10px; font-weight: 700;
             color: var(--vscode-textLink-foreground, #007acc);
             border-bottom: 1px solid var(--vscode-panel-border, var(--outliner-border, #e0e0e0));
             text-transform: none; letter-spacing: 0.02em;
         }
         .file-panel-search-file-group { margin-bottom: 4px; }
         .file-panel-search-file-header {
-            padding: 4px 12px; font-size: 11px; font-weight: 600;
+            padding: 4px 11px; font-size: 10px; font-weight: 600;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             color: var(--vscode-symbolIcon-classForeground, #d19a66);
         }
@@ -224,26 +224,26 @@ function generateNotesFilePanelHtml(options) {
             color: var(--vscode-symbolIcon-classForeground, #d19a66);
         }
         .file-panel-search-match {
-            padding: 4px 12px 4px 20px; font-size: 12px; cursor: pointer;
+            padding: 4px 11px 4px 18px; font-size: 11px; cursor: pointer;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .file-panel-search-match:hover { background: var(--outliner-hover, #e8e8e8); }
         .file-panel-search-highlight { background: rgba(255, 200, 0, 0.3); font-weight: 500; }
-        .file-panel-search-count { padding: 4px 12px; font-size: 11px; opacity: 0.6; }
-        .file-panel-search-spinner { padding: 8px 12px; font-size: 12px; opacity: 0.5; }
+        .file-panel-search-count { padding: 4px 11px; font-size: 10px; opacity: 0.6; }
+        .file-panel-search-spinner { padding: 7px 11px; font-size: 11px; opacity: 0.5; }
 
         /* ── S3 Tab ── */
-        .s3-panel-section { padding: 8px 12px; }
-        .s3-label { font-size: 11px; opacity: 0.7; margin-bottom: 4px; display: block; }
+        .s3-panel-section { padding: 7px 11px; }
+        .s3-label { font-size: 10px; opacity: 0.7; margin-bottom: 4px; display: block; }
         .s3-input-row { display: flex; gap: 4px; }
         .s3-input-row .file-panel-search-input { flex: 1; }
-        .s3-status { font-size: 11px; margin-top: 6px; opacity: 0.6; }
+        .s3-status { font-size: 10px; margin-top: 5px; opacity: 0.6; }
         .s3-status.ok { color: #3a3; opacity: 1; }
         .s3-status.error { color: #e55; opacity: 1; }
-        .s3-actions { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+        .s3-actions { display: flex; flex-direction: column; gap: 5px; padding-top: 4px; }
         .s3-action-btn {
-            width: 100%; text-align: center; padding: 8px 12px;
-            font-size: 12px; border-radius: 4px;
+            width: 100%; text-align: center; padding: 7px 11px;
+            font-size: 11px; border-radius: 4px;
         }
         .s3-action-btn.s3-danger {
             border-color: #c44; color: #c44;
@@ -252,35 +252,35 @@ function generateNotesFilePanelHtml(options) {
             background: rgba(204, 68, 68, 0.1);
         }
         .s3-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .s3-progress { padding: 8px 12px; }
-        .s3-progress-message { font-size: 12px; font-weight: 500; }
-        .s3-progress-detail { font-size: 11px; opacity: 0.6; margin-top: 2px; word-break: break-all; }
+        .s3-progress { padding: 7px 11px; }
+        .s3-progress-message { font-size: 11px; font-weight: 500; }
+        .s3-progress-detail { font-size: 10px; opacity: 0.6; margin-top: 2px; word-break: break-all; }
 
         /* ── Tools Tab ── */
         .file-panel-tools-section {
-            margin: 10px 0; padding: 0;
+            margin: 9px 0; padding: 0;
         }
         .file-panel-section-title {
-            font-weight: bold; font-size: 12px; margin-bottom: 6px;
+            font-weight: bold; font-size: 11px; margin-bottom: 5px;
             color: var(--vscode-foreground); opacity: 0.8;
         }
 
         /* ── v11: Color Palette UI ── */
         .file-panel-color-grid {
             display: grid;
-            grid-template-columns: repeat(5, 20px);
+            grid-template-columns: repeat(5, 18px);
             gap: 4px;
-            padding: 8px 12px;
+            padding: 7px 11px;
         }
         .file-panel-color-swatch {
-            width: 20px; height: 20px; border-radius: 4px; cursor: pointer;
+            width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
             border: 2px solid transparent;
             transition: transform 0.1s, border-color 0.1s;
         }
         .file-panel-color-swatch:hover { transform: scale(1.15); }
         .file-panel-color-swatch.active { border-color: var(--vscode-focusBorder, #007acc); }
         .file-panel-color-back, .file-panel-color-none {
-            font-size: 12px;
+            font-size: 11px;
             opacity: 0.75;
         }
 
@@ -297,24 +297,24 @@ function generateNotesFilePanelHtml(options) {
             </div>
             <div class="file-panel-tabs">
                 <button class="file-panel-tab active" data-tab="notes">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 13h-2"/><path d="M10 17H8"/><path d="M16 17h-2"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 13h-2"/><path d="M10 17H8"/><path d="M16 17h-2"/></svg>
                     ${m('notesTabNotes', 'Notes')}
                 </button>
                 <button class="file-panel-tab" data-tab="search">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     ${m('notesTabSearch', 'Search')}
                 </button>
                 <button class="file-panel-tab" data-tab="tools">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
                     ${m('notesTabTools', 'Tools')}
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
                 <div class="file-panel-content-actions">
-                    <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
-                    <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
+                    <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
                     <span style="flex:1"></span>
-                    <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
+                    <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>
                 <div class="file-panel-list" id="notesFileList"></div>
             </div>
@@ -357,7 +357,7 @@ function generateNotesFilePanelHtml(options) {
                 <div class="file-panel-tools-section">
                     <div class="file-panel-section-title">${m('notesCleanNotes', 'Clean Notes')}</div>
                     <button class="file-panel-btn" id="filePanelCleanupCurrent" title="${m('notesCleanUnusedCurrentNoteTooltip', 'Scan current note for unused files')}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 6h18"/>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
                             <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -367,7 +367,7 @@ function generateNotesFilePanelHtml(options) {
                         ${m('notesCleanUnusedCurrentNote', 'Clean Unused Files (Current Note)')}
                     </button>
                     <button class="file-panel-btn" id="filePanelCleanupTools" title="${m('notesCleanUnusedAllNotesTooltip', 'Scan all registered notes for unused files')}">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M3 6h18"/>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
                             <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>

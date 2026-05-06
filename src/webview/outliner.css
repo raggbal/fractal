@@ -6,7 +6,7 @@
     --outliner-bg: var(--vscode-editor-background, #1e1e1e);
     --outliner-fg: var(--vscode-editor-foreground, #cccccc);
     --outliner-indent: 1.5em;
-    --outliner-bullet-size: 6px;
+    --outliner-bullet-size: 5px;
     --outliner-line-height: 1.5;
     --outliner-font-size: __FONT_SIZE__px;
     --outliner-border: var(--vscode-panel-border, #333);
@@ -41,14 +41,8 @@
 body {
     position: relative;
     overflow: hidden;
+    height: 100vh;
     margin: 0;
-    /* default zoom = cmd+- 1 ステップ相当 (全体を 90% に uniform 縮小) */
-    zoom: var(--fractal-zoom, 0.9);
-    /* zoom で box が 0.9x rendered になるため、layout 上の body サイズを 1/0.9 倍に
-       拡張して viewport を埋める (= 約 111.11vh / 111.11vw)。
-       これで「下に謎の空白」を防止 */
-    height: calc(100vh / var(--fractal-zoom, 0.9));
-    width: calc(100vw / var(--fractal-zoom, 0.9));
 }
 
 /* --- Container --- */
@@ -56,21 +50,19 @@ body {
     position: relative;
     display: flex;
     flex-direction: column;
-    /* zoom 適用時は vh が viewport 基準なので body 内側で 100vh だと縮む。
-       parent (body) の高さを継承する 100% に変更 */
-    height: 100%;
+    height: 100vh;
     background: var(--outliner-bg);
     color: var(--outliner-fg);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     font-size: var(--outliner-font-size);
     line-height: var(--outliner-line-height);
     overflow: hidden;
-    --outliner-gutter: 32px;
+    --outliner-gutter: 29px;
 }
 
 /* --- Page Title --- */
 .outliner-page-title {
-    padding: 16px var(--outliner-gutter) 4px;
+    padding: 14px var(--outliner-gutter) 4px;
     flex-shrink: 0;
 }
 
@@ -96,7 +88,7 @@ body {
 .outliner-search-bar {
     display: flex;
     align-items: center;
-    padding: 8px var(--outliner-gutter);
+    padding: 7px var(--outliner-gutter);
     flex-shrink: 0;
     box-sizing: border-box;
 }
@@ -107,7 +99,7 @@ body {
     border-radius: 4px;
     color: var(--outliner-search-fg);
     cursor: pointer;
-    padding: 4px 6px;
+    padding: 4px 5px;
     margin-right: 4px;
     line-height: 1;
     opacity: 0.5;
@@ -123,7 +115,7 @@ body {
 
 
 .outliner-search-input-wrapper {
-    width: 250px;
+    width: 225px;
     flex-shrink: 0;
     position: relative;
     display: flex;
@@ -138,10 +130,10 @@ body {
     flex: 1;
     background: var(--outliner-search-bg);
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: 5px;
     color: var(--outliner-search-fg);
-    padding: 6px 26px 6px 10px;
-    font-size: 13px;
+    padding: 5px 23px 5px 9px;
+    font-size: 12px;
     outline: none;
     font-family: inherit;
 }
@@ -181,7 +173,7 @@ body {
     border-radius: 4px;
     color: var(--outliner-search-fg);
     cursor: pointer;
-    padding: 4px 6px;
+    padding: 4px 5px;
     margin-left: 4px;
     line-height: 1;
     opacity: 0.5;
@@ -215,19 +207,19 @@ body {
     background: var(--outliner-bg, var(--vscode-editor-background, #1e1e1e));
     border: 1px solid var(--outliner-border);
     border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.3);
     z-index: 1000;
-    min-width: 180px;
+    min-width: 162px;
     padding: 4px 0;
 }
 .outliner-menu-dropdown .menu-item {
     display: block;
     width: 100%;
-    padding: 6px 12px;
+    padding: 5px 11px;
     background: transparent;
     border: none;
     color: var(--outliner-fg, var(--vscode-editor-foreground, #ccc));
-    font-size: 13px;
+    font-size: 12px;
     text-align: left;
     cursor: pointer;
     font-family: inherit;
@@ -238,13 +230,13 @@ body {
 
 /* --- Scope search indicator --- */
 .outliner-scope-search-indicator {
-    padding: 2px 8px 0;
+    padding: 2px 7px 0;
     flex-shrink: 0;
 }
 .outliner-scope-search-tag {
-    font-size: 11px;
-    padding: 1px 8px;
-    border-radius: 10px;
+    font-size: 10px;
+    padding: 1px 7px;
+    border-radius: 9px;
     background: var(--outliner-accent-fg, #007aff);
     color: #fff;
     opacity: 0.7;
@@ -256,8 +248,8 @@ body {
 .outliner-breadcrumb {
     display: none;
     flex-shrink: 0;
-    padding: 6px var(--outliner-gutter);
-    font-size: 12px;
+    padding: 5px var(--outliner-gutter);
+    font-size: 11px;
     color: var(--outliner-fg);
     overflow-x: auto;
     white-space: nowrap;
@@ -267,7 +259,7 @@ body {
 .outliner-breadcrumb-item {
     cursor: pointer;
     opacity: 0.7;
-    max-width: 150px;
+    max-width: 135px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -302,7 +294,7 @@ body {
 .outliner-tree {
     flex: 1;
     /* スクロールは outer wrapper で制御。tree 自身はスクロールしない */
-    padding: 8px 0;
+    padding: 7px 0;
     margin: 0 var(--outliner-gutter);
     border-top: 1px solid var(--outliner-border);
 }
@@ -336,9 +328,9 @@ body {
 
 /* breadcrumb: sticky 不要 (tree と同時にスクロールしてよい) */
 
-/* table mode の col-header: search-bar 直下 (~40px) に縦固定。横はテーブルと一緒に動く */
+/* table mode の col-header: search-bar 直下 (~36px) に縦固定。横はテーブルと一緒に動く */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
-    top: 40px;
+    top: 36px;
 }
 
 /* table mode 時は outliner-container 配下の他要素の右 padding も詰める
@@ -346,7 +338,7 @@ body {
 .outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-page-title,
 .outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-search-bar,
 .outliner-container:has(.outliner-tree[data-view-mode="table"]) .outliner-pinned-nav-bar {
-    padding-right: 8px;
+    padding-right: 7px;
 }
 
 /* --- Node --- */
@@ -397,7 +389,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
+    width: 22px;
     height: 1.75em;
     flex-shrink: 0;
     cursor: pointer;
@@ -440,7 +432,7 @@ body {
     position: absolute;
     right: -4px;
     top: 2px;
-    font-size: 9px;
+    font-size: 8px;
     color: var(--outliner-placeholder);
     pointer-events: none;
 }
@@ -450,7 +442,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 18px;
     height: 1.75em;
     flex-shrink: 0;
     cursor: pointer;
@@ -488,12 +480,12 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 18px;
     height: 1.75em;
     flex-shrink: 0;
     cursor: pointer;
     color: var(--outliner-page-icon-color);
-    font-size: 14px;
+    font-size: 13px;
     opacity: 0.8;
 }
 
@@ -506,12 +498,12 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 18px;
     height: 1.75em;
     flex-shrink: 0;
     cursor: pointer;
     color: var(--outliner-page-icon-color);
-    font-size: 14px;
+    font-size: 13px;
     opacity: 0.8;
 }
 
@@ -524,14 +516,14 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 18px;
     height: 1.75em;
     flex-shrink: 0;
 }
 
 .outliner-checkbox input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     cursor: pointer;
     accent-color: var(--outliner-checkbox-accent);
 }
@@ -641,7 +633,7 @@ body {
 .outliner-cell-text .outliner-tag {
     color: var(--outliner-tag-color);
     background: var(--outliner-tag-bg);
-    padding: 1px 6px;
+    padding: 1px 5px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 0.9em;
@@ -706,10 +698,10 @@ body {
     position: fixed;
     background: var(--outliner-search-bg);
     border: 1px solid var(--outliner-border);
-    border-radius: 6px;
+    border-radius: 5px;
     padding: 4px 0;
-    min-width: 160px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    min-width: 144px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
     z-index: 1000;
 }
 
@@ -717,10 +709,10 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 16px;
+    padding: 5px 14px;
     cursor: pointer;
-    font-size: 13px;
-    gap: 12px;
+    font-size: 12px;
+    gap: 11px;
 }
 
 .outliner-context-menu-item:hover:not(.disabled) {
@@ -738,11 +730,11 @@ body {
 }
 
 .context-menu-shortcut {
-    font-size: 11px;
+    font-size: 10px;
     color: #999;
     background: rgba(255,255,255,0.08);
     border-radius: 3px;
-    padding: 1px 6px;
+    padding: 1px 5px;
     white-space: nowrap;
     flex-shrink: 0;
 }
@@ -783,7 +775,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    min-width: 200px;
+    min-width: 180px;
 }
 
 .outliner-side-panel {
@@ -798,20 +790,20 @@ body {
 
 .outliner-side-panel.is-open {
     width: 50%;
-    min-width: 300px;
+    min-width: 270px;
 }
 
 .outliner-side-panel-header {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
+    padding: 7px 11px;
     border-bottom: 1px solid var(--outliner-border);
     flex-shrink: 0;
 }
 
 .outliner-side-panel-title {
     flex: 1;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -819,8 +811,8 @@ body {
 }
 
 .outliner-side-panel-close {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -829,7 +821,7 @@ body {
     background: none;
     border: none;
     color: var(--outliner-fg);
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .outliner-side-panel-close:hover {
@@ -852,20 +844,20 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 200px;
+    height: 180px;
     color: var(--outliner-placeholder);
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .outliner-empty-hint {
-    margin-top: 8px;
-    font-size: 12px;
+    margin-top: 7px;
+    font-size: 11px;
     opacity: 0.7;
 }
 
 /* --- Scrollbar --- */
 .outliner-tree::-webkit-scrollbar {
-    width: 8px;
+    width: 7px;
 }
 
 .outliner-tree::-webkit-scrollbar-track {
@@ -1112,7 +1104,7 @@ body {
 .outliner-pinned-nav-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     padding: 4px var(--outliner-gutter);
     flex-shrink: 0;
     position: relative;
@@ -1143,16 +1135,16 @@ body {
 .outliner-daily-nav-area {
     display: none;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     position: relative;
 }
 .outliner-pinned-tag-btn {
-    padding: 2px 8px;
+    padding: 2px 7px;
     border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
-    border-radius: 12px;
+    border-radius: 11px;
     background: var(--outliner-search-bg, transparent);
     cursor: pointer;
-    font-size: 11px;
+    font-size: 10px;
     color: var(--outliner-tag-color, #0969da);
     white-space: nowrap;
     line-height: 1.4;
@@ -1179,39 +1171,39 @@ body {
 .pinned-tags-dialog {
     background: var(--outliner-bg, #fff);
     border: 1px solid var(--outliner-border, #ddd);
-    border-radius: 8px;
-    padding: 16px;
-    min-width: 300px;
-    max-width: 400px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    border-radius: 7px;
+    padding: 14px;
+    min-width: 270px;
+    max-width: 360px;
+    box-shadow: 0 7px 22px rgba(0,0,0,0.2);
 }
 .pinned-tags-dialog-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
-    font-size: 14px;
+    margin-bottom: 11px;
+    font-size: 13px;
     font-weight: 600;
 }
 .pinned-tags-close {
     border: none;
     background: none;
     cursor: pointer;
-    font-size: 18px;
+    font-size: 16px;
     opacity: 0.6;
     color: inherit;
     padding: 0 4px;
 }
 .pinned-tags-close:hover { opacity: 1; }
 .pinned-tags-list {
-    max-height: 300px;
+    max-height: 270px;
     overflow-y: auto;
-    margin-bottom: 8px;
+    margin-bottom: 7px;
 }
 .pinned-tag-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     margin-bottom: 4px;
     cursor: grab;
 }
@@ -1229,10 +1221,10 @@ body {
 .pinned-tag-drag-handle {
     cursor: grab;
     opacity: 0.4;
-    font-size: 16px;
+    font-size: 14px;
     user-select: none;
     flex-shrink: 0;
-    width: 16px;
+    width: 14px;
     text-align: center;
 }
 .pinned-tag-drag-handle:hover {
@@ -1240,12 +1232,12 @@ body {
 }
 .pinned-tag-input {
     flex: 1;
-    padding: 4px 8px;
+    padding: 4px 7px;
     border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
     border-radius: 4px;
     background: var(--outliner-search-bg, transparent);
     color: inherit;
-    font-size: 13px;
+    font-size: 12px;
 }
 .pinned-tag-delete {
     border: none;
@@ -1253,43 +1245,43 @@ body {
     cursor: pointer;
     color: inherit;
     opacity: 0.5;
-    font-size: 16px;
-    padding: 2px 6px;
+    font-size: 14px;
+    padding: 2px 5px;
 }
 .pinned-tag-delete:hover { opacity: 1; color: var(--outliner-error-color, #d00); }
 .pinned-tags-add-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
 }
 .pinned-tag-add-input {
     flex: 1;
-    padding: 4px 8px;
+    padding: 4px 7px;
     border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
     border-radius: 4px;
     background: var(--outliner-search-bg, transparent);
     color: inherit;
-    font-size: 13px;
+    font-size: 12px;
 }
 .pinned-tag-add-btn {
-    padding: 4px 12px;
+    padding: 4px 11px;
     border: 1px solid var(--outliner-search-border, rgba(128,128,128,0.3));
     border-radius: 4px;
     background: var(--outliner-search-bg, transparent);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     color: inherit;
 }
 .pinned-tag-add-btn:hover {
     border-color: var(--vscode-focusBorder, #007acc);
 }
 .outliner-daily-btn {
-    padding: 4px 10px;
+    padding: 4px 9px;
     border: 1px solid var(--outliner-search-border);
     border-radius: 4px;
     background: var(--outliner-search-bg);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     color: inherit;
     line-height: 1.2;
 }
@@ -1297,8 +1289,8 @@ body {
     border-color: var(--vscode-focusBorder, #007acc);
 }
 .outliner-daily-btn-sm {
-    padding: 4px 6px;
-    min-width: 24px;
+    padding: 4px 5px;
+    min-width: 22px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1312,36 +1304,36 @@ body {
     z-index: 100;
     background: var(--outliner-bg);
     border: 1px solid var(--outliner-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    padding: 8px;
-    width: 220px;
+    border-radius: 5px;
+    box-shadow: 0 4px 11px rgba(0,0,0,0.15);
+    padding: 7px;
+    width: 198px;
 }
 .outliner-daily-picker-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 8px;
+    margin-bottom: 7px;
 }
 .outliner-daily-picker-nav {
     border: none;
     background: none;
     cursor: pointer;
-    padding: 2px 6px;
-    font-size: 14px;
+    padding: 2px 5px;
+    font-size: 13px;
     opacity: 0.7;
     color: inherit;
 }
 .outliner-daily-picker-nav:hover { opacity: 1; }
 .outliner-daily-picker-title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
 }
 .outliner-daily-picker-weekdays {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     text-align: center;
-    font-size: 10px;
+    font-size: 9px;
     opacity: 0.5;
     margin-bottom: 4px;
 }
@@ -1356,7 +1348,7 @@ body {
     cursor: pointer;
     padding: 4px;
     text-align: center;
-    font-size: 12px;
+    font-size: 11px;
     border-radius: 4px;
     color: inherit;
 }
@@ -1370,10 +1362,10 @@ body {
 
 /* Focus mode ancestry breadcrumb */
 .outliner-focus-ancestry {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--outliner-subtext-color, #888);
-    padding: 2px 0 0 44px;
-    line-height: 16px;
+    padding: 2px 0 0 40px;
+    line-height: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1401,8 +1393,8 @@ body {
 }
 
 .outliner-image-thumb {
-    width: 60px;
-    height: 60px;
+    width: 54px;
+    height: 54px;
     object-fit: cover;
     border-radius: 4px;
     cursor: pointer;
@@ -1452,7 +1444,7 @@ body {
     max-height: 90vh;
     object-fit: contain;
     border-radius: 4px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 22px rgba(0, 0, 0, 0.5);
     cursor: default;
 }
 
@@ -1463,51 +1455,51 @@ body {
  * ============================================= */
 .outliner-search-replace-box {
     position: fixed;
-    top: 80px;
-    right: 40px;
+    top: 72px;
+    right: 36px;
     z-index: 1000;
     background: var(--toolbar-bg, var(--vscode-editor-background, #1e1e1e));
     border: 1px solid var(--border-color, var(--vscode-panel-border, #333));
-    border-radius: 6px;
-    padding: 10px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-    min-width: 350px;
+    border-radius: 5px;
+    padding: 9px;
+    box-shadow: 0 4px 11px rgba(0, 0, 0, 0.25);
+    min-width: 315px;
     font-family: inherit;
 }
 .outliner-search-replace-box .search-row,
 .outliner-search-replace-box .replace-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
+    gap: 5px;
+    margin-bottom: 7px;
 }
 .outliner-search-replace-box input[type="text"] {
     flex: 1;
-    padding: 6px 10px;
+    padding: 5px 9px;
     border: 1px solid var(--border-color, #555);
     border-radius: 4px;
     background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
     color: var(--text-color, var(--vscode-input-foreground, #ccc));
-    font-size: 13px;
+    font-size: 12px;
     outline: none;
 }
 .outliner-search-replace-box input[type="text"]:focus {
     border-color: var(--link-color, var(--vscode-focusBorder, #007acc));
 }
 .outliner-search-replace-box .search-count {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-color, #ccc);
-    min-width: 40px;
+    min-width: 36px;
     text-align: center;
 }
 .outliner-search-replace-box button {
-    padding: 4px 8px;
+    padding: 4px 7px;
     border: 1px solid var(--border-color, #555);
     border-radius: 4px;
     background: var(--bg-color, var(--vscode-input-background, #3c3c3c));
     color: var(--text-color, #ccc);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1;
 }
 .outliner-search-replace-box button:hover {
@@ -1515,8 +1507,8 @@ body {
 }
 .outliner-search-replace-box .search-options {
     display: flex;
-    gap: 12px;
-    font-size: 11px;
+    gap: 11px;
+    font-size: 10px;
     color: var(--text-color, #ccc);
 }
 .outliner-search-replace-box .search-options label {
@@ -1566,12 +1558,12 @@ body {
    Fractal page の見た目と一致しないことがあるため、ここでは使わない */
 .outliner-tree[data-view-mode="table"] .outliner-col-header {
     position: sticky;
-    /* search-bar (sticky top:0、高さ ~40px) の直下に固定 */
-    top: 40px;
+    /* search-bar (sticky top:0、高さ ~36px) の直下に固定 */
+    top: 36px;
     z-index: 10;
     background-color: var(--outliner-bg) !important;
     color: var(--outliner-fg, inherit) !important;
-    padding: 4px 8px;
+    padding: 4px 7px;
     border: none;
     border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     /* 列間の縦線: 列ヘッダーの右端のみ */
@@ -1589,7 +1581,7 @@ body {
 .outliner-tree[data-view-mode="table"] .outliner-col-header[data-col-type="outliner"] {
     cursor: default;
     /* 1 列目 (Outline 列) のみ左右 padding を広めに */
-    padding: 4px 20px;
+    padding: 4px 18px;
 }
 .outliner-col-header-label {
     flex: 1;
@@ -1603,7 +1595,7 @@ body {
     top: 0;
     bottom: 0;
     right: -3px;
-    width: 6px;
+    width: 5px;
     cursor: col-resize;
     background: transparent;
     z-index: 11;
@@ -1619,7 +1611,7 @@ body {
 .outliner-tree[data-view-mode="table"] > .outliner-cell-text,
 .outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect {
     box-sizing: border-box;
-    padding: 4px 8px;
+    padding: 4px 7px;
     /* 行線・列線を出さない (ユーザー要望) */
     border: none;
     /* 各セルは row の自然高さに自身を合わせる */
@@ -1682,7 +1674,7 @@ body {
     align-items: flex-start;
     align-content: flex-start;
     cursor: pointer;
-    min-height: 24px;
+    min-height: 22px;
     outline: none;
 }
 .outliner-cell-multiselect:focus {
@@ -1692,23 +1684,23 @@ body {
 .outliner-cell-multiselect-placeholder {
     color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
     font-style: italic;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .outliner-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-size: 12px;
+    padding: 2px 7px;
+    border-radius: 11px;
+    font-size: 11px;
     user-select: none;
     line-height: 1.4;
 }
 .outliner-chip-remove {
     cursor: pointer;
     opacity: 0.6;
-    font-size: 11px;
+    font-size: 10px;
 }
 .outliner-chip-remove:hover { opacity: 1; }
 
@@ -1728,10 +1720,10 @@ body {
     color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 11px rgba(0,0,0,0.3);
     z-index: 200;
     padding: 4px;
-    max-height: 320px;
+    max-height: 288px;
     overflow-y: auto;
 }
 .outliner-multiselect-input {
@@ -1739,11 +1731,11 @@ body {
     background: var(--outliner-search-bg, var(--outliner-bg));
     color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    padding: 4px 6px;
+    padding: 4px 5px;
     margin-bottom: 4px;
     border-radius: 3px;
     box-sizing: border-box;
-    font-size: 12px;
+    font-size: 11px;
 }
 .outliner-multiselect-list {
     display: flex;
@@ -1752,29 +1744,29 @@ body {
 .outliner-multiselect-item, .outliner-multiselect-create {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 6px;
+    gap: 5px;
+    padding: 4px 5px;
     cursor: pointer;
     border-radius: 3px;
-    font-size: 12px;
+    font-size: 11px;
 }
 .outliner-multiselect-item:hover, .outliner-multiselect-create:hover {
     background: var(--outliner-hover-bg, rgba(127, 127, 127, 0.15));
 }
 .outliner-multiselect-checkbox {
     font-family: monospace;
-    width: 16px;
+    width: 14px;
     text-align: center;
 }
 .outliner-multiselect-item .outliner-chip { flex: 1; }
 /* タグ master の削除ボタン (dropdown item の右端) */
 .outliner-multiselect-item-delete {
     margin-left: auto;
-    width: 22px;
+    width: 20px;
     text-align: center;
     cursor: pointer;
     opacity: 0.4;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1;
 }
 .outliner-multiselect-item-delete:hover {
@@ -1792,15 +1784,15 @@ body {
     color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    box-shadow: 0 4px 11px rgba(0,0,0,0.18);
     z-index: 200;
     padding: 4px 0;
-    min-width: 160px;
+    min-width: 144px;
 }
 .outliner-col-ctx-item {
-    padding: 6px 12px;
+    padding: 5px 11px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--outliner-fg);
 }
 .outliner-col-ctx-item:hover {
@@ -1818,14 +1810,14 @@ body {
     background: var(--outliner-bg);
     color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    border-radius: 5px;
+    box-shadow: 0 7px 22px rgba(0,0,0,0.2);
     z-index: 300;
-    padding: 16px;
-    min-width: 280px;
+    padding: 14px;
+    min-width: 252px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
 }
 .outliner-add-col-label { font-weight: 600; color: var(--outliner-fg); }
 .outliner-add-col-name, .outliner-add-col-type {
@@ -1833,22 +1825,22 @@ body {
     background: var(--outliner-search-bg, var(--outliner-bg));
     color: var(--outliner-fg);
     border: 1px solid var(--outliner-border, rgba(127,127,127,0.3));
-    padding: 6px 8px;
+    padding: 5px 7px;
     border-radius: 3px;
     box-sizing: border-box;
-    font-size: 13px;
+    font-size: 12px;
 }
 .outliner-add-col-buttons {
     display: flex;
-    gap: 8px;
+    gap: 7px;
     justify-content: flex-end;
 }
 .outliner-add-col-buttons button {
-    padding: 6px 14px;
+    padding: 5px 13px;
     border-radius: 3px;
     border: 1px solid transparent;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 12px;
     background: transparent;
     color: var(--outliner-fg);
     font-weight: 500;

@@ -55,7 +55,7 @@ export function getWebviewContent(
     // Ensure config has all required properties with defaults
     const safeConfig: EditorConfig = {
         theme: config?.theme ?? 'github',
-        fontSize: config?.fontSize ?? 14,
+        fontSize: config?.fontSize ?? 13,
         toolbarMode: config?.toolbarMode ?? 'full',
         documentBaseUri: config?.documentBaseUri ?? '',
         webviewMessages: config?.webviewMessages,

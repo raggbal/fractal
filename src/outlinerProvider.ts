@@ -84,7 +84,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     content,
                     {
                         theme: config.get<string>('theme', 'things'),
-                        fontSize: config.get<number>('fontSize', 14),
+                        fontSize: config.get<number>('fontSize', 13),
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),

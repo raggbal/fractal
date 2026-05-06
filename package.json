@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.201.9",
+  "version": "0.202.0",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -198,7 +198,7 @@
         },
         "fractal.fontSize": {
           "type": "number",
-          "default": 14,
+          "default": 13,
           "description": "Base font size in pixels"
         },
         "fractal.imageDefaultDir": {

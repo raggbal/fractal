@@ -467,7 +467,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     content,
                     {
                         theme: config.get<string>('theme', 'things'),
-                        fontSize: config.get<number>('fontSize', 14),
+                        fontSize: config.get<number>('fontSize', 13),
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         documentBaseUri: documentBaseUri,
                         webviewMessages: getWebviewMessages(),
