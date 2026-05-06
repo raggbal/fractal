@@ -2,6 +2,28 @@
 
 console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
 
+// SW 起動中はアイコンを disable + badge `⋯` で「準備中」を視覚化。warmup 後に enable。
+// (install 直後 / Chrome 起動直後の SW idle 状態でユーザーが押しても無反応にならないように)
+let swReady = false;
+chrome.action.disable();
+chrome.action.setBadgeText({ text: '⋯' });
+chrome.action.setBadgeBackgroundColor({ color: '#888' });
+chrome.action.setTitle({ title: 'Fractal Clipper (準備中…)' });
+
+(async function warmup() {
+    try {
+        // IDB を 1 度開いて connection を温めておく (初回 access で遅延しないように)
+        await idbGet('notesFolderHandle');
+    } catch (e) {
+        console.warn('[Fractal Clipper] warmup idb failed (non-fatal)', e);
+    }
+    swReady = true;
+    chrome.action.enable();
+    chrome.action.setBadgeText({ text: '' });
+    chrome.action.setTitle({ title: 'Clip to Fractal Outliner' });
+    console.log('[Fractal Clipper] warmup done, action enabled');
+})();
+
 // 初回 install 時のみ Options を自動 open
 chrome.runtime.onInstalled.addListener((details) => {
     console.log('[Fractal Clipper] onInstalled', details);
@@ -32,13 +54,27 @@ async function idbGet(key) {
 }
 
 function notify(title, message, isError = false) {
-    chrome.notifications.create({
+    const opts = {
         type: 'basic',
         iconUrl: 'icons/icon128.png',
         title: isError ? '❌ ' + title : title,
         message: message || '',
-        priority: isError ? 2 : 0
+        priority: isError ? 2 : 0,
+        requireInteraction: !!isError
+    };
+    chrome.notifications.create(opts, (id) => {
+        if (chrome.runtime.lastError) {
+            console.warn('[Fractal Clipper] notify FAILED:', chrome.runtime.lastError.message, '|', title);
+        } else {
+            console.log('[Fractal Clipper] notify ok:', id, '|', title);
+        }
     });
+}
+
+// アイコン上の badge で進捗を視覚化 (通知が出ない環境でも分かるように)
+function setBadge(text, color) {
+    chrome.action.setBadgeText({ text: text || '' });
+    if (color) chrome.action.setBadgeBackgroundColor({ color });
 }
 
 async function getNestedFileHandle(rootHandle, relPath, opts) {
@@ -62,8 +98,12 @@ async function readJsonFile(handle) {
     return JSON.parse(await file.text());
 }
 async function writeJsonFile(handle, obj) {
+    // indent なし (大きい .out ではサイズ半減・stringify も速い)。Fractal は parse 時 indent 不要
+    const tStr = performance.now();
+    const text = JSON.stringify(obj);
+    console.log('[Fractal Clipper]   JSON.stringify:', ((performance.now() - tStr) / 1000).toFixed(2), 's,', (text.length / 1024).toFixed(1), 'KB');
     const w = await handle.createWritable();
-    await w.write(JSON.stringify(obj, null, 2));
+    await w.write(text);
     await w.close();
 }
 async function writeTextFile(handle, text) {
@@ -88,7 +128,8 @@ function parseTags(text) {
     return tags;
 }
 function prependClipNode(outData, opts) {
-    const data = JSON.parse(JSON.stringify(outData || {}));
+    // deep clone を skip (大きい .out で 10s+ かかるため)。caller は outData を再利用しない
+    const data = outData || {};
     if (!data.version) data.version = 1;
     if (!data.rootIds) data.rootIds = [];
     if (!data.nodes) data.nodes = {};
@@ -121,6 +162,11 @@ function resolvePageDir(outData) {
 chrome.action.onClicked.addListener(async (tab) => {
     const t0 = performance.now();
     console.log('[Fractal Clipper] action.onClicked fired, tab:', tab?.id, tab?.url);
+    if (!swReady) {
+        notify('準備中', 'Service worker 起動中です。数秒後に再度お試しください', true);
+        return;
+    }
+    setBadge('…', '#0969da');
     try {
         const folderHandle = await idbGet('notesFolderHandle');
         const folderName = await idbGet('notesFolderName');
@@ -128,6 +174,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         console.log('[Fractal Clipper] setup:', !!folderHandle, folderName, targetOutPath);
 
         if (!folderHandle || !targetOutPath) {
+            setBadge('!', '#cc3333');
             notify('未設定', 'Notes フォルダ + .out ファイルを Options で設定してください', true);
             chrome.runtime.openOptionsPage();
             return;
@@ -206,27 +253,49 @@ chrome.action.onClicked.addListener(async (tab) => {
             markdown: result.markdown
         });
 
-        // .out 読み + node 追加
+        // .out file handle 解決
+        const tHandle = performance.now();
         const outFileHandle = await getNestedFileHandle(folderHandle, targetOutPath);
-        const outData = await readJsonFile(outFileHandle);
-        const nodeResult = prependClipNode(outData, { title });
+        console.log('[Fractal Clipper] resolve .out handle:', ((performance.now() - tHandle) / 1000).toFixed(2), 's');
 
-        // page MD 保存
+        // .out 読み込み (JSON parse 含む)
+        const tRead = performance.now();
+        const outData = await readJsonFile(outFileHandle);
+        const outSize = JSON.stringify(outData).length;
+        console.log('[Fractal Clipper] read .out:', ((performance.now() - tRead) / 1000).toFixed(2), 's, size:', (outSize / 1024).toFixed(1), 'KB');
+
+        // node 追加 (in-memory)
+        const tNode = performance.now();
+        const nodeResult = prependClipNode(outData, { title });
+        console.log('[Fractal Clipper] node insert:', ((performance.now() - tNode) / 1000).toFixed(3), 's');
+
+        // page MD ディレクトリ解決
+        const tDirH = performance.now();
         const pageDirRel = resolvePageDir(nodeResult.outData);
         const outDirParts = targetOutPath.split('/').slice(0, -1);
         const pageMdDirRel = (outDirParts.length > 0 ? outDirParts.join('/') + '/' : '') + pageDirRel;
         const pageDirHandle = await getNestedDirHandle(folderHandle, pageMdDirRel);
         const pageMdHandle = await pageDirHandle.getFileHandle(nodeResult.pageId + '.md', { create: true });
-        await writeTextFile(pageMdHandle, pageMd);
+        console.log('[Fractal Clipper] resolve pageDir+handle:', ((performance.now() - tDirH) / 1000).toFixed(2), 's');
 
-        // .out 書き戻し
+        // page MD 書き込み
+        const tWriteMd = performance.now();
+        await writeTextFile(pageMdHandle, pageMd);
+        console.log('[Fractal Clipper] write pageMd:', ((performance.now() - tWriteMd) / 1000).toFixed(2), 's, size:', (pageMd.length / 1024).toFixed(1), 'KB');
+
+        // .out 書き戻し (JSON.stringify 含む)
+        const tWriteOut = performance.now();
         await writeJsonFile(outFileHandle, nodeResult.outData);
+        console.log('[Fractal Clipper] write .out:', ((performance.now() - tWriteOut) / 1000).toFixed(2), 's');
 
         const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
         console.log('[Fractal Clipper] DONE in', elapsed, 's');
+        setBadge('✓', '#2da44e');
+        setTimeout(() => setBadge('', ''), 5000);
         notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath);
     } catch (e) {
         console.error('[Fractal Clipper] ERROR', e);
+        setBadge('!', '#cc3333');
         notify('Clip 失敗', e.message || String(e), true);
     }
 });
