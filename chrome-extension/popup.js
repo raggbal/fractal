@@ -72,18 +72,54 @@ async function writeTextFile(fileHandle, text) {
     await writable.close();
 }
 
-/** active tab から outerHTML + url + title を取得 */
-async function fetchActiveTabHtml() {
+/** active tab で Readability + Turndown + Fractal HTML→MD を実行し、結果を返す。
+ *  popup には heavy lib を load せず、tab の isolated world で実行する。 */
+async function convertActiveTabToMarkdown() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error('Active tab not found');
-    const [{ result }] = await chrome.scripting.executeScript({
+    // 1. tab の isolated world に heavy lib を inject (= 対象タブの content script 領域)
+    await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        func: () => ({
-            html: document.documentElement.outerHTML,
-            url: location.href,
-            title: document.title || ''
-        })
+        files: [
+            'lib/turndown.js',
+            'lib/turndown-plugin-gfm.js',
+            'lib/Readability.js',
+            'lib/fractal-md.js'
+        ]
     });
+    // 2. 同じ isolated world で変換を実行
+    const [{ result, error }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+            try {
+                const docClone = document.cloneNode(true);
+                let extracted;
+                try {
+                    extracted = FractalMd.articleToMarkdown(docClone);
+                } catch (e) {
+                    const md = FractalMd.htmlToMarkdown(document.body ? document.body.innerHTML : '');
+                    extracted = {
+                        title: document.title || '',
+                        markdown: md,
+                        byline: '',
+                        siteName: ''
+                    };
+                }
+                return {
+                    ok: true,
+                    title: extracted.title || document.title || '',
+                    url: location.href,
+                    markdown: extracted.markdown || '',
+                    byline: extracted.byline || '',
+                    siteName: extracted.siteName || ''
+                };
+            } catch (e) {
+                return { ok: false, error: e.message || String(e) };
+            }
+        }
+    });
+    if (error) throw new Error(error.message || String(error));
+    if (!result || !result.ok) throw new Error(result?.error || 'Conversion failed');
     return result;
 }
 
@@ -112,26 +148,13 @@ clipBtn.addEventListener('click', async () => {
         const ok = await ensurePermission(folderHandle);
         if (!ok) throw new Error('フォルダ書き込み許可が得られませんでした');
 
-        // 2. ページ取得
-        setStatus('ページ HTML 取得中…', 'info');
-        const tabInfo = await fetchActiveTabHtml();
-
-        // 3. Readability + turndown 変換
-        setStatus('Markdown 変換中…', 'info');
-        const doc = new DOMParser().parseFromString(tabInfo.html, 'text/html');
-        let extracted;
-        try {
-            extracted = FractalMd.articleToMarkdown(doc);
-        } catch (e) {
-            // Readability 失敗 → body 全体で fallback
-            console.warn('Readability failed, falling back to full body', e);
-            const md = FractalMd.htmlToMarkdown(doc.body ? doc.body.innerHTML : tabInfo.html);
-            extracted = { title: tabInfo.title, markdown: md, byline: '', siteName: '' };
-        }
-        const title = extracted.title || tabInfo.title || '(untitled)';
+        // 2. tab 側で Readability + turndown 変換 (heavy lib は popup に load しない)
+        setStatus('ページを Markdown に変換中…', 'info');
+        const extracted = await convertActiveTabToMarkdown();
+        const title = extracted.title || '(untitled)';
         const pageMd = FractalClipperCore.buildPageMd({
             title: title,
-            url: tabInfo.url,
+            url: extracted.url,
             byline: extracted.byline,
             siteName: extracted.siteName,
             markdown: extracted.markdown

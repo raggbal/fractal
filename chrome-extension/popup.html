@@ -61,11 +61,9 @@
     <div id="status" class="status info" style="display:none"></div>
     <div class="row"><a href="#" id="optionsLink">⚙️ 設定を変更</a></div>
 
+    <!-- 重い lib (turndown / Readability / fractal-md) は popup ではなく対象 tab 側で
+         chrome.scripting.executeScript で inject 実行する。popup は軽量なまま瞬時表示。 -->
     <script src="lib/idb.js"></script>
-    <script src="lib/turndown.js"></script>
-    <script src="lib/turndown-plugin-gfm.js"></script>
-    <script src="lib/Readability.js"></script>
-    <script src="lib/fractal-md.js"></script>
     <script src="lib/clipper-core.js"></script>
     <script src="popup.js"></script>
 </body>
