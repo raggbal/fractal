@@ -147,15 +147,23 @@ chrome.action.onClicked.addListener(async (tab) => {
         }
 
         // tab に lib inject + 変換
-        await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: [
-                'lib/turndown.js',
-                'lib/turndown-plugin-gfm.js',
-                'lib/Readability.js',
-                'lib/fractal-md.js'
-            ]
-        });
+        console.log('[Fractal Clipper] injecting libs into tab', tab.id);
+        try {
+            const injectResult = await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: [
+                    'lib/turndown.js',
+                    'lib/turndown-plugin-gfm.js',
+                    'lib/Readability.js',
+                    'lib/fractal-md.js'
+                ]
+            });
+            console.log('[Fractal Clipper] inject result:', injectResult);
+        } catch (e) {
+            console.error('[Fractal Clipper] inject FAILED', e);
+            throw new Error('Script inject failed: ' + (e.message || String(e)));
+        }
+        console.log('[Fractal Clipper] running conversion in tab');
         const [{ result }] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: () => {
@@ -181,6 +189,7 @@ chrome.action.onClicked.addListener(async (tab) => {
                 }
             }
         });
+        console.log('[Fractal Clipper] conversion result:', result?.ok, result?.title?.slice(0, 40));
         if (!result || !result.ok) throw new Error(result?.error || 'Conversion failed');
 
         const title = result.title || '(untitled)';
