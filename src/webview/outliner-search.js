@@ -223,13 +223,25 @@ var OutlinerSearch = (function() {
         }
     };
 
+    /** タグ文字列を比較用に正規化:
+     *  - lowercase + trim
+     *  - prefix (#/@) が無ければ '#' を補う (legacy option label との互換性のため) */
+    function normalizeTagForMatch(s) {
+        var t = (s || '').toLowerCase().trim();
+        if (!t) return '';
+        var c = t.charAt(0);
+        if (c === '#' || c === '@') return t;
+        return '#' + t;
+    }
+
     /** Phase F2.5+: tag query (#xxx / @xxx) で
      *  - multiselect 列の option label
      *  - text 列に含まれる #xxx / @xxx
-     *  にマッチ判定 */
+     *  にマッチ判定 (label の # prefix 有無を許容して比較) */
     SearchEngine.prototype._matchesColumnTags = function(node, lowerTag) {
         if (!node.columnValues) return false;
         var cols = (this.model && this.model.columns) || [];
+        var qNorm = normalizeTagForMatch(lowerTag);
         // text 列内の literal タグを検出する正規表現 (parseTags と同じパターン)
         var textTagRegex = /(?:^|[^&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
         for (var i = 0; i < cols.length; i++) {
@@ -240,9 +252,9 @@ var OutlinerSearch = (function() {
                 var opts = col.options || [];
                 for (var j = 0; j < v.length; j++) {
                     for (var k = 0; k < opts.length; k++) {
-                        if (opts[k].id === v[j] && (opts[k].label || '').toLowerCase() === lowerTag) {
-                            return true;
-                        }
+                        if (opts[k].id !== v[j]) continue;
+                        var lblNorm = normalizeTagForMatch(opts[k].label || '');
+                        if (lblNorm === qNorm) return true;
                     }
                 }
             } else if (col.type === 'text' && typeof v === 'string') {
@@ -251,7 +263,7 @@ var OutlinerSearch = (function() {
                 textTagRegex.lastIndex = 0;
                 var m;
                 while ((m = textTagRegex.exec(cleaned)) !== null) {
-                    if ((m[1] || '').toLowerCase() === lowerTag) return true;
+                    if (normalizeTagForMatch(m[1]) === qNorm) return true;
                 }
             }
         }

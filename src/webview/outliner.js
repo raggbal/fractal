@@ -4405,6 +4405,8 @@ var Outliner = (function() {
     function computeAllTagsSorted() {
         var counts = {};
         if (!model || !model.nodes) return [];
+        // text 列値内の literal タグ抽出用 (parseTags と同じパターン)
+        var textTagRegex = /(?:^|[^&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
         for (var nid in model.nodes) {
             var n = model.nodes[nid];
             if (n.tags && n.tags.length) {
@@ -4413,19 +4415,30 @@ var Outliner = (function() {
                     counts[t] = (counts[t] || 0) + 1;
                 }
             }
-            // multiselect 列の選択された option label もタグ集計
+            // 列値からタグ集計
             if (n.columnValues && model.columns) {
                 for (var ci = 0; ci < model.columns.length; ci++) {
                     var col = model.columns[ci];
-                    if (col.type !== 'multiselect') continue;
                     var v = n.columnValues[col.id];
-                    if (!Array.isArray(v) || !col.options) continue;
-                    for (var vi = 0; vi < v.length; vi++) {
-                        for (var oi = 0; oi < col.options.length; oi++) {
-                            if (col.options[oi].id === v[vi]) {
-                                var lbl = col.options[oi].label || '';
-                                if (lbl) counts[lbl] = (counts[lbl] || 0) + 1;
+                    if (v === undefined || v === null) continue;
+                    if (col.type === 'multiselect' && Array.isArray(v) && col.options) {
+                        // multiselect: 選択された option label
+                        for (var vi = 0; vi < v.length; vi++) {
+                            for (var oi = 0; oi < col.options.length; oi++) {
+                                if (col.options[oi].id === v[vi]) {
+                                    var lbl = col.options[oi].label || '';
+                                    if (lbl) counts[lbl] = (counts[lbl] || 0) + 1;
+                                }
                             }
+                        }
+                    } else if (col.type === 'text' && typeof v === 'string') {
+                        // text 列: 値内の #xxx / @xxx (インラインコード/URL内は除外)
+                        var cleaned = v.replace(/`[^`]*`/g, '').replace(/https?:\/\/\S+/g, '');
+                        textTagRegex.lastIndex = 0;
+                        var m;
+                        while ((m = textTagRegex.exec(cleaned)) !== null) {
+                            var tt = m[1];
+                            if (tt) counts[tt] = (counts[tt] || 0) + 1;
                         }
                     }
                 }
