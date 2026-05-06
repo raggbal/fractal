@@ -5,6 +5,59 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.203.0] - 2026-05-06
+
+### Added
+- **🎉 Outliner Table View — `.out` ファイルを spreadsheet 形式で開ける新ビュー**
+  ツールバー右の table アイコンで **同じ webview 内** で outliner ⇄ table をトグル切替可能 (新タブを開かない)。Notion / Coda の database view 風の column-based 一覧編集体験を Fractal 上で実現。
+  - **列ヘッダー + 列セル**: Outliner 列 (常に最左、固定) + 任意数の text 列 / multiselect 列を追加可能。`grid-template-columns` で列幅合計を計算し、画面幅を超える場合は `.outliner-tree` 内で横スクロール
+  - **列の追加 / 削除 / 並べ替え / 列幅 D&D resize**:
+    - 列ヘッダー右クリック → 「Rename column」「Insert column to the left」「Insert column to the right」「Remove column」 (Outline 列右クリックは Insert right + Rename のみ)
+    - 列ヘッダー D&D で順序入替 (Outline 列は固定)
+    - 列ヘッダー右端 6px の絶対配置 resize handle で個別列幅変更 (`MIN_COLUMN_WIDTH=126`, `DEFAULT_OUTLINER=288`, `DEFAULT_OTHER=180`)
+  - **text 列**: contenteditable で `Cmd+B` / `Cmd+I` / `Cmd+E` / `Cmd+Shift+S` / IME / paste 対応。outline 列と CSS 完全統一 (inline code / 取消線 / strong / em / link / tag 同じ見た目)。URL paste 時に自動で `[URL](URL)` markdown 化、リンクは非編集時クリックで外部ブラウザ開く
+  - **multiselect 列 (タグ master 化)**: option label を `#xxx` / `@xxx` 形式に正規化 (prefix なしは自動 `#` 付与)。8 色 palette (red/orange/yellow/green/blue/purple/pink/zinc) auto-color。chip ダブルクリック → 検索ボックスに反映、cell 内 chip ✕ で個別解除、dropdown 内 🗑 で master から削除 + 全 cell から該当 option 自動 purge
+  - **行 state ハイライトの全列適用**: `is-focused` / `is-selected` / `is-search-match` を outline cell だけでなく text / multiselect cell にも attach し、行全体が同色に染まる
+  - **Cmd+↑↓→← セル間移動**: table mode 内で grid-aware なナビゲーション。outline / text / multiselect のセル種別を跨いで移動可能
+  - **検索拡張**: `OutlinerSearch._matches` を拡張し、text 列の値・multiselect option label・text 列内の literal `#tag` も検索対象に。tag query (`#xxx`) は `node.tags` だけでなく multiselect 選択値 + text 列 literal タグもヒット
+  - **検索フォーカスモード対応**: table mode でも `searchFocusMode` で match 行を depth=0 として並べ、子ノードが match した場合は祖先パンくずを `grid-column: 1 / -1` で全列幅に表示
+  - **cut/copy/paste で列値維持**: 同一 outliner 内の cut/copy/paste は `node.columnValues` を deep copy で保持。別 outliner (cross-file) は列定義 / option id が共有されないので outline 列のみ paste される
+  - **永続化**: `model.columns[]` (列定義) と `node.columnValues` (各 node の値) を `.out` JSON に serialize。outliner mode で開いても破壊されない (`RAW_DATA_KNOWN_KEYS` 経由で passthrough、TBE-03 完全互換)
+- **🆕 検索ボックス内のタグ候補 popup** — 検索ボックス focus 時、その outliner に含まれる全タグを **使用頻度降順** で popup 表示。クリックで検索ボックスに append + 即検索。multiselect 選択値も集計対象。blur で即座に hide
+- **🆕 Outliner ヘッダー再設計**:
+  - title 行 (大見出し): スクロールで消える
+  - 検索バー + ナビ + 機能ボタン行 (sticky top:0 / left:0): 縦・横スクロールどちらでも固定
+  - daily note 時のみ daily nav (Today / 前日 / 翌日 / カレンダー) を search bar 先頭に表示 (旧 pinned-nav-bar 廃止)
+  - table mode の col-header は search bar の直下 (`top: 36px`) に sticky で固定
+- **🆕 Cmd+↑/↓/→/← で table cell 間 focus 移動**
+
+### Changed
+- **flat DOM 単一化 (Phase F1.5)** — 旧 hierarchical 描画 (`.outliner-children` ネスト DOM) を全廃。全 row が `.outliner-tree` 直下に flat に並び、indent は `data-depth` + `.outliner-node-indent { width: depth * 24px }` で表現。RENDER_MODE flag 撤廃、render path / handler が単一化されてコードベース 451 行削減。outline / table 両 view が同じ flat 基盤を使う
+- **UI 全体を約 90% scale** — `cmd+- 1 ステップ` 相当の見た目をデフォルトに (zoom CSS は使わず、px / em / line-height / SVG icon サイズを script で機械的に手動 scale)
+  - `outliner.css`: 167 px + 24 em/ratio
+  - `styles.css`: 249 px + 59 em/ratio
+  - `notes-body-html.js`: 83 px
+  - SVG icon (`width="N"`, `height="N"`) も全 webview で 0.9 倍化
+- **`fractal.fontSize` default を 14 → 12** に変更
+- **Outliner ヘッダー文字色** を `opacity: 0.65` で薄め、純黒の強さを抑制
+
+### Fixed
+- **ArrowLeft (折りたたみ) / ArrowRight (展開) 実行後にカーソルが抜けるバグ** — `toggleCollapse` が `renderTree()` を呼んで DOM を再構築していたため `textEl` が stale になり focus が失われていた。toggle 後に同 nodeId で要素を取り直し、`getCursorOffset` / `setCursorAtOffset` で位置復元
+- **Enter / Opt+Enter 後に文字入力 → Cmd+Z でカーソル復帰位置の不整合** — undo snapshot の種別 (`'action'` / `'edit'` / `'initial'`) を並列 array で保持し、popped 種別に応じて `savedFocus` (操作開始位置) と `dedupFocus` (直前 edit 位置) を切替。Enter at end of parent → 文字入力 → Cmd+Z で「parent 末尾」に正しく復帰
+- **renderTableMode が DOM を clear しない不具合** — 列の追加 / 削除 / rename ハンドラが直接 `renderTableMode()` を呼ぶ際 `treeEl.innerHTML = ''` を経由しないため、旧 DOM の上に新 DOM が重畳して grid が破綻していた。冒頭で確実に clear するよう修正
+- **column context menu の Rename が動かない** — `mousedown` で outside-handler が menu を close してしまう競合。各 menu item の `mousedown` で `stopPropagation` して回避
+- **Remove column が動かない** — `window.confirm` が VSCode webview でブロックされて常に false 扱いだった。確認ダイアログを撤廃 (saveSnapshot 済なので `Cmd+Z` で復元可)
+- **table mode の col-header が theme で黒く表示される** — `--vscode-editor-background` 等は VSCode 側のテーマ依存で、Fractal の `data-theme` (github / things 等) と一致しない。`--outliner-bg` / `--outliner-fg` (Fractal 独自テーマ変数) に統一
+- **table mode で行高さが固定** — `grid-auto-rows: minmax(min-content, max-content)` + `align-items: start` + 内部 flex 制約 (`width: 0` + `min-width: 0`) で text wrap / 画像 / subtext で自動伸縮
+- **横スクロールで title / search bar も巻き込まれる** — title / scope-indicator / search-bar を `position: sticky; left: 0; width: 100%` で横スクロールから外す。table のみ `.outliner-tree` 内で水平スクロール
+- **focus mode で root ノードしかヒットしない** — table mode 用 `renderTableFocusRows` 新設、全 node 走査で direct match を depth=0 で並べ、子孫を depth+1 以降で flat 配置
+- **notes-resize-handle の hover bar が editor 側にもはみ出る** — hover bar を file panel 側のみに収めた (`left: -2px; right: 0`)
+- **Outline 列ヘッダー padding** を `4px 20px` に拡張 (他列は `4px 8px` のまま)
+
+### Removed
+- **pinned-nav-bar 行 / pinned tag 機能 / pinned-settings-btn** — header redesign に伴い一旦撤去 (検索ボックス内のタグ候補 popup で代替可能)
+- **`.outliner-children` ネスト DOM** — flat DOM 単一化に伴い hierarchical 描画パスを全廃
+
 ## [0.195.781] - 2026-05-02
 
 ### Fixed
