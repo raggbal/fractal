@@ -11,9 +11,6 @@
     "scripting",
     "storage"
   ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
   "action": {
     "default_title": "Clip to Fractal Outliner",
     "default_popup": "popup.html",
