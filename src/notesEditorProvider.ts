@@ -125,7 +125,7 @@ export class NotesEditorProvider {
             this.context.extensionUri,
             {
                 theme: config.get<string>('theme', 'things'),
-                fontSize: config.get<number>('fontSize', 13),
+                fontSize: config.get<number>('fontSize', 12),
                 toolbarMode: config.get<string>('toolbarMode', 'simple'),
                 webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                 enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
@@ -914,7 +914,7 @@ export class NotesEditorProvider {
                         this.context.extensionUri,
                         {
                             theme: refreshConfig.get<string>('theme', 'things'),
-                            fontSize: refreshConfig.get<number>('fontSize', 13),
+                            fontSize: refreshConfig.get<number>('fontSize', 12),
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
