@@ -119,6 +119,7 @@ function resolvePageDir(outData) {
 
 // メイン: icon クリックで起動
 chrome.action.onClicked.addListener(async (tab) => {
+    const t0 = performance.now();
     console.log('[Fractal Clipper] action.onClicked fired, tab:', tab?.id, tab?.url);
     try {
         const folderHandle = await idbGet('notesFolderHandle');
@@ -131,6 +132,10 @@ chrome.action.onClicked.addListener(async (tab) => {
             chrome.runtime.openOptionsPage();
             return;
         }
+
+        // 開始通知 (即時、user に「処理始まった」フィードバック)
+        const tabTitle = (tab && tab.title) ? tab.title : (tab && tab.url) ? tab.url : '';
+        notify('📥 Clip 開始', tabTitle.slice(0, 80) + ' を処理中…');
 
         // 許可確認 (queryPermission は user gesture 不要)
         const perm = await folderHandle.queryPermission({ mode: 'readwrite' });
@@ -147,9 +152,10 @@ chrome.action.onClicked.addListener(async (tab) => {
         }
 
         // tab に lib inject + 変換
+        const tInject = performance.now();
         console.log('[Fractal Clipper] injecting libs into tab', tab.id);
         try {
-            const injectResult = await chrome.scripting.executeScript({
+            await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 files: [
                     'lib/turndown.js',
@@ -158,11 +164,12 @@ chrome.action.onClicked.addListener(async (tab) => {
                     'lib/fractal-md.js'
                 ]
             });
-            console.log('[Fractal Clipper] inject result:', injectResult);
+            console.log('[Fractal Clipper] inject took', ((performance.now() - tInject) / 1000).toFixed(2), 's');
         } catch (e) {
             console.error('[Fractal Clipper] inject FAILED', e);
             throw new Error('Script inject failed: ' + (e.message || String(e)));
         }
+        const tConv = performance.now();
         console.log('[Fractal Clipper] running conversion in tab');
         const [{ result }] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
@@ -189,7 +196,7 @@ chrome.action.onClicked.addListener(async (tab) => {
                 }
             }
         });
-        console.log('[Fractal Clipper] conversion result:', result?.ok, result?.title?.slice(0, 40));
+        console.log('[Fractal Clipper] conversion took', ((performance.now() - tConv) / 1000).toFixed(2), 's, ok:', result?.ok);
         if (!result || !result.ok) throw new Error(result?.error || 'Conversion failed');
 
         const title = result.title || '(untitled)';
@@ -215,8 +222,9 @@ chrome.action.onClicked.addListener(async (tab) => {
         // .out 書き戻し
         await writeJsonFile(outFileHandle, nodeResult.outData);
 
-        console.log('[Fractal Clipper] DONE');
-        notify('✅ Clip 完了', title + '\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath);
+        const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+        console.log('[Fractal Clipper] DONE in', elapsed, 's');
+        notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath);
     } catch (e) {
         console.error('[Fractal Clipper] ERROR', e);
         notify('Clip 失敗', e.message || String(e), true);
