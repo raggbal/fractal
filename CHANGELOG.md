@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.203.23] - 2026-05-07
+
+### Changed
+- **Outliner page icon を 📄 絵文字に戻す** — v0.203.17 で導入した SVG document icon が好みでなかったため、シンプルに元の絵文字に復元。`fontSize: 13px` / `opacity: 0.8` / theme-aware カラー復元。行高さ・padding 改善 (1.35em + 0.25em 上下対称) は維持
+
 ## [0.203.17] - 2026-05-07
 
 ### Fixed
