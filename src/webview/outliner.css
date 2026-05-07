@@ -508,28 +508,22 @@ body {
     width: 0px !important;
 }
 
-/* --- Page Icon --- SVG のみ (背景なし、行高さ 1.35em で縦中央) */
+/* --- Page Icon --- 📄 emoji */
 .outliner-page-icon {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     width: 18px;
     height: 1.35em;
     flex-shrink: 0;
     cursor: pointer;
-    color: #888;
-    opacity: 0.85;
-    transition: opacity 0.15s ease;
+    color: var(--outliner-page-icon-color);
+    font-size: 13px;
+    opacity: 0.8;
 }
 
 .outliner-page-icon:hover {
     opacity: 1;
-}
-
-.outliner-page-icon svg {
-    width: 12px;
-    height: 12px;
-    display: block;
 }
 
 /* --- File Icon --- */
