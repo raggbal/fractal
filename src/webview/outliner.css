@@ -517,7 +517,7 @@ body {
     height: 1.58em;
     flex-shrink: 0;
     cursor: pointer;
-    color: #3b82f6;
+    color: #888;
     opacity: 0.85;
     transition: opacity 0.15s ease;
 }
