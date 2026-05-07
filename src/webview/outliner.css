@@ -508,33 +508,27 @@ body {
     width: 0px !important;
 }
 
-/* --- Page Icon --- 薄青背景の角丸 + SVG (テーマ非依存の固定色) */
+/* --- Page Icon --- SVG のみ (背景なし、行高さ 1.58em で縦中央) */
 .outliner-page-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 17px;
+    width: 18px;
+    height: 1.58em;
     flex-shrink: 0;
     cursor: pointer;
     color: #3b82f6;
-    background: rgba(59, 130, 246, 0.15);
-    border-radius: 4px;
-    transition: background 0.15s ease, transform 0.1s ease;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
 }
 
 .outliner-page-icon:hover {
-    background: rgba(59, 130, 246, 0.28);
-    transform: translateY(-0.5px);
-}
-
-.outliner-page-icon:active {
-    transform: translateY(0);
+    opacity: 1;
 }
 
 .outliner-page-icon svg {
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
     display: block;
 }
 
