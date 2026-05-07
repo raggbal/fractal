@@ -378,7 +378,7 @@ body {
 .outliner-node {
     display: flex;
     align-items: flex-start;
-    padding: 1px 0 1px 0;
+    padding: 3px 0 3px 0;
     position: relative;
     min-height: 1.35em;
 }
