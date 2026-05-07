@@ -14,7 +14,7 @@
     --outliner-focus-bg: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
     --outliner-tag-color: #569cd6;
     --outliner-tag-bg: rgba(86,156,214,0.15);
-    --outliner-page-icon-color: #4ec9b0;
+    --outliner-page-icon-color: #3b82f6;
     --outliner-search-bg: var(--vscode-input-background, #3c3c3c);
     --outliner-search-border: var(--vscode-input-border, #555);
     --outliner-search-fg: var(--vscode-input-foreground, #ccc);
@@ -508,22 +508,34 @@ body {
     width: 0px !important;
 }
 
-/* --- Page Icon --- */
+/* --- Page Icon --- 薄色背景の角丸 + SVG (テーマ色を color-mix で背景に派生) */
 .outliner-page-icon {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 1.58em;
+    width: 26px;
+    height: 20px;
     flex-shrink: 0;
     cursor: pointer;
     color: var(--outliner-page-icon-color);
-    font-size: 13px;
-    opacity: 0.8;
+    background: color-mix(in srgb, var(--outliner-page-icon-color) 18%, transparent);
+    border-radius: 5px;
+    transition: background 0.15s ease, transform 0.1s ease;
 }
 
 .outliner-page-icon:hover {
-    opacity: 1;
+    background: color-mix(in srgb, var(--outliner-page-icon-color) 30%, transparent);
+    transform: translateY(-0.5px);
+}
+
+.outliner-page-icon:active {
+    transform: translateY(0);
+}
+
+.outliner-page-icon svg {
+    width: 13px;
+    height: 13px;
+    display: block;
 }
 
 /* --- File Icon --- */
