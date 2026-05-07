@@ -16604,6 +16604,49 @@ class EditorInstance {
             return;
         }
 
+        // Post-process (HTML/text 共通): 空のリストマーカー行を除去
+        // (1) 上下が空行 (or BOF/EOF) で「- 」だけの孤立行 → 削除
+        // (2) リスト末尾の「- 」(直前が list 行 + 直後が空行 or EOF) → 削除
+        //   間に挟まる「- 」(前後が valid list item) は保持
+        pastedMd = (function(md) {
+            function isEmptyMarker(line) {
+                return /^[ \t]*(?:[-*+]|\d+\.)[ \t]*$/.test(line);
+            }
+            function isListLine(line) {
+                // any list line (empty marker や non-empty item を含む)
+                return /^[ \t]*(?:[-*+]|\d+\.)([ \t]|$)/.test(line);
+            }
+            function isBlankOrEof(line) {
+                return line === undefined || /^[ \t]*$/.test(line);
+            }
+            var lines = md.split('\n');
+            var changed = true;
+            while (changed) {
+                changed = false;
+                var out = [];
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    if (isEmptyMarker(line)) {
+                        var prev = i > 0 ? lines[i - 1] : undefined;
+                        var next = i < lines.length - 1 ? lines[i + 1] : undefined;
+                        // (1) 孤立: 上下とも blank/boundary
+                        if (isBlankOrEof(prev) && isBlankOrEof(next)) {
+                            changed = true;
+                            continue;
+                        }
+                        // (2) リスト末尾: 上が list line (empty 含む) + 下が blank/EOF
+                        if (prev !== undefined && isListLine(prev) && isBlankOrEof(next)) {
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    out.push(line);
+                }
+                lines = out;
+            }
+            return lines.join('\n');
+        })(pastedMd);
+
         _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
     });
 
