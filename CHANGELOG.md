@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.203.17] - 2026-05-07
+
+### Fixed
+- **HTML / Markdown ペースト時の空リストマーカー除去** — 外部 HTML / プレーンテキストを MD editor (standalone / sidepanel) に paste した時、以下のパターンを自動クリーンアップ:
+  - **(1) 孤立した空 `- `**: 上下が空行 (or 文書境界) で `- ` だけの単独行 → 削除
+  - **(2) リスト末尾の空 `- `**: 直前が list 行 + 直後が空行 / EOF の空マーカー → 削除 (複数連続でも全部削除)
+  - **(3) 中間の空 `- `**: 前後が valid list item に挟まれた空マーカーは **保持** (意図的な空かもしれないため)
+  - 数字リスト (`1.` `2.` `3. `) も同様に処理
+  - HTML / text 両経路の合流点で line-based iterative cleanup (test: `test/specs/html-paste-empty-list-marker.spec.ts` 6 ケース)
+
+### Changed
+- **Outliner page icon を SVG + 灰色のシンプルな白紙ページに刷新** — `📄` 絵文字を SVG document icon (枠 + 折り角のみ、中の文字線なし) に置換。色は `#888` 灰色、`opacity: 0.85`、hover で 1.0
+- **Outliner 行の縦中央配置を改善** — 行ハイライト (focus / select / search match) 時に text の下に余白が出る問題を修正。`.outliner-node` 系の `1.58em` height/min-height を text の `line-height: 1.35` に揃え、`padding: 0.25em 0` で対称的に行高さを保持。font-size 変更にも proportional 追従
+
 ## [0.203.8] - 2026-05-07
 
 ### Added
