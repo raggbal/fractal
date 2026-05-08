@@ -662,6 +662,7 @@ var Outliner = (function() {
         setupHostMessages();
         setupTextSearchReplace();
         initSidePanel();
+        setupS3SyncButton();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
@@ -4344,6 +4345,19 @@ var Outliner = (function() {
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
+        // DEBUG
+        try {
+            var dbgPidCount = 0;
+            for (var nid in (model.nodes || {})) {
+                if (model.nodes[nid] && model.nodes[nid].pageId) dbgPidCount++;
+            }
+            console.log('[OutlinerS3Sync][DBG] makePage called', {
+                nodeId, newPageId: pageId,
+                nodeCount: Object.keys(model.nodes || {}).length,
+                pageIdCount: dbgPidCount,
+            });
+        } catch (e) {}
+
         host.makePage(nodeId, pageId, node.text);
         renderTree();
         scheduleSyncToHost();
@@ -6358,6 +6372,17 @@ var Outliner = (function() {
     function syncToHostImmediate() {
         clearTimeout(syncDebounceTimer);
         var data = model.serialize();
+        // DEBUG
+        try {
+            var dbgPidCount = 0;
+            for (var nid in (data.nodes || {})) {
+                if (data.nodes[nid] && data.nodes[nid].pageId) dbgPidCount++;
+            }
+            console.log('[OutlinerS3Sync][DBG] syncToHostImmediate', {
+                nodeCount: Object.keys(data.nodes || {}).length,
+                pageIdCount: dbgPidCount,
+            });
+        } catch (e) {}
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
@@ -6561,9 +6586,131 @@ var Outliner = (function() {
         }
     }
 
+    // FR-OS3-01 / D-08 / D-09: outliner-toolbar-s3-sync 関連
+    function setupS3SyncButton() {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+            if (btn.dataset.state !== 'idle') return;
+            var id = extractOutlinerIdFromKey(currentOutFileKey);
+            if (!id) {
+                console.warn('[outliner-s3-sync] outlinerId 抽出失敗', currentOutFileKey);
+                return;
+            }
+            // bridge 経由で host にメッセージ送信
+            if (host && typeof host.outlinerS3SyncRequest === 'function') {
+                host.outlinerS3SyncRequest(id);
+            } else {
+                console.error('[outliner-s3-sync] host.outlinerS3SyncRequest が定義されていない');
+            }
+        });
+    }
+
+    function extractOutlinerIdFromKey(key) {
+        if (!key) return null;
+        var m = String(key).match(/([^/\\]+)\.out$/);
+        return m ? m[1] : null;
+    }
+
+    function enterSyncLock() {
+        // 編集中フラグ強制 false + timer clear (D-08)
+        isActivelyEditing = false;
+        if (editingIdleTimer) { clearTimeout(editingIdleTimer); editingIdleTimer = null; }
+        if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
+            clearTimeout(syncDebounceTimer); syncDebounceTimer = null;
+        }
+        queuedExternalUpdate = null;
+        document.body.classList.add('outliner-sync-locked');
+        updateSyncOverlayPhase('Preparing…');
+    }
+
+    function updateSyncOverlayPhase(message) {
+        var el = document.querySelector('.outliner-s3-sync-overlay-phase');
+        if (el) el.textContent = message || '';
+    }
+
+    function applySyncedData(newData) {
+        // DEBUG
+        try {
+            var dbgPageCount = 0;
+            if (newData && newData.nodes) {
+                for (var nid in newData.nodes) {
+                    if (newData.nodes[nid] && newData.nodes[nid].pageId) dbgPageCount++;
+                }
+            }
+            console.log('[OutlinerS3Sync][DBG] applySyncedData', {
+                hasData: !!newData,
+                nodeCount: newData && newData.nodes ? Object.keys(newData.nodes).length : -1,
+                pageIdCount: dbgPageCount,
+            });
+        } catch (e) {}
+        // D-09 / H1 修正: Notes ファイル切替 path と同等処理
+        // listener teardown せず、Outliner.init は再呼び出ししない
+        if (newData) {
+            model = new OutlinerModel(newData);
+            searchEngine = new OutlinerSearch.SearchEngine(model);
+            rawDataExtras = captureRawDataExtras(newData);
+            pageDir = newData.pageDir || null;
+            pinnedTags = newData.pinnedTags || [];
+            updatePinnedTagBar();
+            navBackStack.length = 0;
+            navForwardStack.length = 0;
+            updateNavButtons();
+            currentSearchResult = null;
+            currentScope = { type: 'document' };
+            updateBreadcrumb();
+            renderTree();
+            saveBaseline();
+            updateScopeSearchIndicator();
+        }
+        try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
+        document.body.classList.remove('outliner-sync-locked');
+        isActivelyEditing = false;
+    }
+
+    function updateSyncButtonState(state, tooltip) {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.dataset.state = state;
+        if (tooltip) btn.title = tooltip;
+        if (state === 'success') {
+            setTimeout(function() {
+                btn.dataset.state = 'idle';
+                btn.title = 'Sync to/from S3';
+            }, 2000);
+        } else if (state === 'syncing') {
+            btn.title = 'Syncing…';
+        } else if (state === 'idle') {
+            btn.title = 'Sync to/from S3';
+        }
+    }
+
+    function updateSyncButtonVisibility(visible) {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.style.display = visible ? 'flex' : 'none';
+    }
+
     function setupHostMessages() {
         host.onMessage(function(msg) {
             switch (msg.type) {
+                // FR-OS3-08 / D-08: outliner-toolbar-s3-sync 経路
+                case 'sync-lock':
+                    enterSyncLock();
+                    break;
+                case 'sync-applied':
+                    applySyncedData(msg.data);
+                    break;
+                case 'sync-button-state':
+                    updateSyncButtonState(msg.state, msg.tooltip);
+                    break;
+                case 'sync-button-visibility':
+                    updateSyncButtonVisibility(msg.visible);
+                    break;
+                case 'sync-progress':
+                    updateSyncOverlayPhase(msg.message || '');
+                    break;
+
                 case 'updateNodeImages': {
                     // host が paste asset (copy/move) 完了後に新 images path を返してくる
                     if (!msg.nodeId) break;
@@ -6722,6 +6869,19 @@ var Outliner = (function() {
                         newNode.pageId = r.pageId;
                         lastInsertedId = newNode.id;
                     }
+
+                    // DEBUG
+                    try {
+                        var dbgPidCount2 = 0;
+                        for (var nid in (model.nodes || {})) {
+                            if (model.nodes[nid] && model.nodes[nid].pageId) dbgPidCount2++;
+                        }
+                        console.log('[OutlinerS3Sync][DBG] importMdFilesResult done', {
+                            results: results.length,
+                            nodeCount: Object.keys(model.nodes || {}).length,
+                            pageIdCount: dbgPidCount2,
+                        });
+                    } catch (e) {}
 
                     renderTree();
                     if (lastInsertedId) focusNode(lastInsertedId);
@@ -7450,6 +7610,15 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
+        // FR-OS3-08 Layer F: sync 中は全キー入力を swallow
+        document.addEventListener('keydown', function(e) {
+            if (document.body.classList.contains('outliner-sync-locked')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        }, true);  // capture 段階で先取り
+
         // 検索ボックスを undo/redo 対象から完全に外すための **多段防御層**:
         // - cmd+z / cmd+shift+z / cmd+y で、searchInput.value を保存し
         //   イベント処理完了後に強制復元する。

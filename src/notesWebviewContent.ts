@@ -26,6 +26,8 @@ interface NotesInitData {
     noteSidePanelWidth?: number;
     noteSidePanelOutlineWidth?: number;
     fileChangeId?: number;
+    /** FR-OS3-02: outliner toolbar の S3 sync ボタン初期表示判定 */
+    s3BucketPathSet?: boolean;
 }
 
 export function getNotesWebviewContent(
@@ -128,6 +130,13 @@ export function getNotesWebviewContent(
     <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
 </head>
 <body>
+    <!-- FR-OS3-08 / FR-OS3-12: outliner-toolbar-s3-sync 進捗 overlay -->
+    <div class="outliner-s3-sync-overlay" role="status" aria-live="polite">
+        <div class="outliner-s3-sync-overlay-spinner"></div>
+        <p class="outliner-s3-sync-overlay-title">Syncing outliner with S3…</p>
+        <p class="outliner-s3-sync-overlay-phase">Preparing…</p>
+        <p class="outliner-s3-sync-overlay-hint">Editor is locked during sync. Please wait.</p>
+    </div>
     <div class="notes-layout" data-note-folder-name="${config.folderName || ''}">
         ${notesHtml}
         <div class="notes-main-wrapper">
@@ -160,6 +169,9 @@ export function getNotesWebviewContent(
                         <div class="outliner-search-input-wrapper"><input type="text" class="outliner-search-input" placeholder="Search... (e.g. #tag, keyword, is:page)" /><button class="outliner-search-clear-btn" style="display:none" title="Clear search"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button><div class="outliner-tag-suggest-bar" style="display:none"></div></div>
                         <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
                         <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
+                        <button class="outliner-s3-sync-btn" title="Sync to/from S3" data-state="idle" style="display:${initData.s3BucketPathSet ? 'flex' : 'none'}">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></svg>
+                        </button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
                         <button class="outliner-menu-btn" title="Menu"></button>
                     </div>

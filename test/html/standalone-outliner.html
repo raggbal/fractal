@@ -1677,7 +1677,7 @@ body {
     --outliner-focus-bg: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
     --outliner-tag-color: #569cd6;
     --outliner-tag-bg: rgba(86,156,214,0.15);
-    --outliner-page-icon-color: #4ec9b0;
+    --outliner-page-icon-color: #3b82f6;
     --outliner-search-bg: var(--vscode-input-background, #3c3c3c);
     --outliner-search-border: var(--vscode-input-border, #555);
     --outliner-search-fg: var(--vscode-input-foreground, #ccc);
@@ -2041,9 +2041,9 @@ body {
 .outliner-node {
     display: flex;
     align-items: flex-start;
-    padding: 1px 0 1px 0;
+    padding: 0.25em 0 0.25em 0;
     position: relative;
-    min-height: 1.58em;
+    min-height: 1.35em;
 }
 
 .outliner-node:hover {
@@ -2086,7 +2086,7 @@ body {
     align-items: center;
     justify-content: center;
     width: 22px;
-    height: 1.58em;
+    height: 1.35em;
     flex-shrink: 0;
     cursor: pointer;
     position: relative;
@@ -2139,7 +2139,7 @@ body {
     align-items: center;
     justify-content: center;
     width: 18px;
-    height: 1.58em;
+    height: 1.35em;
     flex-shrink: 0;
     cursor: pointer;
     opacity: 0;
@@ -2171,13 +2171,13 @@ body {
     width: 0px !important;
 }
 
-/* --- Page Icon --- */
+/* --- Page Icon --- 📄 emoji */
 .outliner-page-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 18px;
-    height: 1.58em;
+    height: 1.35em;
     flex-shrink: 0;
     cursor: pointer;
     color: var(--outliner-page-icon-color);
@@ -2195,7 +2195,7 @@ body {
     align-items: center;
     justify-content: center;
     width: 18px;
-    height: 1.58em;
+    height: 1.35em;
     flex-shrink: 0;
     cursor: pointer;
     color: var(--outliner-page-icon-color);
@@ -2213,7 +2213,7 @@ body {
     align-items: center;
     justify-content: center;
     width: 18px;
-    height: 1.58em;
+    height: 1.35em;
     flex-shrink: 0;
 }
 
@@ -20586,22 +20586,55 @@ class EditorInstance {
                 // Custom rule: Robust fenced code block with language extraction
                 // Handles Shiki-styled code blocks (language= attribute instead of class=)
                 // and code blocks with indented whitespace before <code>
+                // <pre> 配下を再帰 walk して text 抽出 (<br> を \n に置換)
+                function preToText(n) {
+                    var out = '';
+                    var child = n.firstChild;
+                    while (child) {
+                        if (child.nodeType === 3) {
+                            out += child.nodeValue || '';
+                        } else if (child.nodeName === 'BR') {
+                            out += '\n';
+                        } else if (child.nodeType === 1) {
+                            out += preToText(child);
+                        }
+                        child = child.nextSibling;
+                    }
+                    return out;
+                }
+
+                // Medium 等の <pre><span class="hljs-*">...<br>...</pre> (code 要素なし、改行 <br>) も対応
                 turndownService.addRule('fencedCodeWithLang', {
                     filter: function(node) {
-                        return node.nodeName === 'PRE' && node.querySelector('code');
+                        if (node.nodeName !== 'PRE') return false;
+                        if (node.querySelector('code')) return true;
+                        if (node.querySelector('[class*="hljs-"]')) return true;
+                        if (node.querySelector('br')) return true;
+                        return false;
                     },
                     replacement: function(content, node) {
                         var code = node.querySelector('code');
-                        var cls = code.className || '';
-                        // Extract language from: class="language-xxx", language="xxx" attr, or data-lang="xxx"
-                        var lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                        if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                        if (!lang) lang = node.getAttribute('data-lang') || '';
-                        // Clean language: remove non-alphanumeric suffixes like "theme={null}"
-                        lang = lang.split(/\s+/)[0] || '';
-                        // Filter out non-language class names
+                        var lang = '';
+                        var text = '';
+                        try {
+                            if (code) {
+                                var cls = code.className || '';
+                                lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                                if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                                if (!lang) lang = node.getAttribute('data-lang') || '';
+                                text = code.textContent || '';
+                            } else {
+                                text = preToText(node);
+                                var langEl = node.querySelector('[class*="language-"]');
+                                if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                            }
+                        } catch (e) {
+                            text = '';
+                        }
+                        // フォールバック: 何があっても text は空にしない
+                        if (!text) text = node.textContent || content || '';
+                        lang = (lang || '').split(/\s+/)[0] || '';
                         if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
-                        var text = code.textContent || '';
                         return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
                     }
                 });
@@ -20621,6 +20654,12 @@ class EditorInstance {
                         var title = node.getAttribute('title');
                         if (title) title = ' "' + title.replace(/"/g, '\\"') + '"';
                         else title = '';
+                        // <a> がテキストを持たず <img> だけを wrap してる場合は、内側の image
+                        // markdown だけを返す。`[![alt](src)](href)` を `![alt](src)` に簡略化
+                        // (note.com 等の見出し画像 link を綺麗な image embed に)
+                        if ((node.textContent || '').trim() === '' && node.querySelector && node.querySelector('img')) {
+                            return content;
+                        }
                         // Collapse multi-line link text (e.g. <a><div>text</div></a>)
                         content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
                         if (!content) return '';
@@ -20701,6 +20740,49 @@ class EditorInstance {
             logger.log('No content to paste');
             return;
         }
+
+        // Post-process (HTML/text 共通): 空のリストマーカー行を除去
+        // (1) 上下が空行 (or BOF/EOF) で「- 」だけの孤立行 → 削除
+        // (2) リスト末尾の「- 」(直前が list 行 + 直後が空行 or EOF) → 削除
+        //   間に挟まる「- 」(前後が valid list item) は保持
+        pastedMd = (function(md) {
+            function isEmptyMarker(line) {
+                return /^[ \t]*(?:[-*+]|\d+\.)[ \t]*$/.test(line);
+            }
+            function isListLine(line) {
+                // any list line (empty marker や non-empty item を含む)
+                return /^[ \t]*(?:[-*+]|\d+\.)([ \t]|$)/.test(line);
+            }
+            function isBlankOrEof(line) {
+                return line === undefined || /^[ \t]*$/.test(line);
+            }
+            var lines = md.split('\n');
+            var changed = true;
+            while (changed) {
+                changed = false;
+                var out = [];
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    if (isEmptyMarker(line)) {
+                        var prev = i > 0 ? lines[i - 1] : undefined;
+                        var next = i < lines.length - 1 ? lines[i + 1] : undefined;
+                        // (1) 孤立: 上下とも blank/boundary
+                        if (isBlankOrEof(prev) && isBlankOrEof(next)) {
+                            changed = true;
+                            continue;
+                        }
+                        // (2) リスト末尾: 上が list line (empty 含む) + 下が blank/EOF
+                        if (prev !== undefined && isListLine(prev) && isBlankOrEof(next)) {
+                            changed = true;
+                            continue;
+                        }
+                    }
+                    out.push(line);
+                }
+                lines = out;
+            }
+            return lines.join('\n');
+        })(pastedMd);
 
         _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
     });
@@ -23771,13 +23853,25 @@ var OutlinerSearch = (function() {
         }
     };
 
+    /** タグ文字列を比較用に正規化:
+     *  - lowercase + trim
+     *  - prefix (#/@) が無ければ '#' を補う (legacy option label との互換性のため) */
+    function normalizeTagForMatch(s) {
+        var t = (s || '').toLowerCase().trim();
+        if (!t) return '';
+        var c = t.charAt(0);
+        if (c === '#' || c === '@') return t;
+        return '#' + t;
+    }
+
     /** Phase F2.5+: tag query (#xxx / @xxx) で
      *  - multiselect 列の option label
      *  - text 列に含まれる #xxx / @xxx
-     *  にマッチ判定 */
+     *  にマッチ判定 (label の # prefix 有無を許容して比較) */
     SearchEngine.prototype._matchesColumnTags = function(node, lowerTag) {
         if (!node.columnValues) return false;
         var cols = (this.model && this.model.columns) || [];
+        var qNorm = normalizeTagForMatch(lowerTag);
         // text 列内の literal タグを検出する正規表現 (parseTags と同じパターン)
         var textTagRegex = /(?:^|[^&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
         for (var i = 0; i < cols.length; i++) {
@@ -23788,9 +23882,9 @@ var OutlinerSearch = (function() {
                 var opts = col.options || [];
                 for (var j = 0; j < v.length; j++) {
                     for (var k = 0; k < opts.length; k++) {
-                        if (opts[k].id === v[j] && (opts[k].label || '').toLowerCase() === lowerTag) {
-                            return true;
-                        }
+                        if (opts[k].id !== v[j]) continue;
+                        var lblNorm = normalizeTagForMatch(opts[k].label || '');
+                        if (lblNorm === qNorm) return true;
                     }
                 }
             } else if (col.type === 'text' && typeof v === 'string') {
@@ -23799,7 +23893,7 @@ var OutlinerSearch = (function() {
                 textTagRegex.lastIndex = 0;
                 var m;
                 while ((m = textTagRegex.exec(cleaned)) !== null) {
-                    if ((m[1] || '').toLowerCase() === lowerTag) return true;
+                    if (normalizeTagForMatch(m[1]) === qNorm) return true;
                 }
             }
         }
@@ -25390,10 +25484,15 @@ var Outliner = (function() {
         if (!col.options) col.options = [];
     }
 
-    /** タグ形式に正規化: 先頭 # / @ がなければ # を付与 */
+    /** タグ形式に正規化:
+     *  - 先頭 # / @ がなければ # を付与
+     *  - 内部の whitespace は - に変換 (検索は whitespace で token 分割するため
+     *    "#AWS Service" だと #AWS と Service の AND query になり機能しない) */
     function normalizeTagLabel(label) {
         var s = (label || '').trim();
         if (!s) return s;
+        // すべての空白文字 (半角・全角・タブ等) を - に変換
+        s = s.replace(/[\s　]+/g, '-');
         var first = s.charAt(0);
         if (first === '#' || first === '@') return s;
         return '#' + s;
@@ -28277,6 +28376,8 @@ var Outliner = (function() {
     function computeAllTagsSorted() {
         var counts = {};
         if (!model || !model.nodes) return [];
+        // text 列値内の literal タグ抽出用 (parseTags と同じパターン)
+        var textTagRegex = /(?:^|[^&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
         for (var nid in model.nodes) {
             var n = model.nodes[nid];
             if (n.tags && n.tags.length) {
@@ -28285,19 +28386,30 @@ var Outliner = (function() {
                     counts[t] = (counts[t] || 0) + 1;
                 }
             }
-            // multiselect 列の選択された option label もタグ集計
+            // 列値からタグ集計
             if (n.columnValues && model.columns) {
                 for (var ci = 0; ci < model.columns.length; ci++) {
                     var col = model.columns[ci];
-                    if (col.type !== 'multiselect') continue;
                     var v = n.columnValues[col.id];
-                    if (!Array.isArray(v) || !col.options) continue;
-                    for (var vi = 0; vi < v.length; vi++) {
-                        for (var oi = 0; oi < col.options.length; oi++) {
-                            if (col.options[oi].id === v[vi]) {
-                                var lbl = col.options[oi].label || '';
-                                if (lbl) counts[lbl] = (counts[lbl] || 0) + 1;
+                    if (v === undefined || v === null) continue;
+                    if (col.type === 'multiselect' && Array.isArray(v) && col.options) {
+                        // multiselect: 選択された option label
+                        for (var vi = 0; vi < v.length; vi++) {
+                            for (var oi = 0; oi < col.options.length; oi++) {
+                                if (col.options[oi].id === v[vi]) {
+                                    var lbl = col.options[oi].label || '';
+                                    if (lbl) counts[lbl] = (counts[lbl] || 0) + 1;
+                                }
                             }
+                        }
+                    } else if (col.type === 'text' && typeof v === 'string') {
+                        // text 列: 値内の #xxx / @xxx (インラインコード/URL内は除外)
+                        var cleaned = v.replace(/`[^`]*`/g, '').replace(/https?:\/\/\S+/g, '');
+                        textTagRegex.lastIndex = 0;
+                        var m;
+                        while ((m = textTagRegex.exec(cleaned)) !== null) {
+                            var tt = m[1];
+                            if (tt) counts[tt] = (counts[tt] || 0) + 1;
                         }
                     }
                 }

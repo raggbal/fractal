@@ -88,6 +88,8 @@ export interface NotesPlatformActions {
     s3LocalDeleteAndDownload?(bucketPath: string): void;
     /** S3ステータス取得（認証情報の有無、バケットパス） */
     s3GetStatus?(): void;
+    /** outliner toolbar の同期ボタン押下 (FR-OS3-03) */
+    outlinerS3Sync?(outlinerId: string): void;
     /** Outlinerノード画像保存 */
     saveOutlinerImage?(nodeId: string, dataUrl: string, fileName: string): void;
     /** .mdファイルインポートダイアログ表示 */
@@ -788,6 +790,15 @@ export async function handleNotesMessage(
         }
         case 'notesS3SaveBucketPath': {
             fileManager.saveS3BucketPath(message.bucketPath);
+            // FR-OS3-02 / TASK-06: bucket path 変更で outliner toolbar の sync ボタン表示切替を broadcast
+            if (platform.postMessage) {
+                const visible = !!(message.bucketPath && message.bucketPath.trim());
+                platform.postMessage({ type: 'sync-button-visibility', visible });
+            }
+            break;
+        }
+        case 'outlinerS3SyncRequest': {
+            if (platform.outlinerS3Sync) platform.outlinerS3Sync(message.outlinerId);
             break;
         }
         case 'notesS3GetStatus': {

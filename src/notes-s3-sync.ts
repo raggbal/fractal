@@ -7,6 +7,10 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getAwsEnv as utilsGetAwsEnv, parseBucketPath } from './outliner-s3-sync-utils';
+import { syncDirectoryBidirectional, SyncDirectoryProgress } from './s3-per-file-sync';
+
+export { getAwsEnv } from './outliner-s3-sync-utils';
 
 export interface S3SyncProgress {
     phase: 'checking' | 'syncing' | 'uploading' | 'downloading' | 'deleting' | 'complete' | 'error';
@@ -23,13 +27,14 @@ export interface S3SyncConfig {
     localPath: string;    // ノートフォルダの絶対パス
 }
 
-function getAwsEnv(config: S3SyncConfig): NodeJS.ProcessEnv {
-    return {
-        ...process.env,
-        AWS_ACCESS_KEY_ID: config.accessKeyId,
-        AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        AWS_DEFAULT_REGION: config.region,
-    };
+/**
+ * AWS credentials のサブセット（bucketPath / localPath を含まない）
+ * outliner-s3-sync.ts / s3-per-file-sync.ts 等から runAwsCommand を流用する際に使う
+ */
+export interface AwsCredentials {
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
 }
 
 function s3Uri(config: S3SyncConfig): string {
@@ -56,16 +61,19 @@ export async function checkAwsCli(): Promise<boolean> {
 
 /**
  * spawn した aws プロセスの stdout/stderr を行単位でパースし、進捗を報告する
+ *
+ * env は呼び出し側で getAwsEnv(creds) で生成して渡す。
+ * phase は string 緩和（outliner-s3-sync 等の独自 phase からも渡せるように）。
  */
-function runAwsCommand(
+export function runAwsCommand(
     args: string[],
-    config: S3SyncConfig,
-    phase: S3SyncProgress['phase'],
+    env: NodeJS.ProcessEnv,
+    phase: string,
     onProgress: (p: S3SyncProgress) => void,
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         const proc = spawn('aws', args, {
-            env: getAwsEnv(config),
+            env,
             stdio: 'pipe',
         });
 
@@ -80,7 +88,7 @@ function runAwsCommand(
                 const match = line.match(/^(upload|download|delete|copy):\s+(.+)/i);
                 const currentFile = match ? match[2].split(' to ')[0].split(' from ')[0].trim() : line.trim();
                 onProgress({
-                    phase,
+                    phase: phase as S3SyncProgress['phase'],
                     message: `${phase}... (${filesProcessed} files)`,
                     currentFile,
                     filesProcessed,
@@ -107,7 +115,11 @@ function runAwsCommand(
 }
 
 /**
- * Sync (Backup): ローカル → S3 に同期（差分のみ転送、リモートに余分なファイルがあれば削除）
+ * Sync (双方向): per-file mtime newer-wins、`--delete` 不使用
+ *
+ * 旧実装は `aws s3 sync local s3://... --delete` で local→S3 片方向だったが、
+ * outliner-toolbar-s3-sync と同じ per-file mtime 比較に統一して、別マシンの編集も
+ * 取り込めるようにした (2026-05-08)。
  */
 export async function s3Sync(
     config: S3SyncConfig,
@@ -119,16 +131,31 @@ export async function s3Sync(
         throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
     }
 
-    onProgress({ phase: 'syncing', message: 'Syncing to S3...' });
+    const { bucket, prefix } = parseBucketPath(config.bucketPath);
+    const creds = { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, region: config.region };
 
-    await runAwsCommand(
-        ['s3', 'sync', localDir(config), s3Uri(config), '--delete'],
-        config,
-        'syncing',
-        onProgress,
+    onProgress({ phase: 'syncing', message: 'Comparing local and S3...' });
+
+    const result = await syncDirectoryBidirectional(
+        bucket,
+        prefix,
+        config.localPath,
+        creds,
+        (p: SyncDirectoryProgress) => {
+            const phase: S3SyncProgress['phase'] = p.action === 'upload' ? 'uploading' : 'downloading';
+            onProgress({
+                phase,
+                message: `${p.action === 'upload' ? 'Uploading' : 'Downloading'} (${p.processed}/${p.total}): ${p.relPath}`,
+                currentFile: p.relPath,
+                filesProcessed: p.processed,
+            });
+        },
     );
 
-    onProgress({ phase: 'complete', message: 'Sync complete.' });
+    onProgress({
+        phase: 'complete',
+        message: `Sync complete. uploaded=${result.uploaded} downloaded=${result.downloaded} skipped=${result.skipped}`,
+    });
 }
 
 /**
@@ -148,7 +175,7 @@ export async function s3RemoteDeleteAndUpload(
     onProgress({ phase: 'deleting', message: 'Deleting remote files...' });
     await runAwsCommand(
         ['s3', 'rm', s3Uri(config), '--recursive'],
-        config,
+        utilsGetAwsEnv(config),
         'deleting',
         onProgress,
     );
@@ -157,7 +184,7 @@ export async function s3RemoteDeleteAndUpload(
     onProgress({ phase: 'uploading', message: 'Uploading local files...' });
     await runAwsCommand(
         ['s3', 'cp', localDir(config), s3Uri(config), '--recursive'],
-        config,
+        utilsGetAwsEnv(config),
         'uploading',
         onProgress,
     );
@@ -186,7 +213,7 @@ export async function s3LocalDeleteAndDownload(
     onProgress({ phase: 'downloading', message: 'Downloading from S3...' });
     await runAwsCommand(
         ['s3', 'cp', s3Uri(config), localDir(config), '--recursive'],
-        config,
+        utilsGetAwsEnv(config),
         'downloading',
         onProgress,
     );

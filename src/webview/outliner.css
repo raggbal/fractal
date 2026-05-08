@@ -93,6 +93,94 @@ body {
     box-sizing: border-box;
 }
 
+/* --- outliner-toolbar-s3-sync (FR-OS3-01 / FR-OS3-08 / FR-OS3-12) --- */
+.outliner-s3-sync-btn {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--outliner-search-fg);
+    cursor: pointer;
+    padding: 4px 5px;
+    margin-right: 4px;
+    line-height: 1;
+    opacity: 0.5;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+}
+.outliner-s3-sync-btn:hover {
+    opacity: 1;
+    background: var(--outliner-hover-bg);
+}
+.outliner-s3-sync-btn[data-state="syncing"] {
+    opacity: 0.7;
+    cursor: wait;
+    animation: outliner-s3-sync-spin 1s linear infinite;
+}
+.outliner-s3-sync-btn[data-state="syncing"]:hover {
+    background: transparent;
+}
+.outliner-s3-sync-btn[data-state="success"] {
+    color: var(--outliner-success-color, #4caf50);
+    opacity: 1;
+}
+.outliner-s3-sync-btn[data-state="error"] {
+    color: var(--outliner-error-color, #f44336);
+    opacity: 1;
+}
+@keyframes outliner-s3-sync-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* sync 中のロック表示 (FR-OS3-08 Layer F) */
+body.outliner-sync-locked {
+    user-select: none;
+}
+.outliner-s3-sync-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 9999;
+    pointer-events: all;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    color: #fff;
+    font-family: var(--vscode-font-family, system-ui);
+    font-size: 14px;
+}
+body.outliner-sync-locked .outliner-s3-sync-overlay {
+    display: flex;
+}
+.outliner-s3-sync-overlay-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: outliner-s3-sync-spin 0.9s linear infinite;
+}
+.outliner-s3-sync-overlay-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+.outliner-s3-sync-overlay-phase {
+    opacity: 0.85;
+    font-size: 13px;
+    min-height: 1.4em;
+    text-align: center;
+    max-width: 80vw;
+}
+.outliner-s3-sync-overlay-hint {
+    opacity: 0.6;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
 .outliner-search-mode-toggle {
     background: transparent;
     border: none;

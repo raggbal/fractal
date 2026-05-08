@@ -6,7 +6,8 @@ import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
-import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
+import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig, checkAwsCli } from './notes-s3-sync';
+import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgress } from './outliner-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
@@ -28,6 +29,28 @@ export class NotesEditorProvider {
         fileManager: NotesFileManager;
         openPage?: (filePath: string) => Promise<void>;
     }>();
+
+    // outliner-toolbar-s3-sync (FR-OS3-16, D-08): sync 中の outliner-id を track
+    private syncInProgressIds = new Set<string>();
+
+    public setSyncInProgress(outlinerId: string, value: boolean): void {
+        if (value) this.syncInProgressIds.add(outlinerId);
+        else this.syncInProgressIds.delete(outlinerId);
+    }
+
+    public isSyncInProgress(outlinerId: string): boolean {
+        return this.syncInProgressIds.has(outlinerId);
+    }
+
+    public pathBelongsToSyncingOutliner(filePath: string, folderPath: string): boolean {
+        for (const id of this.syncInProgressIds) {
+            const outFile = path.join(folderPath, `${id}.out`);
+            const idFolder = path.join(folderPath, id) + path.sep;
+            if (filePath === outFile) return true;
+            if (filePath.startsWith(idFolder)) return true;
+        }
+        return false;
+    }
 
     constructor(private context: vscode.ExtensionContext) {}
 
@@ -145,6 +168,7 @@ export class NotesEditorProvider {
                 noteSidePanelWidth: fileManager.getSidePanelWidth(),
                 noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
                 fileChangeId: fileManager.getFileChangeId(),
+                s3BucketPathSet: !!(fileManager.getS3BucketPath() || '').trim(),
             }
         );
         sendTranslateLangFromConfig();
@@ -834,6 +858,10 @@ export class NotesEditorProvider {
                     region: fractalConfig.get<string>('s3Region', 'us-east-1'),
                 });
             },
+            outlinerS3Sync: async (outlinerId: string) => {
+                // FR-OS3-03: outliner editor toolbar の同期ボタン押下処理
+                await this.handleOutlinerS3Sync(panel, outlinerId, fileManager, folderPath);
+            },
             cleanupUnusedFilesAllNotes: async () => {
                 // FR-7: 手動クリーンアップコマンド (全 note 一気モード)
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInNote');
@@ -961,6 +989,9 @@ export class NotesEditorProvider {
 
         // 現在開いている.outファイルの外部変更検知
         disposables.push(folderWatcher.onDidChange((uri) => {
+            // FR-OS3-16 / D-08: outliner-s3-sync 中は通常 reload 経路を skip
+            if (this.pathBelongsToSyncingOutliner(uri.fsPath, folderPath)) return;
+
             const currentFile = fileManager.getCurrentFilePath();
             if (!currentFile) return;
             if (uri.fsPath !== currentFile) return;
@@ -1044,6 +1075,95 @@ export class NotesEditorProvider {
         return { accessKeyId, secretAccessKey, region, bucketPath, localPath: folderPath };
     }
 
+    /**
+     * FR-OS3-03 / FR-OS3-08 / FR-OS3-12 / FR-OS3-14: outliner toolbar 同期ボタンの処理
+     */
+    private async handleOutlinerS3Sync(
+        panel: vscode.WebviewPanel,
+        outlinerId: string,
+        fileManager: NotesFileManager,
+        folderPath: string,
+    ): Promise<void> {
+        // BUG FIX: webview の未保存編集を debounce 待たず即 disk に書く
+        // (saveCurrentFile は 1s debounce、sync 開始時点で disk に未反映の可能性がある)
+        const dbgOutFile = path.join(folderPath, `${outlinerId}.out`);
+        console.log('[OutlinerS3Sync][DBG] handleOutlinerS3Sync start', {
+            outlinerId, folderPath,
+            currentFilePath: fileManager.getCurrentFilePath(),
+            saveTimerActive: !!(fileManager as any).saveTimer,
+            lastJsonStringLen: ((fileManager as any).lastJsonString || '').length,
+            diskOutSize: (() => { try { return fs.statSync(dbgOutFile).size; } catch { return -1; }})(),
+        });
+        fileManager.flushSave();
+        console.log('[OutlinerS3Sync][DBG] after flushSave', {
+            diskOutSize: (() => { try { return fs.statSync(dbgOutFile).size; } catch { return -1; }})(),
+            diskOutHasPageId: (() => {
+                try {
+                    const text = fs.readFileSync(dbgOutFile, 'utf8');
+                    const matches = text.match(/"pageId":\s*"[^"]+"/g) || [];
+                    return matches.length;
+                } catch { return -1; }
+            })(),
+        });
+
+        const bucketPath = (fileManager.getS3BucketPath() || '').trim();
+        if (!bucketPath) {
+            // ボタン非表示時の保険、silent return
+            return;
+        }
+
+        const fractalConfig = vscode.workspace.getConfiguration('fractal');
+        const accessKeyId = fractalConfig.get<string>('s3AccessKeyId', '');
+        const secretAccessKey = fractalConfig.get<string>('s3SecretAccessKey', '');
+        const region = fractalConfig.get<string>('s3Region', 'us-east-1');
+
+        if (!accessKeyId || !secretAccessKey) {
+            vscode.window.showErrorMessage(
+                'S3 credentials not configured. Please set fractal.s3AccessKeyId, fractal.s3SecretAccessKey, fractal.s3Region in settings.'
+            );
+            panel.webview.postMessage({ type: 'sync-button-state', state: 'error' });
+            return;
+        }
+
+        if (!await checkAwsCli()) {
+            vscode.window.showErrorMessage(
+                'AWS CLI is not installed. Please install from https://aws.amazon.com/cli/'
+            );
+            panel.webview.postMessage({ type: 'sync-button-state', state: 'error' });
+            return;
+        }
+
+        const syncProvider: OutlinerS3SyncProvider = {
+            setSyncInProgress: (id, value) => this.setSyncInProgress(id, value),
+            isSyncInProgress: (id) => this.isSyncInProgress(id),
+        };
+
+        try {
+            panel.webview.postMessage({ type: 'sync-button-state', state: 'syncing' });
+
+            await OutlinerS3SyncCoordinator.run({
+                outlinerId,
+                localDir: folderPath,
+                bucketPath,
+                panel,
+                provider: syncProvider,
+                s3Config: { accessKeyId, secretAccessKey, region },
+                onProgress: (p: OutlinerS3SyncProgress) => {
+                    // status bar (VSCode 下端、目立たない bot 確認用)
+                    vscode.window.setStatusBarMessage(`Outliner S3 Sync: ${p.message}`, 3000);
+                    // webview overlay (画面中央、user に確実に見える)
+                    panel.webview.postMessage({ type: 'sync-progress', phase: p.phase, message: p.message });
+                },
+            });
+
+            panel.webview.postMessage({ type: 'sync-button-state', state: 'success' });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            panel.webview.postMessage({ type: 'sync-button-state', state: 'error', tooltip: message });
+            vscode.window.showErrorMessage(`Sync failed: ${message}`);
+        }
+    }
+
     private async runS3Operation(
         op: 's3Sync' | 's3RemoteDeleteAndUpload' | 's3LocalDeleteAndDownload',
         bucketPath: string,
@@ -1059,24 +1179,131 @@ export class NotesEditorProvider {
             return;
         }
 
+        const entry = this.openPanels.get(folderPath);
+        const panel = entry?.panel;
+
         const onProgress = (p: { phase: string; message: string; currentFile?: string; filesProcessed?: number }) => {
             sender.postMessage({ type: 'notesS3Progress', ...p });
+            // FR-OS3-08 / VSCode キャッシュ対策: webview overlay にも phase 表示
+            if (panel) {
+                panel.webview.postMessage({ type: 'sync-progress', phase: p.phase, message: p.message });
+            }
         };
+
+        // VSCode キャッシュ対策: 全 NT-09 操作中は webview を lock
+        if (panel) panel.webview.postMessage({ type: 'sync-lock' });
+
+        let needsDisposeAndReopen = false;
+        let needsReinit = false;
 
         try {
             if (op === 's3Sync') {
                 await s3Sync(config, onProgress);
+                // 双方向 sync で local が変わった可能性 → revert + reinit
+                needsReinit = true;
             } else if (op === 's3RemoteDeleteAndUpload') {
                 await s3RemoteDeleteAndUpload(config, onProgress);
+                // local 不変 → reinit 不要、lock 解除のみ
             } else {
                 await s3LocalDeleteAndDownload(config, onProgress);
                 sender.postMessage({ type: 'notesS3Progress', phase: 'complete', message: 'Local delete & download complete. Reopening...' });
-                await this.openNotesFolder(folderPath);
-                return;
+                // local が完全置換 → panel を dispose して再生成
+                needsDisposeAndReopen = true;
             }
         } catch (e: unknown) {
             const message = e instanceof Error ? e.message : String(e);
             sender.postMessage({ type: 'notesS3Progress', phase: 'error', message });
+        }
+
+        // 後処理 (cache invalidation)
+        if (needsDisposeAndReopen) {
+            await this.disposeAndReopenNotePanel(folderPath);
+            return;
+        }
+        if (needsReinit && panel) {
+            await this.revertAndReinitNotePanel(folderPath, fileManager, panel);
+        }
+        // sync-applied で webview lock 解除 (revertAndReinit が send しなかった場合の保険)
+        if (panel && !needsDisposeAndReopen) {
+            panel.webview.postMessage({ type: 'sync-applied', data: null, fileChangeId: -1 });
+        }
+    }
+
+    /**
+     * note panel を dispose して再生成 (Local Delete & Download 後の cache 完全リセット用)
+     */
+    private async disposeAndReopenNotePanel(folderPath: string): Promise<void> {
+        const entry = this.openPanels.get(folderPath);
+        if (entry) {
+            try { entry.panel.dispose(); } catch { /* ignore */ }
+            this.openPanels.delete(folderPath);
+        }
+        // dispose 後の race 回避のため少し待つ
+        await new Promise((r) => setTimeout(r, 100));
+        await this.openNotesFolder(folderPath);
+    }
+
+    /**
+     * note panel の TextDocument を revert + outliner / file list を再 init
+     * (Sync Backup 双方向で local が変わった後のキャッシュ整合用)
+     */
+    private async revertAndReinitNotePanel(
+        folderPath: string,
+        fileManager: NotesFileManager,
+        panel: vscode.WebviewPanel,
+    ): Promise<void> {
+        // 関連 TextDocument を revert (page md / .out 等)
+        const docs = vscode.workspace.textDocuments.filter((doc) => {
+            const fp = doc.uri.fsPath;
+            return fp === folderPath || fp.startsWith(folderPath + path.sep);
+        });
+        for (const doc of docs) {
+            try {
+                await vscode.commands.executeCommand('workbench.action.files.revertResource', doc.uri);
+            } catch {
+                try {
+                    await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
+                } catch {
+                    /* ignore */
+                }
+            }
+        }
+
+        // 構造 + 現在の outliner を再ロードして webview に送信
+        try {
+            fileManager.invalidateStructureCache();
+            const structure = fileManager.loadStructure();
+            const fileList = fileManager.listFiles();
+            const currentFile = fileManager.getCurrentFilePath();
+
+            panel.webview.postMessage({
+                type: 'notesFileListChanged',
+                fileList, structure, currentFile,
+            });
+
+            if (currentFile && fs.existsSync(currentFile)) {
+                const content = fs.readFileSync(currentFile, 'utf8');
+                try {
+                    const data = JSON.parse(content);
+                    // sync-applied だけで model リセットには十分。
+                    // updateData with fileChangeId を送ると bridge の currentFileChangeId が
+                    // 不正な値で上書きされ、後続 syncData が host で stale 判定で破棄される
+                    // (BUG: Date.now() を使うと host fileManager.fileChangeId と乖離)
+                    panel.webview.postMessage({
+                        type: 'sync-applied',
+                        data,
+                    });
+                    fileManager.updateLastKnownContent(content);
+                } catch (e) {
+                    /* JSON parse エラー時は触らない */
+                }
+            } else {
+                // 現在開いていた file が消えた可能性 → lock 解除のみ
+                panel.webview.postMessage({ type: 'sync-applied', data: null });
+            }
+        } catch (e) {
+            console.error('[NotesEditorProvider] revertAndReinitNotePanel error:', e);
+            panel.webview.postMessage({ type: 'sync-applied', data: null, fileChangeId: -1 });
         }
     }
 

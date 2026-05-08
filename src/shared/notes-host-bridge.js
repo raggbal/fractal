@@ -129,6 +129,12 @@
             api.postMessage({ type: 'notesSetSidePanelOutlineWidth', width: width });
         },
 
+        // outliner-toolbar-s3-sync (FR-OS3-03)
+        outlinerS3SyncRequest: function(outlinerId) {
+            flushOutlinerSync();
+            api.postMessage({ type: 'outlinerS3SyncRequest', outlinerId: outlinerId });
+        },
+
         postDailyNotes: function(type, dayOffset, currentDate) {
             if (window.Outliner && window.Outliner.flushSync) {
                 window.Outliner.flushSync();
