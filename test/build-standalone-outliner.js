@@ -212,8 +212,8 @@ const html = `<!DOCTYPE html>
             <button class="outliner-view-toggle-btn" title="Switch view"></button>
             <button class="outliner-timestamps-toggle-btn" title="Timestamps"></button>
             <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
-            <button class="outliner-task-filter-toggle-btn" style="display:none" title="Filter"></button>
-            <button class="outliner-archive-btn" style="display:none" title="Archive"></button>
+            <button class="outliner-task-filter-toggle-btn" title="Filter"></button>
+            <button class="outliner-archive-btn" title="Archive"></button>
             <button class="outliner-menu-btn" title="Menu"></button>
         </div>
         <div class="outliner-pinned-nav-bar">

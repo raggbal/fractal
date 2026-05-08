@@ -61,7 +61,8 @@ var OutlinerModel = (function() {
         // タスクモード: ルート node に自動 checkbox 付与 + 完了タスク filter
         this.taskMode = !!data.taskMode;
         // タスクモード時のフィルタ: 'active' (未完了のみ) | 'all'
-        this.taskFilter = (data.taskFilter === 'all') ? 'all' : 'active';
+        // デフォルトは 'all' (フィルタなし)。taskMode 有効化で 'active' に切替。
+        this.taskFilter = (data.taskFilter === 'active') ? 'active' : 'all';
 
         // nodes のマップ化
         if (data.nodes) {
@@ -547,7 +548,10 @@ var OutlinerModel = (function() {
         }
         if (this.taskMode) {
             data.taskMode = true;
-            data.taskFilter = this.taskFilter;
+        }
+        // taskFilter は 'active' 時のみ persist (デフォルト 'all' は省略)
+        if (this.taskFilter === 'active') {
+            data.taskFilter = 'active';
         }
         return data;
     };

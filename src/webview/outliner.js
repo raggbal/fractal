@@ -143,7 +143,8 @@ var Outliner = (function() {
         }
     }
 
-    /** タスクモード button 群の表示状態を更新 */
+    /** タスクモード button 群の表示状態を更新。
+     *  Filter / Archive button は taskMode 状態に依らず常時表示。 */
     function updateTaskModeButtons() {
         if (!model) return;
         var i18n = window.__outlinerMessages || {};
@@ -155,7 +156,6 @@ var Outliner = (function() {
                 : (i18n.taskModeOn || 'Enable Task Mode');
         }
         if (taskFilterToggleBtn) {
-            taskFilterToggleBtn.style.display = on ? 'flex' : 'none';
             var filterIsAll = (model.taskFilter === 'all');
             taskFilterToggleBtn.innerHTML = filterIsAll ? ICON_FILTER_ALL : ICON_FILTER_ACTIVE;
             taskFilterToggleBtn.classList.toggle('is-active', !filterIsAll);
@@ -164,7 +164,6 @@ var Outliner = (function() {
                 : (i18n.taskFilterActiveShown || 'Showing active only (click to show all)');
         }
         if (archiveBtn) {
-            archiveBtn.style.display = on ? 'flex' : 'none';
             archiveBtn.title = i18n.archiveCompleted || 'Archive completed tasks to Daily Notes';
         }
     }
@@ -211,17 +210,29 @@ var Outliner = (function() {
                 }
             }
             // フィルタ初期値
-            if (!model.taskFilter) model.taskFilter = 'active';
+            // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
+            model.taskFilter = 'active';
         }
-        // 注意: OFF にしても timestampsEnabled / 既存 checkbox はそのまま
+        else {
+            // OFF: 全 root node の checkbox を削除 (子は触らない、ユーザーが手動で付けたもの保持)
+            if (model.rootIds && model.rootIds.length > 0) {
+                for (var ri = 0; ri < model.rootIds.length; ri++) {
+                    var rn2 = model.getNode(model.rootIds[ri]);
+                    if (rn2 && (rn2.checked === false || rn2.checked === true)) {
+                        rn2.checked = null;
+                    }
+                }
+            }
+            // timestampsEnabled は維持 (ユーザーが個別 OFF できる)
+        }
         updateTaskModeButtons();
         renderTree();
         scheduleSyncToHost();
     }
 
-    /** タスクフィルタを toggle (active ⇄ all) */
+    /** タスクフィルタを toggle (active ⇄ all)。taskMode 状態に依らず常時動作。 */
     function toggleTaskFilter() {
-        if (!model || !model.taskMode) return;
+        if (!model) return;
         saveSnapshot();
         model.taskFilter = (model.taskFilter === 'active') ? 'all' : 'active';
         updateTaskModeButtons();
@@ -229,11 +240,11 @@ var Outliner = (function() {
         scheduleSyncToHost();
     }
 
-    /** node が「タスクモード filter で隠すべき」か判定。
-     *  taskMode === true && taskFilter === 'active' の時、checked === true なら隠す。 */
+    /** node が「タスクフィルタ active で隠すべき」か判定。
+     *  taskFilter === 'active' の時、checked === true なら隠す。
+     *  taskMode に関係なく動作 (任意の checkbox で filter が効く)。 */
     function isHiddenByTaskFilter(nodeId) {
-        if (!model || !model.taskMode) return false;
-        if (model.taskFilter !== 'active') return false;
+        if (!model || model.taskFilter !== 'active') return false;
         var n = model.getNode(nodeId);
         if (!n) return false;
         return n.checked === true;
@@ -1313,12 +1324,19 @@ var Outliner = (function() {
         return v;
     }
 
-    /** node.columnValues[colId] に値を書く。*/
+    /** node.columnValues[colId] に値を書く。
+     *  値変更 (どの列タイプでも) で node.updatedAt を auto 更新する。 */
     function setCellValue(nodeId, colId, value) {
         var node = model.getNode(nodeId);
         if (!node) return;
         if (!node.columnValues) node.columnValues = {};
+        var prev = node.columnValues[colId];
         node.columnValues[colId] = value;
+        // 値が実際に変わった時だけ updatedAt 更新 (no-op write を避ける)
+        var changed = JSON.stringify(prev) !== JSON.stringify(value);
+        if (changed && typeof model.touchUpdated === 'function') {
+            model.touchUpdated(nodeId);
+        }
     }
 
     /** table mode の renderTree。
@@ -1863,43 +1881,102 @@ var Outliner = (function() {
         }
     }
 
-    /** date / datetime 列セル: input[type=date] / input[type=datetime-local]
+    /** date / datetime 列セル: 値あり → text 表示、active (click/focus) → input picker
      *  値は ISO-ish (YYYY-MM-DD or YYYY-MM-DDTHH:mm) を columnValues に保存。
-     *  クリック前は読み取りやすい表示、focus で input へ切替。 */
+     *  デフォルト (空 + 非 active): 何も表示しない。年/月/日 placeholder を出さない。 */
     function createDateCellElement(node, col, searchQuery) {
         var el = document.createElement('div');
         el.className = 'outliner-cell-date';
         el.dataset.nodeId = node.id;
         el.dataset.colId = col.id;
         el.dataset.colType = col.type;
+        el.tabIndex = 0; // focus 可能に
         applyRowStateClasses(el, node, searchQuery);
 
         var isDateTime = (col.type === 'datetime');
-        var input = document.createElement('input');
-        input.type = isDateTime ? 'datetime-local' : 'date';
-        input.className = 'outliner-cell-date-input';
         var rawValue = getCellValue(node.id, col.id, col.type) || '';
-        input.value = rawValue;
 
-        input.addEventListener('change', function () {
-            setCellValue(node.id, col.id, input.value || '');
-            if (typeof model.touchUpdated === 'function') {
-                model.touchUpdated(node.id);
+        // 表示用 span (非 active 時)
+        var display = document.createElement('span');
+        display.className = 'outliner-cell-date-display';
+        function refreshDisplay() {
+            var v = getCellValue(node.id, col.id, col.type) || '';
+            if (!v) {
+                display.textContent = '';
+                display.classList.add('is-empty');
+            } else {
+                display.classList.remove('is-empty');
+                // ISO 形式 → 読みやすい表示
+                if (isDateTime && v.indexOf('T') > 0) {
+                    display.textContent = v.replace('T', ' ');
+                } else {
+                    display.textContent = v;
+                }
             }
-            saveSnapshotDebounced();
-            scheduleSyncToHost();
+        }
+        refreshDisplay();
+        el.appendChild(display);
+
+        var input = null;
+        var inputActive = false;
+
+        function activateInput() {
+            if (inputActive) return;
+            inputActive = true;
+            input = document.createElement('input');
+            input.type = isDateTime ? 'datetime-local' : 'date';
+            input.className = 'outliner-cell-date-input';
+            input.value = getCellValue(node.id, col.id, col.type) || '';
+
+            input.addEventListener('change', function () {
+                setCellValue(node.id, col.id, input.value || '');
+                refreshDisplay();
+                saveSnapshotDebounced();
+                scheduleSyncToHost();
+            });
+
+            input.addEventListener('blur', function () {
+                // input を撤去して display に戻す
+                if (input && input.parentNode) input.parentNode.removeChild(input);
+                input = null;
+                inputActive = false;
+                display.style.display = '';
+            });
+
+            input.addEventListener('keydown', function (e) {
+                if (handleTableCellArrowKey(input, e)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                if (e.key === 'Escape' || e.key === 'Enter') {
+                    e.preventDefault();
+                    input.blur();
+                }
+            });
+
+            display.style.display = 'none';
+            el.appendChild(input);
+            // focus + picker 自動表示 (Chromium native picker)
+            setTimeout(function () {
+                if (input) {
+                    input.focus();
+                    if (typeof input.showPicker === 'function') {
+                        try { input.showPicker(); } catch (e) { /* user gesture 必要なケース */ }
+                    }
+                }
+            }, 0);
+        }
+
+        // クリック / focus で input 化
+        el.addEventListener('click', function (e) {
+            if (e.target === input) return;
+            activateInput();
+        });
+        el.addEventListener('focus', function () {
+            activateInput();
         });
 
-        // Cmd/Ctrl + 矢印キー: テーブル内セル移動 (text cell と同等)
-        input.addEventListener('keydown', function (e) {
-            if (handleTableCellArrowKey(input, e)) {
-                e.preventDefault();
-                e.stopPropagation();
-                return;
-            }
-        });
-
-        el.appendChild(input);
         return el;
     }
 
@@ -3910,21 +3987,23 @@ var Outliner = (function() {
                     }
                 }
                 // `[ ]` / `[x]` + space → チェックボックス変換 (MD task list と同じ)
-                // 条件: text 全体が `[ ]` / `[]` / `[x]` / `[X]` で、cursor が末尾
+                // 条件: text 先頭 3 文字が `[ ]` / `[]` / `[x]` / `[X]` で、
+                //   cursor が ] の直後 (offset === 3 もしくは [] なら 2)
+                // 後続テキスト (' [ ] something' の途中など) は無視。先頭で発火のみ。
                 var checkboxPreText = getPlainText(textEl);
-                if (offset === checkboxPreText.length) {
-                    var cbMatch = checkboxPreText.match(/^\[([ xX]?)\]$/);
-                    if (cbMatch) {
-                        e.preventDefault();
-                        saveSnapshot();
-                        var isChecked = (cbMatch[1] === 'x' || cbMatch[1] === 'X');
-                        node.checked = isChecked;
-                        model.updateText(nodeId, '');
-                        renderTree();
-                        focusNode(nodeId);
-                        scheduleSyncToHost();
-                        return;
-                    }
+                var cbMatch = checkboxPreText.match(/^\[([ xX]?)\]/);
+                if (cbMatch && offset === cbMatch[0].length) {
+                    e.preventDefault();
+                    saveSnapshot();
+                    var isChecked = (cbMatch[1] === 'x' || cbMatch[1] === 'X');
+                    node.checked = isChecked;
+                    // 残りのテキスト (`[ ]残り` の `残り`) を保持。先頭の空白も除去
+                    var remaining = checkboxPreText.slice(cbMatch[0].length).replace(/^\s+/, '');
+                    model.updateText(nodeId, remaining);
+                    renderTree();
+                    focusNode(nodeId);
+                    scheduleSyncToHost();
+                    return;
                 }
                 // Space 確定時に @page チェック
                 // デフォルト動作は許可 (preventDefault しない)
@@ -4238,8 +4317,21 @@ var Outliner = (function() {
             return;
         }
 
+        // Cmd+Shift+Option+X: チェックボックスを削除 (checked → null)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.altKey && e.code === 'KeyX') {
+            e.preventDefault();
+            e.stopPropagation();
+            saveSnapshot();
+            node.checked = null;
+            renderTree();
+            focusNode(nodeId);
+            scheduleSyncToHost();
+            return;
+        }
+
         // Cmd+Shift+X: チェックボックスのトグル (なければ追加、あれば true ⇄ false)
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
+        // (Option キー押下時は前段の handler に譲る)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
             e.preventDefault();
             e.stopPropagation();
             saveSnapshot();

@@ -48,25 +48,14 @@ test.describe('Outliner タスクモード', () => {
         expect(afterChecked[0]).toBe('false');
     });
 
-    test('タスクモード ON で filter / archive ボタンが visible になる', async ({ page }) => {
-        const filterVisibleBefore = await page.evaluate(() => {
-            var b = document.querySelector('.outliner-task-filter-toggle-btn');
-            return b && (b as HTMLElement).style.display !== 'none';
+    test('filter / archive ボタンは常時表示 (taskMode 状態に依らず)', async ({ page }) => {
+        const visibleInitial = await page.evaluate(() => {
+            var f = document.querySelector('.outliner-task-filter-toggle-btn') as HTMLElement;
+            var a = document.querySelector('.outliner-archive-btn') as HTMLElement;
+            return { filter: !!f && f.offsetParent !== null, archive: !!a && a.offsetParent !== null };
         });
-        expect(filterVisibleBefore).toBe(false);
-
-        await clickToggleBtn(page, '.outliner-task-mode-toggle-btn');
-
-        const filterVisibleAfter = await page.evaluate(() => {
-            var b = document.querySelector('.outliner-task-filter-toggle-btn');
-            return b && (b as HTMLElement).style.display !== 'none';
-        });
-        const archiveVisibleAfter = await page.evaluate(() => {
-            var b = document.querySelector('.outliner-archive-btn');
-            return b && (b as HTMLElement).style.display !== 'none';
-        });
-        expect(filterVisibleAfter).toBe(true);
-        expect(archiveVisibleAfter).toBe(true);
+        expect(visibleInitial.filter).toBe(true);
+        expect(visibleInitial.archive).toBe(true);
     });
 
     test('タスクモード ON で timestamps 自動列も ON になる', async ({ page }) => {
