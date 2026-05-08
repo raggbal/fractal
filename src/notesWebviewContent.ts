@@ -173,7 +173,6 @@ export function getNotesWebviewContent(
                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></svg>
                         </button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
-                        <button class="outliner-timestamps-toggle-btn" title="Show Created At / Updated At columns"></button>
                         <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
                         <button class="outliner-task-filter-toggle-btn" title="Filter: Active / All"></button>
                         <button class="outliner-archive-btn" title="Archive completed tasks"></button>

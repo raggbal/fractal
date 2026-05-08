@@ -210,7 +210,6 @@ const html = `<!DOCTYPE html>
             <button class="outliner-undo-btn" title="Undo" disabled></button>
             <button class="outliner-redo-btn" title="Redo" disabled></button>
             <button class="outliner-view-toggle-btn" title="Switch view"></button>
-            <button class="outliner-timestamps-toggle-btn" title="Timestamps"></button>
             <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
             <button class="outliner-task-filter-toggle-btn" title="Filter"></button>
             <button class="outliner-archive-btn" title="Archive"></button>

@@ -157,11 +157,6 @@ export interface WebviewMessages {
   tableColumnTypeMultiselect?: string;
   tableColumnTypeOutliner?: string;
   tableSearchPlaceholder?: string;
-  // Created At / Updated At auto-column toggle (search bar button)
-  columnCreatedAt?: string;
-  columnUpdatedAt?: string;
-  timestampsShow?: string;
-  timestampsHide?: string;
   // Task mode toggle / filter / archive (search bar buttons)
   taskModeOn?: string;
   taskModeOff?: string;

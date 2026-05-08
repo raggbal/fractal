@@ -75,73 +75,6 @@ var Outliner = (function() {
             : 'Switch to Outline view';
     }
 
-    function updateTimestampsToggleButton() {
-        if (!timestampsToggleBtn) return;
-        var on = !!(model && model.timestampsEnabled);
-        timestampsToggleBtn.classList.toggle('is-active', on);
-        var i18n = (window.__outlinerMessages && window.__outlinerMessages) || {};
-        timestampsToggleBtn.title = on
-            ? (i18n.timestampsHide || 'Hide Created At / Updated At columns')
-            : (i18n.timestampsShow || 'Show Created At / Updated At columns');
-    }
-
-    /** Created At / Updated At 列を model.columns に追加 / 除去 */
-    function toggleTimestampsColumns() {
-        if (!model) return;
-        saveSnapshot();
-        model.timestampsEnabled = !model.timestampsEnabled;
-        if (!model.columns) model.columns = [];
-        if (model.timestampsEnabled) {
-            // Outliner 列の確保 (table view を初めて使う場合)
-            ensureColumnsForTable();
-            // すでに存在しなければ追加
-            var hasCreated = model.columns.some(function (c) { return c.type === 'createdAt'; });
-            var hasUpdated = model.columns.some(function (c) { return c.type === 'updatedAt'; });
-            var i18n = window.__outlinerMessages || {};
-            if (!hasCreated) {
-                model.columns.push({
-                    id: 'col_createdAt',
-                    type: 'createdAt',
-                    name: i18n.columnCreatedAt || 'Created At',
-                    width: DEFAULT_OTHER_COL_WIDTH || 180
-                });
-            }
-            if (!hasUpdated) {
-                model.columns.push({
-                    id: 'col_updatedAt',
-                    type: 'updatedAt',
-                    name: i18n.columnUpdatedAt || 'Updated At',
-                    width: DEFAULT_OTHER_COL_WIDTH || 180
-                });
-            }
-        } else {
-            // 自動追加した型の列のみ削除 (ユーザーが追加した text/date 列は残す)
-            model.columns = model.columns.filter(function (c) {
-                return c.type !== 'createdAt' && c.type !== 'updatedAt';
-            });
-        }
-        updateTimestampsToggleButton();
-        renderTree();
-        scheduleSyncToHost();
-    }
-
-    /** ISO 文字列を読みやすい表示に変換 (Created At / Updated At 列で使用) */
-    function formatTimestamp(iso, withTime) {
-        if (!iso) return '';
-        try {
-            var d = new Date(iso);
-            if (isNaN(d.getTime())) return '';
-            var y = d.getFullYear();
-            var m = String(d.getMonth() + 1).padStart(2, '0');
-            var day = String(d.getDate()).padStart(2, '0');
-            if (!withTime) return y + '-' + m + '-' + day;
-            var h = String(d.getHours()).padStart(2, '0');
-            var min = String(d.getMinutes()).padStart(2, '0');
-            return y + '-' + m + '-' + day + ' ' + h + ':' + min;
-        } catch (e) {
-            return '';
-        }
-    }
 
     /** タスクモード button 群の表示状態を更新。
      *  Filter / Archive button は taskMode 状態に依らず常時表示。 */
@@ -168,38 +101,12 @@ var Outliner = (function() {
         }
     }
 
-    /** タスクモードを toggle。ON 時に timestamps も自動 ON */
+    /** タスクモードを toggle */
     function toggleTaskMode() {
         if (!model) return;
         saveSnapshot();
         model.taskMode = !model.taskMode;
         if (model.taskMode) {
-            // タスクモード ON: タイムスタンプも自動 ON (なければ)
-            if (!model.timestampsEnabled) {
-                // toggleTimestampsColumns() を直接呼ぶと saveSnapshot が二重になるので
-                // 中身を inline 実行
-                if (!model.columns) model.columns = [];
-                ensureColumnsForTable();
-                model.timestampsEnabled = true;
-                var i18n = window.__outlinerMessages || {};
-                if (!model.columns.some(function (c) { return c.type === 'createdAt'; })) {
-                    model.columns.push({
-                        id: 'col_createdAt',
-                        type: 'createdAt',
-                        name: i18n.columnCreatedAt || 'Created At',
-                        width: DEFAULT_OTHER_COL_WIDTH || 180
-                    });
-                }
-                if (!model.columns.some(function (c) { return c.type === 'updatedAt'; })) {
-                    model.columns.push({
-                        id: 'col_updatedAt',
-                        type: 'updatedAt',
-                        name: i18n.columnUpdatedAt || 'Updated At',
-                        width: DEFAULT_OTHER_COL_WIDTH || 180
-                    });
-                }
-                updateTimestampsToggleButton();
-            }
             // 既存ルートノードに checkbox を backfill (既に checkbox があれば触らない)
             if (model.rootIds && model.rootIds.length > 0) {
                 for (var i = 0; i < model.rootIds.length; i++) {
@@ -209,12 +116,11 @@ var Outliner = (function() {
                     }
                 }
             }
-            // フィルタ初期値
             // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
             model.taskFilter = 'active';
         }
         else {
-            // OFF: 全 root node の checkbox を削除 (子は触らない、ユーザーが手動で付けたもの保持)
+            // OFF: 全 root node の checkbox を削除 (子は触らない)
             if (model.rootIds && model.rootIds.length > 0) {
                 for (var ri = 0; ri < model.rootIds.length; ri++) {
                     var rn2 = model.getNode(model.rootIds[ri]);
@@ -223,7 +129,6 @@ var Outliner = (function() {
                     }
                 }
             }
-            // timestampsEnabled は維持 (ユーザーが個別 OFF できる)
         }
         updateTaskModeButtons();
         renderTree();
@@ -308,27 +213,12 @@ var Outliner = (function() {
         return { rootId: rootId, nodes: nodes };
     }
 
-    /** Created At / Updated At セル (read-only、node.createdAt/updatedAt から表示) */
-    function createTimestampCellElement(node, col, searchQuery) {
-        var el = document.createElement('div');
-        el.className = 'outliner-cell-timestamp';
-        el.dataset.nodeId = node.id;
-        el.dataset.colId = col.id;
-        el.dataset.colType = col.type;
-        applyRowStateClasses(el, node, searchQuery);
-        var iso = (col.type === 'createdAt') ? node.createdAt : node.updatedAt;
-        el.textContent = formatTimestamp(iso, true);
-        el.title = iso || '';
-        return el;
-    }
-
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
     var undoBtn = null;              // undo button element
     var redoBtn = null;              // redo button element
     var viewToggleBtn = null;        // Phase F3: outliner ⇄ table view toggle
-    var timestampsToggleBtn = null;  // Created At / Updated At 自動列トグル
     var taskModeToggleBtn = null;    // タスクモード ON/OFF
     var taskFilterToggleBtn = null;  // 全て / 処理中 切替 (タスクモード ON 時のみ表示)
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
@@ -385,8 +275,6 @@ var Outliner = (function() {
         'schemaVersion',
         // Phase F2: 列定義は model 側で serialize されるので known
         'columns',
-        // タイムスタンプ自動列トグル (model 経由で serialize)
-        'timestampsEnabled',
         // タスクモード関連 (model 経由で serialize)
         'taskMode', 'taskFilter'
     ];
@@ -822,8 +710,6 @@ var Outliner = (function() {
     // Phase F3: outliner / table view 切替アイコン
     var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
     var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
-    // タイムスタンプ自動列トグル (時計アイコン)
-    var ICON_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
     // タスクモード: チェックボックス square + check
     var ICON_TASK_MODE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
     // フィルタ: 漏斗 (active 時 fill あり)
@@ -886,7 +772,6 @@ var Outliner = (function() {
         navBackBtn = document.querySelector('.outliner-nav-back-btn');
         navForwardBtn = document.querySelector('.outliner-nav-forward-btn');
         viewToggleBtn = document.querySelector('.outliner-view-toggle-btn');
-        timestampsToggleBtn = document.querySelector('.outliner-timestamps-toggle-btn');
         taskModeToggleBtn = document.querySelector('.outliner-task-mode-toggle-btn');
         taskFilterToggleBtn = document.querySelector('.outliner-task-filter-toggle-btn');
         archiveBtn = document.querySelector('.outliner-archive-btn');
@@ -917,13 +802,6 @@ var Outliner = (function() {
             viewToggleBtn.addEventListener('click', function () {
                 setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
                 updateViewToggleButton();
-            });
-        }
-        if (timestampsToggleBtn) {
-            timestampsToggleBtn.innerHTML = ICON_CLOCK;
-            updateTimestampsToggleButton();
-            timestampsToggleBtn.addEventListener('click', function () {
-                toggleTimestampsColumns();
             });
         }
         if (taskModeToggleBtn) {
@@ -1324,19 +1202,12 @@ var Outliner = (function() {
         return v;
     }
 
-    /** node.columnValues[colId] に値を書く。
-     *  値変更 (どの列タイプでも) で node.updatedAt を auto 更新する。 */
+    /** node.columnValues[colId] に値を書く。 */
     function setCellValue(nodeId, colId, value) {
         var node = model.getNode(nodeId);
         if (!node) return;
         if (!node.columnValues) node.columnValues = {};
-        var prev = node.columnValues[colId];
         node.columnValues[colId] = value;
-        // 値が実際に変わった時だけ updatedAt 更新 (no-op write を避ける)
-        var changed = JSON.stringify(prev) !== JSON.stringify(value);
-        if (changed && typeof model.touchUpdated === 'function') {
-            model.touchUpdated(nodeId);
-        }
     }
 
     /** table mode の renderTree。
@@ -1449,8 +1320,6 @@ var Outliner = (function() {
                 cellEl = createMultiselectCellElement(node, col, searchQuery);
             } else if (col.type === 'date' || col.type === 'datetime') {
                 cellEl = createDateCellElement(node, col, searchQuery);
-            } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
-                cellEl = createTimestampCellElement(node, col, searchQuery);
             } else {
                 cellEl = document.createElement('div');
                 cellEl.className = 'outliner-cell-unknown';
@@ -1483,8 +1352,6 @@ var Outliner = (function() {
                     cellEl = createMultiselectCellElement(node, col, searchQuery);
                 } else if (col.type === 'date' || col.type === 'datetime') {
                     cellEl = createDateCellElement(node, col, searchQuery);
-                } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
-                    cellEl = createTimestampCellElement(node, col, searchQuery);
                 } else {
                     cellEl = document.createElement('div');
                     cellEl.className = 'outliner-cell-unknown';
@@ -2699,15 +2566,9 @@ var Outliner = (function() {
                 saveSnapshot();
                 node.checked = cb.checked;
                 el.dataset.checked = String(cb.checked);
-                if (typeof model.touchUpdated === 'function') {
-                    model.touchUpdated(node.id);
-                }
-                // タスクモード active filter で checked=true なら即非表示
-                if (model.taskMode && model.taskFilter === 'active' && cb.checked) {
+                // active filter で checked=true なら即非表示 (枝ごと)
+                if (model.taskFilter === 'active' && cb.checked) {
                     renderTree();
-                } else {
-                    scheduleSyncToHost();
-                    return;
                 }
                 scheduleSyncToHost();
             });
@@ -6795,7 +6656,6 @@ var Outliner = (function() {
         // currentScope も変更しない（スコープ保持）
 
         updatePinnedTagBar();
-        updateTimestampsToggleButton();
         updateTaskModeButtons();
 
         if (pageTitleInput && document.activeElement !== pageTitleInput) {
@@ -7193,7 +7053,6 @@ var Outliner = (function() {
                         isDailyNotes = !!msg.isDailyNotes;
                         updatePinnedTagBar();
                         // 新しい model に合わせて toggle buttons の状態を再描画
-                        updateTimestampsToggleButton();
                         updateTaskModeButtons();
                         // Notes ファイル切替: 検索・スコープを全リセット
                         navBackStack.length = 0;

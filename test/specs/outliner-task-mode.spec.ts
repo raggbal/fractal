@@ -58,22 +58,6 @@ test.describe('Outliner タスクモード', () => {
         expect(visibleInitial.archive).toBe(true);
     });
 
-    test('タスクモード ON で timestamps 自動列も ON になる', async ({ page }) => {
-        const timestampsActiveBefore = await page.evaluate(() => {
-            var b = document.querySelector('.outliner-timestamps-toggle-btn');
-            return b ? b.classList.contains('is-active') : false;
-        });
-        expect(timestampsActiveBefore).toBe(false);
-
-        await clickToggleBtn(page, '.outliner-task-mode-toggle-btn');
-
-        const timestampsActiveAfter = await page.evaluate(() => {
-            var b = document.querySelector('.outliner-timestamps-toggle-btn');
-            return b ? b.classList.contains('is-active') : false;
-        });
-        expect(timestampsActiveAfter).toBe(true);
-    });
-
     test('タスクモード ON + checked=true → filter active で非表示', async ({ page }) => {
         await clickToggleBtn(page, '.outliner-task-mode-toggle-btn');
         // 全 root に checked=false 付与される

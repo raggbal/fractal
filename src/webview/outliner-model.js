@@ -56,8 +56,6 @@ var OutlinerModel = (function() {
         this.nodes = {};
         // Phase F2: table editor 列定義 (存在時のみ反映)
         this.columns = (data.columns && Array.isArray(data.columns)) ? data.columns.slice() : [];
-        // タイムスタンプ自動列トグル (Created At / Updated At 列の表示切替)
-        this.timestampsEnabled = !!data.timestampsEnabled;
         // タスクモード: ルート node に自動 checkbox 付与 + 完了タスク filter
         this.taskMode = !!data.taskMode;
         // タスクモード時のフィルタ: 'active' (未完了のみ) | 'all'
@@ -111,7 +109,6 @@ var OutlinerModel = (function() {
     Model.prototype.addNode = function(parentId, afterId, text) {
         var id = generateNodeId();
         text = text || '';
-        var nowIso = new Date().toISOString();
         var isRoot = (parentId === null || parentId === undefined);
         var node = {
             id: id,
@@ -126,9 +123,7 @@ var OutlinerModel = (function() {
             checked: (this.taskMode && isRoot) ? false : null,
             subtext: '',
             images: [],
-            filePath: null,
-            createdAt: nowIso,
-            updatedAt: nowIso
+            filePath: null
         };
 
         this.nodes[id] = node;
@@ -154,7 +149,6 @@ var OutlinerModel = (function() {
     Model.prototype.addNodeAtStart = function(parentId, text) {
         var id = generateNodeId();
         text = text || '';
-        var nowIso = new Date().toISOString();
         var isRoot = (parentId === null || parentId === undefined);
         var node = {
             id: id,
@@ -168,9 +162,7 @@ var OutlinerModel = (function() {
             checked: (this.taskMode && isRoot) ? false : null,
             subtext: '',
             images: [],
-            filePath: null,
-            createdAt: nowIso,
-            updatedAt: nowIso
+            filePath: null
         };
         this.nodes[id] = node;
         if (parentId === null || parentId === undefined) {
@@ -207,23 +199,11 @@ var OutlinerModel = (function() {
         delete this.nodes[nodeId];
     };
 
-    /** node.updatedAt を現在時刻 (ISO string) で更新する。
-     *  内容変更系メソッドから呼ばれる (text/subtext/image/page/file/checked etc)。
-     *  createdAt が無ければ同じ値を入れる (旧データ migration 用)。 */
-    Model.prototype.touchUpdated = function(nodeId) {
-        var node = this.nodes[nodeId];
-        if (!node) return;
-        var now = new Date().toISOString();
-        if (!node.createdAt) node.createdAt = now;
-        node.updatedAt = now;
-    };
-
     Model.prototype.updateText = function(nodeId, text) {
         var node = this.nodes[nodeId];
         if (!node) { return { triggerMakePage: false, node: node }; }
         node.text = text;
         node.tags = parseTags(text);
-        this.touchUpdated(nodeId);
         return { triggerMakePage: false, node: node };
     };
 
@@ -231,7 +211,6 @@ var OutlinerModel = (function() {
         var node = this.nodes[nodeId];
         if (!node) { return; }
         node.subtext = subtext || '';
-        this.touchUpdated(nodeId);
     };
 
     // --- 画像操作 ---
@@ -241,7 +220,6 @@ var OutlinerModel = (function() {
         if (node) {
             if (!node.images) { node.images = []; }
             node.images.push(imagePath);
-            this.touchUpdated(nodeId);
         }
     };
 
@@ -249,7 +227,6 @@ var OutlinerModel = (function() {
         var node = this.nodes[nodeId];
         if (node && node.images && index >= 0 && index < node.images.length) {
             node.images.splice(index, 1);
-            this.touchUpdated(nodeId);
         }
     };
 
@@ -259,7 +236,6 @@ var OutlinerModel = (function() {
             var img = node.images.splice(fromIndex, 1)[0];
             if (toIndex > fromIndex) { toIndex--; }
             node.images.splice(toIndex, 0, img);
-            this.touchUpdated(nodeId);
         }
     };
 
@@ -542,9 +518,6 @@ var OutlinerModel = (function() {
         // Phase F2: table editor 列定義 (存在時のみ)
         if (this.columns && Array.isArray(this.columns) && this.columns.length > 0) {
             data.columns = JSON.parse(JSON.stringify(this.columns));
-        }
-        if (this.timestampsEnabled) {
-            data.timestampsEnabled = true;
         }
         if (this.taskMode) {
             data.taskMode = true;

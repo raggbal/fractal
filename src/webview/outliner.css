@@ -255,7 +255,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-undo-btn,
 .outliner-redo-btn,
 .outliner-view-toggle-btn,
-.outliner-timestamps-toggle-btn,
 .outliner-task-mode-toggle-btn,
 .outliner-task-filter-toggle-btn,
 .outliner-archive-btn,
@@ -279,7 +278,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-undo-btn:hover:not(:disabled),
 .outliner-redo-btn:hover:not(:disabled),
 .outliner-view-toggle-btn:hover:not(:disabled),
-.outliner-timestamps-toggle-btn:hover:not(:disabled),
 .outliner-task-mode-toggle-btn:hover:not(:disabled),
 .outliner-task-filter-toggle-btn:hover:not(:disabled),
 .outliner-archive-btn:hover:not(:disabled),
@@ -296,7 +294,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     cursor: default;
 }
 /* active toggle: opacity 1 で目立たせる */
-.outliner-timestamps-toggle-btn.is-active,
 .outliner-task-mode-toggle-btn.is-active,
 .outliner-task-filter-toggle-btn.is-active {
     opacity: 1;
@@ -1806,24 +1803,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     background: var(--outliner-match-bg);
 }
 
-/* timestamp cell (Created At / Updated At, readonly) */
-.outliner-cell-timestamp {
-    display: flex;
-    align-items: center;
-    padding: 0.25em 8px;
-    color: var(--outliner-fg);
-    opacity: 0.7;
-    font-variant-numeric: tabular-nums;
-    font-size: 0.92em;
-    user-select: text;
-    min-width: 0;
-}
-.outliner-cell-timestamp.is-focused,
-.outliner-cell-timestamp.is-selected,
-.outliner-cell-timestamp.is-search-match { opacity: 0.85; }
-
-/* timestamps / task mode toggle button (active 状態は色 + 背景で強調) */
-.outliner-timestamps-toggle-btn.is-active,
+/* task mode toggle button (active 状態は色 + 背景で強調) */
 .outliner-task-mode-toggle-btn.is-active,
 .outliner-task-filter-toggle-btn.is-active {
     color: var(--outliner-tag-color);
