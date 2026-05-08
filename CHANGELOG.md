@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.204.1] - 2026-05-09
+
+### Documentation
+- README に v0.204.0 で追加した outliner toolbar S3 sync ボタンと bidirectional newer-wins sync の説明を追記
+
 ## [0.204.0] - 2026-05-08
 
 ### Added
