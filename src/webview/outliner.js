@@ -160,14 +160,28 @@ var Outliner = (function() {
     function archiveCompletedTasks() {
         if (!model || !host) return;
         var i18n = window.__outlinerMessages || {};
-        // ルート（rootIds 直下のみ）で checked=true のノード収集
+        // ツリー全体を root から walk し、checked=true を発見したらその nodeId を target に
+        // 追加。target に追加したらその枝の子孫は降りない (子孫は subtree として一緒に
+        // 移動するため、同じ枝で重複 target を作らない)。
+        // 結果: 「祖先がいずれも checked != true で、自身が checked === true のノード」
+        // のみが target になる。
         var targets = [];
+        function walkArchive(nodeId) {
+            var n = model.getNode(nodeId);
+            if (!n) return;
+            if (n.checked === true) {
+                targets.push(nodeId);
+                return; // 子孫は subtree として含まれる
+            }
+            if (n.children && n.children.length > 0) {
+                for (var k = 0; k < n.children.length; k++) {
+                    walkArchive(n.children[k]);
+                }
+            }
+        }
         if (model.rootIds && model.rootIds.length > 0) {
             for (var i = 0; i < model.rootIds.length; i++) {
-                var rn = model.getNode(model.rootIds[i]);
-                if (rn && rn.checked === true) {
-                    targets.push(rn.id);
-                }
+                walkArchive(model.rootIds[i]);
             }
         }
         if (targets.length === 0) {
