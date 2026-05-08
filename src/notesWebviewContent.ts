@@ -174,6 +174,9 @@ export function getNotesWebviewContent(
                         </button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
                         <button class="outliner-timestamps-toggle-btn" title="Show Created At / Updated At columns"></button>
+                        <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
+                        <button class="outliner-task-filter-toggle-btn" style="display:none" title="Filter: Active / All"></button>
+                        <button class="outliner-archive-btn" style="display:none" title="Archive completed tasks"></button>
                         <button class="outliner-menu-btn" title="Menu"></button>
                     </div>
                     <div class="outliner-breadcrumb"></div>

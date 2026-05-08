@@ -1809,7 +1809,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-cell-timestamp.is-search-match { opacity: 0.85; }
 
 /* timestamps toggle button (active 状態) */
-.outliner-timestamps-toggle-btn.is-active {
+.outliner-timestamps-toggle-btn.is-active,
+.outliner-task-mode-toggle-btn.is-active,
+.outliner-task-filter-toggle-btn.is-active {
     color: var(--outliner-tag-color);
     background: var(--outliner-tag-bg);
 }

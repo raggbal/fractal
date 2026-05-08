@@ -58,6 +58,10 @@ var OutlinerModel = (function() {
         this.columns = (data.columns && Array.isArray(data.columns)) ? data.columns.slice() : [];
         // タイムスタンプ自動列トグル (Created At / Updated At 列の表示切替)
         this.timestampsEnabled = !!data.timestampsEnabled;
+        // タスクモード: ルート node に自動 checkbox 付与 + 完了タスク filter
+        this.taskMode = !!data.taskMode;
+        // タスクモード時のフィルタ: 'active' (未完了のみ) | 'all'
+        this.taskFilter = (data.taskFilter === 'all') ? 'all' : 'active';
 
         // nodes のマップ化
         if (data.nodes) {
@@ -107,6 +111,7 @@ var OutlinerModel = (function() {
         var id = generateNodeId();
         text = text || '';
         var nowIso = new Date().toISOString();
+        var isRoot = (parentId === null || parentId === undefined);
         var node = {
             id: id,
             parentId: parentId || null,
@@ -116,7 +121,8 @@ var OutlinerModel = (function() {
             isPage: false,
             pageId: null,
             collapsed: false,
-            checked: null,
+            // タスクモード ON のとき root node に自動 checkbox 付与 (子は付与しない)
+            checked: (this.taskMode && isRoot) ? false : null,
             subtext: '',
             images: [],
             filePath: null,
@@ -148,6 +154,7 @@ var OutlinerModel = (function() {
         var id = generateNodeId();
         text = text || '';
         var nowIso = new Date().toISOString();
+        var isRoot = (parentId === null || parentId === undefined);
         var node = {
             id: id,
             parentId: parentId || null,
@@ -157,7 +164,7 @@ var OutlinerModel = (function() {
             isPage: false,
             pageId: null,
             collapsed: false,
-            checked: null,
+            checked: (this.taskMode && isRoot) ? false : null,
             subtext: '',
             images: [],
             filePath: null,
@@ -537,6 +544,10 @@ var OutlinerModel = (function() {
         }
         if (this.timestampsEnabled) {
             data.timestampsEnabled = true;
+        }
+        if (this.taskMode) {
+            data.taskMode = true;
+            data.taskFilter = this.taskFilter;
         }
         return data;
     };

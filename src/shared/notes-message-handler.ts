@@ -124,6 +124,10 @@ export interface NotesPlatformActions {
     notifyDropFolderRejected?(folders: string[]): void;
     /** v12: ファイルサイズ超過通知 */
     notifyDropFileTooLarge?(fileName: string): void;
+    /** タスクモード archive: 情報メッセージ表示 */
+    showInformationMessage?(text: string): void;
+    /** タスクモード archive: エラーメッセージ表示 */
+    showErrorMessage?(text: string): void;
 }
 
 /**
@@ -764,6 +768,77 @@ export async function handleNotesMessage(
                 scopeToNodeId: dateResult.dayNodeId,
                 isDailyNotes: true,
             });
+            break;
+        }
+
+        // ── タスクモード: 完了タスクを Daily Notes へ archive ──
+        // メッセージ: { type: 'notesArchiveTasks', subtrees: [{ rootId, nodes: { id: nodeObj, ... } }] }
+        // 動作: dailynotes.out を fs 直接書き込み (openFile しないので current view は変わらない)
+        case 'notesArchiveTasks': {
+            try {
+                fileManager.flushSave();
+                const archiveFilePath = fileManager.ensureDailyNotesFile();
+                const archiveContent = fs.readFileSync(archiveFilePath, 'utf8');
+                const archiveData = JSON.parse(archiveContent);
+                if (!archiveData.nodes) archiveData.nodes = {};
+                if (!archiveData.rootIds) archiveData.rootIds = [];
+
+                const today = new Date();
+                const archYear = String(today.getFullYear());
+                const archMonth = String(today.getMonth() + 1).padStart(2, '0');
+                const archDay = String(today.getDate()).padStart(2, '0');
+                const { dayNodeId } = fileManager.ensureDailyNode(archiveData, archYear, archMonth, archDay);
+
+                const dayNode = archiveData.nodes[dayNodeId];
+                if (!dayNode) break;
+                if (!dayNode.children) dayNode.children = [];
+
+                const subtrees: Array<{ rootId: string; nodes: Record<string, any> }> = message.subtrees || [];
+                let archivedCount = 0;
+                for (const st of subtrees) {
+                    if (!st || !st.nodes || !st.rootId) continue;
+                    // ノード群をコピー (ID 重複は無視: 衝突確率は無視できるレベル)
+                    for (const nid in st.nodes) {
+                        if (Object.prototype.hasOwnProperty.call(st.nodes, nid)) {
+                            if (!archiveData.nodes[nid]) {
+                                archiveData.nodes[nid] = st.nodes[nid];
+                            }
+                        }
+                    }
+                    const rootCopy = archiveData.nodes[st.rootId];
+                    if (!rootCopy) continue;
+                    // #TASK / #DONE タグを末尾追加 (重複しない場合のみ)
+                    const existingTags: string[] = Array.isArray(rootCopy.tags) ? rootCopy.tags : [];
+                    const tagsToAdd: string[] = [];
+                    if (existingTags.indexOf('#TASK') === -1) tagsToAdd.push('#TASK');
+                    if (existingTags.indexOf('#DONE') === -1) tagsToAdd.push('#DONE');
+                    if (tagsToAdd.length > 0) {
+                        rootCopy.text = (rootCopy.text || '') + ' ' + tagsToAdd.join(' ');
+                        rootCopy.tags = existingTags.concat(tagsToAdd);
+                    }
+                    // parent を dayNode に変更 + dayNode の children に追加
+                    rootCopy.parentId = dayNodeId;
+                    dayNode.children.push(st.rootId);
+                    archivedCount++;
+                }
+
+                fs.writeFileSync(archiveFilePath, JSON.stringify(archiveData, null, 2), 'utf8');
+
+                if (platform.showInformationMessage) {
+                    platform.showInformationMessage(`Archived ${archivedCount} task(s) to Daily Notes`);
+                }
+            } catch (err) {
+                if (platform.showErrorMessage) {
+                    platform.showErrorMessage('Archive failed: ' + (err instanceof Error ? err.message : String(err)));
+                }
+            }
+            break;
+        }
+
+        case 'showInfoMessage': {
+            if (platform.showInformationMessage) {
+                platform.showInformationMessage(message.text || '');
+            }
             break;
         }
 

@@ -37,6 +37,9 @@
         saveOutlinerClipboard: function(plainText, isCut, nodes) {
             api.postMessage({ type: 'saveOutlinerClipboard', plainText: plainText, isCut: isCut, nodes: nodes });
         },
+        showInfoMessage: function(text) {
+            api.postMessage({ type: 'showInfoMessage', text: text });
+        },
         setPageDir: function() {
             api.postMessage({ type: 'setPageDir' });
         },

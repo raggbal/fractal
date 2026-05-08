@@ -209,6 +209,11 @@ const html = `<!DOCTYPE html>
             </div>
             <button class="outliner-undo-btn" title="Undo" disabled></button>
             <button class="outliner-redo-btn" title="Redo" disabled></button>
+            <button class="outliner-view-toggle-btn" title="Switch view"></button>
+            <button class="outliner-timestamps-toggle-btn" title="Timestamps"></button>
+            <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
+            <button class="outliner-task-filter-toggle-btn" style="display:none" title="Filter"></button>
+            <button class="outliner-archive-btn" style="display:none" title="Archive"></button>
             <button class="outliner-menu-btn" title="Menu"></button>
         </div>
         <div class="outliner-pinned-nav-bar">

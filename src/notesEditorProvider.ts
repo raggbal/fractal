@@ -511,6 +511,12 @@ export class NotesEditorProvider {
             notifyDropFileTooLarge: (fileName: string) => {
                 vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${fileName}`);
             },
+            showInformationMessage: (text: string) => {
+                vscode.window.showInformationMessage(text);
+            },
+            showErrorMessage: (text: string) => {
+                vscode.window.showErrorMessage(text);
+            },
             openAttachedFile: async (nodeId: string, outFilePath: string, senderRef: NotesSender) => {
                 const content = fs.readFileSync(outFilePath, 'utf8');
                 const data = JSON.parse(content);

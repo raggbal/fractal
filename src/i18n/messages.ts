@@ -162,6 +162,14 @@ export interface WebviewMessages {
   columnUpdatedAt?: string;
   timestampsShow?: string;
   timestampsHide?: string;
+  // Task mode toggle / filter / archive (search bar buttons)
+  taskModeOn?: string;
+  taskModeOff?: string;
+  taskFilterAllShown?: string;
+  taskFilterActiveShown?: string;
+  archiveCompleted?: string;
+  archiveNoneFound?: string;
+  archiveNotSupported?: string;
 }
 
 // Supported locales

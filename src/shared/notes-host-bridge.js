@@ -135,6 +135,16 @@
             api.postMessage({ type: 'outlinerS3SyncRequest', outlinerId: outlinerId });
         },
 
+        // タスクモード: 完了タスクを Daily Notes へ archive (今日の date node 配下に追加)
+        archiveTasks: function(subtrees) {
+            flushOutlinerSync();
+            api.postMessage({ type: 'notesArchiveTasks', subtrees: subtrees });
+        },
+
+        showInfoMessage: function(text) {
+            api.postMessage({ type: 'showInfoMessage', text: text });
+        },
+
         postDailyNotes: function(type, dayOffset, currentDate) {
             if (window.Outliner && window.Outliner.flushSync) {
                 window.Outliner.flushSync();
