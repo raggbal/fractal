@@ -13420,6 +13420,13 @@ class EditorInstance {
     // Instance-aware global shortcut handler (captures closure variables)
     this._handleGlobalShortcut = async function(e) {
         const isMod = e.ctrlKey || e.metaKey;
+        // 文字キーは layout / IME / shift state に依らず確実に判定するため
+        // e.key (case-insensitive) と e.code (KeyX 等の物理 key) の両方を check
+        const keyIs = function(c) {
+            var lower = c.toLowerCase();
+            var upper = c.toUpperCase();
+            return e.key === lower || e.key === upper || e.code === 'Key' + upper;
+        };
         if (isMod && (e.key === '/' || e.key === 'n')) {
             console.log('[DEBUG] _handleGlobalShortcut key=' + e.key + ' isMainInstance=' + isMainInstance + ' isSourceMode=' + isSourceMode + ' commandPaletteVisible=' + commandPaletteVisible + ' actionPanelVisible=' + actionPanelVisible);
         }
@@ -13487,7 +13494,7 @@ class EditorInstance {
         }
 
         // Save
-        if (isMod && e.key === 's') {
+        if (isMod && keyIs('s')) {
             e.preventDefault();
             e.stopPropagation();
             // Flush pending sync before save, then reset edit flag
@@ -13502,7 +13509,7 @@ class EditorInstance {
         }
         
         // Bold (Ctrl+B)
-        if (isMod && !e.shiftKey && e.key === 'b') {
+        if (isMod && !e.shiftKey && keyIs('b')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('strong');
@@ -13511,7 +13518,7 @@ class EditorInstance {
         }
         
         // Italic (Ctrl+I)
-        if (isMod && !e.shiftKey && e.key === 'i') {
+        if (isMod && !e.shiftKey && keyIs('i')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('em');
@@ -13520,7 +13527,7 @@ class EditorInstance {
         }
         
         // Strikethrough (Ctrl+Shift+S)
-        if (isMod && e.shiftKey && e.key.toLowerCase() === 's') {
+        if (isMod && e.shiftKey && keyIs('s')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('del');
@@ -13546,7 +13553,7 @@ class EditorInstance {
         }
         
         // Unordered list (Ctrl+Shift+U)
-        if (isMod && e.shiftKey && e.key === 'U') {
+        if (isMod && e.shiftKey && keyIs('u')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('ul')) {
@@ -13556,7 +13563,7 @@ class EditorInstance {
         }
 
         // Ordered list (Ctrl+Shift+O)
-        if (isMod && e.shiftKey && e.key === 'O') {
+        if (isMod && e.shiftKey && keyIs('o')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('ol')) {
@@ -13566,7 +13573,7 @@ class EditorInstance {
         }
 
         // Task list (Ctrl+Shift+X)
-        if (isMod && e.shiftKey && e.key === 'X') {
+        if (isMod && e.shiftKey && keyIs('x')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('task')) {
@@ -13576,7 +13583,7 @@ class EditorInstance {
         }
         
         // Blockquote (Ctrl+Shift+Q)
-        if (isMod && e.shiftKey && e.key === 'Q') {
+        if (isMod && e.shiftKey && keyIs('q')) {
             e.preventDefault();
             e.stopPropagation();
             convertToBlockquote();
@@ -13584,7 +13591,7 @@ class EditorInstance {
         }
         
         // Code block (Ctrl+Shift+K)
-        if (isMod && e.shiftKey && e.key === 'K') {
+        if (isMod && e.shiftKey && keyIs('k')) {
             e.preventDefault();
             e.stopPropagation();
             convertToCodeBlock();
@@ -13592,7 +13599,7 @@ class EditorInstance {
         }
         
         // Table (Ctrl+T)
-        if (isMod && !e.shiftKey && e.key === 't') {
+        if (isMod && !e.shiftKey && keyIs('t')) {
             e.preventDefault();
             e.stopPropagation();
             insertTable();
@@ -13600,7 +13607,7 @@ class EditorInstance {
         }
         
         // Horizontal rule (Ctrl+Shift+-)
-        if (isMod && e.shiftKey && (e.key === '-' || e.key === '_')) {
+        if (isMod && e.shiftKey && (e.key === '-' || e.key === '_' || e.code === 'Minus')) {
             e.preventDefault();
             e.stopPropagation();
             insertHorizontalRule();
@@ -13620,7 +13627,7 @@ class EditorInstance {
         }
 
         // Add Page (Ctrl+N / Cmd+N)
-        if (isMod && !e.shiftKey && e.key === 'n') {
+        if (isMod && !e.shiftKey && keyIs('n')) {
             e.preventDefault();
             e.stopPropagation();
             if (actionPanelVisible) {
@@ -13632,7 +13639,7 @@ class EditorInstance {
         }
 
         // Inline code (Ctrl+\`)
-        if (isMod && !e.shiftKey && e.key === '\`') {
+        if (isMod && !e.shiftKey && (e.key === '`' || e.code === 'Backquote')) {
             e.preventDefault();
             e.stopPropagation();
             wrapWithInlineCode();
@@ -13640,7 +13647,7 @@ class EditorInstance {
         }
         
         // Link (Ctrl+K)
-        if (isMod && !e.shiftKey && e.key === 'k') {
+        if (isMod && !e.shiftKey && keyIs('k')) {
             e.preventDefault();
             e.stopPropagation();
             insertLink();
@@ -13648,7 +13655,7 @@ class EditorInstance {
         }
         
         // Image (Ctrl+Shift+I)
-        if (isMod && e.shiftKey && e.key === 'I') {
+        if (isMod && e.shiftKey && keyIs('i')) {
             e.preventDefault();
             e.stopPropagation();
             host.requestInsertImage();
@@ -13656,7 +13663,7 @@ class EditorInstance {
         }
 
         // Send selection to chat (Cmd+L / Ctrl+L)
-        if (isMod && e.key === 'l') {
+        if (isMod && keyIs('l')) {
             var chatSel = window.getSelection();
             if (!chatSel || chatSel.isCollapsed || !chatSel.rangeCount) return;
             e.preventDefault();

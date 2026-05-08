@@ -1756,6 +1756,94 @@ body {
     box-sizing: border-box;
 }
 
+/* --- outliner-toolbar-s3-sync (FR-OS3-01 / FR-OS3-08 / FR-OS3-12) --- */
+.outliner-s3-sync-btn {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--outliner-search-fg);
+    cursor: pointer;
+    padding: 4px 5px;
+    margin-right: 4px;
+    line-height: 1;
+    opacity: 0.5;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+}
+.outliner-s3-sync-btn:hover {
+    opacity: 1;
+    background: var(--outliner-hover-bg);
+}
+.outliner-s3-sync-btn[data-state="syncing"] {
+    opacity: 0.7;
+    cursor: wait;
+    animation: outliner-s3-sync-spin 1s linear infinite;
+}
+.outliner-s3-sync-btn[data-state="syncing"]:hover {
+    background: transparent;
+}
+.outliner-s3-sync-btn[data-state="success"] {
+    color: var(--outliner-success-color, #4caf50);
+    opacity: 1;
+}
+.outliner-s3-sync-btn[data-state="error"] {
+    color: var(--outliner-error-color, #f44336);
+    opacity: 1;
+}
+@keyframes outliner-s3-sync-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* sync 中のロック表示 (FR-OS3-08 Layer F) */
+body.outliner-sync-locked {
+    user-select: none;
+}
+.outliner-s3-sync-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 9999;
+    pointer-events: all;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    color: #fff;
+    font-family: var(--vscode-font-family, system-ui);
+    font-size: 14px;
+}
+body.outliner-sync-locked .outliner-s3-sync-overlay {
+    display: flex;
+}
+.outliner-s3-sync-overlay-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: outliner-s3-sync-spin 0.9s linear infinite;
+}
+.outliner-s3-sync-overlay-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+.outliner-s3-sync-overlay-phase {
+    opacity: 0.85;
+    font-size: 13px;
+    min-height: 1.4em;
+    text-align: center;
+    max-width: 80vw;
+}
+.outliner-s3-sync-overlay-hint {
+    opacity: 0.6;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
 .outliner-search-mode-toggle {
     background: transparent;
     border: none;
@@ -3349,19 +3437,70 @@ body {
     outline-offset: -1px;
 }
 
-/* 行 state ハイライト (table mode の text / multiselect cell)。
+/* 行 state ハイライト (table mode の text / multiselect / date cell)。
  * outline cell (.outliner-node) と同じ background を当てて行全体が同色になる */
 .outliner-cell-text.is-focused,
-.outliner-cell-multiselect.is-focused {
+.outliner-cell-multiselect.is-focused,
+.outliner-cell-date.is-focused {
     background: var(--outliner-focus-bg);
 }
 .outliner-cell-text.is-selected,
-.outliner-cell-multiselect.is-selected {
+.outliner-cell-multiselect.is-selected,
+.outliner-cell-date.is-selected {
     background: var(--outliner-selection-bg);
 }
 .outliner-cell-text.is-search-match,
-.outliner-cell-multiselect.is-search-match {
+.outliner-cell-multiselect.is-search-match,
+.outliner-cell-date.is-search-match {
     background: var(--outliner-match-bg);
+}
+
+/* timestamp cell (Created At / Updated At, readonly) */
+.outliner-cell-timestamp {
+    display: flex;
+    align-items: center;
+    padding: 0.25em 8px;
+    color: var(--outliner-fg);
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.92em;
+    user-select: text;
+    min-width: 0;
+}
+.outliner-cell-timestamp.is-focused,
+.outliner-cell-timestamp.is-selected,
+.outliner-cell-timestamp.is-search-match { opacity: 0.85; }
+
+/* timestamps toggle button (active 状態) */
+.outliner-timestamps-toggle-btn.is-active {
+    color: var(--outliner-tag-color);
+    background: var(--outliner-tag-bg);
+}
+
+/* date / datetime cell */
+.outliner-cell-date {
+    display: flex;
+    align-items: center;
+    padding: 0.25em 8px;
+    min-width: 0;
+}
+.outliner-cell-date-input {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    outline: none;
+}
+.outliner-cell-date-input:hover {
+    border-color: var(--outliner-search-border);
+}
+.outliner-cell-date-input:focus {
+    border-color: var(--outliner-tag-color);
+    background: var(--outliner-search-bg);
 }
 
 /* multiselect cell */
@@ -17557,6 +17696,13 @@ class EditorInstance {
     // Instance-aware global shortcut handler (captures closure variables)
     this._handleGlobalShortcut = async function(e) {
         const isMod = e.ctrlKey || e.metaKey;
+        // 文字キーは layout / IME / shift state に依らず確実に判定するため
+        // e.key (case-insensitive) と e.code (KeyX 等の物理 key) の両方を check
+        const keyIs = function(c) {
+            var lower = c.toLowerCase();
+            var upper = c.toUpperCase();
+            return e.key === lower || e.key === upper || e.code === 'Key' + upper;
+        };
         if (isMod && (e.key === '/' || e.key === 'n')) {
             console.log('[DEBUG] _handleGlobalShortcut key=' + e.key + ' isMainInstance=' + isMainInstance + ' isSourceMode=' + isSourceMode + ' commandPaletteVisible=' + commandPaletteVisible + ' actionPanelVisible=' + actionPanelVisible);
         }
@@ -17624,7 +17770,7 @@ class EditorInstance {
         }
 
         // Save
-        if (isMod && e.key === 's') {
+        if (isMod && keyIs('s')) {
             e.preventDefault();
             e.stopPropagation();
             // Flush pending sync before save, then reset edit flag
@@ -17639,7 +17785,7 @@ class EditorInstance {
         }
         
         // Bold (Ctrl+B)
-        if (isMod && !e.shiftKey && e.key === 'b') {
+        if (isMod && !e.shiftKey && keyIs('b')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('strong');
@@ -17648,7 +17794,7 @@ class EditorInstance {
         }
         
         // Italic (Ctrl+I)
-        if (isMod && !e.shiftKey && e.key === 'i') {
+        if (isMod && !e.shiftKey && keyIs('i')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('em');
@@ -17657,7 +17803,7 @@ class EditorInstance {
         }
         
         // Strikethrough (Ctrl+Shift+S)
-        if (isMod && e.shiftKey && e.key.toLowerCase() === 's') {
+        if (isMod && e.shiftKey && keyIs('s')) {
             e.preventDefault();
             e.stopPropagation();
             applyInlineFormat('del');
@@ -17683,7 +17829,7 @@ class EditorInstance {
         }
         
         // Unordered list (Ctrl+Shift+U)
-        if (isMod && e.shiftKey && e.key === 'U') {
+        if (isMod && e.shiftKey && keyIs('u')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('ul')) {
@@ -17693,7 +17839,7 @@ class EditorInstance {
         }
 
         // Ordered list (Ctrl+Shift+O)
-        if (isMod && e.shiftKey && e.key === 'O') {
+        if (isMod && e.shiftKey && keyIs('o')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('ol')) {
@@ -17703,7 +17849,7 @@ class EditorInstance {
         }
 
         // Task list (Ctrl+Shift+X)
-        if (isMod && e.shiftKey && e.key === 'X') {
+        if (isMod && e.shiftKey && keyIs('x')) {
             e.preventDefault();
             e.stopPropagation();
             if (!convertListToType('task')) {
@@ -17713,7 +17859,7 @@ class EditorInstance {
         }
         
         // Blockquote (Ctrl+Shift+Q)
-        if (isMod && e.shiftKey && e.key === 'Q') {
+        if (isMod && e.shiftKey && keyIs('q')) {
             e.preventDefault();
             e.stopPropagation();
             convertToBlockquote();
@@ -17721,7 +17867,7 @@ class EditorInstance {
         }
         
         // Code block (Ctrl+Shift+K)
-        if (isMod && e.shiftKey && e.key === 'K') {
+        if (isMod && e.shiftKey && keyIs('k')) {
             e.preventDefault();
             e.stopPropagation();
             convertToCodeBlock();
@@ -17729,7 +17875,7 @@ class EditorInstance {
         }
         
         // Table (Ctrl+T)
-        if (isMod && !e.shiftKey && e.key === 't') {
+        if (isMod && !e.shiftKey && keyIs('t')) {
             e.preventDefault();
             e.stopPropagation();
             insertTable();
@@ -17737,7 +17883,7 @@ class EditorInstance {
         }
         
         // Horizontal rule (Ctrl+Shift+-)
-        if (isMod && e.shiftKey && (e.key === '-' || e.key === '_')) {
+        if (isMod && e.shiftKey && (e.key === '-' || e.key === '_' || e.code === 'Minus')) {
             e.preventDefault();
             e.stopPropagation();
             insertHorizontalRule();
@@ -17757,7 +17903,7 @@ class EditorInstance {
         }
 
         // Add Page (Ctrl+N / Cmd+N)
-        if (isMod && !e.shiftKey && e.key === 'n') {
+        if (isMod && !e.shiftKey && keyIs('n')) {
             e.preventDefault();
             e.stopPropagation();
             if (actionPanelVisible) {
@@ -17769,7 +17915,7 @@ class EditorInstance {
         }
 
         // Inline code (Ctrl+\`)
-        if (isMod && !e.shiftKey && e.key === '\`') {
+        if (isMod && !e.shiftKey && (e.key === '`' || e.code === 'Backquote')) {
             e.preventDefault();
             e.stopPropagation();
             wrapWithInlineCode();
@@ -17777,7 +17923,7 @@ class EditorInstance {
         }
         
         // Link (Ctrl+K)
-        if (isMod && !e.shiftKey && e.key === 'k') {
+        if (isMod && !e.shiftKey && keyIs('k')) {
             e.preventDefault();
             e.stopPropagation();
             insertLink();
@@ -17785,7 +17931,7 @@ class EditorInstance {
         }
         
         // Image (Ctrl+Shift+I)
-        if (isMod && e.shiftKey && e.key === 'I') {
+        if (isMod && e.shiftKey && keyIs('i')) {
             e.preventDefault();
             e.stopPropagation();
             host.requestInsertImage();
@@ -17793,7 +17939,7 @@ class EditorInstance {
         }
 
         // Send selection to chat (Cmd+L / Ctrl+L)
-        if (isMod && e.key === 'l') {
+        if (isMod && keyIs('l')) {
             var chatSel = window.getSelection();
             if (!chatSel || chatSel.isCollapsed || !chatSel.rangeCount) return;
             e.preventDefault();
@@ -23155,6 +23301,8 @@ var OutlinerModel = (function() {
         this.nodes = {};
         // Phase F2: table editor 列定義 (存在時のみ反映)
         this.columns = (data.columns && Array.isArray(data.columns)) ? data.columns.slice() : [];
+        // タイムスタンプ自動列トグル (Created At / Updated At 列の表示切替)
+        this.timestampsEnabled = !!data.timestampsEnabled;
 
         // nodes のマップ化
         if (data.nodes) {
@@ -23203,6 +23351,7 @@ var OutlinerModel = (function() {
     Model.prototype.addNode = function(parentId, afterId, text) {
         var id = generateNodeId();
         text = text || '';
+        var nowIso = new Date().toISOString();
         var node = {
             id: id,
             parentId: parentId || null,
@@ -23215,7 +23364,9 @@ var OutlinerModel = (function() {
             checked: null,
             subtext: '',
             images: [],
-            filePath: null
+            filePath: null,
+            createdAt: nowIso,
+            updatedAt: nowIso
         };
 
         this.nodes[id] = node;
@@ -23241,6 +23392,7 @@ var OutlinerModel = (function() {
     Model.prototype.addNodeAtStart = function(parentId, text) {
         var id = generateNodeId();
         text = text || '';
+        var nowIso = new Date().toISOString();
         var node = {
             id: id,
             parentId: parentId || null,
@@ -23253,7 +23405,9 @@ var OutlinerModel = (function() {
             checked: null,
             subtext: '',
             images: [],
-            filePath: null
+            filePath: null,
+            createdAt: nowIso,
+            updatedAt: nowIso
         };
         this.nodes[id] = node;
         if (parentId === null || parentId === undefined) {
@@ -23290,11 +23444,23 @@ var OutlinerModel = (function() {
         delete this.nodes[nodeId];
     };
 
+    /** node.updatedAt を現在時刻 (ISO string) で更新する。
+     *  内容変更系メソッドから呼ばれる (text/subtext/image/page/file/checked etc)。
+     *  createdAt が無ければ同じ値を入れる (旧データ migration 用)。 */
+    Model.prototype.touchUpdated = function(nodeId) {
+        var node = this.nodes[nodeId];
+        if (!node) return;
+        var now = new Date().toISOString();
+        if (!node.createdAt) node.createdAt = now;
+        node.updatedAt = now;
+    };
+
     Model.prototype.updateText = function(nodeId, text) {
         var node = this.nodes[nodeId];
         if (!node) { return { triggerMakePage: false, node: node }; }
         node.text = text;
         node.tags = parseTags(text);
+        this.touchUpdated(nodeId);
         return { triggerMakePage: false, node: node };
     };
 
@@ -23302,6 +23468,7 @@ var OutlinerModel = (function() {
         var node = this.nodes[nodeId];
         if (!node) { return; }
         node.subtext = subtext || '';
+        this.touchUpdated(nodeId);
     };
 
     // --- 画像操作 ---
@@ -23311,6 +23478,7 @@ var OutlinerModel = (function() {
         if (node) {
             if (!node.images) { node.images = []; }
             node.images.push(imagePath);
+            this.touchUpdated(nodeId);
         }
     };
 
@@ -23318,6 +23486,7 @@ var OutlinerModel = (function() {
         var node = this.nodes[nodeId];
         if (node && node.images && index >= 0 && index < node.images.length) {
             node.images.splice(index, 1);
+            this.touchUpdated(nodeId);
         }
     };
 
@@ -23327,6 +23496,7 @@ var OutlinerModel = (function() {
             var img = node.images.splice(fromIndex, 1)[0];
             if (toIndex > fromIndex) { toIndex--; }
             node.images.splice(toIndex, 0, img);
+            this.touchUpdated(nodeId);
         }
     };
 
@@ -23609,6 +23779,9 @@ var OutlinerModel = (function() {
         // Phase F2: table editor 列定義 (存在時のみ)
         if (this.columns && Array.isArray(this.columns) && this.columns.length > 0) {
             data.columns = JSON.parse(JSON.stringify(this.columns));
+        }
+        if (this.timestampsEnabled) {
+            data.timestampsEnabled = true;
         }
         return data;
     };
@@ -24041,12 +24214,95 @@ var Outliner = (function() {
             : 'Switch to Outline view';
     }
 
+    function updateTimestampsToggleButton() {
+        if (!timestampsToggleBtn) return;
+        var on = !!(model && model.timestampsEnabled);
+        timestampsToggleBtn.classList.toggle('is-active', on);
+        var i18n = (window.__outlinerMessages && window.__outlinerMessages) || {};
+        timestampsToggleBtn.title = on
+            ? (i18n.timestampsHide || 'Hide Created At / Updated At columns')
+            : (i18n.timestampsShow || 'Show Created At / Updated At columns');
+    }
+
+    /** Created At / Updated At 列を model.columns に追加 / 除去 */
+    function toggleTimestampsColumns() {
+        if (!model) return;
+        saveSnapshot();
+        model.timestampsEnabled = !model.timestampsEnabled;
+        if (!model.columns) model.columns = [];
+        if (model.timestampsEnabled) {
+            // Outliner 列の確保 (table view を初めて使う場合)
+            ensureColumnsForTable();
+            // すでに存在しなければ追加
+            var hasCreated = model.columns.some(function (c) { return c.type === 'createdAt'; });
+            var hasUpdated = model.columns.some(function (c) { return c.type === 'updatedAt'; });
+            var i18n = window.__outlinerMessages || {};
+            if (!hasCreated) {
+                model.columns.push({
+                    id: 'col_createdAt',
+                    type: 'createdAt',
+                    name: i18n.columnCreatedAt || 'Created At',
+                    width: DEFAULT_OTHER_COL_WIDTH || 180
+                });
+            }
+            if (!hasUpdated) {
+                model.columns.push({
+                    id: 'col_updatedAt',
+                    type: 'updatedAt',
+                    name: i18n.columnUpdatedAt || 'Updated At',
+                    width: DEFAULT_OTHER_COL_WIDTH || 180
+                });
+            }
+        } else {
+            // 自動追加した型の列のみ削除 (ユーザーが追加した text/date 列は残す)
+            model.columns = model.columns.filter(function (c) {
+                return c.type !== 'createdAt' && c.type !== 'updatedAt';
+            });
+        }
+        updateTimestampsToggleButton();
+        renderTree();
+        scheduleSyncToHost();
+    }
+
+    /** ISO 文字列を読みやすい表示に変換 (Created At / Updated At 列で使用) */
+    function formatTimestamp(iso, withTime) {
+        if (!iso) return '';
+        try {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            if (!withTime) return y + '-' + m + '-' + day;
+            var h = String(d.getHours()).padStart(2, '0');
+            var min = String(d.getMinutes()).padStart(2, '0');
+            return y + '-' + m + '-' + day + ' ' + h + ':' + min;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /** Created At / Updated At セル (read-only、node.createdAt/updatedAt から表示) */
+    function createTimestampCellElement(node, col, searchQuery) {
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-timestamp';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        el.dataset.colType = col.type;
+        applyRowStateClasses(el, node, searchQuery);
+        var iso = (col.type === 'createdAt') ? node.createdAt : node.updatedAt;
+        el.textContent = formatTimestamp(iso, true);
+        el.title = iso || '';
+        return el;
+    }
+
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
     var undoBtn = null;              // undo button element
     var redoBtn = null;              // redo button element
     var viewToggleBtn = null;        // Phase F3: outliner ⇄ table view toggle
+    var timestampsToggleBtn = null;  // Created At / Updated At 自動列トグル
     var contextMenuEl = null;
 
     var syncDebounceTimer = null;
@@ -24099,7 +24355,9 @@ var Outliner = (function() {
         'pinnedTags', 'searchFocusMode', 'sidePanelWidth', 'sidePanelOutlineWidth',
         'schemaVersion',
         // Phase F2: 列定義は model 側で serialize されるので known
-        'columns'
+        'columns',
+        // タイムスタンプ自動列トグル (model 経由で serialize)
+        'timestampsEnabled'
     ];
 
     function captureRawDataExtras(data) {
@@ -24533,6 +24791,8 @@ var Outliner = (function() {
     // Phase F3: outliner / table view 切替アイコン
     var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
     var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+    // タイムスタンプ自動列トグル (時計アイコン)
+    var ICON_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 
     function init(data, outFileKey) {
         host = window.outlinerHostBridge;
@@ -24588,6 +24848,7 @@ var Outliner = (function() {
         navBackBtn = document.querySelector('.outliner-nav-back-btn');
         navForwardBtn = document.querySelector('.outliner-nav-forward-btn');
         viewToggleBtn = document.querySelector('.outliner-view-toggle-btn');
+        timestampsToggleBtn = document.querySelector('.outliner-timestamps-toggle-btn');
 
         // ページタイトル
         pageTitleEl = document.querySelector('.outliner-page-title');
@@ -24617,6 +24878,13 @@ var Outliner = (function() {
                 updateViewToggleButton();
             });
         }
+        if (timestampsToggleBtn) {
+            timestampsToggleBtn.innerHTML = ICON_CLOCK;
+            updateTimestampsToggleButton();
+            timestampsToggleBtn.addEventListener('click', function () {
+                toggleTimestampsColumns();
+            });
+        }
 
         renderTree();
         setupSearchBar();
@@ -24628,6 +24896,7 @@ var Outliner = (function() {
         setupHostMessages();
         setupTextSearchReplace();
         initSidePanel();
+        setupS3SyncButton();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
@@ -25112,6 +25381,10 @@ var Outliner = (function() {
                 cellEl = createTextCellElement(node, col, searchQuery);
             } else if (col.type === 'multiselect') {
                 cellEl = createMultiselectCellElement(node, col, searchQuery);
+            } else if (col.type === 'date' || col.type === 'datetime') {
+                cellEl = createDateCellElement(node, col, searchQuery);
+            } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
+                cellEl = createTimestampCellElement(node, col, searchQuery);
             } else {
                 cellEl = document.createElement('div');
                 cellEl.className = 'outliner-cell-unknown';
@@ -25140,6 +25413,10 @@ var Outliner = (function() {
                     cellEl = createTextCellElement(node, col, searchQuery);
                 } else if (col.type === 'multiselect') {
                     cellEl = createMultiselectCellElement(node, col, searchQuery);
+                } else if (col.type === 'date' || col.type === 'datetime') {
+                    cellEl = createDateCellElement(node, col, searchQuery);
+                } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
+                    cellEl = createTimestampCellElement(node, col, searchQuery);
                 } else {
                     cellEl = document.createElement('div');
                     cellEl.className = 'outliner-cell-unknown';
@@ -25534,6 +25811,46 @@ var Outliner = (function() {
                 n.columnValues[col.id] = n.columnValues[col.id].filter(function (id) { return id !== optId; });
             }
         }
+    }
+
+    /** date / datetime 列セル: input[type=date] / input[type=datetime-local]
+     *  値は ISO-ish (YYYY-MM-DD or YYYY-MM-DDTHH:mm) を columnValues に保存。
+     *  クリック前は読み取りやすい表示、focus で input へ切替。 */
+    function createDateCellElement(node, col, searchQuery) {
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-date';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        el.dataset.colType = col.type;
+        applyRowStateClasses(el, node, searchQuery);
+
+        var isDateTime = (col.type === 'datetime');
+        var input = document.createElement('input');
+        input.type = isDateTime ? 'datetime-local' : 'date';
+        input.className = 'outliner-cell-date-input';
+        var rawValue = getCellValue(node.id, col.id, col.type) || '';
+        input.value = rawValue;
+
+        input.addEventListener('change', function () {
+            setCellValue(node.id, col.id, input.value || '');
+            if (typeof model.touchUpdated === 'function') {
+                model.touchUpdated(node.id);
+            }
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        // Cmd/Ctrl + 矢印キー: テーブル内セル移動 (text cell と同等)
+        input.addEventListener('keydown', function (e) {
+            if (handleTableCellArrowKey(input, e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        });
+
+        el.appendChild(input);
+        return el;
     }
 
     function createMultiselectCellElement(node, col, searchQuery) {
@@ -26004,8 +26321,12 @@ var Outliner = (function() {
         typeSelect.className = 'outliner-add-col-type';
         var optText = document.createElement('option'); optText.value = 'text'; optText.textContent = 'Text';
         var optMs = document.createElement('option'); optMs.value = 'multiselect'; optMs.textContent = 'Multi-select';
+        var optDate = document.createElement('option'); optDate.value = 'date'; optDate.textContent = 'Date';
+        var optDt = document.createElement('option'); optDt.value = 'datetime'; optDt.textContent = 'Date & Time';
         typeSelect.appendChild(optText);
         typeSelect.appendChild(optMs);
+        typeSelect.appendChild(optDate);
+        typeSelect.appendChild(optDt);
         dialog.appendChild(typeSelect);
 
         var btnRow = document.createElement('div');
@@ -27526,6 +27847,23 @@ var Outliner = (function() {
                         return;
                     }
                 }
+                // `[ ]` / `[x]` + space → チェックボックス変換 (MD task list と同じ)
+                // 条件: text 全体が `[ ]` / `[]` / `[x]` / `[X]` で、cursor が末尾
+                var checkboxPreText = getPlainText(textEl);
+                if (offset === checkboxPreText.length) {
+                    var cbMatch = checkboxPreText.match(/^\[([ xX]?)\]$/);
+                    if (cbMatch) {
+                        e.preventDefault();
+                        saveSnapshot();
+                        var isChecked = (cbMatch[1] === 'x' || cbMatch[1] === 'X');
+                        node.checked = isChecked;
+                        model.updateText(nodeId, '');
+                        renderTree();
+                        focusNode(nodeId);
+                        scheduleSyncToHost();
+                        return;
+                    }
+                }
                 // Space 確定時に @page チェック
                 // デフォルト動作は許可 (preventDefault しない)
                 setTimeout(function() {
@@ -27835,6 +28173,22 @@ var Outliner = (function() {
             e.preventDefault();
             e.stopPropagation();
             openTextSearchBox(true);
+            return;
+        }
+
+        // Cmd+Shift+X: チェックボックスのトグル (なければ追加、あれば true ⇄ false)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveSnapshot();
+            if (node.checked === null || node.checked === undefined) {
+                node.checked = false;
+            } else {
+                node.checked = !node.checked;
+            }
+            renderTree();
+            focusNode(nodeId);
+            scheduleSyncToHost();
             return;
         }
 
@@ -30527,9 +30881,117 @@ var Outliner = (function() {
         }
     }
 
+    // FR-OS3-01 / D-08 / D-09: outliner-toolbar-s3-sync 関連
+    function setupS3SyncButton() {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+            if (btn.dataset.state !== 'idle') return;
+            var id = extractOutlinerIdFromKey(currentOutFileKey);
+            if (!id) {
+                console.warn('[outliner-s3-sync] outlinerId 抽出失敗', currentOutFileKey);
+                return;
+            }
+            // bridge 経由で host にメッセージ送信
+            if (host && typeof host.outlinerS3SyncRequest === 'function') {
+                host.outlinerS3SyncRequest(id);
+            } else {
+                console.error('[outliner-s3-sync] host.outlinerS3SyncRequest が定義されていない');
+            }
+        });
+    }
+
+    function extractOutlinerIdFromKey(key) {
+        if (!key) return null;
+        var m = String(key).match(/([^/\\]+)\.out$/);
+        return m ? m[1] : null;
+    }
+
+    function enterSyncLock() {
+        // 編集中フラグ強制 false + timer clear (D-08)
+        isActivelyEditing = false;
+        if (editingIdleTimer) { clearTimeout(editingIdleTimer); editingIdleTimer = null; }
+        if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
+            clearTimeout(syncDebounceTimer); syncDebounceTimer = null;
+        }
+        queuedExternalUpdate = null;
+        document.body.classList.add('outliner-sync-locked');
+        updateSyncOverlayPhase('Preparing…');
+    }
+
+    function updateSyncOverlayPhase(message) {
+        var el = document.querySelector('.outliner-s3-sync-overlay-phase');
+        if (el) el.textContent = message || '';
+    }
+
+    function applySyncedData(newData) {
+        // D-09 / H1 修正: Notes ファイル切替 path と同等処理
+        // listener teardown せず、Outliner.init は再呼び出ししない
+        if (newData) {
+            model = new OutlinerModel(newData);
+            searchEngine = new OutlinerSearch.SearchEngine(model);
+            rawDataExtras = captureRawDataExtras(newData);
+            pageDir = newData.pageDir || null;
+            pinnedTags = newData.pinnedTags || [];
+            updatePinnedTagBar();
+            navBackStack.length = 0;
+            navForwardStack.length = 0;
+            updateNavButtons();
+            currentSearchResult = null;
+            currentScope = { type: 'document' };
+            updateBreadcrumb();
+            renderTree();
+            saveBaseline();
+            updateScopeSearchIndicator();
+        }
+        try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
+        document.body.classList.remove('outliner-sync-locked');
+        isActivelyEditing = false;
+    }
+
+    function updateSyncButtonState(state, tooltip) {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.dataset.state = state;
+        if (tooltip) btn.title = tooltip;
+        if (state === 'success') {
+            setTimeout(function() {
+                btn.dataset.state = 'idle';
+                btn.title = 'Sync to/from S3';
+            }, 2000);
+        } else if (state === 'syncing') {
+            btn.title = 'Syncing…';
+        } else if (state === 'idle') {
+            btn.title = 'Sync to/from S3';
+        }
+    }
+
+    function updateSyncButtonVisibility(visible) {
+        var btn = document.querySelector('.outliner-s3-sync-btn');
+        if (!btn) return;
+        btn.style.display = visible ? 'flex' : 'none';
+    }
+
     function setupHostMessages() {
         host.onMessage(function(msg) {
             switch (msg.type) {
+                // FR-OS3-08 / D-08: outliner-toolbar-s3-sync 経路
+                case 'sync-lock':
+                    enterSyncLock();
+                    break;
+                case 'sync-applied':
+                    applySyncedData(msg.data);
+                    break;
+                case 'sync-button-state':
+                    updateSyncButtonState(msg.state, msg.tooltip);
+                    break;
+                case 'sync-button-visibility':
+                    updateSyncButtonVisibility(msg.visible);
+                    break;
+                case 'sync-progress':
+                    updateSyncOverlayPhase(msg.message || '');
+                    break;
+
                 case 'updateNodeImages': {
                     // host が paste asset (copy/move) 完了後に新 images path を返してくる
                     if (!msg.nodeId) break;
@@ -31416,6 +31878,15 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
+        // FR-OS3-08 Layer F: sync 中は全キー入力を swallow
+        document.addEventListener('keydown', function(e) {
+            if (document.body.classList.contains('outliner-sync-locked')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        }, true);  // capture 段階で先取り
+
         // 検索ボックスを undo/redo 対象から完全に外すための **多段防御層**:
         // - cmd+z / cmd+shift+z / cmd+y で、searchInput.value を保存し
         //   イベント処理完了後に強制復元する。

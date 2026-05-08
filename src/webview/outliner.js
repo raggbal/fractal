@@ -75,12 +75,95 @@ var Outliner = (function() {
             : 'Switch to Outline view';
     }
 
+    function updateTimestampsToggleButton() {
+        if (!timestampsToggleBtn) return;
+        var on = !!(model && model.timestampsEnabled);
+        timestampsToggleBtn.classList.toggle('is-active', on);
+        var i18n = (window.__outlinerMessages && window.__outlinerMessages) || {};
+        timestampsToggleBtn.title = on
+            ? (i18n.timestampsHide || 'Hide Created At / Updated At columns')
+            : (i18n.timestampsShow || 'Show Created At / Updated At columns');
+    }
+
+    /** Created At / Updated At 列を model.columns に追加 / 除去 */
+    function toggleTimestampsColumns() {
+        if (!model) return;
+        saveSnapshot();
+        model.timestampsEnabled = !model.timestampsEnabled;
+        if (!model.columns) model.columns = [];
+        if (model.timestampsEnabled) {
+            // Outliner 列の確保 (table view を初めて使う場合)
+            ensureColumnsForTable();
+            // すでに存在しなければ追加
+            var hasCreated = model.columns.some(function (c) { return c.type === 'createdAt'; });
+            var hasUpdated = model.columns.some(function (c) { return c.type === 'updatedAt'; });
+            var i18n = window.__outlinerMessages || {};
+            if (!hasCreated) {
+                model.columns.push({
+                    id: 'col_createdAt',
+                    type: 'createdAt',
+                    name: i18n.columnCreatedAt || 'Created At',
+                    width: DEFAULT_OTHER_COL_WIDTH || 180
+                });
+            }
+            if (!hasUpdated) {
+                model.columns.push({
+                    id: 'col_updatedAt',
+                    type: 'updatedAt',
+                    name: i18n.columnUpdatedAt || 'Updated At',
+                    width: DEFAULT_OTHER_COL_WIDTH || 180
+                });
+            }
+        } else {
+            // 自動追加した型の列のみ削除 (ユーザーが追加した text/date 列は残す)
+            model.columns = model.columns.filter(function (c) {
+                return c.type !== 'createdAt' && c.type !== 'updatedAt';
+            });
+        }
+        updateTimestampsToggleButton();
+        renderTree();
+        scheduleSyncToHost();
+    }
+
+    /** ISO 文字列を読みやすい表示に変換 (Created At / Updated At 列で使用) */
+    function formatTimestamp(iso, withTime) {
+        if (!iso) return '';
+        try {
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            if (!withTime) return y + '-' + m + '-' + day;
+            var h = String(d.getHours()).padStart(2, '0');
+            var min = String(d.getMinutes()).padStart(2, '0');
+            return y + '-' + m + '-' + day + ' ' + h + ':' + min;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /** Created At / Updated At セル (read-only、node.createdAt/updatedAt から表示) */
+    function createTimestampCellElement(node, col, searchQuery) {
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-timestamp';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        el.dataset.colType = col.type;
+        applyRowStateClasses(el, node, searchQuery);
+        var iso = (col.type === 'createdAt') ? node.createdAt : node.updatedAt;
+        el.textContent = formatTimestamp(iso, true);
+        el.title = iso || '';
+        return el;
+    }
+
     var pinnedTags = [];             // 固定タグ配列 (例: ['#TASK', '#TODO'])
     var searchModeToggleBtn = null;  // toggle button element
     var menuBtn = null;              // menu button element
     var undoBtn = null;              // undo button element
     var redoBtn = null;              // redo button element
     var viewToggleBtn = null;        // Phase F3: outliner ⇄ table view toggle
+    var timestampsToggleBtn = null;  // Created At / Updated At 自動列トグル
     var contextMenuEl = null;
 
     var syncDebounceTimer = null;
@@ -133,7 +216,9 @@ var Outliner = (function() {
         'pinnedTags', 'searchFocusMode', 'sidePanelWidth', 'sidePanelOutlineWidth',
         'schemaVersion',
         // Phase F2: 列定義は model 側で serialize されるので known
-        'columns'
+        'columns',
+        // タイムスタンプ自動列トグル (model 経由で serialize)
+        'timestampsEnabled'
     ];
 
     function captureRawDataExtras(data) {
@@ -567,6 +652,8 @@ var Outliner = (function() {
     // Phase F3: outliner / table view 切替アイコン
     var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
     var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+    // タイムスタンプ自動列トグル (時計アイコン)
+    var ICON_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 
     function init(data, outFileKey) {
         host = window.outlinerHostBridge;
@@ -622,6 +709,7 @@ var Outliner = (function() {
         navBackBtn = document.querySelector('.outliner-nav-back-btn');
         navForwardBtn = document.querySelector('.outliner-nav-forward-btn');
         viewToggleBtn = document.querySelector('.outliner-view-toggle-btn');
+        timestampsToggleBtn = document.querySelector('.outliner-timestamps-toggle-btn');
 
         // ページタイトル
         pageTitleEl = document.querySelector('.outliner-page-title');
@@ -649,6 +737,13 @@ var Outliner = (function() {
             viewToggleBtn.addEventListener('click', function () {
                 setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
                 updateViewToggleButton();
+            });
+        }
+        if (timestampsToggleBtn) {
+            timestampsToggleBtn.innerHTML = ICON_CLOCK;
+            updateTimestampsToggleButton();
+            timestampsToggleBtn.addEventListener('click', function () {
+                toggleTimestampsColumns();
             });
         }
 
@@ -1147,6 +1242,10 @@ var Outliner = (function() {
                 cellEl = createTextCellElement(node, col, searchQuery);
             } else if (col.type === 'multiselect') {
                 cellEl = createMultiselectCellElement(node, col, searchQuery);
+            } else if (col.type === 'date' || col.type === 'datetime') {
+                cellEl = createDateCellElement(node, col, searchQuery);
+            } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
+                cellEl = createTimestampCellElement(node, col, searchQuery);
             } else {
                 cellEl = document.createElement('div');
                 cellEl.className = 'outliner-cell-unknown';
@@ -1175,6 +1274,10 @@ var Outliner = (function() {
                     cellEl = createTextCellElement(node, col, searchQuery);
                 } else if (col.type === 'multiselect') {
                     cellEl = createMultiselectCellElement(node, col, searchQuery);
+                } else if (col.type === 'date' || col.type === 'datetime') {
+                    cellEl = createDateCellElement(node, col, searchQuery);
+                } else if (col.type === 'createdAt' || col.type === 'updatedAt') {
+                    cellEl = createTimestampCellElement(node, col, searchQuery);
                 } else {
                     cellEl = document.createElement('div');
                     cellEl.className = 'outliner-cell-unknown';
@@ -1569,6 +1672,46 @@ var Outliner = (function() {
                 n.columnValues[col.id] = n.columnValues[col.id].filter(function (id) { return id !== optId; });
             }
         }
+    }
+
+    /** date / datetime 列セル: input[type=date] / input[type=datetime-local]
+     *  値は ISO-ish (YYYY-MM-DD or YYYY-MM-DDTHH:mm) を columnValues に保存。
+     *  クリック前は読み取りやすい表示、focus で input へ切替。 */
+    function createDateCellElement(node, col, searchQuery) {
+        var el = document.createElement('div');
+        el.className = 'outliner-cell-date';
+        el.dataset.nodeId = node.id;
+        el.dataset.colId = col.id;
+        el.dataset.colType = col.type;
+        applyRowStateClasses(el, node, searchQuery);
+
+        var isDateTime = (col.type === 'datetime');
+        var input = document.createElement('input');
+        input.type = isDateTime ? 'datetime-local' : 'date';
+        input.className = 'outliner-cell-date-input';
+        var rawValue = getCellValue(node.id, col.id, col.type) || '';
+        input.value = rawValue;
+
+        input.addEventListener('change', function () {
+            setCellValue(node.id, col.id, input.value || '');
+            if (typeof model.touchUpdated === 'function') {
+                model.touchUpdated(node.id);
+            }
+            saveSnapshotDebounced();
+            scheduleSyncToHost();
+        });
+
+        // Cmd/Ctrl + 矢印キー: テーブル内セル移動 (text cell と同等)
+        input.addEventListener('keydown', function (e) {
+            if (handleTableCellArrowKey(input, e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+        });
+
+        el.appendChild(input);
+        return el;
     }
 
     function createMultiselectCellElement(node, col, searchQuery) {
@@ -2039,8 +2182,12 @@ var Outliner = (function() {
         typeSelect.className = 'outliner-add-col-type';
         var optText = document.createElement('option'); optText.value = 'text'; optText.textContent = 'Text';
         var optMs = document.createElement('option'); optMs.value = 'multiselect'; optMs.textContent = 'Multi-select';
+        var optDate = document.createElement('option'); optDate.value = 'date'; optDate.textContent = 'Date';
+        var optDt = document.createElement('option'); optDt.value = 'datetime'; optDt.textContent = 'Date & Time';
         typeSelect.appendChild(optText);
         typeSelect.appendChild(optMs);
+        typeSelect.appendChild(optDate);
+        typeSelect.appendChild(optDt);
         dialog.appendChild(typeSelect);
 
         var btnRow = document.createElement('div');
@@ -3561,6 +3708,23 @@ var Outliner = (function() {
                         return;
                     }
                 }
+                // `[ ]` / `[x]` + space → チェックボックス変換 (MD task list と同じ)
+                // 条件: text 全体が `[ ]` / `[]` / `[x]` / `[X]` で、cursor が末尾
+                var checkboxPreText = getPlainText(textEl);
+                if (offset === checkboxPreText.length) {
+                    var cbMatch = checkboxPreText.match(/^\[([ xX]?)\]$/);
+                    if (cbMatch) {
+                        e.preventDefault();
+                        saveSnapshot();
+                        var isChecked = (cbMatch[1] === 'x' || cbMatch[1] === 'X');
+                        node.checked = isChecked;
+                        model.updateText(nodeId, '');
+                        renderTree();
+                        focusNode(nodeId);
+                        scheduleSyncToHost();
+                        return;
+                    }
+                }
                 // Space 確定時に @page チェック
                 // デフォルト動作は許可 (preventDefault しない)
                 setTimeout(function() {
@@ -3870,6 +4034,22 @@ var Outliner = (function() {
             e.preventDefault();
             e.stopPropagation();
             openTextSearchBox(true);
+            return;
+        }
+
+        // Cmd+Shift+X: チェックボックスのトグル (なければ追加、あれば true ⇄ false)
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
+            e.preventDefault();
+            e.stopPropagation();
+            saveSnapshot();
+            if (node.checked === null || node.checked === undefined) {
+                node.checked = false;
+            } else {
+                node.checked = !node.checked;
+            }
+            renderTree();
+            focusNode(nodeId);
+            scheduleSyncToHost();
             return;
         }
 

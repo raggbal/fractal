@@ -121,6 +121,7 @@ export function getOutlinerWebviewContent(
                 <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
                 <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
                 <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
+                <button class="outliner-timestamps-toggle-btn" title="Show Created At / Updated At columns"></button>
                 <button class="outliner-menu-btn" title="Menu"></button>
             </div>
             <div class="outliner-breadcrumb"></div>
