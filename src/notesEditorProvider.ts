@@ -1086,25 +1086,7 @@ export class NotesEditorProvider {
     ): Promise<void> {
         // BUG FIX: webview の未保存編集を debounce 待たず即 disk に書く
         // (saveCurrentFile は 1s debounce、sync 開始時点で disk に未反映の可能性がある)
-        const dbgOutFile = path.join(folderPath, `${outlinerId}.out`);
-        console.log('[OutlinerS3Sync][DBG] handleOutlinerS3Sync start', {
-            outlinerId, folderPath,
-            currentFilePath: fileManager.getCurrentFilePath(),
-            saveTimerActive: !!(fileManager as any).saveTimer,
-            lastJsonStringLen: ((fileManager as any).lastJsonString || '').length,
-            diskOutSize: (() => { try { return fs.statSync(dbgOutFile).size; } catch { return -1; }})(),
-        });
         fileManager.flushSave();
-        console.log('[OutlinerS3Sync][DBG] after flushSave', {
-            diskOutSize: (() => { try { return fs.statSync(dbgOutFile).size; } catch { return -1; }})(),
-            diskOutHasPageId: (() => {
-                try {
-                    const text = fs.readFileSync(dbgOutFile, 'utf8');
-                    const matches = text.match(/"pageId":\s*"[^"]+"/g) || [];
-                    return matches.length;
-                } catch { return -1; }
-            })(),
-        });
 
         const bucketPath = (fileManager.getS3BucketPath() || '').trim();
         if (!bucketPath) {

@@ -4345,19 +4345,6 @@ var Outliner = (function() {
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        // DEBUG
-        try {
-            var dbgPidCount = 0;
-            for (var nid in (model.nodes || {})) {
-                if (model.nodes[nid] && model.nodes[nid].pageId) dbgPidCount++;
-            }
-            console.log('[OutlinerS3Sync][DBG] makePage called', {
-                nodeId, newPageId: pageId,
-                nodeCount: Object.keys(model.nodes || {}).length,
-                pageIdCount: dbgPidCount,
-            });
-        } catch (e) {}
-
         host.makePage(nodeId, pageId, node.text);
         renderTree();
         scheduleSyncToHost();
@@ -6372,17 +6359,6 @@ var Outliner = (function() {
     function syncToHostImmediate() {
         clearTimeout(syncDebounceTimer);
         var data = model.serialize();
-        // DEBUG
-        try {
-            var dbgPidCount = 0;
-            for (var nid in (data.nodes || {})) {
-                if (data.nodes[nid] && data.nodes[nid].pageId) dbgPidCount++;
-            }
-            console.log('[OutlinerS3Sync][DBG] syncToHostImmediate', {
-                nodeCount: Object.keys(data.nodes || {}).length,
-                pageIdCount: dbgPidCount,
-            });
-        } catch (e) {}
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
         if (imageDir) { data.imageDir = imageDir; }
@@ -6630,20 +6606,6 @@ var Outliner = (function() {
     }
 
     function applySyncedData(newData) {
-        // DEBUG
-        try {
-            var dbgPageCount = 0;
-            if (newData && newData.nodes) {
-                for (var nid in newData.nodes) {
-                    if (newData.nodes[nid] && newData.nodes[nid].pageId) dbgPageCount++;
-                }
-            }
-            console.log('[OutlinerS3Sync][DBG] applySyncedData', {
-                hasData: !!newData,
-                nodeCount: newData && newData.nodes ? Object.keys(newData.nodes).length : -1,
-                pageIdCount: dbgPageCount,
-            });
-        } catch (e) {}
         // D-09 / H1 修正: Notes ファイル切替 path と同等処理
         // listener teardown せず、Outliner.init は再呼び出ししない
         if (newData) {
@@ -6869,19 +6831,6 @@ var Outliner = (function() {
                         newNode.pageId = r.pageId;
                         lastInsertedId = newNode.id;
                     }
-
-                    // DEBUG
-                    try {
-                        var dbgPidCount2 = 0;
-                        for (var nid in (model.nodes || {})) {
-                            if (model.nodes[nid] && model.nodes[nid].pageId) dbgPidCount2++;
-                        }
-                        console.log('[OutlinerS3Sync][DBG] importMdFilesResult done', {
-                            results: results.length,
-                            nodeCount: Object.keys(model.nodes || {}).length,
-                            pageIdCount: dbgPidCount2,
-                        });
-                    } catch (e) {}
 
                     renderTree();
                     if (lastInsertedId) focusNode(lastInsertedId);

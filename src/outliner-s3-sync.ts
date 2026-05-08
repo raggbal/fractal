@@ -118,14 +118,6 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
         const s3OutInfo = await getS3ObjectInfo(bucket, s3OutKey, opts.s3Config);
         const localOutInfo = getLocalFileInfo(localOutFile);
         const outAction = decideSyncDirection(s3OutInfo, localOutInfo);
-        // DEBUG: log decision for .out
-        console.log('[OutlinerS3Sync][DBG] Phase 4a .out decision', {
-            outlinerId: opts.outlinerId,
-            s3Key: s3OutKey,
-            s3Info: s3OutInfo ? { mtime: s3OutInfo.mtime.toISOString(), size: s3OutInfo.size } : null,
-            localInfo: localOutInfo ? { mtime: localOutInfo.mtime.toISOString(), size: localOutInfo.size } : null,
-            decision: outAction,
-        });
         opts.onProgress({ phase: 'transferring', message: `Syncing <id>.out (${outAction})…` });
         await executeFileTransfer(
             { action: outAction, relPath: '', s3Info: s3OutInfo, localInfo: localOutInfo },
@@ -150,22 +142,6 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
         // Phase 6: re-init webview
         opts.onProgress({ phase: 'reiniting', message: 'Reloading editor…' });
         const newData = await readOutlinerFromDisk(localOutFile);
-        // DEBUG: log newData
-        const newDataPageIdCount = (() => {
-            try {
-                const nodes = newData?.nodes || {};
-                let count = 0;
-                for (const id in nodes) {
-                    if (nodes[id]?.pageId) count++;
-                }
-                return count;
-            } catch { return -1; }
-        })();
-        console.log('[OutlinerS3Sync][DBG] Phase 6 reinit newData', {
-            outlinerId: opts.outlinerId,
-            nodeCount: newData?.nodes ? Object.keys(newData.nodes).length : -1,
-            pageIdCount: newDataPageIdCount,
-        });
         await unlockAndReinit(opts.panel, newData);
 
         opts.onProgress({ phase: 'success', message: 'Sync complete' });

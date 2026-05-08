@@ -5,6 +5,26 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.204.0] - 2026-05-08
+
+### Added
+- **Outliner editor toolbar S3 同期ボタン** — Notes mode で `S3 Bucket Path` (NT-09 設定) が設定済みの outliner editor に同期ボタンを追加。クリックで `<id>.out` + `<id>/` フォルダ配下を S3 と双方向同期 (note 全体ではなく開いている outliner だけが対象)
+- **per-file mtime 比較による true newer-wins** — `aws s3 sync` の「size 違いで強制転送」副作用を回避するため、`aws s3api head-object` / `list-objects-v2` で per-file mtime 比較した後、`aws s3 cp` または一括 `aws s3 sync` で転送。別マシン編集が古いローカルで上書きされない
+- **VSCode キャッシュ対策 6 層** — sync 中の webview lock + 編集禁止 overlay (進捗 phase 表示)、TextDocument flush + revert、webview model 完全再構築、複数 panel broadcast、persistent state クリア、mtime invalidation token
+
+### Changed
+- **NT-09 Sync (Backup) を双方向 newer-wins に統一** — 旧: `aws s3 sync local s3 --delete` で local→S3 片方向 + S3-only ファイル削除。新: 双方向 per-file mtime newer-wins、`--delete` 不使用 (片側のみのファイルは保持)
+- **NT-09 Local Delete & Download 後の panel 完全再生成** — 旧: `openNotesFolder` で reveal するだけで webview 内 state が古いまま。新: panel `dispose()` → 再生成で完全 cache reset
+- **NT-09 Remote Delete & Upload + Sync (Backup) に webview lock 追加** — 操作中の意図せぬ user 編集をブロック
+
+### Fixed
+- **`_writeFile` の content 一致時 skip** — webview が頻繁に syncData を送る時、内容変更なしの wasteful 書込で local mtime が NOW に更新されると別マシンで真に編集された S3 側より local が新しく見えて誤って upload してしまう問題を回避 (mtime 不変保証)
+- **NT-09 sync 後の outliner sync で page 添付が消える致命バグ** — `revertAndReinitNotePanel` で `updateData` に `fileChangeId: Date.now()` を渡していたため bridge の `currentFileChangeId` が異常な値で固定 → 後続 syncData が host 側で stale 判定で破棄 → page MD 添付後の outliner sync で disk が古い content のまま webview reinit され page アイコン消失。`updateData` 送信を削除し `sync-applied` のみで model リセットに修正
+- **`aws s3 sync` 大量ファイル時の極端な低速** — 旧: `--include` filter 評価で 10000 ファイル ~3 時間。新: filtered upload + unfiltered download (skip 候補は事前 mtime align で aws CLI も skip 判定) で同 10000 ファイル ~2 分
+
+### Notes
+- `--delete` を使わない方針のため、別マシンで削除されたファイルは local に残る (orphan)。clean したい時は Tools タブの **Clean Unused Files** → **Remote Delete & Upload** を順に実行
+
 ## [0.203.23] - 2026-05-07
 
 ### Changed

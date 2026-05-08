@@ -598,26 +598,17 @@ export class NotesFileManager {
     private _writeFile(jsonString: string): void {
         if (!this.currentFilePath) return;
         // BUG FIX: 内容が disk と同じなら書かない (mtime 不変を保証)
+        // outliner-toolbar-s3-sync の sync 判定が mtime に依存するため、内容変更なしの
+        // wasteful 書込で mtime が NOW に更新されると、別マシンで真に編集された S3 側より
+        // local が新しく見えて誤って upload してしまう。
         try {
             const existing = fs.readFileSync(this.currentFilePath, 'utf8');
             if (existing === jsonString) {
-                console.log('[NotesFileManager][DBG] _writeFile: content matches disk, skip', {
-                    path: this.currentFilePath, len: jsonString.length,
-                });
                 this.isDirty = false;
                 return;
             }
-            console.log('[NotesFileManager][DBG] _writeFile: content differs, will write', {
-                path: this.currentFilePath,
-                existingLen: existing.length, newLen: jsonString.length,
-                existingPageIdCount: (existing.match(/"pageId":\s*"[^"]+"/g) || []).length,
-                newPageIdCount: (jsonString.match(/"pageId":\s*"[^"]+"/g) || []).length,
-            });
         } catch {
             // disk に未存在 (新規ファイル等) → そのまま書く
-            console.log('[NotesFileManager][DBG] _writeFile: disk read fail, will write', {
-                path: this.currentFilePath, newLen: jsonString.length,
-            });
         }
         try {
             this.isWriting = true;
