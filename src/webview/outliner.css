@@ -299,6 +299,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 1;
 }
 
+/* タスク系 (task-mode / filter / archive) は右端に寄せる。
+   margin-left: auto で前のボタン群との間に余白を取る */
+.outliner-task-mode-toggle-btn {
+    margin-left: auto;
+}
+
 /* --- Menu Dropdown --- */
 .outliner-menu-dropdown {
     position: absolute;
