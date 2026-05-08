@@ -122,7 +122,11 @@ A 3-pane note management experience, accessed from the **Activity Bar**.
 - **Multi-file management** — Organize multiple `.out` files in virtual folders with drag & drop
 - **Full-text search** — Search across all outlines, pages, and standalone `.md` files. Streaming results with click-to-jump
 - **Daily Notes** — One-click daily journal. Auto-creates year/month/day hierarchy. Navigate with `<` `>` buttons or a calendar picker
-- **S3 cloud sync** — Sync your notes to AWS S3 with one click. Supports backup, full upload, and full download
+- **S3 cloud sync** — Sync your notes to AWS S3 with one click. Two scopes:
+    - **Note-wide (Tools tab)** — Bidirectional newer-wins sync of the entire note folder. Or full upload / full download / clean rebuild
+    - **Per-outliner (toolbar button)** — One-click sync of just the currently open outliner (`<id>.out` + `<id>/` folder). Appears when bucket path is configured
+  - True mtime-based newer-wins (per-file `aws s3api head-object` + `aws s3 cp`/`sync`); local edits are never overwritten by older S3 content even when sizes differ
+  - Editor lock + progress overlay during sync; webview cache fully invalidated after sync so the latest content always shows
 - **Resizable panels** — Drag to resize left panel and side panel. Widths are saved per folder
 
 <!-- TODO: Add Notes manager feature screenshot -->
