@@ -774,14 +774,36 @@ export async function handleNotesMessage(
         // ── タスクモード: 完了タスクを Daily Notes へ archive ──
         // メッセージ: { type: 'notesArchiveTasks', subtrees: [{ rootId, nodes: { id: nodeObj, ... } }] }
         // 動作: dailynotes.out を fs 直接書き込み (openFile しないので current view は変わらない)
+        // アセット (page MD / 画像 / 添付ファイル) は dailynotes 側の pageDir/fileDir/imageDir に
+        // コピーする。MD 内の画像・ファイル参照も copy + 名前 rewrite で追従。
         case 'notesArchiveTasks': {
             try {
                 fileManager.flushSave();
+                const sourceFilePath = fileManager.getCurrentFilePath();
                 const archiveFilePath = fileManager.ensureDailyNotesFile();
+                if (!sourceFilePath) break;
+
+                // Source dirs (current file)
+                const srcOutDir = path.dirname(sourceFilePath);
+                const srcPagesDir = fileManager.getPagesDirPath();
+                const srcFileDir = fileManager.getFileDirPath();
+
+                // Read dailynotes.out
                 const archiveContent = fs.readFileSync(archiveFilePath, 'utf8');
                 const archiveData = JSON.parse(archiveContent);
                 if (!archiveData.nodes) archiveData.nodes = {};
                 if (!archiveData.rootIds) archiveData.rootIds = [];
+
+                // Dest dirs (dailynotes.out)
+                const destOutDir = path.dirname(archiveFilePath);
+                const archivePageDirRel = (archiveData.pageDir as string) || './pages';
+                const destPagesDir = path.isAbsolute(archivePageDirRel)
+                    ? archivePageDirRel
+                    : path.resolve(destOutDir, archivePageDirRel);
+                const archiveFileDirRel = (archiveData.fileDir as string) || './files';
+                const destFileDir = path.isAbsolute(archiveFileDirRel)
+                    ? archiveFileDirRel
+                    : path.resolve(destOutDir, archiveFileDirRel);
 
                 const today = new Date();
                 const archYear = String(today.getFullYear());
@@ -797,12 +819,52 @@ export async function handleNotesMessage(
                 let archivedCount = 0;
                 for (const st of subtrees) {
                     if (!st || !st.nodes || !st.rootId) continue;
-                    // ノード群をコピー (ID 重複は無視: 衝突確率は無視できるレベル)
+                    // 各 node のアセットをコピー + パス rewrite
                     for (const nid in st.nodes) {
-                        if (Object.prototype.hasOwnProperty.call(st.nodes, nid)) {
-                            if (!archiveData.nodes[nid]) {
-                                archiveData.nodes[nid] = st.nodes[nid];
+                        if (!Object.prototype.hasOwnProperty.call(st.nodes, nid)) continue;
+                        const node = st.nodes[nid];
+                        try {
+                            // page MD (isPage + pageId)
+                            if (node.isPage && node.pageId) {
+                                const result = handlePageAssets({
+                                    srcOutDir, srcPagesDir,
+                                    destOutDir, destPagesDir,
+                                    pageId: node.pageId,
+                                    newPageId: null, // cut セマンティクス: pageId 維持
+                                    nodeImages: Array.isArray(node.images) ? node.images : [],
+                                    sameDirSkip: true
+                                });
+                                node.images = result.newNodeImages;
                             }
+                            // 非 page node の images[]
+                            else if (Array.isArray(node.images) && node.images.length > 0) {
+                                const result = handleImageAssets({
+                                    srcOutDir, srcPagesDir,
+                                    destOutDir, destPagesDir,
+                                    renamePrefix: null, // cut: 名前維持
+                                    nodeImages: node.images,
+                                    sameDirSkip: true
+                                });
+                                node.images = result.newNodeImages;
+                            }
+                            // file 添付 (filePath)
+                            if (node.filePath) {
+                                const result = handleFileAsset({
+                                    srcOutDir, srcFileDir,
+                                    destOutDir, destFileDir,
+                                    filePath: node.filePath,
+                                    useCollisionSuffix: false, // cut: 名前維持
+                                    sameDirSkip: true
+                                });
+                                if (result.newFilePath) node.filePath = result.newFilePath;
+                            }
+                        } catch (assetErr) {
+                            // 個別アセット失敗は archive 全体を止めない (元ノード参照のまま継続)
+                            console.error('[archive] asset copy failed for node', nid, assetErr);
+                        }
+                        // dailynotes.out にノード追加
+                        if (!archiveData.nodes[nid]) {
+                            archiveData.nodes[nid] = node;
                         }
                     }
                     const rootCopy = archiveData.nodes[st.rootId];
