@@ -1962,6 +1962,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 1;
 }
 
+/* タスク系 (task-mode / filter / archive) は右端に寄せる。
+   margin-left: auto で前のボタン群との間に余白を取る */
+.outliner-task-mode-toggle-btn {
+    margin-left: auto;
+}
+
 /* --- Menu Dropdown --- */
 .outliner-menu-dropdown {
     position: absolute;
@@ -28672,6 +28678,24 @@ var Outliner = (function() {
     }
 
     function handleBackspaceAtStart(node, textEl) {
+        // チェックボックスがあるノード: backspace で先にチェックボックスを削除
+        // (削除後に再度 backspace でテキスト先頭の通常挙動)
+        if (node.checked === true || node.checked === false) {
+            node.checked = null;
+            renderTree();
+            // 同 nodeId の textEl を取り直して focus を先頭に
+            var nEl = treeEl.querySelector('.outliner-node[data-id="' + node.id + '"]');
+            if (nEl) {
+                var nTxt = nEl.querySelector('.outliner-text');
+                if (nTxt) {
+                    nTxt.focus();
+                    setCursorAtOffset(nTxt, 0);
+                }
+            }
+            scheduleSyncToHost();
+            return;
+        }
+
         var prevId = model.getPreviousVisibleId(node.id);
 
         if (!prevId) {
@@ -28732,13 +28756,16 @@ var Outliner = (function() {
 
             model.updateText(prevId, prevText + curText);
 
-            // 子ノードを前のノードに移動
+            // 子ノードを前のノードに移動。
+            // 注意: node.children を空配列にしてから removeNode を呼ばないと、
+            // removeNode は再帰的に子も削除するため、移動済みの子が消える (bug fix)
             if (node.children && node.children.length > 0) {
                 for (var i = 0; i < node.children.length; i++) {
                     var childId = node.children[i];
                     model.nodes[childId].parentId = prevId;
                     prevNode.children.push(childId);
                 }
+                node.children = [];
             }
 
             model.removeNode(node.id);
