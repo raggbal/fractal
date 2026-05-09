@@ -191,4 +191,6 @@ export const webviewMessages = {
   tableColumnTypeMultiselect: '다중 선택',
   tableColumnTypeOutliner: '아웃라인',
   tableSearchPlaceholder: '검색...',
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: "테마 설정이 '{old}' 에서 '{new}' (으)로 마이그레이션되었습니다.",
 };

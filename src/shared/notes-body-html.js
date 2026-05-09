@@ -44,9 +44,10 @@ function generateNotesFilePanelHtml(options) {
         }
         .notes-file-panel {
             width: var(--notes-panel-width, 198px); min-width: 0; flex-shrink: 0;
-            border-right: 1px solid var(--outliner-border, #e0e0e0);
+            /* ミニマル: 1px の薄い divider で視覚分離 (色統一後の境界線) */
+            border-right: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
             display: flex; flex-direction: column;
-            background: var(--outliner-bg, #fafafa);
+            background: var(--fr-color-bg-panel, var(--outliner-bg, #fafafa));
             overflow: hidden;
         }
         .notes-file-panel.collapsed { width: 0; border-right: none; }
@@ -64,7 +65,7 @@ function generateNotesFilePanelHtml(options) {
         }
         .notes-resize-handle:hover::before,
         .notes-resize-handle.active::before {
-            background: var(--vscode-focusBorder, #007acc);
+            background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             /* hover bar は file panel 側のみ (右側 = editor 側には拡張しない)
                editor の左 border のように見える二重表示を防止 */
             left: -2px; right: 0;
@@ -72,30 +73,54 @@ function generateNotesFilePanelHtml(options) {
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 7px 11px; border-bottom: 1px solid var(--outliner-border, #e0e0e0);
+            padding: 7px 11px; /* layout 維持 */
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
             box-sizing: border-box;
         }
         .file-panel-title { font-weight: 600; font-size: 12px; white-space: nowrap; }
         .file-panel-actions { display: flex; gap: 4px; align-items: center; }
         .file-panel-btn {
-            background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
-            border-radius: 4px; cursor: pointer; color: inherit;
+            background: transparent;
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px);
+            cursor: pointer;
+            color: var(--fr-color-text-primary, inherit);
             padding: 6px 7px; line-height: 1; font-size: 12px;
             display: flex; align-items: center; justify-content: center;
             opacity: 0.7;
         }
-        .file-panel-btn:hover { opacity: 1; border-color: var(--vscode-focusBorder, #007acc); background: transparent; }
+        .file-panel-btn:hover {
+            opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            background: var(--fr-color-bg-elevated, transparent);
+        }
+        .file-panel-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 
         /* ── File item ── */
         .file-panel-item {
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            border-radius: 4px; margin: 1px 4px;
+            border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
             display: flex; align-items: center; gap: 5px;
+            position: relative;
         }
-        .file-panel-item:hover { background: var(--outliner-hover, #e8e8e8); }
-        .file-panel-item.active { background: var(--outliner-active, #d8e8f8); font-weight: 500; }
+        /* file panel list item: hover は water-blue で反転 (ユーザー要望)。active 行は背景なし、左 2px primary bar */
+        .file-panel-item:hover:not(.active) { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
+        .file-panel-item.active {
+            background: transparent;
+            font-weight: 500;
+        }
+        .file-panel-item.active::before {
+            content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
+            /* 「ノート」タブの border-bottom (2px) と統一 */
+            width: 2px; background: var(--fr-color-selection-bar, var(--fr-color-primary, currentColor));
+            border-radius: 1px;
+        }
         .file-panel-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -104,11 +129,11 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-folder-header {
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            border-radius: 4px; margin: 1px 4px;
+            border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
             display: flex; align-items: center; gap: 4px;
             font-weight: 500;
         }
-        .file-panel-folder-header:hover { background: var(--outliner-hover, #e8e8e8); }
+        .file-panel-folder-header:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-folder-chevron {
             flex-shrink: 0; width: 13px; height: 13px;
             display: flex; align-items: center; justify-content: center;
@@ -128,9 +153,9 @@ function generateNotesFilePanelHtml(options) {
         }
 
         /* ── Drag & Drop ── */
-        .file-panel-drag-over { background: var(--outliner-active, #d8e8f8); border-radius: 4px; }
+        .file-panel-drag-over { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); border-radius: var(--fr-radius-sm, 6px); }
         .file-panel-drop-line {
-            height: 2px; background: var(--vscode-focusBorder, #007acc);
+            height: 2px; background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             margin: 0 4px; border-radius: 1px;
             pointer-events: none;
         }
@@ -138,31 +163,49 @@ function generateNotesFilePanelHtml(options) {
         [draggable="true"]:active { cursor: grabbing; }
 
         .file-panel-empty {
-            padding: 14px 11px; color: var(--outliner-subtext, #999); font-size: 11px; text-align: center;
+            padding: 14px 11px; color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999)); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
         .notes-panel-toggle-btn {
-            background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
-            border-radius: 4px; cursor: pointer; padding: 4px 5px; line-height: 1;
-            display: none; color: inherit; opacity: 0.7; font-size: 12px;
+            background: transparent; border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px); cursor: pointer; padding: 4px 5px; line-height: 1;
+            display: none; color: var(--fr-color-text-primary, inherit); opacity: 0.7; font-size: 12px;
             align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
         }
-        .notes-panel-toggle-btn:hover { opacity: 1; border-color: var(--vscode-focusBorder, #007acc); }
+        .notes-panel-toggle-btn:hover {
+            opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
+        .notes-panel-toggle-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
         .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
         .file-panel-rename-input {
-            width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--outliner-active, #4a9eff);
-            border-radius: 3px; outline: none; background: var(--outliner-bg, #fff); color: inherit;
+            width: 100%; padding: 4px 7px; font-size: 12px;
+            border: 1px solid var(--fr-color-primary, var(--outliner-active, #4a9eff));
+            border-radius: var(--fr-radius-sm, 6px); outline: none;
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            color: var(--fr-color-text-primary, inherit);
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
         .file-panel-context-menu {
-            position: fixed; background: var(--outliner-bg, #fff); border: 1px solid var(--outliner-border, #ddd);
-            border-radius: 5px; box-shadow: 0 4px 11px rgba(0,0,0,0.15); padding: 4px 0; z-index: 1000;
+            position: fixed;
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #ddd));
+            border-radius: var(--fr-radius-lg, 10px);
+            box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
+            padding: 4px; z-index: var(--fr-z-popup, 1000);
             min-width: 126px;
         }
         .file-panel-context-item {
-            padding: 5px 14px; cursor: pointer; font-size: 12px; white-space: nowrap;
+            padding: 5px 14px; cursor: pointer; font-size: 12px;
+            white-space: nowrap; border-radius: var(--fr-radius-sm, 6px);
         }
-        .file-panel-context-item:hover { background: var(--outliner-hover, #e8e8e8); }
-        .file-panel-context-item.danger { color: #e55; }
+        .file-panel-context-item:hover { background: var(--fr-color-bg-app, var(--outliner-hover, #e8e8e8)); }
+        .file-panel-context-item.danger { color: var(--fr-color-danger, #e55); }
+        .file-panel-context-item.danger:hover { background: var(--fr-color-danger-soft, rgba(217,74,74,0.1)); }
 
         /* ── Tabs ── */
         .file-panel-tabs {
@@ -176,7 +219,7 @@ function generateNotesFilePanelHtml(options) {
             border-bottom: 2px solid transparent; transition: opacity 0.15s;
         }
         .file-panel-tab:hover { opacity: 0.85; }
-        .file-panel-tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-tab.active { opacity: 1; border-bottom-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }
         .file-panel-tab svg { flex-shrink: 0; }
         .file-panel-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
         .file-panel-content-actions {
@@ -192,11 +235,16 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
-            border: 1px solid var(--outliner-border, #e0e0e0); border-radius: 4px;
-            background: var(--outliner-bg, #fff); color: inherit; outline: none;
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px);
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            color: var(--fr-color-text-primary, inherit); outline: none;
             box-sizing: border-box;
         }
-        .file-panel-search-input:focus { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-search-input:focus {
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+        }
         .file-panel-search-options { display: flex; gap: 2px; }
         .file-panel-search-opt-btn {
             padding: 2px 5px; font-size: 10px; border: 1px solid transparent;
@@ -204,7 +252,7 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-opt-btn:hover { opacity: 0.8; }
         .file-panel-search-opt-btn.active {
-            border-color: var(--vscode-focusBorder, #007acc); opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); opacity: 1;
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
         .file-panel-search-section { margin-bottom: 5px; }
@@ -227,7 +275,7 @@ function generateNotesFilePanelHtml(options) {
             padding: 4px 11px 4px 18px; font-size: 11px; cursor: pointer;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .file-panel-search-match:hover { background: var(--outliner-hover, #e8e8e8); }
+        .file-panel-search-match:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-search-highlight { background: rgba(255, 200, 0, 0.3); font-weight: 500; }
         .file-panel-search-count { padding: 4px 11px; font-size: 10px; opacity: 0.6; }
         .file-panel-search-spinner { padding: 7px 11px; font-size: 11px; opacity: 0.5; }
@@ -238,18 +286,23 @@ function generateNotesFilePanelHtml(options) {
         .s3-input-row { display: flex; gap: 4px; }
         .s3-input-row .file-panel-search-input { flex: 1; }
         .s3-status { font-size: 10px; margin-top: 5px; opacity: 0.6; }
-        .s3-status.ok { color: #3a3; opacity: 1; }
-        .s3-status.error { color: #e55; opacity: 1; }
+        .s3-status.ok { color: var(--fr-color-success, #3a3); opacity: 1; }
+        .s3-status.error { color: var(--fr-color-danger, #e55); opacity: 1; }
         .s3-actions { display: flex; flex-direction: column; gap: 5px; padding-top: 4px; }
         .s3-action-btn {
             width: 100%; text-align: center; padding: 7px 11px;
-            font-size: 11px; border-radius: 4px;
+            font-size: 11px; border-radius: var(--fr-radius-sm, 6px);
+        }
+        .s3-action-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
         .s3-action-btn.s3-danger {
-            border-color: #c44; color: #c44;
+            border-color: var(--fr-color-danger, #c44);
+            color: var(--fr-color-danger, #c44);
         }
         .s3-action-btn.s3-danger:hover {
-            background: rgba(204, 68, 68, 0.1);
+            background: var(--fr-color-danger-soft, rgba(204, 68, 68, 0.1));
         }
         .s3-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .s3-progress { padding: 7px 11px; }
@@ -262,7 +315,7 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-section-title {
             font-weight: bold; font-size: 11px; margin-bottom: 5px;
-            color: var(--vscode-foreground); opacity: 0.8;
+            color: var(--fr-color-text-primary, var(--vscode-foreground)); opacity: 0.8;
         }
 
         /* ── v11: Color Palette UI ── */
@@ -273,12 +326,14 @@ function generateNotesFilePanelHtml(options) {
             padding: 7px 11px;
         }
         .file-panel-color-swatch {
-            width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
+            width: 18px; height: 18px;
+            border-radius: var(--fr-radius-xs, 4px);
+            cursor: pointer;
             border: 2px solid transparent;
             transition: transform 0.1s, border-color 0.1s;
         }
         .file-panel-color-swatch:hover { transform: scale(1.15); }
-        .file-panel-color-swatch.active { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-color-swatch.active { border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }
         .file-panel-color-back, .file-panel-color-none {
             font-size: 11px;
             opacity: 0.75;

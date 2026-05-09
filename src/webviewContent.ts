@@ -54,7 +54,7 @@ export function getWebviewContent(
 
     // Ensure config has all required properties with defaults
     const safeConfig: EditorConfig = {
-        theme: config?.theme ?? 'github',
+        theme: config?.theme ?? 'auto',
         fontSize: config?.fontSize ?? 12,
         toolbarMode: config?.toolbarMode ?? 'full',
         documentBaseUri: config?.documentBaseUri ?? '',
@@ -77,6 +77,14 @@ export function getWebviewContent(
     // Use Base64 encoding to safely pass content to JavaScript
     // This avoids all escaping issues with template literals, special characters, etc.
     const base64Content = Buffer.from(safeContent, 'utf8').toString('base64');
+
+    // Minimal redesign foundation (sprint 20260509-185557): tokens.css / fr-base.css / fr-components.css
+    const tokensCssPath = path.join(__dirname, 'webview', 'tokens.css');
+    const tokensCss = fs.existsSync(tokensCssPath) ? fs.readFileSync(tokensCssPath, 'utf8') : '';
+    const frBaseCssPath = path.join(__dirname, 'webview', 'fr-base.css');
+    const frBaseCss = fs.existsSync(frBaseCssPath) ? fs.readFileSync(frBaseCssPath, 'utf8') : '';
+    const frComponentsCssPath = path.join(__dirname, 'webview', 'fr-components.css');
+    const frComponentsCss = fs.existsSync(frComponentsCssPath) ? fs.readFileSync(frComponentsCssPath, 'utf8') : '';
 
     // Load external CSS and JS files
     const stylesPath = path.join(__dirname, 'webview', 'styles.css');
@@ -114,7 +122,7 @@ export function getWebviewContent(
         .replace('__CONTENT__', `'${base64Content}'`);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}">
+<html lang="en" data-theme="${safeConfig.theme}" data-fr-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -123,6 +131,9 @@ export function getWebviewContent(
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
     <title>Fractal Editor</title>
+    <style>${tokensCss}</style>
+    <style>${frBaseCss}</style>
+    <style>${frComponentsCss}</style>
     <style>
         ${styles}
     </style>

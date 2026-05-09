@@ -40,6 +40,15 @@ export function getNotesWebviewContent(
     const msg = config.webviewMessages || {};
 
     // Load CSS
+    // Minimal redesign foundation (sprint 20260509-185557): tokens.css / fr-base.css / fr-components.css
+    // Inject BEFORE editor styles / outliner css so existing rules can reference --fr-* variables.
+    const tokensCssPath = path.join(__dirname, 'webview', 'tokens.css');
+    const tokensCss = fs.existsSync(tokensCssPath) ? fs.readFileSync(tokensCssPath, 'utf8') : '';
+    const frBaseCssPath = path.join(__dirname, 'webview', 'fr-base.css');
+    const frBaseCss = fs.existsSync(frBaseCssPath) ? fs.readFileSync(frBaseCssPath, 'utf8') : '';
+    const frComponentsCssPath = path.join(__dirname, 'webview', 'fr-components.css');
+    const frComponentsCss = fs.existsSync(frComponentsCssPath) ? fs.readFileSync(frComponentsCssPath, 'utf8') : '';
+
     const outlinerCssPath = path.join(__dirname, 'webview', 'outliner.css');
     const outlinerCss = fs.readFileSync(outlinerCssPath, 'utf8')
         .replace('__FONT_SIZE__', String(config.fontSize));
@@ -114,7 +123,7 @@ export function getNotesWebviewContent(
     const sidePanelHtml = generateSidePanelHtml(msg);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}">
+<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -123,6 +132,9 @@ export function getNotesWebviewContent(
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
     <title>Fractal Notes</title>
+    <style>${tokensCss}</style>
+    <style>${frBaseCss}</style>
+    <style>${frComponentsCss}</style>
     <style>${editorStyles}</style>
     <style>${outlinerCss}</style>
     <link rel="stylesheet" href="${katexCssUri}">

@@ -11,6 +11,7 @@ import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
+import { getCurrentTheme } from './shared/vscode-settings-provider';
 
 
 /**
@@ -83,7 +84,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     this.context.extensionUri,
                     content,
                     {
-                        theme: config.get<string>('theme', 'things'),
+                        theme: getCurrentTheme(this.context),
                         fontSize: config.get<number>('fontSize', 12),
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,

@@ -191,4 +191,6 @@ export const webviewMessages = {
   tableColumnTypeMultiselect: '多選',
   tableColumnTypeOutliner: '大綱',
   tableSearchPlaceholder: '搜尋...',
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: "佈景設定已從 '{old}' 遷移至 '{new}'。",
 };

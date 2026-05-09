@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.207.3",
+  "version": "0.207.18",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -185,16 +185,17 @@
         "fractal.theme": {
           "type": "string",
           "enum": [
-            "github",
-            "sepia",
-            "night",
+            "light",
             "dark",
-            "minimal",
-            "perplexity",
-            "things"
+            "auto"
           ],
-          "default": "things",
-          "description": "Editor theme"
+          "enumDescriptions": [
+            "Light pastel minimal theme",
+            "Dark pastel minimal theme",
+            "Auto (follow OS prefers-color-scheme)"
+          ],
+          "default": "auto",
+          "description": "Editor theme (light/dark/auto). Legacy 7-theme values (github/sepia/night/dark/minimal/perplexity/things) are auto-migrated on startup."
         },
         "fractal.fontSize": {
           "type": "number",

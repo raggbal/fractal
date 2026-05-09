@@ -1,121 +1,17 @@
+/*
+ * MD content theme tokens
+ * (sprint 20260509-185557-minimal-settings-foundation: 7 themes (MD-34) 撤廃済み)
+ *
+ * --bg-color / --text-color / --heading-color / --link-color / --code-bg /
+ * --code-text / --border-color / --blockquote-color / --blockquote-border /
+ * --sidebar-bg / --sidebar-border / --toolbar-bg / --selection-bg は
+ * `src/webview/tokens.css` で `[data-fr-theme]` ベースに統一定義されている。
+ * このファイルでは font-size / font-family のみ固有定義。
+ */
 :root {
     --font-size: __FONT_SIZE__px;
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --font-mono: 'Menlo', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono', monospace;
-}
-
-[data-theme="github"] {
-    --bg-color: #ffffff;
-    --text-color: #24292f;
-    --heading-color: #1f2328;
-    --link-color: #0969da;
-    --code-bg: #f6f8fa;
-    --code-text: #24292f;
-    --border-color: #d0d7de;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #d0d7de;
-    --sidebar-bg: #f6f8fa;
-    --sidebar-border: #eaecef;
-    --toolbar-bg: #f6f8fa;
-    --selection-bg: #b6d7ff;
-}
-
-[data-theme="sepia"] {
-    --bg-color: #fbf8f1;
-    --text-color: #5b4636;
-    --heading-color: #433422;
-    --link-color: #8b6914;
-    --code-bg: #f3efe4;
-    --code-text: #5b4636;
-    --border-color: #d9d3c3;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #c9c3b3;
-    --sidebar-bg: #f3efe4;
-    --sidebar-border: #e7e3d8;
-    --toolbar-bg: #f3efe4;
-    --selection-bg: #e6dcc8;
-}
-
-[data-theme="night"] {
-    --bg-color: #1a1b26;
-    --text-color: #c0caf5;
-    --heading-color: #c0caf5;
-    --link-color: #7aa2f7;
-    --code-bg: #24283b;
-    --code-text: #a9b1d6;
-    --border-color: #3b4261;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3b4261;
-    --sidebar-bg: #16161e;
-    --sidebar-border: #1e1e28;
-    --toolbar-bg: #16161e;
-    --selection-bg: #364a82;
-}
-
-[data-theme="dark"] {
-    --bg-color: #1e1e1e;
-    --text-color: #d4d4d4;
-    --heading-color: #ffffff;
-    --link-color: #569cd6;
-    --code-bg: #252526;
-    --code-text: #d4d4d4;
-    --border-color: #3c3c3c;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3c3c3c;
-    --sidebar-bg: #252526;
-    --sidebar-border: #2e2e2f;
-    --toolbar-bg: #252526;
-    --selection-bg: #264f78;
-}
-
-[data-theme="minimal"] {
-    --bg-color: #fafafa;
-    --text-color: #333333;
-    --heading-color: #111111;
-    --link-color: #333333;
-    --code-bg: #f0f0f0;
-    --code-text: #333333;
-    --border-color: #e0e0e0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #cccccc;
-    --sidebar-bg: #f5f5f5;
-    --sidebar-border: #e9e9e9;
-    --toolbar-bg: #f5f5f5;
-    --selection-bg: #d0d0d0;
-}
-
-[data-theme="things"] {
-    --bg-color: #ffffff;
-    --text-color: #3D3D3D;
-    --heading-color: #1C1C1E;
-    --link-color: #3478F6;
-    --code-bg: #F2F2F7;
-    --code-text: #3D3D3D;
-    --border-color: #E5E5EA;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #D1D1D6;
-    --sidebar-bg: #F4F5F7;
-    --sidebar-border: #ECEDF0;
-    --toolbar-bg: #F9F9F9;
-    --selection-bg: #D4E4FF;
-    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
-}
-
-[data-theme="perplexity"] {
-    --bg-color: #FBFAF4;
-    --text-color: #13343B;
-    --heading-color: #0B363C;
-    --link-color: #1FB8CD;
-    --code-bg: #EAEEEF;
-    --code-text: #1a1a1a;
-    --border-color: #D8D8D0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #C8C8C0;
-    --sidebar-bg: #F2F1EB;
-    --sidebar-border: #E6E5DF;
-    --toolbar-bg: #F2F1EB;
-    --selection-bg: #E0EFF1;
-    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -650,82 +546,36 @@ body {
 .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
-/* Dark theme link icons */
-[data-theme="night"] .editor a.link-fractal-node::before,
-[data-theme="dark"] .editor a.link-fractal-node::before {
+/* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
+[data-fr-theme="dark"] .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-fractal-page::before,
-[data-theme="dark"] .editor a.link-fractal-page::before {
+[data-fr-theme="dark"] .editor a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-internal-md::before,
-[data-theme="dark"] .editor a.link-internal-md::before {
+[data-fr-theme="dark"] .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-
-/* Perplexity theme overrides */
-/* Base: p/li=14px, code/blockquote/table=13px, h3=16px */
-[data-theme="perplexity"] body { font-size: var(--font-size); line-height: 1.35; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-[data-theme="perplexity"] .editor p, [data-theme="perplexity"] .editor div.paragraph { margin: 0.25em 0; min-height: 1.35em; }
-[data-theme="perplexity"] .editor h1 { font-size: 1.58em; border-bottom: none; padding-bottom: 0; margin: 0.72em 0; }
-[data-theme="perplexity"] .editor h2 { font-size: 1.13em; border-bottom: none; padding-bottom: 0; margin: 0.35em 0 0.15em; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 4px; text-decoration-thickness: 1px; }
-[data-theme="perplexity"] .editor h3 { font-size: 1.01em; margin: 0.3em 0 0.1em; }
-[data-theme="perplexity"] .editor h4 { font-size: 0.9em; margin: 0.25em 0 0.1em; }
-[data-theme="perplexity"] .editor h5 { font-size: 0.79em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h6 { font-size: 0.73em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h1, [data-theme="perplexity"] .editor h2, [data-theme="perplexity"] .editor h3,
-[data-theme="perplexity"] .editor h4, [data-theme="perplexity"] .editor h5, [data-theme="perplexity"] .editor h6 {
-    font-weight: 500; letter-spacing: -0.01em; line-height: 1.17;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor a.link-fractal-node::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-fractal-page::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-internal-md::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
 }
-[data-theme="perplexity"] .editor ul, [data-theme="perplexity"] .editor ol { margin: 0.2em 0; }
-[data-theme="perplexity"] .editor li { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor li > ul, [data-theme="perplexity"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor pre { border-radius: 9px; border: 1px solid #D8D8D0; font-size: 0.79em; padding: 11px; margin: 0.4em 0; }
-[data-theme="perplexity"] .editor blockquote { border-left-width: 3px; font-style: normal; font-size: 0.79em; margin: 0.3em 0; padding: 0 0.72em; }
-[data-theme="perplexity"] .editor table { margin: 0.4em 0; }
-[data-theme="perplexity"] .editor th, [data-theme="perplexity"] .editor td { font-size: 0.79em; padding: 5px 9px; }
-[data-theme="perplexity"] .editor table th { background: #EAEEEF; }
-[data-theme="perplexity"] .editor table td, [data-theme="perplexity"] .editor table th { border-color: #D8D8D0; }
-[data-theme="perplexity"] .editor code { border-radius: 5px; font-size: 0.73em; color: #1a1a1a; }
-/* pre code color is inherited from --code-text (#1a1a1a) via CSS variables */
-[data-theme="perplexity"] .editor a { text-decoration: underline; text-decoration-color: rgba(31, 184, 205, 0.4); text-underline-offset: 2px; }
-[data-theme="perplexity"] .editor a:hover { text-decoration-color: #1FB8CD; }
-[data-theme="perplexity"] .editor hr { border-top-color: #D8D8D0; border-top-width: 1px; margin: 0.5em 0; }
-[data-theme="perplexity"] .editor img { border-radius: 7px; }
 
-/* Things theme overrides — inspired by Cultured Code's Things 3 */
-/* Clean, airy, with blue accent headings */
-[data-theme="things"] body { font-size: calc(var(--font-size) - 1px); line-height: 1.44; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; letter-spacing: -0.01em; }
-[data-theme="things"] .editor p, [data-theme="things"] .editor div.paragraph { margin: 0.35em 0; min-height: 1.44em; }
-[data-theme="things"] .editor h1 { font-size: 1.56em; border-bottom: none; padding-bottom: 0; margin: 0.9em 0 0.4em; color: #1C1C1E; }
-[data-theme="things"] .editor h2 { font-size: 1.14em; border-bottom: 1px solid #E5E5EA; padding-bottom: 0.25em; margin: 0.81em 0 0.25em; color: #3478F6; font-weight: 700; }
-[data-theme="things"] .editor h3 { font-size: 1.02em; margin: 0.63em 0 0.2em; color: #1C1C1E; }
-[data-theme="things"] .editor h4 { font-size: 0.9em; margin: 0.54em 0 0.15em; color: #1C1C1E; }
-[data-theme="things"] .editor h5 { font-size: 0.84em; margin: 0.5em 0 0.1em; color: #636366; }
-[data-theme="things"] .editor h6 { font-size: 0.78em; margin: 0.5em 0 0.1em; color: #8E8E93; }
-[data-theme="things"] .editor h1, [data-theme="things"] .editor h2, [data-theme="things"] .editor h3,
-[data-theme="things"] .editor h4, [data-theme="things"] .editor h5, [data-theme="things"] .editor h6 {
-    font-weight: 700; letter-spacing: -0.02em; line-height: 1.17;
-}
-[data-theme="things"] .editor h2 { font-weight: 700; }
-[data-theme="things"] .editor ul, [data-theme="things"] .editor ol { margin: 0.25em 0; }
-[data-theme="things"] .editor li { margin: 0.15em 0; line-height: 1.4; }
-[data-theme="things"] .editor li > ul, [data-theme="things"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="things"] .editor pre { border-radius: 7px; border: 1px solid #E5E5EA; font-size: 0.78em; padding: 13px; margin: 0.5em 0; background: #F9F9FB; }
-[data-theme="things"] .editor blockquote { border-left: 3px solid #3478F6; font-style: normal; font-size: 0.84em; margin: 0.4em 0; padding: 0.2em 0.72em; color: #636366; background: #F9F9FB; }
-[data-theme="things"] .editor table { margin: 0.5em 0; }
-[data-theme="things"] .editor th, [data-theme="things"] .editor td { font-size: 0.84em; padding: 5px 11px; }
-[data-theme="things"] .editor table th { background: #F2F2F7; font-weight: 600; }
-[data-theme="things"] .editor table td, [data-theme="things"] .editor table th { border-color: #E5E5EA; }
-[data-theme="things"] .editor code { border-radius: 5px; font-size: 0.78em; color: #3D3D3D; background: #F2F2F7; }
-[data-theme="things"] .editor pre code { color: #3D3D3D; background: transparent; }
-[data-theme="things"] .editor a { color: #3478F6; text-decoration: none; }
-[data-theme="things"] .editor a:hover { text-decoration: underline; text-underline-offset: 2px; }
-[data-theme="things"] .editor hr { border-top-color: #E5E5EA; border-top-width: 1px; margin: 0.72em 0; }
-[data-theme="things"] .editor img { border-radius: 5px; }
-[data-theme="things"] .editor input[type="checkbox"] { accent-color: #3478F6; }
-[data-theme="things"] .editor strong, [data-theme="things"] .editor b { font-weight: 600; color: #1C1C1E; }
+/*
+ * Perplexity / Things theme typography overrides
+ * (sprint 20260509-185557-minimal-settings-foundation: 撤廃済み)
+ *
+ * MD-34 撤廃に伴い、theme-specific typography は 1 種固定 (minimal) に統合。
+ * MD content の H1〜H6 / pre / blockquote / table 等は本ファイルの
+ * generic .editor rules + tokens.css の `--*` 変数で表現される。
+ */
 
 .editor strong, .editor b { font-weight: 600; }
 .editor em, .editor i { font-style: italic; }
@@ -1001,13 +851,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .mermaid-diagram .mermaid-error {
+[data-fr-theme="dark"] .editor .mermaid-diagram .mermaid-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="perplexity"] .editor .mermaid-diagram .mermaid-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .mermaid-diagram .mermaid-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* KaTeX math block styles */
@@ -1044,17 +896,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .math-display .math-error {
+[data-fr-theme="dark"] .editor .math-display .math-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="dark"] .editor .math-display .math-error {
-    background: #3d1f1f;
-    color: #f97583;
-}
-[data-theme="perplexity"] .editor .math-display .math-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .math-display .math-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* Syntax highlighting colors */
@@ -1071,32 +921,34 @@ body {
 .hljs-name { color: #22863a; }
 .hljs-selector { color: #6f42c1; }
 .hljs-property { color: #005cc5; }
-[data-theme="dark"] .hljs-keyword { color: #ff7b72; }
-[data-theme="dark"] .hljs-string { color: #a5d6ff; }
-[data-theme="dark"] .hljs-number { color: #79c0ff; }
-[data-theme="dark"] .hljs-comment { color: #8b949e; }
-[data-theme="dark"] .hljs-function { color: #d2a8ff; }
-[data-theme="dark"] .hljs-built_in { color: #79c0ff; }
-[data-theme="dark"] .hljs-literal { color: #79c0ff; }
-[data-theme="dark"] .hljs-type { color: #ff7b72; }
-[data-theme="dark"] .hljs-attr { color: #79c0ff; }
-[data-theme="dark"] .hljs-tag { color: #7ee787; }
-[data-theme="dark"] .hljs-name { color: #7ee787; }
-[data-theme="dark"] .hljs-selector { color: #d2a8ff; }
-[data-theme="dark"] .hljs-property { color: #79c0ff; }
-[data-theme="perplexity"] .hljs-keyword { color: #1A6872; }
-[data-theme="perplexity"] .hljs-string { color: #707C36; }
-[data-theme="perplexity"] .hljs-number { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-comment { color: #92DCE2; font-style: italic; }
-[data-theme="perplexity"] .hljs-function { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-built_in { color: #2CA0AB; }
-[data-theme="perplexity"] .hljs-literal { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-type { color: #1A6872; }
-[data-theme="perplexity"] .hljs-attr { color: #2E565E; }
-[data-theme="perplexity"] .hljs-tag { color: #1A6872; }
-[data-theme="perplexity"] .hljs-name { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-selector { color: #1A6872; }
-[data-theme="perplexity"] .hljs-property { color: #2CA0AB; }
+[data-fr-theme="dark"] .hljs-keyword { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-string { color: #a5d6ff; }
+[data-fr-theme="dark"] .hljs-number { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-comment { color: #8b949e; }
+[data-fr-theme="dark"] .hljs-function { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-built_in { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-literal { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-type { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-attr { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-tag { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-name { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-selector { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-property { color: #79c0ff; }
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .hljs-keyword { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-string { color: #a5d6ff; }
+    [data-fr-theme="auto"] .hljs-number { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-comment { color: #8b949e; }
+    [data-fr-theme="auto"] .hljs-function { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-built_in { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-literal { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-type { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-attr { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-tag { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-name { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-selector { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-property { color: #79c0ff; }
+}
 
 .editor blockquote {
     margin: 0.5em 0;

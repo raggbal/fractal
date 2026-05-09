@@ -1,0 +1,78 @@
+/*
+ * Fractal Minimal Redesign — Base Styles (PoC v1)
+ *
+ * Loaded after tokens.css, before fr-components.css.
+ * Provides reset, scrollbar, focus, selection, body base.
+ */
+
+@layer fr-base {
+    /* ───────── Reset ───────── */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    /* ───────── Scrollbar (8px, light/dark 両対応) ───────── */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: var(--fr-color-scrollbar-thumb);
+        border-radius: var(--fr-radius-full);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--fr-color-scrollbar-thumb-hover);
+    }
+    ::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+    /* Firefox */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--fr-color-scrollbar-thumb) transparent;
+    }
+
+    /* ───────── Focus ring (button/input/textarea/select のみ) ─────────
+     * 注意: contenteditable / outliner-text 等の text editing 領域には
+     * focus ring を当てない (ユーザー要望: カーソル入った時に強調しない) */
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+        outline: none;
+        box-shadow: var(--fr-shadow-focus);
+    }
+
+    /* ───────── Selection ───────── */
+    ::selection {
+        background: var(--fr-color-primary-soft);
+        color: var(--fr-color-text-primary);
+    }
+
+    /* ───────── Body base (typography hint — do not override existing styles.css size) ───────── */
+    /* body は styles.css 側で `font-size: var(--font-size)` (PL-05 default 12) を設定。
+       fr-base はそれを尊重し、color と font-family のみ補強。 */
+    body {
+        font-family: var(--fr-font-sans);
+        color: var(--fr-color-text-primary);
+        background-color: var(--fr-color-bg-app);
+    }
+
+    /* ───────── Smooth theme transition (BH-04 ちらつき対策) ───────── */
+    /* 切替時の bg / color / border 補間。layout を変える transition は入れない */
+    body,
+    .file-panel-item,
+    .file-panel-folder-header,
+    .file-panel-btn,
+    .file-panel-tab,
+    .file-panel-search-input,
+    .s3-action-btn,
+    .file-panel-context-menu,
+    .file-panel-context-item,
+    .outliner-search-input {
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+}

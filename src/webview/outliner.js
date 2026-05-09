@@ -776,6 +776,7 @@ var Outliner = (function() {
         }
 
         treeEl = document.querySelector('.outliner-tree');
+
         searchInput = document.querySelector('.outliner-search-input');
         breadcrumbEl = document.querySelector('.outliner-breadcrumb');
         if (searchInput) { defaultSearchPlaceholder = searchInput.placeholder; }
@@ -1428,7 +1429,7 @@ var Outliner = (function() {
     }
 
     /** table cell 間の移動 (Cmd+↑↓→←)
-     *  el = 現在のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect)
+     *  el = 現在のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect/.outliner-cell-date)
      *  dir = 'up' | 'down' | 'left' | 'right'
      *  return: focus 移動できたら true
      */
@@ -1438,7 +1439,8 @@ var Outliner = (function() {
             return c.classList && (
                 c.classList.contains('outliner-node') ||
                 c.classList.contains('outliner-cell-text') ||
-                c.classList.contains('outliner-cell-multiselect')
+                c.classList.contains('outliner-cell-multiselect') ||
+                c.classList.contains('outliner-cell-date')
             );
         });
         var cols = model.columns || [];
@@ -1474,6 +1476,9 @@ var Outliner = (function() {
             // multiselect は直接 focus できないので click → dropdown 表示
             cellEl.tabIndex = -1;
             cellEl.focus();
+        } else if (cellEl.classList.contains('outliner-cell-date')) {
+            // date / datetime cell: focus → activateInput が走り native picker
+            cellEl.focus();
         }
     }
 
@@ -1488,11 +1493,14 @@ var Outliner = (function() {
         else if (e.key === 'ArrowUp') dir = 'up';
         else if (e.key === 'ArrowDown') dir = 'down';
         if (!dir) return false;
-        // セル要素を引き当て (text cell は el 自身、outliner row は closest('.outliner-node'))
+        // セル要素を引き当て: el が 4 種類 cell のどれかなら自身、descendant (input, .outliner-text 等) なら closest を walk up
         var cellEl = el;
         if (!cellEl.classList.contains('outliner-cell-text') &&
-            !cellEl.classList.contains('outliner-cell-multiselect')) {
-            cellEl = el.closest('.outliner-node');
+            !cellEl.classList.contains('outliner-cell-multiselect') &&
+            !cellEl.classList.contains('outliner-cell-date')) {
+            cellEl = el.closest(
+                '.outliner-cell-text, .outliner-cell-multiselect, .outliner-cell-date, .outliner-node'
+            );
         }
         if (!cellEl) return false;
         return moveTableCell(cellEl, dir);
@@ -1858,6 +1866,14 @@ var Outliner = (function() {
             activateInput();
         });
 
+        // Cmd+矢印キー navigation (input 化前 / picker 閉じた直後等で el 自身が focus 中の場合)
+        el.addEventListener('keydown', function (e) {
+            if (handleTableCellArrowKey(el, e)) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+
         return el;
     }
 
@@ -1953,16 +1969,25 @@ var Outliner = (function() {
     }
 
     var activeDropdownEl = null;
-    function closeMultiselectDropdown() {
+    var activeDropdownReturnFocusEl = null;
+    function closeMultiselectDropdown(opts) {
         if (activeDropdownEl && activeDropdownEl.parentNode) {
             activeDropdownEl.parentNode.removeChild(activeDropdownEl);
         }
         activeDropdownEl = null;
+        // popup を抜けた時、cell に focus を戻す (ESC / Enter / outside-click 等)
+        var refocusEl = activeDropdownReturnFocusEl;
+        activeDropdownReturnFocusEl = null;
+        if (refocusEl && (!opts || opts.refocus !== false)) {
+            try { refocusEl.focus(); } catch (e) {}
+        }
     }
 
     function openMultiselectDropdown(cellEl, node, col) {
-        closeMultiselectDropdown();
+        closeMultiselectDropdown({ refocus: false });
         ensureColumnOptions(col);
+        // popup 抜け後に focus を戻す対象 cell
+        activeDropdownReturnFocusEl = cellEl;
 
         var dropdown = document.createElement('div');
         dropdown.className = 'outliner-multiselect-dropdown';
@@ -2039,6 +2064,7 @@ var Outliner = (function() {
                         var newCell = createMultiselectCellElement(node, col);
                         cellEl.parentNode.replaceChild(newCell, cellEl);
                         cellEl = newCell;
+                        activeDropdownReturnFocusEl = newCell;
                         refreshList();
                     });
                     list.appendChild(item);
@@ -2065,10 +2091,30 @@ var Outliner = (function() {
                     var newCell = createMultiselectCellElement(node, col);
                     cellEl.parentNode.replaceChild(newCell, cellEl);
                     cellEl = newCell;
+                    activeDropdownReturnFocusEl = newCell;
                     refreshList();
                 });
                 list.appendChild(createItem);
             }
+            // refreshList で items が再生成されるので highlight index リセット
+            highlightedIdx = -1;
+        }
+
+        // ↓↑Enter キーボードナビ用
+        var highlightedIdx = -1;
+        function getNavItems() {
+            return list.querySelectorAll('.outliner-multiselect-item, .outliner-multiselect-create');
+        }
+        function setHighlight(idx) {
+            var items = getNavItems();
+            for (var i = 0; i < items.length; i++) {
+                if (i === idx) items[i].classList.add('is-highlighted');
+                else items[i].classList.remove('is-highlighted');
+            }
+            if (idx >= 0 && items[idx]) {
+                try { items[idx].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+            }
+            highlightedIdx = idx;
         }
 
         input.addEventListener('input', refreshList);
@@ -2076,6 +2122,41 @@ var Outliner = (function() {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 closeMultiselectDropdown();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var items = getNavItems();
+                if (items.length === 0) return;
+                var next = highlightedIdx + 1;
+                if (next >= items.length) next = items.length - 1;
+                setHighlight(next);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prev = highlightedIdx - 1;
+                if (prev < -1) prev = -1;
+                setHighlight(prev);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var items = getNavItems();
+                if (highlightedIdx >= 0 && items[highlightedIdx]) {
+                    // mousedown を dispatch して既存 toggle / create logic を再利用
+                    var evt;
+                    try {
+                        evt = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+                    } catch (err) {
+                        evt = document.createEvent('MouseEvents');
+                        evt.initMouseEvent('mousedown', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+                    }
+                    items[highlightedIdx].dispatchEvent(evt);
+                }
+                // popup を閉じて cell に focus 戻す
+                closeMultiselectDropdown();
+                return;
             }
         });
 
@@ -2084,11 +2165,12 @@ var Outliner = (function() {
         refreshList();
         setTimeout(function () { input.focus(); }, 0);
 
-        // 外側クリックで close
+        // 外側クリックで close (cellEl 自身のクリックは既に open の trigger なので除外)
         function outsideHandler(ev) {
             if (!dropdown.contains(ev.target)) {
-                closeMultiselectDropdown();
                 document.removeEventListener('mousedown', outsideHandler, true);
+                // 外側 click は cell に focus 戻さない (別要素 click 操作の意図を尊重)
+                closeMultiselectDropdown({ refocus: false });
             }
         }
         setTimeout(function () {
@@ -3078,11 +3160,13 @@ var Outliner = (function() {
 
     // --- フォーカス管理 ---
 
-    /** Phase F2: table mode で row 全体 (text/multiselect cell も) に class を toggle */
+    /** Phase F2: table mode で row 全体 (text/multiselect/date cell) に class を toggle */
     function toggleRowCellsClass(nodeId, cls, add) {
         if (!treeEl || !nodeId) return;
         var cells = treeEl.querySelectorAll(
-            '.outliner-cell-text[data-node-id="' + nodeId + '"], .outliner-cell-multiselect[data-node-id="' + nodeId + '"]'
+            '.outliner-cell-text[data-node-id="' + nodeId + '"], ' +
+            '.outliner-cell-multiselect[data-node-id="' + nodeId + '"], ' +
+            '.outliner-cell-date[data-node-id="' + nodeId + '"]'
         );
         for (var i = 0; i < cells.length; i++) {
             if (add) cells[i].classList.add(cls);

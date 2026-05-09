@@ -1,9 +1,642 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="github" data-toolbar-mode="full">
+<html lang="en" data-theme="github" data-fr-theme="auto" data-toolbar-mode="full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Standalone Editor Test</title>
+    <style>/*
+ * Fractal Minimal Redesign — Design Tokens (PoC v1)
+ *
+ * tecval: 20260509-175835-minimal-redesign / v1
+ * 3 mode theme system (light / dark / auto) — replaces previous 7 themes (MD-34 撤廃)
+ *
+ * Loaded BEFORE styles.css / outliner.css to provide --fr-* variables
+ * Compatible with VSCode webview (Electron 22+ Chromium 108+) / Electron / Chrome / Safari 15.4+
+ */
+
+/* Layer order: 後ろほど優先度が高い (CSS Cascade Layers).
+ * fr-legacy は既存 outliner.css / styles.css の `--outliner-bg` 等の VSCode fallback 定義用。
+ * fr-tokens で minimal pastel theme tokens が legacy を override する。 */
+@layer fr-legacy, fr-tokens, fr-base, fr-components, fr-chrome;
+
+@layer fr-tokens {
+    /* ═══════════════════════════════════════════════════════════════
+       Light tokens (default + auto fallback)
+       ═══════════════════════════════════════════════════════════════ */
+    :root,
+    :root[data-fr-theme="light"],
+    :root[data-fr-theme="auto"] {
+        /* Brand */
+        --fr-color-primary:        #4F6BFF;
+        --fr-color-primary-soft:   #DBE2FF;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #6B5BE0;
+        --fr-color-accent-soft:    #E8E5FA;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (ミニマル: chrome / content の bg を区別しない)
+         * 前 sidebar の色 #FAFAF7 (off-white) に統一。content の灰色っぽさ (#F5F4EE = cream) を排除。 */
+        --fr-color-bg-app:         #FAFAF7;
+        --fr-color-bg-panel:       #FAFAF7;
+        --fr-color-bg-elevated:    #FFFFFF;
+        --fr-color-border:         #E6E5DD;
+        --fr-color-divider:        #EDECE5;
+
+        /* Text */
+        --fr-color-text-primary:   #1A1B1F;
+        --fr-color-text-secondary: #6B6F76;
+        --fr-color-text-tertiary:  #9BA0A8;
+        --fr-color-text-muted:     #B5BAC1;
+
+        /* Status */
+        --fr-color-success:        #46A663;
+        --fr-color-success-soft:   #DCEFE3;
+        --fr-color-warning:        #E9A03A;
+        --fr-color-warning-soft:   #FBEFD8;
+        --fr-color-danger:         #D94A4A;
+        --fr-color-danger-soft:    #FBE3E3;
+        --fr-color-info:           #3F8CC9;
+        --fr-color-info-soft:      #DCEDF8;
+
+        /* Selection */
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        /* Scrollbar */
+        --fr-color-scrollbar-thumb:       rgba(0, 0, 0, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+
+        /* MD content (1 種固定 / 7 themes 撤廃の代替 — light) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #F2F1EA;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (light) — outliner.css の `var(--outliner-*)` 全部を minimal pastel light tokens に置換 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(0, 0, 0, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(0, 0, 0, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Dark tokens (explicit dark)
+       ═══════════════════════════════════════════════════════════════ */
+    :root[data-fr-theme="dark"] {
+        --fr-color-primary:        #7A8DFF;
+        --fr-color-primary-soft:   #2C355F;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #8B7DEB;
+        --fr-color-accent-soft:    #2F2A4A;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28 に統一) */
+        --fr-color-bg-app:         #1E1F28;
+        --fr-color-bg-panel:       #1E1F28;
+        --fr-color-bg-elevated:    #2A2B36;
+        --fr-color-border:         #34353F;
+        --fr-color-divider:        #2D2E37;
+
+        --fr-color-text-primary:   #E8E9EB;
+        --fr-color-text-secondary: #B5B8BF;
+        --fr-color-text-tertiary:  #80848C;
+        --fr-color-text-muted:     #5C6068;
+
+        --fr-color-success:        #6BCD83;
+        --fr-color-success-soft:   #1F3A28;
+        --fr-color-warning:        #F0B859;
+        --fr-color-warning-soft:   #4A3A1F;
+        --fr-color-danger:         #F26B6B;
+        --fr-color-danger-soft:    #4A1F1F;
+        --fr-color-info:           #5FAFE3;
+        --fr-color-info-soft:      #1F344A;
+
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+        /* MD content (dark) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #25262E;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (dark) — outliner.css の `var(--outliner-*)` 全部 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Auto: prefers-color-scheme dark → 採用
+       ═══════════════════════════════════════════════════════════════ */
+    @media (prefers-color-scheme: dark) {
+        :root[data-fr-theme="auto"] {
+            --fr-color-primary:        #7A8DFF;
+            --fr-color-primary-soft:   #2C355F;
+            --fr-color-primary-fg:     #FFFFFF;
+            --fr-color-accent:         #8B7DEB;
+            --fr-color-accent-soft:    #2F2A4A;
+
+            /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28) */
+            --fr-color-bg-app:         #1E1F28;
+            --fr-color-bg-panel:       #1E1F28;
+            --fr-color-bg-elevated:    #2A2B36;
+            --fr-color-border:         #34353F;
+            --fr-color-divider:        #2D2E37;
+
+            --fr-color-text-primary:   #E8E9EB;
+            --fr-color-text-secondary: #B5B8BF;
+            --fr-color-text-tertiary:  #80848C;
+            --fr-color-text-muted:     #5C6068;
+
+            --fr-color-success:        #6BCD83;
+            --fr-color-success-soft:   #1F3A28;
+            --fr-color-warning:        #F0B859;
+            --fr-color-warning-soft:   #4A3A1F;
+            --fr-color-danger:         #F26B6B;
+            --fr-color-danger-soft:    #4A1F1F;
+            --fr-color-info:           #5FAFE3;
+            --fr-color-info-soft:      #1F344A;
+
+            --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+            --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+            --bg-color:          var(--fr-color-bg-app);
+            --text-color:        var(--fr-color-text-primary);
+            --heading-color:     var(--fr-color-text-primary);
+            --link-color:        var(--fr-color-primary);
+            --code-bg:           #25262E;
+            --code-text:         var(--fr-color-text-primary);
+            --border-color:      var(--fr-color-border);
+            --blockquote-color:  var(--fr-color-bg-elevated);
+            --blockquote-border: var(--fr-color-border);
+            --sidebar-bg:        var(--fr-color-bg-panel);
+            --sidebar-border:    var(--fr-color-divider);
+            --toolbar-bg:        var(--fr-color-bg-panel);
+            --selection-bg:      var(--fr-color-primary-soft);
+
+            /* outliner-* legacy aliases (auto + prefers-color-scheme dark) */
+            --outliner-bg:                  var(--fr-color-bg-app);
+            --outliner-fg:                  var(--fr-color-text-primary);
+            --outliner-text:                var(--fr-color-text-primary);
+            --outliner-border:              var(--fr-color-divider);
+            --outliner-hover:               var(--fr-color-bg-elevated);
+            --outliner-hover-bg:            var(--fr-color-bg-elevated);
+            --outliner-active:              var(--fr-color-selection-bg);
+            --outliner-focus-bg:            var(--fr-color-selection-bg);
+            --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+            --outliner-subtext:             var(--fr-color-text-tertiary);
+            --outliner-subtext-color:       var(--fr-color-text-tertiary);
+            --outliner-placeholder:         var(--fr-color-text-tertiary);
+            --outliner-tag-color:           var(--fr-color-primary);
+            --outliner-tag-bg:              var(--fr-color-primary-soft);
+            --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+            --outliner-checkbox-accent:     var(--fr-color-primary);
+            --outliner-page-icon-color:     var(--fr-color-primary);
+            --outliner-search-bg:           var(--fr-color-bg-elevated);
+            --outliner-search-border:       var(--fr-color-border);
+            --outliner-search-fg:           var(--fr-color-text-primary);
+            --outliner-code-bg:             var(--fr-color-bg-elevated);
+            --outliner-error-color:         var(--fr-color-danger);
+            --outliner-accent-fg:           var(--fr-color-primary-fg);
+            --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+            --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Spacing / Radius / Shadow / Typography / z-index
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --fr-space-0:  0px;
+        --fr-space-1:  2px;
+        --fr-space-2:  4px;
+        --fr-space-3:  6px;
+        --fr-space-4:  8px;
+        --fr-space-5:  10px;
+        --fr-space-6:  12px;
+        --fr-space-8:  16px;
+        --fr-space-10: 20px;
+
+        --fr-radius-xs:   4px;
+        --fr-radius-sm:   6px;
+        --fr-radius-md:   8px;
+        --fr-radius-lg:  10px;
+        --fr-radius-full: 9999px;
+
+        --fr-shadow-1: 0 1px 2px rgba(20, 22, 30, 0.04);
+        --fr-shadow-2: 0 2px 8px rgba(20, 22, 30, 0.06);
+        --fr-shadow-3: 0 8px 24px rgba(20, 22, 30, 0.10);
+        --fr-shadow-focus: 0 0 0 3px var(--fr-color-primary-soft);
+
+        --fr-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Noto Sans', sans-serif;
+        --fr-font-mono: 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+
+        --fr-text-xs:   10px;
+        --fr-text-sm:   11px;
+        --fr-text-base: 12px;
+        --fr-text-md:   13px;
+        --fr-text-lg:   15px;
+        --fr-text-xl:   18px;
+        --fr-text-2xl:  22px;
+
+        --fr-leading-tight: 1.25;
+        --fr-leading-base:  1.4;
+        --fr-leading-loose: 1.6;
+
+        --fr-weight-regular:  400;
+        --fr-weight-medium:   500;
+        --fr-weight-semibold: 600;
+        --fr-weight-bold:     700;
+
+        --fr-z-base:    0;
+        --fr-z-sticky:  100;
+        --fr-z-popup:   400;
+        --fr-z-modal:   500;
+        --fr-z-toast:   600;
+    }
+}
+</style>
+    <style>/*
+ * Fractal Minimal Redesign — Base Styles (PoC v1)
+ *
+ * Loaded after tokens.css, before fr-components.css.
+ * Provides reset, scrollbar, focus, selection, body base.
+ */
+
+@layer fr-base {
+    /* ───────── Reset ───────── */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    /* ───────── Scrollbar (8px, light/dark 両対応) ───────── */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: var(--fr-color-scrollbar-thumb);
+        border-radius: var(--fr-radius-full);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--fr-color-scrollbar-thumb-hover);
+    }
+    ::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+    /* Firefox */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--fr-color-scrollbar-thumb) transparent;
+    }
+
+    /* ───────── Focus ring (button/input/textarea/select のみ) ─────────
+     * 注意: contenteditable / outliner-text 等の text editing 領域には
+     * focus ring を当てない (ユーザー要望: カーソル入った時に強調しない) */
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+        outline: none;
+        box-shadow: var(--fr-shadow-focus);
+    }
+
+    /* ───────── Selection ───────── */
+    ::selection {
+        background: var(--fr-color-primary-soft);
+        color: var(--fr-color-text-primary);
+    }
+
+    /* ───────── Body base (typography hint — do not override existing styles.css size) ───────── */
+    /* body は styles.css 側で `font-size: var(--font-size)` (PL-05 default 12) を設定。
+       fr-base はそれを尊重し、color と font-family のみ補強。 */
+    body {
+        font-family: var(--fr-font-sans);
+        color: var(--fr-color-text-primary);
+        background-color: var(--fr-color-bg-app);
+    }
+
+    /* ───────── Smooth theme transition (BH-04 ちらつき対策) ───────── */
+    /* 切替時の bg / color / border 補間。layout を変える transition は入れない */
+    body,
+    .file-panel-item,
+    .file-panel-folder-header,
+    .file-panel-btn,
+    .file-panel-tab,
+    .file-panel-search-input,
+    .s3-action-btn,
+    .file-panel-context-menu,
+    .file-panel-context-item,
+    .outliner-search-input {
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+}
+</style>
+    <style>/*
+ * Fractal Minimal Redesign — Components (PoC v1)
+ *
+ * Loaded after fr-base.css.
+ * tecval.md「主要コンポーネント仕様 (修正版)」をそのまま採用。
+ *
+ * 注意: 既存の `.file-panel-btn`, `.file-panel-item`, `.s3-action-btn` 等の class
+ * は `notes-body-html.js` 内 inline CSS で定義されている。
+ * fr-components.css は新 class (`.fr-button` 等) を提供しつつ、
+ * 既存 class への migration は notes-body-html.js 側で var(--fr-*) 参照に置換することで実現する。
+ */
+
+@layer fr-components {
+    /* ═══════════════════════════════════════════════════════════════
+       Button (.fr-button)
+       variants: primary / secondary / ghost / danger
+       sizes:    xs (h22) / sm (h26) / md (h30)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--fr-space-2);
+        height: 30px;
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border: 1px solid transparent;
+        border-radius: var(--fr-radius-sm);
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        font-weight: var(--fr-weight-medium);
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+    .fr-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    /* sizes */
+    .fr-button.fr-button-xs {
+        height: 22px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-sm);
+    }
+    .fr-button.fr-button-sm {
+        height: 26px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-base);
+    }
+
+    /* variant: primary */
+    .fr-button.fr-button-primary {
+        background: var(--fr-color-primary);
+        color: var(--fr-color-primary-fg);
+        border-color: var(--fr-color-primary);
+    }
+    .fr-button.fr-button-primary:hover:not(:disabled) {
+        filter: brightness(1.05);
+    }
+
+    /* variant: secondary (outline) */
+    .fr-button.fr-button-secondary {
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+    }
+    .fr-button.fr-button-secondary:hover:not(:disabled) {
+        background: var(--fr-color-bg-panel);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: ghost (transparent, hover で elevated) */
+    .fr-button.fr-button-ghost {
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+        opacity: 0.7;
+    }
+    .fr-button.fr-button-ghost:hover:not(:disabled) {
+        opacity: 1;
+        background: var(--fr-color-bg-elevated);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: danger */
+    .fr-button.fr-button-danger {
+        background: transparent;
+        color: var(--fr-color-danger);
+        border-color: var(--fr-color-danger);
+    }
+    .fr-button.fr-button-danger:hover:not(:disabled) {
+        background: var(--fr-color-danger-soft);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Input (.fr-input)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-input {
+        width: 100%;
+        padding: var(--fr-space-2) var(--fr-space-3);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-sm);
+        outline: none;
+        box-sizing: border-box;
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    .fr-input:hover:not(:disabled) {
+        border-color: var(--fr-color-text-tertiary);
+    }
+    .fr-input:focus {
+        border-color: var(--fr-color-primary);
+        box-shadow: var(--fr-shadow-focus);
+    }
+    .fr-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .fr-input::placeholder {
+        color: var(--fr-color-text-muted);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       List item (.fr-list-item)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-list-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-5);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        border-radius: var(--fr-radius-sm);
+        margin: 1px var(--fr-space-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .fr-list-item:hover {
+        background: var(--fr-color-bg-elevated);
+    }
+    .fr-list-item.fr-list-item-active {
+        background: var(--fr-color-selection-bg);
+        font-weight: var(--fr-weight-medium);
+        position: relative;
+    }
+    .fr-list-item.fr-list-item-active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        background: var(--fr-color-selection-bar);
+        border-radius: 2px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Context menu / Popup (.fr-context-menu / .fr-popup)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-context-menu,
+    .fr-popup {
+        position: fixed;
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-lg);
+        padding: var(--fr-space-2);
+        box-shadow: var(--fr-shadow-2);
+        z-index: var(--fr-z-popup);
+        min-width: 140px;
+    }
+    .fr-context-menu-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border-radius: var(--fr-radius-sm);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .fr-context-menu-item:hover {
+        background: var(--fr-color-bg-app);
+    }
+    .fr-context-menu-item.danger {
+        color: var(--fr-color-danger);
+    }
+    .fr-context-menu-item.danger:hover {
+        background: var(--fr-color-danger-soft);
+    }
+    .fr-context-menu-divider {
+        height: 1px;
+        background: var(--fr-color-divider);
+        margin: var(--fr-space-1) 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Badge (.fr-badge)
+       variants: success / info / warning / danger / neutral
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px var(--fr-space-3);
+        font-size: var(--fr-text-xs);
+        font-weight: var(--fr-weight-medium);
+        border-radius: var(--fr-radius-sm);
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-secondary);
+        line-height: 1.4;
+    }
+    .fr-badge.fr-badge-success {
+        background: var(--fr-color-success-soft);
+        color: var(--fr-color-success);
+    }
+    .fr-badge.fr-badge-info {
+        background: var(--fr-color-info-soft);
+        color: var(--fr-color-info);
+    }
+    .fr-badge.fr-badge-warning {
+        background: var(--fr-color-warning-soft);
+        color: var(--fr-color-warning);
+    }
+    .fr-badge.fr-badge-danger {
+        background: var(--fr-color-danger-soft);
+        color: var(--fr-color-danger);
+    }
+}
+</style>
     <style>
         :root {
             --font-size: 14px;
@@ -116,124 +749,20 @@
     </style>
     <style>
         /* Full styles.css for theme support and syntax highlighting */
-        :root {
+        /*
+ * MD content theme tokens
+ * (sprint 20260509-185557-minimal-settings-foundation: 7 themes (MD-34) 撤廃済み)
+ *
+ * --bg-color / --text-color / --heading-color / --link-color / --code-bg /
+ * --code-text / --border-color / --blockquote-color / --blockquote-border /
+ * --sidebar-bg / --sidebar-border / --toolbar-bg / --selection-bg は
+ * `src/webview/tokens.css` で `[data-fr-theme]` ベースに統一定義されている。
+ * このファイルでは font-size / font-family のみ固有定義。
+ */
+:root {
     --font-size: 14px;
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --font-mono: 'Menlo', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono', monospace;
-}
-
-[data-theme="github"] {
-    --bg-color: #ffffff;
-    --text-color: #24292f;
-    --heading-color: #1f2328;
-    --link-color: #0969da;
-    --code-bg: #f6f8fa;
-    --code-text: #24292f;
-    --border-color: #d0d7de;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #d0d7de;
-    --sidebar-bg: #f6f8fa;
-    --sidebar-border: #eaecef;
-    --toolbar-bg: #f6f8fa;
-    --selection-bg: #b6d7ff;
-}
-
-[data-theme="sepia"] {
-    --bg-color: #fbf8f1;
-    --text-color: #5b4636;
-    --heading-color: #433422;
-    --link-color: #8b6914;
-    --code-bg: #f3efe4;
-    --code-text: #5b4636;
-    --border-color: #d9d3c3;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #c9c3b3;
-    --sidebar-bg: #f3efe4;
-    --sidebar-border: #e7e3d8;
-    --toolbar-bg: #f3efe4;
-    --selection-bg: #e6dcc8;
-}
-
-[data-theme="night"] {
-    --bg-color: #1a1b26;
-    --text-color: #c0caf5;
-    --heading-color: #c0caf5;
-    --link-color: #7aa2f7;
-    --code-bg: #24283b;
-    --code-text: #a9b1d6;
-    --border-color: #3b4261;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3b4261;
-    --sidebar-bg: #16161e;
-    --sidebar-border: #1e1e28;
-    --toolbar-bg: #16161e;
-    --selection-bg: #364a82;
-}
-
-[data-theme="dark"] {
-    --bg-color: #1e1e1e;
-    --text-color: #d4d4d4;
-    --heading-color: #ffffff;
-    --link-color: #569cd6;
-    --code-bg: #252526;
-    --code-text: #d4d4d4;
-    --border-color: #3c3c3c;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3c3c3c;
-    --sidebar-bg: #252526;
-    --sidebar-border: #2e2e2f;
-    --toolbar-bg: #252526;
-    --selection-bg: #264f78;
-}
-
-[data-theme="minimal"] {
-    --bg-color: #fafafa;
-    --text-color: #333333;
-    --heading-color: #111111;
-    --link-color: #333333;
-    --code-bg: #f0f0f0;
-    --code-text: #333333;
-    --border-color: #e0e0e0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #cccccc;
-    --sidebar-bg: #f5f5f5;
-    --sidebar-border: #e9e9e9;
-    --toolbar-bg: #f5f5f5;
-    --selection-bg: #d0d0d0;
-}
-
-[data-theme="things"] {
-    --bg-color: #ffffff;
-    --text-color: #3D3D3D;
-    --heading-color: #1C1C1E;
-    --link-color: #3478F6;
-    --code-bg: #F2F2F7;
-    --code-text: #3D3D3D;
-    --border-color: #E5E5EA;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #D1D1D6;
-    --sidebar-bg: #F4F5F7;
-    --sidebar-border: #ECEDF0;
-    --toolbar-bg: #F9F9F9;
-    --selection-bg: #D4E4FF;
-    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
-}
-
-[data-theme="perplexity"] {
-    --bg-color: #FBFAF4;
-    --text-color: #13343B;
-    --heading-color: #0B363C;
-    --link-color: #1FB8CD;
-    --code-bg: #EAEEEF;
-    --code-text: #1a1a1a;
-    --border-color: #D8D8D0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #C8C8C0;
-    --sidebar-bg: #F2F1EB;
-    --sidebar-border: #E6E5DF;
-    --toolbar-bg: #F2F1EB;
-    --selection-bg: #E0EFF1;
-    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -768,82 +1297,36 @@ body {
 .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
-/* Dark theme link icons */
-[data-theme="night"] .editor a.link-fractal-node::before,
-[data-theme="dark"] .editor a.link-fractal-node::before {
+/* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
+[data-fr-theme="dark"] .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-fractal-page::before,
-[data-theme="dark"] .editor a.link-fractal-page::before {
+[data-fr-theme="dark"] .editor a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-internal-md::before,
-[data-theme="dark"] .editor a.link-internal-md::before {
+[data-fr-theme="dark"] .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-
-/* Perplexity theme overrides */
-/* Base: p/li=14px, code/blockquote/table=13px, h3=16px */
-[data-theme="perplexity"] body { font-size: var(--font-size); line-height: 1.35; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-[data-theme="perplexity"] .editor p, [data-theme="perplexity"] .editor div.paragraph { margin: 0.25em 0; min-height: 1.35em; }
-[data-theme="perplexity"] .editor h1 { font-size: 1.58em; border-bottom: none; padding-bottom: 0; margin: 0.72em 0; }
-[data-theme="perplexity"] .editor h2 { font-size: 1.13em; border-bottom: none; padding-bottom: 0; margin: 0.35em 0 0.15em; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 4px; text-decoration-thickness: 1px; }
-[data-theme="perplexity"] .editor h3 { font-size: 1.01em; margin: 0.3em 0 0.1em; }
-[data-theme="perplexity"] .editor h4 { font-size: 0.9em; margin: 0.25em 0 0.1em; }
-[data-theme="perplexity"] .editor h5 { font-size: 0.79em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h6 { font-size: 0.73em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h1, [data-theme="perplexity"] .editor h2, [data-theme="perplexity"] .editor h3,
-[data-theme="perplexity"] .editor h4, [data-theme="perplexity"] .editor h5, [data-theme="perplexity"] .editor h6 {
-    font-weight: 500; letter-spacing: -0.01em; line-height: 1.17;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor a.link-fractal-node::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-fractal-page::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-internal-md::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
 }
-[data-theme="perplexity"] .editor ul, [data-theme="perplexity"] .editor ol { margin: 0.2em 0; }
-[data-theme="perplexity"] .editor li { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor li > ul, [data-theme="perplexity"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor pre { border-radius: 9px; border: 1px solid #D8D8D0; font-size: 0.79em; padding: 11px; margin: 0.4em 0; }
-[data-theme="perplexity"] .editor blockquote { border-left-width: 3px; font-style: normal; font-size: 0.79em; margin: 0.3em 0; padding: 0 0.72em; }
-[data-theme="perplexity"] .editor table { margin: 0.4em 0; }
-[data-theme="perplexity"] .editor th, [data-theme="perplexity"] .editor td { font-size: 0.79em; padding: 5px 9px; }
-[data-theme="perplexity"] .editor table th { background: #EAEEEF; }
-[data-theme="perplexity"] .editor table td, [data-theme="perplexity"] .editor table th { border-color: #D8D8D0; }
-[data-theme="perplexity"] .editor code { border-radius: 5px; font-size: 0.73em; color: #1a1a1a; }
-/* pre code color is inherited from --code-text (#1a1a1a) via CSS variables */
-[data-theme="perplexity"] .editor a { text-decoration: underline; text-decoration-color: rgba(31, 184, 205, 0.4); text-underline-offset: 2px; }
-[data-theme="perplexity"] .editor a:hover { text-decoration-color: #1FB8CD; }
-[data-theme="perplexity"] .editor hr { border-top-color: #D8D8D0; border-top-width: 1px; margin: 0.5em 0; }
-[data-theme="perplexity"] .editor img { border-radius: 7px; }
 
-/* Things theme overrides — inspired by Cultured Code's Things 3 */
-/* Clean, airy, with blue accent headings */
-[data-theme="things"] body { font-size: calc(var(--font-size) - 1px); line-height: 1.44; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; letter-spacing: -0.01em; }
-[data-theme="things"] .editor p, [data-theme="things"] .editor div.paragraph { margin: 0.35em 0; min-height: 1.44em; }
-[data-theme="things"] .editor h1 { font-size: 1.56em; border-bottom: none; padding-bottom: 0; margin: 0.9em 0 0.4em; color: #1C1C1E; }
-[data-theme="things"] .editor h2 { font-size: 1.14em; border-bottom: 1px solid #E5E5EA; padding-bottom: 0.25em; margin: 0.81em 0 0.25em; color: #3478F6; font-weight: 700; }
-[data-theme="things"] .editor h3 { font-size: 1.02em; margin: 0.63em 0 0.2em; color: #1C1C1E; }
-[data-theme="things"] .editor h4 { font-size: 0.9em; margin: 0.54em 0 0.15em; color: #1C1C1E; }
-[data-theme="things"] .editor h5 { font-size: 0.84em; margin: 0.5em 0 0.1em; color: #636366; }
-[data-theme="things"] .editor h6 { font-size: 0.78em; margin: 0.5em 0 0.1em; color: #8E8E93; }
-[data-theme="things"] .editor h1, [data-theme="things"] .editor h2, [data-theme="things"] .editor h3,
-[data-theme="things"] .editor h4, [data-theme="things"] .editor h5, [data-theme="things"] .editor h6 {
-    font-weight: 700; letter-spacing: -0.02em; line-height: 1.17;
-}
-[data-theme="things"] .editor h2 { font-weight: 700; }
-[data-theme="things"] .editor ul, [data-theme="things"] .editor ol { margin: 0.25em 0; }
-[data-theme="things"] .editor li { margin: 0.15em 0; line-height: 1.4; }
-[data-theme="things"] .editor li > ul, [data-theme="things"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="things"] .editor pre { border-radius: 7px; border: 1px solid #E5E5EA; font-size: 0.78em; padding: 13px; margin: 0.5em 0; background: #F9F9FB; }
-[data-theme="things"] .editor blockquote { border-left: 3px solid #3478F6; font-style: normal; font-size: 0.84em; margin: 0.4em 0; padding: 0.2em 0.72em; color: #636366; background: #F9F9FB; }
-[data-theme="things"] .editor table { margin: 0.5em 0; }
-[data-theme="things"] .editor th, [data-theme="things"] .editor td { font-size: 0.84em; padding: 5px 11px; }
-[data-theme="things"] .editor table th { background: #F2F2F7; font-weight: 600; }
-[data-theme="things"] .editor table td, [data-theme="things"] .editor table th { border-color: #E5E5EA; }
-[data-theme="things"] .editor code { border-radius: 5px; font-size: 0.78em; color: #3D3D3D; background: #F2F2F7; }
-[data-theme="things"] .editor pre code { color: #3D3D3D; background: transparent; }
-[data-theme="things"] .editor a { color: #3478F6; text-decoration: none; }
-[data-theme="things"] .editor a:hover { text-decoration: underline; text-underline-offset: 2px; }
-[data-theme="things"] .editor hr { border-top-color: #E5E5EA; border-top-width: 1px; margin: 0.72em 0; }
-[data-theme="things"] .editor img { border-radius: 5px; }
-[data-theme="things"] .editor input[type="checkbox"] { accent-color: #3478F6; }
-[data-theme="things"] .editor strong, [data-theme="things"] .editor b { font-weight: 600; color: #1C1C1E; }
+/*
+ * Perplexity / Things theme typography overrides
+ * (sprint 20260509-185557-minimal-settings-foundation: 撤廃済み)
+ *
+ * MD-34 撤廃に伴い、theme-specific typography は 1 種固定 (minimal) に統合。
+ * MD content の H1〜H6 / pre / blockquote / table 等は本ファイルの
+ * generic .editor rules + tokens.css の `--*` 変数で表現される。
+ */
 
 .editor strong, .editor b { font-weight: 600; }
 .editor em, .editor i { font-style: italic; }
@@ -1119,13 +1602,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .mermaid-diagram .mermaid-error {
+[data-fr-theme="dark"] .editor .mermaid-diagram .mermaid-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="perplexity"] .editor .mermaid-diagram .mermaid-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .mermaid-diagram .mermaid-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* KaTeX math block styles */
@@ -1162,17 +1647,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .math-display .math-error {
+[data-fr-theme="dark"] .editor .math-display .math-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="dark"] .editor .math-display .math-error {
-    background: #3d1f1f;
-    color: #f97583;
-}
-[data-theme="perplexity"] .editor .math-display .math-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .math-display .math-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* Syntax highlighting colors */
@@ -1189,32 +1672,34 @@ body {
 .hljs-name { color: #22863a; }
 .hljs-selector { color: #6f42c1; }
 .hljs-property { color: #005cc5; }
-[data-theme="dark"] .hljs-keyword { color: #ff7b72; }
-[data-theme="dark"] .hljs-string { color: #a5d6ff; }
-[data-theme="dark"] .hljs-number { color: #79c0ff; }
-[data-theme="dark"] .hljs-comment { color: #8b949e; }
-[data-theme="dark"] .hljs-function { color: #d2a8ff; }
-[data-theme="dark"] .hljs-built_in { color: #79c0ff; }
-[data-theme="dark"] .hljs-literal { color: #79c0ff; }
-[data-theme="dark"] .hljs-type { color: #ff7b72; }
-[data-theme="dark"] .hljs-attr { color: #79c0ff; }
-[data-theme="dark"] .hljs-tag { color: #7ee787; }
-[data-theme="dark"] .hljs-name { color: #7ee787; }
-[data-theme="dark"] .hljs-selector { color: #d2a8ff; }
-[data-theme="dark"] .hljs-property { color: #79c0ff; }
-[data-theme="perplexity"] .hljs-keyword { color: #1A6872; }
-[data-theme="perplexity"] .hljs-string { color: #707C36; }
-[data-theme="perplexity"] .hljs-number { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-comment { color: #92DCE2; font-style: italic; }
-[data-theme="perplexity"] .hljs-function { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-built_in { color: #2CA0AB; }
-[data-theme="perplexity"] .hljs-literal { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-type { color: #1A6872; }
-[data-theme="perplexity"] .hljs-attr { color: #2E565E; }
-[data-theme="perplexity"] .hljs-tag { color: #1A6872; }
-[data-theme="perplexity"] .hljs-name { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-selector { color: #1A6872; }
-[data-theme="perplexity"] .hljs-property { color: #2CA0AB; }
+[data-fr-theme="dark"] .hljs-keyword { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-string { color: #a5d6ff; }
+[data-fr-theme="dark"] .hljs-number { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-comment { color: #8b949e; }
+[data-fr-theme="dark"] .hljs-function { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-built_in { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-literal { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-type { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-attr { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-tag { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-name { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-selector { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-property { color: #79c0ff; }
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .hljs-keyword { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-string { color: #a5d6ff; }
+    [data-fr-theme="auto"] .hljs-number { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-comment { color: #8b949e; }
+    [data-fr-theme="auto"] .hljs-function { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-built_in { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-literal { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-type { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-attr { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-tag { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-name { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-selector { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-property { color: #79c0ff; }
+}
 
 .editor blockquote {
     margin: 0.5em 0;

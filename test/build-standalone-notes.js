@@ -20,6 +20,10 @@ const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
 const outlinerCssPath = path.join(__dirname, '../src/webview/outliner.css');
 const stylesPath = path.join(__dirname, '../src/webview/styles.css');
+// sprint 20260509-185557-minimal-settings-foundation: tokens / fr-base / fr-components
+const tokensCssPath = path.join(__dirname, '../src/webview/tokens.css');
+const frBaseCssPath = path.join(__dirname, '../src/webview/fr-base.css');
+const frComponentsCssPath = path.join(__dirname, '../src/webview/fr-components.css');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
 const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
@@ -52,6 +56,9 @@ const stylesContent = fs.readFileSync(stylesPath, 'utf-8')
     .replace('__FONT_SIZE__', '14');
 const outlinerCss = fs.readFileSync(outlinerCssPath, 'utf-8')
     .replace('__FONT_SIZE__', '14');
+const tokensCss = fs.existsSync(tokensCssPath) ? fs.readFileSync(tokensCssPath, 'utf-8') : '';
+const frBaseCss = fs.existsSync(frBaseCssPath) ? fs.readFileSync(frBaseCssPath, 'utf-8') : '';
+const frComponentsCss = fs.existsSync(frComponentsCssPath) ? fs.readFileSync(frComponentsCssPath, 'utf-8') : '';
 
 // Notes左パネルCSS+HTML
 const notesBodyHtml = require(notesBodyHtmlPath);
@@ -245,11 +252,14 @@ const testNotesHostBridge = `
 
 // --- HTMLテンプレート ---
 const html = `<!DOCTYPE html>
-<html lang="en" data-theme="github">
+<html lang="en" data-theme="github" data-fr-theme="auto">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Standalone Notes Test</title>
+    <style>${tokensCss}</style>
+    <style>${frBaseCss}</style>
+    <style>${frComponentsCss}</style>
     <style>${stylesContent}</style>
     <style>${outlinerCss}</style>
     <style>${notesCss}</style>

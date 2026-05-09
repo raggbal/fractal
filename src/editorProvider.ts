@@ -13,6 +13,7 @@ import {
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
+import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 
 // ============================================
@@ -466,7 +467,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     this.context.extensionUri,
                     content,
                     {
-                        theme: config.get<string>('theme', 'things'),
+                        theme: getCurrentTheme(this.context),
                         fontSize: config.get<number>('fontSize', 12),
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         documentBaseUri: documentBaseUri,

@@ -1,0 +1,314 @@
+/*
+ * Fractal Minimal Redesign — Design Tokens (PoC v1)
+ *
+ * tecval: 20260509-175835-minimal-redesign / v1
+ * 3 mode theme system (light / dark / auto) — replaces previous 7 themes (MD-34 撤廃)
+ *
+ * Loaded BEFORE styles.css / outliner.css to provide --fr-* variables
+ * Compatible with VSCode webview (Electron 22+ Chromium 108+) / Electron / Chrome / Safari 15.4+
+ */
+
+/* Layer order: 後ろほど優先度が高い (CSS Cascade Layers).
+ * fr-legacy は既存 outliner.css / styles.css の `--outliner-bg` 等の VSCode fallback 定義用。
+ * fr-tokens で minimal pastel theme tokens が legacy を override する。 */
+@layer fr-legacy, fr-tokens, fr-base, fr-components, fr-chrome;
+
+@layer fr-tokens {
+    /* ═══════════════════════════════════════════════════════════════
+       Light tokens (default + auto fallback)
+       ═══════════════════════════════════════════════════════════════ */
+    :root,
+    :root[data-fr-theme="light"],
+    :root[data-fr-theme="auto"] {
+        /* Brand */
+        --fr-color-primary:        #4F6BFF;
+        --fr-color-primary-soft:   #DBE2FF;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #6B5BE0;
+        --fr-color-accent-soft:    #E8E5FA;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (ミニマル: chrome / content の bg を区別しない)
+         * 前 sidebar の色 #FAFAF7 (off-white) に統一。content の灰色っぽさ (#F5F4EE = cream) を排除。 */
+        --fr-color-bg-app:         #FAFAF7;
+        --fr-color-bg-panel:       #FAFAF7;
+        --fr-color-bg-elevated:    #FFFFFF;
+        --fr-color-border:         #E6E5DD;
+        --fr-color-divider:        #EDECE5;
+
+        /* Text */
+        --fr-color-text-primary:   #1A1B1F;
+        --fr-color-text-secondary: #6B6F76;
+        --fr-color-text-tertiary:  #9BA0A8;
+        --fr-color-text-muted:     #B5BAC1;
+
+        /* Status */
+        --fr-color-success:        #46A663;
+        --fr-color-success-soft:   #DCEFE3;
+        --fr-color-warning:        #E9A03A;
+        --fr-color-warning-soft:   #FBEFD8;
+        --fr-color-danger:         #D94A4A;
+        --fr-color-danger-soft:    #FBE3E3;
+        --fr-color-info:           #3F8CC9;
+        --fr-color-info-soft:      #DCEDF8;
+
+        /* Selection */
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        /* Scrollbar */
+        --fr-color-scrollbar-thumb:       rgba(0, 0, 0, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+
+        /* MD content (1 種固定 / 7 themes 撤廃の代替 — light) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #F2F1EA;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (light) — outliner.css の `var(--outliner-*)` 全部を minimal pastel light tokens に置換 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(0, 0, 0, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(0, 0, 0, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Dark tokens (explicit dark)
+       ═══════════════════════════════════════════════════════════════ */
+    :root[data-fr-theme="dark"] {
+        --fr-color-primary:        #7A8DFF;
+        --fr-color-primary-soft:   #2C355F;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #8B7DEB;
+        --fr-color-accent-soft:    #2F2A4A;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28 に統一) */
+        --fr-color-bg-app:         #1E1F28;
+        --fr-color-bg-panel:       #1E1F28;
+        --fr-color-bg-elevated:    #2A2B36;
+        --fr-color-border:         #34353F;
+        --fr-color-divider:        #2D2E37;
+
+        --fr-color-text-primary:   #E8E9EB;
+        --fr-color-text-secondary: #B5B8BF;
+        --fr-color-text-tertiary:  #80848C;
+        --fr-color-text-muted:     #5C6068;
+
+        --fr-color-success:        #6BCD83;
+        --fr-color-success-soft:   #1F3A28;
+        --fr-color-warning:        #F0B859;
+        --fr-color-warning-soft:   #4A3A1F;
+        --fr-color-danger:         #F26B6B;
+        --fr-color-danger-soft:    #4A1F1F;
+        --fr-color-info:           #5FAFE3;
+        --fr-color-info-soft:      #1F344A;
+
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+        /* MD content (dark) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #25262E;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (dark) — outliner.css の `var(--outliner-*)` 全部 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Auto: prefers-color-scheme dark → 採用
+       ═══════════════════════════════════════════════════════════════ */
+    @media (prefers-color-scheme: dark) {
+        :root[data-fr-theme="auto"] {
+            --fr-color-primary:        #7A8DFF;
+            --fr-color-primary-soft:   #2C355F;
+            --fr-color-primary-fg:     #FFFFFF;
+            --fr-color-accent:         #8B7DEB;
+            --fr-color-accent-soft:    #2F2A4A;
+
+            /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28) */
+            --fr-color-bg-app:         #1E1F28;
+            --fr-color-bg-panel:       #1E1F28;
+            --fr-color-bg-elevated:    #2A2B36;
+            --fr-color-border:         #34353F;
+            --fr-color-divider:        #2D2E37;
+
+            --fr-color-text-primary:   #E8E9EB;
+            --fr-color-text-secondary: #B5B8BF;
+            --fr-color-text-tertiary:  #80848C;
+            --fr-color-text-muted:     #5C6068;
+
+            --fr-color-success:        #6BCD83;
+            --fr-color-success-soft:   #1F3A28;
+            --fr-color-warning:        #F0B859;
+            --fr-color-warning-soft:   #4A3A1F;
+            --fr-color-danger:         #F26B6B;
+            --fr-color-danger-soft:    #4A1F1F;
+            --fr-color-info:           #5FAFE3;
+            --fr-color-info-soft:      #1F344A;
+
+            --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+            --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+            --bg-color:          var(--fr-color-bg-app);
+            --text-color:        var(--fr-color-text-primary);
+            --heading-color:     var(--fr-color-text-primary);
+            --link-color:        var(--fr-color-primary);
+            --code-bg:           #25262E;
+            --code-text:         var(--fr-color-text-primary);
+            --border-color:      var(--fr-color-border);
+            --blockquote-color:  var(--fr-color-bg-elevated);
+            --blockquote-border: var(--fr-color-border);
+            --sidebar-bg:        var(--fr-color-bg-panel);
+            --sidebar-border:    var(--fr-color-divider);
+            --toolbar-bg:        var(--fr-color-bg-panel);
+            --selection-bg:      var(--fr-color-primary-soft);
+
+            /* outliner-* legacy aliases (auto + prefers-color-scheme dark) */
+            --outliner-bg:                  var(--fr-color-bg-app);
+            --outliner-fg:                  var(--fr-color-text-primary);
+            --outliner-text:                var(--fr-color-text-primary);
+            --outliner-border:              var(--fr-color-divider);
+            --outliner-hover:               var(--fr-color-bg-elevated);
+            --outliner-hover-bg:            var(--fr-color-bg-elevated);
+            --outliner-active:              var(--fr-color-selection-bg);
+            --outliner-focus-bg:            var(--fr-color-selection-bg);
+            --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+            --outliner-subtext:             var(--fr-color-text-tertiary);
+            --outliner-subtext-color:       var(--fr-color-text-tertiary);
+            --outliner-placeholder:         var(--fr-color-text-tertiary);
+            --outliner-tag-color:           var(--fr-color-primary);
+            --outliner-tag-bg:              var(--fr-color-primary-soft);
+            --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+            --outliner-checkbox-accent:     var(--fr-color-primary);
+            --outliner-page-icon-color:     var(--fr-color-primary);
+            --outliner-search-bg:           var(--fr-color-bg-elevated);
+            --outliner-search-border:       var(--fr-color-border);
+            --outliner-search-fg:           var(--fr-color-text-primary);
+            --outliner-code-bg:             var(--fr-color-bg-elevated);
+            --outliner-error-color:         var(--fr-color-danger);
+            --outliner-accent-fg:           var(--fr-color-primary-fg);
+            --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+            --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Spacing / Radius / Shadow / Typography / z-index
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --fr-space-0:  0px;
+        --fr-space-1:  2px;
+        --fr-space-2:  4px;
+        --fr-space-3:  6px;
+        --fr-space-4:  8px;
+        --fr-space-5:  10px;
+        --fr-space-6:  12px;
+        --fr-space-8:  16px;
+        --fr-space-10: 20px;
+
+        --fr-radius-xs:   4px;
+        --fr-radius-sm:   6px;
+        --fr-radius-md:   8px;
+        --fr-radius-lg:  10px;
+        --fr-radius-full: 9999px;
+
+        --fr-shadow-1: 0 1px 2px rgba(20, 22, 30, 0.04);
+        --fr-shadow-2: 0 2px 8px rgba(20, 22, 30, 0.06);
+        --fr-shadow-3: 0 8px 24px rgba(20, 22, 30, 0.10);
+        --fr-shadow-focus: 0 0 0 3px var(--fr-color-primary-soft);
+
+        --fr-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Noto Sans', sans-serif;
+        --fr-font-mono: 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+
+        --fr-text-xs:   10px;
+        --fr-text-sm:   11px;
+        --fr-text-base: 12px;
+        --fr-text-md:   13px;
+        --fr-text-lg:   15px;
+        --fr-text-xl:   18px;
+        --fr-text-2xl:  22px;
+
+        --fr-leading-tight: 1.25;
+        --fr-leading-base:  1.4;
+        --fr-leading-loose: 1.6;
+
+        --fr-weight-regular:  400;
+        --fr-weight-medium:   500;
+        --fr-weight-semibold: 600;
+        --fr-weight-bold:     700;
+
+        --fr-z-base:    0;
+        --fr-z-sticky:  100;
+        --fr-z-popup:   400;
+        --fr-z-modal:   500;
+        --fr-z-toast:   600;
+    }
+}

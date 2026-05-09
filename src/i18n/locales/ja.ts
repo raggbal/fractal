@@ -228,4 +228,6 @@ export const webviewMessages = {
   tableColumnTypeMultiselect: 'マルチセレクト',
   tableColumnTypeOutliner: 'アウトライン',
   tableSearchPlaceholder: '検索...',
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: "テーマ設定 '{old}' → '{new}' に自動移行しました。",
 };

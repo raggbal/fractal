@@ -1,127 +1,656 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="github">
+<html lang="en" data-theme="github" data-fr-theme="auto">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Standalone Notes Test</title>
-    <style>:root {
+    <style>/*
+ * Fractal Minimal Redesign — Design Tokens (PoC v1)
+ *
+ * tecval: 20260509-175835-minimal-redesign / v1
+ * 3 mode theme system (light / dark / auto) — replaces previous 7 themes (MD-34 撤廃)
+ *
+ * Loaded BEFORE styles.css / outliner.css to provide --fr-* variables
+ * Compatible with VSCode webview (Electron 22+ Chromium 108+) / Electron / Chrome / Safari 15.4+
+ */
+
+/* Layer order: 後ろほど優先度が高い (CSS Cascade Layers).
+ * fr-legacy は既存 outliner.css / styles.css の `--outliner-bg` 等の VSCode fallback 定義用。
+ * fr-tokens で minimal pastel theme tokens が legacy を override する。 */
+@layer fr-legacy, fr-tokens, fr-base, fr-components, fr-chrome;
+
+@layer fr-tokens {
+    /* ═══════════════════════════════════════════════════════════════
+       Light tokens (default + auto fallback)
+       ═══════════════════════════════════════════════════════════════ */
+    :root,
+    :root[data-fr-theme="light"],
+    :root[data-fr-theme="auto"] {
+        /* Brand */
+        --fr-color-primary:        #4F6BFF;
+        --fr-color-primary-soft:   #DBE2FF;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #6B5BE0;
+        --fr-color-accent-soft:    #E8E5FA;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (ミニマル: chrome / content の bg を区別しない)
+         * 前 sidebar の色 #FAFAF7 (off-white) に統一。content の灰色っぽさ (#F5F4EE = cream) を排除。 */
+        --fr-color-bg-app:         #FAFAF7;
+        --fr-color-bg-panel:       #FAFAF7;
+        --fr-color-bg-elevated:    #FFFFFF;
+        --fr-color-border:         #E6E5DD;
+        --fr-color-divider:        #EDECE5;
+
+        /* Text */
+        --fr-color-text-primary:   #1A1B1F;
+        --fr-color-text-secondary: #6B6F76;
+        --fr-color-text-tertiary:  #9BA0A8;
+        --fr-color-text-muted:     #B5BAC1;
+
+        /* Status */
+        --fr-color-success:        #46A663;
+        --fr-color-success-soft:   #DCEFE3;
+        --fr-color-warning:        #E9A03A;
+        --fr-color-warning-soft:   #FBEFD8;
+        --fr-color-danger:         #D94A4A;
+        --fr-color-danger-soft:    #FBE3E3;
+        --fr-color-info:           #3F8CC9;
+        --fr-color-info-soft:      #DCEDF8;
+
+        /* Selection */
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        /* Scrollbar */
+        --fr-color-scrollbar-thumb:       rgba(0, 0, 0, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+
+        /* MD content (1 種固定 / 7 themes 撤廃の代替 — light) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #F2F1EA;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (light) — outliner.css の `var(--outliner-*)` 全部を minimal pastel light tokens に置換 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(0, 0, 0, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(0, 0, 0, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Dark tokens (explicit dark)
+       ═══════════════════════════════════════════════════════════════ */
+    :root[data-fr-theme="dark"] {
+        --fr-color-primary:        #7A8DFF;
+        --fr-color-primary-soft:   #2C355F;
+        --fr-color-primary-fg:     #FFFFFF;
+        --fr-color-accent:         #8B7DEB;
+        --fr-color-accent-soft:    #2F2A4A;
+
+        /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28 に統一) */
+        --fr-color-bg-app:         #1E1F28;
+        --fr-color-bg-panel:       #1E1F28;
+        --fr-color-bg-elevated:    #2A2B36;
+        --fr-color-border:         #34353F;
+        --fr-color-divider:        #2D2E37;
+
+        --fr-color-text-primary:   #E8E9EB;
+        --fr-color-text-secondary: #B5B8BF;
+        --fr-color-text-tertiary:  #80848C;
+        --fr-color-text-muted:     #5C6068;
+
+        --fr-color-success:        #6BCD83;
+        --fr-color-success-soft:   #1F3A28;
+        --fr-color-warning:        #F0B859;
+        --fr-color-warning-soft:   #4A3A1F;
+        --fr-color-danger:         #F26B6B;
+        --fr-color-danger-soft:    #4A1F1F;
+        --fr-color-info:           #5FAFE3;
+        --fr-color-info-soft:      #1F344A;
+
+        --fr-color-selection-bg:   var(--fr-color-primary-soft);
+        --fr-color-selection-bar:  var(--fr-color-primary);
+
+        --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+        --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+        /* MD content (dark) */
+        --bg-color:          var(--fr-color-bg-app);
+        --text-color:        var(--fr-color-text-primary);
+        --heading-color:     var(--fr-color-text-primary);
+        --link-color:        var(--fr-color-primary);
+        --code-bg:           #25262E;
+        --code-text:         var(--fr-color-text-primary);
+        --border-color:      var(--fr-color-border);
+        --blockquote-color:  var(--fr-color-bg-elevated);
+        --blockquote-border: var(--fr-color-border);
+        --sidebar-bg:        var(--fr-color-bg-panel);
+        --sidebar-border:    var(--fr-color-divider);
+        --toolbar-bg:        var(--fr-color-bg-panel);
+        --selection-bg:      var(--fr-color-primary-soft);
+
+        /* outliner-* legacy aliases (dark) — outliner.css の `var(--outliner-*)` 全部 */
+        --outliner-bg:                  var(--fr-color-bg-app);
+        --outliner-fg:                  var(--fr-color-text-primary);
+        --outliner-text:                var(--fr-color-text-primary);
+        --outliner-border:              var(--fr-color-divider);
+        --outliner-hover:               var(--fr-color-bg-elevated);
+        --outliner-hover-bg:            var(--fr-color-bg-elevated);
+        --outliner-active:              var(--fr-color-selection-bg);
+        --outliner-focus-bg:            var(--fr-color-selection-bg);
+        --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+        --outliner-subtext:             var(--fr-color-text-tertiary);
+        --outliner-subtext-color:       var(--fr-color-text-tertiary);
+        --outliner-placeholder:         var(--fr-color-text-tertiary);
+        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-bg:              var(--fr-color-primary-soft);
+        --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+        --outliner-checkbox-accent:     var(--fr-color-primary);
+        --outliner-page-icon-color:     var(--fr-color-primary);
+        --outliner-search-bg:           var(--fr-color-bg-elevated);
+        --outliner-search-border:       var(--fr-color-border);
+        --outliner-search-fg:           var(--fr-color-text-primary);
+        --outliner-code-bg:             var(--fr-color-bg-elevated);
+        --outliner-error-color:         var(--fr-color-danger);
+        --outliner-accent-fg:           var(--fr-color-primary-fg);
+        --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+        --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Auto: prefers-color-scheme dark → 採用
+       ═══════════════════════════════════════════════════════════════ */
+    @media (prefers-color-scheme: dark) {
+        :root[data-fr-theme="auto"] {
+            --fr-color-primary:        #7A8DFF;
+            --fr-color-primary-soft:   #2C355F;
+            --fr-color-primary-fg:     #FFFFFF;
+            --fr-color-accent:         #8B7DEB;
+            --fr-color-accent-soft:    #2F2A4A;
+
+            /* Surface — bg-panel と bg-app は同じ値で統一 (前 sidebar #1E1F28) */
+            --fr-color-bg-app:         #1E1F28;
+            --fr-color-bg-panel:       #1E1F28;
+            --fr-color-bg-elevated:    #2A2B36;
+            --fr-color-border:         #34353F;
+            --fr-color-divider:        #2D2E37;
+
+            --fr-color-text-primary:   #E8E9EB;
+            --fr-color-text-secondary: #B5B8BF;
+            --fr-color-text-tertiary:  #80848C;
+            --fr-color-text-muted:     #5C6068;
+
+            --fr-color-success:        #6BCD83;
+            --fr-color-success-soft:   #1F3A28;
+            --fr-color-warning:        #F0B859;
+            --fr-color-warning-soft:   #4A3A1F;
+            --fr-color-danger:         #F26B6B;
+            --fr-color-danger-soft:    #4A1F1F;
+            --fr-color-info:           #5FAFE3;
+            --fr-color-info-soft:      #1F344A;
+
+            --fr-color-scrollbar-thumb:       rgba(255, 255, 255, 0.15);
+            --fr-color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+
+            --bg-color:          var(--fr-color-bg-app);
+            --text-color:        var(--fr-color-text-primary);
+            --heading-color:     var(--fr-color-text-primary);
+            --link-color:        var(--fr-color-primary);
+            --code-bg:           #25262E;
+            --code-text:         var(--fr-color-text-primary);
+            --border-color:      var(--fr-color-border);
+            --blockquote-color:  var(--fr-color-bg-elevated);
+            --blockquote-border: var(--fr-color-border);
+            --sidebar-bg:        var(--fr-color-bg-panel);
+            --sidebar-border:    var(--fr-color-divider);
+            --toolbar-bg:        var(--fr-color-bg-panel);
+            --selection-bg:      var(--fr-color-primary-soft);
+
+            /* outliner-* legacy aliases (auto + prefers-color-scheme dark) */
+            --outliner-bg:                  var(--fr-color-bg-app);
+            --outliner-fg:                  var(--fr-color-text-primary);
+            --outliner-text:                var(--fr-color-text-primary);
+            --outliner-border:              var(--fr-color-divider);
+            --outliner-hover:               var(--fr-color-bg-elevated);
+            --outliner-hover-bg:            var(--fr-color-bg-elevated);
+            --outliner-active:              var(--fr-color-selection-bg);
+            --outliner-focus-bg:            var(--fr-color-selection-bg);
+            --outliner-text-focus-bg:       var(--fr-color-bg-elevated);
+            --outliner-subtext:             var(--fr-color-text-tertiary);
+            --outliner-subtext-color:       var(--fr-color-text-tertiary);
+            --outliner-placeholder:         var(--fr-color-text-tertiary);
+            --outliner-tag-color:           var(--fr-color-primary);
+            --outliner-tag-bg:              var(--fr-color-primary-soft);
+            --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
+            --outliner-checkbox-accent:     var(--fr-color-primary);
+            --outliner-page-icon-color:     var(--fr-color-primary);
+            --outliner-search-bg:           var(--fr-color-bg-elevated);
+            --outliner-search-border:       var(--fr-color-border);
+            --outliner-search-fg:           var(--fr-color-text-primary);
+            --outliner-code-bg:             var(--fr-color-bg-elevated);
+            --outliner-error-color:         var(--fr-color-danger);
+            --outliner-accent-fg:           var(--fr-color-primary-fg);
+            --outliner-scrollbar-thumb:        rgba(255, 255, 255, 0.15);
+            --outliner-scrollbar-thumb-hover:  rgba(255, 255, 255, 0.25);
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Spacing / Radius / Shadow / Typography / z-index
+       ═══════════════════════════════════════════════════════════════ */
+    :root {
+        --fr-space-0:  0px;
+        --fr-space-1:  2px;
+        --fr-space-2:  4px;
+        --fr-space-3:  6px;
+        --fr-space-4:  8px;
+        --fr-space-5:  10px;
+        --fr-space-6:  12px;
+        --fr-space-8:  16px;
+        --fr-space-10: 20px;
+
+        --fr-radius-xs:   4px;
+        --fr-radius-sm:   6px;
+        --fr-radius-md:   8px;
+        --fr-radius-lg:  10px;
+        --fr-radius-full: 9999px;
+
+        --fr-shadow-1: 0 1px 2px rgba(20, 22, 30, 0.04);
+        --fr-shadow-2: 0 2px 8px rgba(20, 22, 30, 0.06);
+        --fr-shadow-3: 0 8px 24px rgba(20, 22, 30, 0.10);
+        --fr-shadow-focus: 0 0 0 3px var(--fr-color-primary-soft);
+
+        --fr-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Noto Sans', sans-serif;
+        --fr-font-mono: 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+
+        --fr-text-xs:   10px;
+        --fr-text-sm:   11px;
+        --fr-text-base: 12px;
+        --fr-text-md:   13px;
+        --fr-text-lg:   15px;
+        --fr-text-xl:   18px;
+        --fr-text-2xl:  22px;
+
+        --fr-leading-tight: 1.25;
+        --fr-leading-base:  1.4;
+        --fr-leading-loose: 1.6;
+
+        --fr-weight-regular:  400;
+        --fr-weight-medium:   500;
+        --fr-weight-semibold: 600;
+        --fr-weight-bold:     700;
+
+        --fr-z-base:    0;
+        --fr-z-sticky:  100;
+        --fr-z-popup:   400;
+        --fr-z-modal:   500;
+        --fr-z-toast:   600;
+    }
+}
+</style>
+    <style>/*
+ * Fractal Minimal Redesign — Base Styles (PoC v1)
+ *
+ * Loaded after tokens.css, before fr-components.css.
+ * Provides reset, scrollbar, focus, selection, body base.
+ */
+
+@layer fr-base {
+    /* ───────── Reset ───────── */
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    /* ───────── Scrollbar (8px, light/dark 両対応) ───────── */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: var(--fr-color-scrollbar-thumb);
+        border-radius: var(--fr-radius-full);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--fr-color-scrollbar-thumb-hover);
+    }
+    ::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+    /* Firefox */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--fr-color-scrollbar-thumb) transparent;
+    }
+
+    /* ───────── Focus ring (button/input/textarea/select のみ) ─────────
+     * 注意: contenteditable / outliner-text 等の text editing 領域には
+     * focus ring を当てない (ユーザー要望: カーソル入った時に強調しない) */
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+        outline: none;
+        box-shadow: var(--fr-shadow-focus);
+    }
+
+    /* ───────── Selection ───────── */
+    ::selection {
+        background: var(--fr-color-primary-soft);
+        color: var(--fr-color-text-primary);
+    }
+
+    /* ───────── Body base (typography hint — do not override existing styles.css size) ───────── */
+    /* body は styles.css 側で `font-size: var(--font-size)` (PL-05 default 12) を設定。
+       fr-base はそれを尊重し、color と font-family のみ補強。 */
+    body {
+        font-family: var(--fr-font-sans);
+        color: var(--fr-color-text-primary);
+        background-color: var(--fr-color-bg-app);
+    }
+
+    /* ───────── Smooth theme transition (BH-04 ちらつき対策) ───────── */
+    /* 切替時の bg / color / border 補間。layout を変える transition は入れない */
+    body,
+    .file-panel-item,
+    .file-panel-folder-header,
+    .file-panel-btn,
+    .file-panel-tab,
+    .file-panel-search-input,
+    .s3-action-btn,
+    .file-panel-context-menu,
+    .file-panel-context-item,
+    .outliner-search-input {
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+}
+</style>
+    <style>/*
+ * Fractal Minimal Redesign — Components (PoC v1)
+ *
+ * Loaded after fr-base.css.
+ * tecval.md「主要コンポーネント仕様 (修正版)」をそのまま採用。
+ *
+ * 注意: 既存の `.file-panel-btn`, `.file-panel-item`, `.s3-action-btn` 等の class
+ * は `notes-body-html.js` 内 inline CSS で定義されている。
+ * fr-components.css は新 class (`.fr-button` 等) を提供しつつ、
+ * 既存 class への migration は notes-body-html.js 側で var(--fr-*) 参照に置換することで実現する。
+ */
+
+@layer fr-components {
+    /* ═══════════════════════════════════════════════════════════════
+       Button (.fr-button)
+       variants: primary / secondary / ghost / danger
+       sizes:    xs (h22) / sm (h26) / md (h30)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--fr-space-2);
+        height: 30px;
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border: 1px solid transparent;
+        border-radius: var(--fr-radius-sm);
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        font-weight: var(--fr-weight-medium);
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+    .fr-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    /* sizes */
+    .fr-button.fr-button-xs {
+        height: 22px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-sm);
+    }
+    .fr-button.fr-button-sm {
+        height: 26px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-base);
+    }
+
+    /* variant: primary */
+    .fr-button.fr-button-primary {
+        background: var(--fr-color-primary);
+        color: var(--fr-color-primary-fg);
+        border-color: var(--fr-color-primary);
+    }
+    .fr-button.fr-button-primary:hover:not(:disabled) {
+        filter: brightness(1.05);
+    }
+
+    /* variant: secondary (outline) */
+    .fr-button.fr-button-secondary {
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+    }
+    .fr-button.fr-button-secondary:hover:not(:disabled) {
+        background: var(--fr-color-bg-panel);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: ghost (transparent, hover で elevated) */
+    .fr-button.fr-button-ghost {
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+        opacity: 0.7;
+    }
+    .fr-button.fr-button-ghost:hover:not(:disabled) {
+        opacity: 1;
+        background: var(--fr-color-bg-elevated);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: danger */
+    .fr-button.fr-button-danger {
+        background: transparent;
+        color: var(--fr-color-danger);
+        border-color: var(--fr-color-danger);
+    }
+    .fr-button.fr-button-danger:hover:not(:disabled) {
+        background: var(--fr-color-danger-soft);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Input (.fr-input)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-input {
+        width: 100%;
+        padding: var(--fr-space-2) var(--fr-space-3);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-sm);
+        outline: none;
+        box-sizing: border-box;
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    .fr-input:hover:not(:disabled) {
+        border-color: var(--fr-color-text-tertiary);
+    }
+    .fr-input:focus {
+        border-color: var(--fr-color-primary);
+        box-shadow: var(--fr-shadow-focus);
+    }
+    .fr-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .fr-input::placeholder {
+        color: var(--fr-color-text-muted);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       List item (.fr-list-item)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-list-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-5);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        border-radius: var(--fr-radius-sm);
+        margin: 1px var(--fr-space-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .fr-list-item:hover {
+        background: var(--fr-color-bg-elevated);
+    }
+    .fr-list-item.fr-list-item-active {
+        background: var(--fr-color-selection-bg);
+        font-weight: var(--fr-weight-medium);
+        position: relative;
+    }
+    .fr-list-item.fr-list-item-active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        background: var(--fr-color-selection-bar);
+        border-radius: 2px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Context menu / Popup (.fr-context-menu / .fr-popup)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-context-menu,
+    .fr-popup {
+        position: fixed;
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-lg);
+        padding: var(--fr-space-2);
+        box-shadow: var(--fr-shadow-2);
+        z-index: var(--fr-z-popup);
+        min-width: 140px;
+    }
+    .fr-context-menu-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border-radius: var(--fr-radius-sm);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .fr-context-menu-item:hover {
+        background: var(--fr-color-bg-app);
+    }
+    .fr-context-menu-item.danger {
+        color: var(--fr-color-danger);
+    }
+    .fr-context-menu-item.danger:hover {
+        background: var(--fr-color-danger-soft);
+    }
+    .fr-context-menu-divider {
+        height: 1px;
+        background: var(--fr-color-divider);
+        margin: var(--fr-space-1) 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Badge (.fr-badge)
+       variants: success / info / warning / danger / neutral
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px var(--fr-space-3);
+        font-size: var(--fr-text-xs);
+        font-weight: var(--fr-weight-medium);
+        border-radius: var(--fr-radius-sm);
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-secondary);
+        line-height: 1.4;
+    }
+    .fr-badge.fr-badge-success {
+        background: var(--fr-color-success-soft);
+        color: var(--fr-color-success);
+    }
+    .fr-badge.fr-badge-info {
+        background: var(--fr-color-info-soft);
+        color: var(--fr-color-info);
+    }
+    .fr-badge.fr-badge-warning {
+        background: var(--fr-color-warning-soft);
+        color: var(--fr-color-warning);
+    }
+    .fr-badge.fr-badge-danger {
+        background: var(--fr-color-danger-soft);
+        color: var(--fr-color-danger);
+    }
+}
+</style>
+    <style>/*
+ * MD content theme tokens
+ * (sprint 20260509-185557-minimal-settings-foundation: 7 themes (MD-34) 撤廃済み)
+ *
+ * --bg-color / --text-color / --heading-color / --link-color / --code-bg /
+ * --code-text / --border-color / --blockquote-color / --blockquote-border /
+ * --sidebar-bg / --sidebar-border / --toolbar-bg / --selection-bg は
+ * `src/webview/tokens.css` で `[data-fr-theme]` ベースに統一定義されている。
+ * このファイルでは font-size / font-family のみ固有定義。
+ */
+:root {
     --font-size: 14px;
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
     --font-mono: 'Menlo', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono', monospace;
-}
-
-[data-theme="github"] {
-    --bg-color: #ffffff;
-    --text-color: #24292f;
-    --heading-color: #1f2328;
-    --link-color: #0969da;
-    --code-bg: #f6f8fa;
-    --code-text: #24292f;
-    --border-color: #d0d7de;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #d0d7de;
-    --sidebar-bg: #f6f8fa;
-    --sidebar-border: #eaecef;
-    --toolbar-bg: #f6f8fa;
-    --selection-bg: #b6d7ff;
-}
-
-[data-theme="sepia"] {
-    --bg-color: #fbf8f1;
-    --text-color: #5b4636;
-    --heading-color: #433422;
-    --link-color: #8b6914;
-    --code-bg: #f3efe4;
-    --code-text: #5b4636;
-    --border-color: #d9d3c3;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #c9c3b3;
-    --sidebar-bg: #f3efe4;
-    --sidebar-border: #e7e3d8;
-    --toolbar-bg: #f3efe4;
-    --selection-bg: #e6dcc8;
-}
-
-[data-theme="night"] {
-    --bg-color: #1a1b26;
-    --text-color: #c0caf5;
-    --heading-color: #c0caf5;
-    --link-color: #7aa2f7;
-    --code-bg: #24283b;
-    --code-text: #a9b1d6;
-    --border-color: #3b4261;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3b4261;
-    --sidebar-bg: #16161e;
-    --sidebar-border: #1e1e28;
-    --toolbar-bg: #16161e;
-    --selection-bg: #364a82;
-}
-
-[data-theme="dark"] {
-    --bg-color: #1e1e1e;
-    --text-color: #d4d4d4;
-    --heading-color: #ffffff;
-    --link-color: #569cd6;
-    --code-bg: #252526;
-    --code-text: #d4d4d4;
-    --border-color: #3c3c3c;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #3c3c3c;
-    --sidebar-bg: #252526;
-    --sidebar-border: #2e2e2f;
-    --toolbar-bg: #252526;
-    --selection-bg: #264f78;
-}
-
-[data-theme="minimal"] {
-    --bg-color: #fafafa;
-    --text-color: #333333;
-    --heading-color: #111111;
-    --link-color: #333333;
-    --code-bg: #f0f0f0;
-    --code-text: #333333;
-    --border-color: #e0e0e0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #cccccc;
-    --sidebar-bg: #f5f5f5;
-    --sidebar-border: #e9e9e9;
-    --toolbar-bg: #f5f5f5;
-    --selection-bg: #d0d0d0;
-}
-
-[data-theme="things"] {
-    --bg-color: #ffffff;
-    --text-color: #3D3D3D;
-    --heading-color: #1C1C1E;
-    --link-color: #3478F6;
-    --code-bg: #F2F2F7;
-    --code-text: #3D3D3D;
-    --border-color: #E5E5EA;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #D1D1D6;
-    --sidebar-bg: #F4F5F7;
-    --sidebar-border: #ECEDF0;
-    --toolbar-bg: #F9F9F9;
-    --selection-bg: #D4E4FF;
-    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', sans-serif;
-}
-
-[data-theme="perplexity"] {
-    --bg-color: #FBFAF4;
-    --text-color: #13343B;
-    --heading-color: #0B363C;
-    --link-color: #1FB8CD;
-    --code-bg: #EAEEEF;
-    --code-text: #1a1a1a;
-    --border-color: #D8D8D0;
-    --blockquote-color: #ffffff;
-    --blockquote-border: #C8C8C0;
-    --sidebar-bg: #F2F1EB;
-    --sidebar-border: #E6E5DF;
-    --toolbar-bg: #F2F1EB;
-    --selection-bg: #E0EFF1;
-    --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -656,82 +1185,36 @@ body {
 .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
-/* Dark theme link icons */
-[data-theme="night"] .editor a.link-fractal-node::before,
-[data-theme="dark"] .editor a.link-fractal-node::before {
+/* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
+[data-fr-theme="dark"] .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-fractal-page::before,
-[data-theme="dark"] .editor a.link-fractal-page::before {
+[data-fr-theme="dark"] .editor a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .editor a.link-internal-md::before,
-[data-theme="dark"] .editor a.link-internal-md::before {
+[data-fr-theme="dark"] .editor a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-
-/* Perplexity theme overrides */
-/* Base: p/li=14px, code/blockquote/table=13px, h3=16px */
-[data-theme="perplexity"] body { font-size: var(--font-size); line-height: 1.35; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-[data-theme="perplexity"] .editor p, [data-theme="perplexity"] .editor div.paragraph { margin: 0.25em 0; min-height: 1.35em; }
-[data-theme="perplexity"] .editor h1 { font-size: 1.58em; border-bottom: none; padding-bottom: 0; margin: 0.72em 0; }
-[data-theme="perplexity"] .editor h2 { font-size: 1.13em; border-bottom: none; padding-bottom: 0; margin: 0.35em 0 0.15em; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 4px; text-decoration-thickness: 1px; }
-[data-theme="perplexity"] .editor h3 { font-size: 1.01em; margin: 0.3em 0 0.1em; }
-[data-theme="perplexity"] .editor h4 { font-size: 0.9em; margin: 0.25em 0 0.1em; }
-[data-theme="perplexity"] .editor h5 { font-size: 0.79em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h6 { font-size: 0.73em; margin: 0.2em 0 0.1em; }
-[data-theme="perplexity"] .editor h1, [data-theme="perplexity"] .editor h2, [data-theme="perplexity"] .editor h3,
-[data-theme="perplexity"] .editor h4, [data-theme="perplexity"] .editor h5, [data-theme="perplexity"] .editor h6 {
-    font-weight: 500; letter-spacing: -0.01em; line-height: 1.17;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor a.link-fractal-node::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-fractal-page::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-internal-md::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
 }
-[data-theme="perplexity"] .editor ul, [data-theme="perplexity"] .editor ol { margin: 0.2em 0; }
-[data-theme="perplexity"] .editor li { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor li > ul, [data-theme="perplexity"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="perplexity"] .editor pre { border-radius: 9px; border: 1px solid #D8D8D0; font-size: 0.79em; padding: 11px; margin: 0.4em 0; }
-[data-theme="perplexity"] .editor blockquote { border-left-width: 3px; font-style: normal; font-size: 0.79em; margin: 0.3em 0; padding: 0 0.72em; }
-[data-theme="perplexity"] .editor table { margin: 0.4em 0; }
-[data-theme="perplexity"] .editor th, [data-theme="perplexity"] .editor td { font-size: 0.79em; padding: 5px 9px; }
-[data-theme="perplexity"] .editor table th { background: #EAEEEF; }
-[data-theme="perplexity"] .editor table td, [data-theme="perplexity"] .editor table th { border-color: #D8D8D0; }
-[data-theme="perplexity"] .editor code { border-radius: 5px; font-size: 0.73em; color: #1a1a1a; }
-/* pre code color is inherited from --code-text (#1a1a1a) via CSS variables */
-[data-theme="perplexity"] .editor a { text-decoration: underline; text-decoration-color: rgba(31, 184, 205, 0.4); text-underline-offset: 2px; }
-[data-theme="perplexity"] .editor a:hover { text-decoration-color: #1FB8CD; }
-[data-theme="perplexity"] .editor hr { border-top-color: #D8D8D0; border-top-width: 1px; margin: 0.5em 0; }
-[data-theme="perplexity"] .editor img { border-radius: 7px; }
 
-/* Things theme overrides — inspired by Cultured Code's Things 3 */
-/* Clean, airy, with blue accent headings */
-[data-theme="things"] body { font-size: calc(var(--font-size) - 1px); line-height: 1.44; font-weight: 400; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; letter-spacing: -0.01em; }
-[data-theme="things"] .editor p, [data-theme="things"] .editor div.paragraph { margin: 0.35em 0; min-height: 1.44em; }
-[data-theme="things"] .editor h1 { font-size: 1.56em; border-bottom: none; padding-bottom: 0; margin: 0.9em 0 0.4em; color: #1C1C1E; }
-[data-theme="things"] .editor h2 { font-size: 1.14em; border-bottom: 1px solid #E5E5EA; padding-bottom: 0.25em; margin: 0.81em 0 0.25em; color: #3478F6; font-weight: 700; }
-[data-theme="things"] .editor h3 { font-size: 1.02em; margin: 0.63em 0 0.2em; color: #1C1C1E; }
-[data-theme="things"] .editor h4 { font-size: 0.9em; margin: 0.54em 0 0.15em; color: #1C1C1E; }
-[data-theme="things"] .editor h5 { font-size: 0.84em; margin: 0.5em 0 0.1em; color: #636366; }
-[data-theme="things"] .editor h6 { font-size: 0.78em; margin: 0.5em 0 0.1em; color: #8E8E93; }
-[data-theme="things"] .editor h1, [data-theme="things"] .editor h2, [data-theme="things"] .editor h3,
-[data-theme="things"] .editor h4, [data-theme="things"] .editor h5, [data-theme="things"] .editor h6 {
-    font-weight: 700; letter-spacing: -0.02em; line-height: 1.17;
-}
-[data-theme="things"] .editor h2 { font-weight: 700; }
-[data-theme="things"] .editor ul, [data-theme="things"] .editor ol { margin: 0.25em 0; }
-[data-theme="things"] .editor li { margin: 0.15em 0; line-height: 1.4; }
-[data-theme="things"] .editor li > ul, [data-theme="things"] .editor li > ol { margin: 0.1em 0; }
-[data-theme="things"] .editor pre { border-radius: 7px; border: 1px solid #E5E5EA; font-size: 0.78em; padding: 13px; margin: 0.5em 0; background: #F9F9FB; }
-[data-theme="things"] .editor blockquote { border-left: 3px solid #3478F6; font-style: normal; font-size: 0.84em; margin: 0.4em 0; padding: 0.2em 0.72em; color: #636366; background: #F9F9FB; }
-[data-theme="things"] .editor table { margin: 0.5em 0; }
-[data-theme="things"] .editor th, [data-theme="things"] .editor td { font-size: 0.84em; padding: 5px 11px; }
-[data-theme="things"] .editor table th { background: #F2F2F7; font-weight: 600; }
-[data-theme="things"] .editor table td, [data-theme="things"] .editor table th { border-color: #E5E5EA; }
-[data-theme="things"] .editor code { border-radius: 5px; font-size: 0.78em; color: #3D3D3D; background: #F2F2F7; }
-[data-theme="things"] .editor pre code { color: #3D3D3D; background: transparent; }
-[data-theme="things"] .editor a { color: #3478F6; text-decoration: none; }
-[data-theme="things"] .editor a:hover { text-decoration: underline; text-underline-offset: 2px; }
-[data-theme="things"] .editor hr { border-top-color: #E5E5EA; border-top-width: 1px; margin: 0.72em 0; }
-[data-theme="things"] .editor img { border-radius: 5px; }
-[data-theme="things"] .editor input[type="checkbox"] { accent-color: #3478F6; }
-[data-theme="things"] .editor strong, [data-theme="things"] .editor b { font-weight: 600; color: #1C1C1E; }
+/*
+ * Perplexity / Things theme typography overrides
+ * (sprint 20260509-185557-minimal-settings-foundation: 撤廃済み)
+ *
+ * MD-34 撤廃に伴い、theme-specific typography は 1 種固定 (minimal) に統合。
+ * MD content の H1〜H6 / pre / blockquote / table 等は本ファイルの
+ * generic .editor rules + tokens.css の `--*` 変数で表現される。
+ */
 
 .editor strong, .editor b { font-weight: 600; }
 .editor em, .editor i { font-style: italic; }
@@ -1007,13 +1490,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .mermaid-diagram .mermaid-error {
+[data-fr-theme="dark"] .editor .mermaid-diagram .mermaid-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="perplexity"] .editor .mermaid-diagram .mermaid-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .mermaid-diagram .mermaid-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* KaTeX math block styles */
@@ -1050,17 +1535,15 @@ body {
     background: #ffeef0;
     border-radius: 4px;
 }
-[data-theme="night"] .editor .math-display .math-error {
+[data-fr-theme="dark"] .editor .math-display .math-error {
     background: #3d1f1f;
     color: #f97583;
 }
-[data-theme="dark"] .editor .math-display .math-error {
-    background: #3d1f1f;
-    color: #f97583;
-}
-[data-theme="perplexity"] .editor .math-display .math-error {
-    background: #FFF0F0;
-    color: #BF505C;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor .math-display .math-error {
+        background: #3d1f1f;
+        color: #f97583;
+    }
 }
 
 /* Syntax highlighting colors */
@@ -1077,32 +1560,34 @@ body {
 .hljs-name { color: #22863a; }
 .hljs-selector { color: #6f42c1; }
 .hljs-property { color: #005cc5; }
-[data-theme="dark"] .hljs-keyword { color: #ff7b72; }
-[data-theme="dark"] .hljs-string { color: #a5d6ff; }
-[data-theme="dark"] .hljs-number { color: #79c0ff; }
-[data-theme="dark"] .hljs-comment { color: #8b949e; }
-[data-theme="dark"] .hljs-function { color: #d2a8ff; }
-[data-theme="dark"] .hljs-built_in { color: #79c0ff; }
-[data-theme="dark"] .hljs-literal { color: #79c0ff; }
-[data-theme="dark"] .hljs-type { color: #ff7b72; }
-[data-theme="dark"] .hljs-attr { color: #79c0ff; }
-[data-theme="dark"] .hljs-tag { color: #7ee787; }
-[data-theme="dark"] .hljs-name { color: #7ee787; }
-[data-theme="dark"] .hljs-selector { color: #d2a8ff; }
-[data-theme="dark"] .hljs-property { color: #79c0ff; }
-[data-theme="perplexity"] .hljs-keyword { color: #1A6872; }
-[data-theme="perplexity"] .hljs-string { color: #707C36; }
-[data-theme="perplexity"] .hljs-number { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-comment { color: #92DCE2; font-style: italic; }
-[data-theme="perplexity"] .hljs-function { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-built_in { color: #2CA0AB; }
-[data-theme="perplexity"] .hljs-literal { color: #A84B2F; }
-[data-theme="perplexity"] .hljs-type { color: #1A6872; }
-[data-theme="perplexity"] .hljs-attr { color: #2E565E; }
-[data-theme="perplexity"] .hljs-tag { color: #1A6872; }
-[data-theme="perplexity"] .hljs-name { color: #1FB8CD; }
-[data-theme="perplexity"] .hljs-selector { color: #1A6872; }
-[data-theme="perplexity"] .hljs-property { color: #2CA0AB; }
+[data-fr-theme="dark"] .hljs-keyword { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-string { color: #a5d6ff; }
+[data-fr-theme="dark"] .hljs-number { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-comment { color: #8b949e; }
+[data-fr-theme="dark"] .hljs-function { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-built_in { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-literal { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-type { color: #ff7b72; }
+[data-fr-theme="dark"] .hljs-attr { color: #79c0ff; }
+[data-fr-theme="dark"] .hljs-tag { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-name { color: #7ee787; }
+[data-fr-theme="dark"] .hljs-selector { color: #d2a8ff; }
+[data-fr-theme="dark"] .hljs-property { color: #79c0ff; }
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .hljs-keyword { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-string { color: #a5d6ff; }
+    [data-fr-theme="auto"] .hljs-number { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-comment { color: #8b949e; }
+    [data-fr-theme="auto"] .hljs-function { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-built_in { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-literal { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-type { color: #ff7b72; }
+    [data-fr-theme="auto"] .hljs-attr { color: #79c0ff; }
+    [data-fr-theme="auto"] .hljs-tag { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-name { color: #7ee787; }
+    [data-fr-theme="auto"] .hljs-selector { color: #d2a8ff; }
+    [data-fr-theme="auto"] .hljs-property { color: #79c0ff; }
+}
 
 .editor blockquote {
     margin: 0.5em 0;
@@ -1774,39 +2259,46 @@ body {
  * Outliner Styles
  * ============================================= */
 
-:root {
-    --outliner-bg: var(--vscode-editor-background, #1e1e1e);
-    --outliner-fg: var(--vscode-editor-foreground, #cccccc);
-    --outliner-indent: 1.35em;
-    --outliner-bullet-size: 5px;
-    --outliner-line-height: 1.35;
-    --outliner-font-size: 14px;
-    --outliner-border: var(--vscode-panel-border, #333);
-    --outliner-hover-bg: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
-    --outliner-focus-bg: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
-    --outliner-tag-color: #569cd6;
-    --outliner-tag-bg: rgba(86,156,214,0.15);
-    --outliner-page-icon-color: #3b82f6;
-    --outliner-search-bg: var(--vscode-input-background, #3c3c3c);
-    --outliner-search-border: var(--vscode-input-border, #555);
-    --outliner-search-fg: var(--vscode-input-foreground, #ccc);
-    --outliner-match-bg: rgba(255,200,0,0.2);
-    --outliner-placeholder: var(--vscode-input-placeholderForeground, #888);
-    --outliner-checkbox-accent: #569cd6;
-    --outliner-text-focus-bg: rgba(255,255,255,0.03);
-    --outliner-code-bg: rgba(255,255,255,0.08);
-    --outliner-tag-hover-bg: rgba(86,156,214,0.3);
-    --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
-    --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
-    --outliner-text: var(--vscode-editor-foreground, #cccccc);
-    --outliner-hover: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
-    --outliner-active: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
-    --outliner-subtext: #999;
-    --outliner-subtext-color: #888;
-    --outliner-error-color: #d00;
-    --outliner-accent-fg: #fff;
-    --outliner-selection-bg: rgba(255, 165, 0, 0.15);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+/* sprint 20260509-185557-minimal-settings-foundation:
+ * 既存 :root の VSCode fallback を `@layer fr-legacy` に閉じる。
+ * tokens.css の `@layer fr-tokens` で `--outliner-*` legacy alias が再定義され
+ * minimal pastel theme tokens (light / dark) を優先する。
+ * (layer order: fr-legacy < fr-tokens < fr-base < fr-components < fr-chrome) */
+@layer fr-legacy {
+    :root {
+        --outliner-bg: var(--vscode-editor-background, #1e1e1e);
+        --outliner-fg: var(--vscode-editor-foreground, #cccccc);
+        --outliner-indent: 1.35em;
+        --outliner-bullet-size: 5px;
+        --outliner-line-height: 1.35;
+        --outliner-font-size: 14px;
+        --outliner-border: var(--vscode-panel-border, #333);
+        --outliner-hover-bg: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
+        --outliner-focus-bg: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
+        --outliner-tag-color: #569cd6;
+        --outliner-tag-bg: rgba(86,156,214,0.15);
+        --outliner-page-icon-color: #3b82f6;
+        --outliner-search-bg: var(--vscode-input-background, #3c3c3c);
+        --outliner-search-border: var(--vscode-input-border, #555);
+        --outliner-search-fg: var(--vscode-input-foreground, #ccc);
+        --outliner-match-bg: rgba(255,200,0,0.2);
+        --outliner-placeholder: var(--vscode-input-placeholderForeground, #888);
+        --outliner-checkbox-accent: #569cd6;
+        --outliner-text-focus-bg: rgba(255,255,255,0.03);
+        --outliner-code-bg: rgba(255,255,255,0.08);
+        --outliner-tag-hover-bg: rgba(86,156,214,0.3);
+        --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
+        --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
+        --outliner-text: var(--vscode-editor-foreground, #cccccc);
+        --outliner-hover: var(--vscode-list-hoverBackground, rgba(255,255,255,0.05));
+        --outliner-active: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,0.15));
+        --outliner-subtext: #999;
+        --outliner-subtext-color: #888;
+        --outliner-error-color: #d00;
+        --outliner-accent-fg: #fff;
+        --outliner-selection-bg: rgba(255, 165, 0, 0.15);
+        --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+    }
 }
 
 /* --- Body (side panel positioning context) --- */
@@ -2260,12 +2752,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     min-height: 1.35em;
 }
 
-.outliner-node:hover {
-    background: var(--outliner-hover-bg);
-}
-
+/* hover での色反転は削除 (ユーザー要望: 強調しない)。
+ * is-focused (keyboard active) は背景無し、is-selected (範囲選択) のみ色付け。 */
 .outliner-node.is-focused {
-    background: var(--outliner-focus-bg);
+    background: transparent;
 }
 
 .outliner-node.is-selected {
@@ -2456,8 +2946,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     border-radius: 2px;
 }
 
+/* ユーザー要望: text editing focus 時に背景・枠を一切変えない (強調しない) */
 .outliner-text:focus {
-    background: var(--outliner-text-focus-bg);
+    background: transparent;
+    outline: none;
+    box-shadow: none;
 }
 
 .outliner-text:empty::before {
@@ -2502,7 +2995,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     white-space: pre-wrap;
     overflow: visible;
     text-overflow: unset;
-    background: var(--outliner-text-focus-bg);
+    /* ユーザー要望: focus 時の bg 強調なし */
+    background: transparent;
     border-radius: 3px;
     padding: 4px;
     min-height: 1.26em;
@@ -2574,18 +3068,26 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-text a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
-/* Dark theme link icons */
-[data-theme="night"] .outliner-text a.link-fractal-node::before,
-[data-theme="dark"] .outliner-text a.link-fractal-node::before {
+/* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
+[data-fr-theme="dark"] .outliner-text a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .outliner-text a.link-fractal-page::before,
-[data-theme="dark"] .outliner-text a.link-fractal-page::before {
+[data-fr-theme="dark"] .outliner-text a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-[data-theme="night"] .outliner-text a.link-internal-md::before,
-[data-theme="dark"] .outliner-text a.link-internal-md::before {
+[data-fr-theme="dark"] .outliner-text a.link-internal-md::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .outliner-text a.link-fractal-node::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .outliner-text a.link-fractal-page::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .outliner-text a.link-internal-md::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    }
 }
 
 /* Phase F1.5: .outliner-children ラッパーは flat DOM では生成されない (削除済) */
@@ -2787,100 +3289,18 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
  * Theme Overrides
  * ============================================= */
 
-[data-theme="github"] {
-    --outliner-bg: #ffffff;
-    --outliner-fg: #24292f;
-    --outliner-border: #d0d7de;
-    --outliner-hover-bg: rgba(0,0,0,0.04);
-    --outliner-focus-bg: rgba(9,105,218,0.12);
-    --outliner-search-bg: #f6f8fa;
-    --outliner-search-border: #d0d7de;
-    --outliner-search-fg: #24292f;
-    --outliner-placeholder: #6e7781;
-    --outliner-tag-color: #0969da;
-    --outliner-tag-bg: rgba(9,105,218,0.1);
-    --outliner-tag-hover-bg: rgba(9,105,218,0.2);
-    --outliner-text-focus-bg: rgba(0,0,0,0.02);
-    --outliner-code-bg: #f6f8fa;
-    --outliner-scrollbar-thumb: rgba(0,0,0,0.15);
-    --outliner-scrollbar-thumb-hover: rgba(0,0,0,0.25);
-    --outliner-checkbox-accent: #0969da;
-    --outliner-match-bg: rgba(255,200,0,0.3);
-    --outliner-page-icon-color: #1a7f37;
-    --outliner-text: #24292f;
-    --outliner-hover: rgba(0,0,0,0.04);
-    --outliner-active: rgba(9,105,218,0.15);
-    --outliner-selection-bg: rgba(255, 165, 0, 0.18);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.3);
-    --outliner-subtext: #6e7781;
-    --outliner-subtext-color: #6e7781;
-    --outliner-error-color: #cf222e;
-    --outliner-accent-fg: #fff;
-}
-
-[data-theme="sepia"] {
-    --outliner-bg: #fbf8f1;
-    --outliner-fg: #5b4636;
-    --outliner-border: #d9d3c3;
-    --outliner-hover-bg: rgba(0,0,0,0.03);
-    --outliner-focus-bg: rgba(139,105,20,0.12);
-    --outliner-search-bg: #f3efe4;
-    --outliner-search-border: #d9d3c3;
-    --outliner-search-fg: #5b4636;
-    --outliner-placeholder: #8a7a66;
-    --outliner-tag-color: #8b6914;
-    --outliner-tag-bg: rgba(139,105,20,0.12);
-    --outliner-tag-hover-bg: rgba(139,105,20,0.22);
-    --outliner-text-focus-bg: rgba(0,0,0,0.02);
-    --outliner-code-bg: #f3efe4;
-    --outliner-scrollbar-thumb: rgba(0,0,0,0.12);
-    --outliner-scrollbar-thumb-hover: rgba(0,0,0,0.2);
-    --outliner-checkbox-accent: #8b6914;
-    --outliner-match-bg: rgba(200,170,0,0.25);
-    --outliner-page-icon-color: #6a8a3a;
-    --outliner-text: #5b4636;
-    --outliner-hover: rgba(0,0,0,0.03);
-    --outliner-active: rgba(139,105,20,0.15);
-    --outliner-selection-bg: rgba(210, 140, 20, 0.2);
-    --outliner-selection-text-bg: rgba(210, 140, 20, 0.3);
-    --outliner-subtext: #8a7a66;
-    --outliner-subtext-color: #8a7a66;
-    --outliner-error-color: #b91c1c;
-    --outliner-accent-fg: #fff;
-}
-
-[data-theme="night"] {
-    --outliner-bg: #1a1b26;
-    --outliner-fg: #c0caf5;
-    --outliner-border: #3b4261;
-    --outliner-hover-bg: rgba(255,255,255,0.05);
-    --outliner-focus-bg: rgba(122,162,247,0.15);
-    --outliner-search-bg: #24283b;
-    --outliner-search-border: #3b4261;
-    --outliner-search-fg: #c0caf5;
-    --outliner-placeholder: #565f89;
-    --outliner-tag-color: #7aa2f7;
-    --outliner-tag-bg: rgba(122,162,247,0.15);
-    --outliner-tag-hover-bg: rgba(122,162,247,0.3);
-    --outliner-text-focus-bg: rgba(255,255,255,0.03);
-    --outliner-code-bg: #24283b;
-    --outliner-scrollbar-thumb: rgba(255,255,255,0.12);
-    --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.2);
-    --outliner-checkbox-accent: #7aa2f7;
-    --outliner-match-bg: rgba(255,200,0,0.2);
-    --outliner-page-icon-color: #9ece6a;
-    --outliner-text: #c0caf5;
-    --outliner-hover: rgba(255,255,255,0.05);
-    --outliner-active: rgba(122,162,247,0.2);
-    --outliner-selection-bg: rgba(255, 165, 0, 0.15);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
-    --outliner-subtext: #565f89;
-    --outliner-subtext-color: #565f89;
-    --outliner-error-color: #f7768e;
-    --outliner-accent-fg: #fff;
-}
-
-[data-theme="dark"] {
+/*
+ * Outliner theme overrides
+ * (sprint 20260509-185557-minimal-settings-foundation: 7 themes 撤廃 → 3 mode 統合)
+ *
+ * --outliner-* 変数の light 値は :root (本ファイル冒頭) で定義済 (VSCode 変数 fallback)。
+ * 新 minimal pastel light/dark の値は src/webview/tokens.css の `:root[data-fr-theme]` で
+ * legacy alias (`--outliner-bg` 等) として再定義され、cascade で上書きする。
+ *
+ * dark theme override は data-fr-theme="dark" + auto+prefers-color-scheme dark で発火。
+ * (旧 [data-theme="dark"] block の値を継承)
+ */
+[data-fr-theme="dark"] {
     --outliner-bg: #1e1e1e;
     --outliner-fg: #d4d4d4;
     --outliner-border: #3c3c3c;
@@ -2910,98 +3330,37 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     --outliner-error-color: #f44747;
     --outliner-accent-fg: #fff;
 }
-
-[data-theme="minimal"] {
-    --outliner-bg: #fafafa;
-    --outliner-fg: #333333;
-    --outliner-border: #e0e0e0;
-    --outliner-hover-bg: rgba(0,0,0,0.03);
-    --outliner-focus-bg: rgba(0,0,0,0.06);
-    --outliner-search-bg: #f0f0f0;
-    --outliner-search-border: #e0e0e0;
-    --outliner-search-fg: #333333;
-    --outliner-placeholder: #999;
-    --outliner-tag-color: #555;
-    --outliner-tag-bg: rgba(0,0,0,0.06);
-    --outliner-tag-hover-bg: rgba(0,0,0,0.1);
-    --outliner-text-focus-bg: rgba(0,0,0,0.02);
-    --outliner-code-bg: #f0f0f0;
-    --outliner-scrollbar-thumb: rgba(0,0,0,0.12);
-    --outliner-scrollbar-thumb-hover: rgba(0,0,0,0.2);
-    --outliner-checkbox-accent: #555;
-    --outliner-match-bg: rgba(255,200,0,0.3);
-    --outliner-page-icon-color: #4a8a4a;
-    --outliner-text: #333333;
-    --outliner-hover: rgba(0,0,0,0.03);
-    --outliner-active: rgba(0,0,0,0.08);
-    --outliner-selection-bg: rgba(200, 130, 0, 0.15);
-    --outliner-selection-text-bg: rgba(200, 130, 0, 0.25);
-    --outliner-subtext: #999;
-    --outliner-subtext-color: #999;
-    --outliner-error-color: #d32f2f;
-    --outliner-accent-fg: #fff;
-}
-
-[data-theme="things"] {
-    --outliner-bg: #ffffff;
-    --outliner-fg: #3D3D3D;
-    --outliner-border: #E5E5EA;
-    --outliner-hover-bg: rgba(0,0,0,0.03);
-    --outliner-focus-bg: rgba(52,120,246,0.1);
-    --outliner-search-bg: #F2F2F7;
-    --outliner-search-border: #E5E5EA;
-    --outliner-search-fg: #3D3D3D;
-    --outliner-placeholder: #8E8E93;
-    --outliner-tag-color: #3478F6;
-    --outliner-tag-bg: rgba(52,120,246,0.1);
-    --outliner-tag-hover-bg: rgba(52,120,246,0.2);
-    --outliner-text-focus-bg: rgba(0,0,0,0.02);
-    --outliner-code-bg: #F2F2F7;
-    --outliner-scrollbar-thumb: rgba(0,0,0,0.12);
-    --outliner-scrollbar-thumb-hover: rgba(0,0,0,0.2);
-    --outliner-checkbox-accent: #3478F6;
-    --outliner-match-bg: rgba(255,200,0,0.3);
-    --outliner-page-icon-color: #34C759;
-    --outliner-text: #3D3D3D;
-    --outliner-hover: rgba(0,0,0,0.03);
-    --outliner-active: rgba(52,120,246,0.12);
-    --outliner-selection-bg: rgba(255, 165, 0, 0.18);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.3);
-    --outliner-subtext: #8E8E93;
-    --outliner-subtext-color: #8E8E93;
-    --outliner-error-color: #FF3B30;
-    --outliner-accent-fg: #fff;
-}
-
-[data-theme="perplexity"] {
-    --outliner-bg: #FBFAF4;
-    --outliner-fg: #13343B;
-    --outliner-border: #D8D8D0;
-    --outliner-hover-bg: rgba(0,0,0,0.03);
-    --outliner-focus-bg: rgba(31,184,205,0.1);
-    --outliner-search-bg: #F2F1EB;
-    --outliner-search-border: #D8D8D0;
-    --outliner-search-fg: #13343B;
-    --outliner-placeholder: #6B8A8F;
-    --outliner-tag-color: #1FB8CD;
-    --outliner-tag-bg: rgba(31,184,205,0.1);
-    --outliner-tag-hover-bg: rgba(31,184,205,0.2);
-    --outliner-text-focus-bg: rgba(0,0,0,0.02);
-    --outliner-code-bg: #EAEEEF;
-    --outliner-scrollbar-thumb: rgba(0,0,0,0.12);
-    --outliner-scrollbar-thumb-hover: rgba(0,0,0,0.2);
-    --outliner-checkbox-accent: #1FB8CD;
-    --outliner-match-bg: rgba(255,200,0,0.3);
-    --outliner-page-icon-color: #0B8A6F;
-    --outliner-text: #13343B;
-    --outliner-hover: rgba(0,0,0,0.03);
-    --outliner-active: rgba(31,184,205,0.12);
-    --outliner-selection-bg: rgba(255, 165, 0, 0.18);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.3);
-    --outliner-subtext: #6B8A8F;
-    --outliner-subtext-color: #6B8A8F;
-    --outliner-error-color: #dc2626;
-    --outliner-accent-fg: #fff;
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] {
+        --outliner-bg: #1e1e1e;
+        --outliner-fg: #d4d4d4;
+        --outliner-border: #3c3c3c;
+        --outliner-hover-bg: rgba(255,255,255,0.05);
+        --outliner-focus-bg: rgba(0,120,212,0.15);
+        --outliner-search-bg: #252526;
+        --outliner-search-border: #3c3c3c;
+        --outliner-search-fg: #d4d4d4;
+        --outliner-placeholder: #888;
+        --outliner-tag-color: #569cd6;
+        --outliner-tag-bg: rgba(86,156,214,0.15);
+        --outliner-tag-hover-bg: rgba(86,156,214,0.3);
+        --outliner-text-focus-bg: rgba(255,255,255,0.03);
+        --outliner-code-bg: rgba(255,255,255,0.08);
+        --outliner-scrollbar-thumb: rgba(255,255,255,0.15);
+        --outliner-scrollbar-thumb-hover: rgba(255,255,255,0.25);
+        --outliner-checkbox-accent: #569cd6;
+        --outliner-match-bg: rgba(255,200,0,0.2);
+        --outliner-page-icon-color: #4ec9b0;
+        --outliner-text: #d4d4d4;
+        --outliner-hover: rgba(255,255,255,0.05);
+        --outliner-active: rgba(0,120,212,0.2);
+        --outliner-selection-bg: rgba(255, 165, 0, 0.15);
+        --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+        --outliner-subtext: #888;
+        --outliner-subtext-color: #888;
+        --outliner-error-color: #f44747;
+        --outliner-accent-fg: #fff;
+    }
 }
 
 /* Search jump highlight */
@@ -3518,10 +3877,12 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 0.6;
 }
 
-/* table mode の各 grid item: 行線無し、列セルは内容に合わせて高さ可変 */
+/* table mode の各 grid item: 行線無し、列セルは内容に合わせて高さ可変。
+ * date / datetime も stretch しないと hover bg が下部欠けるバグになる。 */
 .outliner-tree[data-view-mode="table"] > .outliner-node,
 .outliner-tree[data-view-mode="table"] > .outliner-cell-text,
-.outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect {
+.outliner-tree[data-view-mode="table"] > .outliner-cell-multiselect,
+.outliner-tree[data-view-mode="table"] > .outliner-cell-date {
     box-sizing: border-box;
     padding: 4px 7px;
     /* 行線・列線を出さない (ユーザー要望) */
@@ -3558,23 +3919,29 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     word-break: break-word;
     white-space: pre-wrap;
 }
+/* ユーザー要望: cell-text focus 時に枠を出さない */
 .outliner-cell-text:focus {
-    outline: 1px solid var(--vscode-focusBorder, #007acc);
-    outline-offset: -1px;
+    outline: none;
+    box-shadow: none;
+    background: transparent;
 }
 
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
- * outline cell (.outliner-node) と同じ background を当てて行全体が同色になる */
+ * is-focused (keyboard active) は背景無し (色を付けない、cursor 位置でわかる)。
+ * is-selected (範囲選択) は selection-bg。
+ * is-row-hover は outliner.js で同 data-node-id の cell に付与され、行全体に water-blue。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {
-    background: var(--outliner-focus-bg);
+    background: transparent;
 }
 .outliner-cell-text.is-selected,
 .outliner-cell-multiselect.is-selected,
 .outliner-cell-date.is-selected {
     background: var(--outliner-selection-bg);
 }
+/* table mode の行全体 hover も削除 (ユーザー要望)。
+ * is-row-hover class は残るが背景反転なし */
 .outliner-cell-text.is-search-match,
 .outliner-cell-multiselect.is-search-match,
 .outliner-cell-date.is-search-match {
@@ -3589,10 +3956,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 1;
 }
 
-/* date / datetime cell */
+/* date / datetime cell — 上合わせ (行が広がっても中央寄せにしない) */
 .outliner-cell-date {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     padding: 0.25em 8px;
     min-width: 0;
     cursor: pointer;
@@ -3612,15 +3979,23 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-cell-date-display.is-empty {
     color: transparent; /* 通常時は何も表示しない */
 }
+/* date / datetime input — focus 時に枠・白背景なし (ユーザー要望: 強調しない) */
 .outliner-cell-date-input {
     width: 100%;
-    background: var(--outliner-search-bg);
-    border: 1px solid var(--outliner-tag-color);
-    border-radius: 3px;
-    padding: 2px 4px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
     font: inherit;
     color: inherit;
     outline: none;
+    box-shadow: none;
+}
+.outliner-cell-date-input:focus,
+.outliner-cell-date-input:focus-visible {
+    outline: none;
+    box-shadow: none;
+    background: transparent;
 }
 
 /* multiselect cell */
@@ -3634,9 +4009,26 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     min-height: 22px;
     outline: none;
 }
+/* multiselect cell: 普通の text caret 風の cursor で focus 位置を示す
+ * (text editing / native picker が無い cell type なので simulated caret を ::before で生成) */
 .outliner-cell-multiselect:focus {
-    outline: 1px solid var(--vscode-focusBorder, #007acc);
-    outline-offset: -1px;
+    outline: none;
+    box-shadow: none;
+}
+.outliner-cell-multiselect:focus::before {
+    content: '';
+    display: inline-block;
+    width: 1px;
+    height: 1.2em;
+    background: currentColor;
+    margin-right: 2px;
+    align-self: center;
+    animation: outliner-caret-blink 1s steps(2, start) infinite;
+    pointer-events: none;
+    flex-shrink: 0;
+}
+@keyframes outliner-caret-blink {
+    50% { background: transparent; }
 }
 .outliner-cell-multiselect-placeholder {
     color: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.6));
@@ -3707,8 +4099,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     border-radius: 3px;
     font-size: 11px;
 }
-.outliner-multiselect-item:hover, .outliner-multiselect-create:hover {
-    background: var(--outliner-hover-bg, rgba(127, 127, 127, 0.15));
+.outliner-multiselect-item:hover, .outliner-multiselect-create:hover,
+.outliner-multiselect-item.is-highlighted, .outliner-multiselect-create.is-highlighted {
+    background: var(--fr-color-selection-bg, var(--outliner-hover-bg, rgba(127, 127, 127, 0.15)));
 }
 .outliner-multiselect-checkbox {
     font-family: monospace;
@@ -3822,9 +4215,10 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
         .notes-file-panel {
             width: var(--notes-panel-width, 198px); min-width: 0; flex-shrink: 0;
-            border-right: 1px solid var(--outliner-border, #e0e0e0);
+            /* ミニマル: 1px の薄い divider で視覚分離 (色統一後の境界線) */
+            border-right: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
             display: flex; flex-direction: column;
-            background: var(--outliner-bg, #fafafa);
+            background: var(--fr-color-bg-panel, var(--outliner-bg, #fafafa));
             overflow: hidden;
         }
         .notes-file-panel.collapsed { width: 0; border-right: none; }
@@ -3842,7 +4236,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
         .notes-resize-handle:hover::before,
         .notes-resize-handle.active::before {
-            background: var(--vscode-focusBorder, #007acc);
+            background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             /* hover bar は file panel 側のみ (右側 = editor 側には拡張しない)
                editor の左 border のように見える二重表示を防止 */
             left: -2px; right: 0;
@@ -3850,30 +4244,54 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .notes-file-panel.collapsed + .notes-resize-handle { display: none; }
         .file-panel-header {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 7px 11px; border-bottom: 1px solid var(--outliner-border, #e0e0e0);
+            padding: 7px 11px; /* layout 維持 */
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
             box-sizing: border-box;
         }
         .file-panel-title { font-weight: 600; font-size: 12px; white-space: nowrap; }
         .file-panel-actions { display: flex; gap: 4px; align-items: center; }
         .file-panel-btn {
-            background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
-            border-radius: 4px; cursor: pointer; color: inherit;
+            background: transparent;
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px);
+            cursor: pointer;
+            color: var(--fr-color-text-primary, inherit);
             padding: 6px 7px; line-height: 1; font-size: 12px;
             display: flex; align-items: center; justify-content: center;
             opacity: 0.7;
         }
-        .file-panel-btn:hover { opacity: 1; border-color: var(--vscode-focusBorder, #007acc); background: transparent; }
+        .file-panel-btn:hover {
+            opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            background: var(--fr-color-bg-elevated, transparent);
+        }
+        .file-panel-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 
         /* ── File item ── */
         .file-panel-item {
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            border-radius: 4px; margin: 1px 4px;
+            border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
             display: flex; align-items: center; gap: 5px;
+            position: relative;
         }
-        .file-panel-item:hover { background: var(--outliner-hover, #e8e8e8); }
-        .file-panel-item.active { background: var(--outliner-active, #d8e8f8); font-weight: 500; }
+        /* file panel list item: hover は water-blue で反転 (ユーザー要望)。active 行は背景なし、左 2px primary bar */
+        .file-panel-item:hover:not(.active) { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
+        .file-panel-item.active {
+            background: transparent;
+            font-weight: 500;
+        }
+        .file-panel-item.active::before {
+            content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
+            /* 「ノート」タブの border-bottom (2px) と統一 */
+            width: 2px; background: var(--fr-color-selection-bar, var(--fr-color-primary, currentColor));
+            border-radius: 1px;
+        }
         .file-panel-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -3882,11 +4300,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .file-panel-folder-header {
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-            border-radius: 4px; margin: 1px 4px;
+            border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
             display: flex; align-items: center; gap: 4px;
             font-weight: 500;
         }
-        .file-panel-folder-header:hover { background: var(--outliner-hover, #e8e8e8); }
+        .file-panel-folder-header:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-folder-chevron {
             flex-shrink: 0; width: 13px; height: 13px;
             display: flex; align-items: center; justify-content: center;
@@ -3906,9 +4324,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
 
         /* ── Drag & Drop ── */
-        .file-panel-drag-over { background: var(--outliner-active, #d8e8f8); border-radius: 4px; }
+        .file-panel-drag-over { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); border-radius: var(--fr-radius-sm, 6px); }
         .file-panel-drop-line {
-            height: 2px; background: var(--vscode-focusBorder, #007acc);
+            height: 2px; background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             margin: 0 4px; border-radius: 1px;
             pointer-events: none;
         }
@@ -3916,31 +4334,49 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         [draggable="true"]:active { cursor: grabbing; }
 
         .file-panel-empty {
-            padding: 14px 11px; color: var(--outliner-subtext, #999); font-size: 11px; text-align: center;
+            padding: 14px 11px; color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999)); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
         .notes-panel-toggle-btn {
-            background: transparent; border: 1px solid var(--outliner-border, #e0e0e0);
-            border-radius: 4px; cursor: pointer; padding: 4px 5px; line-height: 1;
-            display: none; color: inherit; opacity: 0.7; font-size: 12px;
+            background: transparent; border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px); cursor: pointer; padding: 4px 5px; line-height: 1;
+            display: none; color: var(--fr-color-text-primary, inherit); opacity: 0.7; font-size: 12px;
             align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
         }
-        .notes-panel-toggle-btn:hover { opacity: 1; border-color: var(--vscode-focusBorder, #007acc); }
+        .notes-panel-toggle-btn:hover {
+            opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
+        .notes-panel-toggle-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+        }
         .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
         .file-panel-rename-input {
-            width: 100%; padding: 4px 7px; font-size: 12px; border: 1px solid var(--outliner-active, #4a9eff);
-            border-radius: 3px; outline: none; background: var(--outliner-bg, #fff); color: inherit;
+            width: 100%; padding: 4px 7px; font-size: 12px;
+            border: 1px solid var(--fr-color-primary, var(--outliner-active, #4a9eff));
+            border-radius: var(--fr-radius-sm, 6px); outline: none;
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            color: var(--fr-color-text-primary, inherit);
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
         .file-panel-context-menu {
-            position: fixed; background: var(--outliner-bg, #fff); border: 1px solid var(--outliner-border, #ddd);
-            border-radius: 5px; box-shadow: 0 4px 11px rgba(0,0,0,0.15); padding: 4px 0; z-index: 1000;
+            position: fixed;
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #ddd));
+            border-radius: var(--fr-radius-lg, 10px);
+            box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
+            padding: 4px; z-index: var(--fr-z-popup, 1000);
             min-width: 126px;
         }
         .file-panel-context-item {
-            padding: 5px 14px; cursor: pointer; font-size: 12px; white-space: nowrap;
+            padding: 5px 14px; cursor: pointer; font-size: 12px;
+            white-space: nowrap; border-radius: var(--fr-radius-sm, 6px);
         }
-        .file-panel-context-item:hover { background: var(--outliner-hover, #e8e8e8); }
-        .file-panel-context-item.danger { color: #e55; }
+        .file-panel-context-item:hover { background: var(--fr-color-bg-app, var(--outliner-hover, #e8e8e8)); }
+        .file-panel-context-item.danger { color: var(--fr-color-danger, #e55); }
+        .file-panel-context-item.danger:hover { background: var(--fr-color-danger-soft, rgba(217,74,74,0.1)); }
 
         /* ── Tabs ── */
         .file-panel-tabs {
@@ -3954,7 +4390,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             border-bottom: 2px solid transparent; transition: opacity 0.15s;
         }
         .file-panel-tab:hover { opacity: 0.85; }
-        .file-panel-tab.active { opacity: 1; border-bottom-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-tab.active { opacity: 1; border-bottom-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }
         .file-panel-tab svg { flex-shrink: 0; }
         .file-panel-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
         .file-panel-content-actions {
@@ -3970,11 +4406,16 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
         .file-panel-search-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
-            border: 1px solid var(--outliner-border, #e0e0e0); border-radius: 4px;
-            background: var(--outliner-bg, #fff); color: inherit; outline: none;
+            border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
+            border-radius: var(--fr-radius-sm, 6px);
+            background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
+            color: var(--fr-color-text-primary, inherit); outline: none;
             box-sizing: border-box;
         }
-        .file-panel-search-input:focus { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-search-input:focus {
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+        }
         .file-panel-search-options { display: flex; gap: 2px; }
         .file-panel-search-opt-btn {
             padding: 2px 5px; font-size: 10px; border: 1px solid transparent;
@@ -3982,7 +4423,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
         .file-panel-search-opt-btn:hover { opacity: 0.8; }
         .file-panel-search-opt-btn.active {
-            border-color: var(--vscode-focusBorder, #007acc); opacity: 1;
+            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); opacity: 1;
         }
         .file-panel-search-results { flex: 1; overflow-y: auto; padding: 4px 0; }
         .file-panel-search-section { margin-bottom: 5px; }
@@ -4005,7 +4446,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             padding: 4px 11px 4px 18px; font-size: 11px; cursor: pointer;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .file-panel-search-match:hover { background: var(--outliner-hover, #e8e8e8); }
+        .file-panel-search-match:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-search-highlight { background: rgba(255, 200, 0, 0.3); font-weight: 500; }
         .file-panel-search-count { padding: 4px 11px; font-size: 10px; opacity: 0.6; }
         .file-panel-search-spinner { padding: 7px 11px; font-size: 11px; opacity: 0.5; }
@@ -4016,18 +4457,23 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         .s3-input-row { display: flex; gap: 4px; }
         .s3-input-row .file-panel-search-input { flex: 1; }
         .s3-status { font-size: 10px; margin-top: 5px; opacity: 0.6; }
-        .s3-status.ok { color: #3a3; opacity: 1; }
-        .s3-status.error { color: #e55; opacity: 1; }
+        .s3-status.ok { color: var(--fr-color-success, #3a3); opacity: 1; }
+        .s3-status.error { color: var(--fr-color-danger, #e55); opacity: 1; }
         .s3-actions { display: flex; flex-direction: column; gap: 5px; padding-top: 4px; }
         .s3-action-btn {
             width: 100%; text-align: center; padding: 7px 11px;
-            font-size: 11px; border-radius: 4px;
+            font-size: 11px; border-radius: var(--fr-radius-sm, 6px);
+        }
+        .s3-action-btn:focus-visible {
+            outline: none;
+            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
         .s3-action-btn.s3-danger {
-            border-color: #c44; color: #c44;
+            border-color: var(--fr-color-danger, #c44);
+            color: var(--fr-color-danger, #c44);
         }
         .s3-action-btn.s3-danger:hover {
-            background: rgba(204, 68, 68, 0.1);
+            background: var(--fr-color-danger-soft, rgba(204, 68, 68, 0.1));
         }
         .s3-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .s3-progress { padding: 7px 11px; }
@@ -4040,7 +4486,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         }
         .file-panel-section-title {
             font-weight: bold; font-size: 11px; margin-bottom: 5px;
-            color: var(--vscode-foreground); opacity: 0.8;
+            color: var(--fr-color-text-primary, var(--vscode-foreground)); opacity: 0.8;
         }
 
         /* ── v11: Color Palette UI ── */
@@ -4051,12 +4497,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             padding: 7px 11px;
         }
         .file-panel-color-swatch {
-            width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
+            width: 18px; height: 18px;
+            border-radius: var(--fr-radius-xs, 4px);
+            cursor: pointer;
             border: 2px solid transparent;
             transition: transform 0.1s, border-color 0.1s;
         }
         .file-panel-color-swatch:hover { transform: scale(1.15); }
-        .file-panel-color-swatch.active { border-color: var(--vscode-focusBorder, #007acc); }
+        .file-panel-color-swatch.active { border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }
         .file-panel-color-back, .file-panel-color-none {
             font-size: 11px;
             opacity: 0.75;
@@ -18645,28 +19093,38 @@ class EditorInstance {
             if (!seen['f:' + fp]) { seen['f:' + fp] = 1; files.push(fileRefs[j]); }
         }
 
-        // Resolve to absolute path (for Open / Copy)
-        // documentBaseUri は webview-resource URI 形式なので、絶対 fs path に変換するために
-        // host.openLink / clipboard では「相対パスのまま」渡す (host が解決してくれる)。
-        // CopyPath 用には絶対 fs path が欲しいので resolveAssetUrl 結果から prefix 除去。
+        // Resolve to absolute fs path (for Copy Path):
+        //   1) rel が既に絶対 (file://, /...) ならそのまま
+        //   2) resolveImagePath(rel) で documentBaseUri と join → webview URL
+        //   3) cleanImageSrc で webview prefix を除去 → 絶対 fs path
         function relToAbsFs(rel) {
             if (!rel) return '';
-            // 既に絶対パス?
-            if (/^([a-z]+:)?\//i.test(rel) && !rel.startsWith('./') && !rel.startsWith('../')) {
-                if (rel.startsWith('file://')) return rel.substring(7);
-                if (rel.startsWith('/')) return rel;
-            }
-            // resolveAssetUrl で webview URL 化 → prefix 除去で絶対 fs path
+            var clean = (rel || '').split('?')[0].split('#')[0];
+            // file://... → strip
+            if (clean.startsWith('file://')) return clean.substring(7);
+            // /abs/path → そのまま
+            if (clean.startsWith('/') && !clean.startsWith('//')) return clean;
+            // ./rel/ や rel/ → resolveImagePath + cleanImageSrc 経路
             try {
-                var resolved = resolveAssetUrl(rel);
+                var resolved = (typeof resolveImagePath === 'function')
+                    ? resolveImagePath(clean)
+                    : '';
                 if (typeof cleanImageSrc === 'function') {
-                    var cleaned = cleanImageSrc(resolved);
-                    return (cleaned || '').split('?')[0].split('#')[0];
+                    var stripped = cleanImageSrc(resolved);
+                    if (stripped && stripped.startsWith('/')) return stripped;
                 }
-                return resolved.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '').replace(/^file:\/\//, '').split('?')[0].split('#')[0];
-            } catch (e) {
-                return rel;
-            }
+                // fallback: documentBaseUri を直接処理 (webview URL or file://)
+                if (typeof documentBaseUri === 'string' && documentBaseUri) {
+                    var base = documentBaseUri.replace(/\/$/, '');
+                    // strip webview prefix
+                    base = base.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
+                    // strip file:// prefix
+                    base = base.replace(/^file:\/\//, '');
+                    var sub = clean.replace(/^\.\//, '');
+                    return base + '/' + sub;
+                }
+            } catch (e) { /* fallthrough */ }
+            return clean;
         }
 
         // popup 構築
@@ -25697,6 +26155,7 @@ var Outliner = (function() {
         }
 
         treeEl = document.querySelector('.outliner-tree');
+
         searchInput = document.querySelector('.outliner-search-input');
         breadcrumbEl = document.querySelector('.outliner-breadcrumb');
         if (searchInput) { defaultSearchPlaceholder = searchInput.placeholder; }
@@ -26349,7 +26808,7 @@ var Outliner = (function() {
     }
 
     /** table cell 間の移動 (Cmd+↑↓→←)
-     *  el = 現在のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect)
+     *  el = 現在のセル要素 (.outliner-node もしくは .outliner-cell-text/.outliner-cell-multiselect/.outliner-cell-date)
      *  dir = 'up' | 'down' | 'left' | 'right'
      *  return: focus 移動できたら true
      */
@@ -26359,7 +26818,8 @@ var Outliner = (function() {
             return c.classList && (
                 c.classList.contains('outliner-node') ||
                 c.classList.contains('outliner-cell-text') ||
-                c.classList.contains('outliner-cell-multiselect')
+                c.classList.contains('outliner-cell-multiselect') ||
+                c.classList.contains('outliner-cell-date')
             );
         });
         var cols = model.columns || [];
@@ -26395,6 +26855,9 @@ var Outliner = (function() {
             // multiselect は直接 focus できないので click → dropdown 表示
             cellEl.tabIndex = -1;
             cellEl.focus();
+        } else if (cellEl.classList.contains('outliner-cell-date')) {
+            // date / datetime cell: focus → activateInput が走り native picker
+            cellEl.focus();
         }
     }
 
@@ -26409,11 +26872,14 @@ var Outliner = (function() {
         else if (e.key === 'ArrowUp') dir = 'up';
         else if (e.key === 'ArrowDown') dir = 'down';
         if (!dir) return false;
-        // セル要素を引き当て (text cell は el 自身、outliner row は closest('.outliner-node'))
+        // セル要素を引き当て: el が 4 種類 cell のどれかなら自身、descendant (input, .outliner-text 等) なら closest を walk up
         var cellEl = el;
         if (!cellEl.classList.contains('outliner-cell-text') &&
-            !cellEl.classList.contains('outliner-cell-multiselect')) {
-            cellEl = el.closest('.outliner-node');
+            !cellEl.classList.contains('outliner-cell-multiselect') &&
+            !cellEl.classList.contains('outliner-cell-date')) {
+            cellEl = el.closest(
+                '.outliner-cell-text, .outliner-cell-multiselect, .outliner-cell-date, .outliner-node'
+            );
         }
         if (!cellEl) return false;
         return moveTableCell(cellEl, dir);
@@ -26779,6 +27245,14 @@ var Outliner = (function() {
             activateInput();
         });
 
+        // Cmd+矢印キー navigation (input 化前 / picker 閉じた直後等で el 自身が focus 中の場合)
+        el.addEventListener('keydown', function (e) {
+            if (handleTableCellArrowKey(el, e)) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+
         return el;
     }
 
@@ -26874,16 +27348,25 @@ var Outliner = (function() {
     }
 
     var activeDropdownEl = null;
-    function closeMultiselectDropdown() {
+    var activeDropdownReturnFocusEl = null;
+    function closeMultiselectDropdown(opts) {
         if (activeDropdownEl && activeDropdownEl.parentNode) {
             activeDropdownEl.parentNode.removeChild(activeDropdownEl);
         }
         activeDropdownEl = null;
+        // popup を抜けた時、cell に focus を戻す (ESC / Enter / outside-click 等)
+        var refocusEl = activeDropdownReturnFocusEl;
+        activeDropdownReturnFocusEl = null;
+        if (refocusEl && (!opts || opts.refocus !== false)) {
+            try { refocusEl.focus(); } catch (e) {}
+        }
     }
 
     function openMultiselectDropdown(cellEl, node, col) {
-        closeMultiselectDropdown();
+        closeMultiselectDropdown({ refocus: false });
         ensureColumnOptions(col);
+        // popup 抜け後に focus を戻す対象 cell
+        activeDropdownReturnFocusEl = cellEl;
 
         var dropdown = document.createElement('div');
         dropdown.className = 'outliner-multiselect-dropdown';
@@ -26960,6 +27443,7 @@ var Outliner = (function() {
                         var newCell = createMultiselectCellElement(node, col);
                         cellEl.parentNode.replaceChild(newCell, cellEl);
                         cellEl = newCell;
+                        activeDropdownReturnFocusEl = newCell;
                         refreshList();
                     });
                     list.appendChild(item);
@@ -26986,10 +27470,30 @@ var Outliner = (function() {
                     var newCell = createMultiselectCellElement(node, col);
                     cellEl.parentNode.replaceChild(newCell, cellEl);
                     cellEl = newCell;
+                    activeDropdownReturnFocusEl = newCell;
                     refreshList();
                 });
                 list.appendChild(createItem);
             }
+            // refreshList で items が再生成されるので highlight index リセット
+            highlightedIdx = -1;
+        }
+
+        // ↓↑Enter キーボードナビ用
+        var highlightedIdx = -1;
+        function getNavItems() {
+            return list.querySelectorAll('.outliner-multiselect-item, .outliner-multiselect-create');
+        }
+        function setHighlight(idx) {
+            var items = getNavItems();
+            for (var i = 0; i < items.length; i++) {
+                if (i === idx) items[i].classList.add('is-highlighted');
+                else items[i].classList.remove('is-highlighted');
+            }
+            if (idx >= 0 && items[idx]) {
+                try { items[idx].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+            }
+            highlightedIdx = idx;
         }
 
         input.addEventListener('input', refreshList);
@@ -26997,6 +27501,41 @@ var Outliner = (function() {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 closeMultiselectDropdown();
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var items = getNavItems();
+                if (items.length === 0) return;
+                var next = highlightedIdx + 1;
+                if (next >= items.length) next = items.length - 1;
+                setHighlight(next);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prev = highlightedIdx - 1;
+                if (prev < -1) prev = -1;
+                setHighlight(prev);
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var items = getNavItems();
+                if (highlightedIdx >= 0 && items[highlightedIdx]) {
+                    // mousedown を dispatch して既存 toggle / create logic を再利用
+                    var evt;
+                    try {
+                        evt = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+                    } catch (err) {
+                        evt = document.createEvent('MouseEvents');
+                        evt.initMouseEvent('mousedown', true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+                    }
+                    items[highlightedIdx].dispatchEvent(evt);
+                }
+                // popup を閉じて cell に focus 戻す
+                closeMultiselectDropdown();
+                return;
             }
         });
 
@@ -27005,11 +27544,12 @@ var Outliner = (function() {
         refreshList();
         setTimeout(function () { input.focus(); }, 0);
 
-        // 外側クリックで close
+        // 外側クリックで close (cellEl 自身のクリックは既に open の trigger なので除外)
         function outsideHandler(ev) {
             if (!dropdown.contains(ev.target)) {
-                closeMultiselectDropdown();
                 document.removeEventListener('mousedown', outsideHandler, true);
+                // 外側 click は cell に focus 戻さない (別要素 click 操作の意図を尊重)
+                closeMultiselectDropdown({ refocus: false });
             }
         }
         setTimeout(function () {
@@ -27999,11 +28539,13 @@ var Outliner = (function() {
 
     // --- フォーカス管理 ---
 
-    /** Phase F2: table mode で row 全体 (text/multiselect cell も) に class を toggle */
+    /** Phase F2: table mode で row 全体 (text/multiselect/date cell) に class を toggle */
     function toggleRowCellsClass(nodeId, cls, add) {
         if (!treeEl || !nodeId) return;
         var cells = treeEl.querySelectorAll(
-            '.outliner-cell-text[data-node-id="' + nodeId + '"], .outliner-cell-multiselect[data-node-id="' + nodeId + '"]'
+            '.outliner-cell-text[data-node-id="' + nodeId + '"], ' +
+            '.outliner-cell-multiselect[data-node-id="' + nodeId + '"], ' +
+            '.outliner-cell-date[data-node-id="' + nodeId + '"]'
         );
         for (var i = 0; i < cells.length; i++) {
             if (add) cells[i].classList.add(cls);

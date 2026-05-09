@@ -49,6 +49,8 @@ export interface Messages {
   openInDrawioDesktopButton: string;
   drawioFilenamePromptTitle: string;
   drawioFilenamePromptPlaceholder: string;
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: string;
 }
 
 export interface WebviewMessages {

@@ -191,4 +191,6 @@ export const webviewMessages = {
   tableColumnTypeMultiselect: 'Sélection multiple',
   tableColumnTypeOutliner: 'Plan',
   tableSearchPlaceholder: 'Rechercher...',
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: "Le paramètre de thème a été migré de '{old}' vers '{new}'.",
 };

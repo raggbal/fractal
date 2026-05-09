@@ -228,4 +228,6 @@ export const webviewMessages = {
   tableColumnTypeMultiselect: 'Multi-select',
   tableColumnTypeOutliner: 'Outline',
   tableSearchPlaceholder: 'Search...',
+  // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
+  themeMigrationNotice: "Theme setting was migrated from '{old}' to '{new}'.",
 };

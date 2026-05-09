@@ -16,6 +16,7 @@ import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
+import { getCurrentTheme } from './shared/vscode-settings-provider';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -147,7 +148,7 @@ export class NotesEditorProvider {
             panel.webview,
             this.context.extensionUri,
             {
-                theme: config.get<string>('theme', 'things'),
+                theme: getCurrentTheme(this.context),
                 fontSize: config.get<number>('fontSize', 12),
                 toolbarMode: config.get<string>('toolbarMode', 'simple'),
                 webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
@@ -947,7 +948,7 @@ export class NotesEditorProvider {
                         panel.webview,
                         this.context.extensionUri,
                         {
-                            theme: refreshConfig.get<string>('theme', 'things'),
+                            theme: getCurrentTheme(this.context),
                             fontSize: refreshConfig.get<number>('fontSize', 12),
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),

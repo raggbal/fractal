@@ -1,0 +1,238 @@
+/*
+ * Fractal Minimal Redesign — Components (PoC v1)
+ *
+ * Loaded after fr-base.css.
+ * tecval.md「主要コンポーネント仕様 (修正版)」をそのまま採用。
+ *
+ * 注意: 既存の `.file-panel-btn`, `.file-panel-item`, `.s3-action-btn` 等の class
+ * は `notes-body-html.js` 内 inline CSS で定義されている。
+ * fr-components.css は新 class (`.fr-button` 等) を提供しつつ、
+ * 既存 class への migration は notes-body-html.js 側で var(--fr-*) 参照に置換することで実現する。
+ */
+
+@layer fr-components {
+    /* ═══════════════════════════════════════════════════════════════
+       Button (.fr-button)
+       variants: primary / secondary / ghost / danger
+       sizes:    xs (h22) / sm (h26) / md (h30)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--fr-space-2);
+        height: 30px;
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border: 1px solid transparent;
+        border-radius: var(--fr-radius-sm);
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        font-weight: var(--fr-weight-medium);
+        line-height: 1;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+    .fr-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    /* sizes */
+    .fr-button.fr-button-xs {
+        height: 22px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-sm);
+    }
+    .fr-button.fr-button-sm {
+        height: 26px;
+        padding: 0 var(--fr-space-3);
+        font-size: var(--fr-text-base);
+    }
+
+    /* variant: primary */
+    .fr-button.fr-button-primary {
+        background: var(--fr-color-primary);
+        color: var(--fr-color-primary-fg);
+        border-color: var(--fr-color-primary);
+    }
+    .fr-button.fr-button-primary:hover:not(:disabled) {
+        filter: brightness(1.05);
+    }
+
+    /* variant: secondary (outline) */
+    .fr-button.fr-button-secondary {
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+    }
+    .fr-button.fr-button-secondary:hover:not(:disabled) {
+        background: var(--fr-color-bg-panel);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: ghost (transparent, hover で elevated) */
+    .fr-button.fr-button-ghost {
+        background: transparent;
+        color: var(--fr-color-text-primary);
+        border-color: var(--fr-color-border);
+        opacity: 0.7;
+    }
+    .fr-button.fr-button-ghost:hover:not(:disabled) {
+        opacity: 1;
+        background: var(--fr-color-bg-elevated);
+        border-color: var(--fr-color-primary);
+    }
+
+    /* variant: danger */
+    .fr-button.fr-button-danger {
+        background: transparent;
+        color: var(--fr-color-danger);
+        border-color: var(--fr-color-danger);
+    }
+    .fr-button.fr-button-danger:hover:not(:disabled) {
+        background: var(--fr-color-danger-soft);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Input (.fr-input)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-input {
+        width: 100%;
+        padding: var(--fr-space-2) var(--fr-space-3);
+        font-family: inherit;
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-sm);
+        outline: none;
+        box-sizing: border-box;
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    .fr-input:hover:not(:disabled) {
+        border-color: var(--fr-color-text-tertiary);
+    }
+    .fr-input:focus {
+        border-color: var(--fr-color-primary);
+        box-shadow: var(--fr-shadow-focus);
+    }
+    .fr-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .fr-input::placeholder {
+        color: var(--fr-color-text-muted);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       List item (.fr-list-item)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-list-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-5);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        border-radius: var(--fr-radius-sm);
+        margin: 1px var(--fr-space-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .fr-list-item:hover {
+        background: var(--fr-color-bg-elevated);
+    }
+    .fr-list-item.fr-list-item-active {
+        background: var(--fr-color-selection-bg);
+        font-weight: var(--fr-weight-medium);
+        position: relative;
+    }
+    .fr-list-item.fr-list-item-active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        background: var(--fr-color-selection-bar);
+        border-radius: 2px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Context menu / Popup (.fr-context-menu / .fr-popup)
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-context-menu,
+    .fr-popup {
+        position: fixed;
+        background: var(--fr-color-bg-elevated);
+        border: 1px solid var(--fr-color-border);
+        border-radius: var(--fr-radius-lg);
+        padding: var(--fr-space-2);
+        box-shadow: var(--fr-shadow-2);
+        z-index: var(--fr-z-popup);
+        min-width: 140px;
+    }
+    .fr-context-menu-item {
+        display: flex;
+        align-items: center;
+        gap: var(--fr-space-2);
+        padding: var(--fr-space-2) var(--fr-space-4);
+        border-radius: var(--fr-radius-sm);
+        font-size: var(--fr-text-base);
+        color: var(--fr-color-text-primary);
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .fr-context-menu-item:hover {
+        background: var(--fr-color-bg-app);
+    }
+    .fr-context-menu-item.danger {
+        color: var(--fr-color-danger);
+    }
+    .fr-context-menu-item.danger:hover {
+        background: var(--fr-color-danger-soft);
+    }
+    .fr-context-menu-divider {
+        height: 1px;
+        background: var(--fr-color-divider);
+        margin: var(--fr-space-1) 0;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       Badge (.fr-badge)
+       variants: success / info / warning / danger / neutral
+       ═══════════════════════════════════════════════════════════════ */
+    .fr-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px var(--fr-space-3);
+        font-size: var(--fr-text-xs);
+        font-weight: var(--fr-weight-medium);
+        border-radius: var(--fr-radius-sm);
+        background: var(--fr-color-bg-elevated);
+        color: var(--fr-color-text-secondary);
+        line-height: 1.4;
+    }
+    .fr-badge.fr-badge-success {
+        background: var(--fr-color-success-soft);
+        color: var(--fr-color-success);
+    }
+    .fr-badge.fr-badge-info {
+        background: var(--fr-color-info-soft);
+        color: var(--fr-color-info);
+    }
+    .fr-badge.fr-badge-warning {
+        background: var(--fr-color-warning-soft);
+        color: var(--fr-color-warning);
+    }
+    .fr-badge.fr-badge-danger {
+        background: var(--fr-color-danger-soft);
+        color: var(--fr-color-danger);
+    }
+}
