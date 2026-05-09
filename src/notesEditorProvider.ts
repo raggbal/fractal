@@ -941,7 +941,7 @@ export class NotesEditorProvider {
                 const currentPageId = path.basename(sidePanelFilePath, path.extname(sidePanelFilePath));
 
                 // 2. .out JSON を読み、pageId に紐づく node を探す
-                let outData: { rootIds?: string[]; nodes?: Record<string, { pageId?: string; childIds?: string[]; text?: string }>; [k: string]: unknown };
+                let outData: { rootIds?: string[]; nodes?: Record<string, any>; [k: string]: unknown };
                 try {
                     outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
                 } catch (e) {
@@ -978,18 +978,27 @@ export class NotesEditorProvider {
                 fs.writeFileSync(newPagePath, translatedMarkdown, 'utf8');
 
                 // 5. 新 node 生成 + parent.children に追加
+                // v0.207.29: BUG FIX - OutlinerModel は `children` 配列を使う (childIds ではない)。
+                // tags / isPage / subtext / images / filePath / parentId / checked も必須 (model.js:113)
                 const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
                 const safeTitle = (h1Title || 'Untitled (translated)').trim() || 'Untitled (translated)';
                 outData.nodes[newNodeId] = {
                     id: newNodeId,
+                    parentId: parentNodeId,
+                    children: [],
                     text: safeTitle,
+                    tags: [],
+                    isPage: true,
                     pageId: newPageId,
-                    childIds: [],
                     collapsed: false,
-                } as any;
-                const parentNode = outData.nodes[parentNodeId] as any;
-                parentNode.childIds = parentNode.childIds || [];
-                parentNode.childIds.push(newNodeId);
+                    checked: null,
+                    subtext: '',
+                    images: [],
+                    filePath: null,
+                };
+                const parentNode = outData.nodes[parentNodeId];
+                parentNode.children = parentNode.children || [];
+                parentNode.children.push(newNodeId);
                 if (parentNode.collapsed) parentNode.collapsed = false;
 
                 // 6. .out 保存

@@ -968,17 +968,26 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             fs.writeFileSync(newPagePath, translatedMarkdown, 'utf8');
 
                             // 5. 新 node 追加
+                            // v0.207.29: BUG FIX - OutlinerModel は `children` 配列を使う (childIds ではない)。
+                            // tags / isPage / subtext / images / filePath / parentId / checked も必須 (model.js:113)
                             const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
                             outData.nodes[newNodeId] = {
                                 id: newNodeId,
+                                parentId: parentNodeId,
+                                children: [],
                                 text: h1Title,
+                                tags: [],
+                                isPage: true,
                                 pageId: newPageId,
-                                childIds: [],
                                 collapsed: false,
+                                checked: null,
+                                subtext: '',
+                                images: [],
+                                filePath: null,
                             };
                             const parentNode = outData.nodes[parentNodeId];
-                            parentNode.childIds = parentNode.childIds || [];
-                            parentNode.childIds.push(newNodeId);
+                            parentNode.children = parentNode.children || [];
+                            parentNode.children.push(newNodeId);
                             if (parentNode.collapsed) parentNode.collapsed = false;
 
                             // 6. document を WorkspaceEdit で更新

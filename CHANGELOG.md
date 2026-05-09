@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.29] - 2026-05-10
+
+### Fixed
+- **🐛🐛🐛 翻訳結果保存で node が outliner に出ない真の原因修正** — fractal の `.out` データ構造で OutlinerModel は `children: []` 配列を使う (`childIds` ではない)。v0.207.24 で導入した保存処理は誤って `childIds` という存在しない field に push していたため、新 node は `nodes` map には登録されるが**どの parent の `children` にも、`rootIds` にも入らない孤児 node** となり tree 描画から完全に欠落していた。`children` に修正、加えて OutlinerModel が要求する全 field (`parentId` / `tags` / `isPage` / `subtext` / `images` / `filePath` / `checked`) を補完。これで保存後即座に親 node の子として表示される
+
 ## [0.207.28] - 2026-05-10
 
 ### Fixed
