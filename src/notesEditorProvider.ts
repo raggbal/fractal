@@ -908,6 +908,87 @@ export class NotesEditorProvider {
             showQuickPick: async (items: Array<{ label: string; description?: string }>, placeHolder: string) => {
                 return await vscode.window.showQuickPick(items, { placeHolder });
             },
+            updateWorkspaceConfig: async (section: string, key: string, value: unknown) => {
+                await vscode.workspace.getConfiguration(section).update(key, value, vscode.ConfigurationTarget.Global);
+            },
+            saveTranslationToOutlinerNode: async (
+                sidePanelFilePath: string,
+                translatedMarkdown: string,
+                h1Title: string,
+                _sourceLang: string,
+                _targetLang: string
+            ) => {
+                // v0.207.24: notes mode で sidepanel が属する outliner の親 node に子 page として attach
+                // sidepanel filePath は ~/notes/<outlineId>/<pageId>.md という構造
+                // → outline file: ~/notes/<outlineId>.out、 親 node = pageId に紐づく node
+                const outFilePath = fileManager.getCurrentFilePath();
+                if (!outFilePath || !fs.existsSync(outFilePath)) {
+                    vscode.window.showErrorMessage('保存対象の outliner ファイルが見つかりません');
+                    return;
+                }
+                const pagesDir = fileManager.getPagesDirPath();
+                if (!pagesDir) {
+                    vscode.window.showErrorMessage('Pages directory を解決できません');
+                    return;
+                }
+
+                // 1. sidepanel pageId を取得 (filePath の basename)
+                const currentPageId = path.basename(sidePanelFilePath, path.extname(sidePanelFilePath));
+
+                // 2. .out JSON を読み、pageId に紐づく node を探す
+                let outData: { rootIds?: string[]; nodes?: Record<string, { pageId?: string; childIds?: string[]; text?: string }>; [k: string]: unknown };
+                try {
+                    outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
+                } catch (e) {
+                    vscode.window.showErrorMessage('Outliner ファイルの parse に失敗しました');
+                    return;
+                }
+                if (!outData || typeof outData !== 'object') return;
+                outData.nodes = outData.nodes || {};
+
+                let parentNodeId: string | null = null;
+                for (const [nodeId, node] of Object.entries(outData.nodes)) {
+                    if (node && (node as any).pageId === currentPageId) {
+                        parentNodeId = nodeId;
+                        break;
+                    }
+                }
+                if (!parentNodeId) {
+                    vscode.window.showErrorMessage('翻訳元 page を含む outliner node が見つかりません');
+                    return;
+                }
+
+                // 3. 新 pageId 生成
+                const newPageId = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                const newPagePath = path.join(pagesDir, `${newPageId}.md`);
+                if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
+
+                // 4. 翻訳結果 MD を保存
+                fs.writeFileSync(newPagePath, translatedMarkdown, 'utf8');
+
+                // 5. 新 node 生成 + parent.children に追加
+                const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                const safeTitle = (h1Title || 'Untitled (translated)').trim() || 'Untitled (translated)';
+                outData.nodes[newNodeId] = {
+                    id: newNodeId,
+                    text: safeTitle,
+                    pageId: newPageId,
+                    childIds: [],
+                    collapsed: false,
+                } as any;
+                const parentNode = outData.nodes[parentNodeId] as any;
+                parentNode.childIds = parentNode.childIds || [];
+                parentNode.childIds.push(newNodeId);
+                if (parentNode.collapsed) parentNode.collapsed = false;
+
+                // 6. .out 保存 + webview reload
+                fs.writeFileSync(outFilePath, JSON.stringify(outData, null, 2), 'utf8');
+                vscode.window.showInformationMessage(`翻訳結果を保存しました: ${safeTitle}`);
+
+                // 7. outliner 再描画 (postMessage で sender 経由)
+                // 既存の document change 経路に任せる: writeFileSync すると VSCode が
+                // onDidChangeTextDocument を発火、notesEditorProvider が webview を refresh する
+            },
         };
 
         // --- パネル固有の disposables ---

@@ -296,6 +296,86 @@ body {
     font-weight: 500;
 }
 
+/* v0.207.24: 翻訳 popup (translate button click 時に出現、source/target select + Execute) */
+.fractal-translate-popup {
+    position: absolute;
+    background: var(--bg-color, #ffffff);
+    border: 1px solid var(--fr-color-border, var(--border-color, #d0d7de));
+    border-radius: var(--fr-radius-lg, 10px);
+    box-shadow: var(--fr-shadow-2, 0 4px 11px rgba(0,0,0,0.15));
+    padding: 10px;
+    z-index: var(--fr-z-popup, 400);
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+}
+.fractal-translate-popup .ftp-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.fractal-translate-popup .ftp-source,
+.fractal-translate-popup .ftp-target {
+    flex: 1;
+    padding: 4px 7px;
+    border: 1px solid var(--fr-color-border, var(--border-color, #d0d7de));
+    border-radius: var(--fr-radius-sm, 6px);
+    background: var(--fr-color-bg-elevated, var(--bg-color, #fff));
+    color: var(--fr-color-text-primary, var(--text-color, inherit));
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+.fractal-translate-popup .ftp-source:focus,
+.fractal-translate-popup .ftp-target:focus {
+    border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+}
+.fractal-translate-popup .ftp-arrow {
+    color: var(--fr-color-text-tertiary, #888);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.fractal-translate-popup .ftp-execute {
+    padding: 6px 10px;
+    border: none;
+    border-radius: var(--fr-radius-sm, 6px);
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    color: var(--fr-color-primary-fg, #fff);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+}
+.fractal-translate-popup .ftp-execute:hover {
+    opacity: 0.9;
+}
+.fractal-translate-popup .ftp-execute:focus-visible {
+    outline: none;
+    box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
+}
+
+/* 翻訳結果保存 button (sidepanel only, fractal-translation-header 内) */
+.fractal-translation-header .fractal-translation-save {
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    border: 1px solid var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    color: var(--fr-color-primary-fg, #fff);
+    padding: 4px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+}
+.fractal-translation-header .fractal-translation-save:hover {
+    opacity: 0.9;
+}
+.fractal-translation-header .fractal-translation-save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* Translate buttons toggle (fractal.showTranslateButtons setting, default off).
    Hides standalone toolbar's translate group AND side panel header's translate / translateLang.
    The fractal.translate command (Cmd+/) is unaffected. */

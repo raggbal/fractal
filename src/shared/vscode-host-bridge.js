@@ -62,6 +62,25 @@
                 currentTarget: currentTarget,
                 sidePanelFilePath: sidePanelFilePath
             });
+        },
+        // v0.207.24: popup から source/target lang を選んだ時 settings に永続化
+        saveTranslateLangs: function(sourceLang, targetLang) {
+            api.postMessage({
+                type: 'saveTranslateLangs',
+                sourceLang: sourceLang,
+                targetLang: targetLang
+            });
+        },
+        // v0.207.24: sidepanel での「翻訳結果を保存」 button 押下時、親 outliner node に子 page として attach
+        saveTranslationToOutlinerNode: function(sidePanelFilePath, translatedMarkdown, h1Title, sourceLang, targetLang) {
+            api.postMessage({
+                type: 'saveTranslationToOutlinerNode',
+                sidePanelFilePath: sidePanelFilePath,
+                translatedMarkdown: translatedMarkdown,
+                h1Title: h1Title,
+                sourceLang: sourceLang,
+                targetLang: targetLang
+            });
         }
     });
 })();

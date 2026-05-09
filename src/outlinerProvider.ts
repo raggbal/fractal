@@ -910,6 +910,90 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         });
                         break;
                     }
+
+                    case 'saveTranslateLangs': {
+                        // v0.207.24: popup の select で選んだ言語を settings に永続化
+                        try {
+                            await vscode.workspace.getConfiguration('fractal').update('translateSourceLang', message.sourceLang, vscode.ConfigurationTarget.Global);
+                            await vscode.workspace.getConfiguration('fractal').update('translateTargetLang', message.targetLang, vscode.ConfigurationTarget.Global);
+                        } catch (err: any) {
+                            console.error('[Translate] saveTranslateLangs error:', err);
+                        }
+                        break;
+                    }
+
+                    case 'saveTranslationToOutlinerNode': {
+                        // v0.207.24: standalone outliner mode で sidepanel から翻訳結果を保存
+                        try {
+                            const sidePanelFilePath = message.sidePanelFilePath;
+                            const translatedMarkdown = message.translatedMarkdown;
+                            const h1Title = (message.h1Title || 'Untitled (translated)').toString().trim() || 'Untitled (translated)';
+
+                            // 1. 現在の standalone outliner document の pageDir を取得
+                            const pagesDir = this.getPagesDirPath(document);
+                            if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
+
+                            // 2. sidepanel filePath から currentPageId を導出 (basename without ext)
+                            const currentPageId = path.basename(sidePanelFilePath, path.extname(sidePanelFilePath));
+
+                            // 3. .out JSON 読 + 該当 node 探す
+                            let outData: any;
+                            try {
+                                outData = JSON.parse(document.getText());
+                            } catch {
+                                vscode.window.showErrorMessage('Outliner JSON parse 失敗');
+                                break;
+                            }
+                            outData.nodes = outData.nodes || {};
+                            let parentNodeId: string | null = null;
+                            for (const [nodeId, node] of Object.entries(outData.nodes)) {
+                                if (node && (node as any).pageId === currentPageId) {
+                                    parentNodeId = nodeId;
+                                    break;
+                                }
+                            }
+                            if (!parentNodeId) {
+                                vscode.window.showErrorMessage('翻訳元 page を含む outliner node が見つかりません');
+                                break;
+                            }
+
+                            // 4. 新 pageId + 新 MD 保存
+                            const newPageId = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            const newPagePath = path.join(pagesDir, `${newPageId}.md`);
+                            fs.writeFileSync(newPagePath, translatedMarkdown, 'utf8');
+
+                            // 5. 新 node 追加
+                            const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            outData.nodes[newNodeId] = {
+                                id: newNodeId,
+                                text: h1Title,
+                                pageId: newPageId,
+                                childIds: [],
+                                collapsed: false,
+                            };
+                            const parentNode = outData.nodes[parentNodeId];
+                            parentNode.childIds = parentNode.childIds || [];
+                            parentNode.childIds.push(newNodeId);
+                            if (parentNode.collapsed) parentNode.collapsed = false;
+
+                            // 6. document を WorkspaceEdit で更新
+                            const newJson = JSON.stringify(outData, null, 2);
+                            const edit = new vscode.WorkspaceEdit();
+                            const fullRange = new vscode.Range(
+                                document.positionAt(0),
+                                document.positionAt(document.getText().length)
+                            );
+                            edit.replace(document.uri, fullRange, newJson);
+                            await vscode.workspace.applyEdit(edit);
+                            await document.save();
+
+                            vscode.window.showInformationMessage(`翻訳結果を保存しました: ${h1Title}`);
+                        } catch (err: any) {
+                            console.error('[Translate] saveTranslationToOutlinerNode error:', err);
+                            vscode.window.showErrorMessage('翻訳結果の保存に失敗しました: ' + (err?.message || String(err)));
+                        }
+                        break;
+                    }
                 }
             })
         );

@@ -5,6 +5,26 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.24] - 2026-05-10
+
+### Changed
+- **🌍 翻訳 UI を 1 ボタン + popup に統合** — 旧 `translateLang` (言語表示) + `translate` (実行) の 2 ボタン構成を撤廃、`translate` 1 ボタンに統一
+  - クリックで popup 表示: source 言語 select + target 言語 select + 翻訳実行 button
+  - source は **Auto-detect** + 14 言語、target は 14 言語
+  - popup から実行で従来 translate 経路 (translateContent) と互換
+  - select で選んだ言語は VSCode 設定 `fractal.translateSourceLang` / `translateTargetLang` に永続化 (新メッセージ `saveTranslateLangs`)
+  - ESC / outside click で popup close
+
+### Added
+- **🆕 翻訳結果を outliner に保存 (sidepanel only)** — 翻訳結果ビューの header に「翻訳結果を保存」 button 追加
+  - クリックで:
+    - 当該 MD が attached されている outliner node に **子ノードを追加**
+    - 子ノードに翻訳結果 MD を新規 page として attach
+    - 子ノードの text は **MD の H1 を翻訳したもの** (H1 が無ければ "Untitled (translated)")
+  - Notes mode: `notesEditorProvider.saveTranslationToOutlinerNode` で実装、`fileManager.getCurrentFilePath()` 経由で .out 取得 → 親 node 検索 → 子 node + page 追加
+  - Standalone outliner mode: `outlinerProvider` で同等実装、`vscode.WorkspaceEdit` で .out JSON 更新
+  - 新メッセージ: `saveTranslationToOutlinerNode` (sidepanel-bridge-methods.js / vscode-host-bridge.js / SidePanelHostBridge)
+
 ## [0.207.23] - 2026-05-10
 
 ### Removed

@@ -116,6 +116,25 @@ class SidePanelHostBridge {
     translateSelectLang(currentSource, currentTarget) {
         this._mainHost.translateSelectLang(currentSource, currentTarget, this.filePath);
     }
+    // v0.207.24: popup の lang select 結果を settings に保存
+    saveTranslateLangs(sourceLang, targetLang) {
+        if (typeof this._mainHost.saveTranslateLangs === 'function') {
+            this._mainHost.saveTranslateLangs(sourceLang, targetLang);
+        }
+    }
+    // v0.207.24: 翻訳結果を sidepanel が属する outliner の親 node に子 page として attach
+    saveTranslationToOutlinerNode(filePath, translatedMarkdown, h1Title, sourceLang, targetLang) {
+        if (typeof this._mainHost.saveTranslationToOutlinerNode === 'function') {
+            this._mainHost.saveTranslationToOutlinerNode(
+                filePath || this.filePath,
+                translatedMarkdown,
+                h1Title,
+                sourceLang,
+                targetLang
+            );
+        }
+    }
+    getCurrentFilePath() { return this.filePath; }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
@@ -243,7 +262,6 @@ class EditorInstance {
                         <button data-action="table"></button>
                     </div>
                     <div class="toolbar-group" data-group="translate">
-                        <button data-action="translateLang" title="Translation language">ja → en</button>
                         <button data-action="translate" title="Translate"></button>
                     </div>
                 </div>
@@ -325,7 +343,7 @@ class EditorInstance {
         // Disable toolbar buttons except translate buttons in readonly mode
         if (toolbar) {
             toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
-                if (btn.dataset.action !== 'translate' && btn.dataset.action !== 'translateLang') {
+                if (btn.dataset.action !== 'translate') {
                     btn.disabled = true;
                     btn.style.opacity = '0.3';
                 }
@@ -337,8 +355,6 @@ class EditorInstance {
     function initToolbarIcons() {
         if (!toolbar) return;
         toolbar.querySelectorAll('button[data-action]').forEach(function(btn) {
-            // translateLang shows text label (ja → en), not an icon
-            if (btn.dataset.action === 'translateLang') return;
             var icon = LUCIDE_ICONS[btn.dataset.action];
             if (icon) btn.innerHTML = icon;
         });
@@ -12015,24 +12031,9 @@ class EditorInstance {
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
                 break;
-            case 'translateLang':
-                host.translateSelectLang(translateSourceLang, translateTargetLang);
-                break;
             case 'translate': {
-                var translationText = '';
-                var sel = window.getSelection();
-                if (sel && sel.toString()) {
-                    // Selection exists — translate only selected text
-                    translationText = sel.toString();
-                } else {
-                    // No selection — translate full markdown
-                    translationText = markdown;
-                }
-                if (translationText) {
-                    translateLoading = true;
-                    showTranslateLoading();
-                    host.translateContent(translationText, translateSourceLang, translateTargetLang);
-                }
+                // v0.207.24: translate button click → popup で source/target lang 選択 + Execute
+                openTranslatePopup(e.target.closest('[data-action="translate"]'));
                 break;
             }
             default:
@@ -15602,14 +15603,143 @@ class EditorInstance {
     }
 
     // v10: Translation helpers
+    // v0.207.24: translateLang button 撤廃に伴い updateTranslateLangButton は noop 化 (popup 内 select で表示)
     function updateTranslateLangButton() {
-        if (toolbar) {
-            var translateLangBtn = toolbar.querySelector('[data-action="translateLang"]');
-            if (translateLangBtn) {
-                translateLangBtn.textContent = translateTargetLang;
-                translateLangBtn.title = 'Translate to ' + translateTargetLang + ' (from ' + translateSourceLang + ')';
+        // intentionally empty: popup 内 select が現在値を反映する
+    }
+
+    // v0.207.24: 翻訳 popup (source/target select + Execute button)
+    var TRANSLATE_LANGS = [
+        { code: 'auto', label: 'Auto-detect' },
+        { code: 'ja', label: '日本語' },
+        { code: 'en', label: 'English' },
+        { code: 'zh', label: '中文' },
+        { code: 'ko', label: '한국어' },
+        { code: 'fr', label: 'Français' },
+        { code: 'de', label: 'Deutsch' },
+        { code: 'es', label: 'Español' },
+        { code: 'pt', label: 'Português' },
+        { code: 'it', label: 'Italiano' },
+        { code: 'ru', label: 'Русский' },
+        { code: 'ar', label: 'العربية' },
+        { code: 'hi', label: 'हिन्दी' },
+        { code: 'th', label: 'ไทย' },
+        { code: 'vi', label: 'Tiếng Việt' },
+    ];
+    var activeTranslatePopup = null;
+    function closeTranslatePopup() {
+        if (activeTranslatePopup && activeTranslatePopup.parentNode) {
+            activeTranslatePopup.parentNode.removeChild(activeTranslatePopup);
+        }
+        activeTranslatePopup = null;
+    }
+    function openTranslatePopup(buttonEl) {
+        closeTranslatePopup();
+        if (!buttonEl) return;
+
+        var popup = document.createElement('div');
+        popup.className = 'fractal-translate-popup';
+
+        // Source select (Auto + langs)
+        var row = document.createElement('div');
+        row.className = 'ftp-row';
+        var srcSelect = document.createElement('select');
+        srcSelect.className = 'ftp-source';
+        TRANSLATE_LANGS.forEach(function(L) {
+            var opt = document.createElement('option');
+            opt.value = L.code;
+            opt.textContent = L.label;
+            srcSelect.appendChild(opt);
+        });
+        srcSelect.value = translateSourceLang || 'auto';
+
+        var arrow = document.createElement('span');
+        arrow.className = 'ftp-arrow';
+        arrow.textContent = '→';
+
+        var tgtSelect = document.createElement('select');
+        tgtSelect.className = 'ftp-target';
+        // target は Auto-detect を含めない
+        TRANSLATE_LANGS.filter(function(L) { return L.code !== 'auto'; }).forEach(function(L) {
+            var opt = document.createElement('option');
+            opt.value = L.code;
+            opt.textContent = L.label;
+            tgtSelect.appendChild(opt);
+        });
+        tgtSelect.value = translateTargetLang || 'ja';
+
+        row.appendChild(srcSelect);
+        row.appendChild(arrow);
+        row.appendChild(tgtSelect);
+        popup.appendChild(row);
+
+        // Execute button
+        var execBtn = document.createElement('button');
+        execBtn.className = 'ftp-execute';
+        execBtn.type = 'button';
+        execBtn.textContent = 'Translate';
+        execBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            var srcLang = srcSelect.value;
+            var tgtLang = tgtSelect.value;
+            translateSourceLang = srcLang;
+            translateTargetLang = tgtLang;
+            // 設定永続化用に host へ通知 (translateLangSelected と同じ経路)
+            try { host.saveTranslateLangs && host.saveTranslateLangs(srcLang, tgtLang); } catch (_e) {}
+            // 翻訳実行
+            var translationText = '';
+            var sel = window.getSelection();
+            if (sel && sel.toString()) {
+                translationText = sel.toString();
+            } else {
+                translationText = markdown;
+            }
+            closeTranslatePopup();
+            if (translationText) {
+                translateLoading = true;
+                showTranslateLoading();
+                host.translateContent(translationText, srcLang, tgtLang);
+            }
+        });
+        popup.appendChild(execBtn);
+
+        // Position popup near button (below + left-aligned)
+        document.body.appendChild(popup);
+        var rect = buttonEl.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        popup.style.top = (rect.bottom + 4) + 'px';
+        // 右にはみ出す場合は left-anchor を調整
+        var popupWidth = popup.offsetWidth;
+        var leftPos = rect.left;
+        if (leftPos + popupWidth > window.innerWidth - 8) {
+            leftPos = Math.max(8, window.innerWidth - popupWidth - 8);
+        }
+        popup.style.left = leftPos + 'px';
+
+        activeTranslatePopup = popup;
+
+        // outside click で close
+        function outsideHandler(ev) {
+            if (!popup.contains(ev.target) && ev.target !== buttonEl && !buttonEl.contains(ev.target)) {
+                document.removeEventListener('mousedown', outsideHandler, true);
+                closeTranslatePopup();
             }
         }
+        // ESC で close
+        function escHandler(ev) {
+            if (ev.key === 'Escape') {
+                document.removeEventListener('keydown', escHandler, true);
+                closeTranslatePopup();
+            }
+        }
+        setTimeout(function() {
+            document.addEventListener('mousedown', outsideHandler, true);
+            document.addEventListener('keydown', escHandler, true);
+        }, 0);
+
+        // 自動 focus to source select
+        setTimeout(function() { srcSelect.focus(); }, 0);
     }
 
     var translateLoadingOverlay = null;
@@ -15700,10 +15830,16 @@ class EditorInstance {
 
         var headerBar = document.createElement('div');
         headerBar.className = 'fractal-translation-header';
-        headerBar.innerHTML =
+        var headerHTML =
             '<button class="fractal-translation-back" type="button" title="Back to original">← Back</button>' +
             '<span class="fractal-translation-label">Translation (' + (sourceLang || '') + ' → ' + (targetLang || '') + ')</span>' +
             '<button class="fractal-translation-copy" type="button" title="Copy translated text">Copy</button>';
+        // v0.207.24: sidepanel のみ「翻訳結果を保存」 button (outliner 子 node + page として attach)
+        if (IS_SIDEPANEL) {
+            headerHTML +=
+                '<button class="fractal-translation-save" type="button" title="Save translation as child page in outliner">翻訳結果を保存</button>';
+        }
+        headerBar.innerHTML = headerHTML;
         editorWrapper.insertBefore(headerBar, editorWrapper.firstChild);
 
         var backBtn = headerBar.querySelector('.fractal-translation-back');
@@ -15718,6 +15854,28 @@ class EditorInstance {
                     copyBtn.style.opacity = '0.5';
                     setTimeout(function() { copyBtn.style.opacity = '1'; }, 200);
                 });
+            } catch (_e) { /* ignore */ }
+        });
+
+        // v0.207.24: 翻訳結果保存 button (sidepanel only)
+        var saveBtn = headerBar.querySelector('.fractal-translation-save');
+        if (saveBtn) saveBtn.addEventListener('click', function() {
+            // H1 抽出: translatedMarkdown 先頭の "# title" 行から
+            var h1Match = translatedMarkdown.match(/^#\s+(.+?)$/m);
+            var h1Title = h1Match ? h1Match[1].trim() : 'Untitled (translated)';
+            // sidepanel のホストブリッジ経由で host へ
+            try {
+                if (host && typeof host.saveTranslationToOutlinerNode === 'function') {
+                    var spFilePath = (host.getCurrentFilePath && host.getCurrentFilePath()) || '';
+                    host.saveTranslationToOutlinerNode(spFilePath, translatedMarkdown, h1Title, sourceLang, targetLang);
+                    // 視覚 feedback
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = '保存中…';
+                    setTimeout(function() {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = '翻訳結果を保存';
+                    }, 1500);
+                }
             } catch (_e) { /* ignore */ }
         });
     }

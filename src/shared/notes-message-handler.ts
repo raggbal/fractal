@@ -116,6 +116,10 @@ export interface NotesPlatformActions {
     postMessage?(message: any): void;
     /** v10: Show quick pick for language selection */
     showQuickPick?(items: Array<{ label: string; description?: string }>, placeHolder: string): Promise<{ label: string; description?: string } | undefined>;
+    /** v0.207.24: Update workspace config (for saving translate lang preferences) */
+    updateWorkspaceConfig?(section: string, key: string, value: unknown): Promise<void>;
+    /** v0.207.24: 翻訳結果を sidepanel の所属 outliner node に子 page として attach */
+    saveTranslationToOutlinerNode?(sidePanelFilePath: string, translatedMarkdown: string, h1Title: string, sourceLang: string, targetLang: string): Promise<void>;
     /** v12: D&D ファイルインポート */
     dropFilesImport?(items: DropImportItem[], targetNodeId: string | null, position: string, sender: NotesSender): void;
     /** v12 拡張: VSCode Explorer D&D */
@@ -1148,6 +1152,42 @@ export async function handleNotesMessage(
                     sourceLang: sourcePick.description,
                     targetLang: targetPick.description
                 });
+            }
+            break;
+        }
+
+        case 'saveTranslateLangs': {
+            // v0.207.24: popup の select で選んだ言語を settings に永続化
+            if (platform.updateWorkspaceConfig) {
+                try {
+                    await platform.updateWorkspaceConfig('fractal', 'translateSourceLang', message.sourceLang);
+                    await platform.updateWorkspaceConfig('fractal', 'translateTargetLang', message.targetLang);
+                } catch (err: any) {
+                    console.error('[Translate] saveTranslateLangs error:', err);
+                }
+            }
+            break;
+        }
+
+        case 'saveTranslationToOutlinerNode': {
+            // v0.207.24: 翻訳結果を sidepanel が属する outliner の親 node に子 page として attach
+            // platform 側 (notesEditorProvider / outlinerProvider) で実装
+            if (platform.saveTranslationToOutlinerNode) {
+                try {
+                    await platform.saveTranslationToOutlinerNode(
+                        message.sidePanelFilePath,
+                        message.translatedMarkdown,
+                        message.h1Title,
+                        message.sourceLang,
+                        message.targetLang
+                    );
+                } catch (err: any) {
+                    console.error('[Translate] saveTranslationToOutlinerNode error:', err);
+                    sender.postMessage({
+                        type: 'translateSaveError',
+                        message: err?.message || String(err)
+                    });
+                }
             }
             break;
         }

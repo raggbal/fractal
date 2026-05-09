@@ -1361,6 +1361,17 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     });
                     break;
                 }
+
+                case 'saveTranslateLangs': {
+                    // v0.207.24: popup の select で選んだ言語を settings に永続化
+                    try {
+                        await vscode.workspace.getConfiguration('fractal').update('translateSourceLang', message.sourceLang, vscode.ConfigurationTarget.Global);
+                        await vscode.workspace.getConfiguration('fractal').update('translateTargetLang', message.targetLang, vscode.ConfigurationTarget.Global);
+                    } catch (err: any) {
+                        console.error('[Translate] saveTranslateLangs error:', err);
+                    }
+                    break;
+                }
             }
         });
 
