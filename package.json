@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.207.22",
+  "version": "0.207.23",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -250,15 +250,6 @@
           ],
           "default": "simple",
           "description": "Toolbar display mode. 'full' shows all buttons. 'simple' shows only undo/redo and utility buttons (use Cmd+/ for other operations)."
-        },
-        "fractal.linkOpenMode": {
-          "type": "string",
-          "enum": [
-            "sidePanel",
-            "tab"
-          ],
-          "default": "sidePanel",
-          "description": "How to open linked Markdown files. 'sidePanel' opens in a Notion-style side peek panel. 'tab' opens in a new editor tab."
         },
         "fractal.enableDebugLogging": {
           "type": "boolean",

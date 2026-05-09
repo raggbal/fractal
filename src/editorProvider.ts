@@ -990,7 +990,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'openLink':
                 case 'openLinkInTab': {
                     const linkHref: string = message.href;
-                    const forceTab = message.type === 'openLinkInTab';
+                    // v0.207.23+: openLink / openLinkInTab どちらも tab 固定 (sidePanel 経路撤廃)
                     if (linkHref.startsWith('fractal://')) {
                         vscode.commands.executeCommand('fractal.navigateInAppLink', linkHref);
                     } else if (linkHref.startsWith('http')) {
@@ -1006,16 +1006,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             : vscode.Uri.joinPath(document.uri, '..', linkHref);
                         const resolvedPath = resolvedUri.fsPath.toLowerCase();
                         if (resolvedPath.endsWith('.md') || resolvedPath.endsWith('.markdown')) {
-                            // v15+: standalone customEditor の MD link click は default 'tab' (新タブで standalone customEditor として開く)。
-                            // 旧 default 'sidePanel' から変更。side panel で開きたい場合は user 設定 fractal.linkOpenMode='sidePanel'。
-                            const linkOpenMode = forceTab ? 'tab'
-                                : vscode.workspace.getConfiguration('fractal').get<string>('linkOpenMode', 'tab');
-                            if (linkOpenMode === 'tab') {
-                                vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
-                            } else {
-                                // Main editor link click → opens in side panel as fresh (clear nav history)
-                                await sidePanel.openFile(resolvedUri.fsPath, true);
-                            }
+                            // v0.207.23+: 常に新タブで standalone customEditor として開く (fractal.linkOpenMode 設定撤廃済)。
+                            // 旧 sidePanel オプションは sidepanel が peek 用途として頻度低く、混乱の元になるため tab 固定化。
+                            vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
                         } else {
                             // Non-MD local file - open with OS default application
                             vscode.env.openExternal(resolvedUri);

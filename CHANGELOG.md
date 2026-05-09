@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.23] - 2026-05-10
+
+### Removed
+- **VSCode 設定 `fractal.linkOpenMode` 撤廃** — standalone MD editor の MD link click は **常に新タブ** で開く (`vscode.openWith` で fractal.editor を起動)。旧 `'sidePanel'` オプションは sidepanel が peek 用途として頻度低く、設定 default ('sidePanel') と実装 default ('tab') の不整合バグもあったため撤廃
+
 ## [0.207.22] - 2026-05-10
 
 ### Added
