@@ -5,6 +5,50 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.22] - 2026-05-10
+
+### Added
+- **🎨 Minimal pastel chrome foundation** — Fractal 全体の chrome (panel / toolbar / list / settings / popup) を minimal pastel デザインに刷新
+  - 新規 `tokens.css` (247 行): design tokens 体系 (色 / 余白 / 角丸 / 影 / typography / z-index、115 個の `--fr-*` 変数)
+  - 新規 `fr-base.css` (76 行): reset / scrollbar / focus-visible / selection / theme transition
+  - 新規 `fr-components.css` (238 行): `.fr-button` / `.fr-input` / `.fr-list-item` / `.fr-context-menu` / `.fr-popup` / `.fr-badge`
+  - CSS Layers: `@layer fr-legacy, fr-tokens, fr-base, fr-components, fr-chrome` で cascade 制御
+  - Layout 不変 (47 selector × bbox = 0 px drift)、配色 / 角丸 / focus / hover のみ minimal pastel に置換
+- **🆕 3 mode theme system (`light` / `dark` / `auto`)** — default は `auto` で OS prefers-color-scheme に追従
+- **🆕 Multiselect popup keyboard navigation** — outliner table mode の multiselect cell popup で:
+  - ↓ / ↑ で list 内アイテム順次 highlight (`.is-highlighted`)
+  - Enter で選択 + popup close + cell focus 戻す
+  - ESC で popup close + cell focus 戻す
+- **🆕 Multiselect cell の simulated text caret** — focus 時に `::before` で 1 px × 1.2em の blink caret を表示
+- **🆕 Outliner table mode の日付/日時列対応**:
+  - Cmd+矢印キー navigation (text/multiselect/outline 列と同等)
+  - shift+↑↓ 範囲選択で日付/日時列も `is-selected` (黄色) になる
+  - 行が広がった時に上合わせ + hover bg が下部欠けない
+
+### Changed
+- **`fractal.theme` enum を 3 値に変更** (旧: `github`/`sepia`/`night`/`dark`/`minimal`/`things`/`perplexity` の 7 themes)
+  - default: `things` → `auto`
+  - 旧 enum 値持ちユーザーは起動時 1 回 warning + 自動 migration (`globalState.fractal.themeMigrationDone` で重複防止)
+  - migration ルール: `dark`/`night` → `dark`、`things`/`github`/`sepia`/`minimal`/`perplexity` → `light`、不明値 → `auto`
+- **Settings panel (Notes Tools tab) chrome 刷新** — 配色を `var(--vscode-*)` → `var(--fr-color-*)` に統一、focus / selection bar minimal 化、layout 完全不変
+- **Outliner / MD editor body の bg を `#FAFAF7` (light) / `#1E1F28` (dark) で統一** — sidebar / content / toolbar 全て同一色
+- **focus 時の白背景・水色枠を minimal 化** — outliner-text / cell-text / cell-multiselect / cell-date / subtext.is-editing 全部で背景・outline・box-shadow なし (general `:focus-visible` ring は button/input/textarea/select のみに limit)
+- **Outliner editor の hover 反転を撤廃** — keyboard nav と協調が複雑だったため (notes file panel の hover は維持)
+- **i18n に `themeMigrationNotice` key を 7 言語追加**
+
+### Removed
+- **VSCode 設定 `fractal.outlinerImageDefaultDir` 撤廃** — convention default `./<basename>/images` で解決
+- **VSCode 設定 `fractal.outlinerFileDir` 撤廃** — convention default `./<basename>/files` で解決
+- **VSCode 設定 `fractal.outlinerPageDir` 撤廃** — convention default `./<basename>/` で解決
+- 旧 7 themes 関連の typography 微調整 (perplexity / things 専用 H1/H2/blockquote/table 等の 60+ selectors)
+
+### Migration / Compatibility
+- 既存 `.out` ファイルは構造変更なし (JSON schema 不変)
+  - `data.imageDir` / `data.pageDir` / `data.fileDir` は priority 1 で読まれ続ける
+  - 設定が無くても convention で自動解決
+  - 旧構造 (`./images` / `./pages` / `./files` がルートに存在) は legacy fallback で継続動作
+- 7 themes ユーザーは初回起動時に新 enum へ自動 migration
+
 ## [0.207.3] - 2026-05-09
 
 ### Added
