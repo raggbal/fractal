@@ -31700,6 +31700,133 @@ var Outliner = (function() {
         }
     }
 
+    // v0.207.26: sidepanel 用 翻訳 popup (source/target lang select + Execute)
+    var SP_TRANSLATE_LANGS = [
+        { code: 'auto', label: 'Auto-detect' },
+        { code: 'ja', label: '日本語' },
+        { code: 'en', label: 'English' },
+        { code: 'zh', label: '中文' },
+        { code: 'ko', label: '한국어' },
+        { code: 'fr', label: 'Français' },
+        { code: 'de', label: 'Deutsch' },
+        { code: 'es', label: 'Español' },
+        { code: 'pt', label: 'Português' },
+        { code: 'it', label: 'Italiano' },
+        { code: 'ru', label: 'Русский' },
+        { code: 'ar', label: 'العربية' },
+        { code: 'hi', label: 'हिन्दी' },
+        { code: 'th', label: 'ไทย' },
+        { code: 'vi', label: 'Tiếng Việt' },
+    ];
+    var activeSidePanelTranslatePopup = null;
+    function closeSidePanelTranslatePopup() {
+        if (activeSidePanelTranslatePopup && activeSidePanelTranslatePopup.parentNode) {
+            activeSidePanelTranslatePopup.parentNode.removeChild(activeSidePanelTranslatePopup);
+        }
+        activeSidePanelTranslatePopup = null;
+    }
+    function openSidePanelTranslatePopup(buttonEl) {
+        closeSidePanelTranslatePopup();
+        if (!buttonEl) return;
+
+        var popup = document.createElement('div');
+        popup.className = 'fractal-translate-popup';
+
+        var row = document.createElement('div');
+        row.className = 'ftp-row';
+
+        var srcSelect = document.createElement('select');
+        srcSelect.className = 'ftp-source';
+        SP_TRANSLATE_LANGS.forEach(function(L) {
+            var opt = document.createElement('option');
+            opt.value = L.code; opt.textContent = L.label;
+            srcSelect.appendChild(opt);
+        });
+        srcSelect.value = sidePanelTranslateSourceLang || 'auto';
+
+        var arrow = document.createElement('span');
+        arrow.className = 'ftp-arrow';
+        arrow.textContent = '→';
+
+        var tgtSelect = document.createElement('select');
+        tgtSelect.className = 'ftp-target';
+        SP_TRANSLATE_LANGS.filter(function(L) { return L.code !== 'auto'; }).forEach(function(L) {
+            var opt = document.createElement('option');
+            opt.value = L.code; opt.textContent = L.label;
+            tgtSelect.appendChild(opt);
+        });
+        tgtSelect.value = sidePanelTranslateTargetLang || 'ja';
+
+        row.appendChild(srcSelect);
+        row.appendChild(arrow);
+        row.appendChild(tgtSelect);
+        popup.appendChild(row);
+
+        var execBtn = document.createElement('button');
+        execBtn.className = 'ftp-execute';
+        execBtn.type = 'button';
+        execBtn.textContent = 'Translate';
+        execBtn.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            var srcLang = srcSelect.value;
+            var tgtLang = tgtSelect.value;
+            sidePanelTranslateSourceLang = srcLang;
+            sidePanelTranslateTargetLang = tgtLang;
+            // 永続化 (settings)
+            try { host.saveTranslateLangs && host.saveTranslateLangs(srcLang, tgtLang); } catch (_e) {}
+            closeSidePanelTranslatePopup();
+
+            // 翻訳実行 (旧 translateBtn click と同じロジック)
+            if (!sidePanelInstance) return;
+            var selectionText = sidePanelInstance._getSelectionText ? sidePanelInstance._getSelectionText() : '';
+            var text = selectionText || (sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '');
+            if (text) {
+                sidePanelPreTranslationState = {
+                    markdown: sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '',
+                    filePath: sidePanelFilePath,
+                    fileName: sidePanelFilename ? sidePanelFilename.textContent : '',
+                    toc: null,
+                    documentBaseUri: sidePanelInstance.options ? sidePanelInstance.options.documentBaseUri : ''
+                };
+                showTranslateLoading();
+                host.translateContent(text, srcLang, tgtLang, sidePanelFilePath);
+            }
+        });
+        popup.appendChild(execBtn);
+
+        document.body.appendChild(popup);
+        var rect = buttonEl.getBoundingClientRect();
+        popup.style.position = 'fixed';
+        popup.style.top = (rect.bottom + 4) + 'px';
+        var leftPos = rect.left;
+        var popupWidth = popup.offsetWidth;
+        if (leftPos + popupWidth > window.innerWidth - 8) {
+            leftPos = Math.max(8, window.innerWidth - popupWidth - 8);
+        }
+        popup.style.left = leftPos + 'px';
+
+        activeSidePanelTranslatePopup = popup;
+
+        function outsideHandler(ev) {
+            if (!popup.contains(ev.target) && ev.target !== buttonEl && !buttonEl.contains(ev.target)) {
+                document.removeEventListener('mousedown', outsideHandler, true);
+                closeSidePanelTranslatePopup();
+            }
+        }
+        function escHandler(ev) {
+            if (ev.key === 'Escape') {
+                document.removeEventListener('keydown', escHandler, true);
+                closeSidePanelTranslatePopup();
+            }
+        }
+        setTimeout(function() {
+            document.addEventListener('mousedown', outsideHandler, true);
+            document.addEventListener('keydown', escHandler, true);
+            srcSelect.focus();
+        }, 0);
+    }
+
     function initSidePanel() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
@@ -32046,7 +32173,10 @@ var Outliner = (function() {
                     if (sidePanelPreTranslationState && !sidePanelPreTranslationState.actionsHtml) {
                         sidePanelPreTranslationState.actionsHtml = actions.innerHTML;
                     }
-                    actions.innerHTML = '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>';
+                    // v0.207.26: 「← Back」+「翻訳結果を保存」ボタン追加 (sidepanel only)
+                    actions.innerHTML =
+                        '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>' +
+                        '<button class="side-panel-header-btn fractal-translation-save" data-action="translateSave" title="Save translation as child page in outliner">翻訳結果を保存</button>';
                     var backBtn = actions.querySelector('[data-action="translateBack"]');
                     if (backBtn) {
                         backBtn.addEventListener('click', function() {
@@ -32059,6 +32189,30 @@ var Outliner = (function() {
                             } else {
                                 closeSidePanel();
                             }
+                        });
+                    }
+                    var saveBtn = actions.querySelector('[data-action="translateSave"]');
+                    if (saveBtn) {
+                        saveBtn.addEventListener('click', function() {
+                            // 翻訳結果 MD を取得 (readonly EditorInstance)
+                            var translatedMd = sidePanelInstance && sidePanelInstance._getMarkdown
+                                ? sidePanelInstance._getMarkdown() : translatedMarkdown;
+                            // H1 抽出
+                            var h1Match = translatedMd.match(/^#\s+(.+?)$/m);
+                            var h1Title = h1Match ? h1Match[1].trim() : 'Untitled (translated)';
+                            // 親 outliner node に子 page として attach
+                            try {
+                                var srcFilePath = (sidePanelPreTranslationState && sidePanelPreTranslationState.filePath) || sidePanelFilePath || '';
+                                if (host && typeof host.saveTranslationToOutlinerNode === 'function') {
+                                    host.saveTranslationToOutlinerNode(srcFilePath, translatedMd, h1Title, sourceLang, targetLang);
+                                    saveBtn.disabled = true;
+                                    saveBtn.textContent = '保存中…';
+                                    setTimeout(function() {
+                                        saveBtn.disabled = false;
+                                        saveBtn.textContent = '翻訳結果を保存';
+                                    }, 1500);
+                                }
+                            } catch (_e) { /* ignore */ }
                         });
                     }
                 }
@@ -32166,25 +32320,10 @@ var Outliner = (function() {
                     });
                 }
                 if (translateBtn) {
+                    // v0.207.26: click で popup 表示 (source/target select + Execute)。
+                    // 旧: 即翻訳 → 新: popup 経由
                     translateBtn.addEventListener('click', function() {
-                        if (!sidePanelInstance) return;
-                        var selectionText = sidePanelInstance._getSelectionText ? sidePanelInstance._getSelectionText() : '';
-                        var text = selectionText || (sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '');
-                        console.log('[Translate] Button clicked. Text length:', text.length, 'langs:', sidePanelTranslateSourceLang, '→', sidePanelTranslateTargetLang);
-                        if (text) {
-                            // Save original state so user can restore via "back" button on result panel
-                            sidePanelPreTranslationState = {
-                                markdown: sidePanelInstance._getMarkdown ? sidePanelInstance._getMarkdown() : '',
-                                filePath: sidePanelFilePath,
-                                fileName: sidePanelFilename ? sidePanelFilename.textContent : '',
-                                toc: null,
-                                documentBaseUri: sidePanelInstance.options ? sidePanelInstance.options.documentBaseUri : ''
-                            };
-                            showTranslateLoading();
-                            host.translateContent(text, sidePanelTranslateSourceLang, sidePanelTranslateTargetLang, sidePanelFilePath);
-                        } else {
-                            console.warn('[Translate] No text to translate');
-                        }
+                        openSidePanelTranslatePopup(translateBtn);
                     });
                 }
 

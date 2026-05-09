@@ -5,6 +5,12 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.26] - 2026-05-10
+
+### Fixed
+- **🐛 Notes mode の sidepanel header で翻訳ボタンが popup を開かず即翻訳していた件** — outliner.js の sidepanel translate 経路 (Notes mode で MD を sidepanel 開いた時) が editor.js の popup 化対応 (v0.207.24) 漏れだった。outliner.js にも同等の `openSidePanelTranslatePopup` を実装、translate button click → popup 表示 (source/target select + Execute)
+- **🐛 Notes mode の sidepanel 翻訳結果画面に「翻訳結果を保存」 button が出ていなかった件** — outliner.js は editor.js とは別の翻訳結果 UI (sidepanel rebuild) を使っているので保存 button が表示されていなかった。outliner.js 側の result panel header にも `data-action="translateSave"` button 追加、click で `host.saveTranslationToOutlinerNode` 呼出 (子 node + page 追加)
+
 ## [0.207.25] - 2026-05-10
 
 ### Added
