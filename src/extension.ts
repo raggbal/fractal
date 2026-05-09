@@ -282,7 +282,18 @@ export function activate(context: vscode.ExtensionContext) {
                 // File doesn't exist — good
             }
 
-            const emptyData = JSON.stringify({ rootIds: [], nodes: {} }, null, 2);
+            // Notes mode と同じ命名規則で初期化:
+            //   pageDir = ./<basename>, fileDir = ./<basename>/files, imageDir = ./<basename>/images
+            // (全アセットを <basename>/ 配下に集約する self-contained 構造)
+            const basename = name.trim().replace(/\.out$/, '');
+            const emptyData = JSON.stringify({
+                version: 1,
+                pageDir: `./${basename}`,
+                fileDir: `./${basename}/files`,
+                imageDir: `./${basename}/images`,
+                rootIds: [],
+                nodes: {}
+            }, null, 2);
             await vscode.workspace.fs.writeFile(fileUri, Buffer.from(emptyData, 'utf8'));
             await vscode.commands.executeCommand('vscode.openWith', fileUri, 'fractal.outliner');
         })
