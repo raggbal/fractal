@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.28] - 2026-05-10
+
+### Fixed
+- **🐛 翻訳結果保存で .md は作成されるが outliner に node 追加が反映されない問題** — `.out` への JSON 書き込みは成功していたが、(1) outliner.js の pending `syncData` で古い model に上書き戻り (2) webview UI も自動 reload されない、の double-bug。`fs.writeFileSync` 後に `fileManager.openFile()` で `fileChangeId` bump + `lastJsonString` 同期、さらに webview に直接 `updateData` (新 `fileChangeId` 付き) を post して即時 UI 反映。pending syncData は古い `fileChangeId` で reject される
+
 ## [0.207.27] - 2026-05-10
 
 ### Fixed

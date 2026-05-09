@@ -992,11 +992,24 @@ export class NotesEditorProvider {
                 parentNode.childIds.push(newNodeId);
                 if (parentNode.collapsed) parentNode.collapsed = false;
 
-                // 6. .out 保存 + webview reload
-                fs.writeFileSync(outFilePath, JSON.stringify(outData, null, 2), 'utf8');
+                // 6. .out 保存
+                // v0.207.28: outliner.js の pending syncData (古い model) で上書きされないよう
+                // fileManager.openFile(outFilePath) を呼んで lastJsonString 更新 + fileChangeId++
+                // → webview 側の旧 fileChangeId 付き syncData は notes-message-handler:172 で reject
+                const newJsonString = JSON.stringify(outData, null, 2);
+                fs.writeFileSync(outFilePath, newJsonString, 'utf8');
+                fileManager.openFile(outFilePath); // bump fileChangeId + sync lastJsonString
                 vscode.window.showInformationMessage(`翻訳結果を保存しました: ${safeTitle}（${path.relative(path.dirname(outFilePath), newPagePath)}）`);
 
-                // 7. webview に成功通知
+                // 7. webview に直接 updateData を送って UI 即時反映 (新 fileChangeId 付き)
+                sender.postMessage({
+                    type: 'updateData',
+                    data: outData,
+                    fileChangeId: fileManager.getFileChangeId(),
+                    outFileKey: outFilePath
+                });
+
+                // 8. webview に成功通知 (button text 反映用)
                 sender.postMessage({
                     type: 'translateSaveOk',
                     newNodeId,
@@ -1005,8 +1018,6 @@ export class NotesEditorProvider {
                     pagePath: newPagePath,
                     outPath: outFilePath
                 });
-
-                // 8. outliner 再描画 (folderWatcher 経由で *.out 再読込 → updateData)
             },
         };
 
