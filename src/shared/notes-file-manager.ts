@@ -649,7 +649,11 @@ export class NotesFileManager {
             } catch {
                 // fallthrough
             }
-            return path.resolve(path.dirname(this.currentFilePath), 'pages');
+            // Notes mode default: ./<basename> (Notes-created files have pageDir
+            // explicit via createFile; legacy / dailynotes.out without pageDir
+            // 用 fallback も <basename> で self-contained 構造を実現)
+            const outlinerId = path.basename(this.currentFilePath, '.out');
+            return path.resolve(path.dirname(this.currentFilePath), outlinerId);
         }
 
         return path.join(this.mainFolderPath, 'pages');
@@ -1033,13 +1037,11 @@ export class NotesFileManager {
         const filePath = path.join(this.mainFolderPath, 'dailynotes.out');
 
         if (!fs.existsSync(filePath)) {
-            // dailynotes はユーザーの期待として「自己完結」(全 asset が dailynotes/ 配下):
-            //   pageDir = ./dailynotes, fileDir = ./dailynotes/files
+            // pageDir / fileDir / imageDir は Notes mode default で <basename> 配下に
+            // 自動 resolve されるため、ここでは書き込まない (system 全体で一貫した命名規則)。
             const initialData = {
                 version: 1,
                 title: 'Daily Notes',
-                pageDir: './dailynotes',
-                fileDir: './dailynotes/files',
                 rootIds: [] as string[],
                 nodes: {} as Record<string, unknown>,
             };
@@ -1056,26 +1058,6 @@ export class NotesFileManager {
                 // rootIds の先頭に追加
                 structure.rootIds.unshift('dailynotes');
                 this.saveStructure();
-            }
-        } else {
-            // 既存 dailynotes.out で pageDir / fileDir が無い → migrate
-            try {
-                const existingContent = fs.readFileSync(filePath, 'utf8');
-                const existingData = JSON.parse(existingContent);
-                let modified = false;
-                if (!existingData.pageDir) {
-                    existingData.pageDir = './dailynotes';
-                    modified = true;
-                }
-                if (!existingData.fileDir) {
-                    existingData.fileDir = './dailynotes/files';
-                    modified = true;
-                }
-                if (modified) {
-                    fs.writeFileSync(filePath, JSON.stringify(existingData, null, 2), 'utf8');
-                }
-            } catch {
-                // parse 失敗等は無視 (壊れたファイルを上書きしない)
             }
         }
 

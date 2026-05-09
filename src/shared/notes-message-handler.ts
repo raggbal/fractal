@@ -795,22 +795,16 @@ export async function handleNotesMessage(
                 if (!archiveData.rootIds) archiveData.rootIds = [];
 
                 // Dest dirs (dailynotes.out)
-                // 命名規則: pageDir = ./<basename>, fileDir = ./<basename>/files
-                // (dailynotes は自己完結: 全 asset を <basename>/ 配下に集約)
-                // 既存 dailynotes.out に pageDir / fileDir が無ければ migrate
+                // pageDir / fileDir は archiveData に明示があればそれを尊重、なければ
+                // Notes mode 既定 (<basename> / <basename>/files) を archive ファイルの
+                // basename を使って resolve する。
                 const destOutDir = path.dirname(archiveFilePath);
                 const archiveBasename = path.basename(archiveFilePath, '.out');
-                if (!archiveData.pageDir) {
-                    archiveData.pageDir = `./${archiveBasename}`;
-                }
-                if (!archiveData.fileDir) {
-                    archiveData.fileDir = `./${archiveBasename}/files`;
-                }
-                const archivePageDirRel = archiveData.pageDir as string;
+                const archivePageDirRel = (archiveData.pageDir as string) || `./${archiveBasename}`;
                 const destPagesDir = path.isAbsolute(archivePageDirRel)
                     ? archivePageDirRel
                     : path.resolve(destOutDir, archivePageDirRel);
-                const archiveFileDirRel = archiveData.fileDir as string;
+                const archiveFileDirRel = (archiveData.fileDir as string) || `./${archiveBasename}/files`;
                 const destFileDir = path.isAbsolute(archiveFileDirRel)
                     ? archiveFileDirRel
                     : path.resolve(destOutDir, archiveFileDirRel);
