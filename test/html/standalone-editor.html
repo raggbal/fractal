@@ -16127,28 +16127,38 @@ class EditorInstance {
             if (!seen['f:' + fp]) { seen['f:' + fp] = 1; files.push(fileRefs[j]); }
         }
 
-        // Resolve to absolute path (for Open / Copy)
-        // documentBaseUri は webview-resource URI 形式なので、絶対 fs path に変換するために
-        // host.openLink / clipboard では「相対パスのまま」渡す (host が解決してくれる)。
-        // CopyPath 用には絶対 fs path が欲しいので resolveAssetUrl 結果から prefix 除去。
+        // Resolve to absolute fs path (for Copy Path):
+        //   1) rel が既に絶対 (file://, /...) ならそのまま
+        //   2) resolveImagePath(rel) で documentBaseUri と join → webview URL
+        //   3) cleanImageSrc で webview prefix を除去 → 絶対 fs path
         function relToAbsFs(rel) {
             if (!rel) return '';
-            // 既に絶対パス?
-            if (/^([a-z]+:)?\//i.test(rel) && !rel.startsWith('./') && !rel.startsWith('../')) {
-                if (rel.startsWith('file://')) return rel.substring(7);
-                if (rel.startsWith('/')) return rel;
-            }
-            // resolveAssetUrl で webview URL 化 → prefix 除去で絶対 fs path
+            var clean = (rel || '').split('?')[0].split('#')[0];
+            // file://... → strip
+            if (clean.startsWith('file://')) return clean.substring(7);
+            // /abs/path → そのまま
+            if (clean.startsWith('/') && !clean.startsWith('//')) return clean;
+            // ./rel/ や rel/ → resolveImagePath + cleanImageSrc 経路
             try {
-                var resolved = resolveAssetUrl(rel);
+                var resolved = (typeof resolveImagePath === 'function')
+                    ? resolveImagePath(clean)
+                    : '';
                 if (typeof cleanImageSrc === 'function') {
-                    var cleaned = cleanImageSrc(resolved);
-                    return (cleaned || '').split('?')[0].split('#')[0];
+                    var stripped = cleanImageSrc(resolved);
+                    if (stripped && stripped.startsWith('/')) return stripped;
                 }
-                return resolved.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '').replace(/^file:\/\//, '').split('?')[0].split('#')[0];
-            } catch (e) {
-                return rel;
-            }
+                // fallback: documentBaseUri を直接処理 (webview URL or file://)
+                if (typeof documentBaseUri === 'string' && documentBaseUri) {
+                    var base = documentBaseUri.replace(/\/$/, '');
+                    // strip webview prefix
+                    base = base.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
+                    // strip file:// prefix
+                    base = base.replace(/^file:\/\//, '');
+                    var sub = clean.replace(/^\.\//, '');
+                    return base + '/' + sub;
+                }
+            } catch (e) { /* fallthrough */ }
+            return clean;
         }
 
         // popup 構築
