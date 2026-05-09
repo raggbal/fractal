@@ -75,8 +75,20 @@ export function handlePageAssets(opts: {
     }
 
     // Extract all image references
-    const bodyRefs = extractMarkdownImagePaths(mdContent);
-    const allRefs = Array.from(new Set([...(opts.nodeImages || []), ...bodyRefs]));
+    // MD-41: drawio.svg / drawio.png は ![]() 構文だが意味的には file (pages/files/ 配下)。
+    // images から分離して file 側で処理する。
+    const isDrawioAsset = (p: string): boolean => {
+        const lower = (p || '').toLowerCase();
+        return lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
+    };
+    const bodyRefsRaw = extractMarkdownImagePaths(mdContent);
+    const bodyDrawioRefs = bodyRefsRaw.filter(isDrawioAsset);
+    const bodyImageRefs = bodyRefsRaw.filter((p) => !isDrawioAsset(p));
+    // nodeImages 側に drawio が紛れ込むケース (通常起きない) も考慮
+    const nodeImagesArr = opts.nodeImages || [];
+    const nodeImageOnly = nodeImagesArr.filter((p) => !isDrawioAsset(p));
+    const nodeImageDrawio = nodeImagesArr.filter(isDrawioAsset);
+    const allRefs = Array.from(new Set([...nodeImageOnly, ...bodyImageRefs]));
 
     // Build rename map (only for copy, not for cut)
     const renameMap = new Map<string, string>();
@@ -121,8 +133,9 @@ export function handlePageAssets(opts: {
         }
     }
 
-    // Handle file links
-    const fileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
+    // Handle file links + drawio (image syntax で参照されている drawio.svg/png も file 扱い)
+    const regularFileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
+    const fileRefs: string[] = Array.from(new Set([...regularFileRefs, ...bodyDrawioRefs, ...nodeImageDrawio]));
     if (fileRefs.length > 0) {
         const destFilesDir = path.join(opts.destPagesDir, 'files');
         ensureDir(destFilesDir);
