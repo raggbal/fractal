@@ -848,7 +848,7 @@ body {
     font-weight: 600;
 }
 .attachments-panel-count {
-    color: var(--blockquote-color);
+    opacity: 0.6;
     font-size: 12px;
 }
 .attachments-panel-list {
@@ -856,7 +856,7 @@ body {
 }
 .attachments-panel-empty {
     padding: 24px 14px;
-    color: var(--blockquote-color);
+    opacity: 0.5;
     text-align: center;
 }
 .attachments-panel-row {
@@ -878,7 +878,7 @@ body {
     justify-content: center;
     border-radius: 6px;
     background: var(--code-bg);
-    color: var(--blockquote-color);
+    opacity: 0.7;
 }
 .attachments-panel-icon.is-image {
     background: rgba(99, 102, 241, 0.12);
@@ -900,7 +900,7 @@ body {
 }
 .attachments-panel-path {
     font-size: 11px;
-    color: var(--blockquote-color);
+    opacity: 0.6;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -915,17 +915,18 @@ body {
     background: transparent;
     border: none;
     cursor: pointer;
-    color: var(--blockquote-color);
+    color: inherit;
+    opacity: 0.6;
     padding: 6px;
     border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.1s, color 0.1s;
+    transition: background 0.1s, opacity 0.1s;
 }
 .attachments-panel-btn:hover {
     background: var(--selection-bg);
-    color: var(--text-color);
+    opacity: 1;
 }
 .attachments-panel-btn.is-copied {
     color: rgb(34, 197, 94);
