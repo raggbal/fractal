@@ -927,11 +927,13 @@ export class NotesEditorProvider {
                 const outFilePath = fileManager.getCurrentFilePath();
                 if (!outFilePath || !fs.existsSync(outFilePath)) {
                     vscode.window.showErrorMessage('保存対象の outliner ファイルが見つかりません');
+                    sender.postMessage({ type: 'translateSaveError', message: '保存対象の outliner ファイルが見つかりません' });
                     return;
                 }
                 const pagesDir = fileManager.getPagesDirPath();
                 if (!pagesDir) {
                     vscode.window.showErrorMessage('Pages directory を解決できません');
+                    sender.postMessage({ type: 'translateSaveError', message: 'Pages directory を解決できません' });
                     return;
                 }
 
@@ -944,9 +946,13 @@ export class NotesEditorProvider {
                     outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
                 } catch (e) {
                     vscode.window.showErrorMessage('Outliner ファイルの parse に失敗しました');
+                    sender.postMessage({ type: 'translateSaveError', message: 'Outliner JSON parse 失敗' });
                     return;
                 }
-                if (!outData || typeof outData !== 'object') return;
+                if (!outData || typeof outData !== 'object') {
+                    sender.postMessage({ type: 'translateSaveError', message: 'Outliner JSON が空です' });
+                    return;
+                }
                 outData.nodes = outData.nodes || {};
 
                 let parentNodeId: string | null = null;
@@ -957,7 +963,9 @@ export class NotesEditorProvider {
                     }
                 }
                 if (!parentNodeId) {
-                    vscode.window.showErrorMessage('翻訳元 page を含む outliner node が見つかりません');
+                    const msg = `翻訳元 page (${currentPageId}) を含む outliner node が見つかりません。outliner: ${path.basename(outFilePath)}`;
+                    vscode.window.showErrorMessage(msg);
+                    sender.postMessage({ type: 'translateSaveError', message: msg });
                     return;
                 }
 
@@ -986,11 +994,19 @@ export class NotesEditorProvider {
 
                 // 6. .out 保存 + webview reload
                 fs.writeFileSync(outFilePath, JSON.stringify(outData, null, 2), 'utf8');
-                vscode.window.showInformationMessage(`翻訳結果を保存しました: ${safeTitle}`);
+                vscode.window.showInformationMessage(`翻訳結果を保存しました: ${safeTitle}（${path.relative(path.dirname(outFilePath), newPagePath)}）`);
 
-                // 7. outliner 再描画 (postMessage で sender 経由)
-                // 既存の document change 経路に任せる: writeFileSync すると VSCode が
-                // onDidChangeTextDocument を発火、notesEditorProvider が webview を refresh する
+                // 7. webview に成功通知
+                sender.postMessage({
+                    type: 'translateSaveOk',
+                    newNodeId,
+                    newPageId,
+                    h1Title: safeTitle,
+                    pagePath: newPagePath,
+                    outPath: outFilePath
+                });
+
+                // 8. outliner 再描画 (folderWatcher 経由で *.out 再読込 → updateData)
             },
         };
 

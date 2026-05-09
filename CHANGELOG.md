@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.27] - 2026-05-10
+
+### Fixed
+- **🐛 「翻訳結果を保存」 button 押しても何も起こらない問題の診断強化** — 保存処理 (notesEditorProvider / outlinerProvider) で失敗時に webview に `translateSaveError` を送るよう改修、成功時も `translateSaveOk` を送って button text に明示反映 (`✓ 保存しました: <title>` / `✗ <理由>`)。失敗理由 (例: `翻訳元 page (xxx) を含む outliner node が見つかりません`) が button 上に直接出るようになった
+- VSCode toast に保存先ファイル相対 path を併記 (例: `翻訳結果を保存しました: タイトル（pages/p123abc.md）`)
+
+### 保存先仕様 (再掲)
+- Notes mode: 現在開いている `<outlineId>.out` 内、翻訳元 page を持つ親 node の **子 node として追加**。新 page MD は同 outliner の `pageDir` (= 既定で `<outlineId>/p<新id>.md`) に保存
+- Standalone outliner: `.out` 内、翻訳元 page を持つ親 node の **子 node として追加**。新 page MD は `pageDir` に保存
+
 ## [0.207.26] - 2026-05-10
 
 ### Fixed

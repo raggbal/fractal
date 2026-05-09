@@ -944,6 +944,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 outData = JSON.parse(document.getText());
                             } catch {
                                 vscode.window.showErrorMessage('Outliner JSON parse 失敗');
+                                webviewPanel.webview.postMessage({ type: 'translateSaveError', message: 'Outliner JSON parse 失敗' });
                                 break;
                             }
                             outData.nodes = outData.nodes || {};
@@ -955,7 +956,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 }
                             }
                             if (!parentNodeId) {
-                                vscode.window.showErrorMessage('翻訳元 page を含む outliner node が見つかりません');
+                                const msg = `翻訳元 page (${currentPageId}) を含む outliner node が見つかりません。outliner: ${path.basename(document.uri.fsPath)}`;
+                                vscode.window.showErrorMessage(msg);
+                                webviewPanel.webview.postMessage({ type: 'translateSaveError', message: msg });
                                 break;
                             }
 
@@ -989,10 +992,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             await vscode.workspace.applyEdit(edit);
                             await document.save();
 
-                            vscode.window.showInformationMessage(`翻訳結果を保存しました: ${h1Title}`);
+                            vscode.window.showInformationMessage(`翻訳結果を保存しました: ${h1Title}（${path.relative(path.dirname(document.uri.fsPath), newPagePath)}）`);
+                            webviewPanel.webview.postMessage({
+                                type: 'translateSaveOk',
+                                newNodeId,
+                                newPageId,
+                                h1Title,
+                                pagePath: newPagePath,
+                                outPath: document.uri.fsPath
+                            });
                         } catch (err: any) {
                             console.error('[Translate] saveTranslationToOutlinerNode error:', err);
                             vscode.window.showErrorMessage('翻訳結果の保存に失敗しました: ' + (err?.message || String(err)));
+                            webviewPanel.webview.postMessage({ type: 'translateSaveError', message: err?.message || String(err) });
                         }
                         break;
                     }
