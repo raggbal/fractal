@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.30] - 2026-05-10
+
+### Added
+- **🛡️ Markdown コードブロック保護翻訳** — Amazon Translate に送る前に Markdown のコードブロック等を placeholder (`⟦XCB000⟧` 形式、Unicode 数学括弧使用) に置換し、翻訳後に復元。コード内のキーワード ('class', 'function', '*', etc.) が誤訳される問題を防止
+- 保護対象:
+  1. Fenced code block (`` ``` ` 〜 `` ``` ``、言語タグ付き含む)
+  2. Inline code (`` ` 〜 ` ``、1 行限定)
+  3. Block math (`$$...$$`)
+  4. HTML comment (`<!-- ... -->`)
+- インデント 4 スペース code block / inline math (`$...$`) は誤検出回避のため対象外
+
 ## [0.207.29] - 2026-05-10
 
 ### Fixed
