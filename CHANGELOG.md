@@ -5,6 +5,43 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.206.1] - 2026-05-09
+
+### Added
+- **🆕 Outliner: タスクモード** — 検索バー右側のチェックボックスアイコンで ON/OFF。新規ルートノードに自動 checkbox 付与 (子ノードには付与しない)。OFF で全ルート checkbox を一括クリア。ON 時に taskFilter='active' (未完了のみ表示) に自動切替
+- **🆕 Outliner: タスクフィルタ (All / Active)** — 漏斗アイコンで切替 (常時表示)。Active で `checked=true` のノードを枝ごと非表示
+- **🆕 Outliner: 完了タスクの Daily Notes アーカイブ** — 箱アイコンで `dailynotes.out` の今日の日付ノード配下に移動
+  - ツリー全体を walk して `checked=true` のノードを target 化。祖先が `checked=true` なら祖先の subtree として吸収
+  - `#TASK` `#DONE` タグを root テキスト末尾に自動付与
+  - **アセットも自動コピー**: page MD / page 内画像 / drawio / 添付ファイル / 画像
+  - Notes mode 専用
+- **🆕 Outliner: 列追加 dialog に `Date` / `Date & Time` 列タイプ** — クリックで native date picker。空状態は placeholder 非表示
+- **🆕 Outliner: チェックボックスのキーボード操作**
+  - テキスト先頭で `[ ]` / `[x]` 入力 + Space → checkbox 自動変換 (残りテキスト保持)
+  - `Cmd+Shift+X`: checkbox 追加 / true ⇄ false toggle
+  - `Cmd+Shift+Option+X`: checkbox 削除
+  - checkbox 付きノードの先頭で Backspace: 1 回目 = checkbox 解除、2 回目 = 通常 merge
+
+### Changed
+- **🔧 Standalone outliner も自己完結構造に統一 (Notes mode と同じ命名規則)**
+  - 旧: `./files` / `./images` (root 共有)
+  - 新: `./<basename>/files` / `./<basename>/images` (per-outliner)
+  - `fractal.newOutliner` 新規作成時に `pageDir` / `fileDir` / `imageDir` を明示書き込み
+  - 互換性: 旧 `./files` / `./images` が存在し新パスが無い場合は legacy パスを継続使用 (旧ファイル参照を破壊しない)
+- **🔧 Notes mode `getPagesDirPath` default を `./<basename>` に統一** (以前は `./pages` root 共有)。dailynotes 専用処理を撤去
+- **🔧 MD editor ショートカット robustness** — 全 letter shortcut で `e.code` (物理 key) fallback 追加。layout / IME / shift state に依らず動作
+- **🔧 Outliner 検索バー** — タスク系ボタン (task-mode / filter / archive) を右端に寄せて視覚的区切りを明確化
+
+### Fixed
+- **HTML→MD 変換: `<a><img></a>` を `![alt](src)` に簡略化** (note.com の見出し画像など)
+- **HTML→MD 変換: Medium 等の `<code>` 無し code block を fenced code block として変換** (再帰 walk + 多段フォールバック)
+- **HTML/Markdown ペースト時の空リストマーカー除去** — 孤立 `- ` / 末尾連続 `- ` を自動除去。中間は保持
+- **Outliner: 子ノードを持つノードの先頭で Backspace → 子ノード消失バグ修正** — `model.removeNode` の再帰削除で移動済みの子も巻き込まれていた問題
+- **`handlePageAssets` で drawio.svg/png を images ではなく files に振り分け** — image syntax でも file 扱い (pages/files 配下)
+
+### Removed
+- **Outliner: Created At / Updated At 自動列機能を撤去** — 検索バーの時計アイコン toggle、自動列追加、ノード変更時の `updatedAt` 自動更新、関連 i18n keys を全削除
+
 ## [0.204.1] - 2026-05-09
 
 ### Documentation
