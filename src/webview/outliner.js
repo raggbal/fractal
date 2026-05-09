@@ -6385,6 +6385,7 @@ var Outliner = (function() {
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
+                var attachmentsBtn = freshSpHeaderBtn('attachments');
 
                 if (navBackBtn) navBackBtn.addEventListener('click', function() {
                     if (sidePanelFilePath && typeof host.sidePanelNavigateBack === 'function') {
@@ -6400,6 +6401,13 @@ var Outliner = (function() {
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
+                if (attachmentsBtn) {
+                    attachmentsBtn.addEventListener('click', function() {
+                        if (sidePanelInstance && typeof sidePanelInstance._showAttachmentsPanel === 'function') {
+                            sidePanelInstance._showAttachmentsPanel(attachmentsBtn);
+                        }
+                    });
+                }
                 // navigation button state を保持
                 outerSidePanelNavBackBtn = navBackBtn;
                 outerSidePanelNavForwardBtn = navForwardBtn;

@@ -15113,7 +15113,6 @@ class EditorInstance {
             if (sidePanelInstance) sidePanelInstance._redo();
         });
         if (attachmentsBtn) attachmentsBtn.addEventListener('click', function() {
-            console.log('[attachments] sidepanel button clicked, instance=', !!sidePanelInstance, 'method=', sidePanelInstance && typeof sidePanelInstance._showAttachmentsPanel);
             if (sidePanelInstance && typeof sidePanelInstance._showAttachmentsPanel === 'function') {
                 sidePanelInstance._showAttachmentsPanel(attachmentsBtn);
             }
