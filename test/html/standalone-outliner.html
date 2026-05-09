@@ -3831,9 +3831,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     top: 36px;
     z-index: 10;
     background-color: var(--outliner-bg) !important;
-    color: var(--outliner-fg, inherit) !important;
-    /* テキスト色を少し薄く (純粋な fg だと強すぎる) */
-    opacity: 0.65;
+    /* テキスト色を少し薄く (opacity ではなく secondary color で背景透過を回避) */
+    color: var(--fr-color-text-secondary, var(--outliner-fg, inherit)) !important;
     padding: 4px 7px;
     border: none;
     border-bottom: 1px solid var(--outliner-border, rgba(127,127,127,0.4));
@@ -3860,7 +3859,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-/* resize handle: header 右端に絶対配置、列境界とぴったり重なる */
+/* resize handle: header 右端に絶対配置、列境界とぴったり重なる。
+ * hit area は 5px だが、hover/active 時の visible bar は 2px (notes-resize-handle と統一)。 */
 .outliner-col-resize-handle {
     position: absolute;
     top: 0;
@@ -3871,10 +3871,18 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     background: transparent;
     z-index: 11;
 }
-.outliner-col-resize-handle:hover,
-.outliner-col-resize-handle:active {
-    background: var(--vscode-focusBorder, #007acc);
-    opacity: 0.6;
+.outliner-col-resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 0;
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+}
+.outliner-col-resize-handle:hover::before,
+.outliner-col-resize-handle:active::before {
+    width: 2px;
 }
 
 /* table mode の各 grid item: 行線無し、列セルは内容に合わせて高さ可変。

@@ -109,8 +109,8 @@ function generateNotesFilePanelHtml(options) {
             display: flex; align-items: center; gap: 5px;
             position: relative;
         }
-        /* file panel list item: hover は water-blue で反転 (ユーザー要望)。active 行は背景なし、左 2px primary bar */
-        .file-panel-item:hover:not(.active) { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
+        /* file panel list item: hover は water-blue で反転 (active 行も同様)。active 行は背景なし + 左 2px primary bar */
+        .file-panel-item:hover { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
         .file-panel-item.active {
             background: transparent;
             font-weight: 500;
