@@ -1056,9 +1056,17 @@ export class NotesFileManager {
                 this.saveStructure();
             }
         } else {
-            // 既存 dailynotes.out で pageDir が無い場合は migrate (書き込みは ensureDailyNode 後に
-            // まとめて行われるが、ここでは memory レベルでのみ正規化する目的)
-            // 実装注: 強制 migration は archive 側で fs.readFile → write 経路で行う
+            // 既存 dailynotes.out で pageDir が無い → migrate (./dailynotes を書き込む)
+            try {
+                const existingContent = fs.readFileSync(filePath, 'utf8');
+                const existingData = JSON.parse(existingContent);
+                if (!existingData.pageDir) {
+                    existingData.pageDir = './dailynotes';
+                    fs.writeFileSync(filePath, JSON.stringify(existingData, null, 2), 'utf8');
+                }
+            } catch {
+                // parse 失敗等は無視 (壊れたファイルを上書きしない)
+            }
         }
 
         return filePath;
