@@ -1307,11 +1307,21 @@ export class NotesEditorProvider {
         try {
             outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
         } catch { /* ignore */ }
-        // Resolve pageDir from .out JSON (or default ./pages)
-        const pageDir = (outData?.pageDir as string) || './pages';
-        const resolvedPageDir = path.isAbsolute(pageDir)
-            ? pageDir
-            : path.resolve(path.dirname(outFilePath), pageDir);
+        // Resolve pageDir: 1) .out JSON 内 pageDir → 2) ./<basename>/ (convention) → 3) ./pages (legacy)
+        // sprint 20260509-185557: VSCode 設定 outlinerPageDir 撤廃に伴い convention 経路を採用
+        const outDir = path.dirname(outFilePath);
+        const basename = path.basename(outFilePath, '.out');
+        let resolvedPageDir: string;
+        if (outData?.pageDir) {
+            const pageDir = outData.pageDir as string;
+            resolvedPageDir = path.isAbsolute(pageDir) ? pageDir : path.resolve(outDir, pageDir);
+        } else {
+            const newDefaultDir = path.resolve(outDir, basename);
+            const legacyDir = path.resolve(outDir, 'pages');
+            resolvedPageDir = (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir))
+                ? legacyDir
+                : newDefaultDir;
+        }
         const pagePath = path.join(resolvedPageDir, `${pageId}.md`);
         return fs.existsSync(pagePath) ? pagePath : null;
     }

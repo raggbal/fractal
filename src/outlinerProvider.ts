@@ -1050,18 +1050,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             }
         } catch { /* ignore parse errors */ }
 
-        // 2. VSCode設定 (user が明示設定している場合のみ採用)
-        const config = vscode.workspace.getConfiguration('fractal');
-        const inspect = config.inspect<string>('outlinerImageDefaultDir');
-        const userSet = inspect && (inspect.globalValue !== undefined || inspect.workspaceValue !== undefined || inspect.workspaceFolderValue !== undefined);
-        if (userSet) {
-            const configDir = config.get<string>('outlinerImageDefaultDir', './images');
-            if (!configDir) return path.dirname(document.uri.fsPath);
-            if (path.isAbsolute(configDir)) return configDir;
-            return path.resolve(path.dirname(document.uri.fsPath), configDir);
-        }
-
-        // 3. デフォルト: ./<basename>/images (Notes mode と同じ命名規則で self-contained)
+        // 2. デフォルト: ./<basename>/images (Notes mode と同じ命名規則で self-contained)
+        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerImageDefaultDir` を撤廃。
+        //    per-.out-file 上書きは data.imageDir で対応 (priority 1)。
         //    互換性: 既存の ./images が物理的に存在し、新 ./<basename>/images が存在しない場合は
         //    旧パスを使い続ける (旧ファイル参照を壊さない)
         const outDir = path.dirname(document.uri.fsPath);
@@ -1086,13 +1077,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             }
         } catch { /* ignore parse errors */ }
 
-        // 2. VSCode設定
-        const config = vscode.workspace.getConfiguration('fractal');
-        const configDir = config.get<string>('outlinerPageDir', './pages');
-        if (path.isAbsolute(configDir)) {
-            return configDir;
+        // 2. デフォルト: ./<basename>/ (Notes mode と同じ命名規則で self-contained)
+        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerPageDir` を撤廃。
+        //    互換性: 既存の ./pages が物理的に存在し、新 ./<basename>/ が存在しない場合は
+        //    旧パスを使い続ける (旧 page MD 参照を壊さない)
+        const outDir = path.dirname(document.uri.fsPath);
+        const basename = path.basename(document.uri.fsPath, '.out');
+        const newDefaultDir = path.resolve(outDir, basename);
+        const legacyDir = path.resolve(outDir, 'pages');
+        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
+            return legacyDir;
         }
-        return path.resolve(path.dirname(document.uri.fsPath), configDir);
+        return newDefaultDir;
     }
 
     private getFileDirPath(document: vscode.TextDocument): string {
@@ -1107,17 +1103,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             }
         } catch { /* ignore parse errors */ }
 
-        // 2. VSCode設定 (user が明示設定している場合のみ採用)
-        const config = vscode.workspace.getConfiguration('fractal');
-        const inspect = config.inspect<string>('outlinerFileDir');
-        const userSet = inspect && (inspect.globalValue !== undefined || inspect.workspaceValue !== undefined || inspect.workspaceFolderValue !== undefined);
-        if (userSet) {
-            const configDir = config.get<string>('outlinerFileDir', './files');
-            if (path.isAbsolute(configDir)) return configDir;
-            return path.resolve(path.dirname(document.uri.fsPath), configDir);
-        }
-
-        // 3. デフォルト: ./<basename>/files (Notes mode と同じ命名規則で self-contained)
+        // 2. デフォルト: ./<basename>/files (Notes mode と同じ命名規則で self-contained)
+        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerFileDir` を撤廃。
         //    互換性: 既存の ./files が物理的に存在し、新 ./<basename>/files が存在しない場合は
         //    旧パスを使い続ける (旧ファイル参照を壊さない)
         const outDir = path.dirname(document.uri.fsPath);

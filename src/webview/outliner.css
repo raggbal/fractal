@@ -1603,7 +1603,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     white-space: nowrap;
 }
 /* resize handle: header 右端に絶対配置、列境界とぴったり重なる。
- * hit area は 5px だが、hover/active 時の visible bar は 2px (notes-resize-handle と統一)。 */
+ * 通常は width 5px の透明 hit area。hover/active 時に visible bar 2px (notes-resize-handle と統一)
+ * のため、`::before` (overlay) を column 中心軸に表示。 */
 .outliner-col-resize-handle {
     position: absolute;
     top: 0;
@@ -1614,14 +1615,18 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     background: transparent;
     z-index: 11;
 }
+/* visible bar: column 境界にぴったり重なる位置 (handle 中央) に 2px 幅で表示 */
 .outliner-col-resize-handle::before {
     content: '';
     position: absolute;
     top: 0;
     bottom: 0;
-    right: 0;
+    left: 50%;
+    transform: translateX(-50%);
     width: 0;
     background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    pointer-events: none;
+    transition: width 0.1s ease;
 }
 .outliner-col-resize-handle:hover::before,
 .outliner-col-resize-handle:active::before {

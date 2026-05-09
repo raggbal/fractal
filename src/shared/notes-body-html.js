@@ -109,12 +109,14 @@ function generateNotesFilePanelHtml(options) {
             display: flex; align-items: center; gap: 5px;
             position: relative;
         }
-        /* file panel list item: hover は water-blue で反転 (active 行も同様)。active 行は背景なし + 左 2px primary bar */
-        .file-panel-item:hover { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
+        /* file panel list item: hover は water-blue で反転 (active 行も同様)。active 行は背景なし + 左 2px primary bar
+         * 注: .active:hover を明示することで .active の transparent を上書き (specificity 同点 → 高 specificity 勝ち) */
         .file-panel-item.active {
             background: transparent;
             font-weight: 500;
         }
+        .file-panel-item:hover,
+        .file-panel-item.active:hover { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
         .file-panel-item.active::before {
             content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
             /* 「ノート」タブの border-bottom (2px) と統一 */
