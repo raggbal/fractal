@@ -5,6 +5,13 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.31] - 2026-05-10
+
+### Fixed
+- **🐛 v0.207.30 で導入した code block 保護が AWS Translate に placeholder 削除されて壊れた件** — `⟦XCB000⟧` の Unicode 数学括弧が AWS で削除され `XCB000` だけ残る、さらに「X」まで消えて `CB002` になるケースもあり、復元 regex が機能せず生 placeholder が表示されていた
+- **新方式 (segment 分割)**: text を `[translate, preserve, translate, preserve, ...]` の segment 列に分割し、preserve segment は **AWS Translate に送らずそのまま結果に含める**。placeholder 復元のリスクなし、AWS の修正動作に左右されない確実な保護
+- 保護対象は v0.207.30 と同じ: fenced code block / inline code / block math / HTML comment
+
 ## [0.207.30] - 2026-05-10
 
 ### Added

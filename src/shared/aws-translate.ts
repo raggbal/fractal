@@ -53,11 +53,13 @@ function getByteLength(text: string): number {
 }
 
 /**
- * v0.207.30: 翻訳前に Markdown のコードブロック / インラインコード / 数式を
- * placeholder に置換して、Amazon Translate に翻訳されないようにする。
+ * v0.207.31: コードブロックを完全に翻訳経路から分離する segment 方式
  *
- * placeholder 形式: ⟦XCB000⟧ (連番 0 padding)。Unicode の数学括弧 U+27E6 / U+27E7 を
- * 使うので AWS Translate がほぼ確実に touch しない。
+ * 旧 placeholder 方式 (v0.207.30) は Unicode 括弧が AWS Translate に削られて復元不能になり、
+ * 中身がそのまま `XCB000` として表示される問題があった (例: `CB002` のように "X" まで失われる)。
+ *
+ * 新方式: text を [translate, preserve, translate, preserve, ...] の segment 列に分割し、
+ * preserve segment は AWS Translate に**送らずそのまま結果に含める**。
  *
  * 保護対象:
  * 1. fenced code block (```...```) - 言語タグ付き含む
@@ -65,63 +67,31 @@ function getByteLength(text: string): number {
  * 3. block math ($$...$$)
  * 4. HTML comment (<!--...-->)
  *
- * インデント 4 スペースの code block / inline math ($...$, 通貨記号と紛らわしい) は
- * 誤検出を避けるため対象外。
+ * インデント 4 スペースの code block / inline math ($...$, 通貨記号と紛らわしい) は対象外。
  */
-const CODE_PLACEHOLDER_PREFIX = '⟦XCB';
-const CODE_PLACEHOLDER_SUFFIX = '⟧';
+const PROTECTED_PATTERN = /(```[\s\S]*?```|\$\$[\s\S]*?\$\$|<!--[\s\S]*?-->|`[^`\n]+`)/g;
 
-export function protectMarkdownCode(text: string): { protectedText: string; blocks: string[] } {
-    const blocks: string[] = [];
-    const placeholder = (i: number) => `${CODE_PLACEHOLDER_PREFIX}${String(i).padStart(3, '0')}${CODE_PLACEHOLDER_SUFFIX}`;
-    let protectedText = text;
-
-    // 1. fenced code block (most permissive, do first to avoid inner inline matches)
-    protectedText = protectedText.replace(/```[\s\S]*?```/g, (m) => {
-        const idx = blocks.length;
-        blocks.push(m);
-        return placeholder(idx);
-    });
-
-    // 2. block math $$...$$ (multi-line)
-    protectedText = protectedText.replace(/\$\$[\s\S]*?\$\$/g, (m) => {
-        const idx = blocks.length;
-        blocks.push(m);
-        return placeholder(idx);
-    });
-
-    // 3. HTML comment
-    protectedText = protectedText.replace(/<!--[\s\S]*?-->/g, (m) => {
-        const idx = blocks.length;
-        blocks.push(m);
-        return placeholder(idx);
-    });
-
-    // 4. inline code `...` (single line, no nested backticks)
-    protectedText = protectedText.replace(/`[^`\n]+`/g, (m) => {
-        const idx = blocks.length;
-        blocks.push(m);
-        return placeholder(idx);
-    });
-
-    return { protectedText, blocks };
+export interface TranslationSegment {
+    type: 'translate' | 'preserve';
+    content: string;
 }
 
-export function restoreMarkdownCode(text: string, blocks: string[]): string {
-    if (blocks.length === 0) return text;
-    // AWS Translate が周囲に余計な空白を入れる場合があるので flexible に置換
-    const re = new RegExp(
-        `${escapeRegex(CODE_PLACEHOLDER_PREFIX)}\\s*(\\d+)\\s*${escapeRegex(CODE_PLACEHOLDER_SUFFIX)}`,
-        'g'
-    );
-    return text.replace(re, (_m, idx) => {
-        const i = parseInt(idx, 10);
-        return (i >= 0 && i < blocks.length) ? blocks[i] : _m;
-    });
-}
-
-function escapeRegex(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function splitProtectedSegments(text: string): TranslationSegment[] {
+    const segments: TranslationSegment[] = [];
+    let lastIdx = 0;
+    PROTECTED_PATTERN.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = PROTECTED_PATTERN.exec(text)) !== null) {
+        if (m.index > lastIdx) {
+            segments.push({ type: 'translate', content: text.slice(lastIdx, m.index) });
+        }
+        segments.push({ type: 'preserve', content: m[0] });
+        lastIdx = PROTECTED_PATTERN.lastIndex;
+    }
+    if (lastIdx < text.length) {
+        segments.push({ type: 'translate', content: text.slice(lastIdx) });
+    }
+    return segments;
 }
 
 function splitTextByParagraphs(text: string): string[] {
@@ -253,28 +223,43 @@ export async function translateText(opts: TranslateOptions): Promise<TranslateRe
         AWS_DEFAULT_REGION: region,
     };
 
-    // v0.207.30: コードブロック等を placeholder で保護してから翻訳
-    const { protectedText, blocks } = protectMarkdownCode(text);
-    const textByteLength = getByteLength(protectedText);
-
-    if (textByteLength <= MAX_BYTES_PER_REQUEST) {
-        const translatedRaw = await translateChunk(protectedText, sourceLang, targetLang, env, terminologyName);
-        return { translatedText: restoreMarkdownCode(translatedRaw, blocks), sourceLang, targetLang };
+    // v0.207.31: コードブロックを segment 単位で翻訳経路から完全分離
+    const segments = splitProtectedSegments(text);
+    const out: string[] = [];
+    for (const seg of segments) {
+        if (seg.type === 'preserve') {
+            out.push(seg.content);
+            continue;
+        }
+        // 空白のみは翻訳しない (AWS が余計な変換するのを防ぐ)
+        if (!seg.content.trim()) {
+            out.push(seg.content);
+            continue;
+        }
+        out.push(await translateSegmentText(seg.content, sourceLang, targetLang, env, terminologyName));
     }
+    return { translatedText: out.join(''), sourceLang, targetLang };
+}
 
-    const chunks = splitTextByParagraphs(protectedText);
+/**
+ * 1 segment の text を翻訳。MAX_BYTES を超えたら paragraph 分割。
+ */
+async function translateSegmentText(
+    text: string,
+    sourceLang: string,
+    targetLang: string,
+    env: NodeJS.ProcessEnv,
+    terminologyName?: string
+): Promise<string> {
+    if (getByteLength(text) <= MAX_BYTES_PER_REQUEST) {
+        return await translateChunk(text, sourceLang, targetLang, env, terminologyName);
+    }
+    const chunks = splitTextByParagraphs(text);
     const translatedChunks: string[] = [];
-
     for (const chunk of chunks) {
-        const translated = await translateChunk(chunk, sourceLang, targetLang, env, terminologyName);
-        translatedChunks.push(translated);
+        translatedChunks.push(await translateChunk(chunk, sourceLang, targetLang, env, terminologyName));
     }
-
-    return {
-        translatedText: restoreMarkdownCode(translatedChunks.join('\n\n'), blocks),
-        sourceLang,
-        targetLang,
-    };
+    return translatedChunks.join('\n\n');
 }
 
 /**
