@@ -1033,11 +1033,13 @@ export class NotesFileManager {
         const filePath = path.join(this.mainFolderPath, 'dailynotes.out');
 
         if (!fs.existsSync(filePath)) {
-            // createFile と同じ命名規則: pageDir = ./<basename>
+            // dailynotes はユーザーの期待として「自己完結」(全 asset が dailynotes/ 配下):
+            //   pageDir = ./dailynotes, fileDir = ./dailynotes/files
             const initialData = {
                 version: 1,
                 title: 'Daily Notes',
                 pageDir: './dailynotes',
+                fileDir: './dailynotes/files',
                 rootIds: [] as string[],
                 nodes: {} as Record<string, unknown>,
             };
@@ -1056,12 +1058,20 @@ export class NotesFileManager {
                 this.saveStructure();
             }
         } else {
-            // 既存 dailynotes.out で pageDir が無い → migrate (./dailynotes を書き込む)
+            // 既存 dailynotes.out で pageDir / fileDir が無い → migrate
             try {
                 const existingContent = fs.readFileSync(filePath, 'utf8');
                 const existingData = JSON.parse(existingContent);
+                let modified = false;
                 if (!existingData.pageDir) {
                     existingData.pageDir = './dailynotes';
+                    modified = true;
+                }
+                if (!existingData.fileDir) {
+                    existingData.fileDir = './dailynotes/files';
+                    modified = true;
+                }
+                if (modified) {
                     fs.writeFileSync(filePath, JSON.stringify(existingData, null, 2), 'utf8');
                 }
             } catch {
