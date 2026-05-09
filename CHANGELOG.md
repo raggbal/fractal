@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.3] - 2026-05-09
+
+### Added
+- **🆕 Markdown editor: 添付ファイル一覧パネル (Attachments panel)** — クリップアイコンで popup を開き、MD body 内の画像とファイル参照を一覧表示
+  - **Standalone**: toolbar 右側固定領域 (openInTextEditor の前) にボタン
+  - **Sidepanel**: header の translate と openInTextEditor の間にボタン (Notes mode の sidepanel でも動作)
+  - 各エントリ: タイプ別アイコン (画像 / ファイル) + ファイル名 + 相対パス + Open ボタン (外部アプリで開く) + Copy Path ボタン (絶対 fs path をクリップボードへ)
+  - 抽出: `MarkdownLinkParser.extractImagePaths` (`![](path)`) + `extractMarkdownFileLinks` (`[](path.ext)` で http 以外 / .md 以外)
+  - 同 path の重複は dedup
+  - 外側クリック / `Escape` で close、同じボタン再クリックで toggle close
+
 ## [0.206.2] - 2026-05-09
 
 ### Documentation

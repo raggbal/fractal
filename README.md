@@ -83,6 +83,7 @@ A Typora / Notion-style WYSIWYG markdown editor.
 - **KaTeX math equations** — Display-mode equations with live re-rendering
 - **YAML Front Matter** support
 - **Action Palette** (`Cmd+/`) — Quick access to all formatting and insertion actions, including Add Page, Insert Drawio Diagram, and Insert Table
+- **Attachments panel** — Paperclip icon (top-right toolbar / side panel header). Lists every image and file referenced in the document with **Open** (external app) and **Copy Path** (absolute filesystem path) actions. Works in standalone editor and Notes side panel
 
 <!-- TODO: Add Markdown editor screenshot -->
 
