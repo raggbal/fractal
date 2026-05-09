@@ -795,11 +795,18 @@ export async function handleNotesMessage(
                 if (!archiveData.rootIds) archiveData.rootIds = [];
 
                 // Dest dirs (dailynotes.out)
+                // 命名規則: pageDir = ./<basename> (createFile / ensureDailyNotesFile 共通)
+                // 既存 dailynotes.out に pageDir が無ければ migrate (書き込み時に追加)
                 const destOutDir = path.dirname(archiveFilePath);
-                const archivePageDirRel = (archiveData.pageDir as string) || './pages';
+                const archiveBasename = path.basename(archiveFilePath, '.out');
+                if (!archiveData.pageDir) {
+                    archiveData.pageDir = `./${archiveBasename}`;
+                }
+                const archivePageDirRel = archiveData.pageDir as string;
                 const destPagesDir = path.isAbsolute(archivePageDirRel)
                     ? archivePageDirRel
                     : path.resolve(destOutDir, archivePageDirRel);
+                // fileDir は createFile も書かないので package.json default './files' に従う
                 const archiveFileDirRel = (archiveData.fileDir as string) || './files';
                 const destFileDir = path.isAbsolute(archiveFileDirRel)
                     ? archiveFileDirRel

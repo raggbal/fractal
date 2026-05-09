@@ -1033,9 +1033,11 @@ export class NotesFileManager {
         const filePath = path.join(this.mainFolderPath, 'dailynotes.out');
 
         if (!fs.existsSync(filePath)) {
+            // createFile と同じ命名規則: pageDir = ./<basename>
             const initialData = {
                 version: 1,
                 title: 'Daily Notes',
+                pageDir: './dailynotes',
                 rootIds: [] as string[],
                 nodes: {} as Record<string, unknown>,
             };
@@ -1053,6 +1055,10 @@ export class NotesFileManager {
                 structure.rootIds.unshift('dailynotes');
                 this.saveStructure();
             }
+        } else {
+            // 既存 dailynotes.out で pageDir が無い場合は migrate (書き込みは ensureDailyNode 後に
+            // まとめて行われるが、ここでは memory レベルでのみ正規化する目的)
+            // 実装注: 強制 migration は archive 側で fs.readFile → write 経路で行う
         }
 
         return filePath;
