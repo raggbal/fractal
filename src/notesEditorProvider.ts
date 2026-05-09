@@ -911,6 +911,9 @@ export class NotesEditorProvider {
             updateWorkspaceConfig: async (section: string, key: string, value: unknown) => {
                 await vscode.workspace.getConfiguration(section).update(key, value, vscode.ConfigurationTarget.Global);
             },
+            executeCommand: async (command: string, ...args: unknown[]) => {
+                return await vscode.commands.executeCommand(command, ...args);
+            },
             saveTranslationToOutlinerNode: async (
                 sidePanelFilePath: string,
                 translatedMarkdown: string,

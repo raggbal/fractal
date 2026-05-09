@@ -857,6 +857,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         const accessKeyId = config.get<string>('transAccessKeyId', '');
                         const secretAccessKey = config.get<string>('transSecretAccessKey', '');
                         const region = config.get<string>('transRegion', 'us-east-1');
+                        const terminologyName = (config.get<string>('translateTerminologyName', '') || '').trim();
                         if (!accessKeyId || !secretAccessKey) {
                             webviewPanel.webview.postMessage({
                                 type: 'translateError',
@@ -871,7 +872,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 targetLang: message.targetLang,
                                 accessKeyId,
                                 secretAccessKey,
-                                region
+                                region,
+                                terminologyName: terminologyName || undefined,
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'translateResult',

@@ -434,6 +434,18 @@ function generateNotesFilePanelHtml(options) {
                         ${m('notesCleanUnusedAllNotes', 'Clean Unused Files in All Notes')}
                     </button>
                 </div>
+
+                <!-- Translate Section (v0.207.25): Custom Terminology の手動 update -->
+                <div class="file-panel-tools-section">
+                    <div class="file-panel-section-title">${m('notesTranslateSection', 'Translate')}</div>
+                    <button class="file-panel-btn" id="filePanelUpdateTranslateTerminology" title="${m('notesUpdateTranslateTerminologyTooltip', 'Upload Custom Terminology dictionary to Amazon Translate')}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M2 12h6M12 2v6m4 0L20 4m-4 16l4-4M2 12l4 4m12-12l4-4"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        ${m('notesUpdateTranslateTerminology', 'Update Translate Terminology')}
+                    </button>
+                </div>
             </div>
         </aside>
         <div class="notes-resize-handle" id="notesResizeHandle"></div>`;

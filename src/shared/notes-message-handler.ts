@@ -120,6 +120,8 @@ export interface NotesPlatformActions {
     updateWorkspaceConfig?(section: string, key: string, value: unknown): Promise<void>;
     /** v0.207.24: 翻訳結果を sidepanel の所属 outliner node に子 page として attach */
     saveTranslationToOutlinerNode?(sidePanelFilePath: string, translatedMarkdown: string, h1Title: string, sourceLang: string, targetLang: string): Promise<void>;
+    /** v0.207.25: 任意の VSCode command を実行 (Tools tab → fractal.updateTranslateTerminology 等) */
+    executeCommand?(command: string, ...args: unknown[]): Promise<unknown>;
     /** v12: D&D ファイルインポート */
     dropFilesImport?(items: DropImportItem[], targetNodeId: string | null, position: string, sender: NotesSender): void;
     /** v12 拡張: VSCode Explorer D&D */
@@ -1101,6 +1103,8 @@ export async function handleNotesMessage(
                 const accessKeyId = config.get('transAccessKeyId', '');
                 const secretAccessKey = config.get('transSecretAccessKey', '');
                 const region = config.get('transRegion', 'us-east-1');
+                // v0.207.25: Custom Terminology が設定済なら使う
+                const terminologyName = (config.get('translateTerminologyName', '') || '').toString().trim();
                 if (!accessKeyId || !secretAccessKey) {
                     sender.postMessage({
                         type: 'translateError',
@@ -1115,7 +1119,8 @@ export async function handleNotesMessage(
                         targetLang: message.targetLang,
                         accessKeyId,
                         secretAccessKey,
-                        region
+                        region,
+                        terminologyName: terminologyName || undefined,
                     });
                     sender.postMessage({
                         type: 'translateResult',
@@ -1164,6 +1169,18 @@ export async function handleNotesMessage(
                     await platform.updateWorkspaceConfig('fractal', 'translateTargetLang', message.targetLang);
                 } catch (err: any) {
                     console.error('[Translate] saveTranslateLangs error:', err);
+                }
+            }
+            break;
+        }
+
+        case 'updateTranslateTerminology': {
+            // v0.207.25: Tools tab 「翻訳辞書を更新」 button
+            if (platform.executeCommand) {
+                try {
+                    await platform.executeCommand('fractal.updateTranslateTerminology');
+                } catch (err: any) {
+                    console.error('[Translate] updateTranslateTerminology error:', err);
                 }
             }
             break;

@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.25] - 2026-05-10
+
+### Added
+- **🆕 Amazon Translate Custom Terminology 対応** — 翻訳精度向上のための辞書 (CSV/TMX) サポート
+  - 新設定 `fractal.translateTerminologyFile`: 辞書ファイルパス (絶対 / `~/...` / workspace-relative 全対応)
+  - 新設定 `fractal.translateTerminologyName`: Amazon Translate 上の辞書名
+  - **Notes editor の Tools タブに「Update Translate Terminology」 button** 追加 — クリックで `aws translate import-terminology` を実行 (Amazon Translate に upload)
+  - **新コマンド `fractal.updateTranslateTerminology`** — Tools button と同等、command palette からも実行可能
+  - 翻訳実行時、`translateTerminologyName` が設定されていれば自動的に `--terminology-names` を CLI 引数に追加 (translateContent → notes-message-handler / outlinerProvider / editorProvider 全経路で対応)
+  - 起動時の自動 upload は**しない** (重い + 辞書更新は稀なので無駄)
+  - ファイル拡張子で format 判定 (`.csv` → CSV、`.tmx` / `.xml` → TMX)
+  - merge 戦略: `OVERWRITE` (既存名の辞書を完全置換)
+  - エラーハンドリング: ファイル不在 / size > 10 MB / 拡張子不正 / AWS credentials 未設定 / AWS CLI 未インストール
+  - 新 helper `resolveTerminologyPath`: `~/foo` 展開 + 絶対 / workspace-relative path 解決
+
 ## [0.207.24] - 2026-05-10
 
 ### Changed

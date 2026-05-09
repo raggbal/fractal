@@ -1056,6 +1056,14 @@ var notesFilePanel = (function() {
             });
         }
 
+        // v0.207.25: Custom Terminology を Amazon Translate に upload
+        var updateTermBtn = document.getElementById('filePanelUpdateTranslateTerminology');
+        if (updateTermBtn) {
+            updateTermBtn.addEventListener('click', function() {
+                if (bridge.updateTranslateTerminology) bridge.updateTranslateTerminology();
+            });
+        }
+
         if (collapseBtn) {
             collapseBtn.addEventListener('click', function() {
                 if (panelEl) {

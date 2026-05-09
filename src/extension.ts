@@ -6,6 +6,7 @@ import { NotesFolderProvider } from './notesFolderProvider';
 import { NotesEditorProvider } from './notesEditorProvider';
 import { initLocale, t } from './i18n/messages';
 import { runNotesCleanup } from './notesCleanupCommand';
+import { importTerminology, resolveTerminologyPath } from './shared/aws-translate';
 
 interface FractalLinkParams {
     noteFolderName: string;
@@ -168,6 +169,50 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('fractal.translate', () => {
             provider.sendTranslate();
+        })
+    );
+
+    // v0.207.25: Custom Terminology を Amazon Translate に upload (CSV/TMX)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.updateTranslateTerminology', async () => {
+            const config = vscode.workspace.getConfiguration('fractal');
+            const rawPath = config.get<string>('translateTerminologyFile', '').trim();
+            const name = config.get<string>('translateTerminologyName', '').trim();
+            const accessKeyId = config.get<string>('transAccessKeyId', '').trim();
+            const secretAccessKey = config.get<string>('transSecretAccessKey', '').trim();
+            const region = config.get<string>('transRegion', 'us-east-1').trim();
+
+            if (!rawPath) {
+                vscode.window.showErrorMessage('fractal.translateTerminologyFile が未設定です');
+                return;
+            }
+            if (!name) {
+                vscode.window.showErrorMessage('fractal.translateTerminologyName が未設定です');
+                return;
+            }
+            if (!accessKeyId || !secretAccessKey) {
+                vscode.window.showErrorMessage('AWS credentials (transAccessKeyId / transSecretAccessKey) が未設定です');
+                return;
+            }
+
+            const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const filePath = resolveTerminologyPath(rawPath, wsRoot);
+
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: '翻訳辞書を Amazon Translate に upload 中…' },
+                async () => {
+                    try {
+                        const result = await importTerminology({
+                            name, filePath, accessKeyId, secretAccessKey, region,
+                        });
+                        const cnt = typeof result.termCount === 'number' ? ` (${result.termCount} terms)` : '';
+                        vscode.window.showInformationMessage(`翻訳辞書 "${result.name}" を更新しました${cnt}`);
+                    } catch (err: any) {
+                        const msg = err?.message || String(err);
+                        vscode.window.showErrorMessage('翻訳辞書の更新に失敗しました: ' + msg);
+                    }
+                }
+            );
         })
     );
 

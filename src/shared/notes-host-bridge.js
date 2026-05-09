@@ -333,6 +333,11 @@
         cleanupUnusedFilesCurrentNote: function() {
             flushOutlinerSync();
             api.postMessage({ type: 'cleanupUnusedFilesCurrentNote' });
+        },
+
+        // v0.207.25: Custom Terminology を Amazon Translate に upload
+        updateTranslateTerminology: function() {
+            api.postMessage({ type: 'updateTranslateTerminology' });
         }
     };
 })();
