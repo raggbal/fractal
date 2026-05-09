@@ -102,6 +102,14 @@ A Dynalist-like outliner built into VS Code.
 - **Import .md files** — Import Markdown files (Notion, Obsidian exports) as page nodes via ⋮ menu. Images are auto-copied and paths rewritten
 - **File attachments** — Attach any file type (PDF, Excel, etc.) to nodes via ⋮ → "Import any files...". File nodes display a 📎 icon; click to open with OS default app. Copy/paste duplicates the physical file
 - **Task nodes** — `- [ ]` / `- [x]` checkboxes with toggle support
+  - Type `[ ]` / `[x]` + `Space` at the start of a node text to convert it into a checkbox (MD task list parity)
+  - `Cmd+Shift+X` toggles checkbox (add if missing, otherwise true ⇄ false)
+  - `Cmd+Shift+Option+X` removes the checkbox
+  - Pressing `Backspace` at the start of a checkbox node first clears the checkbox; the second press merges as usual
+- **Task Mode** — Search bar checkbox icon (top-right). When ON, every newly-created **root** node is auto-checked-list (children remain plain). Turning OFF clears all root checkboxes
+- **Task Filter (All / Active)** — Funnel icon, always visible. `Active` hides the entire subtree of checked-true nodes; `All` shows everything
+- **Archive completed tasks → Daily Notes** — Box icon (Notes mode only). Moves all `checked=true` nodes (+ descendants) under today's day node in `dailynotes.out`, appends `#TASK #DONE` tags to root text, and **copies the related assets** (page MD, page images, drawio, attached files, node images) into Daily Notes' folder. Ancestors that are also checked-true absorb their checked descendants (no double-archiving)
+- **Date / Date & Time columns** (Table view) — Add a `Date` or `Date & Time` column from the column-add dialog. Click a cell to open a native date picker; type to enter directly. Empty cells show no placeholder
 - **Inline formatting** — Bold (`Cmd+B`), italic (`Cmd+I`), strikethrough (`Cmd+Shift+S`), inline code (`Cmd+E`), `[text](url)` links
 - **Clickable links** — `[text](url)` links are rendered and clickable in display mode. URLs pasted via `Cmd+V` are auto-converted to link format
 - **Multi-select indent** — Select multiple nodes with Shift+Click, then Tab/Shift+Tab to indent/outdent them all at once
@@ -297,7 +305,10 @@ These shortcuts are active when the Fractal outliner is focused:
 | `Shift+Enter` | Add/focus subtext |
 | `Tab` | Indent node |
 | `Shift+Tab` | Outdent node |
-| `Backspace` at start | Merge with previous node |
+| `Backspace` at start | Clear checkbox (if any) → otherwise merge with previous node |
+| `[ ]` / `[x]` + `Space` at start | Convert node into a checkbox (preserves remaining text) |
+| `Cmd+Shift+X` / `Ctrl+Shift+X` | Toggle checkbox (add if missing, then true ⇄ false) |
+| `Cmd+Shift+Option+X` / `Ctrl+Shift+Alt+X` | Remove checkbox |
 | `↑` / `↓` | Navigate between nodes |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Move node up / down |
 | `Ctrl+.` | Toggle collapse/expand |
