@@ -76,6 +76,7 @@ function generateEditorBodyHtml(messages, platform) {
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--right hidden" id="toolbarScrollRight">&#x276F;</button>
                 <div class="toolbar-fixed toolbar-fixed--right">
                     <div class="toolbar-group" data-group="utility">
+                        <button data-action="attachments" title="${m('attachments') || 'Attachments'}"></button>
                         <button data-action="openInTextEditor" title="${m('openInTextEditor')} (${mod}+Shift+.)"></button>
                         <button data-action="source" title="${m('toggleSourceMode')} (${mod}+.)"></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
@@ -159,6 +160,7 @@ function generateSidePanelHtml(messages) {
                         <button class="side-panel-header-btn" data-action="redo" title="Redo"></button>
                         <button class="side-panel-header-btn" data-action="translateLang" title="Translation language">ja</button>
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
+                        <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>

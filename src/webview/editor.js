@@ -12012,6 +12012,9 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'attachments':
+                showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
+                break;
             case 'translateLang':
                 host.translateSelectLang(translateSourceLang, translateTargetLang);
                 break;
@@ -13245,6 +13248,220 @@ class EditorInstance {
         }
     }
 
+    /** MD 内の添付ファイル一覧を popup で表示。
+     *  画像 (![](path)) と file リンク ([](path.ext) で .md 以外) を抽出。
+     *  各エントリ: アイコン + 名前 + パス + Open ボタン + Copy Path ボタン */
+    var attachmentsPanelEl = null;
+    function closeAttachmentsPanel() {
+        if (attachmentsPanelEl && attachmentsPanelEl.parentNode) {
+            attachmentsPanelEl.parentNode.removeChild(attachmentsPanelEl);
+        }
+        attachmentsPanelEl = null;
+        document.removeEventListener('mousedown', _attachmentsOutsideClick, true);
+        document.removeEventListener('keydown', _attachmentsKeyHandler, true);
+    }
+    function _attachmentsOutsideClick(e) {
+        if (!attachmentsPanelEl) return;
+        if (attachmentsPanelEl.contains(e.target)) return;
+        closeAttachmentsPanel();
+    }
+    function _attachmentsKeyHandler(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeAttachmentsPanel();
+        }
+    }
+    function showAttachmentsPanel(anchorBtn) {
+        // 既に表示中ならトグル close
+        if (attachmentsPanelEl) {
+            closeAttachmentsPanel();
+            return;
+        }
+        // 最新 MD を取得
+        var md = '';
+        try { md = htmlToMarkdown(); } catch (e) { md = markdown || ''; }
+        // images: ![](path), files: [](path) で .md 以外
+        var imageRefs = [];
+        var fileRefs = [];
+        try {
+            if (window.MarkdownLinkParser && typeof window.MarkdownLinkParser.extractImagePaths === 'function') {
+                imageRefs = window.MarkdownLinkParser.extractImagePaths(md) || [];
+            } else {
+                // fallback: 簡易抽出
+                var imgRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+                var m;
+                while ((m = imgRe.exec(md)) !== null) imageRefs.push(m[1]);
+            }
+        } catch (e) { /* ignore */ }
+        try {
+            if (window.MarkdownLinkParser && typeof window.MarkdownLinkParser.extractMarkdownFileLinks === 'function') {
+                fileRefs = window.MarkdownLinkParser.extractMarkdownFileLinks(md) || [];
+            } else {
+                // fallback: [text](path.ext) で http 以外、.md 以外
+                var lnRe = /(^|[^!])\[[^\]]+\]\(([^)]+)\)/g;
+                var lm;
+                while ((lm = lnRe.exec(md)) !== null) {
+                    var p = lm[2];
+                    if (/^https?:\/\//.test(p)) continue;
+                    if (/\.md(#.*)?$/i.test(p)) continue;
+                    fileRefs.push(p);
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // url で重複除去 (画像は path で dedup、file も)
+        var seen = {};
+        var images = [];
+        for (var i = 0; i < imageRefs.length; i++) {
+            var ip = imageRefs[i].split('?')[0].split('#')[0];
+            if (!seen['i:' + ip]) { seen['i:' + ip] = 1; images.push(imageRefs[i]); }
+        }
+        var files = [];
+        for (var j = 0; j < fileRefs.length; j++) {
+            var fp = fileRefs[j].split('?')[0].split('#')[0];
+            if (!seen['f:' + fp]) { seen['f:' + fp] = 1; files.push(fileRefs[j]); }
+        }
+
+        // Resolve to absolute path (for Open / Copy)
+        // documentBaseUri は webview-resource URI 形式なので、絶対 fs path に変換するために
+        // host.openLink / clipboard では「相対パスのまま」渡す (host が解決してくれる)。
+        // CopyPath 用には絶対 fs path が欲しいので resolveAssetUrl 結果から prefix 除去。
+        function relToAbsFs(rel) {
+            if (!rel) return '';
+            // 既に絶対パス?
+            if (/^([a-z]+:)?\//i.test(rel) && !rel.startsWith('./') && !rel.startsWith('../')) {
+                if (rel.startsWith('file://')) return rel.substring(7);
+                if (rel.startsWith('/')) return rel;
+            }
+            // resolveAssetUrl で webview URL 化 → prefix 除去で絶対 fs path
+            try {
+                var resolved = resolveAssetUrl(rel);
+                if (typeof cleanImageSrc === 'function') {
+                    var cleaned = cleanImageSrc(resolved);
+                    return (cleaned || '').split('?')[0].split('#')[0];
+                }
+                return resolved.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '').replace(/^file:\/\//, '').split('?')[0].split('#')[0];
+            } catch (e) {
+                return rel;
+            }
+        }
+
+        // popup 構築
+        attachmentsPanelEl = document.createElement('div');
+        attachmentsPanelEl.className = 'attachments-panel';
+        var header = document.createElement('div');
+        header.className = 'attachments-panel-header';
+        var headerTitle = document.createElement('span');
+        headerTitle.className = 'attachments-panel-title';
+        headerTitle.textContent = '📎 Attachments';
+        var headerCount = document.createElement('span');
+        headerCount.className = 'attachments-panel-count';
+        var totalCount = images.length + files.length;
+        headerCount.textContent = totalCount + (totalCount === 1 ? ' item' : ' items');
+        header.appendChild(headerTitle);
+        header.appendChild(headerCount);
+        attachmentsPanelEl.appendChild(header);
+
+        var listEl = document.createElement('div');
+        listEl.className = 'attachments-panel-list';
+        attachmentsPanelEl.appendChild(listEl);
+
+        function appendRow(rel, isImage) {
+            var row = document.createElement('div');
+            row.className = 'attachments-panel-row';
+            var iconWrap = document.createElement('div');
+            iconWrap.className = 'attachments-panel-icon ' + (isImage ? 'is-image' : 'is-file');
+            iconWrap.innerHTML = isImage
+                ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>'
+                : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+            row.appendChild(iconWrap);
+
+            var info = document.createElement('div');
+            info.className = 'attachments-panel-info';
+            var nameEl = document.createElement('div');
+            nameEl.className = 'attachments-panel-name';
+            var lastSeg = rel.split('/').pop().split('?')[0].split('#')[0];
+            nameEl.textContent = lastSeg || rel;
+            var pathEl = document.createElement('div');
+            pathEl.className = 'attachments-panel-path';
+            pathEl.textContent = rel;
+            info.appendChild(nameEl);
+            info.appendChild(pathEl);
+            row.appendChild(info);
+
+            var actions = document.createElement('div');
+            actions.className = 'attachments-panel-actions';
+            var openBtn = document.createElement('button');
+            openBtn.className = 'attachments-panel-btn';
+            openBtn.title = 'Open';
+            openBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
+            openBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof host !== 'undefined' && host.openLink) {
+                    host.openLink(rel);
+                }
+            });
+            actions.appendChild(openBtn);
+
+            var copyBtn = document.createElement('button');
+            copyBtn.className = 'attachments-panel-btn';
+            copyBtn.title = 'Copy Path';
+            copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+            copyBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var abs = relToAbsFs(rel);
+                try {
+                    navigator.clipboard.writeText(abs);
+                    var orig = copyBtn.title;
+                    copyBtn.title = 'Copied!';
+                    copyBtn.classList.add('is-copied');
+                    setTimeout(function() {
+                        copyBtn.title = orig;
+                        copyBtn.classList.remove('is-copied');
+                    }, 1000);
+                } catch (err) {
+                    try { window.prompt('Copy path:', abs); } catch (e) { /* ignore */ }
+                }
+            });
+            actions.appendChild(copyBtn);
+            row.appendChild(actions);
+            listEl.appendChild(row);
+        }
+
+        if (totalCount === 0) {
+            var emptyEl = document.createElement('div');
+            emptyEl.className = 'attachments-panel-empty';
+            emptyEl.textContent = 'No attachments in this document';
+            listEl.appendChild(emptyEl);
+        } else {
+            for (var ii = 0; ii < images.length; ii++) appendRow(images[ii], true);
+            for (var fi = 0; fi < files.length; fi++) appendRow(files[fi], false);
+        }
+
+        // anchor 位置に表示 (右上 button の下に dropdown)
+        document.body.appendChild(attachmentsPanelEl);
+        if (anchorBtn && anchorBtn.getBoundingClientRect) {
+            var rect = anchorBtn.getBoundingClientRect();
+            var panelWidth = 380;
+            var leftPos = Math.max(8, rect.right - panelWidth);
+            attachmentsPanelEl.style.position = 'fixed';
+            attachmentsPanelEl.style.top = (rect.bottom + 4) + 'px';
+            attachmentsPanelEl.style.left = leftPos + 'px';
+        } else {
+            attachmentsPanelEl.style.position = 'fixed';
+            attachmentsPanelEl.style.top = '60px';
+            attachmentsPanelEl.style.right = '20px';
+        }
+
+        // outside click / Escape で close
+        setTimeout(function() {
+            document.addEventListener('mousedown', _attachmentsOutsideClick, true);
+            document.addEventListener('keydown', _attachmentsKeyHandler, true);
+        }, 0);
+    }
+
     // Immediate notification - called after debounce in debouncedSync
     function notifyChangeImmediate() {
         // Only save if user has made edits (prevents saving on initial load)
@@ -13397,6 +13614,7 @@ class EditorInstance {
     this._undo = instanceUndo;
     this._redo = instanceRedo;
     this._toggleSourceMode = function() { toggleSourceMode(); };
+    this._showAttachmentsPanel = function(anchorBtn) { showAttachmentsPanel(anchorBtn); };
     this._getMarkdown = function() {
         // Sync current editor state to markdown and return
         try {
@@ -14878,6 +15096,7 @@ class EditorInstance {
         var navForwardBtn = freshButton('navigateForward');
         var undoBtn = freshButton('undo');
         var redoBtn = freshButton('redo');
+        var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
         var sourceBtn = freshButton('source');
 
@@ -14892,6 +15111,11 @@ class EditorInstance {
         });
         if (redoBtn) redoBtn.addEventListener('click', function() {
             if (sidePanelInstance) sidePanelInstance._redo();
+        });
+        if (attachmentsBtn) attachmentsBtn.addEventListener('click', function() {
+            if (sidePanelInstance && typeof sidePanelInstance._showAttachmentsPanel === 'function') {
+                sidePanelInstance._showAttachmentsPanel(attachmentsBtn);
+            }
         });
         if (openTextEditorBtn) openTextEditorBtn.addEventListener('click', function() {
             if (sidePanelFilePath) {
