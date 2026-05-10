@@ -17977,6 +17977,33 @@ class EditorInstance {
         if (inst && inst._handleSearchShortcut) inst._handleSearchShortcut(e);
     });
 
+    // v0.207.33: Cmd+\ で右サイドパネル (outline panel) を toggle
+    // 主 instance のみ document listener を貼る (closure で main の sidebar / sidePanelInstance を保持)
+    // 振り分け:
+    //  - active が sidepanel inner instance → 内側 TOC (sidePanelSidebar) のみ toggle、主 sidepanel は触らない
+    //  - active が main → 主 sidebar (TOC) を toggle
+    if (isMainInstance) document.addEventListener('keydown', function(e) {
+        if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var active = EditorInstance.getActiveInstance();
+        if (sidePanelInstance && active === sidePanelInstance) {
+            if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                closeSidePanelSidebar();
+                sidePanelTocVisible = false;
+            } else if (sidePanelToc && sidePanelToc.children.length > 0) {
+                sidePanelTocVisible = true;
+                openSidePanelSidebar();
+            }
+        } else {
+            if (sidebar && sidebar.classList.contains('hidden')) {
+                openSidebar();
+            } else {
+                closeSidebar();
+            }
+        }
+    });
+
     // Expose htmlToMarkdown globally for Electron's executeJavaScript
     if (typeof window !== 'undefined') {
         window.htmlToMarkdown = htmlToMarkdown;

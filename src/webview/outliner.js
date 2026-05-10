@@ -6342,6 +6342,38 @@ var Outliner = (function() {
                 closeSidePanel();
             }
         });
+
+        // v0.207.33: Cmd+\ で右サイドパネル toggle
+        // - main outliner active (sidepanel inner instance ではない): sidePanelEl 自体を toggle
+        //   - open 時は close、close 時は no-op (page link click で開く前提)
+        // - sidepanel inner MD active: 内側 sidePanelSidebar (TOC) を toggle、sidePanelEl は触らない
+        document.addEventListener('keydown', function(e) {
+            if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
+            var EI = window.EditorInstance;
+            var active = EI && EI.getActiveInstance ? EI.getActiveInstance() : null;
+            // sidepanel MD inner instance が active な場合 → 内側 TOC のみ toggle (主 sidepanel は触らない)
+            if (sidePanelInstance && active === sidePanelInstance) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                    closeSidePanelSidebar();
+                    sidePanelOutlineWidthSetting = sidePanelOutlineWidthSetting; // (no-op, persisted)
+                } else {
+                    var tocEl = document.querySelector('.side-panel-toc');
+                    if (tocEl && tocEl.children.length > 0) {
+                        openSidePanelSidebar();
+                    }
+                }
+                return;
+            }
+            // 主 outliner active (or no active) → sidePanelEl を toggle
+            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeSidePanel();
+            }
+            // close 状態からの open は no-op (どの page を開くか不明、ユーザーが page link click で開く)
+        });
     }
 
     function setupSidePanelResize() {

@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.33] - 2026-05-10
+
+### Added
+- **⌨️ 右サイドパネル toggle ショートカット `Cmd+\\` (Ctrl+\\)** — 全 4 contexts で統一動作
+  - **Standalone MD editor**: `sidebar` (main TOC) を toggle
+  - **Notes mode (主 outliner active)**: `sidePanelEl` (右 MD page viewer) を close (open は page link click 経由)
+  - **Sidepanel MD active (notes / standalone outliner 内)**: 内側 `sidePanelSidebar` (TOC) のみ toggle、主 sidepanel は触らない (波及防止)
+  - **Standalone MD editor の sidepanel inner active**: 同じく内側 TOC のみ toggle
+- 実装: `EditorInstance.getActiveInstance()` で active 判定し、scope 内の panel のみ操作。`e.preventDefault() + stopPropagation()` で外側 listener へのバブル防止
+
 ## [0.207.32] - 2026-05-10
 
 ### Added
