@@ -4498,6 +4498,30 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             border-bottom: 1px solid var(--outliner-border, #e0e0e0); flex-shrink: 0;
         }
         .file-panel-content-actions .file-panel-btn { font-size: 11px; padding: 4px 7px; }
+        /* v0.207.37: お気に入り section (Notes タブ直下、空なら非表示)。
+         *  Notes タブのすぐ下に常時表示し、actions row + tree より上に出す。 */
+        .file-panel-favorites {
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            padding: 4px 0 6px 0;
+            flex-shrink: 0;
+            max-height: 40vh;
+            overflow-y: auto;
+        }
+        .file-panel-favorites-header {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 11px 4px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--fr-color-text-tertiary, #888);
+            font-weight: 600;
+        }
+        .file-panel-favorites-header svg {
+            fill: var(--fr-color-primary, currentColor);
+            stroke: var(--fr-color-primary, currentColor);
+        }
 
         /* ── Search ── */
         .file-panel-search-input-wrap {
@@ -4677,6 +4701,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
+                <!-- v0.207.37: お気に入り section (空なら非表示) — Notes タブ直下、actions より上 -->
+                <div class="file-panel-favorites" id="notesFavoritesList" style="display:none"></div>
                 <div class="file-panel-content-actions">
                     <button class="file-panel-btn" id="filePanelAddFolder" title="New Folder"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="New Outline"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -25932,6 +25958,13 @@ var Outliner = (function() {
     var contextMenuEl = null;
 
     var syncDebounceTimer = null;
+    /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
+     *  content-based に判定するための baseline。
+     *  - syncToHostImmediate 末尾で更新 (= 今送った)
+     *  - init / applyExternalUpdate / applySyncedData / fileChangeId 付き updateData で更新
+     *    (= disk と一致する状態に reset)
+     *  - flushSync は serializeForSave() == lastSentJson なら skip (mtime preserve) */
+    var lastSentJson = null;
     var SYNC_DEBOUNCE_MS = 1000;
 
     // --- 外部変更検知用 ---
@@ -26632,6 +26665,9 @@ var Outliner = (function() {
                 focusFirstVisibleNode();
             }, 100);
         }
+
+        // v0.207.40: 初期 load 完了 = 現 model state は host/disk と一致 → flushSync の baseline 設定
+        lastSentJson = serializeForSave();
     }
 
     // --- ドラッグ&ドロップ ヘルパー ---
@@ -32682,6 +32718,8 @@ var Outliner = (function() {
         }
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
+        // v0.207.40: 外部変更で model = disk と一致したので flushSync baseline 更新
+        lastSentJson = serializeForSave();
     }
 
     function applyQueuedExternalUpdate() {
@@ -32701,8 +32739,10 @@ var Outliner = (function() {
         }, SYNC_DEBOUNCE_MS);
     }
 
-    function syncToHostImmediate() {
-        clearTimeout(syncDebounceTimer);
+    /** v0.207.40: 現状の model state + 環境設定を 1 つの JSON 文字列に serialize するヘルパー。
+     *  syncToHostImmediate の送信内容と完全一致するので、flushSync の content-based skip 判定にも使える。 */
+    function serializeForSave() {
+        if (!model) return '';
         var data = model.serialize();
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
@@ -32722,7 +32762,15 @@ var Outliner = (function() {
                 data[rk] = rawDataExtras[rk];
             }
         }
-        host.syncData(JSON.stringify(data, null, 2));
+        return JSON.stringify(data, null, 2);
+    }
+
+    function syncToHostImmediate() {
+        clearTimeout(syncDebounceTimer);
+        syncDebounceTimer = null;
+        var jsonString = serializeForSave();
+        host.syncData(jsonString);
+        lastSentJson = jsonString;  // v0.207.40: 送った内容を記録 (= host が disk に書く予定の内容)
     }
 
     // --- 固定タグバー & Daily Notes ナビバー (統合) ---
@@ -32969,6 +33017,8 @@ var Outliner = (function() {
             renderTree();
             saveBaseline();
             updateScopeSearchIndicator();
+            // v0.207.40: S3 sync 後 model = disk と一致したので flushSync baseline 更新
+            lastSentJson = serializeForSave();
         }
         try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
         document.body.classList.remove('outliner-sync-locked');
@@ -33117,6 +33167,8 @@ var Outliner = (function() {
                         // 新データの初期ベースライン（undoStackクリア → ボタンdisabled）
                         saveBaseline();
                         updateScopeSearchIndicator();
+                        // v0.207.40: ファイル切替後 model = disk と一致 → flushSync baseline 更新
+                        lastSentJson = serializeForSave();
                         break;
                     }
 
@@ -34102,7 +34154,17 @@ var Outliner = (function() {
     return {
         init: init,
         getModel: function() { return model; },
-        flushSync: function() { if (model) syncToHostImmediate(); },
+        flushSync: function() {
+            // v0.207.40: 実編集 (= 現 model state が「最後に送った state」と違う) の時だけ送る。
+            // 旧実装は無条件で syncToHostImmediate を呼んでいたが、その結果 host が
+            // 整形差で毎回 _writeFile して mtime を更新 → S3 sync で誤判定する事象が
+            // 多発したため content-based に変更。
+            if (!model) return;
+            var current = serializeForSave();
+            if (current !== lastSentJson) {
+                syncToHostImmediate();
+            }
+        },
         resetSearchAndScope: function() {
             if (searchInput) searchInput.value = '';
             currentSearchResult = null;
@@ -34195,6 +34257,7 @@ var notesFilePanel = (function() {
     var panelEl = null;
     var contextMenu = null;
     var i18n = window.__outlinerMessages || {};
+    var favoritesEl = null; // v0.207.37: Notes タブ直下のお気に入り section container
 
     // D&D state (module-scope, VSCode webview の dataTransfer 制限回避)
     var dragItemId = null;
@@ -34243,6 +34306,9 @@ var notesFilePanel = (function() {
         if (!listEl) return;
         listEl.innerHTML = '';
 
+        // v0.207.37: お気に入り section を Notes タブ直下に常時表示 (空なら非表示)
+        renderFavoritesSection();
+
         if (!structure || !structure.rootIds || structure.rootIds.length === 0) {
             // フラットリストフォールバック
             if (fileList.length === 0) {
@@ -34261,6 +34327,41 @@ var notesFilePanel = (function() {
         if (listEl.children.length === 0) {
             listEl.innerHTML = '<div class="file-panel-empty">No outlines yet.<br>Click + to create one.</div>';
         }
+    }
+
+    /** v0.207.37: お気に入り section を Notes タブ直下に flat list 表示 (folder 階層なし)。
+     *  空なら section を display:none で完全非表示 (旧版と全く同じ見た目)。 */
+    function renderFavoritesSection() {
+        if (!favoritesEl) return;
+        favoritesEl.innerHTML = '';
+        var favIds = (structure && Array.isArray(structure.favorites)) ? structure.favorites : [];
+        if (favIds.length === 0) {
+            favoritesEl.style.display = 'none';
+            return;
+        }
+        var fileMap = buildFileMap(fileList);
+        var rendered = [];
+        favIds.forEach(function(fileId) {
+            var f = fileMap[fileId];
+            if (!f) return; // 削除済等は skip
+            var item = structure && structure.items ? structure.items[fileId] : null;
+            var displayTitle = (item && item.title) || f.title || fileId;
+            var fileEntry = Object.assign({}, f, { title: displayTitle });
+            var el = createFileElement(fileEntry, null);
+            el.dataset.favSection = '1';  // 右クリック menu で簡素 menu を出す marker
+            rendered.push(el);
+        });
+        if (rendered.length === 0) {
+            favoritesEl.style.display = 'none';
+            return;
+        }
+        // header + list (★ icon は外し、text label のみ)
+        var header = document.createElement('div');
+        header.className = 'file-panel-favorites-header';
+        header.innerHTML = '<span>' + (i18n.notesFavorites || 'Favorites') + '</span>';
+        favoritesEl.appendChild(header);
+        rendered.forEach(function(el) { favoritesEl.appendChild(el); });
+        favoritesEl.style.display = '';
     }
 
     function renderIds(ids, containerEl, fileMap, parentId) {
@@ -34474,11 +34575,31 @@ var notesFilePanel = (function() {
 
         var fileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
         var currentColor = getItemColor(fileId);
+        var isFav = isFavorite(fileId);
+
+        // v0.207.37: お気に入り section 内 item は「★ Unfavorite」のみのシンプル menu
+        // (e.target から最近接の .file-panel-item を辿って data-fav-section 判定)
+        var clickedItem = e.target && e.target.closest ? e.target.closest('.file-panel-item') : null;
+        var fromFavSection = !!(clickedItem && clickedItem.dataset && clickedItem.dataset.favSection === '1');
+        if (fromFavSection) {
+            addContextItem(contextMenu, i18n.notesUnfavorite || '★ Unfavorite', function() {
+                closeContextMenu();
+                bridge.toggleFavorite(fileId);
+            });
+            document.body.appendChild(contextMenu);
+            setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
+            return;
+        }
 
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
             if (itemEl) startRenameFile(itemEl, file);
+        });
+        // v0.207.36: お気に入りの追加 / 解除 toggle
+        addContextItem(contextMenu, isFav ? (i18n.notesUnfavorite || '★ Unfavorite') : (i18n.notesFavorite || '☆ Add to Favorites'), function() {
+            closeContextMenu();
+            bridge.toggleFavorite(fileId);
         });
         // file.filePath は notesFileManager.listFiles() で path.join(mainFolderPath, entry)
         // を渡してくる絶対パス。OS clipboard へ直接コピー
@@ -34503,6 +34624,11 @@ var notesFilePanel = (function() {
 
         document.body.appendChild(contextMenu);
         setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
+    }
+
+    /** v0.207.36: 指定 file id がお気に入り登録済みかどうか */
+    function isFavorite(fileId) {
+        return !!(structure && Array.isArray(structure.favorites) && structure.favorites.indexOf(fileId) >= 0);
     }
 
     function showFolderContextMenu(e, folder) {
@@ -35210,6 +35336,9 @@ var notesFilePanel = (function() {
                 if (bridge.openDailyNotes) bridge.openDailyNotes();
             });
         }
+
+        // v0.207.37: お気に入り section ref (Notes タブ直下、空なら hidden)
+        favoritesEl = document.getElementById('notesFavoritesList');
 
         var cleanupCurrentBtn = document.getElementById('filePanelCleanupCurrent');
         if (cleanupCurrentBtn) {

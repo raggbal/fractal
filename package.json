@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.207.40",
+  "version": "0.207.41",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -321,6 +321,16 @@
           "type": "boolean",
           "default": false,
           "description": "Show translate buttons in the editor toolbar (standalone) and side panel header. When off, translation can still be triggered via the 'fractal.translate' command (Cmd+/)."
+        },
+        "fractal.outlinerS3SyncMode": {
+          "type": "string",
+          "enum": ["auto", "confirm"],
+          "default": "auto",
+          "enumDescriptions": [
+            "Auto-decide based on mtime newer-wins (no dialog)",
+            "Show confirmation dialog when local and S3 sizes differ"
+          ],
+          "description": "How to handle outliner S3 sync conflicts. 'auto' (default): decide automatically based on mtime newer-wins. 'confirm': show a dialog asking which side (local/S3) to keep when sizes differ — safer for multi-device scenarios."
         }
       }
     },

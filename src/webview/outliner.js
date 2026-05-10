@@ -239,6 +239,13 @@ var Outliner = (function() {
     var contextMenuEl = null;
 
     var syncDebounceTimer = null;
+    /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
+     *  content-based に判定するための baseline。
+     *  - syncToHostImmediate 末尾で更新 (= 今送った)
+     *  - init / applyExternalUpdate / applySyncedData / fileChangeId 付き updateData で更新
+     *    (= disk と一致する状態に reset)
+     *  - flushSync は serializeForSave() == lastSentJson なら skip (mtime preserve) */
+    var lastSentJson = null;
     var SYNC_DEBOUNCE_MS = 1000;
 
     // --- 外部変更検知用 ---
@@ -939,6 +946,9 @@ var Outliner = (function() {
                 focusFirstVisibleNode();
             }, 100);
         }
+
+        // v0.207.40: 初期 load 完了 = 現 model state は host/disk と一致 → flushSync の baseline 設定
+        lastSentJson = serializeForSave();
     }
 
     // --- ドラッグ&ドロップ ヘルパー ---
@@ -6989,6 +6999,8 @@ var Outliner = (function() {
         }
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
+        // v0.207.40: 外部変更で model = disk と一致したので flushSync baseline 更新
+        lastSentJson = serializeForSave();
     }
 
     function applyQueuedExternalUpdate() {
@@ -7008,8 +7020,10 @@ var Outliner = (function() {
         }, SYNC_DEBOUNCE_MS);
     }
 
-    function syncToHostImmediate() {
-        clearTimeout(syncDebounceTimer);
+    /** v0.207.40: 現状の model state + 環境設定を 1 つの JSON 文字列に serialize するヘルパー。
+     *  syncToHostImmediate の送信内容と完全一致するので、flushSync の content-based skip 判定にも使える。 */
+    function serializeForSave() {
+        if (!model) return '';
         var data = model.serialize();
         data.searchFocusMode = searchFocusMode;
         if (pageDir) { data.pageDir = pageDir; }
@@ -7029,7 +7043,15 @@ var Outliner = (function() {
                 data[rk] = rawDataExtras[rk];
             }
         }
-        host.syncData(JSON.stringify(data, null, 2));
+        return JSON.stringify(data, null, 2);
+    }
+
+    function syncToHostImmediate() {
+        clearTimeout(syncDebounceTimer);
+        syncDebounceTimer = null;
+        var jsonString = serializeForSave();
+        host.syncData(jsonString);
+        lastSentJson = jsonString;  // v0.207.40: 送った内容を記録 (= host が disk に書く予定の内容)
     }
 
     // --- 固定タグバー & Daily Notes ナビバー (統合) ---
@@ -7276,6 +7298,8 @@ var Outliner = (function() {
             renderTree();
             saveBaseline();
             updateScopeSearchIndicator();
+            // v0.207.40: S3 sync 後 model = disk と一致したので flushSync baseline 更新
+            lastSentJson = serializeForSave();
         }
         try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
         document.body.classList.remove('outliner-sync-locked');
@@ -7424,6 +7448,8 @@ var Outliner = (function() {
                         // 新データの初期ベースライン（undoStackクリア → ボタンdisabled）
                         saveBaseline();
                         updateScopeSearchIndicator();
+                        // v0.207.40: ファイル切替後 model = disk と一致 → flushSync baseline 更新
+                        lastSentJson = serializeForSave();
                         break;
                     }
 
@@ -8410,15 +8436,15 @@ var Outliner = (function() {
         init: init,
         getModel: function() { return model; },
         flushSync: function() {
-            // v0.207.40: 実編集 (= 未 flush の syncDebounceTimer) が無ければ何もしない。
-            // 旧実装では sync button click で常に syncToHostImmediate を呼んでいたが、
-            // model state が disk と意味的に同じでも JSON 整形差で _writeFile が write し
-            // mtime が NOW に更新 → 他端末 (Android) より新しく見えて誤 upload する bug の原因。
+            // v0.207.40: 実編集 (= 現 model state が「最後に送った state」と違う) の時だけ送る。
+            // 旧実装は無条件で syncToHostImmediate を呼んでいたが、その結果 host が
+            // 整形差で毎回 _writeFile して mtime を更新 → S3 sync で誤判定する事象が
+            // 多発したため content-based に変更。
             if (!model) return;
-            if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
+            var current = serializeForSave();
+            if (current !== lastSentJson) {
                 syncToHostImmediate();
             }
-            // else: 編集なしなので何もしない (mtime preserve)
         },
         resetSearchAndScope: function() {
             if (searchInput) searchInput.value = '';

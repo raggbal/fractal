@@ -26,6 +26,7 @@ import {
     syncDirectoryBidirectional,
     SyncDirectoryProgress,
 } from './s3-per-file-sync';
+import { showSyncConflictDialog } from './sync-conflict-dialog';
 export {
     AwsCredentials,
     FileInfo,
@@ -62,6 +63,10 @@ export interface OutlinerS3SyncOptions {
     provider: OutlinerS3SyncProvider;
     s3Config: AwsCredentials;
     onProgress: (p: OutlinerS3SyncProgress) => void;
+    /** v0.207.41: sync 競合判定モード
+     *  - 'auto' (default): mtime newer-wins で自動判定、dialog 出さない
+     *  - 'confirm': size 違いがあれば毎回 user 確認 dialog */
+    conflictMode?: 'auto' | 'confirm';
 }
 
 const inflight = new Map<string, Promise<void>>();
@@ -119,41 +124,32 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
         const localOutInfo = getLocalFileInfo(localOutFile);
         let outAction = decideSyncDirection(s3OutInfo, localOutInfo);
 
-        // v0.207.38: 詳細 log + ユーザー確認 (data loss 防止 safety net)
         const sizeMismatch = !!(s3OutInfo && localOutInfo && s3OutInfo.size !== localOutInfo.size);
         console.log('[OutlinerS3Sync]', opts.outlinerId, '.out',
             'local:', localOutInfo ? `${localOutInfo.size}B mtime=${localOutInfo.mtime.toISOString()}` : 'null',
             'S3:', s3OutInfo ? `${s3OutInfo.size}B mtime=${s3OutInfo.mtime.toISOString()}` : 'null',
             'decision:', outAction);
-        // 危険判定: 「local アップロード」かつ「local と S3 で size 違い」
-        // → 他端末 (Android 等) で更新が入っているのに local mtime だけが何らかの原因で
-        //   進んでいる可能性がある (例: VSCode 内の意図しない write、外部 backup tool 等)。
-        //   silent overwrite で data loss が起きるため必ずユーザー確認。
-        if (outAction === 'upload' && s3OutInfo && localOutInfo && sizeMismatch) {
+
+        // v0.207.41: 'confirm' mode の時のみ size 差で user 確認 dialog (default 'auto' は出さない)。
+        // 'auto' モードでは mtime newer-wins の自動判定をそのまま使う。
+        const wantConfirm = (opts.conflictMode === 'confirm');
+        if (wantConfirm && s3OutInfo && localOutInfo && sizeMismatch) {
             const localStr = `${localOutInfo.size}B  ${localOutInfo.mtime.toLocaleString()}`;
             const s3Str = `${s3OutInfo.size}B  ${s3OutInfo.mtime.toLocaleString()}`;
-            const choice = await vscode.window.showWarningMessage(
-                `⚠️ Outliner sync 競合検出 (${opts.outlinerId}.out)\n\n` +
-                `Local と S3 で内容が違います (size 差あり)。\n` +
-                `mtime は local の方が新しいですが、他端末で編集された可能性があります。\n\n` +
-                `Local: ${localStr}\n` +
-                `S3:    ${s3Str}\n\n` +
-                `どちらを採用しますか? (反対側は破棄されます)`,
-                { modal: true },
-                'Local を S3 にアップロード',
-                'S3 を local にダウンロード',
-            );
-            if (!choice) {
+            const recommended: 'upload' | 'download' = (outAction === 'download') ? 'download' : 'upload';
+            const choice = await showSyncConflictDialog({
+                title: `Outliner sync (${opts.outlinerId}.out): 内容が違います`,
+                localLabel: localStr,
+                s3Label: s3Str,
+                recommended,
+            });
+            if (choice === 'cancel') {
                 opts.onProgress({ phase: 'cancelled', message: 'Sync cancelled by user' });
                 await unlockWebview(opts.panel);
                 return;
             }
-            if (choice === 'S3 を local にダウンロード') {
-                outAction = 'download';
-                console.log('[OutlinerS3Sync] User chose to download S3 over local');
-            } else {
-                console.log('[OutlinerS3Sync] User confirmed local upload');
-            }
+            outAction = choice;
+            console.log('[OutlinerS3Sync] User chose', choice, '(recommended was', recommended, ')');
         }
 
         opts.onProgress({ phase: 'transferring', message: `Syncing <id>.out (${outAction})…` });

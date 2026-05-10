@@ -5,7 +5,41 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.207.40] - 2026-05-10
+## [0.207.41] - 2026-05-11
+
+### Fixed (Outliner S3 sync data loss bug の根本修正)
+- **🚨 Android 等で `.out` を更新後、Mac で sync click 時に local 古い内容が S3 を上書きする問題を完全修正**
+- 原因: `Outliner.flushSync()` が**編集の有無に関わらず毎回** webview model state を host に送り、host が byte 比較で「整形差を内容違いと誤認」して `_writeFile` を発火 → mtime が NOW に更新 → S3 newer-wins で local 採用 → 他端末の編集消失
+- **修正 (案 B = content-based 検出)**:
+  - `lastSentJson` を webview に追加、最後に host に送った serialize 結果を保持
+  - `flushSync` で `serializeForSave() === lastSentJson` なら **何もしない** (= 編集なしの sync click で `.out` 触らず、mtime preserve)
+  - `init` / `applyExternalUpdate` / `applySyncedData` / `case 'updateData'` (fileChangeId 付き) の 4 経路で baseline 更新
+  - `serializeForSave()` ヘルパー抽出で送信内容と比較対象が完全一致
+- **影響範囲**: outliner toolbar の sync button だけでなく、ファイル切替 / Daily Notes ナビ / 検索 / Note 全体 S3 sync (Tools tab) / クリーンアップ等、`flushOutlinerSync` 経由の全ての操作で同様の改善
+
+### Added
+- **`fractal.outlinerS3SyncMode` 設定**: outliner sync 時の競合判定モード
+  - `auto` (default): mtime newer-wins で自動判定、dialog 出さない
+  - `confirm`: size 違いがあれば毎回**確認 dialog** で user に選択させる (多端末同期で慎重派向け)
+
+### Changed
+- **競合 dialog の UI 改善** (`confirm` mode で表示時):
+  - Upload / Download ボタンを左右並びに変更 (旧: 縦並び)
+  - Upload = blue、Download = orange (色固定、推奨で色変動なし)
+  - 推奨マーク = 黄色 ribbon「★ おすすめ」+ 黄色 outline + glow で強調表示
+
+### Reverted (未 publish のうちに撤回した workaround)
+- `_writeFile` の semantic equal skip — local 更新漏れ risk のため byte 比較のみに維持
+- `flushSync` の `syncDebounceTimer` 検査版 — 副作用懸念のため content-based に切替
+- `preFlushLocalInfo` 機構 — 案 B で根本解決したため不要
+
+## [0.207.40] - 2026-05-10 (UNSAFE — superseded by v0.207.41)
+
+⚠️ **注意**: v0.207.40 として一度 Marketplace publish したが、以下の問題により v0.207.41 で完全置換:
+- `flushSync` の syncDebounceTimer 検査版 (副作用懸念)
+- `_writeFile` の semantic equal skip (local 更新漏れ risk)
+
+v0.207.40 を install 済の場合、Marketplace の auto update で v0.207.41 に上書きされる。手動更新も可能。
 
 ### Fixed
 - **🚨🚨🚨 Outliner S3 sync の data loss bug の根本原因を特定 + 修正** — log 解析で判明した self-inflicted bug:

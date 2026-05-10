@@ -1223,6 +1223,8 @@ export class NotesEditorProvider {
     ): Promise<void> {
         // BUG FIX: webview の未保存編集を debounce 待たず即 disk に書く
         // (saveCurrentFile は 1s debounce、sync 開始時点で disk に未反映の可能性がある)
+        // v0.207.40: webview 側の Outliner.flushSync() が「実編集の有無を比較」してから送るので
+        // 編集なしなら syncData が来ず、ここの flushSave は no-op になる (= mtime 保護)。
         fileManager.flushSave();
 
         const bucketPath = (fileManager.getS3BucketPath() || '').trim();
@@ -1257,6 +1259,10 @@ export class NotesEditorProvider {
             isSyncInProgress: (id) => this.isSyncInProgress(id),
         };
 
+        // v0.207.41: sync mode 設定 ('auto' = mtime newer-wins、'confirm' = size 違いで dialog)
+        const syncMode = fractalConfig.get<string>('outlinerS3SyncMode', 'auto');
+        const conflictMode: 'auto' | 'confirm' = syncMode === 'confirm' ? 'confirm' : 'auto';
+
         try {
             panel.webview.postMessage({ type: 'sync-button-state', state: 'syncing' });
 
@@ -1267,6 +1273,7 @@ export class NotesEditorProvider {
                 panel,
                 provider: syncProvider,
                 s3Config: { accessKeyId, secretAccessKey, region },
+                conflictMode,
                 onProgress: (p: OutlinerS3SyncProgress) => {
                     // status bar (VSCode 下端、目立たない bot 確認用)
                     vscode.window.setStatusBarMessage(`Outliner S3 Sync: ${p.message}`, 3000);
