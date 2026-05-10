@@ -36,6 +36,23 @@ var Outliner = (function() {
     function isNotesMode() {
         return !!document.querySelector('.notes-layout');
     }
+
+    /** v0.207.36: 現 outliner の file id (= .out 拡張子を除いた basename) を返す。
+     *  Notes mode では currentOutFileKey からフルパスを取得して basename を抽出。 */
+    function currentFileId() {
+        if (!currentOutFileKey) return null;
+        var base = currentOutFileKey.replace(/^.*[\/\\]/, '');
+        return base.replace(/\.out$/, '');
+    }
+
+    /** v0.207.36: お気に入り button の状態 (★ on/off) を現状に合わせて更新 */
+    function updateFavoriteButton() {
+        if (!favoriteBtn) return;
+        var fileId = currentFileId();
+        var isFav = !!(fileId && Array.isArray(noteFavorites) && noteFavorites.indexOf(fileId) >= 0);
+        favoriteBtn.dataset.state = isFav ? 'on' : 'off';
+        favoriteBtn.title = isFav ? 'お気に入り解除' : 'お気に入りに追加';
+    }
     // Phase F1.5 (2026-05-04): flat DOM に単一化。hierarchical 描画は廃止。
     // 各 row は .outliner-tree 直下に並び、indent は createNodeElement の
     // .outliner-node-indent (width = depth * 24px) で表現する。
@@ -233,6 +250,8 @@ var Outliner = (function() {
     var undoBtn = null;              // undo button element
     var redoBtn = null;              // redo button element
     var viewToggleBtn = null;        // Phase F3: outliner ⇄ table view toggle
+    var favoriteBtn = null;          // v0.207.36: お気に入り toggle button (Notes mode のみ)
+    var noteFavorites = [];          // v0.207.36: 現 notes folder のお気に入り outliner ID 配列
     var taskModeToggleBtn = null;    // タスクモード ON/OFF
     var taskFilterToggleBtn = null;  // 全て / 処理中 切替 (タスクモード ON 時のみ表示)
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
@@ -732,6 +751,18 @@ var Outliner = (function() {
     // アーカイブ: 箱
     var ICON_ARCHIVE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/></svg>';
 
+    /** v0.207.36: notes mode で notesFileListChanged を受信して noteFavorites を同期 */
+    function setupFavoritesSync() {
+        if (!isNotesMode()) return;
+        window.addEventListener('message', function(e) {
+            var msg = e && e.data;
+            if (!msg || msg.type !== 'notesFileListChanged') return;
+            var st = msg.structure;
+            noteFavorites = (st && Array.isArray(st.favorites)) ? st.favorites.slice() : [];
+            updateFavoriteButton();
+        });
+    }
+
     function init(data, outFileKey) {
         host = window.outlinerHostBridge;
         model = new OutlinerModel(data);
@@ -740,6 +771,7 @@ var Outliner = (function() {
         if (outFileKey) {
             currentOutFileKey = outFileKey;
         }
+        setupFavoritesSync();
 
         // JSONから検索モードを復元
         if (data && data.searchFocusMode) {
@@ -787,6 +819,7 @@ var Outliner = (function() {
         navBackBtn = document.querySelector('.outliner-nav-back-btn');
         navForwardBtn = document.querySelector('.outliner-nav-forward-btn');
         viewToggleBtn = document.querySelector('.outliner-view-toggle-btn');
+        favoriteBtn = document.querySelector('.outliner-favorite-btn');
         taskModeToggleBtn = document.querySelector('.outliner-task-mode-toggle-btn');
         taskFilterToggleBtn = document.querySelector('.outliner-task-filter-toggle-btn');
         archiveBtn = document.querySelector('.outliner-archive-btn');
@@ -818,6 +851,20 @@ var Outliner = (function() {
                 setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
                 updateViewToggleButton();
             });
+        }
+        // v0.207.36: お気に入り toggle (Notes mode のみ意味あり)
+        if (favoriteBtn) {
+            // Notes mode 以外は非表示
+            if (!isNotesMode()) {
+                favoriteBtn.style.display = 'none';
+            } else {
+                updateFavoriteButton();
+                favoriteBtn.addEventListener('click', function () {
+                    var fileId = currentFileId();
+                    if (!fileId || !host || typeof host.toggleFavorite !== 'function') return;
+                    host.toggleFavorite(fileId);
+                });
+            }
         }
         if (taskModeToggleBtn) {
             taskModeToggleBtn.innerHTML = ICON_TASK_MODE;
@@ -7352,6 +7399,8 @@ var Outliner = (function() {
                     if (msg.outFileKey !== undefined) {
                         currentOutFileKey = msg.outFileKey;
                     }
+                    // v0.207.36: file 切替時に favorite button の表示更新
+                    updateFavoriteButton();
                     // --- Notes ファイル切替（fileChangeIdあり）は従来通り即時適用 ---
                     if (msg.fileChangeId !== undefined) {
                         // 編集中ガード状態をリセット（ファイル切替は最優先）

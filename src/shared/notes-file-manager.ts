@@ -35,6 +35,7 @@ export interface NoteStructure {
     sidePanelWidth?: number;              // ノート全体共通の sidepanel md 幅 (px)
     sidePanelOutlineWidth?: number;       // ノート全体共通の sidepanel TOC 幅 (px)
     s3BucketPath?: string;                // S3バケットパス (例: "my-bucket/notes-backup")
+    favorites?: string[];                 // v0.207.36: お気に入り outliner ID 配列 (NoteTreeFile.id を参照、順序維持)
 }
 
 // ── 検索関連 ──
@@ -318,6 +319,42 @@ export class NotesFileManager {
             this.isWritingStructure = false;
             console.error('[NotesFileManager] saveStructure error:', e);
         }
+    }
+
+    /**
+     * v0.207.36: お気に入り outliner ID 一覧を取得 (順序維持)
+     */
+    getFavorites(): string[] {
+        const arr = this.getStructure().favorites;
+        return Array.isArray(arr) ? arr.slice() : [];
+    }
+
+    /**
+     * v0.207.36: お気に入りを toggle (存在すれば削除、無ければ末尾追加)。返り値は更新後の状態
+     */
+    toggleFavorite(fileId: string): { favorites: string[]; isFavorited: boolean } {
+        const structure = this.getStructure();
+        const favs = Array.isArray(structure.favorites) ? structure.favorites.slice() : [];
+        const idx = favs.indexOf(fileId);
+        let isFavorited;
+        if (idx >= 0) {
+            favs.splice(idx, 1);
+            isFavorited = false;
+        } else {
+            favs.push(fileId);
+            isFavorited = true;
+        }
+        structure.favorites = favs;
+        this.saveStructure();
+        return { favorites: favs, isFavorited };
+    }
+
+    /**
+     * v0.207.36: 指定 outliner が favorite かどうか
+     */
+    isFavorited(fileId: string): boolean {
+        const arr = this.getStructure().favorites;
+        return Array.isArray(arr) && arr.indexOf(fileId) >= 0;
     }
 
     /**

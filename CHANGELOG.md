@@ -5,6 +5,23 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.36] - 2026-05-10
+
+### Added
+- **⭐ Outliner お気に入り機能 (Notes mode)** — Notes folder 単位で outliner を star 登録、別 view で flat list 表示
+  - **左 file panel**: actions row に Star button (`#filePanelFavorites`) 追加 → click で view 切替 (tree ↔ favorites flat list)、active 時は teal で塗りつぶし
+  - **Favorites view**: お気に入り outliner だけを folder 階層なしの flat list で表示 (登録順)
+  - **右クリック context menu**: 通常 view では「★ Add to Favorites」/「★ Unfavorite」 toggle item、favorites view では「★ Unfavorite」のみ
+  - **Outliner editor header に ★ button 追加** (Notes mode のみ): 現 outliner を 1 click で toggle、ON 時は teal で塗りつぶし。Standalone outliner では非表示
+  - 状態同期: file panel 右クリック / header ★ button のどちらで toggle しても両方の UI が即時連動
+- **Storage**: `outline.note` (NoteStructure) に `favorites?: string[]` field 追加。S3 sync で他端末にも引継ぎ。旧 outline.note との互換性維持 (未定義時は `[]` 扱い、旧版で書き戻されても既存 field は破壊しない)
+
+### 内部
+- `NotesFileManager`: `getFavorites()` / `toggleFavorite(fileId)` / `isFavorited(fileId)` method
+- `notes-message-handler.ts`: `case 'notesToggleFavorite'` 追加 → `sendFileListWithStructure` で broadcast
+- `notes-host-bridge.js`: 両 bridge (`outlinerHostBridge` + `notesHostBridge`) に `toggleFavorite(fileId)` method
+- `outliner.js`: `noteFavorites` state + `notesFileListChanged` listener で `updateFavoriteButton()` 同期
+
 ## [0.207.35] - 2026-05-10
 
 ### Changed

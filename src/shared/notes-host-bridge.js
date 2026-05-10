@@ -154,6 +154,11 @@
             } else {
                 api.postMessage({ type: type, dayOffset: dayOffset || 0, currentDate: currentDate || null });
             }
+        },
+
+        // v0.207.36: お気に入り toggle (outliner.js header の ★ button から呼ばれる)
+        toggleFavorite: function(fileId) {
+            api.postMessage({ type: 'notesToggleFavorite', fileId: fileId });
         }
     });
 
@@ -207,6 +212,11 @@
         // v11: アイテム色設定
         setItemColor: function(itemId, color) {
             api.postMessage({ type: 'notesSetItemColor', itemId: itemId, color: color });
+        },
+
+        // v0.207.36: お気に入り toggle
+        toggleFavorite: function(fileId) {
+            api.postMessage({ type: 'notesToggleFavorite', fileId: fileId });
         },
 
         // Daily Notes

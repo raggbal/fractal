@@ -644,6 +644,15 @@ export async function handleNotesMessage(
         }
 
         // v11: アイテム色設定
+        case 'notesToggleFavorite': {
+            // v0.207.36: お気に入り toggle (outline.note の favorites array を更新)
+            const fileId = String(message.fileId || '');
+            if (!fileId) break;
+            fileManager.toggleFavorite(fileId);
+            sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
         case 'notesSetItemColor': {
             const structure = fileManager.getStructure();
             if (structure && structure.items && structure.items[message.itemId]) {
