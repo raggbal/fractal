@@ -229,12 +229,29 @@ function generateNotesFilePanelHtml(options) {
             border-bottom: 1px solid var(--outliner-border, #e0e0e0); flex-shrink: 0;
         }
         .file-panel-content-actions .file-panel-btn { font-size: 11px; padding: 4px 7px; }
-        /* v0.207.36: お気に入り view active 表示 (Star を塗りつぶし + primary 色) */
-        .file-panel-content-actions .file-panel-btn.is-active {
-            color: var(--fr-color-primary-strong, var(--fr-color-primary, #3994BC));
+        /* v0.207.37: お気に入り section (Notes タブ直下、空なら非表示)。
+         *  Notes タブのすぐ下に常時表示し、actions row + tree より上に出す。 */
+        .file-panel-favorites {
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            padding: 4px 0 6px 0;
+            flex-shrink: 0;
+            max-height: 40vh;
+            overflow-y: auto;
         }
-        .file-panel-content-actions .file-panel-btn.is-active svg {
-            fill: currentColor;
+        .file-panel-favorites-header {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 11px 4px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--fr-color-text-tertiary, #888);
+            font-weight: 600;
+        }
+        .file-panel-favorites-header svg {
+            fill: var(--fr-color-primary, currentColor);
+            stroke: var(--fr-color-primary, currentColor);
         }
 
         /* ── Search ── */
@@ -374,10 +391,11 @@ function generateNotesFilePanelHtml(options) {
                 </button>
             </div>
             <div class="file-panel-content" id="filePanelContentNotes">
+                <!-- v0.207.37: お気に入り section (空なら非表示) — Notes タブ直下、actions より上 -->
+                <div class="file-panel-favorites" id="notesFavoritesList" style="display:none"></div>
                 <div class="file-panel-content-actions">
                     <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-                    <button class="file-panel-btn" id="filePanelFavorites" title="${m('notesShowFavorites', 'Show Favorites')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></button>
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>

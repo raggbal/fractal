@@ -26,7 +26,7 @@ var notesFilePanel = (function() {
     var panelEl = null;
     var contextMenu = null;
     var i18n = window.__outlinerMessages || {};
-    var viewMode = 'tree'; // v0.207.36: 'tree' (通常) | 'favorites' (お気に入り flat list)
+    var favoritesEl = null; // v0.207.37: Notes タブ直下のお気に入り section container
 
     // D&D state (module-scope, VSCode webview の dataTransfer 制限回避)
     var dragItemId = null;
@@ -75,11 +75,8 @@ var notesFilePanel = (function() {
         if (!listEl) return;
         listEl.innerHTML = '';
 
-        // v0.207.36: お気に入り view (flat list、folder 階層なし)
-        if (viewMode === 'favorites') {
-            renderFavoritesView();
-            return;
-        }
+        // v0.207.37: お気に入り section を Notes タブ直下に常時表示 (空なら非表示)
+        renderFavoritesSection();
 
         if (!structure || !structure.rootIds || structure.rootIds.length === 0) {
             // フラットリストフォールバック
@@ -101,33 +98,39 @@ var notesFilePanel = (function() {
         }
     }
 
-    /** v0.207.36: お気に入り outliner を flat list で表示 (folder 階層なし) */
-    function renderFavoritesView() {
+    /** v0.207.37: お気に入り section を Notes タブ直下に flat list 表示 (folder 階層なし)。
+     *  空なら section を display:none で完全非表示 (旧版と全く同じ見た目)。 */
+    function renderFavoritesSection() {
+        if (!favoritesEl) return;
+        favoritesEl.innerHTML = '';
         var favIds = (structure && Array.isArray(structure.favorites)) ? structure.favorites : [];
         if (favIds.length === 0) {
-            listEl.innerHTML = '<div class="file-panel-empty">' + (i18n.notesNoFavorites || 'No favorites yet.<br>Right-click an outliner to add ★') + '</div>';
+            favoritesEl.style.display = 'none';
             return;
         }
         var fileMap = buildFileMap(fileList);
-        var anyRendered = false;
+        var rendered = [];
         favIds.forEach(function(fileId) {
             var f = fileMap[fileId];
-            // file 自体が存在しない場合 (削除済等) は skip
-            if (!f) return;
-            // structure に登録されてなくても fileMap にあれば表示 (orphan も尊重)
+            if (!f) return; // 削除済等は skip
             var item = structure && structure.items ? structure.items[fileId] : null;
-            // title 優先順位: structure.items[id].title → f.title → fileId
             var displayTitle = (item && item.title) || f.title || fileId;
             var fileEntry = Object.assign({}, f, { title: displayTitle });
             var el = createFileElement(fileEntry, null);
-            // viewMode 識別用 marker (右クリックで簡素な menu 出すため)
-            el.dataset.favView = '1';
-            listEl.appendChild(el);
-            anyRendered = true;
+            el.dataset.favSection = '1';  // 右クリック menu で簡素 menu を出す marker
+            rendered.push(el);
         });
-        if (!anyRendered) {
-            listEl.innerHTML = '<div class="file-panel-empty">' + (i18n.notesNoFavorites || 'No favorites yet.<br>Right-click an outliner to add ★') + '</div>';
+        if (rendered.length === 0) {
+            favoritesEl.style.display = 'none';
+            return;
         }
+        // header + list (★ icon は外し、text label のみ)
+        var header = document.createElement('div');
+        header.className = 'file-panel-favorites-header';
+        header.innerHTML = '<span>' + (i18n.notesFavorites || 'Favorites') + '</span>';
+        favoritesEl.appendChild(header);
+        rendered.forEach(function(el) { favoritesEl.appendChild(el); });
+        favoritesEl.style.display = '';
     }
 
     function renderIds(ids, containerEl, fileMap, parentId) {
@@ -343,8 +346,11 @@ var notesFilePanel = (function() {
         var currentColor = getItemColor(fileId);
         var isFav = isFavorite(fileId);
 
-        // v0.207.36: favorites view で右クリックは「お気に入り解除」のみ表示 (シンプル)
-        if (viewMode === 'favorites') {
+        // v0.207.37: お気に入り section 内 item は「★ Unfavorite」のみのシンプル menu
+        // (e.target から最近接の .file-panel-item を辿って data-fav-section 判定)
+        var clickedItem = e.target && e.target.closest ? e.target.closest('.file-panel-item') : null;
+        var fromFavSection = !!(clickedItem && clickedItem.dataset && clickedItem.dataset.favSection === '1');
+        if (fromFavSection) {
             addContextItem(contextMenu, i18n.notesUnfavorite || '★ Unfavorite', function() {
                 closeContextMenu();
                 bridge.toggleFavorite(fileId);
@@ -1100,16 +1106,8 @@ var notesFilePanel = (function() {
             });
         }
 
-        // v0.207.36: お気に入り view toggle button
-        var favBtn = document.getElementById('filePanelFavorites');
-        if (favBtn) {
-            favBtn.addEventListener('click', function() {
-                viewMode = (viewMode === 'favorites') ? 'tree' : 'favorites';
-                if (viewMode === 'favorites') favBtn.classList.add('is-active');
-                else favBtn.classList.remove('is-active');
-                renderTree();
-            });
-        }
+        // v0.207.37: お気に入り section ref (Notes タブ直下、空なら hidden)
+        favoritesEl = document.getElementById('notesFavoritesList');
 
         var cleanupCurrentBtn = document.getElementById('filePanelCleanupCurrent');
         if (cleanupCurrentBtn) {

@@ -5,6 +5,26 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.37] - 2026-05-10
+
+### Changed
+- **⭐ お気に入り UI を再設計**:
+  - **左 file panel**: Star toggle button (UI 切替) を**廃止**、Notes タブ直下に **常時 Favorites section** を表示
+  - お気に入り 0 件時は section を完全非表示 → 旧版 (v0.207.35 以前) と同じ見た目
+  - **構成**: Notes タブ → Favorites section (空なら無し) → actions toolbar (新規フォルダ/新規 outline/Today) → tree view
+  - **Outliner editor の ★ button を完全削除** (Notes mode で出ていた header の ★)
+  - 追加 / 解除はすべて **Notes 左 panel の右クリック menu** から (Notes タブ内 + Favorites section 内、それぞれ context-aware menu)
+  - Favorites section header の ★ icon を削除、"Favorites" text label のみ
+  - Favorites 系の色を `--fr-color-primary` (淡 teal `#9CC8DC`) に統一 (旧 `--fr-color-primary-strong` は強すぎる)
+
+### 内部
+- `notesWebviewContent.ts`: `.outliner-favorite-btn` HTML 削除
+- `outliner.js`: `favoriteBtn` / `noteFavorites` / `currentFileId()` / `updateFavoriteButton()` / `setupFavoritesSync()` / 関連 listener 全削除
+- `outliner.css`: `.outliner-favorite-btn` 関連 CSS 全削除
+- `notes-host-bridge.js`: `outlinerHostBridge.toggleFavorite()` 削除 (notesHostBridge.toggleFavorite は file panel 右クリック用に残置)
+- `notes-body-html.js`: actions row の Star button 削除、Favorites section container 追加 + CSS
+- `notes-file-panel.js`: `viewMode` toggle 廃止、`renderFavoritesSection()` で常時 section 描画
+
 ## [0.207.36] - 2026-05-10
 
 ### Added

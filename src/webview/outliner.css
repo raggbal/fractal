@@ -261,7 +261,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-nav-forward-btn,
 .outliner-undo-btn,
 .outliner-redo-btn,
-.outliner-favorite-btn,
 .outliner-view-toggle-btn,
 .outliner-task-mode-toggle-btn,
 .outliner-task-filter-toggle-btn,
@@ -285,7 +284,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-nav-forward-btn:hover:not(:disabled),
 .outliner-undo-btn:hover:not(:disabled),
 .outliner-redo-btn:hover:not(:disabled),
-.outliner-favorite-btn:hover:not(:disabled),
 .outliner-view-toggle-btn:hover:not(:disabled),
 .outliner-task-mode-toggle-btn:hover:not(:disabled),
 .outliner-task-filter-toggle-btn:hover:not(:disabled),
@@ -293,14 +291,6 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .outliner-menu-btn:hover {
     opacity: 1;
     background: var(--outliner-hover-bg);
-}
-/* v0.207.36: お気に入り on 状態は primary-strong で塗りつぶし */
-.outliner-favorite-btn[data-state="on"] {
-    opacity: 1;
-    color: var(--fr-color-primary-strong, var(--fr-color-primary, currentColor));
-}
-.outliner-favorite-btn[data-state="on"] svg {
-    fill: currentColor;
 }
 .outliner-nav-back-btn:disabled,
 .outliner-nav-forward-btn:disabled,

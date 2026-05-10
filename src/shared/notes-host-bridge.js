@@ -154,11 +154,6 @@
             } else {
                 api.postMessage({ type: type, dayOffset: dayOffset || 0, currentDate: currentDate || null });
             }
-        },
-
-        // v0.207.36: お気に入り toggle (outliner.js header の ★ button から呼ばれる)
-        toggleFavorite: function(fileId) {
-            api.postMessage({ type: 'notesToggleFavorite', fileId: fileId });
         }
     });
 

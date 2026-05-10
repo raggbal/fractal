@@ -184,9 +184,6 @@ export function getNotesWebviewContent(
                         <button class="outliner-s3-sync-btn" title="Sync to/from S3" data-state="idle" style="display:${initData.s3BucketPathSet ? 'flex' : 'none'}">
                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></svg>
                         </button>
-                        <button class="outliner-favorite-btn" title="Toggle Favorite (★)" data-state="off">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        </button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
                         <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
                         <button class="outliner-task-filter-toggle-btn" title="Filter: Active / All"></button>
