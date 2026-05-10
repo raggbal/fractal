@@ -119,9 +119,9 @@ function generateNotesFilePanelHtml(options) {
         .file-panel-item.active:hover { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
         .file-panel-item.active::before {
             content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
-            /* 「ノート」タブの border-bottom (2px) と統一 */
-            width: 2px; background: var(--fr-color-selection-bar, var(--fr-color-primary, currentColor));
-            border-radius: 1px;
+            /* 「ノート」タブ underline と同じ太さ・色 (1px / primary) */
+            width: 1px; background: var(--fr-color-selection-bar, var(--fr-color-primary, currentColor));
+            border-radius: 0;
         }
         .file-panel-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -218,7 +218,7 @@ function generateNotesFilePanelHtml(options) {
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
             padding: 7px 4px; border: none; background: none; cursor: pointer;
             font-size: 11px; opacity: 0.6; color: inherit;
-            border-bottom: 2px solid transparent; transition: opacity 0.15s;
+            border-bottom: 1px solid transparent; transition: opacity 0.15s;
         }
         .file-panel-tab:hover { opacity: 0.85; }
         .file-panel-tab.active { opacity: 1; border-bottom-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc)); }

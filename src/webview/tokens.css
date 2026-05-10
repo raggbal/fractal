@@ -20,10 +20,10 @@
     :root,
     :root[data-fr-theme="light"],
     :root[data-fr-theme="auto"] {
-        /* Brand */
-        --fr-color-primary:        #A8B5FF;
-        --fr-color-primary-soft:   #DBE2FF;
-        --fr-color-primary-strong: #8FA0FF;  /* tag / link text 用 (primary より濃い、読みやすさ確保) */
+        /* Brand — teal-blue palette (HSL 199° 軸) */
+        --fr-color-primary:        #9CC8DC;  /* bar / underline / icon — 薄め (HSL 199° 73%) */
+        --fr-color-primary-soft:   #DEEDF5;  /* bg tint (selection bg / tag bg) — 最薄 */
+        --fr-color-primary-strong: #3994BC;  /* tag / link text 用 — 濃いめ (user 指定、HSL 199° 48%) */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #6B5BE0;
         --fr-color-accent-soft:    #E8E5FA;
@@ -107,9 +107,9 @@
        Dark tokens (explicit dark)
        ═══════════════════════════════════════════════════════════════ */
     :root[data-fr-theme="dark"] {
-        --fr-color-primary:        #7A8DFF;
-        --fr-color-primary-soft:   #2C355F;
-        --fr-color-primary-strong: #7A8DFF;  /* dark は primary 自体が text に十分な濃さなので alias */
+        --fr-color-primary:        #7DC4DF;  /* teal-blue (dark mode 軸) */
+        --fr-color-primary-soft:   #1F3A4A;
+        --fr-color-primary-strong: #7DC4DF;  /* dark は primary 自体が text に十分な明るさなので alias */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #8B7DEB;
         --fr-color-accent-soft:    #2F2A4A;
@@ -189,9 +189,9 @@
        ═══════════════════════════════════════════════════════════════ */
     @media (prefers-color-scheme: dark) {
         :root[data-fr-theme="auto"] {
-            --fr-color-primary:        #7A8DFF;
-            --fr-color-primary-soft:   #2C355F;
-            --fr-color-primary-strong: #7A8DFF;
+            --fr-color-primary:        #7DC4DF;
+            --fr-color-primary-soft:   #1F3A4A;
+            --fr-color-primary-strong: #7DC4DF;
             --fr-color-primary-fg:     #FFFFFF;
             --fr-color-accent:         #8B7DEB;
             --fr-color-accent-soft:    #2F2A4A;
