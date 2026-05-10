@@ -47,8 +47,10 @@ body {
 }
 .sidebar-resizer:hover,
 .sidebar-resizer.dragging {
-    background: var(--link-color);
-    opacity: 0.5;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px) に統一 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
+    right: -1px;
 }
 .sidebar-header {
     display: flex;
@@ -1364,8 +1366,9 @@ body {
 }
 .side-panel-resize-handle:hover,
 .side-panel-resize-handle.active {
-    background: var(--vscode-focusBorder, #007acc);
-    width: 3px;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
     left: -1px;
 }
 /* Side panel sidebar (mirrors main .sidebar) */
@@ -1395,8 +1398,9 @@ body {
 }
 .side-panel-sidebar-resize-handle:hover,
 .side-panel-sidebar-resize-handle.active {
-    background: var(--vscode-focusBorder, #007acc);
-    width: 3px;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
     right: -1px;
 }
 .side-panel-sidebar:not(.visible) .side-panel-sidebar-resize-handle {

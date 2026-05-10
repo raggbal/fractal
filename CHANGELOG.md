@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.43] - 2026-05-11
+
+### Changed
+- **Resize handle の太さ + 色を 4 箇所で統一** (旧: VSCode 色 / 3-5px → 新: `--fr-color-primary` (teal) / 2px、edge 中央配置):
+  - `.notes-resize-handle` (Notes 左 file panel) — 既に 2px / primary 色 (基準)
+  - `.side-panel-resize-handle` (sidepanel MD 全体)
+  - `.side-panel-sidebar-resize-handle` (sidepanel 内 TOC)
+  - `.sidebar-resizer` (Standalone MD の左 outline sidebar)
+
 ## [0.207.42] - 2026-05-11
 
 ### Changed
