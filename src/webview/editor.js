@@ -17977,17 +17977,20 @@ class EditorInstance {
         if (inst && inst._handleSearchShortcut) inst._handleSearchShortcut(e);
     });
 
-    // v0.207.33: Cmd+\ で右サイドパネル (outline panel) を toggle
-    // 主 instance のみ document listener を貼る (closure で main の sidebar / sidePanelInstance を保持)
+    // v0.207.34: Cmd+\ で右サイドパネル (outline panel) を toggle
+    // 主 instance のみ document listener を貼る。document.activeElement で focus 位置を判定
+    // (notes mode で main outliner active 時に getActiveInstance が sidepanel を返す fallback 問題を回避)
     // 振り分け:
-    //  - active が sidepanel inner instance → 内側 TOC (sidePanelSidebar) のみ toggle、主 sidepanel は触らない
-    //  - active が main → 主 sidebar (TOC) を toggle
+    //  - sidePanelEl 内に focus → 内側 TOC (sidePanelSidebar) のみ toggle、外側 sidepanel は触らない (波及防止)
+    //  - main editor 内に focus → 主 sidebar (TOC) を toggle
     if (isMainInstance) document.addEventListener('keydown', function(e) {
         if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
+        var ae = document.activeElement;
+        var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
         e.preventDefault();
         e.stopPropagation();
-        var active = EditorInstance.getActiveInstance();
-        if (sidePanelInstance && active === sidePanelInstance) {
+        e.stopImmediatePropagation();
+        if (inSidepanel) {
             if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
                 closeSidePanelSidebar();
                 sidePanelTocVisible = false;

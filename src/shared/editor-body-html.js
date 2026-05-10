@@ -16,7 +16,7 @@ function generateEditorBodyHtml(messages, platform) {
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <h3>Outline</h3>
-                <button class="sidebar-toggle" id="closeSidebar" title="${m('closeOutline')}">&#9776;</button>
+                <button class="sidebar-toggle" id="closeSidebar" title="${m('closeOutline')} (Cmd+\\)">&#9776;</button>
             </div>
             <nav class="outline" id="outline"></nav>
             <div class="sidebar-footer">
@@ -33,7 +33,7 @@ function generateEditorBodyHtml(messages, platform) {
         <main class="editor-container">
             <div class="toolbar" id="toolbar">
                 <div class="toolbar-fixed toolbar-fixed--left">
-                    <button data-action="openOutline" class="menu-btn hidden" id="openSidebarBtn" title="${m('openOutline')}"></button>
+                    <button data-action="openOutline" class="menu-btn hidden" id="openSidebarBtn" title="${m('openOutline')} (Cmd+\\)"></button>
                     <div class="toolbar-group" data-group="history">
                         <button data-action="undo" title="${m('undo')}"></button>
                         <button data-action="redo" title="${m('redo')}"></button>
@@ -126,7 +126,7 @@ function generateSidePanelHtml(messages) {
             <aside class="side-panel-sidebar" id="sidePanelSidebar">
                 <div class="sidebar-header">
                     <h3>Outline</h3>
-                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="${msg.closeOutline || 'Close Outline'}">&#9776;</button>
+                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="${msg.closeOutline || 'Close Outline'} (Cmd+\\)">&#9776;</button>
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
@@ -142,7 +142,7 @@ function generateSidePanelHtml(messages) {
             </aside>
             <div class="side-panel-editor-container">
                 <div class="side-panel-header">
-                    <button class="menu-btn side-panel-outline-btn" id="sidePanelOpenOutline" title="${msg.openOutline || 'Open Outline'}">
+                    <button class="menu-btn side-panel-outline-btn" id="sidePanelOpenOutline" title="${msg.openOutline || 'Open Outline'} (Cmd+\\)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
                     </button>
                     <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateBack" title="Back (Opt+Left)" disabled>
@@ -172,7 +172,7 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
-                    <button class="side-panel-close" id="sidePanelClose" title="Close">&times;</button>
+                    <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
             </div>

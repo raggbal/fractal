@@ -6343,21 +6343,22 @@ var Outliner = (function() {
             }
         });
 
-        // v0.207.33: Cmd+\ で右サイドパネル toggle
-        // - main outliner active (sidepanel inner instance ではない): sidePanelEl 自体を toggle
-        //   - open 時は close、close 時は no-op (page link click で開く前提)
-        // - sidepanel inner MD active: 内側 sidePanelSidebar (TOC) を toggle、sidePanelEl は触らない
+        // v0.207.34: Cmd+\ で右サイドパネル toggle
+        // 振り分け基準: document.activeElement が sidePanelEl 内かどうか
+        // (getActiveInstance は notes mode で sidepanel inner だけが instance の時に
+        //  fallback で常に sidepanel を返してしまうため使えない)
+        // - sidePanelEl 内 (sidepanel MD active): 内側 sidePanelSidebar (TOC) のみ toggle、外側 sidePanelEl は触らない (波及防止)
+        // - sidePanelEl 外 (主 outliner active): sidePanelEl 自体を close。close 状態は no-op (page link click で開く前提)
         document.addEventListener('keydown', function(e) {
             if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
-            var EI = window.EditorInstance;
-            var active = EI && EI.getActiveInstance ? EI.getActiveInstance() : null;
-            // sidepanel MD inner instance が active な場合 → 内側 TOC のみ toggle (主 sidepanel は触らない)
-            if (sidePanelInstance && active === sidePanelInstance) {
+            var ae = document.activeElement;
+            var inSidepanel = !!(sidePanelEl && ae && sidePanelEl.contains(ae));
+            if (inSidepanel) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
                     closeSidePanelSidebar();
-                    sidePanelOutlineWidthSetting = sidePanelOutlineWidthSetting; // (no-op, persisted)
                 } else {
                     var tocEl = document.querySelector('.side-panel-toc');
                     if (tocEl && tocEl.children.length > 0) {
@@ -6366,13 +6367,13 @@ var Outliner = (function() {
                 }
                 return;
             }
-            // 主 outliner active (or no active) → sidePanelEl を toggle
+            // 主 outliner active → sidePanelEl を close (open 状態のみ)
             if (sidePanelEl && sidePanelEl.classList.contains('open')) {
                 e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 closeSidePanel();
             }
-            // close 状態からの open は no-op (どの page を開くか不明、ユーザーが page link click で開く)
         });
     }
 

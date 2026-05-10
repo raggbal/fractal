@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.34] - 2026-05-10
+
+### Fixed
+- **🐛 v0.207.33 で notes mode の右サイドパネル `Cmd+\\` が効かない件** — `EditorInstance.getActiveInstance()` が notes mode 内で sidepanel inner instance だけが instance のとき fallback で常に sidepanel を返すため、主 outliner active 判定に使えなかった。`document.activeElement` ベースの判定 (`sidePanelEl.contains(activeElement)`) に変更
+- 同 logic を editor.js (standalone MD) 側にも適用、両 webview で挙動統一
+
+### Added
+- **🏷️ Cmd+\\ ショートカットを button title (hover tooltip) に表記**:
+  - `Open Outline (Cmd+\\)` / `Close Outline (Cmd+\\)` (standalone MD + sidepanel)
+  - `Close (Cmd+\\)` (sidepanel close button、notes mode の右パネル close も同じ)
+
 ## [0.207.33] - 2026-05-10
 
 ### Added
