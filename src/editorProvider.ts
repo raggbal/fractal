@@ -367,6 +367,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         this.activeWebviewPanel?.webview.postMessage({ type: 'triggerTranslate' });
     }
 
+    public sendToggleSidebar(): void {
+        this.activeWebviewPanel?.webview.postMessage({ type: 'toggleSidebar' });
+    }
+
     /**
      * Extract h1/h2 headings from markdown for side panel TOC
      */

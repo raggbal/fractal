@@ -152,6 +152,11 @@
         "command": "fractal.translate",
         "title": "Translate",
         "category": "Fractal"
+      },
+      {
+        "command": "fractal.toggleSidebar",
+        "title": "Toggle Right Sidebar (Outline / SidePanel)",
+        "category": "Fractal"
       }
     ],
     "customEditors": [
@@ -414,6 +419,12 @@
         "key": "ctrl+shift+t",
         "mac": "cmd+shift+t",
         "when": "activeCustomEditorId == 'fractal.editor'"
+      },
+      {
+        "command": "fractal.toggleSidebar",
+        "key": "ctrl+\\",
+        "mac": "cmd+\\",
+        "when": "activeCustomEditorId == 'fractal.editor' || activeCustomEditorId == 'fractal.outliner' || activeWebviewPanelId == 'fractal.notes'"
       }
     ]
   },

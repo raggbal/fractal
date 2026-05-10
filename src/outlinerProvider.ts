@@ -42,6 +42,10 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         this.activeWebviewPanel?.webview.postMessage({ type: 'scopeOut' });
     }
 
+    public sendToggleSidebar(): void {
+        this.activeWebviewPanel?.webview.postMessage({ type: 'toggleSidebar' });
+    }
+
     public async resolveCustomTextEditor(
         document: vscode.TextDocument,
         webviewPanel: vscode.WebviewPanel,

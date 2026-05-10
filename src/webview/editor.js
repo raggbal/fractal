@@ -14572,6 +14572,28 @@ class EditorInstance {
             }
             return;
         }
+        if (message.type === 'toggleSidebar') {
+            // v0.207.34: Cmd+\ keybinding 経路。document.activeElement で sidepanel MD inner active
+            // 判定 → 内側 TOC のみ toggle、それ以外 (main editor active) は主 sidebar (TOC) を toggle
+            var ae = document.activeElement;
+            var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
+            if (inSidepanel) {
+                if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                    closeSidePanelSidebar();
+                    sidePanelTocVisible = false;
+                } else if (sidePanelToc && sidePanelToc.children.length > 0) {
+                    sidePanelTocVisible = true;
+                    openSidePanelSidebar();
+                }
+            } else {
+                if (sidebar && sidebar.classList.contains('hidden')) {
+                    openSidebar();
+                } else {
+                    closeSidebar();
+                }
+            }
+            return;
+        }
         if (message.type === 'update') {
             logger.log('[Any MD] update message received, content length:', message.content?.length);
 
@@ -17977,35 +17999,9 @@ class EditorInstance {
         if (inst && inst._handleSearchShortcut) inst._handleSearchShortcut(e);
     });
 
-    // v0.207.34: Cmd+\ で右サイドパネル (outline panel) を toggle
-    // 主 instance のみ document listener を貼る。document.activeElement で focus 位置を判定
-    // (notes mode で main outliner active 時に getActiveInstance が sidepanel を返す fallback 問題を回避)
-    // 振り分け:
-    //  - sidePanelEl 内に focus → 内側 TOC (sidePanelSidebar) のみ toggle、外側 sidepanel は触らない (波及防止)
-    //  - main editor 内に focus → 主 sidebar (TOC) を toggle
-    if (isMainInstance) document.addEventListener('keydown', function(e) {
-        if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
-        var ae = document.activeElement;
-        var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        if (inSidepanel) {
-            if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
-                closeSidePanelSidebar();
-                sidePanelTocVisible = false;
-            } else if (sidePanelToc && sidePanelToc.children.length > 0) {
-                sidePanelTocVisible = true;
-                openSidePanelSidebar();
-            }
-        } else {
-            if (sidebar && sidebar.classList.contains('hidden')) {
-                openSidebar();
-            } else {
-                closeSidebar();
-            }
-        }
-    });
+    // v0.207.34: Cmd+\ は VSCode keybinding 経路 (`fractal.toggleSidebar` command) で実装
+    // (VSCode が webview keydown より先に Cmd+\ を intercept するため、document keydown では catch 不可)
+    // → 上の host.onMessage 内の `case 'toggleSidebar'` で処理される
 
     // Expose htmlToMarkdown globally for Electron's executeJavaScript
     if (typeof window !== 'undefined') {

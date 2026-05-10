@@ -287,6 +287,17 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // v0.207.34: Cmd+\ で右サイドパネル (notes 左 file panel / md outline panel) を toggle
+    // 全 provider に dispatch — 各 provider は activeWebviewPanel に message を post する
+    // (`when` 句で keybinding 側を 1 context に絞っているので、実際に発火するのは 1 つ)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.toggleSidebar', () => {
+            provider.sendToggleSidebar();
+            outlinerProvider.sendToggleSidebar();
+            notesEditorProvider.sendToggleSidebar();
+        })
+    );
+
     // New outliner file
     context.subscriptions.push(
         vscode.commands.registerCommand('fractal.newOutliner', async () => {

@@ -159,7 +159,7 @@ export function getNotesWebviewContent(
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
                     <div class="outliner-search-bar">
-                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
+                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel (Cmd+\\)"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
                         <div class="outliner-daily-nav-area" style="display:none">
                             <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
                             <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>

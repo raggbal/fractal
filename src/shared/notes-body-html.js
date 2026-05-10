@@ -349,7 +349,7 @@ function generateNotesFilePanelHtml(options) {
             <div class="file-panel-header">
                 <span class="file-panel-title">Outlines</span>
                 <div class="file-panel-actions">
-                    <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')}">&#9776;</button>
+                    <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 </div>
             </div>
             <div class="file-panel-tabs">

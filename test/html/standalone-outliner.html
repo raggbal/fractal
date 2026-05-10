@@ -2833,9 +2833,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
- * is-focused (keyboard active) は背景無し、is-selected (範囲選択) のみ色付け。 */
+ * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
+ * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
+ * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
 .outliner-node.is-focused {
-    background: transparent;
+    background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
 
 .outliner-node.is-selected {
@@ -4020,13 +4022,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
- * is-focused (keyboard active) は背景無し (色を付けない、cursor 位置でわかる)。
- * is-selected (範囲選択) は selection-bg。
- * is-row-hover は outliner.js で同 data-node-id の cell に付与され、行全体に water-blue。 */
+ * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
+ * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
+ * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {
-    background: transparent;
+    background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
 .outliner-cell-text.is-selected,
 .outliner-cell-multiselect.is-selected,
@@ -4340,7 +4342,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             <aside class="side-panel-sidebar" id="sidePanelSidebar">
                 <div class="sidebar-header">
                     <h3>Outline</h3>
-                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline">&#9776;</button>
+                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline (Cmd+\)">&#9776;</button>
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
@@ -4356,7 +4358,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             </aside>
             <div class="side-panel-editor-container">
                 <div class="side-panel-header">
-                    <button class="menu-btn side-panel-outline-btn" id="sidePanelOpenOutline" title="Open Outline">
+                    <button class="menu-btn side-panel-outline-btn" id="sidePanelOpenOutline" title="Open Outline (Cmd+\)">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
                     </button>
                     <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateBack" title="Back (Opt+Left)" disabled>
@@ -4386,7 +4388,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
-                    <button class="side-panel-close" id="sidePanelClose" title="Close">&times;</button>
+                    <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
             </div>
@@ -22864,6 +22866,36 @@ class EditorInstance {
         if (inst && inst._handleSearchShortcut) inst._handleSearchShortcut(e);
     });
 
+    // v0.207.34: Cmd+\ で右サイドパネル (outline panel) を toggle
+    // 主 instance のみ document listener を貼る。document.activeElement で focus 位置を判定
+    // (notes mode で main outliner active 時に getActiveInstance が sidepanel を返す fallback 問題を回避)
+    // 振り分け:
+    //  - sidePanelEl 内に focus → 内側 TOC (sidePanelSidebar) のみ toggle、外側 sidepanel は触らない (波及防止)
+    //  - main editor 内に focus → 主 sidebar (TOC) を toggle
+    if (isMainInstance) document.addEventListener('keydown', function(e) {
+        if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
+        var ae = document.activeElement;
+        var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (inSidepanel) {
+            if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                closeSidePanelSidebar();
+                sidePanelTocVisible = false;
+            } else if (sidePanelToc && sidePanelToc.children.length > 0) {
+                sidePanelTocVisible = true;
+                openSidePanelSidebar();
+            }
+        } else {
+            if (sidebar && sidebar.classList.contains('hidden')) {
+                openSidebar();
+            } else {
+                closeSidebar();
+            }
+        }
+    });
+
     // Expose htmlToMarkdown globally for Electron's executeJavaScript
     if (typeof window !== 'undefined') {
         window.htmlToMarkdown = htmlToMarkdown;
@@ -26051,6 +26083,28 @@ var Outliner = (function() {
         treeEl.addEventListener('dragleave', function(e) {
             if (e.target === treeEl) {
                 treeEl.classList.remove('outliner-tree-drop-zone-active');
+            }
+        });
+
+        // v0.207.32: cursor 行 highlight - cell に focus 入った時に row 全体を is-focused にする
+        // outline 列以外 (text / multiselect / date / datetime) からも setFocusedNode を呼ぶ
+        treeEl.addEventListener('focusin', function(e) {
+            var t = e.target;
+            if (!t || t.nodeType !== 1) return;
+            // outline cell の text は既存経路 (focusNodeEl 等) で setFocusedNode 済 → 重複ガード
+            // それ以外の cell (text / multiselect / date) で focus 入った時に row 全体を highlight
+            var cellEl = t.closest && t.closest('.outliner-cell-text, .outliner-cell-multiselect, .outliner-cell-date');
+            if (cellEl) {
+                var nodeId = cellEl.dataset.nodeId;
+                if (nodeId) setFocusedNode(nodeId);
+                return;
+            }
+            // outline 列内の text element に focus 入った時は既存 path で OK だが、
+            // bullet click 等で .outliner-node 自体に focus が向く ed-case を保護
+            var nodeEl = t.closest && t.closest('.outliner-node');
+            if (nodeEl) {
+                var nodeId2 = nodeEl.dataset.id;
+                if (nodeId2) setFocusedNode(nodeId2);
             }
         });
 
@@ -31466,6 +31520,39 @@ var Outliner = (function() {
                 if (document.querySelector('.outliner-image-overlay')) return;
                 e.preventDefault();
                 e.stopPropagation();
+                closeSidePanel();
+            }
+        });
+
+        // v0.207.34: Cmd+\ で右サイドパネル toggle
+        // 振り分け基準: document.activeElement が sidePanelEl 内かどうか
+        // (getActiveInstance は notes mode で sidepanel inner だけが instance の時に
+        //  fallback で常に sidepanel を返してしまうため使えない)
+        // - sidePanelEl 内 (sidepanel MD active): 内側 sidePanelSidebar (TOC) のみ toggle、外側 sidePanelEl は触らない (波及防止)
+        // - sidePanelEl 外 (主 outliner active): sidePanelEl 自体を close。close 状態は no-op (page link click で開く前提)
+        document.addEventListener('keydown', function(e) {
+            if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
+            var ae = document.activeElement;
+            var inSidepanel = !!(sidePanelEl && ae && sidePanelEl.contains(ae));
+            if (inSidepanel) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                    closeSidePanelSidebar();
+                } else {
+                    var tocEl = document.querySelector('.side-panel-toc');
+                    if (tocEl && tocEl.children.length > 0) {
+                        openSidePanelSidebar();
+                    }
+                }
+                return;
+            }
+            // 主 outliner active → sidePanelEl を close (open 状態のみ)
+            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 closeSidePanel();
             }
         });

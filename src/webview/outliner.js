@@ -6343,38 +6343,9 @@ var Outliner = (function() {
             }
         });
 
-        // v0.207.34: Cmd+\ で右サイドパネル toggle
-        // 振り分け基準: document.activeElement が sidePanelEl 内かどうか
-        // (getActiveInstance は notes mode で sidepanel inner だけが instance の時に
-        //  fallback で常に sidepanel を返してしまうため使えない)
-        // - sidePanelEl 内 (sidepanel MD active): 内側 sidePanelSidebar (TOC) のみ toggle、外側 sidePanelEl は触らない (波及防止)
-        // - sidePanelEl 外 (主 outliner active): sidePanelEl 自体を close。close 状態は no-op (page link click で開く前提)
-        document.addEventListener('keydown', function(e) {
-            if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
-            var ae = document.activeElement;
-            var inSidepanel = !!(sidePanelEl && ae && sidePanelEl.contains(ae));
-            if (inSidepanel) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
-                    closeSidePanelSidebar();
-                } else {
-                    var tocEl = document.querySelector('.side-panel-toc');
-                    if (tocEl && tocEl.children.length > 0) {
-                        openSidePanelSidebar();
-                    }
-                }
-                return;
-            }
-            // 主 outliner active → sidePanelEl を close (open 状態のみ)
-            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                closeSidePanel();
-            }
-        });
+        // v0.207.34: Cmd+\ は VSCode keybinding 経路 (`fractal.toggleSidebar` command) で実装
+        // (VSCode が webview keydown より先に Cmd+\ を intercept するため、document keydown では catch 不可)
+        // → setupHostMessages の `case 'toggleSidebar'` で処理される
     }
 
     function setupSidePanelResize() {
@@ -7802,6 +7773,36 @@ var Outliner = (function() {
                 case 'scopeOut':
                     setScope({ type: 'document' });
                     break;
+
+                case 'toggleSidebar': {
+                    // v0.207.34: Cmd+\ 経路。focus が sidepanel MD inner instance 内なら
+                    // 内側 sidePanelSidebar (TOC) のみ toggle。それ以外 (主 outliner active) は
+                    // notes 左 file panel を toggle (#filePanelCollapse / #notesPanelToggleBtn を click)。
+                    var ae = document.activeElement;
+                    var inSidepanelInner = !!(sidePanelEl && ae && sidePanelEl.contains(ae));
+                    if (inSidepanelInner) {
+                        if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                            closeSidePanelSidebar();
+                        } else {
+                            var tocEl = document.querySelector('.side-panel-toc');
+                            if (tocEl && tocEl.children.length > 0) {
+                                openSidePanelSidebar();
+                            }
+                        }
+                        break;
+                    }
+                    // Notes mode 左 file panel toggle (notes-file-panel.js の click handler を流用)
+                    var filePanel = document.querySelector('.notes-file-panel');
+                    if (!filePanel) break;
+                    if (filePanel.classList.contains('collapsed')) {
+                        var openBtn = document.getElementById('notesPanelToggleBtn');
+                        if (openBtn) openBtn.click();
+                    } else {
+                        var closeBtn = document.getElementById('filePanelCollapse');
+                        if (closeBtn) closeBtn.click();
+                    }
+                    break;
+                }
             }
         });
     }

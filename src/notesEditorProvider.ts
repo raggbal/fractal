@@ -53,6 +53,16 @@ export class NotesEditorProvider {
         return false;
     }
 
+    /** v0.207.34: Cmd+\ で右パネル toggle — active な notes panel に message 送信 */
+    public sendToggleSidebar(): void {
+        for (const entry of this.openPanels.values()) {
+            if (entry.panel.active) {
+                entry.panel.webview.postMessage({ type: 'toggleSidebar' });
+                return;
+            }
+        }
+    }
+
     constructor(private context: vscode.ExtensionContext) {}
 
     async openNotesFolder(folderPath: string): Promise<void> {
