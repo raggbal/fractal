@@ -905,6 +905,28 @@ var Outliner = (function() {
             }
         });
 
+        // v0.207.32: cursor 行 highlight - cell に focus 入った時に row 全体を is-focused にする
+        // outline 列以外 (text / multiselect / date / datetime) からも setFocusedNode を呼ぶ
+        treeEl.addEventListener('focusin', function(e) {
+            var t = e.target;
+            if (!t || t.nodeType !== 1) return;
+            // outline cell の text は既存経路 (focusNodeEl 等) で setFocusedNode 済 → 重複ガード
+            // それ以外の cell (text / multiselect / date) で focus 入った時に row 全体を highlight
+            var cellEl = t.closest && t.closest('.outliner-cell-text, .outliner-cell-multiselect, .outliner-cell-date');
+            if (cellEl) {
+                var nodeId = cellEl.dataset.nodeId;
+                if (nodeId) setFocusedNode(nodeId);
+                return;
+            }
+            // outline 列内の text element に focus 入った時は既存 path で OK だが、
+            // bullet click 等で .outliner-node 自体に focus が向く ed-case を保護
+            var nodeEl = t.closest && t.closest('.outliner-node');
+            if (nodeEl) {
+                var nodeId2 = nodeEl.dataset.id;
+                if (nodeId2) setFocusedNode(nodeId2);
+            }
+        });
+
         // 空の場合、最初のノードを追加
         if (model.rootIds.length === 0) {
             var firstNode = model.addNode(null, null, '');

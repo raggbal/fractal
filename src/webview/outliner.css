@@ -496,9 +496,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
- * is-focused (keyboard active) は背景無し、is-selected (範囲選択) のみ色付け。 */
+ * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
+ * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
+ * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
 .outliner-node.is-focused {
-    background: transparent;
+    background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
 
 .outliner-node.is-selected {
@@ -1683,13 +1685,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
- * is-focused (keyboard active) は背景無し (色を付けない、cursor 位置でわかる)。
- * is-selected (範囲選択) は selection-bg。
- * is-row-hover は outliner.js で同 data-node-id の cell に付与され、行全体に water-blue。 */
+ * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
+ * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
+ * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {
-    background: transparent;
+    background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
 .outliner-cell-text.is-selected,
 .outliner-cell-multiselect.is-selected,

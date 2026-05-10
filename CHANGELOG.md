@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.32] - 2026-05-10
+
+### Added
+- **🎯 Cursor 行ハイライト (outliner editor)** — cursor がある行を notes 右サイドパネル hover と同じ淡 water-blue (`var(--fr-color-selection-bg)`) で全行ハイライト。table view では outline 列 + text / multiselect / date / datetime 列**すべて**が同色で同期表示
+- 実装:
+  - `.outliner-node.is-focused` / `.outliner-cell-text.is-focused` / `.outliner-cell-multiselect.is-focused` / `.outliner-cell-date.is-focused` の background を transparent → `var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8))` に変更
+  - `treeEl` に `focusin` delegated listener 追加 — non-outline cell に focus 入った時にも `setFocusedNode(node.id)` を呼んで行全体を `is-focused` 同期
+- 範囲選択 (`is-selected`) は引き続き orange tint で別色識別
+
 ## [0.207.31] - 2026-05-10
 
 ### Fixed

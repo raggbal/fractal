@@ -32193,26 +32193,51 @@ var Outliner = (function() {
                     }
                     var saveBtn = actions.querySelector('[data-action="translateSave"]');
                     if (saveBtn) {
+                        // v0.207.27: provider からの translateSaveOk / translateSaveError をリスニング
+                        var saveResponseHandler = function(e) {
+                            var msg = e.data;
+                            if (!msg) return;
+                            if (msg.type === 'translateSaveOk') {
+                                console.log('[Translate] save OK:', msg);
+                                saveBtn.disabled = false;
+                                saveBtn.textContent = '✓ 保存しました: ' + (msg.h1Title || '');
+                                setTimeout(function() { saveBtn.textContent = '翻訳結果を保存'; }, 3000);
+                            } else if (msg.type === 'translateSaveError') {
+                                console.error('[Translate] save error:', msg);
+                                saveBtn.disabled = false;
+                                saveBtn.textContent = '✗ 失敗: ' + (msg.message || 'unknown');
+                                setTimeout(function() { saveBtn.textContent = '翻訳結果を保存'; }, 5000);
+                            }
+                        };
+                        window.addEventListener('message', saveResponseHandler);
+
                         saveBtn.addEventListener('click', function() {
-                            // 翻訳結果 MD を取得 (readonly EditorInstance)
                             var translatedMd = sidePanelInstance && sidePanelInstance._getMarkdown
                                 ? sidePanelInstance._getMarkdown() : translatedMarkdown;
-                            // H1 抽出
                             var h1Match = translatedMd.match(/^#\s+(.+?)$/m);
                             var h1Title = h1Match ? h1Match[1].trim() : 'Untitled (translated)';
-                            // 親 outliner node に子 page として attach
+                            var srcFilePath = (sidePanelPreTranslationState && sidePanelPreTranslationState.filePath) || sidePanelFilePath || '';
+                            console.log('[Translate] Save clicked. srcFilePath:', srcFilePath, 'h1Title:', h1Title, 'mdLen:', translatedMd.length);
+                            if (!srcFilePath) {
+                                saveBtn.textContent = '✗ 翻訳元 path 未取得';
+                                setTimeout(function() { saveBtn.textContent = '翻訳結果を保存'; }, 5000);
+                                return;
+                            }
+                            if (!host || typeof host.saveTranslationToOutlinerNode !== 'function') {
+                                console.error('[Translate] host.saveTranslationToOutlinerNode not available');
+                                saveBtn.textContent = '✗ host bridge 未対応';
+                                setTimeout(function() { saveBtn.textContent = '翻訳結果を保存'; }, 5000);
+                                return;
+                            }
                             try {
-                                var srcFilePath = (sidePanelPreTranslationState && sidePanelPreTranslationState.filePath) || sidePanelFilePath || '';
-                                if (host && typeof host.saveTranslationToOutlinerNode === 'function') {
-                                    host.saveTranslationToOutlinerNode(srcFilePath, translatedMd, h1Title, sourceLang, targetLang);
-                                    saveBtn.disabled = true;
-                                    saveBtn.textContent = '保存中…';
-                                    setTimeout(function() {
-                                        saveBtn.disabled = false;
-                                        saveBtn.textContent = '翻訳結果を保存';
-                                    }, 1500);
-                                }
-                            } catch (_e) { /* ignore */ }
+                                host.saveTranslationToOutlinerNode(srcFilePath, translatedMd, h1Title, sourceLang, targetLang);
+                                saveBtn.disabled = true;
+                                saveBtn.textContent = '保存中…';
+                            } catch (e) {
+                                console.error('[Translate] save throw:', e);
+                                saveBtn.textContent = '✗ ' + (e && e.message || 'error');
+                                setTimeout(function() { saveBtn.textContent = '翻訳結果を保存'; }, 5000);
+                            }
                         });
                     }
                 }
