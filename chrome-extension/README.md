@@ -4,10 +4,20 @@
 
 - ノードの text = Web ページタイトル
 - ノードは `isPage: true` + 新 `pageId` 発行
-- `<notesFolder>/<...>/<pageDir>/<pageId>.md` にページ本文 (Markdown) を保存
+- `<notesFolder>/<outlinerId>/<pageId>.md` にページ本文 (Markdown) を保存
 - 本文は **Mozilla Readability で記事抽出** + **Fractal の HTML→MD 変換ロジックそのまま** (Turndown + 独自 rule: table cell pipe escape / span cleanup / style-based bold/italic/strike / fenced code with lang / normalized link / compact list / post-process)
 
 VSCode と直接通信しません — ブラウザの **File System Access API** で `.out` を直接読み書きします。VSCode 起動不要、native host 不要、HTTP server 不要。
+
+---
+
+## v0.2.0 で何が変わったか
+
+- **Notes フォルダを複数登録可能に** — 用途別 (work / personal 等) のフォルダを切替可
+- **Popup を選択画面化** — folder + outliner を毎回選んでから Bookmark
+- 直前選択した folder + outliner が次回 default 選択として復元
+- `outline.note` から outliner 一覧を読み込み、folder 階層もインデント表示
+- 旧 single-folder 設定 (`notesFolderHandle` / `targetOutPath`) は自動 migration
 
 ---
 
@@ -24,20 +34,23 @@ icon が出たら成功。
 
 ## 初回 setup
 
-1. ツールバーの拡張アイコン (本) を右クリック → **オプション**
-2. **「Pick Notes Folder…」** で対象 Notes フォルダを選択
-   - これが Fractal で管理している複数 `.out` を入れたフォルダ
-   - 一度許可すれば毎回聞かれない (Chrome が handle を永続化)
-3. フォルダ内 `.out` 一覧から **clip 先**を 1 つクリック
+1. ツールバーの拡張アイコンを右クリック → **オプション**
+2. **「📁 Add Notes Folder…」** で Fractal の Notes フォルダを選択
+   - これが Fractal で管理している複数 `.out` + `outline.note` を入れたフォルダ
+   - 一度許可すれば毎回聞かれません (Chrome が handle を永続化)
+3. 必要に応じて複数 folder を追加可能 (例: `~/Desktop/notes-work` + `~/Desktop/notes-personal`)
 
 ---
 
 ## 使い方
 
 1. 保存したい Web ページを開く
-2. ツールバーの 本アイコンをクリック
-3. ポップアップで対象 .out が表示されたら **「Clip this page」**
-4. 数秒で完了。VSCode で対象 `.out` を再読み込みすれば先頭にノードが追加されている
+2. ツールバーの拡張 icon を click (or `Alt+Shift+F`)
+3. ポップアップで:
+   - **Notes フォルダ** dropdown で対象フォルダを選択 (前回選択を default 復元)
+   - **Outliner** dropdown で対象 outliner を選択 (`outline.note` から読み込み、folder 階層インデント)
+4. **「📌 Bookmark」** ボタンを click → 保存実行
+5. 数秒で完了。VSCode で対象 `.out` を再読み込みすれば先頭にノードが追加されている
 
 ---
 
@@ -64,7 +77,7 @@ icon が出たら成功。
 | ノード位置 | `rootIds` の先頭に prepend (一番上) |
 | ノード id | `n + base36(timestamp) + random` (Fractal と同じスキーム) |
 | pageId | `crypto.randomUUID()` |
-| pageDir | `.out` の `pageDir` field を尊重 (default `./pages`) |
+| pageDir | `.out` の `pageDir` field を尊重、未指定なら `<outlinerId>` (Notes mode convention) |
 | 既存ノード | 一切触らない |
 | 既存 page MD | 一切触らない |
 
@@ -76,19 +89,20 @@ icon が出たら成功。
 
 ```
 chrome-extension/
-├── manifest.json          # Chrome 拡張 manifest v3
-├── background.js          # service worker (no-op、将来用)
-├── popup.html / popup.js  # ツールバーポップアップ (clip 実行)
-├── options.html / options.js # 設定 UI (Notes フォルダ + .out 選択)
-├── icons/icon128.png       # ツールバーアイコン (Fractal アイコン流用)
+├── manifest.json              # Chrome 拡張 manifest v3 (v0.2.0)
+├── background.js              # service worker (no-op、将来用)
+├── popup.html / popup.js      # ツールバーポップアップ (folder + outliner 選択 + clip 実行)
+├── options.html / options.js  # 設定 UI (Notes フォルダ複数登録)
+├── icons/icon128.png          # ツールバーアイコン (Fractal アイコン流用)
 ├── lib/
-│   ├── idb.js              # IndexedDB helper (FileSystemHandle 永続化)
-│   ├── turndown.js         # bundled (vendor 由来)
+│   ├── idb.js                 # IndexedDB helper (FileSystemHandle 永続化)
+│   ├── folder-registry.js     # 複数 folder + outline.note 読み取り (v0.2.0)
+│   ├── turndown.js            # bundled (vendor 由来)
 │   ├── turndown-plugin-gfm.js
-│   ├── Readability.js      # Mozilla Readability (記事抽出)
-│   ├── fractal-md.js       # Fractal の HTML→MD 変換ロジック
-│   └── clipper-core.js     # node 追加 + page MD 組立 (DOM 非依存)
-└── README.md               # このファイル
+│   ├── Readability.js         # Mozilla Readability (記事抽出)
+│   ├── fractal-md.js          # Fractal の HTML→MD 変換ロジック
+│   └── clipper-core.js        # node 追加 + page MD 組立 (DOM 非依存)
+└── README.md                  # このファイル
 ```
 
 ---
@@ -96,19 +110,32 @@ chrome-extension/
 ## 技術選定の補足
 
 - **File System Access API** (`showDirectoryPicker`): Chrome / Edge / Opera で利用可能。Firefox / Safari は未対応 → 本拡張は Chromium 系のみ動作。
-- **handle 永続化**: `FileSystemDirectoryHandle` は IndexedDB に直接 `put` 可能。 chrome.storage.local では serialize 不可なので IDB を使う。
+- **handle 永続化**: `FileSystemDirectoryHandle` は IndexedDB に直接 `put` 可能。 chrome.storage.local では serialize 不可なので IDB を使う。複数 folder は配列として 1 entry に保存。
+- **outline.note 読み取り**: Fractal Notes mode と同じ `NoteStructure` JSON を parse、`type: 'file'` アイテムを folder 階層付きで列挙。outline.note が無い folder は disk 上の `*.out` を flat に列挙する fallback。
 - **manifest v3 service worker** は最小限。すべてのロジックは popup ページで実行 (file handle が popup 文脈で扱える必要があるため)。
+
+---
+
+## Storage (IDB) schema
+
+| key | value | 用途 |
+| --- | --- | --- |
+| `notesFolders` | `Array<{ id, name, handle: FileSystemDirectoryHandle }>` | 登録済み folder 一覧 |
+| `lastSelection` | `{ folderId, outId }` | 直前選択 (popup の default 復元) |
+
+旧 schema (`notesFolderHandle` / `notesFolderName` / `targetOutPath`) は v0.2.0 起動時に自動 migration → 削除。
 
 ---
 
 ## トラブルシューティング
 
 | 症状 | 対処 |
-| --- | --- |
-| Options で「許可が得られませんでした」 | Pick Folder ボタンを押し直し、ダイアログで「許可」を選ぶ |
-| popup で「未設定」 | Options を開いて Notes フォルダと .out を設定 |
-| `.out` が見つからない | サブフォルダは検索しているが、`pages` / `images` / `files` / `node_modules` / 隠しフォルダはスキップ。直接配置するか、それ以外のディレクトリ構成にする |
-| Readability が記事を抽出できない | full body を turndown にかける fallback が動く (品質劣化あり) |
+|------|------|
+| Options で「許可が得られませんでした」 | Add Notes Folder ボタンを押し直し、ダイアログで「許可」を選ぶ |
+| popup で「未登録」 | Options を開いて Notes フォルダを 1 つ以上 登録する |
+| Outliner dropdown が空 | 対象 folder の `outline.note` が無いか壊れている。Fractal で folder を一度開いて自動生成、または folder 内に `*.out` があるかチェック |
+| `(.out が見つかりません)` 表示 | folder の root 直下に `.out` ファイルがない (Notes mode の convention 違反)。Fractal で folder を開いて構造を確認 |
+| 「要再許可」表示 | Chrome 再起動などで FileSystemHandle の権限が失効。Options で「再許可」 button を click |
 | node が追加されたが VSCode で見えない | VSCode 側で `.out` を一度閉じて開き直すか、editor を refresh |
 
 ---

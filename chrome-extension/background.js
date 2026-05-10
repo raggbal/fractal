@@ -1,8 +1,14 @@
 'use strict';
 
+/** v0.2.0:
+ *  icon click → popup.html (manifest default_popup) で folder + outliner 選択 → Bookmark 実行
+ *  keyboard shortcut (Alt+Shift+F) → 直前選択 (lastSelection) で quick clip
+ *  service worker (this file) は keyboard shortcut のみ処理。
+ */
+
 console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
 
-// IDB helper (popup と独立) — warmup より先に宣言する必要あり (TDZ 回避)
+// ── IDB helper (popup と独立) ──
 const DB_NAME = 'fractal-clipper';
 const STORE = 'kv';
 function openDb() {
@@ -23,27 +29,7 @@ async function idbGet(key) {
     });
 }
 
-// SW 起動中はアイコンを disable + badge `⋯` で「準備中」を視覚化。warmup 後に enable。
-let swReady = false;
-chrome.action.disable();
-chrome.action.setBadgeText({ text: '⋯' });
-chrome.action.setBadgeBackgroundColor({ color: '#888' });
-chrome.action.setTitle({ title: 'Fractal Clipper (準備中…)' });
-
-(async function warmup() {
-    try {
-        await idbGet('notesFolderHandle');
-    } catch (e) {
-        console.warn('[Fractal Clipper] warmup idb failed (non-fatal)', e);
-    }
-    swReady = true;
-    chrome.action.enable();
-    chrome.action.setBadgeText({ text: '' });
-    chrome.action.setTitle({ title: 'Clip to Fractal Outliner' });
-    console.log('[Fractal Clipper] warmup done, action enabled');
-})();
-
-// 初回 install 時のみ Options を自動 open
+// 初回 install 時のみ Options を自動 open (folder 未登録案内)
 chrome.runtime.onInstalled.addListener((details) => {
     console.log('[Fractal Clipper] onInstalled', details);
     if (details.reason === 'install') {
@@ -51,8 +37,6 @@ chrome.runtime.onInstalled.addListener((details) => {
     }
 });
 
-// chrome.notifications フォールバック (macOS 通知許可 OFF 環境では出ないため、
-// 必ず active tab に in-page banner を inject する)
 function notify(title, message, isError = false) {
     const opts = {
         type: 'basic',
@@ -62,14 +46,17 @@ function notify(title, message, isError = false) {
         priority: isError ? 2 : 0,
         requireInteraction: !!isError
     };
-    chrome.notifications.create(opts, (id) => {
-        if (chrome.runtime.lastError) {
-            console.warn('[Fractal Clipper] notify FAILED:', chrome.runtime.lastError.message, '|', title);
-        }
-    });
+    try {
+        chrome.notifications.create(opts, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('[Fractal Clipper] notify FAILED:', chrome.runtime.lastError.message, '|', title);
+            }
+        });
+    } catch (e) {
+        console.warn('[Fractal Clipper] notify exception:', e.message);
+    }
 }
 
-// in-page banner (chrome.notifications より確実) — active tab に visible 帯を inject
 async function showBanner(tabId, text, kind) {
     if (!tabId) return;
     try {
@@ -108,14 +95,14 @@ async function showBanner(tabId, text, kind) {
     }
 }
 
-// アイコン上の badge で進捗を視覚化 (通知が出ない環境でも分かるように)
 function setBadge(text, color) {
     chrome.action.setBadgeText({ text: text || '' });
     if (color) chrome.action.setBadgeBackgroundColor({ color });
 }
 
+// ── Quick clip ロジック (keyboard shortcut で lastSelection を使う場合) ──
 async function getNestedFileHandle(rootHandle, relPath, opts) {
-    const parts = relPath.split('/').filter(p => p);
+    const parts = relPath.split('/').filter((p) => p);
     let cur = rootHandle;
     for (let i = 0; i < parts.length - 1; i++) {
         cur = await cur.getDirectoryHandle(parts[i], { create: !!opts?.createDirs });
@@ -124,7 +111,7 @@ async function getNestedFileHandle(rootHandle, relPath, opts) {
 }
 
 async function getNestedDirHandle(rootHandle, relDir) {
-    const parts = relDir.split('/').filter(p => p);
+    const parts = relDir.split('/').filter((p) => p);
     let cur = rootHandle;
     for (const p of parts) cur = await cur.getDirectoryHandle(p, { create: true });
     return cur;
@@ -135,9 +122,8 @@ async function readJsonFile(handle) {
     return JSON.parse(await file.text());
 }
 async function writeJsonFile(handle, obj) {
-    const text = JSON.stringify(obj);
     const w = await handle.createWritable();
-    await w.write(text);
+    await w.write(JSON.stringify(obj, null, 2));
     await w.close();
 }
 async function writeTextFile(handle, text) {
@@ -186,90 +172,50 @@ function buildPageMd(opts) {
     lines.push(opts.markdown || '');
     return lines.join('\n\n');
 }
-function resolvePageDir(outData) {
-    return ((outData && outData.pageDir) || './pages').replace(/^\.\//, '').replace(/\/$/, '');
-}
 
-// クリップ queue — 同じ .out への並列書き込み競合 (10-30s に肥大) を防ぐため直列化
-// 並列クリックされても順番に処理 (banner で「処理待ち」表示)
-const clipQueue = [];
-let clipBusy = false;
-
-function enqueueClip(tab) {
-    return new Promise((resolve) => {
-        clipQueue.push({ tab, resolve });
-        const queueIdx = clipQueue.length;
-        if (clipBusy && tab && tab.id) {
-            showBanner(tab.id, '⏳ Clip 待機中 (' + queueIdx + ' 件目)\n' + (tab.title || ''), 'progress');
-        }
-        processQueue();
-    });
-}
-
-async function processQueue() {
-    if (clipBusy || clipQueue.length === 0) return;
-    clipBusy = true;
-    const { tab, resolve } = clipQueue.shift();
-    try {
-        await doClip(tab);
-    } catch (e) {
-        console.error('[Fractal Clipper] clip error', e);
-    } finally {
-        clipBusy = false;
-        resolve();
-        processQueue();
-    }
-}
-
-async function doClip(tab) {
+async function quickClip(tab) {
     const t0 = performance.now();
     setBadge('…', '#0969da');
-    if (tab && tab.id) {
-        showBanner(tab.id, '📥 Clip 処理中…\n' + (tab.title || ''), 'progress');
-    }
+    if (tab && tab.id) showBanner(tab.id, '📥 Clip 処理中…\n' + (tab.title || ''), 'progress');
 
-    const folderHandle = await idbGet('notesFolderHandle');
-    const folderName = await idbGet('notesFolderName');
-    const targetOutPath = await idbGet('targetOutPath');
-    console.log('[Fractal Clipper] setup:', !!folderHandle, folderName, targetOutPath);
-
-    if (!folderHandle || !targetOutPath) {
+    // 新 schema: notesFolders[] + lastSelection
+    const folders = (await idbGet('notesFolders')) || [];
+    const lastSel = await idbGet('lastSelection');
+    if (!Array.isArray(folders) || folders.length === 0) {
         setBadge('!', '#cc3333');
-        notify('未設定', 'Notes フォルダ + .out ファイルを Options で設定してください', true);
-        if (tab && tab.id) showBanner(tab.id, '❌ 未設定: Options を開いてください', 'err');
+        notify('未設定', 'Options で Notes フォルダを登録してください', true);
+        if (tab && tab.id) showBanner(tab.id, '❌ Notes フォルダ未登録\nicon click で popup を開いて選択するか、Options で登録', 'err');
         chrome.runtime.openOptionsPage();
         return;
     }
-
-    notify('📥 Clip 開始', (tab && tab.title || '').slice(0, 80) + ' を処理中…');
+    if (!lastSel || !lastSel.folderId || !lastSel.outId) {
+        setBadge('!', '#cc3333');
+        notify('未選択', 'icon click で popup を開いて outliner を選んでください (初回のみ)', true);
+        if (tab && tab.id) showBanner(tab.id, '❌ 直前選択なし\nicon click で folder + outliner を選択してください', 'err');
+        return;
+    }
+    const folder = folders.find((f) => f.id === lastSel.folderId);
+    if (!folder) {
+        setBadge('!', '#cc3333');
+        notify('Folder not found', 'icon click で再選択してください', true);
+        return;
+    }
 
     // 許可確認
-    const perm = await folderHandle.queryPermission({ mode: 'readwrite' });
+    const perm = await folder.handle.queryPermission({ mode: 'readwrite' });
     if (perm !== 'granted') {
-        const req = await folderHandle.requestPermission({ mode: 'readwrite' });
-        if (req !== 'granted') {
-            setBadge('!', '#cc3333');
-            notify('許可が得られませんでした', 'Options を開いてフォルダを再選択してください', true);
-            if (tab && tab.id) showBanner(tab.id, '❌ フォルダ許可なし', 'err');
-            chrome.runtime.openOptionsPage();
-            return;
-        }
+        // SW から requestPermission は user gesture が必要 → popup 経由を促す
+        setBadge('!', '#cc3333');
+        notify('要再許可', 'icon click で popup を開いて許可してください', true);
+        if (tab && tab.id) showBanner(tab.id, '❌ folder 許可が失効\nicon click で popup から再許可してください', 'err');
+        return;
     }
 
     // tab に lib inject + 変換
-    const tInject = performance.now();
     await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: [
-            'lib/turndown.js',
-            'lib/turndown-plugin-gfm.js',
-            'lib/Readability.js',
-            'lib/fractal-md.js'
-        ]
+        files: ['lib/turndown.js', 'lib/turndown-plugin-gfm.js', 'lib/Readability.js', 'lib/fractal-md.js']
     });
-    console.log('[Fractal Clipper] inject:', ((performance.now() - tInject) / 1000).toFixed(2), 's');
-
-    const tConv = performance.now();
     const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: () => {
@@ -283,66 +229,61 @@ async function doClip(tab) {
                     extracted = { title: document.title || '', markdown: md, byline: '', siteName: '' };
                 }
                 return {
-                    ok: true,
-                    title: extracted.title || document.title || '',
-                    url: location.href,
-                    markdown: extracted.markdown || '',
-                    byline: extracted.byline || '',
-                    siteName: extracted.siteName || ''
+                    ok: true, title: extracted.title || document.title || '',
+                    url: location.href, markdown: extracted.markdown || '',
+                    byline: extracted.byline || '', siteName: extracted.siteName || ''
                 };
             } catch (e) {
                 return { ok: false, error: e.message || String(e) };
             }
         }
     });
-    console.log('[Fractal Clipper] conversion:', ((performance.now() - tConv) / 1000).toFixed(2), 's');
     if (!result || !result.ok) throw new Error(result?.error || 'Conversion failed');
 
     const title = result.title || '(untitled)';
     const pageMd = buildPageMd({
-        title, url: result.url,
-        byline: result.byline, siteName: result.siteName,
-        markdown: result.markdown
+        title, url: result.url, byline: result.byline, siteName: result.siteName, markdown: result.markdown
     });
 
-    const tFs = performance.now();
-    const outFileHandle = await getNestedFileHandle(folderHandle, targetOutPath);
+    // .out: <folder>/<outId>.out
+    const outRelPath = lastSel.outId + '.out';
+    const outFileHandle = await getNestedFileHandle(folder.handle, outRelPath);
     const outData = await readJsonFile(outFileHandle);
     const nodeResult = prependClipNode(outData, { title });
 
-    const pageDirRel = resolvePageDir(nodeResult.outData);
-    const outDirParts = targetOutPath.split('/').slice(0, -1);
-    const pageMdDirRel = (outDirParts.length > 0 ? outDirParts.join('/') + '/' : '') + pageDirRel;
-    const pageDirHandle = await getNestedDirHandle(folderHandle, pageMdDirRel);
+    // pageDir: outData.pageDir 明示 or <outId>
+    const explicitPageDir = nodeResult.outData && typeof nodeResult.outData.pageDir === 'string'
+        ? nodeResult.outData.pageDir.replace(/^\.\//, '').replace(/\/$/, '')
+        : '';
+    const pageDirRel = explicitPageDir || lastSel.outId;
+    const pageDirHandle = await getNestedDirHandle(folder.handle, pageDirRel);
     const pageMdHandle = await pageDirHandle.getFileHandle(nodeResult.pageId + '.md', { create: true });
     await writeTextFile(pageMdHandle, pageMd);
     await writeJsonFile(outFileHandle, nodeResult.outData);
-    console.log('[Fractal Clipper] fs total:', ((performance.now() - tFs) / 1000).toFixed(2), 's, pageMd:', (pageMd.length / 1024).toFixed(1), 'KB, out size:', JSON.stringify(nodeResult.outData).length, 'B');
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-    console.log('[Fractal Clipper] DONE in', elapsed, 's');
     setBadge('✓', '#2da44e');
-    setTimeout(() => { if (!clipBusy && clipQueue.length === 0) setBadge('', ''); }, 5000);
-    notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath);
+    setTimeout(() => setBadge('', ''), 5000);
+    notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + folder.name + '/' + lastSel.outId + '.out');
     if (tab && tab.id) {
-        showBanner(tab.id, '✅ Clip 完了 (' + elapsed + 's)\n→ ' + (folderName || folderHandle.name) + '/' + targetOutPath + '\n' + title, 'ok');
+        showBanner(tab.id, '✅ Clip 完了 (' + elapsed + 's)\n→ ' + folder.name + '/' + lastSel.outId + '\n' + title, 'ok');
     }
 }
 
-// メイン: icon クリックで起動 (queue に積むだけ)
-chrome.action.onClicked.addListener(async (tab) => {
-    console.log('[Fractal Clipper] onClicked tab:', tab?.id, tab?.url, '| queue:', clipQueue.length, 'busy:', clipBusy);
-    if (!swReady) {
-        notify('準備中', 'Service worker 起動中です。数秒後に再度お試しください', true);
-        if (tab && tab.id) showBanner(tab.id, '⏳ Service worker 起動中…数秒後に再試行', 'err');
-        return;
-    }
+// keyboard shortcut (Alt+Shift+F) → quick clip with last selection
+chrome.commands.onCommand.addListener(async (command) => {
+    console.log('[Fractal Clipper] onCommand:', command);
+    if (command !== 'clip-to-fractal') return;
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
     try {
-        await enqueueClip(tab);
+        await quickClip(tab);
     } catch (e) {
-        console.error('[Fractal Clipper] enqueue error', e);
+        console.error('[Fractal Clipper] quickClip error', e);
         setBadge('!', '#cc3333');
         notify('Clip 失敗', e.message || String(e), true);
         if (tab && tab.id) showBanner(tab.id, '❌ Clip 失敗\n' + (e.message || String(e)), 'err');
     }
 });
+
+// 注: chrome.action.onClicked は manifest.action.default_popup が宣言されているので fire しない (popup が開く)。

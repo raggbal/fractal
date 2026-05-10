@@ -9,10 +9,27 @@
             font-size: 13px;
             margin: 0;
             padding: 14px;
-            min-width: 320px;
+            min-width: 360px;
             color: #2b2b2b;
         }
-        h1 { font-size: 14px; margin: 0 0 8px; }
+        h1 { font-size: 14px; margin: 0 0 10px; }
+        label {
+            display: block;
+            font-size: 11px;
+            color: #555;
+            margin: 8px 0 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+        select {
+            width: 100%;
+            padding: 6px 8px;
+            font-size: 13px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-family: inherit;
+        }
+        select:disabled { background: #f5f5f5; color: #999; }
         button {
             padding: 8px 12px;
             font-size: 13px;
@@ -21,6 +38,7 @@
             border-radius: 4px;
             cursor: pointer;
             width: 100%;
+            margin-top: 12px;
         }
         button.primary {
             background: #0969da;
@@ -28,42 +46,55 @@
             border-color: #0969da;
             font-weight: 600;
         }
-        button.primary:hover { background: #0860c4; }
+        button.primary:hover:not(:disabled) { background: #0860c4; }
         button:disabled { opacity: 0.5; cursor: default; }
-        .target {
-            font-size: 12px;
-            color: #555;
-            background: #f0f0f0;
-            padding: 6px 8px;
-            border-radius: 3px;
-            margin: 6px 0;
-            word-break: break-all;
-        }
         .status {
             font-size: 12px;
             padding: 6px 8px;
             border-radius: 3px;
-            margin-top: 8px;
+            margin-top: 10px;
         }
         .status.ok { background: #e6f7f2; color: #066; }
         .status.err { background: #fce8e8; color: #c33; }
         .status.info { background: #f0f4f8; color: #335; }
+        .status.warn { background: #fff4e0; color: #845; }
         a { color: #0969da; text-decoration: none; font-size: 12px; }
         a:hover { text-decoration: underline; }
-        .row { margin-top: 8px; text-align: right; }
+        .row { margin-top: 10px; text-align: right; }
+        .empty {
+            font-size: 12px;
+            color: #888;
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 3px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
     <h1>📥 Clip to Fractal</h1>
-    <div class="target" id="target">読み込み中...</div>
-    <button id="clipBtn" class="primary" style="display:none">Clip this page</button>
-    <button id="openOptionsBtn" class="primary" style="display:none">⚙️ Open Settings</button>
-    <div id="status" class="status info" style="display:none"></div>
-    <div class="row"><a href="#" id="optionsLink">⚙️ 設定を変更</a></div>
+
+    <div id="setupRequired" style="display:none">
+        <div class="empty">⚠️ Notes フォルダが未登録です</div>
+        <button id="openOptionsBtn" class="primary">⚙️ Open Settings</button>
+    </div>
+
+    <div id="picker" style="display:none">
+        <label for="folderSelect">Notes フォルダ</label>
+        <select id="folderSelect"></select>
+
+        <label for="outSelect">Outliner</label>
+        <select id="outSelect"><option>(まず folder を選択)</option></select>
+
+        <button id="clipBtn" class="primary" disabled>📌 Bookmark</button>
+        <div id="status" class="status info" style="display:none"></div>
+        <div class="row"><a href="#" id="optionsLink">⚙️ 設定</a></div>
+    </div>
 
     <!-- 重い lib (turndown / Readability / fractal-md) は popup ではなく対象 tab 側で
-         chrome.scripting.executeScript で inject 実行する。popup は軽量なまま瞬時表示。 -->
+         chrome.scripting.executeScript で inject 実行する。 -->
     <script src="lib/idb.js"></script>
+    <script src="lib/folder-registry.js"></script>
     <script src="lib/clipper-core.js"></script>
     <script src="popup.js"></script>
 </body>

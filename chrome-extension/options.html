@@ -30,19 +30,16 @@
             border-color: #0969da;
         }
         button.primary:hover { background: #0860c4; }
-        .row { margin: 8px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .row label { min-width: 120px; }
-        select, input[type=text] {
-            padding: 6px 8px;
-            font-size: 13px;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-            min-width: 240px;
-            font-family: inherit;
+        button.danger {
+            background: #fff;
+            color: #c33;
+            border-color: #d0a0a0;
         }
+        button.danger:hover { background: #fce8e8; }
+        button.small { padding: 4px 8px; font-size: 12px; }
+        .row { margin: 8px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .status {
             font-size: 12px;
-            color: #555;
             padding: 6px 8px;
             background: #f0f0f0;
             border-radius: 3px;
@@ -50,45 +47,46 @@
         .status.ok { color: #066; background: #e6f7f2; }
         .status.err { color: #c33; background: #fce8e8; }
         .hint { font-size: 12px; color: #888; margin-top: 6px; }
-        ul.outlist {
+        .folder-list {
             list-style: none;
             padding: 0;
-            max-height: 300px;
-            overflow-y: auto;
+            margin: 0;
             border: 1px solid #ddd;
             border-radius: 3px;
         }
-        ul.outlist li {
-            padding: 5px 10px;
-            cursor: pointer;
+        .folder-list li {
+            padding: 8px 10px;
             border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        ul.outlist li:hover { background: #f3f6fa; }
-        ul.outlist li.selected { background: #d4eafe; font-weight: 600; }
+        .folder-list li:last-child { border-bottom: none; }
+        .folder-list .name { flex: 1; font-weight: 500; }
+        .folder-list .meta { font-size: 11px; color: #999; }
+        .folder-list .perm-warn { color: #c33; font-size: 11px; }
+        .empty { padding: 12px; color: #999; text-align: center; font-style: italic; }
         code { font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 1px 4px; border-radius: 2px; }
     </style>
 </head>
 <body>
     <h1>Fractal Web Clipper — Settings</h1>
 
-    <h2>1. Notes フォルダ</h2>
+    <h2>Notes フォルダ</h2>
     <div class="row">
-        <button id="pickFolderBtn">📁 Pick Notes Folder…</button>
-        <span id="folderStatus" class="status">未設定</span>
+        <button id="addFolderBtn" class="primary">📁 Add Notes Folder…</button>
+        <span id="addStatus" class="status" style="display:none"></span>
     </div>
-    <div class="hint">対象 Notes フォルダ (=複数 .out が入った Fractal の管理ディレクトリ) を選択。許可は永続化され、毎回聞かれません。</div>
+    <div class="hint">対象 Notes フォルダ (= 複数 <code>.out</code> + <code>outline.note</code> を持つ Fractal の管理ディレクトリ) を **複数**登録できます。許可は永続化され毎回聞かれません。</div>
 
-    <h2>2. 対象 .out ファイル</h2>
-    <ul id="outList" class="outlist"><li style="cursor:default; color:#999">(まず Notes フォルダを設定してください)</li></ul>
-    <div class="hint">フォルダ内 (サブフォルダ含む) の <code>.out</code> ファイル一覧。clip 先を 1 つ選んでください。</div>
+    <ul id="folderList" class="folder-list">
+        <li class="empty">(未登録 — 上の「Add Notes Folder」 で追加)</li>
+    </ul>
 
-    <h2>3. 確認</h2>
-    <div class="row">
-        <span>選択中:</span>
-        <code id="currentTarget">(未設定)</code>
-    </div>
+    <div class="hint" style="margin-top: 24px;">対象 outliner の選択は、ツールバー icon を click した時の popup で毎回行います。直前に選んだ outliner が default 選択されます。</div>
 
     <script src="lib/idb.js"></script>
+    <script src="lib/folder-registry.js"></script>
     <script src="options.js"></script>
 </body>
 </html>

@@ -1,88 +1,83 @@
 'use strict';
 
-const folderStatus = document.getElementById('folderStatus');
-const pickFolderBtn = document.getElementById('pickFolderBtn');
-const outList = document.getElementById('outList');
-const currentTarget = document.getElementById('currentTarget');
+const folderListEl = document.getElementById('folderList');
+const addFolderBtn = document.getElementById('addFolderBtn');
+const addStatus = document.getElementById('addStatus');
 
 function setStatus(el, text, kind) {
+    el.style.display = '';
     el.textContent = text;
     el.className = 'status' + (kind ? ' ' + kind : '');
 }
 
-async function listOutFiles(dirHandle, prefix = '') {
-    const results = [];
-    for await (const [name, handle] of dirHandle.entries()) {
-        const relPath = prefix ? prefix + '/' + name : name;
-        if (handle.kind === 'file' && name.endsWith('.out')) {
-            results.push({ path: relPath, handle: handle });
-        } else if (handle.kind === 'directory' && !name.startsWith('.') && name !== 'pages' && name !== 'images' && name !== 'files' && name !== 'node_modules') {
-            const sub = await listOutFiles(handle, relPath);
-            for (const s of sub) results.push(s);
-        }
-    }
-    return results;
+function clearStatus(el) {
+    el.style.display = 'none';
+    el.textContent = '';
+    el.className = 'status';
 }
 
 async function refreshUI() {
-    const folderHandle = await FractalIdb.get('notesFolderHandle');
-    const folderName = await FractalIdb.get('notesFolderName');
-    const targetOutPath = await FractalIdb.get('targetOutPath');
-
-    if (!folderHandle) {
-        setStatus(folderStatus, '未設定', '');
-        outList.innerHTML = '<li style="cursor:default; color:#999">(まず Notes フォルダを設定してください)</li>';
-        currentTarget.textContent = '(未設定)';
+    const folders = await FractalFolders.listFolders();
+    folderListEl.innerHTML = '';
+    if (folders.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'empty';
+        empty.textContent = '(未登録 — 上の「Add Notes Folder」 で追加)';
+        folderListEl.appendChild(empty);
         return;
     }
+    for (const f of folders) {
+        const li = document.createElement('li');
+        const nameEl = document.createElement('span');
+        nameEl.className = 'name';
+        nameEl.textContent = f.name;
+        li.appendChild(nameEl);
 
-    setStatus(folderStatus, '✅ ' + (folderName || folderHandle.name), 'ok');
-
-    // permission 確認 (granted / prompt / denied)
-    const perm = await folderHandle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') {
-        setStatus(folderStatus, '⚠️ ' + (folderName || folderHandle.name) + ' (要再許可)', 'err');
-    }
-
-    try {
-        const files = await listOutFiles(folderHandle);
-        if (files.length === 0) {
-            outList.innerHTML = '<li style="cursor:default; color:#999">(.out ファイルが見つかりません)</li>';
-        } else {
-            outList.innerHTML = '';
-            files.sort((a, b) => a.path.localeCompare(b.path));
-            for (const f of files) {
-                const li = document.createElement('li');
-                li.textContent = f.path;
-                if (f.path === targetOutPath) li.classList.add('selected');
-                li.addEventListener('click', async () => {
-                    await FractalIdb.set('targetOutPath', f.path);
-                    await refreshUI();
-                });
-                outList.appendChild(li);
-            }
+        // Permission state
+        const hasPerm = await FractalFolders.hasPermission(f.handle);
+        if (!hasPerm) {
+            const warn = document.createElement('span');
+            warn.className = 'perm-warn';
+            warn.textContent = '⚠️ 要再許可';
+            li.appendChild(warn);
+            const reauthBtn = document.createElement('button');
+            reauthBtn.className = 'small';
+            reauthBtn.textContent = '再許可';
+            reauthBtn.addEventListener('click', async () => {
+                const ok = await FractalFolders.requestPermission(f.handle);
+                if (ok) await refreshUI();
+                else setStatus(addStatus, '❌ 許可されませんでした', 'err');
+            });
+            li.appendChild(reauthBtn);
         }
-    } catch (e) {
-        outList.innerHTML = '<li style="cursor:default; color:#c33">エラー: ' + e.message + ' (許可を再取得してください)</li>';
-    }
 
-    currentTarget.textContent = targetOutPath
-        ? (folderName || folderHandle.name) + '/' + targetOutPath
-        : '(.out 未選択)';
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'danger small';
+        removeBtn.textContent = 'Remove';
+        removeBtn.addEventListener('click', async () => {
+            if (!confirm(`"${f.name}" を登録解除しますか? (フォルダ自体は削除されません)`)) return;
+            await FractalFolders.removeFolder(f.id);
+            await refreshUI();
+        });
+        li.appendChild(removeBtn);
+        folderListEl.appendChild(li);
+    }
 }
 
-pickFolderBtn.addEventListener('click', async () => {
+addFolderBtn.addEventListener('click', async () => {
+    clearStatus(addStatus);
     try {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-        await FractalIdb.set('notesFolderHandle', handle);
-        await FractalIdb.set('notesFolderName', handle.name);
-        await FractalIdb.delete('targetOutPath');  // reset target on folder change
+        const entry = await FractalFolders.addFolder(handle);
+        setStatus(addStatus, '✅ ' + entry.name + ' を登録', 'ok');
         await refreshUI();
     } catch (e) {
-        if (e.name !== 'AbortError') {
-            setStatus(folderStatus, '❌ ' + e.message, 'err');
-        }
+        if (e.name === 'AbortError') return;
+        setStatus(addStatus, '❌ ' + e.message, 'err');
     }
 });
 
-refreshUI();
+(async () => {
+    await FractalFolders.migrateLegacyIfNeeded();
+    await refreshUI();
+})();
