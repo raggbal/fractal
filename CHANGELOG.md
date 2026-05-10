@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.42] - 2026-05-11
+
+### Changed
+- **Outliner toolbar**: view toggle (Table / Outline) と S3 sync button の位置を入れ替え (= view toggle が左、S3 sync が右へ)
+
 ## [0.207.41] - 2026-05-11
 
 ### Fixed (Outliner S3 sync data loss bug の根本修正)
