@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.38] - 2026-05-10
+
+### Fixed
+- **🚨 Outliner S3 sync で他端末更新を上書きする data loss bug の safety net** — Android 等で `.out` を更新後、Mac local mtime が編集なしに進む等の理由で「local mtime > S3 mtime + size 違い」が成立すると、silent に local 内容を S3 に upload して **他端末の更新を消失**させる事象を user 報告。`outliner-s3-sync.ts` で `.out` の sync 判定が **upload + size 違い** の組み合わせの時に**ユーザー確認 modal**を出し、「Local を S3 にアップロード / S3 を local にダウンロード」を明示選択できるよう変更
+- 詳細 console log (local size + mtime / S3 size + mtime / decision) を追加して原因解析の補助に
+
+### 既知の課題 (今後の改善候補)
+- **根本対策**: ETag/MD5 ベースの content 等価判定で mtime ズレに依存しない skip 判定を導入予定
+- 現状: 「local mtime > S3 mtime」になる原因の特定は未着手 (VSCode 内の意図せぬ write / 外部 backup tool 干渉の可能性)
+
 ## [0.207.37] - 2026-05-10
 
 ### Changed

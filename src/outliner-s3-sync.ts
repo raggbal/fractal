@@ -117,7 +117,45 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
         // 4a: .out file (folder の外、parent 配下なので個別処理)
         const s3OutInfo = await getS3ObjectInfo(bucket, s3OutKey, opts.s3Config);
         const localOutInfo = getLocalFileInfo(localOutFile);
-        const outAction = decideSyncDirection(s3OutInfo, localOutInfo);
+        let outAction = decideSyncDirection(s3OutInfo, localOutInfo);
+
+        // v0.207.38: 詳細 log + ユーザー確認 (data loss 防止 safety net)
+        const sizeMismatch = !!(s3OutInfo && localOutInfo && s3OutInfo.size !== localOutInfo.size);
+        console.log('[OutlinerS3Sync]', opts.outlinerId, '.out',
+            'local:', localOutInfo ? `${localOutInfo.size}B mtime=${localOutInfo.mtime.toISOString()}` : 'null',
+            'S3:', s3OutInfo ? `${s3OutInfo.size}B mtime=${s3OutInfo.mtime.toISOString()}` : 'null',
+            'decision:', outAction);
+        // 危険判定: 「local アップロード」かつ「local と S3 で size 違い」
+        // → 他端末 (Android 等) で更新が入っているのに local mtime だけが何らかの原因で
+        //   進んでいる可能性がある (例: VSCode 内の意図しない write、外部 backup tool 等)。
+        //   silent overwrite で data loss が起きるため必ずユーザー確認。
+        if (outAction === 'upload' && s3OutInfo && localOutInfo && sizeMismatch) {
+            const localStr = `${localOutInfo.size}B  ${localOutInfo.mtime.toLocaleString()}`;
+            const s3Str = `${s3OutInfo.size}B  ${s3OutInfo.mtime.toLocaleString()}`;
+            const choice = await vscode.window.showWarningMessage(
+                `⚠️ Outliner sync 競合検出 (${opts.outlinerId}.out)\n\n` +
+                `Local と S3 で内容が違います (size 差あり)。\n` +
+                `mtime は local の方が新しいですが、他端末で編集された可能性があります。\n\n` +
+                `Local: ${localStr}\n` +
+                `S3:    ${s3Str}\n\n` +
+                `どちらを採用しますか? (反対側は破棄されます)`,
+                { modal: true },
+                'Local を S3 にアップロード',
+                'S3 を local にダウンロード',
+            );
+            if (!choice) {
+                opts.onProgress({ phase: 'cancelled', message: 'Sync cancelled by user' });
+                await unlockWebview(opts.panel);
+                return;
+            }
+            if (choice === 'S3 を local にダウンロード') {
+                outAction = 'download';
+                console.log('[OutlinerS3Sync] User chose to download S3 over local');
+            } else {
+                console.log('[OutlinerS3Sync] User confirmed local upload');
+            }
+        }
+
         opts.onProgress({ phase: 'transferring', message: `Syncing <id>.out (${outAction})…` });
         await executeFileTransfer(
             { action: outAction, relPath: '', s3Info: s3OutInfo, localInfo: localOutInfo },
