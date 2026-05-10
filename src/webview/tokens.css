@@ -21,8 +21,9 @@
     :root[data-fr-theme="light"],
     :root[data-fr-theme="auto"] {
         /* Brand */
-        --fr-color-primary:        #4F6BFF;
+        --fr-color-primary:        #A8B5FF;
         --fr-color-primary-soft:   #DBE2FF;
+        --fr-color-primary-strong: #8FA0FF;  /* tag / link text 用 (primary より濃い、読みやすさ確保) */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #6B5BE0;
         --fr-color-accent-soft:    #E8E5FA;
@@ -63,7 +64,7 @@
         --bg-color:          var(--fr-color-bg-app);
         --text-color:        var(--fr-color-text-primary);
         --heading-color:     var(--fr-color-text-primary);
-        --link-color:        var(--fr-color-primary);
+        --link-color:        var(--fr-color-primary-strong);
         --code-bg:           #F2F1EA;
         --code-text:         var(--fr-color-text-primary);
         --border-color:      var(--fr-color-border);
@@ -87,7 +88,7 @@
         --outliner-subtext:             var(--fr-color-text-tertiary);
         --outliner-subtext-color:       var(--fr-color-text-tertiary);
         --outliner-placeholder:         var(--fr-color-text-tertiary);
-        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
         --outliner-tag-bg:              var(--fr-color-primary-soft);
         --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
         --outliner-checkbox-accent:     var(--fr-color-primary);
@@ -108,6 +109,7 @@
     :root[data-fr-theme="dark"] {
         --fr-color-primary:        #7A8DFF;
         --fr-color-primary-soft:   #2C355F;
+        --fr-color-primary-strong: #7A8DFF;  /* dark は primary 自体が text に十分な濃さなので alias */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #8B7DEB;
         --fr-color-accent-soft:    #2F2A4A;
@@ -143,7 +145,7 @@
         --bg-color:          var(--fr-color-bg-app);
         --text-color:        var(--fr-color-text-primary);
         --heading-color:     var(--fr-color-text-primary);
-        --link-color:        var(--fr-color-primary);
+        --link-color:        var(--fr-color-primary-strong);
         --code-bg:           #25262E;
         --code-text:         var(--fr-color-text-primary);
         --border-color:      var(--fr-color-border);
@@ -167,7 +169,7 @@
         --outliner-subtext:             var(--fr-color-text-tertiary);
         --outliner-subtext-color:       var(--fr-color-text-tertiary);
         --outliner-placeholder:         var(--fr-color-text-tertiary);
-        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
         --outliner-tag-bg:              var(--fr-color-primary-soft);
         --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
         --outliner-checkbox-accent:     var(--fr-color-primary);
@@ -189,6 +191,7 @@
         :root[data-fr-theme="auto"] {
             --fr-color-primary:        #7A8DFF;
             --fr-color-primary-soft:   #2C355F;
+            --fr-color-primary-strong: #7A8DFF;
             --fr-color-primary-fg:     #FFFFFF;
             --fr-color-accent:         #8B7DEB;
             --fr-color-accent-soft:    #2F2A4A;
@@ -220,7 +223,7 @@
             --bg-color:          var(--fr-color-bg-app);
             --text-color:        var(--fr-color-text-primary);
             --heading-color:     var(--fr-color-text-primary);
-            --link-color:        var(--fr-color-primary);
+            --link-color:        var(--fr-color-primary-strong);
             --code-bg:           #25262E;
             --code-text:         var(--fr-color-text-primary);
             --border-color:      var(--fr-color-border);
@@ -244,7 +247,7 @@
             --outliner-subtext:             var(--fr-color-text-tertiary);
             --outliner-subtext-color:       var(--fr-color-text-tertiary);
             --outliner-placeholder:         var(--fr-color-text-tertiary);
-            --outliner-tag-color:           var(--fr-color-primary);
+            --outliner-tag-color:           var(--fr-color-primary-strong);
             --outliner-tag-bg:              var(--fr-color-primary-soft);
             --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
             --outliner-checkbox-accent:     var(--fr-color-primary);
