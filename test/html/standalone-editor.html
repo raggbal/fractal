@@ -26,9 +26,10 @@
     :root,
     :root[data-fr-theme="light"],
     :root[data-fr-theme="auto"] {
-        /* Brand */
-        --fr-color-primary:        #4F6BFF;
-        --fr-color-primary-soft:   #DBE2FF;
+        /* Brand — teal-blue palette (HSL 199° 軸) */
+        --fr-color-primary:        #9CC8DC;  /* bar / underline / icon — 薄め (HSL 199° 73%) */
+        --fr-color-primary-soft:   #DEEDF5;  /* bg tint (selection bg / tag bg) — 最薄 */
+        --fr-color-primary-strong: #3994BC;  /* tag / link text 用 — 濃いめ (user 指定、HSL 199° 48%) */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #6B5BE0;
         --fr-color-accent-soft:    #E8E5FA;
@@ -69,7 +70,7 @@
         --bg-color:          var(--fr-color-bg-app);
         --text-color:        var(--fr-color-text-primary);
         --heading-color:     var(--fr-color-text-primary);
-        --link-color:        var(--fr-color-primary);
+        --link-color:        var(--fr-color-primary-strong);
         --code-bg:           #F2F1EA;
         --code-text:         var(--fr-color-text-primary);
         --border-color:      var(--fr-color-border);
@@ -93,7 +94,7 @@
         --outliner-subtext:             var(--fr-color-text-tertiary);
         --outliner-subtext-color:       var(--fr-color-text-tertiary);
         --outliner-placeholder:         var(--fr-color-text-tertiary);
-        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
         --outliner-tag-bg:              var(--fr-color-primary-soft);
         --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
         --outliner-checkbox-accent:     var(--fr-color-primary);
@@ -112,8 +113,9 @@
        Dark tokens (explicit dark)
        ═══════════════════════════════════════════════════════════════ */
     :root[data-fr-theme="dark"] {
-        --fr-color-primary:        #7A8DFF;
-        --fr-color-primary-soft:   #2C355F;
+        --fr-color-primary:        #7DC4DF;  /* teal-blue (dark mode 軸) */
+        --fr-color-primary-soft:   #1F3A4A;
+        --fr-color-primary-strong: #7DC4DF;  /* dark は primary 自体が text に十分な明るさなので alias */
         --fr-color-primary-fg:     #FFFFFF;
         --fr-color-accent:         #8B7DEB;
         --fr-color-accent-soft:    #2F2A4A;
@@ -149,7 +151,7 @@
         --bg-color:          var(--fr-color-bg-app);
         --text-color:        var(--fr-color-text-primary);
         --heading-color:     var(--fr-color-text-primary);
-        --link-color:        var(--fr-color-primary);
+        --link-color:        var(--fr-color-primary-strong);
         --code-bg:           #25262E;
         --code-text:         var(--fr-color-text-primary);
         --border-color:      var(--fr-color-border);
@@ -173,7 +175,7 @@
         --outliner-subtext:             var(--fr-color-text-tertiary);
         --outliner-subtext-color:       var(--fr-color-text-tertiary);
         --outliner-placeholder:         var(--fr-color-text-tertiary);
-        --outliner-tag-color:           var(--fr-color-primary);
+        --outliner-tag-color:           var(--fr-color-primary-strong);
         --outliner-tag-bg:              var(--fr-color-primary-soft);
         --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
         --outliner-checkbox-accent:     var(--fr-color-primary);
@@ -193,8 +195,9 @@
        ═══════════════════════════════════════════════════════════════ */
     @media (prefers-color-scheme: dark) {
         :root[data-fr-theme="auto"] {
-            --fr-color-primary:        #7A8DFF;
-            --fr-color-primary-soft:   #2C355F;
+            --fr-color-primary:        #7DC4DF;
+            --fr-color-primary-soft:   #1F3A4A;
+            --fr-color-primary-strong: #7DC4DF;
             --fr-color-primary-fg:     #FFFFFF;
             --fr-color-accent:         #8B7DEB;
             --fr-color-accent-soft:    #2F2A4A;
@@ -226,7 +229,7 @@
             --bg-color:          var(--fr-color-bg-app);
             --text-color:        var(--fr-color-text-primary);
             --heading-color:     var(--fr-color-text-primary);
-            --link-color:        var(--fr-color-primary);
+            --link-color:        var(--fr-color-primary-strong);
             --code-bg:           #25262E;
             --code-text:         var(--fr-color-text-primary);
             --border-color:      var(--fr-color-border);
@@ -250,7 +253,7 @@
             --outliner-subtext:             var(--fr-color-text-tertiary);
             --outliner-subtext-color:       var(--fr-color-text-tertiary);
             --outliner-placeholder:         var(--fr-color-text-tertiary);
-            --outliner-tag-color:           var(--fr-color-primary);
+            --outliner-tag-color:           var(--fr-color-primary-strong);
             --outliner-tag-bg:              var(--fr-color-primary-soft);
             --outliner-tag-hover-bg:        var(--fr-color-primary-soft);
             --outliner-checkbox-accent:     var(--fr-color-primary);
@@ -17961,6 +17964,28 @@ class EditorInstance {
             }
             return;
         }
+        if (message.type === 'toggleSidebar') {
+            // v0.207.34: Cmd+\ keybinding 経路。document.activeElement で sidepanel MD inner active
+            // 判定 → 内側 TOC のみ toggle、それ以外 (main editor active) は主 sidebar (TOC) を toggle
+            var ae = document.activeElement;
+            var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
+            if (inSidepanel) {
+                if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
+                    closeSidePanelSidebar();
+                    sidePanelTocVisible = false;
+                } else if (sidePanelToc && sidePanelToc.children.length > 0) {
+                    sidePanelTocVisible = true;
+                    openSidePanelSidebar();
+                }
+            } else {
+                if (sidebar && sidebar.classList.contains('hidden')) {
+                    openSidebar();
+                } else {
+                    closeSidebar();
+                }
+            }
+            return;
+        }
         if (message.type === 'update') {
             logger.log('[Any MD] update message received, content length:', message.content?.length);
 
@@ -21366,35 +21391,9 @@ class EditorInstance {
         if (inst && inst._handleSearchShortcut) inst._handleSearchShortcut(e);
     });
 
-    // v0.207.34: Cmd+\ で右サイドパネル (outline panel) を toggle
-    // 主 instance のみ document listener を貼る。document.activeElement で focus 位置を判定
-    // (notes mode で main outliner active 時に getActiveInstance が sidepanel を返す fallback 問題を回避)
-    // 振り分け:
-    //  - sidePanelEl 内に focus → 内側 TOC (sidePanelSidebar) のみ toggle、外側 sidepanel は触らない (波及防止)
-    //  - main editor 内に focus → 主 sidebar (TOC) を toggle
-    if (isMainInstance) document.addEventListener('keydown', function(e) {
-        if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === '\\')) return;
-        var ae = document.activeElement;
-        var inSidepanel = !!(sidePanel && ae && sidePanel.contains(ae));
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        if (inSidepanel) {
-            if (sidePanelSidebar && sidePanelSidebar.classList.contains('visible')) {
-                closeSidePanelSidebar();
-                sidePanelTocVisible = false;
-            } else if (sidePanelToc && sidePanelToc.children.length > 0) {
-                sidePanelTocVisible = true;
-                openSidePanelSidebar();
-            }
-        } else {
-            if (sidebar && sidebar.classList.contains('hidden')) {
-                openSidebar();
-            } else {
-                closeSidebar();
-            }
-        }
-    });
+    // v0.207.34: Cmd+\ は VSCode keybinding 経路 (`fractal.toggleSidebar` command) で実装
+    // (VSCode が webview keydown より先に Cmd+\ を intercept するため、document keydown では catch 不可)
+    // → 上の host.onMessage 内の `case 'toggleSidebar'` で処理される
 
     // Expose htmlToMarkdown globally for Electron's executeJavaScript
     if (typeof window !== 'undefined') {

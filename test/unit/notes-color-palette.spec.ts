@@ -86,14 +86,14 @@ test.describe('Notes Color Palette', () => {
         }
     });
 
-    test('DOD-11-2-2: .file-panel-folder-children の padding-left が 28px', async () => {
+    test('DOD-11-2-2: .file-panel-folder-children の padding-left が 25px (v11: chevron(14) + gap(4) + folder icon(14) 相当)', async () => {
         // @ts-ignore
         const { generateNotesFilePanelHtml } = require('../../src/shared/notes-body-html');
 
         const { css } = generateNotesFilePanelHtml({ collapsed: false, messages: {} });
 
-        // padding-left: 28px を含むこと
-        const paddingPattern = /\.file-panel-folder-children\s*\{[^}]*padding-left:\s*28px/;
+        // padding-left: 25px を含むこと (v0.207.x で 28px → 25px に変更済、test 追従)
+        const paddingPattern = /\.file-panel-folder-children\s*\{[^}]*padding-left:\s*25px/;
         expect(css).toMatch(paddingPattern);
     });
 
