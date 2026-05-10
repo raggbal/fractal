@@ -5,6 +5,30 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.35] - 2026-05-10
+
+### Changed
+- **🎨 Primary color を teal-blue palette に変更** (HSL 199° 軸):
+  - `--fr-color-primary` (light): `#4F6BFF` → `#9CC8DC` (淡い teal、bar / underline / icon 用)
+  - `--fr-color-primary-soft` (light): `#DBE2FF` → `#DEEDF5` (最薄 teal、bg tint)
+  - `--fr-color-primary-strong` (light、新): `#3994BC` (濃い teal、tag / link 文字色用、user 指定)
+  - dark mode は `#7DC4DF` 系に揃え
+- 「ノート」タブ underline + File panel item active 縦バー: 太さ `2px` → **`1px`**
+- Tag 文字色 / MD link 文字色を `--fr-color-primary-strong` (`#3994BC`) に切替 (読みやすさ確保)、それ以外 (bar / icon / cursor 行 highlight) は `--fr-color-primary` (`#9CC8DC`) のまま
+
+### Added
+- **⌨️ `Cmd+\\` で右サイドパネル toggle** — `fractal.toggleSidebar` command + keybinding として実装 (VSCode が webview keydown より先に Cmd+\\ を intercept するため、document keydown 経路は廃止):
+  - **Standalone MD editor**: 主 sidebar (Outline TOC) を toggle
+  - **Notes editor 主 outliner active**: **左 file panel** (notes / search / tools) を toggle
+  - **Sidepanel MD active** (notes / standalone outliner 内): 内側 sidePanelSidebar (TOC) のみ toggle、外側パネルは触らない (波及防止)
+- 関連 button の title (hover tooltip) に `(Cmd+\\)` を併記:
+  - `Open Outline` / `Close Outline`
+  - `Show file panel` / `Collapse panel` (notes mode 左 panel)
+  - `Close` (sidepanel close button)
+
+### Fixed
+- v0.207.34 で notes mode の `Cmd+\\` が効かなかった (VSCode keybinding 経路に切替で解消)
+
 ## [0.207.34] - 2026-05-10
 
 ### Fixed
