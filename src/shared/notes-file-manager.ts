@@ -67,6 +67,42 @@ export interface SearchOptions {
 }
 
 /**
+ * v0.207.40: 2 つの parsed JSON object が意味的に同じか deep equal で判定
+ * (key 順 / formatting 差を吸収。Android JSON vs Mac JSON.stringify の差で
+ *  毎回 write してしまっていた問題を解決)
+ */
+function jsonDeepEqual(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (a === null || b === null) return a === b;
+    const ta = typeof a;
+    const tb = typeof b;
+    if (ta !== tb) return false;
+    if (ta !== 'object') return a === b;
+    const aArr = Array.isArray(a);
+    const bArr = Array.isArray(b);
+    if (aArr !== bArr) return false;
+    if (aArr) {
+        const arrA = a as unknown[];
+        const arrB = b as unknown[];
+        if (arrA.length !== arrB.length) return false;
+        for (let i = 0; i < arrA.length; i++) {
+            if (!jsonDeepEqual(arrA[i], arrB[i])) return false;
+        }
+        return true;
+    }
+    const objA = a as Record<string, unknown>;
+    const objB = b as Record<string, unknown>;
+    const keysA = Object.keys(objA);
+    const keysB = Object.keys(objB);
+    if (keysA.length !== keysB.length) return false;
+    for (const k of keysA) {
+        if (!Object.prototype.hasOwnProperty.call(objB, k)) return false;
+        if (!jsonDeepEqual(objA[k], objB[k])) return false;
+    }
+    return true;
+}
+
+/**
  * Notes 共通ファイルマネージャ
  * .outファイルのCRUD、pageDir解決、デバウンス保存を管理
  * .noteファイルによるフォルダ/ツリー構造管理
@@ -595,6 +631,8 @@ export class NotesFileManager {
      * デバウンス付き保存 (1秒後に書き込み)
      */
     saveCurrentFile(jsonString: string): void {
+        // v0.207.39: 診断 log — 誰が saveCurrentFile を呼んだか
+        console.log('[NotesFileManager] saveCurrentFile size=', jsonString.length, 'B at', new Date().toISOString(), 'stack:', new Error().stack);
         this.lastJsonString = jsonString;
         this.isDirty = true;
 
@@ -634,21 +672,38 @@ export class NotesFileManager {
 
     private _writeFile(jsonString: string): void {
         if (!this.currentFilePath) return;
-        // BUG FIX: 内容が disk と同じなら書かない (mtime 不変を保証)
-        // outliner-toolbar-s3-sync の sync 判定が mtime に依存するため、内容変更なしの
-        // wasteful 書込で mtime が NOW に更新されると、別マシンで真に編集された S3 側より
-        // local が新しく見えて誤って upload してしまう。
+        // BUG FIX (v0.207.40): 内容が disk と意味的に同じなら書かない (mtime 不変を保証)
+        // 旧実装は byte 比較のみだったが、Android 等で書かれた JSON と Mac webview が
+        // serialize した JSON は formatting (key 順 / 空白 / 改行) が違うため byte 比較
+        // では equal にならず、毎回 write して mtime を NOW に更新していた。結果として
+        // S3 より local が新しく見えて誤 upload する data loss bug の原因になっていた。
         try {
             const existing = fs.readFileSync(this.currentFilePath, 'utf8');
             if (existing === jsonString) {
                 this.isDirty = false;
                 return;
             }
+            // semantic compare (parse + deep equal、formatting 差を吸収)
+            try {
+                const a = JSON.parse(existing);
+                const b = JSON.parse(jsonString);
+                if (jsonDeepEqual(a, b)) {
+                    console.log('[NotesFileManager] _writeFile SKIP (semantic equal):', this.currentFilePath);
+                    this.isDirty = false;
+                    return;
+                }
+            } catch {
+                // parse fail → byte 比較に fallback (write へ)
+            }
         } catch {
             // disk に未存在 (新規ファイル等) → そのまま書く
         }
         try {
             this.isWriting = true;
+            // v0.207.39: 診断 log
+            const stack = new Error().stack;
+            console.log('[NotesFileManager] _writeFile to', this.currentFilePath, 'size=', jsonString.length, 'B at', new Date().toISOString());
+            console.log('[NotesFileManager] _writeFile stack:', stack);
             fs.writeFileSync(this.currentFilePath, jsonString, 'utf8');
             this.isDirty = false;
             // FileSystemWatcherの発火タイミングを考慮し、遅延でフラグをリセット

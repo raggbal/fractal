@@ -5,6 +5,27 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.40] - 2026-05-10
+
+### Fixed
+- **🚨🚨🚨 Outliner S3 sync の data loss bug の根本原因を特定 + 修正** — log 解析で判明した self-inflicted bug:
+  1. user が sync button click
+  2. `outlinerS3SyncRequest` の前処理 `flushOutlinerSync` が webview の `flushSync()` を発火 → 編集なくても `syncToHostImmediate` で host に `syncData` を送る
+  3. host: `saveCurrentFile` で 1s debounce timer を set
+  4. 続く `handleOutlinerS3Sync` 冒頭の `fileManager.flushSave()` が pending timer を即 fire → `_writeFile` が disk に書き込み (mtime = NOW)
+  5. local mtime が S3 mtime より新しくなる
+  6. `decideSyncDirection` が「local newer + size 違い」で **upload** を返し、Android の編集を上書き
+- **理由**: webview model state は disk と意味的に同じでも、Android JSON formatting と Mac `JSON.stringify(..., null, 2)` の出力差 (key 順 / 空白) で `existing !== jsonString` となり、`_writeFile` が早期 return せず write していた
+
+### 修正 (二重防御)
+1. **webview 側 `flushSync()`**: 未 flush の `syncDebounceTimer` がある時のみ `syncToHostImmediate()` を発火。実編集なしの sync button click では何もしない (mtime preserve)
+2. **`_writeFile` の semantic equal check**: byte 比較で fail した時、parse + deep equal で再判定。formatting 差を吸収して同一内容なら write skip
+
+## [0.207.39] - 2026-05-10
+
+### Diagnostic
+- 一時診断 log を強化: `_writeFile` / `saveCurrentFile` / `syncData received` の caller stack trace を console に出力 (root cause 特定用)
+
 ## [0.207.38] - 2026-05-10
 
 ### Fixed

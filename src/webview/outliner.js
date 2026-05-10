@@ -8409,7 +8409,17 @@ var Outliner = (function() {
     return {
         init: init,
         getModel: function() { return model; },
-        flushSync: function() { if (model) syncToHostImmediate(); },
+        flushSync: function() {
+            // v0.207.40: 実編集 (= 未 flush の syncDebounceTimer) が無ければ何もしない。
+            // 旧実装では sync button click で常に syncToHostImmediate を呼んでいたが、
+            // model state が disk と意味的に同じでも JSON 整形差で _writeFile が write し
+            // mtime が NOW に更新 → 他端末 (Android) より新しく見えて誤 upload する bug の原因。
+            if (!model) return;
+            if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
+                syncToHostImmediate();
+            }
+            // else: 編集なしなので何もしない (mtime preserve)
+        },
         resetSearchAndScope: function() {
             if (searchInput) searchInput.value = '';
             currentSearchResult = null;

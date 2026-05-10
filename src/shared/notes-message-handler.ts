@@ -170,8 +170,10 @@ export async function handleNotesMessage(
         case 'syncData':
             // stale sync（ファイル切替前のデータ）を無視
             if (message.fileChangeId !== undefined && message.fileChangeId !== fileManager.getFileChangeId()) {
+                console.log('[NotesMessageHandler] syncData REJECTED stale fileChangeId got=', message.fileChangeId, 'expected=', fileManager.getFileChangeId());
                 break;
             }
+            console.log('[NotesMessageHandler] syncData received from webview at', new Date().toISOString(), 'size=', (message.content || '').length, 'B fileChangeId=', message.fileChangeId);
             fileManager.saveCurrentFile(message.content);
             break;
 
