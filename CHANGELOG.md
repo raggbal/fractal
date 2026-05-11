@@ -5,6 +5,36 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.48] - 2026-05-11
+
+### Added
+- **Outliner editor: `Cmd+Shift+Opt+C` で添付ファイル絶対 path をコピー**
+  - 単一 focus ノード or 複数選択ノードの `filePath` を flat 順で集めて改行区切りコピー
+  - 既存 `Cmd+Shift+C` (page MD path) と alt キーで明確に区別
+  - Standalone outliner / Notes outliner 両方で動作
+
+## [0.207.47] - 2026-05-11
+
+### Changed
+- **`fractal.imageDefaultDir` / `fractal.fileDefaultDir` の default 値を変更** (`""` → `"images/"` / `"files/"`)
+  - 既存 user 設定はそのまま尊重 (override 優先)
+  - 新規 user: standalone MD で画像 / ファイル添付が自動的に `<docDir>/images/` `<docDir>/files/` に保存 + 相対パス挿入
+
+## [0.207.46] - 2026-05-11
+
+### Fixed
+- **Outliner page MD (heuristic 検出含む) で画像挿入時に絶対パスになる問題を修正**
+  - `setFileImageDir` / `setFileFileDir` に絶対パスを渡していたため `shouldUseAbsolutePath` が true になり MD 内パスが絶対化されていた
+  - 相対パス `'images'` / `'files'` で登録するよう変更 → 解決後は `<docDir>/images` に正しく resolve、かつ MD 挿入時は相対パス
+
+## [0.207.45] - 2026-05-11
+
+### Added
+- **Standalone MD で「outliner page MD」を heuristic 検出**
+  - `.md` の親フォルダ名と同名の `.out` が grandparent に存在すれば outliner page MD と判定
+  - 検出時は `images/` / `files/` を強制設定 + status bar に表示 (`is-locked` で編集不可表示)
+  - status bar の path 末尾に `/` 付与 + pointer-events:none + italic で視覚的に lock 状態を明示
+
 ## [0.207.44] - 2026-05-11
 
 ### Changed

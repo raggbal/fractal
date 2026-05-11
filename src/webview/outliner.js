@@ -4338,7 +4338,7 @@ var Outliner = (function() {
         }
 
         // Cmd+Shift+C: ページパスをコピー
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
             e.preventDefault();
             e.stopPropagation();
             if (selectedNodeIds.size > 0) {
@@ -4359,6 +4359,33 @@ var Outliner = (function() {
                 if (node.isPage && node.pageId) {
                     host.copyPagePaths([node.pageId]);
                 }
+            }
+            return;
+        }
+
+        // Cmd+Shift+Opt+C: 添付ファイルパスをコピー (v0.207.48)
+        // mac で Opt 押下時は e.key が "ç" 等になるので e.code === 'KeyC' を fallback に使う
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.altKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var fileNodeIds = [];
+            if (selectedNodeIds.size > 0) {
+                var sortedIds2 = model.getFlattenedIds(true).filter(function(id) {
+                    return selectedNodeIds.has(id);
+                });
+                sortedIds2.forEach(function(id) {
+                    var n = model.getNode(id);
+                    if (n && n.filePath) {
+                        fileNodeIds.push(id);
+                    }
+                });
+            } else {
+                if (node.filePath) {
+                    fileNodeIds.push(nodeId);
+                }
+            }
+            if (fileNodeIds.length > 0 && host.copyAttachedFilePaths) {
+                host.copyAttachedFilePaths(fileNodeIds);
             }
             return;
         }

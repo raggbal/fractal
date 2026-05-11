@@ -564,6 +564,22 @@ export class NotesEditorProvider {
                 }
                 await vscode.env.clipboard.writeText(safeFilePath);
             },
+            // v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー
+            copyAttachedFilePaths: async (nodeIds: string[], outFilePath: string, _senderRef: NotesSender) => {
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const outDir = path.dirname(outFilePath);
+                const paths: string[] = [];
+                for (const nid of nodeIds) {
+                    const n = data.nodes?.[nid];
+                    if (!n?.filePath) continue;
+                    const safe = safeResolveUnderDir(outDir, n.filePath);
+                    if (safe) paths.push(safe);
+                }
+                if (paths.length > 0) {
+                    await vscode.env.clipboard.writeText(paths.join('\n'));
+                }
+            },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');

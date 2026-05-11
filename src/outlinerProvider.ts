@@ -316,6 +316,24 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    // v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー
+                    case 'copyAttachedFilePaths': {
+                        const nodeIds: string[] = message.nodeIds || [];
+                        const data = JSON.parse(document.getText());
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const paths: string[] = [];
+                        for (const nid of nodeIds) {
+                            const n = data.nodes?.[nid];
+                            if (!n?.filePath) continue;
+                            const safe = safeResolveUnderDir(outDir, n.filePath);
+                            if (safe) paths.push(safe);
+                        }
+                        if (paths.length > 0) {
+                            await vscode.env.clipboard.writeText(paths.join('\n'));
+                        }
+                        break;
+                    }
+
                     case 'makePage':
                         await this.handleMakePage(document, webviewPanel, message);
                         break;

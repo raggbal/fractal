@@ -100,6 +100,8 @@ export interface NotesPlatformActions {
     openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** FR-OL-COPYPATH-1: ファイル添付ノードの絶対 path を OS clipboard へコピー */
     copyAttachedFilePath?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
+    copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
     /** アプリ内リンクナビゲーション */
     navigateInAppLink?(href: string): void;
     /** リンク挿入ダイアログ表示 (サイドパネル editor 用) */
@@ -240,6 +242,15 @@ export async function handleNotesMessage(
             const currentFilePath = fileManager.getCurrentFilePath();
             if (currentFilePath) {
                 platform.copyAttachedFilePath?.(message.nodeId, currentFilePath, sender);
+            }
+            break;
+        }
+
+        // v0.207.48: 複数ノードの Copy File Paths (Notes mode)
+        case 'copyAttachedFilePaths': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.copyAttachedFilePaths?.(message.nodeIds || [], currentFilePath, sender);
             }
             break;
         }

@@ -120,6 +120,10 @@
         copyAttachedFilePath: function(nodeId) {
             api.postMessage({ type: 'copyAttachedFilePath', nodeId: nodeId });
         },
+        // v0.207.48: 複数ノードの添付ファイル絶対 path を改行区切りでコピー (Notes mode)
+        copyAttachedFilePaths: function(nodeIds) {
+            api.postMessage({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
+        },
 
         // Note-level sidepanel md width / TOC width 永続化 (outline.note 共通)
         notesSaveSidePanelWidth: function(width) {

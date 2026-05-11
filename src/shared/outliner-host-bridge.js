@@ -67,6 +67,10 @@
         copyAttachedFilePath: function(nodeId) {
             api.postMessage({ type: 'copyAttachedFilePath', nodeId: nodeId });
         },
+        // v0.207.48: 複数ノードの添付ファイル絶対 path を改行区切りでコピー
+        copyAttachedFilePaths: function(nodeIds) {
+            api.postMessage({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
+        },
 
         // ページ管理 (サイドパネル内EditorInstanceから呼ばれる — outlinerでは未使用)
         createPageAtPath: function() { /* no-op in outliner */ },
