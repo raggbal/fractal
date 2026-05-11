@@ -115,6 +115,21 @@ body {
 .side-panel-filedir .filedir-path {
     font-size: 9px;
 }
+/* v0.207.44: outliner page heuristic 検出時の固定表示 (編集不可) */
+.sidebar-status-imagedir.is-locked,
+.sidebar-status-filedir.is-locked,
+.side-panel-imagedir.is-locked,
+.side-panel-filedir.is-locked {
+    pointer-events: none;
+    user-select: none;
+    cursor: not-allowed;
+}
+.sidebar-status-imagedir.is-locked .imagedir-path,
+.sidebar-status-filedir.is-locked .filedir-path,
+.side-panel-imagedir.is-locked .imagedir-path,
+.side-panel-filedir.is-locked .filedir-path {
+    font-style: italic;
+}
 .side-panel-imagedir,
 .side-panel-filedir {
     padding: 2px 11px;

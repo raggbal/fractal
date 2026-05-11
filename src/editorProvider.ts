@@ -325,6 +325,43 @@ class FileDirectoryManager {
 // グローバルインスタンス
 const fileDirectoryManager = new FileDirectoryManager();
 
+/**
+ * v0.207.44: standalone で直接 .md を開いた時に「outliner page MD」と heuristic 検出する。
+ *
+ * Fractal の命名規約: `<basename>.out` の page MD は `<basename>/<pageId>.md` に保存される。
+ * よって `.md` の親フォルダ名 (basename) と同名の `.out` が grandparent に存在すれば
+ * その `.md` は outliner page MD と判定できる。
+ *
+ * 検出された場合、image / file の保存先を `<pageDir>/images` / `<pageDir>/files` に強制。
+ *
+ * 例:
+ *   ~/Desktop/notes/abc.out                       ← outliner file
+ *   ~/Desktop/notes/abc/p123abc.md                ← page MD
+ *   ~/Desktop/notes/abc/images/                   ← image 保存先 (固定)
+ *   ~/Desktop/notes/abc/files/                    ← file 保存先 (固定)
+ *
+ * standalone で `~/Desktop/notes/abc/p123abc.md` を直接開いた時:
+ *   pageDir = `~/Desktop/notes/abc` (= parent)
+ *   folderName = `abc`
+ *   parentDir = `~/Desktop/notes` (= grandparent)
+ *   outFile = `~/Desktop/notes/abc.out` ← 存在すれば検出成功
+ */
+function detectStandaloneOutlinerPage(mdPath: string): { pageDir: string } | null {
+    try {
+        const pageDir = path.dirname(mdPath);
+        const folderName = path.basename(pageDir);
+        const parentDir = path.dirname(pageDir);
+        if (!folderName || pageDir === parentDir) return null;  // root 直下等の edge case
+        const outFile = path.join(parentDir, `${folderName}.out`);
+        if (fs.existsSync(outFile) && fs.statSync(outFile).isFile()) {
+            return { pageDir };
+        }
+    } catch {
+        /* fs error → 検出失敗扱い */
+    }
+    return null;
+}
+
 export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     private static readonly viewType = 'fractal.editor';
 
@@ -444,13 +481,25 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         const webviewNonce = { value: getNonce() };
 
         // outlinerページ判定
-        const isOutlinerPage = OutlinerProvider.outlinerPagePaths.has(document.uri.fsPath);
-        const outlinerPageDir = OutlinerProvider.outlinerPagePaths.get(document.uri.fsPath);
+        // 1. 明示的登録 (Outliner / Notes provider が page MD を開く時に setFileImageDir 経由で登録)
+        // 2. v0.207.44: heuristic 検出 — standalone で直接 .md を開いた場合でも、命名規約に従って
+        //    親フォルダ名と同名の .out が grandparent に存在すれば outliner page MD と判定
+        let isOutlinerPage = OutlinerProvider.outlinerPagePaths.has(document.uri.fsPath);
+        let outlinerPageDir = OutlinerProvider.outlinerPagePaths.get(document.uri.fsPath);
+        if (!isOutlinerPage) {
+            const detected = detectStandaloneOutlinerPage(document.uri.fsPath);
+            if (detected) {
+                isOutlinerPage = true;
+                outlinerPageDir = detected.pageDir;
+            }
+        }
 
-        // outlinerページの場合、画像ディレクトリを強制設定
+        // outlinerページの場合、画像 + ファイルディレクトリを強制設定 (固定で images/ files/)
+        // v0.207.45: 相対パスで登録する。絶対パスを渡すと shouldUseAbsolutePath が true になり
+        // 画像挿入時に MD パスが絶対化されてしまう (outliner page MD は常に相対パスが望ましい)。
         if (isOutlinerPage && outlinerPageDir) {
-            const imagesDir = path.join(outlinerPageDir, 'images');
-            imageDirectoryManager.setFileImageDir(document.uri, imagesDir);
+            imageDirectoryManager.setFileImageDir(document.uri, 'images');
+            fileDirectoryManager.setFileFileDir(document.uri, 'files');
         }
 
         const sendTranslateLangFromConfig = () => {
@@ -536,11 +585,17 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             } else {
                 displayPath = absDir;
             }
+            // v0.207.44: forced dir (outliner page = source 'file') は末尾 / を付けて lock 表示
+            const locked = source === 'file';
+            if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
+                displayPath += '/';
+            }
 
             webviewPanel.webview.postMessage({
                 type: 'imageDirStatus',
                 displayPath,
-                source
+                source,
+                locked
             });
         };
 
@@ -583,11 +638,16 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             } else {
                 displayPath = absDir;
             }
+            const locked = source === 'file';
+            if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
+                displayPath += '/';
+            }
 
             webviewPanel.webview.postMessage({
                 type: 'sidePanelImageDirStatus',
                 displayPath,
-                source
+                source,
+                locked
             });
         };
 
@@ -624,11 +684,16 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             } else {
                 displayPath = absDir;
             }
+            const locked = source === 'file';
+            if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
+                displayPath += '/';
+            }
 
             webviewPanel.webview.postMessage({
                 type: 'fileDirStatus',
                 displayPath,
-                source
+                source,
+                locked
             });
         };
 
@@ -671,11 +736,16 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             } else {
                 displayPath = absDir;
             }
+            const locked = source === 'file';
+            if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
+                displayPath += '/';
+            }
 
             webviewPanel.webview.postMessage({
                 type: 'sidePanelFileDirStatus',
                 displayPath,
-                source
+                source,
+                locked
             });
         };
 

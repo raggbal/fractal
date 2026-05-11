@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.207.44",
+  "version": "0.207.47",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -209,7 +209,7 @@
         },
         "fractal.imageDefaultDir": {
           "type": "string",
-          "default": "",
+          "default": "images/",
           "description": "Default directory for saving images. Uses the same directory as the Markdown file when empty. Accepts absolute (/path/to/dir) or relative (./images, images/) paths."
         },
         "fractal.forceRelativeImagePath": {
@@ -219,7 +219,7 @@
         },
         "fractal.fileDefaultDir": {
           "type": "string",
-          "default": "",
+          "default": "files/",
           "description": "Default directory for saving file attachments. Uses document directory when empty."
         },
         "fractal.forceRelativeFilePath": {

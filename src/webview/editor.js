@@ -469,8 +469,10 @@ class EditorInstance {
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
     let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -13594,15 +13596,21 @@ class EditorInstance {
             const pathEl = container.querySelector('.imagedir-path');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
-                pathEl.title = imageDirDisplayPath;
+                pathEl.title = imageDirLocked
+                    ? (i18n.imageDirLockedTitle || 'Image directory is fixed (outliner page convention)')
+                    : imageDirDisplayPath;
             }
+            statusImageDir.classList.toggle('is-locked', imageDirLocked);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
             if (pathEl && fileDirDisplayPath !== null) {
                 pathEl.textContent = fileDirDisplayPath;
-                pathEl.title = fileDirDisplayPath;
+                pathEl.title = fileDirLocked
+                    ? (i18n.fileDirLockedTitle || 'File directory is fixed (outliner page convention)')
+                    : fileDirDisplayPath;
             }
+            statusFileDir.classList.toggle('is-locked', fileDirLocked);
         }
     }
 
@@ -14625,15 +14633,17 @@ class EditorInstance {
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
+            imageDirLocked = !!message.locked;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
+            fileDirLocked = !!message.locked;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
-            updateSidePanelImageDir(message.displayPath, message.source);
+            updateSidePanelImageDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'sidePanelFileDirStatus') {
-            updateSidePanelFileDir(message.displayPath, message.source);
+            updateSidePanelFileDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -15261,17 +15271,28 @@ class EditorInstance {
         host.getSidePanelImageDir(sidePanelFilePath);
     }
 
-    function updateSidePanelImageDir(displayPath, source) {
+    function updateSidePanelImageDir(displayPath, source, locked) {
         if (sidePanelImageDirPath) {
             sidePanelImageDirPath.textContent = displayPath || '';
-            sidePanelImageDirPath.title = displayPath || '';
+            sidePanelImageDirPath.title = locked
+                ? (i18n.imageDirLockedTitle || 'Image directory is fixed (outliner page convention)')
+                : (displayPath || '');
+        }
+        if (sidePanelImageDirEl) {
+            sidePanelImageDirEl.classList.toggle('is-locked', !!locked);
         }
     }
 
-    function updateSidePanelFileDir(displayPath, source) {
+    function updateSidePanelFileDir(displayPath, source, locked) {
         if (sidePanelFileDirPath) {
             sidePanelFileDirPath.textContent = displayPath || '';
-            sidePanelFileDirPath.title = displayPath || '';
+            sidePanelFileDirPath.title = locked
+                ? (i18n.fileDirLockedTitle || 'File directory is fixed (outliner page convention)')
+                : (displayPath || '');
+        }
+        const sidePanelFileDirEl = container.querySelector('.side-panel-filedir');
+        if (sidePanelFileDirEl) {
+            sidePanelFileDirEl.classList.toggle('is-locked', !!locked);
         }
     }
 
