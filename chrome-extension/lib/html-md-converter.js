@@ -1,3 +1,14 @@
+/*!
+ * html-md-converter v0.1.0
+ * (c) 2026 imaken
+ * https://github.com/raggbal/html-md-converter
+ *
+ * Bundles: turndown + turndown-plugin-gfm + html-md-converter rules
+ * Usage (browser / Playwright eval):
+ *   const md = HtmlMdConverter.htmlToMarkdown(htmlString);
+ */
+(function (global) {
+    "use strict";
 var TurndownService = (function () {
   'use strict';
 
@@ -974,3 +985,493 @@ var TurndownService = (function () {
   return TurndownService;
 
 }());
+
+
+var turndownPluginGfm = (function (exports) {
+'use strict';
+
+var highlightRegExp = /highlight-(?:text|source)-([a-z0-9]+)/;
+
+function highlightedCodeBlock (turndownService) {
+  turndownService.addRule('highlightedCodeBlock', {
+    filter: function (node) {
+      var firstChild = node.firstChild;
+      return (
+        node.nodeName === 'DIV' &&
+        highlightRegExp.test(node.className) &&
+        firstChild &&
+        firstChild.nodeName === 'PRE'
+      )
+    },
+    replacement: function (content, node, options) {
+      var className = node.className || '';
+      var language = (className.match(highlightRegExp) || [null, ''])[1];
+
+      return (
+        '\n\n' + options.fence + language + '\n' +
+        node.firstChild.textContent +
+        '\n' + options.fence + '\n\n'
+      )
+    }
+  });
+}
+
+function strikethrough (turndownService) {
+  turndownService.addRule('strikethrough', {
+    filter: ['del', 's', 'strike'],
+    replacement: function (content) {
+      return '~' + content + '~'
+    }
+  });
+}
+
+var indexOf = Array.prototype.indexOf;
+var every = Array.prototype.every;
+var rules = {};
+
+rules.tableCell = {
+  filter: ['th', 'td'],
+  replacement: function (content, node) {
+    return cell(content, node)
+  }
+};
+
+rules.tableRow = {
+  filter: 'tr',
+  replacement: function (content, node) {
+    var borderCells = '';
+    var alignMap = { left: ':--', right: '--:', center: ':-:' };
+
+    if (isHeadingRow(node)) {
+      for (var i = 0; i < node.childNodes.length; i++) {
+        var border = '---';
+        var align = (
+          node.childNodes[i].getAttribute('align') || ''
+        ).toLowerCase();
+
+        if (align) border = alignMap[align] || border;
+
+        borderCells += cell(border, node.childNodes[i]);
+      }
+    }
+    return '\n' + content + (borderCells ? '\n' + borderCells : '')
+  }
+};
+
+rules.table = {
+  // Only convert tables with a heading row.
+  // Tables with no heading row are kept using `keep` (see below).
+  filter: function (node) {
+    return node.nodeName === 'TABLE' && isHeadingRow(node.rows[0])
+  },
+
+  replacement: function (content) {
+    // Ensure there are no blank lines
+    content = content.replace('\n\n', '\n');
+    return '\n\n' + content + '\n\n'
+  }
+};
+
+rules.tableSection = {
+  filter: ['thead', 'tbody', 'tfoot'],
+  replacement: function (content) {
+    return content
+  }
+};
+
+// A tr is a heading row if:
+// - the parent is a THEAD
+// - or if its the first child of the TABLE or the first TBODY (possibly
+//   following a blank THEAD)
+// - and every cell is a TH
+function isHeadingRow (tr) {
+  var parentNode = tr.parentNode;
+  return (
+    parentNode.nodeName === 'THEAD' ||
+    (
+      parentNode.firstChild === tr &&
+      (parentNode.nodeName === 'TABLE' || isFirstTbody(parentNode)) &&
+      every.call(tr.childNodes, function (n) { return n.nodeName === 'TH' })
+    )
+  )
+}
+
+function isFirstTbody (element) {
+  var previousSibling = element.previousSibling;
+  return (
+    element.nodeName === 'TBODY' && (
+      !previousSibling ||
+      (
+        previousSibling.nodeName === 'THEAD' &&
+        /^\s*$/i.test(previousSibling.textContent)
+      )
+    )
+  )
+}
+
+function cell (content, node) {
+  var index = indexOf.call(node.parentNode.childNodes, node);
+  var prefix = ' ';
+  if (index === 0) prefix = '| ';
+  return prefix + content + ' |'
+}
+
+function tables (turndownService) {
+  turndownService.keep(function (node) {
+    return node.nodeName === 'TABLE' && !isHeadingRow(node.rows[0])
+  });
+  for (var key in rules) turndownService.addRule(key, rules[key]);
+}
+
+function taskListItems (turndownService) {
+  turndownService.addRule('taskListItems', {
+    filter: function (node) {
+      return node.type === 'checkbox' && node.parentNode.nodeName === 'LI'
+    },
+    replacement: function (content, node) {
+      return (node.checked ? '[x]' : '[ ]') + ' '
+    }
+  });
+}
+
+function gfm (turndownService) {
+  turndownService.use([
+    highlightedCodeBlock,
+    strikethrough,
+    tables,
+    taskListItems
+  ]);
+}
+
+exports.gfm = gfm;
+exports.highlightedCodeBlock = highlightedCodeBlock;
+exports.strikethrough = strikethrough;
+exports.tables = tables;
+exports.taskListItems = taskListItems;
+
+return exports;
+
+}({}));
+
+
+// Turndown 投入前の HTML 前処理。
+//
+// ensureTableHeaders: turndown-plugin-gfm は isHeadingRow=true でないと <table> を raw HTML のまま保持する。
+// GFM 仕様で header 行は必須なので、<th> を持たない <table> に空の <thead> を column 数分注入して
+// markdown table 化を可能にする。元データはそのまま data row として保存。
+//
+// 利用側: DOMParser が使える環境 (browser / Playwright eval) を前提。
+
+function ensureTableHeaders(htmlString) {
+    try {
+        if (typeof DOMParser === 'undefined') return htmlString;
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(htmlString, 'text/html');
+        var tables = doc.querySelectorAll('table');
+        for (var ti = 0; ti < tables.length; ti++) {
+            var table = tables[ti];
+            if (table.querySelector('th')) continue;
+            var existingThead = table.querySelector('thead');
+            if (existingThead && existingThead.textContent.trim()) continue;
+            var firstRow = table.querySelector('tr');
+            if (!firstRow) continue;
+            var colCount = firstRow.children.length;
+            if (colCount === 0) continue;
+            // 空 thead があれば削除して入れ直す
+            if (existingThead) existingThead.parentNode.removeChild(existingThead);
+            var thead = doc.createElement('thead');
+            var tr = doc.createElement('tr');
+            for (var ci = 0; ci < colCount; ci++) {
+                tr.appendChild(doc.createElement('th'));
+            }
+            thead.appendChild(tr);
+            table.insertBefore(thead, table.firstChild);
+        }
+        return doc.body.innerHTML;
+    } catch (e) {
+        return htmlString;
+    }
+}
+
+
+// HTML → Markdown 変換用 Turndown 独自 rule (8 個)
+// fractal editor.js paste handler (v0.207.49) から抽出。
+//
+// 利用側: addCustomRules(turndownService) を呼ぶと 8 rule が登録される。
+// 前提: turndownService が turndown-plugin-gfm を use() 済み。
+
+function addCustomRules(turndownService) {
+    // Rule 1: Table cell の pipe escape + cell 内改行を <br> に変換
+    turndownService.addRule('tableCellEscapePipe', {
+        filter: ['th', 'td'],
+        replacement: function(content, node) {
+            var index = Array.prototype.indexOf.call(node.parentNode.childNodes, node);
+            var prefix = ' ';
+            if (index === 0) prefix = '| ';
+            content = content.replace(/\n/g, '<br>');
+            content = content.replace(/(<br>)+/g, '<br>');
+            content = content.replace(/^(<br>)+/, '').replace(/(<br>)+$/, '');
+            content = content.replace(/\|/g, '\\|');
+            return prefix + content + ' |';
+        }
+    });
+
+    // Rule 2: 空 span / Apple-converted-space 削除
+    turndownService.addRule('cleanupSpans', {
+        filter: function(node) {
+            if (node.nodeName !== 'SPAN') return false;
+            if (node.classList && node.classList.contains('Apple-converted-space')) return true;
+            var hasOnlyStyleAttr = node.attributes.length === 1 && node.hasAttribute('style');
+            var hasNoContent = !node.textContent || node.textContent.trim() === '';
+            return hasOnlyStyleAttr && hasNoContent;
+        },
+        replacement: function(content, node) {
+            if (node.classList && node.classList.contains('Apple-converted-space')) return ' ';
+            return content;
+        }
+    });
+
+    // Rule 3: CSS style-based bold (Google Docs / 一部 web page)
+    turndownService.addRule('styledBold', {
+        filter: function(node) {
+            if (node.nodeName !== 'SPAN') return false;
+            var fw = node.style.fontWeight;
+            return fw === 'bold' || fw === 'bolder' || (parseInt(fw) >= 700);
+        },
+        replacement: function(content) {
+            content = content.trim();
+            if (!content) return '';
+            return '**' + content + '**';
+        }
+    });
+
+    // Rule 4: CSS style-based italic
+    turndownService.addRule('styledItalic', {
+        filter: function(node) {
+            if (node.nodeName !== 'SPAN') return false;
+            var fs = node.style.fontStyle;
+            return fs === 'italic' || fs === 'oblique';
+        },
+        replacement: function(content) {
+            content = content.trim();
+            if (!content) return '';
+            return '*' + content + '*';
+        }
+    });
+
+    // Rule 5: CSS style-based strikethrough
+    turndownService.addRule('styledStrikethrough', {
+        filter: function(node) {
+            if (node.nodeName !== 'SPAN') return false;
+            var td = node.style.textDecoration || node.style.textDecorationLine || '';
+            return td.indexOf('line-through') !== -1;
+        },
+        replacement: function(content) {
+            content = content.trim();
+            if (!content) return '';
+            return '~~' + content + '~~';
+        }
+    });
+
+    // <pre> 配下を再帰 walk して text 抽出 (<br> → \n)
+    function preToText(n) {
+        var out = '';
+        var child = n.firstChild;
+        while (child) {
+            if (child.nodeType === 3) {
+                out += child.nodeValue || '';
+            } else if (child.nodeName === 'BR') {
+                out += '\n';
+            } else if (child.nodeType === 1) {
+                out += preToText(child);
+            }
+            child = child.nextSibling;
+        }
+        return out;
+    }
+
+    // Rule 6: fenced code block + 言語抽出
+    // 通常: <pre><code class="language-xxx">...</code></pre>
+    // Medium 等: <pre><span class="hljs-keyword">def</span>...<br>...</pre> (code 要素なし、改行 <br>)
+    turndownService.addRule('fencedCodeWithLang', {
+        filter: function(node) {
+            if (node.nodeName !== 'PRE') return false;
+            if (node.querySelector('code')) return true;
+            if (node.querySelector('[class*="hljs-"]')) return true;
+            if (node.querySelector('br')) return true;
+            return false;
+        },
+        replacement: function(content, node) {
+            var code = node.querySelector('code');
+            var lang = '';
+            var text = '';
+            try {
+                if (code) {
+                    var cls = code.className || '';
+                    lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
+                    if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
+                    if (!lang) lang = node.getAttribute('data-lang') || '';
+                    text = code.textContent || '';
+                } else {
+                    text = preToText(node);
+                    var langEl = node.querySelector('[class*="language-"]');
+                    if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
+                }
+            } catch (e) {
+                text = '';
+            }
+            if (!text) text = node.textContent || content || '';
+            lang = (lang || '').split(/\s+/)[0] || '';
+            if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
+            return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
+        }
+    });
+
+    // Rule 7: link content normalization (multi-line link, bracket citation, image-wrap simplify)
+    turndownService.addRule('normalizeLink', {
+        filter: function(node) {
+            return node.nodeName === 'A' && node.getAttribute('href');
+        },
+        replacement: function(content, node) {
+            var href = node.getAttribute('href');
+            if (href) href = href.replace(/([()])/g, '\\$1');
+            var title = node.getAttribute('title');
+            if (title) title = ' "' + title.replace(/"/g, '\\"') + '"';
+            else title = '';
+            // <a> がテキストを持たず <img> だけを wrap してる場合は内側の image markdown だけ返す
+            if ((node.textContent || '').trim() === '' && node.querySelector && node.querySelector('img')) {
+                return content;
+            }
+            // multi-line link text を 1 行にまとめる
+            content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+            if (!content) return '';
+            // Wikipedia-style citation: [40] のように [..] で囲まれた link text は外側を残して中身を link 化
+            var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
+            if (bracketMatch) {
+                return '[[' + bracketMatch[1] + '](' + href + title + ')]';
+            }
+            return '[' + content + '](' + href + title + ')';
+        }
+    });
+
+    // Rule 8: tight list item (Turndown default の loose list を抑止)
+    turndownService.addRule('compactListItem', {
+        filter: 'li',
+        replacement: function(content, node, options) {
+            content = content.replace(/^\n+/, '').replace(/\n+$/, '');
+            content = content.replace(/\n/gm, '\n    ');
+            var prefix = options.bulletListMarker + ' ';
+            var parent = node.parentNode;
+            if (parent.nodeName === 'OL') {
+                var start = parent.getAttribute('start');
+                var index = Array.prototype.indexOf.call(parent.children, node);
+                prefix = (start ? Number(start) + index : index + 1) + '. ';
+            }
+            return prefix + content + (node.nextSibling ? '\n' : '');
+        }
+    });
+}
+
+
+// Turndown 出力後の markdown 文字列クリーンアップ。
+//
+// 1. unescape: Turndown は markdown 構文文字 (\-, \+, \#, \>, ...) を escape する。
+//    markdown editor へ paste する場合は意図解釈させたいので unescape する。
+// 2. collapseBlankLinesBetweenListItems: <li><p>...</p></li> 由来の blank line を消して tight list 化。
+
+function postprocess(md) {
+    // Un-escape block-level syntax markers
+    md = md.replace(/^\\([-+*]) /gm, '$1 ');         // list markers: \-, \+, \*
+    md = md.replace(/^\\(#{1,6}) /gm, '$1 ');        // heading: \#, \##, ...
+    md = md.replace(/^\\(>) ?/gm, '$1 ');            // blockquote: \>
+    md = md.replace(/^(\d+)\\(\. )/gm, '$1$2');      // ordered list: 1\.
+    md = md.replace(/^\\(~~~)/gm, '$1');             // code fence: \~~~
+    // Inline escapes: \* \_ \` \[ \] \\ \.
+    md = md.replace(/\\([*_`\[\]\\.])/g, '$1');
+
+    // Collapse blank lines between consecutive list items (tight list)
+    var prev;
+    do {
+        prev = md;
+        md = md.replace(
+            /(^[ \t]*(?:[-*+]|\d+\.)\s+.*)\n{2,}([ \t]*(?:[-*+]|\d+\.)\s)/gm,
+            '$1\n$2'
+        );
+    } while (md !== prev);
+
+    return md;
+}
+
+
+// HTML → Markdown 変換のエントリーポイント。
+//
+// 利用側 (browser / Playwright eval):
+//   HtmlMdConverter.htmlToMarkdown(html) → string
+//
+// 内部:
+//   1. ensureTableHeaders で <th> 不在 table に空 header 注入 (GFM table 化)
+//   2. Turndown + GFM plugin + 独自 8 rule で変換
+//   3. postprocess で unescape + tight list
+
+function htmlToMarkdown(html) {
+    if (!html) return '';
+    if (typeof TurndownService === 'undefined') {
+        throw new Error('TurndownService not loaded');
+    }
+    var preprocessed = ensureTableHeaders(html);
+
+    var turndownService = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced',
+        emDelimiter: '*',
+        bulletListMarker: '-'
+    });
+    if (typeof turndownPluginGfm !== 'undefined') {
+        turndownService.use(turndownPluginGfm.gfm);
+    }
+    addCustomRules(turndownService);
+
+    var md = turndownService.turndown(preprocessed);
+    return postprocess(md);
+}
+
+/**
+ * Mozilla Readability で記事抽出 → htmlToMarkdown で変換。
+ * Chrome extension / web clipper 向け。Readability lib を呼び出し側で別途 load 必須。
+ *
+ * @param {Document} documentClone — document.cloneNode(true) の結果を渡す
+ * @returns {{ title, markdown, byline, siteName, length, excerpt }}
+ */
+function articleToMarkdown(documentClone) {
+    if (typeof Readability === 'undefined') {
+        throw new Error('Readability not loaded — load it before calling articleToMarkdown');
+    }
+    var reader = new Readability(documentClone);
+    var article = reader.parse();
+    if (!article || !article.content) {
+        return { title: '', markdown: '', byline: '', siteName: '' };
+    }
+    return {
+        title: article.title || '',
+        markdown: htmlToMarkdown(article.content),
+        byline: article.byline || '',
+        siteName: article.siteName || '',
+        length: article.length,
+        excerpt: article.excerpt || ''
+    };
+}
+
+    // 公開 API
+    global.HtmlMdConverter = {
+        version: "0.1.0",
+        htmlToMarkdown: htmlToMarkdown,
+        articleToMarkdown: articleToMarkdown,
+        // 個別関数 (テスト / カスタマイズ用)
+        ensureTableHeaders: ensureTableHeaders,
+        addCustomRules: addCustomRules,
+        postprocess: postprocess,
+        // bundled vendors (consumer 側で他用途に使う場合)
+        TurndownService: TurndownService,
+        turndownPluginGfm: turndownPluginGfm,
+    };
+})(typeof window !== "undefined" ? window : (typeof globalThis !== "undefined" ? globalThis : this));

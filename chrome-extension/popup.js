@@ -70,11 +70,10 @@ async function convertActiveTabToMarkdown() {
     if (!tab || !tab.id) throw new Error('Active tab not found');
     await chrome.scripting.executeScript({
         target: { tabId: tab.id },
+        // v0.207.50: turndown + GFM + Fractal rule は html-md-converter.js に統合済 (1 file)
         files: [
-            'lib/turndown.js',
-            'lib/turndown-plugin-gfm.js',
             'lib/Readability.js',
-            'lib/fractal-md.js'
+            'lib/html-md-converter.js'
         ]
     });
     const [{ result, error }] = await chrome.scripting.executeScript({
@@ -84,9 +83,9 @@ async function convertActiveTabToMarkdown() {
                 const docClone = document.cloneNode(true);
                 let extracted;
                 try {
-                    extracted = FractalMd.articleToMarkdown(docClone);
+                    extracted = HtmlMdConverter.articleToMarkdown(docClone);
                 } catch (e) {
-                    const md = FractalMd.htmlToMarkdown(document.body ? document.body.innerHTML : '');
+                    const md = HtmlMdConverter.htmlToMarkdown(document.body ? document.body.innerHTML : '');
                     extracted = { title: document.title || '', markdown: md, byline: '', siteName: '' };
                 }
                 return {

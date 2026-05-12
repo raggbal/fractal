@@ -16,9 +16,8 @@ fs.mkdirSync(VENDOR, { recursive: true });
 fs.mkdirSync(path.join(VENDOR, 'fonts'), { recursive: true });
 
 // コピーするファイル一覧
+// v0.207.50: turndown + turndown-plugin-gfm は html-md-converter.js に統合済 (削除)
 const files = [
-    { src: 'turndown/dist/turndown.js', dest: 'turndown.js' },
-    { src: 'turndown-plugin-gfm/dist/turndown-plugin-gfm.js', dest: 'turndown-plugin-gfm.js' },
     { src: 'mermaid/dist/mermaid.min.js', dest: 'mermaid.min.js' },
     { src: 'katex/dist/katex.min.js', dest: 'katex.min.js' },
     { src: 'katex/dist/katex.min.css', dest: 'katex.min.css' },
@@ -54,9 +53,8 @@ fs.writeFileSync(katexCssPath, css);
 console.log('  ✓ katex.min.css (stripped woff/ttf references)');
 
 // LICENSE ファイルをコピー (MIT)
+// v0.207.50: turndown 系 LICENSE は html-md-converter repo 側で管理
 const licenses = [
-    { pkg: 'turndown', dest: 'LICENSE-turndown' },
-    { pkg: 'turndown-plugin-gfm', dest: 'LICENSE-turndown-plugin-gfm' },
     { pkg: 'mermaid', dest: 'LICENSE-mermaid' },
     { pkg: 'katex', dest: 'LICENSE-katex' },
 ];

@@ -211,10 +211,10 @@ async function quickClip(tab) {
         return;
     }
 
-    // tab に lib inject + 変換
+    // tab に lib inject + 変換 (v0.207.50: html-md-converter で 1 file)
     await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ['lib/turndown.js', 'lib/turndown-plugin-gfm.js', 'lib/Readability.js', 'lib/fractal-md.js']
+        files: ['lib/Readability.js', 'lib/html-md-converter.js']
     });
     const [{ result }] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -223,9 +223,9 @@ async function quickClip(tab) {
                 const docClone = document.cloneNode(true);
                 let extracted;
                 try {
-                    extracted = FractalMd.articleToMarkdown(docClone);
+                    extracted = HtmlMdConverter.articleToMarkdown(docClone);
                 } catch (e) {
-                    const md = FractalMd.htmlToMarkdown(document.body ? document.body.innerHTML : '');
+                    const md = HtmlMdConverter.htmlToMarkdown(document.body ? document.body.innerHTML : '');
                     extracted = { title: document.title || '', markdown: md, byline: '', siteName: '' };
                 }
                 return {

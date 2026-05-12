@@ -81,8 +81,9 @@ export function getOutlinerWebviewContent(
     const vendorUri = (file: string) => webview.asWebviewUri(
         vscode.Uri.file(path.join(vendorDir, file))
     );
-    const turndownUri = vendorUri('turndown.js');
-    const turndownGfmUri = vendorUri('turndown-plugin-gfm.js');
+    // v0.207.50: html-md-converter bundle で turndown + GFM + Fractal rule を統合
+    const htmlMdConverterScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'html-md-converter.js'), 'utf8');
     const mermaidUri = vendorUri('mermaid.min.js');
     const katexJsUri = vendorUri('katex.min.js');
     const katexCssUri = vendorUri('katex.min.css');
@@ -144,8 +145,7 @@ export function getOutlinerWebviewContent(
 
     ${sidePanelHtml}
 
-    <script src="${turndownUri}"></script>
-    <script src="${turndownGfmUri}"></script>
+    <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}"></script>
     <script src="${katexJsUri}"></script>
 

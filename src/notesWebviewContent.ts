@@ -108,8 +108,9 @@ export function getNotesWebviewContent(
     const vendorUri = (file: string) => webview.asWebviewUri(
         vscode.Uri.file(path.join(vendorDir, file))
     );
-    const turndownUri = vendorUri('turndown.js');
-    const turndownGfmUri = vendorUri('turndown-plugin-gfm.js');
+    // v0.207.50: html-md-converter bundle で turndown + GFM + Fractal rule を統合
+    const htmlMdConverterScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'html-md-converter.js'), 'utf8');
     const mermaidUri = vendorUri('mermaid.min.js');
     const katexJsUri = vendorUri('katex.min.js');
     const katexCssUri = vendorUri('katex.min.css');
@@ -199,8 +200,7 @@ export function getNotesWebviewContent(
 
     ${sidePanelHtml}
 
-    <script src="${turndownUri}" nonce="${nonce}"></script>
-    <script src="${turndownGfmUri}" nonce="${nonce}"></script>
+    <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}" nonce="${nonce}"></script>
     <script src="${katexJsUri}" nonce="${nonce}"></script>
 
