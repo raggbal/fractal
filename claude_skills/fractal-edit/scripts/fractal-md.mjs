@@ -196,10 +196,58 @@ function processImages(mdContent, sourceDir, imageDir, pageDir) {
 }
 
 /**
- * MD ファイルを読み込み、正規化・画像処理して pages/ に保存する。
- * src/shared/markdown-import.ts の importMdFile と同等ロジック。
+ * 衝突回避用 unique 名: foo.pdf → foo.pdf / foo-1.pdf / foo-2.pdf ...
+ * fractal-attach.mjs の uniqueFileName と同じ。
  */
-function importMdFile(sourcePath, pageDir, imageDir) {
+function uniqueFileName(dir, name) {
+    if (!fs.existsSync(path.join(dir, name))) return name;
+    const ext = path.extname(name);
+    const base = path.basename(name, ext);
+    for (let i = 1; i < 10000; i++) {
+        const candidate = `${base}-${i}${ext}`;
+        if (!fs.existsSync(path.join(dir, candidate))) return candidate;
+    }
+    throw new Error(`Cannot generate unique name for ${name}`);
+}
+
+/**
+ * Markdown 内の通常リンク `[text](path)` を解析し、ローカルファイル参照をコピー + path 書き換え。
+ * - URL / mailto / anchor はスキップ
+ * - 画像 `![]()` は対象外 (lookbehind で除外、 processImages が担当)
+ * - 存在しないファイルは放置
+ * - 存在すれば fileDir にコピーし、pageDir からの相対 path に書き換え (collision 時 `-1` suffix)
+ */
+function processFileLinks(mdContent, sourceDir, fileDir, pageDir) {
+    return mdContent.replace(/(?<!!)\[([^\]]*)\]\(([^)]+)\)/g, (match, text, linkPath) => {
+        // URL / mailto / tel / 内部 anchor はスキップ
+        if (/^(https?|ftp|mailto|tel|file):/i.test(linkPath) || linkPath.startsWith('#')) {
+            return match;
+        }
+        // クエリ/フラグメント除去
+        const cleanPath = linkPath.split(/[?#]/)[0];
+        if (!cleanPath) return match;
+        // URLデコード
+        let decodedPath;
+        try { decodedPath = decodeURIComponent(cleanPath); } catch { decodedPath = cleanPath; }
+        const absSrc = path.resolve(sourceDir, decodedPath);
+        if (!fs.existsSync(absSrc) || !fs.statSync(absSrc).isFile()) return match;
+
+        if (!fs.existsSync(fileDir)) fs.mkdirSync(fileDir, { recursive: true });
+        const safeName = path.basename(absSrc);
+        if (safeName.includes('..')) return match;
+        const uniqueName = uniqueFileName(fileDir, safeName);
+        const destPath = path.join(fileDir, uniqueName);
+        fs.copyFileSync(absSrc, destPath);
+        const relativePath = path.relative(pageDir, destPath).replace(/\\/g, '/');
+        return `[${text}](${relativePath})`;
+    });
+}
+
+/**
+ * MD ファイルを読み込み、正規化・画像/ファイル参照処理して <outDir>/<basename>/ に保存する。
+ * src/shared/markdown-import.ts の importMdFile と同等 + skill 独自の file link 処理を追加。
+ */
+function importMdFile(sourcePath, pageDir, imageDir, fileDir) {
     let rawContent;
     try {
         rawContent = fs.readFileSync(sourcePath, 'utf-8');
@@ -212,9 +260,12 @@ function importMdFile(sourcePath, pageDir, imageDir) {
     // Markdown正規化
     let content = normalizeMultiLineTableCells(rawContent);
 
-    // 画像処理
+    // 参照処理: 画像 → imageDir、 他のファイル/MD → fileDir
     const sourceDir = path.dirname(sourcePath);
     content = processImages(content, sourceDir, imageDir, pageDir);
+    if (fileDir) {
+        content = processFileLinks(content, sourceDir, fileDir, pageDir);
+    }
 
     // pageId 生成
     const pageId = generatePageId();
@@ -376,6 +427,8 @@ function createNode({ parentId, text, isPage, pageId }) {
         collapsed: false,
         checked: null,
         subtext: '',
+        images: [],
+        filePath: null,
     };
 }
 
@@ -471,6 +524,7 @@ function createOutliner(title, notesDir) {
 
     const firstNodeId = generateNodeId();
     const data = {
+        version: 1,
         title: title || 'Untitled',
         pageDir: pageDirRel,
         rootIds: [firstNodeId],
@@ -486,6 +540,8 @@ function createOutliner(title, notesDir) {
                 collapsed: false,
                 checked: null,
                 subtext: '',
+                images: [],
+                filePath: null,
             },
         },
     };
@@ -544,14 +600,18 @@ async function main() {
     // .out 読み込み
     const data = JSON.parse(fs.readFileSync(notePath, 'utf-8'));
 
-    // pages ディレクトリ特定
+    // pages ディレクトリ特定（固定: <outDir>/<basename>/）
     const noteDir = path.dirname(notePath);
+    const basename = path.basename(notePath, '.out');
     const pageDir = data.pageDir
         ? (path.isAbsolute(data.pageDir) ? data.pageDir : path.resolve(noteDir, data.pageDir))
-        : path.resolve(noteDir, 'pages');
+        : path.resolve(noteDir, basename);
 
-    // imageDir は常に pageDir/images（本体と同じ）
+    // imageDir / fileDir は <outDir>/<basename>/{images,files} 固定 (data.imageDir/fileDir 上書き可)
     const imageDir = path.join(pageDir, 'images');
+    const fileDir = data.fileDir
+        ? (path.isAbsolute(data.fileDir) ? data.fileDir : path.resolve(noteDir, data.fileDir))
+        : path.resolve(noteDir, basename, 'files');
 
     // ディレクトリ作成
     fs.mkdirSync(pageDir, { recursive: true });
@@ -599,7 +659,7 @@ async function main() {
         console.log(`\ud83d\udcc1 Group node: "${groupName}" (${groupNode.id})`);
 
         for (const mdFile of mdFiles) {
-            const imported = importMdFile(mdFile, pageDir, imageDir);
+            const imported = importMdFile(mdFile, pageDir, imageDir, fileDir);
             if (!imported) {
                 console.error(`  Warning: failed to import ${mdFile}`);
                 continue;
@@ -621,7 +681,7 @@ async function main() {
     } else {
         // === 単一登録モード ===
         const mdFile = mdFiles[0];
-        const imported = importMdFile(mdFile, pageDir, imageDir);
+        const imported = importMdFile(mdFile, pageDir, imageDir, fileDir);
         if (!imported) {
             console.error(`Error: failed to import ${mdFile}`);
             process.exit(1);

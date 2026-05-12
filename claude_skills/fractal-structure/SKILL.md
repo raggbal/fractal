@@ -71,21 +71,19 @@ JSON の中身（例）:
 ```
 <notes-folder>/                     ← ユーザーが登録したフォルダ
 ├── outline.note                    ← フォルダ／ファイルのツリー構造 (JSON)
-├── <fileId>.out                    ← Outliner ファイル (JSON)
-├── <fileId>.out                    ← 別の Outliner
+├── <basename>.out                  ← Outliner ファイル (JSON) — basename = ファイル名 (拡張子なし)
+├── <basename>/                     ← Outliner 専属ディレクトリ (= pageDir)、basename 名で固定
+│   ├── <pageId>.md                 ← Page MD (ノードに紐づく本文)
+│   ├── images/                     ← ノード画像 + Page MD 内画像の共通保存先
+│   │   └── image_<ts>_<rand>.png
+│   └── files/                      ← ノードファイル添付 + Page MD 内ローカルリンクの保存先
+│       └── <original-filename>.pdf
 ├── dailynotes.out                  ← 日次ノート（自動生成される特殊 .out）
-├── <fileId>/                       ← Outliner 専用 pageDir（outline JSON の pageDir で指定）
-│   └── <pageId>.md
-├── pages/                          ← デフォルト共有 pageDir（pageDir 未指定の .out が使う）
-│   ├── <pageId>.md
-│   └── images/                     ← MD 内画像の保存先
-│       └── image_<ts>_<rand>.png
-├── images/                         ← Outliner ノードの画像（`fractal.outlinerImageDefaultDir` = ./images）
-│   └── image_<ts>_<rand>.png
-├── files/                          ← Outliner ノードのファイル添付（`fractal.outlinerFileDir` = ./files）
-│   └── <original-filename>.pdf
+├── dailynotes/                     ← 同上の pageDir
 └── <anything>.md                   ← ルート直下の独立 .md（検索対象に含まれる）
 ```
+
+sprint 20260509-185557 以降、`fractal.outlinerPageDir` / `outlinerImageDefaultDir` / `outlinerFileDir` 設定は撤廃され、すべて `<outDir>/<basename>/` 配下に self-contained で保存される。古い `pages/` 共有 dir、`./images`、`./files` は legacy 互換のため「物理的に存在すれば後方互換で使う」フォールバックのみ残されている。新規 .out は常に新形式。
 
 ### 旧 `.note` → `outline.note` 移行
 
@@ -165,7 +163,9 @@ JSON の中身（例）:
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `title` | string | 表示タイトル（`outline.note` の `items[id].title` と同期） |
-| `pageDir` | string \| undefined | Page MD の保存先。相対なら `.out` からの相対、絶対パスも可。未指定なら `./pages` |
+| `pageDir` | string \| undefined | Page MD の保存先。相対なら `.out` からの相対、絶対パスも可。未指定なら `./<basename>/` (legacy `./pages` がディスクに残っていればそちら) |
+| `imageDir` | string \| undefined | ノード画像の保存先 (top-level)。未指定なら `./<basename>/images/` (legacy `./images` 互換あり) |
+| `fileDir` | string \| undefined | ノードファイル添付の保存先 (top-level)。未指定なら `./<basename>/files/` (legacy `./files` 互換あり) |
 | `rootIds` | string[] | トップレベルノード ID 列（順序付き） |
 | `nodes` | Record<string, Node> | 全ノードの辞書 |
 
@@ -181,12 +181,14 @@ JSON の中身（例）:
 | ノード種別 | `isPage` | `pageId` | `filePath` | `images` | 実体ファイル |
 |-----------|---------|---------|-----------|----------|-------------|
 | **Plain** (普通のノード) | `false` | `null` | `null` | `[]` | なし |
-| **Page** (MD 本文あり) | `true` | `"<uuid>"` | `null` | `[]` | `<pageDir>/<pageId>.md` |
-| **Image** (画像だけ) | `false` | `null` | `null` | `["<rel path>"]` | `<outDir>/<outlinerImageDefaultDir>/image_...` |
-| **File attachment** | `false` | `null` | `"<rel path>"` | `[]` | `<outDir>/<outlinerFileDir>/<name>` |
+| **Page** (MD 本文あり) | `true` | `"<uuid>"` | `null` | `[]` | `<outDir>/<basename>/<pageId>.md` |
+| **Image** (画像だけ) | `false` | `null` | `null` | `["<rel path>"]` | `<outDir>/<basename>/images/image_<ts>_<rand>.<ext>` |
+| **File attachment** | `false` | `null` | `"<rel path>"` | `[]` | `<outDir>/<basename>/files/<name>` |
 
-- `outDir` = `.out` が置かれているディレクトリ
-- **相対パスの基準は `.out` ディレクトリ**（Page MD 内の画像だけは `pageDir` が基準 — MD ファイル自体が `pageDir` にあるため）
+- `outDir` = `.out` が置かれているディレクトリ、`basename` = `.out` ファイル名 (拡張子なし) = pageDir 名
+- **相対パスの基準**:
+  - `node.images[]` と `node.filePath` → `outDir` 基準（例: `<basename>/images/foo.png`、`<basename>/files/doc.pdf`）
+  - Page MD 内の `![]()` / `[]()` → `pageDir` 基準（例: `images/foo.png`、`files/doc.pdf`）— MD ファイル自体が `pageDir` にあるため
 - `images` は配列で複数持てる（`filePath` は 1 つだけ）
 - Node を「Plain → Page」等に切り替えるときは、他フィールドを明示的に `null`/`[]` にクリアする（相互排他）
 
@@ -224,13 +226,11 @@ MD 本文の検索前に、DOM レンダ後テキストと一致させるため�
 | 設定キー | デフォルト | 説明 |
 |---------|-----------|------|
 | `fractal.theme` | `things` | テーマ |
-| `fractal.outlinerPageDir` | `./pages` | Page MD ディレクトリ (相対 or 絶対) |
-| `fractal.outlinerImageDefaultDir` | `./images` | ノード画像ディレクトリ |
-| `fractal.outlinerFileDir` | `./files` | ノードファイル添付ディレクトリ |
 | `fractal.imageDefaultDir` | `""` | MD 編集時の画像保存先（空なら MD と同ディレクトリ） |
+| `fractal.forceRelativeImagePath` | `false` | MD 画像を必ず相対パスで保存 |
 | `fractal.language` | `default` | UI 言語 |
 
-**優先順位**: `.out` ファイル内の `pageDir` > VSCode 設定 `fractal.outlinerPageDir` > デフォルト `./pages`
+**Outliner の pageDir / imageDir / fileDir はグローバル設定では制御されない** (sprint 20260509-185557 で `fractal.outlinerPageDir` / `outlinerImageDefaultDir` / `outlinerFileDir` 撤廃)。`.out` 内 `pageDir` / `imageDir` / `fileDir` フィールドで per-file 上書き、それも無ければ `<basename>/{,images,files}` 固定。
 
 Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の対応キー。
 
@@ -238,8 +238,11 @@ Electron 側は `~/Library/Application Support/fractal-desktop/config.json` の�
 
 ## 9. よくあるパス解決の落とし穴
 
-- **pageDir は複数 outline で共有されうる**: ディレクトリ内の `.md` を全列挙すると他 outline の page まで拾うので、必ず `<nodes>.*.pageId` → `<pageDir>/<pageId>.md` で引く
-- **画像の相対パス基準**: ノード画像は `.out` ディレクトリ基準、Page MD 内画像は `pageDir` 基準 — 混同注意
+- **pageDir は legacy 設定で共有されうる**: 通常は `<basename>/` で 1 outline 専属だが、旧設定で `./pages` 共有モードのまま運用されているケースあり。ディレクトリ内 `.md` 全列挙ではなく、必ず `<nodes>.*.pageId` → `<pageDir>/<pageId>.md` で引く
+- **画像・ファイルの相対パス基準**:
+  - `node.images[]` / `node.filePath` → `.out` ディレクトリ基準 (例 `<basename>/images/foo.png`)
+  - Page MD 内 `![]()` / `[]()` → `pageDir` 基準 (例 `images/foo.png`)
+  - 混同すると画像表示されない/リンク切れになる
 - **ファイル名ユニーク化**: 画像は `image_<Date.now()>_<rand>.<ext>`、ファイル添付は元ファイル名 + 衝突時 `-1`/`-2` サフィックス
 - **`.out` を VSCode/Electron で開いた状態で外部から書き換えない**: 競合する（Claude Code が書く前に閉じてもらう）
 

@@ -88,9 +88,20 @@ function parseArgs(argv) {
 
 // ─────────────── Path helpers ───────────────
 
-function resolveRelTo(outDir, p, fallbackRel) {
-    const base = p || fallbackRel;
-    return path.isAbsolute(base) ? base : path.resolve(outDir, base);
+/**
+ * Outliner asset dir 解決 (固定: <outDir>/<basename>/<subdir>):
+ * - 明示指定 (引数 or .out 内 imageDir/fileDir) があればそれを使う (絶対 or .out dir 基準の相対)
+ * - 未指定なら <outDir>/<basename>/<subdir> 固定
+ */
+function resolveOutlinerAssetDir(outFilePath, explicitDir, subdir) {
+    if (explicitDir) {
+        return path.isAbsolute(explicitDir)
+            ? explicitDir
+            : path.resolve(path.dirname(outFilePath), explicitDir);
+    }
+    const outDir = path.dirname(outFilePath);
+    const basename = path.basename(outFilePath, '.out');
+    return path.resolve(outDir, basename, subdir);
 }
 
 function uniqueFileName(dir, name) {
@@ -217,8 +228,8 @@ function main() {
     data.rootIds = data.rootIds || [];
 
     const outDir = path.dirname(notePath);
-    const imageDir = resolveRelTo(outDir, args.imageDir || data.imageDir, './images');
-    const fileDir = resolveRelTo(outDir, args.fileDir || data.fileDir, './files');
+    const imageDir = resolveOutlinerAssetDir(notePath, args.imageDir || data.imageDir, 'images');
+    const fileDir = resolveOutlinerAssetDir(notePath, args.fileDir || data.fileDir, 'files');
 
     // === APPEND mode (update existing node) ===
     if (args.append) {

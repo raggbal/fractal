@@ -5,7 +5,7 @@ description: Fractal の Notes フォルダ／Outline 一覧・横断検索ス�
 
 # fractal-search — Fractal 全文検索
 
-> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / `pages/` / `pageDir` / ノードの 4 種類 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った検索スコープ・誤った pageDir 解決を防ぎます。
+> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / `<basename>/` (pageDir) / `<basename>/images/` / `<basename>/files/` / ノードの 4 種類 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った検索スコープ・誤った pageDir 解決を防ぎます。
 
 1 つ以上の Notes フォルダを横断して、キーワードにマッチする情報を探す。検索の粒度は:
 
@@ -102,7 +102,7 @@ Outline タイトルには `outline.note` のフォルダ階層がパンくず�
       "kind": "page",
       "outlineId": "mn5tqf9ft4nd",
       "pageId": "a1b2c3d4-...",
-      "pagePath": "/Users/you/Desktop/notes/pages/a1b2c3d4-....md",
+      "pagePath": "/Users/you/Desktop/notes/mn5tqf9ft4nd/a1b2c3d4-....md",
       "parentNodeId": "nmn6vngyvsfvd8q",
       "parentNodeText": "Setup guide",
       "matches": [ { "field": "content", "lineNumber": 12, "line": "...", "start": 0, "end": 8 } ]
@@ -133,7 +133,7 @@ MD 検索時は、DOM レンダ後テキストと一致させるため以下で�
 - `[text](url)` を `text` のみに短縮
 - 各行 200 文字まで
 
-`pageDir` 解決は `.out` 内 `pageDir` フィールド > なければ `./pages`。
+`pageDir` 解決は `.out` 内 `pageDir` フィールド > なければ `<outDir>/<basename>/` (legacy: `./pages` が物理的に残っていればそちら)。
 
 ---
 

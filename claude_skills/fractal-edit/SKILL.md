@@ -5,7 +5,7 @@ description: Fractal の .out / outline.note への全書き込み操作。ノ�
 
 # fractal-edit — Fractal への全書き込み操作
 
-> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / `pages/` / `pageDir` / ノードの 4 種類 / 画像パスの相対基準 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った pageDir 解決、壊れた画像参照、ノード種別の相互排他違反、`outline.note` 未更新を防ぎます。
+> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / `<basename>/` (pageDir) / `<basename>/images/` / `<basename>/files/` / ノードの 4 種類 / 画像・ファイルパスの相対基準 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った pageDir 解決、壊れた画像参照、ノード種別の相互排他違反、`outline.note` 未更新を防ぎます。
 
 Fractal への書き込みは用途別に 2 スクリプトに分かれる:
 
@@ -68,9 +68,11 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-md.mjs \
 ### MD 処理内容
 
 - **Markdown 正規化**: セル内改行テーブル平坦化（`src/shared/markdown-import.ts` `normalizeMultiLineTableCells` と同等）
-- **画像処理**: `![alt](path)` を検出し、ローカル画像は `pages/images/` にコピー＆リネーム → **pageDir からの相対パス**に書き換え（URL 画像はそのまま）。balanced paren 対応（Notion エクスポートなど URL に `(` を含む場合に対応）
-- **ページ保存**: `pages/<uuid>.md`
-- `.out` ファイルに `pageDir` フィールドがあれば優先、なければ `./pages`
+- **画像処理**: `![alt](path)` を検出し、ローカル画像は `<outDir>/<basename>/images/` にコピー＆リネーム → **pageDir からの相対パス** (`images/...`) に書き換え。URL は変更なし
+- **ファイル / 別 MD 参照処理**: 通常リンク `[text](path)` を検出し、ローカルファイル (PDF / CSV / 他 MD 等) は `<outDir>/<basename>/files/` にコピー → **pageDir からの相対パス** (`files/...`) に書き換え。URL / mailto / anchor (`#xxx`) / 存在しないファイルはスキップ
+- **ページ保存**: `<outDir>/<basename>/<uuid>.md`
+- pageDir 解決: `.out` の `pageDir` フィールドを優先、なければ `<outDir>/<basename>/` 固定
+- imageDir / fileDir: `.out` の `imageDir` / `fileDir` を優先、なければ `<basename>/{images,files}` 固定
 
 ### 差し込み位置
 
@@ -104,8 +106,8 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-md.mjs \
 | `--text <str>` | | 新規ノードのテキスト（デフォルト: 画像は空文字、ファイルはファイル名） |
 | `--target <id\|text>` | | `--append` 時の操作対象ノード |
 | `--append` | | 新規ノードを作らず対象ノードの `images[]` / `filePath` を更新 |
-| `--image-dir <path>` | | 画像保存先（相対は `.out` 基準、デフォルト `./images`） |
-| `--file-dir <path>` | | ファイル保存先（相対は `.out` 基準、デフォルト `./files`） |
+| `--image-dir <path>` | | 画像保存先（相対は `.out` 基準、デフォルト `<basename>/images`） |
+| `--file-dir <path>` | | ファイル保存先（相対は `.out` 基準、デフォルト `<basename>/files`） |
 
 `--image` と `--file` はどちらか一方のみ（1 コマンド 1 種別）。
 
@@ -163,4 +165,4 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-attach.mjs \
 - ノード ID は `n` + 時刻 + ランダム、Page ID は `crypto.randomUUID()` — **手書きしない**
 - `images[]` と `filePath` は**相互排他**（Page の `pageId` とも排他）— スクリプトが強制
 - `.out` ファイルの `pageDir` が複数 outline で共有される場合、検索・操作時に他 outline の page を混入させない（fractal-search 仕様と同じ）
-- 大量 MD 一括取り込み時、画像参照が多いと `pages/images/` に大量ファイルが生成される
+- 大量 MD 一括取り込み時、画像参照が多いと `<basename>/images/` に大量ファイルが生成される

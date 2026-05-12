@@ -410,10 +410,14 @@ function searchFolder(folder, regex, args, state, cache) {
         }
 
         // --- pages (only nodes with pageId) ---
+        // pageDir 解決: .out 内 pageDir > <outDir>/<basename>/ (新 default) > legacy ./pages 互換
         if (!args.scope || args.scope.has('page')) {
+            const basename = path.basename(outFile, '.out');
+            const newDefault = path.join(folder, basename);
+            const legacyDefault = path.join(folder, 'pages');
             const pageDirAbs = data.pageDir
                 ? (path.isAbsolute(data.pageDir) ? data.pageDir : path.resolve(folder, data.pageDir))
-                : path.join(folder, 'pages');
+                : (fs.existsSync(newDefault) || !fs.existsSync(legacyDefault) ? newDefault : legacyDefault);
             if (fs.existsSync(pageDirAbs)) {
                 let perFile = 0;
                 for (const node of data.nodes) {
