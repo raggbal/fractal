@@ -17006,7 +17006,41 @@ class EditorInstance {
                     }
                 });
 
-                pastedMd = turndownService.turndown(html);
+                // v0.207.49: GFM table 化のため <th> を持たない <table> に空の <thead> を注入。
+                // turndown-plugin-gfm は isHeadingRow が true でないと table を raw HTML のまま保持する。
+                // 空ヘッダー方式 (GFM 仕様で許容) で markdown table 化する。
+                function ensureTableHeaders(htmlString) {
+                    try {
+                        var parser = new DOMParser();
+                        var doc = parser.parseFromString(htmlString, 'text/html');
+                        var tables = doc.querySelectorAll('table');
+                        for (var ti = 0; ti < tables.length; ti++) {
+                            var table = tables[ti];
+                            if (table.querySelector('th')) continue;
+                            var existingThead = table.querySelector('thead');
+                            if (existingThead && existingThead.textContent.trim()) continue;
+                            var firstRow = table.querySelector('tr');
+                            if (!firstRow) continue;
+                            var colCount = firstRow.children.length;
+                            if (colCount === 0) continue;
+                            // 既存 (空 thead があれば削除して入れ直す
+                            if (existingThead) existingThead.parentNode.removeChild(existingThead);
+                            var thead = doc.createElement('thead');
+                            var tr = doc.createElement('tr');
+                            for (var ci = 0; ci < colCount; ci++) {
+                                tr.appendChild(doc.createElement('th'));
+                            }
+                            thead.appendChild(tr);
+                            table.insertBefore(thead, table.firstChild);
+                        }
+                        return doc.body.innerHTML;
+                    } catch (e) {
+                        return htmlString;
+                    }
+                }
+                var preprocessedHtml = ensureTableHeaders(html);
+
+                pastedMd = turndownService.turndown(preprocessedHtml);
 
                 // Post-process: Un-escape Markdown block-level syntax markers
                 // Turndown escapes characters like -, +, #, > at line starts to prevent
