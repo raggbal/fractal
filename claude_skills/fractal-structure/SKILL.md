@@ -30,18 +30,20 @@ cat "$HOME/Library/Application Support/fractal-desktop/config.json"
 jq -r '.notesFolders[]' "$HOME/Library/Application Support/fractal-desktop/config.json"
 ```
 
-### 1b. VSCode / Cursor 拡張（globalState）
+### 1b. VSCode 系拡張（globalState）
 
-`state.vscdb` (SQLite) の `ItemTable` に `imaken.fractal` キーで JSON 保存されている。
+VSCode 互換の各 IDE（Code / Code - Insiders / Cursor / Kiro / VSCodium / Antigravity）はすべて同じ仕組みで `state.vscdb` (SQLite) の `ItemTable` に `imaken.fractal` キーで JSON を保存する。
 
 | エディタ | state.vscdb パス |
 |---------|-----------------|
 | VSCode 安定版 | `~/Library/Application Support/Code/User/globalStorage/state.vscdb` |
 | VSCode Insiders | `~/Library/Application Support/Code - Insiders/User/globalStorage/state.vscdb` |
 | Cursor | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` |
-| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/state.vscdb`（存在すれば） |
+| Kiro | `~/Library/Application Support/Kiro/User/globalStorage/state.vscdb` |
+| VSCodium | `~/Library/Application Support/VSCodium/User/globalStorage/state.vscdb` |
+| Antigravity | `~/Library/Application Support/Antigravity/User/globalStorage/state.vscdb` |
 
-Linux: `~/.config/Code/...`、Windows: `%APPDATA%/Code/...`
+Linux: `~/.config/<EditorName>/...`、Windows: `%APPDATA%/<EditorName>/...`
 
 ```bash
 # notesFolders の配列を取り出す

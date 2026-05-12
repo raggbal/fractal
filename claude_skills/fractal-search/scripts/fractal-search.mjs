@@ -85,16 +85,16 @@ function vscodeStatePaths() {
     const bases = [];
     if (plat === 'darwin') {
         const root = path.join(home, 'Library/Application Support');
-        bases.push('Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium');
+        bases.push('Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium', 'Antigravity');
         return bases.map(b => path.join(root, b, 'User/globalStorage/state.vscdb'));
     }
     if (plat === 'win32') {
         const ad = process.env.APPDATA || '';
-        return ['Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium']
+        return ['Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium', 'Antigravity']
             .map(b => path.join(ad, b, 'User/globalStorage/state.vscdb'));
     }
     const cfg = path.join(home, '.config');
-    return ['Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium']
+    return ['Code', 'Code - Insiders', 'Cursor', 'Kiro', 'VSCodium', 'Antigravity']
         .map(b => path.join(cfg, b, 'User/globalStorage/state.vscdb'));
 }
 

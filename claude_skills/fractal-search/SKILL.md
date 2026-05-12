@@ -1,6 +1,6 @@
 ---
 name: fractal-search
-description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/Electron）、outline 一覧、outline タイトル絞込（--find-outline）、outline ノード／page MD／ルート MD の全文検索に対応
+description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/VSCodium/Antigravity/Code Insiders/Electron）、outline 一覧、outline タイトル絞込（--find-outline）、outline ノード／page MD／ルート MD の全文検索に対応
 ---
 
 # fractal-search — Fractal 全文検索
@@ -45,7 +45,7 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --find-outline AWS
 |-----------|------|
 | `--query <str>` | 検索語（`--list-folders` 以外で必須） |
 | `--folder <path>` | 検索対象 Notes フォルダ（複数指定可、先頭に複数並べるか `--folder <p1> --folder <p2>`） |
-| `--auto` | Electron `config.json` と VSCode/Cursor/Kiro/VSCodium `state.vscdb` から登録済み Notes フォルダを自動検出 |
+| `--auto` | Electron `config.json` と VSCode/Code-Insiders/Cursor/Kiro/VSCodium/Antigravity の `state.vscdb` から登録済み Notes フォルダを自動検出 |
 | `--list-folders` | 検索はせず、自動検出された Notes フォルダ一覧を出力（複数エディタに登録されている場合は sources を集約して表示） |
 | `--list-notes` | 検索はせず、登録済みフォルダ内の **全 `.out` (outline) を dedupe 済みで一覧**。各 outline の `outline.note` 内フォルダ階層、node/page 数、mtime 付き（cache 利用） |
 | `--find-outline <keyword>` | **中身は見ず** outline タイトル or `outline.note` フォルダ階層に一致する outline だけ返す。`--regex` / `--case-sensitive` 併用可。Claude Code が「まずどの outline か絞る」一段目として使える（cache 利用） |
@@ -195,7 +195,7 @@ Discovered Fractal notes folders:
      sources: vscode:Code
 ```
 
-- `sources` は `electron` / `vscode:<EditorName>`（Code / Cursor / Kiro / VSCodium / Code - Insiders 等）を集約
+- `sources` は `electron` / `vscode:<EditorName>`（Code / Code - Insiders / Cursor / Kiro / VSCodium / Antigravity 等）を集約
 - 同じ path が複数エディタに登録されていれば 1 行にまとめる
 
 ### `--list-notes` 出力例
