@@ -110,6 +110,9 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    extractDataUrlsInPastedMd(markdown) {
+        this._mainHost.extractDataUrlsInPastedMd(markdown, this.filePath);
+    }
     translateContent(markdown, sourceLang, targetLang) {
         this._mainHost.translateContent(markdown, sourceLang, targetLang, this.filePath);
     }
@@ -14546,6 +14549,22 @@ class EditorInstance {
             _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
             return;
         }
+        // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
+        if (message.type === 'extractDataUrlsInPastedMdResult') {
+            console.log('[paste] extractDataUrlsInPastedMdResult: savedCount=', message.savedCount,
+                'mdLength=', message.markdown?.length, 'error=', message.error || 'none');
+            if (message.error) console.error('[paste] host error:', message.error);
+            if (!message.markdown) return;
+            var pending = self._pendingDataUrlPaste || {};
+            self._pendingDataUrlPaste = null;
+            editor.focus();
+            _insertPastedMarkdown(message.markdown, {
+                clipboardEvent: null,
+                isInternal: !!pending.isInternal,
+                plainText: pending.plainText || ''
+            });
+            return;
+        }
         if (message.type === 'performUndo') {
             var activeInst = EditorInstance.getActiveInstance();
             if (activeInst && activeInst._undo) activeInst._undo();
@@ -14819,6 +14838,11 @@ class EditorInstance {
             logger.log('File link element inserted');
         } else if (message.type === 'pasteWithAssetCopyResult') {
             // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
+            }
+        } else if (message.type === 'extractDataUrlsInPastedMdResult') {
+            // data URL extraction result - delegate to side panel EditorInstance if present
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message);
             }
@@ -16851,6 +16875,16 @@ class EditorInstance {
             }
             return lines.join('\n');
         })(pastedMd);
+
+        // HTML paste で MD に data:image/... が残っている場合、host に実体化を依頼
+        // (cleanImageSrc が data URL を strip するため、DOM 挿入前にファイル化する必要あり)
+        if (pastedMd && pastedMd.indexOf('data:image/') >= 0 && typeof host.extractDataUrlsInPastedMd === 'function') {
+            logger.log('Pasted MD contains data:image/, delegating to host for extraction');
+            // 後の result handler で _insertPastedMarkdown するため、plainText を保持
+            self._pendingDataUrlPaste = { plainText: text || '', isInternal: !!internalMd };
+            host.extractDataUrlsInPastedMd(pastedMd);
+            return;
+        }
 
         _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
     });

@@ -115,6 +115,15 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // HTML paste で MD 内に残った data:image/... を images/ に実体化し相対 path 化
+        extractDataUrlsInPastedMd: function(markdown, sidePanelFilePath) {
+            postFn({
+                type: 'extractDataUrlsInPastedMd',
+                markdown: markdown,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
         // v10: Translation
         translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
             postFn({

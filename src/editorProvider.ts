@@ -15,6 +15,7 @@ import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
+import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 
 // ============================================
 // DocumentParser: IMAGE_DIR ディレクティブの解析
@@ -1244,6 +1245,56 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     break;
                 }
 
+                case 'extractDataUrlsInPastedMd': {
+                    // HTML paste で生まれた data:image/... を <imageDir>/<ts>.<ext> に保存し相対 path 化
+                    console.log('[extractDataUrlsInPastedMd] received, sidePanelFilePath=', message.sidePanelFilePath, 'mdLength=', message.markdown?.length);
+                    if (!message.markdown) {
+                        console.error('[extractDataUrlsInPastedMd] empty markdown, skipping');
+                        webviewPanel.webview.postMessage({
+                            type: 'extractDataUrlsInPastedMdResult',
+                            markdown: '',
+                            savedCount: 0,
+                            error: 'empty markdown'
+                        });
+                        break;
+                    }
+                    try {
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
+                        const targetPath = message.sidePanelFilePath || document.uri.fsPath;
+                        const targetUri = vscode.Uri.file(targetPath);
+                        let targetContent = '';
+                        if (message.sidePanelFilePath && sidePanel.document && !sidePanel.document.isClosed) {
+                            targetContent = sidePanel.document.getText();
+                        } else if (!message.sidePanelFilePath) {
+                            targetContent = document.getText();
+                        } else {
+                            try { targetContent = fs.readFileSync(targetPath, 'utf-8'); } catch { /* empty */ }
+                        }
+                        const imageDir = imageDirectoryManager.getImageDirectory(targetUri, targetContent);
+                        const mdFileDir = path.dirname(targetPath);
+                        console.log('[extractDataUrlsInPastedMd] imageDir=', imageDir, 'mdFileDir=', mdFileDir);
+                        const { newContent, savedCount } = processDataUrlsInContent(message.markdown, imageDir, mdFileDir);
+                        console.log('[extractDataUrlsInPastedMd] saved', savedCount, 'images, returning newMd length=', newContent.length);
+                        webviewPanel.webview.postMessage({
+                            type: 'extractDataUrlsInPastedMdResult',
+                            markdown: newContent,
+                            savedCount
+                        });
+                    } catch (err) {
+                        const errMsg = err instanceof Error ? err.stack || err.message : String(err);
+                        console.error('[extractDataUrlsInPastedMd] failed:', errMsg);
+                        // fallback: 元の MD をそのまま返す (data URL は残るが paste は完了)
+                        webviewPanel.webview.postMessage({
+                            type: 'extractDataUrlsInPastedMdResult',
+                            markdown: message.markdown,
+                            savedCount: 0,
+                            error: errMsg
+                        });
+                    }
+                    break;
+                }
+
                 case 'searchFiles': {
                     const query: string = message.query || '';
                     if (query.length < 1) {
@@ -1592,13 +1643,16 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         ensureDirectoryExists(imageDir);
 
         // Always generate unique filename using timestamp format
-        const extension = this.getImageExtension(dataUrl);
+        // svg+xml / apng / 全 MIME 対応 (parseDataUrl で統一)
+        const parsed = parseDataUrl(dataUrl);
+        if (!parsed) {
+            vscode.window.showErrorMessage(`${t('failedToSaveImage')}invalid data URL format`);
+            return;
+        }
+        const extension = parsed.ext;
         const imageName = generateUniqueFileName(imageDir, extension);
         const imagePath = path.join(imageDir, imageName);
-
-        // Convert data URL to buffer
-        const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const imageBuffer = parsed.buffer;
             // Write the file
             fs.writeFileSync(imagePath, imageBuffer);
             console.log('[DEBUG] Image saved to:', imagePath);
@@ -1625,11 +1679,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     private getImageExtension(dataUrl: string): string {
-        const match = dataUrl.match(/^data:image\/(\w+);/);
-        if (match) {
-            return match[1] === 'jpeg' ? 'jpg' : match[1];
-        }
-        return 'png'; // Default to png
+        // svg+xml / apng 等の `+` `.` を含む MIME も拾う
+        const match = dataUrl.match(/^data:image\/([a-zA-Z0-9+\-.]+)[;,]/);
+        return match ? mimeToExt(match[1]) : 'png';
     }
 
     private async handleReadAndInsertImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string) {

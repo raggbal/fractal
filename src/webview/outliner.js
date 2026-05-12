@@ -7800,6 +7800,17 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'extractDataUrlsInPastedMdResult':
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'extractDataUrlsInPastedMdResult',
+                            markdown: msg.markdown,
+                            savedCount: msg.savedCount,
+                            error: msg.error
+                        });
+                    }
+                    break;
+
                 case 'translateResult':
                     // v10: Show translation result by replacing side panel MD content in readonly mode.
                     // Re-opens side panel with translated markdown, but in readonly display.

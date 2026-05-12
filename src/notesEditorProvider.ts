@@ -11,6 +11,7 @@ import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgre
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
+import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
@@ -438,15 +439,14 @@ export class NotesEditorProvider {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+                const parsed = parseDataUrl(dataUrl);
+                if (!parsed) return;
                 let imgFileName = fileName;
                 if (!imgFileName) {
-                    const extMatch = dataUrl.match(/^data:image\/(\w+);/);
-                    const ext = extMatch ? extMatch[1].replace('jpeg', 'jpg') : 'png';
-                    imgFileName = `image_${Date.now()}.${ext}`;
+                    imgFileName = `image_${Date.now()}.${parsed.ext}`;
                 }
-                const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
                 const destPath = path.join(imagesDir, imgFileName);
-                fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
+                fs.writeFileSync(destPath, parsed.buffer);
                 const outFilePath = fileManager.getCurrentFilePath();
                 const outDir = outFilePath ? path.dirname(outFilePath) : fileManager.getMainFolderPath();
                 const relativePath = path.relative(outDir, destPath).replace(/\\/g, '/');
@@ -584,15 +584,14 @@ export class NotesEditorProvider {
                 const pagesDir = fileManager.getPagesDirPath();
                 const imagesDir = path.join(pagesDir, 'images');
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+                const parsed = parseDataUrl(dataUrl);
+                if (!parsed) return;
                 let imgFileName = fileName;
                 if (!imgFileName) {
-                    const extMatch = dataUrl.match(/^data:image\/(\w+);/);
-                    const ext = extMatch ? extMatch[1].replace('jpeg', 'jpg') : 'png';
-                    imgFileName = `image_${Date.now()}.${ext}`;
+                    imgFileName = `image_${Date.now()}.${parsed.ext}`;
                 }
-                const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
                 const destPath = path.join(imagesDir, imgFileName);
-                fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
+                fs.writeFileSync(destPath, parsed.buffer);
                 const spDir = path.dirname(sidePanelFilePath);
                 const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
                 const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
@@ -924,6 +923,29 @@ export class NotesEditorProvider {
                     type: 'pasteWithAssetCopyResult',
                     markdown: result.rewrittenMarkdown
                 });
+            },
+            extractDataUrlsInPastedMd: (markdown: string, sidePanelFilePath: string) => {
+                // HTML paste で残った data:image/... を pagesDir/images に実体化
+                try {
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
+                    const pagesDir = fileManager.getPagesDirPath();
+                    const imageDir = path.join(pagesDir, 'images');
+                    const mdFileDir = sidePanelFilePath ? path.dirname(sidePanelFilePath) : pagesDir;
+                    const { newContent, savedCount } = processDataUrlsInContent(markdown, imageDir, mdFileDir);
+                    panel.webview.postMessage({
+                        type: 'extractDataUrlsInPastedMdResult',
+                        markdown: newContent,
+                        savedCount
+                    });
+                } catch (err) {
+                    console.error('[notes extractDataUrlsInPastedMd] failed:', err);
+                    panel.webview.postMessage({
+                        type: 'extractDataUrlsInPastedMdResult',
+                        markdown,
+                        savedCount: 0
+                    });
+                }
             },
             getWorkspaceConfig: (section: string) => {
                 return vscode.workspace.getConfiguration(section);

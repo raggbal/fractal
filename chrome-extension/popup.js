@@ -220,8 +220,19 @@ clipBtn.addEventListener('click', async () => {
             : '';
         const pageDirRel = explicitPageDir || outliner.id;
         const pageDirHandle = await getNestedDirHandle(folder.handle, pageDirRel);
+        // data:image/... を <pageDir>/images/ に実体化し相対 path に書き換え
+        let finalMd = pageMd;
+        try {
+            const { newMd, savedCount } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, pageDirHandle);
+            finalMd = newMd;
+            if (savedCount > 0) {
+                setStatus(`画像 ${savedCount} 件を保存中…`, 'info');
+            }
+        } catch (e) {
+            console.warn('[clipper] data URL extract failed, fallback to inline', e);
+        }
         const pageMdHandle = await pageDirHandle.getFileHandle(result.pageId + '.md', { create: true });
-        await writeTextFile(pageMdHandle, pageMd);
+        await writeTextFile(pageMdHandle, finalMd);
 
         // 6. .out 書き戻し
         setStatus('.out 書き込み中…', 'info');

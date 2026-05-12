@@ -112,6 +112,8 @@ export interface NotesPlatformActions {
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
     /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
     pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string): void;
+    /** HTML paste で MD に残った data:image/... を images/ に実体化し相対 path 化 */
+    extractDataUrlsInPastedMd?(markdown: string, sidePanelFilePath: string): void;
     /** v10: Get workspace config (for translate AWS credentials) */
     getWorkspaceConfig?(section: string): any;
     /** v10: Post message to webview (used in translate handler) */
@@ -441,6 +443,12 @@ export async function handleNotesMessage(
         case 'pasteWithAssetCopy':
             if (message.sidePanelFilePath && message.markdown && message.sourceContext && platform.pasteWithAssetCopy) {
                 platform.pasteWithAssetCopy(message.markdown, message.sourceContext, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'extractDataUrlsInPastedMd':
+            if (message.markdown && platform.extractDataUrlsInPastedMd) {
+                platform.extractDataUrlsInPastedMd(message.markdown, message.sidePanelFilePath);
             }
             break;
 

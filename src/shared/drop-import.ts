@@ -83,19 +83,20 @@ export function saveImageBuffer(
 }
 
 /**
- * Parse a data URL (e.g. "data:image/png;base64,...") and save to imageDir.
- * Throws on invalid format.
+ * Parse a data URL (e.g. "data:image/png;base64,..." or "data:image/svg+xml,<...>") and save to imageDir.
+ * Throws on invalid format. Supports png/jpeg/gif/webp/avif/apng/svg+xml.
  */
 export function saveImageFromDataUrl(
     dataUrl: string,
     ctx: { imageDir: string; outDir: string; getDisplayUri?: (p: string) => string }
 ): { imagePath: string; displayUri: string } {
-    const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
-    if (!match) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { parseDataUrl } = require('./data-url-image-extractor');
+    const parsed = parseDataUrl(dataUrl);
+    if (!parsed) {
         throw new Error('Invalid dataUrl format');
     }
-    const [, extRaw, base64Data] = match;
-    return saveImageBuffer(Buffer.from(base64Data, 'base64'), extRaw, ctx);
+    return saveImageBuffer(parsed.buffer, parsed.ext, ctx);
 }
 
 // ────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, 
 import { safeResolveUnderDir } from './shared/path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
+import { parseDataUrl } from './shared/data-url-image-extractor';
 
 
 /**
@@ -600,6 +601,34 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'extractDataUrlsInPastedMd': {
+                        // HTML paste で残った data:image/... を pagesDir/images に実体化
+                        if (!message.markdown) break;
+                        try {
+                            // eslint-disable-next-line @typescript-eslint/no-var-requires
+                            const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
+                            const pagesDir = this.getPagesDirPath(document);
+                            const imageDir = path.join(pagesDir, 'images');
+                            const mdFileDir = message.sidePanelFilePath
+                                ? path.dirname(message.sidePanelFilePath)
+                                : pagesDir;
+                            const { newContent, savedCount } = processDataUrlsInContent(message.markdown, imageDir, mdFileDir);
+                            webviewPanel.webview.postMessage({
+                                type: 'extractDataUrlsInPastedMdResult',
+                                markdown: newContent,
+                                savedCount
+                            });
+                        } catch (err) {
+                            console.error('[outliner extractDataUrlsInPastedMd] failed:', err);
+                            webviewPanel.webview.postMessage({
+                                type: 'extractDataUrlsInPastedMdResult',
+                                markdown: message.markdown,
+                                savedCount: 0
+                            });
+                        }
+                        break;
+                    }
+
                     case 'createPageAutoForSidePanel': {
                         // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
                         const sidePanelFilePath: string = message.sidePanelFilePath || '';
@@ -670,15 +699,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
                             // Generate filename: use provided name or auto-generate from dataUrl
+                            const parsed = parseDataUrl(message.dataUrl);
+                            if (!parsed) break;
                             let imgFileName = message.fileName;
                             if (!imgFileName) {
-                                const extMatch = message.dataUrl.match(/^data:image\/(\w+);/);
-                                const ext = extMatch ? extMatch[1].replace('jpeg', 'jpg') : 'png';
-                                imgFileName = `image_${Date.now()}.${ext}`;
+                                imgFileName = `image_${Date.now()}.${parsed.ext}`;
                             }
-                            const base64Data = message.dataUrl.replace(/^data:image\/\w+;base64,/, '');
                             const destPath = path.join(imagesDir, imgFileName);
-                            fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
+                            fs.writeFileSync(destPath, parsed.buffer);
                             const spDir = path.dirname(message.sidePanelFilePath);
                             const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
                             const displayUri = webviewPanel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
@@ -800,15 +828,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             if (!fs.existsSync(imageDir)) {
                                 fs.mkdirSync(imageDir, { recursive: true });
                             }
+                            const parsed = parseDataUrl(message.dataUrl);
+                            if (!parsed) break;
                             let imgFileName = message.fileName;
                             if (!imgFileName) {
-                                const extMatch = message.dataUrl.match(/^data:image\/(\w+);/);
-                                const ext = extMatch ? extMatch[1].replace('jpeg', 'jpg') : 'png';
-                                imgFileName = `image_${Date.now()}.${ext}`;
+                                imgFileName = `image_${Date.now()}.${parsed.ext}`;
                             }
-                            const base64Data = message.dataUrl.replace(/^data:image\/\w+;base64,/, '');
                             const destPath = path.join(imageDir, imgFileName);
-                            fs.writeFileSync(destPath, Buffer.from(base64Data, 'base64'));
+                            fs.writeFileSync(destPath, parsed.buffer);
 
                             const outDir = path.dirname(document.uri.fsPath);
                             const relativePath = path.relative(outDir, destPath).replace(/\\/g, '/');
