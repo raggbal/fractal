@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>html-md-converter playground</title>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #1e1f28;
+        color: #eee;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+    header {
+        padding: 12px 16px;
+        background: #2a2c38;
+        border-bottom: 1px solid #444;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    h1 {
+        font-size: 14px;
+        margin: 0;
+        font-weight: normal;
+    }
+    .version { font-size: 11px; opacity: 0.6; }
+    .hint { font-size: 11px; opacity: 0.6; margin-left: auto; }
+    .btn {
+        padding: 4px 10px;
+        background: #3a3c48;
+        color: #eee;
+        border: 1px solid #555;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn:hover { background: #4a4c58; }
+    main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 1px;
+        background: #444;
+        overflow: hidden;
+    }
+    main.fullscreen-mode {
+        grid-template-columns: 1fr;
+    }
+    main.fullscreen-mode .pane:not(.is-fullscreen) {
+        display: none;
+    }
+    .pane {
+        background: #1e1f28;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .pane-header {
+        padding: 8px 12px;
+        background: #252731;
+        font-size: 12px;
+        font-weight: bold;
+        border-bottom: 1px solid #444;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .pane-header .label { flex: 1; }
+    .pane-expand {
+        background: transparent;
+        border: 1px solid #555;
+        border-radius: 3px;
+        color: #ccc;
+        padding: 2px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        line-height: 1;
+    }
+    .pane-expand:hover { background: #3a3c48; color: #fff; }
+    .pane.is-fullscreen .pane-expand { background: #4ea3e8; color: #fff; border-color: #4ea3e8; }
+    .pane-copy {
+        background: transparent;
+        border: 1px solid #555;
+        border-radius: 3px;
+        color: #ccc;
+        padding: 2px 8px;
+        font-size: 11px;
+        cursor: pointer;
+        line-height: 1;
+    }
+    .pane-copy:hover { background: #3a3c48; color: #fff; }
+    .pane-copy.copied { background: #3a8a3a; color: #fff; border-color: #3a8a3a; }
+    .pane-body {
+        flex: 1;
+        overflow: auto;
+        padding: 12px;
+    }
+    #paste-area {
+        outline: none;
+        min-height: 100%;
+        color: #fff;
+    }
+    #paste-area:empty::before {
+        content: 'ここに範囲選択して貼り付け (Cmd+V) — HTML/プレーンテキストどちらも OK';
+        color: #888;
+        font-style: italic;
+    }
+    #paste-area * { max-width: 100%; }
+    #paste-area table { border-collapse: collapse; }
+    #paste-area td, #paste-area th { border: 1px solid #555; padding: 4px 8px; }
+    pre.output {
+        margin: 0;
+        font-family: 'Menlo', 'Monaco', monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #d4d4d4;
+    }
+    .empty { color: #888; font-style: italic; }
+    /* Fractal-like preview styles (dark) */
+    #md-preview {
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #e0e0e0;
+    }
+    #md-preview h1, #md-preview h2, #md-preview h3, #md-preview h4, #md-preview h5, #md-preview h6 {
+        font-weight: 600;
+        margin: 1em 0 0.5em;
+        color: #fff;
+    }
+    #md-preview h1 { font-size: 1.6em; border-bottom: 1px solid #444; padding-bottom: 4px; }
+    #md-preview h2 { font-size: 1.4em; border-bottom: 1px solid #333; padding-bottom: 3px; }
+    #md-preview h3 { font-size: 1.2em; }
+    #md-preview p { margin: 0.5em 0; }
+    #md-preview a { color: #4ea3e8; text-decoration: none; }
+    #md-preview a:hover { text-decoration: underline; }
+    #md-preview code {
+        background: #2a2c38;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-family: 'Menlo', monospace;
+        font-size: 0.9em;
+    }
+    #md-preview pre {
+        background: #14151b;
+        padding: 10px 12px;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 0.8em 0;
+    }
+    #md-preview pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 12px;
+        color: #d4d4d4;
+    }
+    #md-preview ul, #md-preview ol { padding-left: 1.6em; margin: 0.4em 0; }
+    #md-preview li { margin: 0.15em 0; }
+    #md-preview blockquote {
+        border-left: 3px solid #4ea3e8;
+        padding-left: 12px;
+        color: #aaa;
+        margin: 0.6em 0;
+    }
+    #md-preview table {
+        border-collapse: collapse;
+        margin: 0.8em 0;
+        font-size: 13px;
+    }
+    #md-preview th, #md-preview td {
+        border: 1px solid #444;
+        padding: 6px 10px;
+        text-align: left;
+    }
+    #md-preview th { background: #2a2c38; font-weight: 600; }
+    #md-preview hr { border: none; border-top: 1px solid #444; margin: 1em 0; }
+    #md-preview img { max-width: 100%; }
+    #md-preview del { color: #888; }
+</style>
+</head>
+<body>
+<header>
+    <h1>html-md-converter <span class="version" id="version"></span></h1>
+    <span class="hint">Cmd+V で paste、結果は右側に表示</span>
+    <button class="btn" id="clear">Clear</button>
+    <button class="btn" id="copy-md">Copy MD</button>
+</header>
+<main>
+    <div class="pane">
+        <div class="pane-header">
+            <span class="label">1. 貼り付け (rendered)</span>
+            <button class="pane-copy" data-copy-target="paste-area" data-copy-kind="html" title="この pane の HTML をコピー">Copy</button>
+            <button class="pane-expand" title="このペインを全画面表示 / 解除">⤢</button>
+        </div>
+        <div class="pane-body">
+            <div id="paste-area" contenteditable="true"></div>
+        </div>
+    </div>
+    <div class="pane">
+        <div class="pane-header">
+            <span class="label">2. 貼り付け元 HTML (raw)</span>
+            <button class="pane-copy" data-copy-target="html-out" data-copy-kind="text" title="raw HTML をコピー">Copy</button>
+            <button class="pane-expand" title="このペインを全画面表示 / 解除">⤢</button>
+        </div>
+        <div class="pane-body">
+            <pre class="output" id="html-out"><span class="empty">paste した clipboard の text/html を表示</span></pre>
+        </div>
+    </div>
+    <div class="pane">
+        <div class="pane-header">
+            <span class="label">3. Markdown 変換結果</span>
+            <button class="pane-copy" data-copy-target="md-out" data-copy-kind="text" title="Markdown をコピー">Copy</button>
+            <button class="pane-expand" title="このペインを全画面表示 / 解除">⤢</button>
+        </div>
+        <div class="pane-body">
+            <pre class="output" id="md-out"><span class="empty">HtmlMdConverter.htmlToMarkdown(html) の結果</span></pre>
+        </div>
+    </div>
+    <div class="pane">
+        <div class="pane-header">
+            <span class="label">4. Fractal 風プレビュー</span>
+            <button class="pane-copy" data-copy-target="md-preview" data-copy-kind="html" title="preview の HTML をコピー">Copy</button>
+            <button class="pane-expand" title="このペインを全画面表示 / 解除">⤢</button>
+        </div>
+        <div class="pane-body">
+            <div id="md-preview"><span class="empty">markdown を Fractal の見た目に近い形で render</span></div>
+        </div>
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
+<script src="../dist/html-md-converter.js"></script>
+<script>
+    document.getElementById('version').textContent = 'v' + (window.HtmlMdConverter?.version || '?');
+
+    const pasteArea = document.getElementById('paste-area');
+    const htmlOut = document.getElementById('html-out');
+    const mdOut = document.getElementById('md-out');
+    const mdPreview = document.getElementById('md-preview');
+
+    // marked: GFM enabled (tables, strikethrough)
+    if (window.marked) {
+        marked.setOptions({ gfm: true, breaks: false });
+    }
+
+    pasteArea.addEventListener('paste', function(e) {
+        e.preventDefault();
+        const html = e.clipboardData.getData('text/html');
+        const text = e.clipboardData.getData('text/plain');
+        const input = html || text || '';
+
+        // pane 1: rendered (insert HTML into contenteditable)
+        if (html) {
+            pasteArea.innerHTML = html;
+        } else {
+            pasteArea.textContent = text;
+        }
+
+        // pane 2: raw HTML
+        htmlOut.textContent = input;
+
+        // pane 3: markdown
+        let md = '';
+        try {
+            md = window.HtmlMdConverter.htmlToMarkdown(input);
+            mdOut.textContent = md;
+        } catch (err) {
+            mdOut.textContent = 'ERROR: ' + err.message + '\n\n' + err.stack;
+            mdPreview.textContent = '(markdown 変換失敗)';
+            return;
+        }
+
+        // pane 4: Fractal-like preview (marked で md → html)
+        try {
+            if (window.marked) {
+                mdPreview.innerHTML = marked.parse(md);
+            } else {
+                mdPreview.textContent = '(marked CDN ロード失敗)';
+            }
+        } catch (err) {
+            mdPreview.textContent = 'PREVIEW ERROR: ' + err.message;
+        }
+    });
+
+    document.getElementById('clear').addEventListener('click', function() {
+        pasteArea.innerHTML = '';
+        htmlOut.innerHTML = '<span class="empty">paste した clipboard の text/html を表示</span>';
+        mdOut.innerHTML = '<span class="empty">HtmlMdConverter.htmlToMarkdown(html) の結果</span>';
+        mdPreview.innerHTML = '<span class="empty">markdown を Fractal の見た目に近い形で render</span>';
+    });
+
+    // Pane fullscreen toggle (各 pane の ⤢ ボタン)
+    const mainEl = document.querySelector('main');
+    document.querySelectorAll('.pane-expand').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const pane = btn.closest('.pane');
+            const wasFullscreen = pane.classList.contains('is-fullscreen');
+            // 全 pane の is-fullscreen を解除
+            document.querySelectorAll('.pane.is-fullscreen').forEach(function(p) {
+                p.classList.remove('is-fullscreen');
+            });
+            if (!wasFullscreen) {
+                pane.classList.add('is-fullscreen');
+                mainEl.classList.add('fullscreen-mode');
+            } else {
+                mainEl.classList.remove('fullscreen-mode');
+            }
+        });
+    });
+    // ESC で fullscreen 解除
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && mainEl.classList.contains('fullscreen-mode')) {
+            document.querySelectorAll('.pane.is-fullscreen').forEach(function(p) {
+                p.classList.remove('is-fullscreen');
+            });
+            mainEl.classList.remove('fullscreen-mode');
+        }
+    });
+
+    // 各 pane のコピーボタン
+    document.querySelectorAll('.pane-copy').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const target = document.getElementById(btn.dataset.copyTarget);
+            if (!target || target.querySelector('.empty')) return;
+            const text = btn.dataset.copyKind === 'html' ? target.innerHTML : target.textContent;
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(function() {
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = orig;
+                    btn.classList.remove('copied');
+                }, 1000);
+            });
+        });
+    });
+
+    document.getElementById('copy-md').addEventListener('click', function() {
+        const md = mdOut.textContent;
+        if (md && !mdOut.querySelector('.empty')) {
+            navigator.clipboard.writeText(md).then(function() {
+                const btn = document.getElementById('copy-md');
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied';
+                setTimeout(function() { btn.textContent = orig; }, 1000);
+            });
+        }
+    });
+</script>
+</body>
+</html>

@@ -191,6 +191,28 @@ async def convert_page_to_markdown(page) -> str:
         const cleanupSel = 'script, style, nav, footer, header, .code-btn-container, ' +
             '[class*="cookie"], [class*="consent"], [class*="banner"], [id*="cookie"]';
 
+        // ★ SVG の computed style を live DOM で inline 化してから以降の処理に進む。
+        //   これをやらないと、Readability や cleanupSel で <style> が剥がされた後に
+        //   class 依存の SVG (Mermaid 等) が真っ黒 / 無着色になる。
+        try {
+            if (typeof HtmlMdConverter !== 'undefined' && HtmlMdConverter.inlineSvgComputedStyles) {
+                HtmlMdConverter.inlineSvgComputedStyles(document);
+            }
+        } catch(e) {}
+
+        // ★ heading を wrap している <a> / heading-only wrapper <div> を unwrap。
+        //   視覚面積ベース (aRoot) 経路では Readability は通らないが、AWS Workshop Studio
+        //   の SectionHeading-module_headingLinkContainer のように「h2 が <a> で包まれた
+        //   上に更に heading-only div で包まれている」構造だと Turndown の rule 7
+        //   (normalizeLink) の判定をすり抜けて heading が壊れる場合があるので live DOM
+        //   段階で unwrap する。articleToMarkdown 経路 (rRoot) は html-md-converter
+        //   内部でも呼ばれるが、ここで呼んでおけば aRoot にも効く。
+        try {
+            if (typeof HtmlMdConverter !== 'undefined' && HtmlMdConverter.unwrapHeadingAnchors) {
+                HtmlMdConverter.unwrapHeadingAnchors(document);
+            }
+        } catch(e) {}
+
         // Turndown インスタンス生成 (with Fractal-derived custom rules)
 
         // Normalize table rows with embedded newlines
@@ -324,36 +346,19 @@ async def convert_page_to_markdown(page) -> str:
             return toMd(document.body);
         }
 
-        // --- 両方ある場合: テキスト包含関係をチェック ---
+        // --- 両方ある場合 ---
+        // 視覚面積ベース (aRoot) を優先する。Readability (rRoot) は見出し階層
+        // (<h2> など) を剥がすことがあり、同じ内容でも構造情報が失われるため。
+        // aRoot は live DOM から直接取られるので heading / code / svg がそのまま残る。
+        // ただし aRoot のテキストが著しく短く、rRoot にしかない内容が大半なら
+        // rRoot を使う (面積ベース抽出が失敗して side-nav を拾ったケース等の保険)。
         const rText = textOf(rRoot);
         const aText = textOf(aRoot);
-
-        // 片方がもう片方のテキストの大部分を含んでいるか？
-        // 短い方のテキストから代表的な部分文字列を取って包含チェック
-        const shorter = rText.length <= aText.length ? rText : aText;
-        const longer  = rText.length <= aText.length ? aText : rText;
-
-        // 短い方を100文字チャンクに分割し、何割がlongerに含まれるか
-        const chunkSize = 100;
-        let contained = 0;
-        let total = 0;
-        for (let i = 0; i < shorter.length; i += chunkSize) {
-            const chunk = shorter.substring(i, i + chunkSize);
-            if (chunk.length < 30) continue; // 短すぎるチャンクは無視
-            total++;
-            if (longer.includes(chunk)) contained++;
+        if (aText.length < rText.length * 0.5) {
+            // 面積ベースが短すぎる → Readability を優先
+            return toMd(rRoot);
         }
-        const overlap = total > 0 ? contained / total : 0;
-
-        if (overlap > 0.7) {
-            // 大部分が重複 → 長い方だけ出力
-            return rText.length >= aText.length ? toMd(rRoot) : toMd(aRoot);
-        } else {
-            // 食い違い → 両方出力
-            const rMd = toMd(rRoot);
-            const aMd = toMd(aRoot);
-            return rMd + '\\n\\n' + aMd;
-        }
+        return toMd(aRoot);
     }""")
 
 

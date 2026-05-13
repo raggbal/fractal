@@ -5,6 +5,32 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.59] - 2026-05-13
+
+### Changed
+- **SVG 単体 paste のときは clipboard の PNG を優先的に採用**
+  - ブラウザは SVG を選択コピーすると `text/html` + `image/png`（レンダリング済みラスター）を同時に clipboard に入れる。HTML が SVG (または `<div>`+`<svg>`) 単体なら PNG を採用 — class 依存 CSS の欠落で黒化するのを回避
+  - テキスト / 表 / コード等を含む rich HTML のときは従来通り HTML paste を優先 (PNG 化で情報を失わないため)
+  - 普通の `<img>` 画像の右クリック copy は従来通り画像として貼り付く
+
+## [0.207.58] - 2026-05-13
+
+### Fixed
+- **paste 時の Mermaid SVG が真っ黒になる問題を修正**
+  - sandbox に Mermaid default theme の fallback CSS (`<style>`) を先に注入してから `inlineSvgComputedStyles` を呼ぶよう変更
+  - class 依存の fill/stroke (node の pastel purple / cluster の pale yellow / edge の gray 等) が getComputedStyle 経由で正しく解決されるようになり、self-contained SVG として保存・表示可能に
+  - source page の CSS 定義が失われている clipboard HTML でも Mermaid 風の色が復元される
+
+## [0.207.57] - 2026-05-13
+
+### Changed
+- **html-md-converter bundle を同梱 (Mermaid / インライン SVG 保持強化)**
+  - paste handler (`src/webview/editor.js`) で SVG を含む HTML は一時 sandbox DOM にマウントしてから `HtmlMdConverter.inlineSvgComputedStyles` を適用
+  - `<foreignObject>` に `overflow:visible` を強制付与 (標準 XML parser の既定 `hidden` による文字クリップを防止)
+  - foreignObject 直下の HTML 要素に xhtml namespace を付与 (standalone `.svg` として開いたときのレンダリング互換性)
+  - Rule 8 `inlineSvg` で `XMLSerializer.serializeToString` に切替 (`<br>` 等 void 要素の well-formed 化)
+  - **制約**: Mermaid の class 依存色は clipboard HTML が source `<style>` を失っているため復元不可 (source page を開いた状態で動作する chrome-extension / web-crawler-md のみ完全復元)
+
 ## [0.207.56] - 2026-05-13
 
 ### Added

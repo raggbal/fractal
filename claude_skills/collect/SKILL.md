@@ -1,7 +1,7 @@
 ---
 name: collect
 description: "Collect external materials (websites, YouTube, arXiv papers, PDF/Office) into .collected/ as Markdown. Auto-routes to web-crawler-md, youtube-md, arxiv-md, or doc-md based on input type."
-argument-hint: <URL or file path> [--summarize]
+argument-hint: <URL or file path> [--summarize] [--limit N] [--scope PATTERN]
 ---
 
 # /collect — 素材収集
@@ -41,6 +41,15 @@ argument-hint: <URL or file path> [--summarize]
 # PDF を変換
 /collect ./docs/api-spec.pdf
 
+# 1 ページだけ（動作確認・サンプリング用途）
+/collect https://docs.stripe.com/api --limit 1
+
+# 数ページだけクロール
+/collect https://docs.stripe.com/api --limit 10
+
+# スコープ (glob) を絞って小さくクロール
+/collect https://docs.stripe.com/api --scope "https://docs.stripe.com/api/charges/*"
+
 # 複数を一度に（並列実行）
 /collect https://docs.stripe.com/api https://www.youtube.com/watch?v=xxx ./spec.pdf
 
@@ -67,6 +76,10 @@ argument-hint: <URL or file path> [--summarize]
 - Skill(doc-md) — ドキュメント
 
 **複数入力の場合は並列で実行する。**
+
+**Web サイト向けオプションは forward する**: `/collect` の引数に `--limit` / `--scope` /
+`--concurrency` / `--no-llms-txt` が含まれる場合、Web URL 入力に対しては web-crawler-md
+起動時にそのままパススルーする。他の入力種別 (YouTube / arXiv / ドキュメント) では無視。
 
 ### Step 3: 出力先
 すべて `.collected/` に保存:
@@ -141,12 +154,32 @@ export FRACTAL_DEFAULT_OUT="~/Desktop/inbox/a.out,~/Desktop/notes/b.out"
 | オプション | 説明 |
 |-----------|------|
 | `--summarize` | 各収集後に SUMMARY.md を生成 |
+| `--limit <N>` | **Web サイト専用**: クロールする最大ページ数 (BFS モード)。`--limit 1` で開始 URL 1 ページだけ。web-crawler-md (BFS) に forward される。llms.txt / youtube / arxiv / doc では無視 |
+| `--scope <pattern>` | **Web サイト専用**: クロール対象の URL glob パターン (複数指定可)。web-crawler-md (BFS) に forward される |
+| `--concurrency <N>` | **Web サイト専用**: BFS の並列数 (既定 10)。web-crawler-md (BFS) に forward される |
+| `--no-llms-txt` | **Web サイト専用**: llms.txt の自動 probe を無効化し BFS を強制 |
 | `--to-fractal-out <path>` | Fractal outliner (.out) への直接パス指定（env より優先） |
 | `--to-fractal-notes <folder>` | Fractal Notes フォルダパス（`--to-fractal-outline` と併用） |
 | `--to-fractal-outline <title>` | outline.note 内の outline タイトル。存在しない場合は自動作成 |
 | `--to-fractal-title <text>` | 日付ノード配下に作るタイトルノードのテキスト（省略時はコンテンツから派生） |
 | `--to-fractal-date <YYYY-MM-DD>` | 日付ノードのテキストを上書き（省略時は今日） |
 | `--no-fractal` | `FRACTAL_DEFAULT_OUT` env を無視して今回だけ Fractal 登録を skip |
+
+### Web サイト向けオプションの forward
+
+`--limit` / `--scope` / `--concurrency` / `--no-llms-txt` は、入力が Web URL で
+かつ web-crawler-md が BFS モードで動く場合にそのまま `crawl.py` に渡す:
+
+```bash
+# /collect 内部で:
+python3 <SKILL_DIR>/scripts/crawl.py "<URL>" -o <output_dir> \
+    [--limit N] [--scope PATTERN] [--concurrency N] [--no-llms-txt]
+```
+
+注意:
+- 入力が `/llms.txt` / `/llms-full.txt` のときは llms.txt モードなので `--limit` 等は無視する（llms.txt 側に該当オプションなし）
+- 入力が YouTube / arXiv / ドキュメントのときも `--limit` 等は無視する（単一素材のため）
+- 複数の Web URL を同時に渡した場合は、指定されたオプションを全 URL に適用する
 
 ### 環境変数
 

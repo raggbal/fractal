@@ -16736,12 +16736,38 @@ class EditorInstance {
         logger.log('Paste event triggered');
 
         // Check for image files first (unless Kiro keydown will handle via Clipboard API)
+        //
+        // 例外: clipboard に "SVG 単体でない HTML" + "image/*" の両方がある
+        //       (= ページ全体 or テキスト含むコピー + ブラウザが自動生成した PNG)
+        //       の場合は HTML paste を優先する。ここで image を取ってしまうと、
+        //       せっかくコピーしたテキスト・表・コード等が全部 PNG に化けるため。
+        //       SVG 単体コピー (HTML が <svg> のみ) のときは class 依存 CSS で
+        //       黒化するリスクがあるので image/* を採用する。
         if (!kiroSkipImage) {
             const items = e.clipboardData?.items;
+            const htmlSnapshot = e.clipboardData?.getData('text/html') || '';
+            function hasRichHtmlContent(h) {
+                if (!h) return false;
+                var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
+                // SVG のみ / div > svg のみ / img のみは rich でない
+                if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
+                if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
+                if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
+                // テキストや他要素が含まれていれば rich
+                var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
+                if (textContent.length > 0) return true;
+                // 複数 element (svg と img が並ぶ等) も rich 扱い
+                return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
+            }
+            const htmlIsRich = hasRichHtmlContent(htmlSnapshot);
             if (items) {
                 for (let i = 0; i < items.length; i++) {
                     const item = items[i];
                     if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        if (htmlIsRich) {
+                            logger.log('Image found but HTML is rich — preferring HTML paste');
+                            break;
+                        }
                         e.preventDefault();
                         logger.log('Image found in paste event');
                         const file = item.getAsFile();
@@ -16816,7 +16842,51 @@ class EditorInstance {
             // v0.207.50: External HTML → html-md-converter (turndown + GFM + 8 rules + pre/post)
             // https://github.com/raggbal/html-md-converter
             try {
-                pastedMd = HtmlMdConverter.htmlToMarkdown(html);
+                // SVG の前処理: clipboard HTML を一時 DOM にマウントして
+                // inlineSvgComputedStyles を適用。paste では source サイトの
+                // CSS class 定義を失っているので、Mermaid の class-based 色を
+                // 復元するために Mermaid default theme の fallback CSS を
+                // sandbox に先に注入してから computed style を焼き付ける。
+                var htmlForConvert = html;
+                try {
+                    if (HtmlMdConverter.inlineSvgComputedStyles && /<svg\b/i.test(html)) {
+                        var sandbox = document.createElement('div');
+                        sandbox.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1200px;';
+                        // Mermaid default flowchart theme の最小再現 CSS。
+                        // class 依存の fill/stroke がこの style 経由で getComputedStyle に
+                        // 反映されるので、その後 inlineSvgComputedStyles で焼き付けられる。
+                        var mermaidFallbackCss = ''
+                            + '.node rect,.node polygon,.node ellipse,.node circle,.node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}'
+                            + '.node .basic.label-container{fill:#ECECFF;stroke:#9370DB;}'
+                            + '.cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}'
+                            + '.cluster text,.cluster span{fill:#333;color:#333;}'
+                            + '.label{color:#333;}'
+                            + '.nodeLabel,.edgeLabel{color:#333;}'
+                            + '.edgePath .path{stroke:#333333;stroke-width:2px;fill:none;}'
+                            + '.flowchart-link{stroke:#333333;fill:none;}'
+                            + '.edgeLabel rect{fill:#e8e8e8;}'
+                            + '.marker{fill:#333333;stroke:#333333;}'
+                            + '.marker.cross{stroke:#333333;}'
+                            + '.arrowheadPath,.arrowMarkerPath{fill:#333333;stroke:none;}';
+                        var styleEl = document.createElement('style');
+                        styleEl.setAttribute('data-paste-fallback', '1');
+                        styleEl.textContent = mermaidFallbackCss;
+                        sandbox.appendChild(styleEl);
+                        var content = document.createElement('div');
+                        content.innerHTML = html;
+                        sandbox.appendChild(content);
+                        document.body.appendChild(sandbox);
+                        try {
+                            HtmlMdConverter.inlineSvgComputedStyles(content);
+                            htmlForConvert = content.innerHTML;
+                        } finally {
+                            sandbox.parentNode && sandbox.parentNode.removeChild(sandbox);
+                        }
+                    }
+                } catch (svgErr) {
+                    logger.warn('SVG preprocess skipped:', svgErr);
+                }
+                pastedMd = HtmlMdConverter.htmlToMarkdown(htmlForConvert);
                 logger.log('Converted external HTML to markdown via html-md-converter v' +
                     (HtmlMdConverter.version || '?'));
             } catch (err) {

@@ -80,7 +80,27 @@ async function convertActiveTabToMarkdown() {
         target: { tabId: tab.id },
         func: () => {
             try {
+                // SVG 前処理:
+                //  1. inlineSvgComputedStyles: live DOM で class→style 解決 (Mermaid 色)
+                //  2. preSerializeSvgsToImages: Readability は SVG の class/transform/namespace
+                //     を strip してレイアウトを壊すので、clone 前に <svg> を
+                //     data:image/svg+xml の <img> に差し替えて self-contained 化する
+                try {
+                    if (typeof HtmlMdConverter !== 'undefined') {
+                        if (HtmlMdConverter.inlineSvgComputedStyles) {
+                            HtmlMdConverter.inlineSvgComputedStyles(document);
+                        }
+                        if (HtmlMdConverter.unwrapHeadingAnchors) {
+                            HtmlMdConverter.unwrapHeadingAnchors(document);
+                        }
+                    }
+                } catch (e) {}
                 const docClone = document.cloneNode(true);
+                try {
+                    if (typeof HtmlMdConverter !== 'undefined' && HtmlMdConverter.preSerializeSvgsToImages) {
+                        HtmlMdConverter.preSerializeSvgsToImages(docClone);
+                    }
+                } catch (e) {}
                 let extracted;
                 try {
                     extracted = HtmlMdConverter.articleToMarkdown(docClone);

@@ -220,7 +220,26 @@ async function quickClip(tab) {
         target: { tabId: tab.id },
         func: () => {
             try {
+                // SVG 前処理:
+                //  1. inlineSvgComputedStyles: live DOM で class→style 解決
+                //  2. preSerializeSvgsToImages: Readability が SVG 属性を strip する前に
+                //     <svg> を self-contained な <img src="data:image/svg+xml;base64,..."> に置換
+                try {
+                    if (typeof HtmlMdConverter !== 'undefined') {
+                        if (HtmlMdConverter.inlineSvgComputedStyles) {
+                            HtmlMdConverter.inlineSvgComputedStyles(document);
+                        }
+                        if (HtmlMdConverter.unwrapHeadingAnchors) {
+                            HtmlMdConverter.unwrapHeadingAnchors(document);
+                        }
+                    }
+                } catch (e) {}
                 const docClone = document.cloneNode(true);
+                try {
+                    if (typeof HtmlMdConverter !== 'undefined' && HtmlMdConverter.preSerializeSvgsToImages) {
+                        HtmlMdConverter.preSerializeSvgsToImages(docClone);
+                    }
+                } catch (e) {}
                 let extracted;
                 try {
                     extracted = HtmlMdConverter.articleToMarkdown(docClone);

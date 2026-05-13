@@ -1,0 +1,16 @@
+{
+  "name": "html-md-converter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTML → Markdown converter bundled with turndown + GFM plugin and Fractal-derived custom rules. In-repo sub-package of fractal; consumed by src/webview, chrome-extension/lib, and claude_skills/web-crawler-md via scripts/update-*.sh.",
+  "main": "dist/html-md-converter.js",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test/run-tests.js"
+  },
+  "author": "imaken",
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^22.1.0"
+  }
+}
