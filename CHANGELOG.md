@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.56] - 2026-05-13
+
+### Added
+- **Outliner ノード右クリック → llms.txt 風に配下構成をコピー (3 種)**
+  - 「llms.txt 風に配下の MD 構成をコピー」: pageId 添付ノードのみを抽出して `[text](abs/path.md)` 形式
+  - 「llms.txt 風に配下のファイル構成をコピー」: `filePath` 添付ノードのみを抽出 (MD page は混入しない)
+  - 「llms.txt 風に配下の MD + ファイル構成をコピー」: 両方を統合、同一ノードに両方ある場合は 2 本 bullet
+  - 階層構造を H1〜H6 で表現 (深さ 7 以降は H6 で clamp)、中間ノードは見出しとして残る、添付なし leaf はスキップ
+  - 絶対パスで出力 (disk に実体がないパスは bullet 出さない)
+  - Standalone outliner / Notes outliner 両方で動作、7 言語対応
+
 ## [0.207.48] - 2026-05-11
 
 ### Added
