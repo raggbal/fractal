@@ -591,7 +591,14 @@ async def process_page(
             return new_urls, False, title
 
         # タイトル取得（常に実行 — map.json用）
-        title = await page.title() or ""
+        # SPA だと document.title が更新されない場合があるため、最初の <h1>
+        # テキストがあればそちらを優先する
+        title = await page.evaluate("""() => {
+            const h1 = document.querySelector('main h1, article h1, [role="main"] h1, h1');
+            const h1Text = h1 ? (h1.textContent || '').trim() : '';
+            const docTitle = (document.title || '').trim();
+            return h1Text || docTitle;
+        }""") or ""
 
         # 1. Markdown保存（ページネーションでDOM変わる前に実行）
         filename = url_to_filename(url, base_path)
@@ -753,17 +760,24 @@ async def crawl(
 
     if toc_tree:
         # TOCベース: サイドバーのネスト構造をそのまま使う
+        # 正規化済み URL をキーにしたルックアップを作る（TOC 側の href は
+        # トレイリングスラッシュの有無が不定なため、正規化して突き合わせる）
+        norm_to_file: dict[str, str] = {
+            normalize_url(u): f for u, f in url_file.items()
+        }
+
         def build_from_toc(nodes: list) -> list:
             result = []
             for node in nodes:
                 entry: dict = {"title": node.get("title", "")}
-                toc_url = urldefrag(node.get("url", ""))[0]
-                if toc_url in url_file:
-                    entry["file"] = url_file.pop(toc_url)
-                    # TOCタイトルよりページタイトルがあれば上書き
+                toc_url = node.get("url", "")
+                if toc_url:
                     norm_toc = normalize_url(toc_url)
-                    if norm_toc in titles:
-                        entry["title"] = titles[norm_toc]
+                    if norm_toc in norm_to_file:
+                        entry["file"] = norm_to_file.pop(norm_toc)
+                        # ページタイトル（H1 等）があれば TOC タイトルより優先
+                        if norm_toc in titles:
+                            entry["title"] = titles[norm_toc]
                 kids = node.get("children", [])
                 if kids:
                     entry["children"] = build_from_toc(kids)
@@ -777,8 +791,8 @@ async def crawl(
 
         # TOCに含まれなかったページを末尾に追加
         others = []
-        for u, f in sorted(url_file.items()):
-            others.append({"title": titles.get(normalize_url(u), ""), "file": f})
+        for norm_u, f in sorted(norm_to_file.items()):
+            others.append({"title": titles.get(norm_u, ""), "file": f})
         if others:
             tree_children.append({"title": "(Other)", "children": others})
 
