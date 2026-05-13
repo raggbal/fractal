@@ -174,6 +174,9 @@ export const webviewMessages = {
   notesSetColor: '设置颜色',
   notesColorNone: '无',
   outlinerCopyFilePath: '复制文件路径',
+  outlinerCopyLlmsTxtMd: '以 llms.txt 风格复制子树 (MD 页面)',
+  outlinerCopyLlmsTxtFile: '以 llms.txt 风格复制子树 (文件)',
+  outlinerCopyLlmsTxtBoth: '以 llms.txt 风格复制子树 (MD + 文件)',
   outlinerAddToPinnedTags: '添加到固定标签',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 图表',

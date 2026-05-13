@@ -102,6 +102,12 @@ export interface NotesPlatformActions {
     copyAttachedFilePath?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
     copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
+    /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
+    copyLlmsTxtMdTree?(tree: unknown, outFilePath: string, sender: NotesSender): void;
+    /** llms.txt 風 subtree コピー (file attachments) — tree.children を再帰し filePath→絶対パスを解決 */
+    copyLlmsTxtFileTree?(tree: unknown, outFilePath: string, sender: NotesSender): void;
+    /** llms.txt 風 subtree コピー (MD pages + file attachments) — 同一ノードに両方ある場合は 2 本 bullet */
+    copyLlmsTxtBothTree?(tree: unknown, outFilePath: string, sender: NotesSender): void;
     /** アプリ内リンクナビゲーション */
     navigateInAppLink?(href: string): void;
     /** リンク挿入ダイアログ表示 (サイドパネル editor 用) */
@@ -253,6 +259,29 @@ export async function handleNotesMessage(
             const currentFilePath = fileManager.getCurrentFilePath();
             if (currentFilePath) {
                 platform.copyAttachedFilePaths?.(message.nodeIds || [], currentFilePath, sender);
+            }
+            break;
+        }
+
+        // llms.txt 風 subtree コピー (Notes mode)
+        case 'copyLlmsTxtMdTree': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.copyLlmsTxtMdTree?.(message.tree, currentFilePath, sender);
+            }
+            break;
+        }
+        case 'copyLlmsTxtFileTree': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.copyLlmsTxtFileTree?.(message.tree, currentFilePath, sender);
+            }
+            break;
+        }
+        case 'copyLlmsTxtBothTree': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.copyLlmsTxtBothTree?.(message.tree, currentFilePath, sender);
             }
             break;
         }

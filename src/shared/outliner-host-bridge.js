@@ -71,6 +71,18 @@
         copyAttachedFilePaths: function(nodeIds) {
             api.postMessage({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
         },
+        // llms.txt 風 subtree コピー (MD pages)
+        copyLlmsTxtMdTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtMdTree', tree: tree });
+        },
+        // llms.txt 風 subtree コピー (file attachments)
+        copyLlmsTxtFileTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtFileTree', tree: tree });
+        },
+        // llms.txt 風 subtree コピー (MD pages + file attachments)
+        copyLlmsTxtBothTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtBothTree', tree: tree });
+        },
 
         // ページ管理 (サイドパネル内EditorInstanceから呼ばれる — outlinerでは未使用)
         createPageAtPath: function() { /* no-op in outliner */ },

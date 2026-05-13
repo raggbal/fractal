@@ -13,6 +13,7 @@ import { safeResolveUnderDir } from './shared/path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { parseDataUrl } from './shared/data-url-image-extractor';
+import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 
 
 /**
@@ -331,6 +332,61 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         }
                         if (paths.length > 0) {
                             await vscode.env.clipboard.writeText(paths.join('\n'));
+                        }
+                        break;
+                    }
+
+                    case 'copyLlmsTxtMdTree': {
+                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        if (!tree) break;
+                        const md = buildLlmsTxt(tree, 'md', {
+                            resolveMdPath: (pageId: string) => {
+                                const p = this.getPageFilePath(document, pageId);
+                                return fs.existsSync(p) ? p : null;
+                            },
+                            resolveFilePath: () => null,
+                        });
+                        if (md.trim()) {
+                            await vscode.env.clipboard.writeText(md);
+                        }
+                        break;
+                    }
+
+                    case 'copyLlmsTxtFileTree': {
+                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        if (!tree) break;
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const md = buildLlmsTxt(tree, 'file', {
+                            resolveMdPath: () => null,
+                            resolveFilePath: (rel: string) => {
+                                const safe = safeResolveUnderDir(outDir, rel);
+                                if (!safe) return null;
+                                return fs.existsSync(safe) ? safe : null;
+                            },
+                        });
+                        if (md.trim()) {
+                            await vscode.env.clipboard.writeText(md);
+                        }
+                        break;
+                    }
+
+                    case 'copyLlmsTxtBothTree': {
+                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        if (!tree) break;
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const md = buildLlmsTxt(tree, 'both', {
+                            resolveMdPath: (pageId: string) => {
+                                const p = this.getPageFilePath(document, pageId);
+                                return fs.existsSync(p) ? p : null;
+                            },
+                            resolveFilePath: (rel: string) => {
+                                const safe = safeResolveUnderDir(outDir, rel);
+                                if (!safe) return null;
+                                return fs.existsSync(safe) ? safe : null;
+                            },
+                        });
+                        if (md.trim()) {
+                            await vscode.env.clipboard.writeText(md);
                         }
                         break;
                     }

@@ -18,6 +18,7 @@ import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
+import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -578,6 +579,57 @@ export class NotesEditorProvider {
                 }
                 if (paths.length > 0) {
                     await vscode.env.clipboard.writeText(paths.join('\n'));
+                }
+            },
+            // llms.txt 風 subtree コピー (MD pages)
+            copyLlmsTxtMdTree: async (tree: unknown, _outFilePath: string, _senderRef: NotesSender) => {
+                if (!tree) return;
+                const pagesDir = fileManager.getPagesDirPath();
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'md', {
+                    resolveMdPath: (pageId: string) => {
+                        const p = path.join(pagesDir, `${pageId}.md`);
+                        return fs.existsSync(p) ? p : null;
+                    },
+                    resolveFilePath: () => null,
+                });
+                if (md.trim()) {
+                    await vscode.env.clipboard.writeText(md);
+                }
+            },
+            // llms.txt 風 subtree コピー (file attachments)
+            copyLlmsTxtFileTree: async (tree: unknown, outFilePath: string, _senderRef: NotesSender) => {
+                if (!tree) return;
+                const outDir = path.dirname(outFilePath);
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'file', {
+                    resolveMdPath: () => null,
+                    resolveFilePath: (rel: string) => {
+                        const safe = safeResolveUnderDir(outDir, rel);
+                        if (!safe) return null;
+                        return fs.existsSync(safe) ? safe : null;
+                    },
+                });
+                if (md.trim()) {
+                    await vscode.env.clipboard.writeText(md);
+                }
+            },
+            // llms.txt 風 subtree コピー (MD pages + file attachments)
+            copyLlmsTxtBothTree: async (tree: unknown, outFilePath: string, _senderRef: NotesSender) => {
+                if (!tree) return;
+                const pagesDir = fileManager.getPagesDirPath();
+                const outDir = path.dirname(outFilePath);
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'both', {
+                    resolveMdPath: (pageId: string) => {
+                        const p = path.join(pagesDir, `${pageId}.md`);
+                        return fs.existsSync(p) ? p : null;
+                    },
+                    resolveFilePath: (rel: string) => {
+                        const safe = safeResolveUnderDir(outDir, rel);
+                        if (!safe) return null;
+                        return fs.existsSync(safe) ? safe : null;
+                    },
+                });
+                if (md.trim()) {
+                    await vscode.env.clipboard.writeText(md);
                 }
             },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {

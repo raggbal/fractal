@@ -124,6 +124,18 @@
         copyAttachedFilePaths: function(nodeIds) {
             api.postMessage({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
         },
+        // llms.txt 風 subtree コピー (MD pages)
+        copyLlmsTxtMdTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtMdTree', tree: tree });
+        },
+        // llms.txt 風 subtree コピー (file attachments)
+        copyLlmsTxtFileTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtFileTree', tree: tree });
+        },
+        // llms.txt 風 subtree コピー (MD pages + file attachments)
+        copyLlmsTxtBothTree: function(tree) {
+            api.postMessage({ type: 'copyLlmsTxtBothTree', tree: tree });
+        },
 
         // Note-level sidepanel md width / TOC width 永続化 (outline.note 共通)
         notesSaveSidePanelWidth: function(width) {

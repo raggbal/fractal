@@ -174,6 +174,9 @@ export const webviewMessages = {
   notesSetColor: 'Définir la couleur',
   notesColorNone: 'Aucune',
   outlinerCopyFilePath: 'Copier le chemin du fichier',
+  outlinerCopyLlmsTxtMd: 'Copier le sous-arbre en llms.txt (pages MD)',
+  outlinerCopyLlmsTxtFile: 'Copier le sous-arbre en llms.txt (fichiers)',
+  outlinerCopyLlmsTxtBoth: 'Copier le sous-arbre en llms.txt (MD + fichiers)',
   outlinerAddToPinnedTags: 'Ajouter aux tags épinglés',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insérer un diagramme Drawio',

@@ -5741,6 +5741,29 @@ var Outliner = (function() {
         });
     }
 
+    // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
+    function buildLlmsTxtTree(rootNodeId) {
+        function build(id) {
+            var n = model.getNode(id);
+            if (!n) { return null; }
+            var children = [];
+            if (n.children) {
+                for (var i = 0; i < n.children.length; i++) {
+                    var c = build(n.children[i]);
+                    if (c) { children.push(c); }
+                }
+            }
+            return {
+                id: n.id,
+                text: n.text || '',
+                pageId: (n.isPage && n.pageId) ? n.pageId : null,
+                filePath: n.filePath || null,
+                children: children
+            };
+        }
+        return build(rootNodeId);
+    }
+
     function showContextMenu(nodeId, x, y, clickedTag) {
         hideContextMenu();
         var node = model.getNode(nodeId);
@@ -5828,6 +5851,29 @@ var Outliner = (function() {
                 hideContextMenu();
             });
         }
+
+        // --- llms.txt 風に配下を再帰コピー ---
+        addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtMd || 'Copy subtree as llms.txt (MD pages)', function() {
+            var tree = buildLlmsTxtTree(nodeId);
+            if (tree && host.copyLlmsTxtMdTree) {
+                host.copyLlmsTxtMdTree(tree);
+            }
+            hideContextMenu();
+        });
+        addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtFile || 'Copy subtree as llms.txt (files)', function() {
+            var tree = buildLlmsTxtTree(nodeId);
+            if (tree && host.copyLlmsTxtFileTree) {
+                host.copyLlmsTxtFileTree(tree);
+            }
+            hideContextMenu();
+        });
+        addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtBoth || 'Copy subtree as llms.txt (MD + files)', function() {
+            var tree = buildLlmsTxtTree(nodeId);
+            if (tree && host.copyLlmsTxtBothTree) {
+                host.copyLlmsTxtBothTree(tree);
+            }
+            hideContextMenu();
+        });
 
         addMenuSeparator(contextMenuEl);
 
