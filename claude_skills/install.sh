@@ -20,7 +20,7 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS="fractal-structure fractal-search fractal-edit"
+SKILLS="fractal-structure fractal-search fractal-edit collect web-crawler-md youtube-md doc-md arxiv-md aws-doc-maker"
 IDE_LIST="claude cursor kiro antigravity"
 
 ide_parent() {
