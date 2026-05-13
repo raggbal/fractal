@@ -611,8 +611,8 @@ async def process_page(
             if markdown:
                 # data:image/... を実体ファイル化 (<output_dir>/images/<ts>.<ext>)
                 markdown = extract_data_url_images(markdown, output_dir, output_dir / "images")
-                content = f"---\ntitle: \"{title}\"\nsource: \"{url}\"\n---\n\n{markdown}\n"
-                filepath.write_text(content, encoding="utf-8")
+                header = f"# {title}\n\n[{url}]({url})\n\n" if title else f"[{url}]({url})\n\n"
+                filepath.write_text(header + markdown.rstrip() + "\n", encoding="utf-8")
                 saved = True
 
         # 2. リンク抽出（ページネーション含む — DOMが変わるので保存の後に実行）

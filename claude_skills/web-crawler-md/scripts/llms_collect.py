@@ -208,15 +208,11 @@ def build_map_tree(node: dict) -> dict:
     return out
 
 
-# ─── frontmatter writer ────────────────────────────────────────────────
-
-def yaml_escape(s: str) -> str:
-    return (s or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").strip()
-
+# ─── md header writer ──────────────────────────────────────────────────
 
 def write_md_file(path: Path, title: str, source: str, body: str) -> None:
-    fm = f'---\ntitle: "{yaml_escape(title)}"\nsource: "{yaml_escape(source)}"\n---\n\n'
-    path.write_text(fm + body.rstrip() + "\n", encoding="utf-8")
+    header = f"# {title}\n\n[{source}]({source})\n\n" if title else f"[{source}]({source})\n\n"
+    path.write_text(header + body.rstrip() + "\n", encoding="utf-8")
 
 
 # ─── Phase 1: parallel markdown download ───────────────────────────────
