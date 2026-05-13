@@ -1338,6 +1338,11 @@ function addCustomRules(turndownService) {
             var title = node.getAttribute('title');
             if (title) title = ' "' + title.replace(/"/g, '\\"') + '"';
             else title = '';
+            // <a> が heading (h1-h6) を wrap している場合は heading markdown のみ返す
+            // (AWS docs 等の heading anchor link パターン)
+            if (node.querySelector && node.querySelector('h1, h2, h3, h4, h5, h6')) {
+                return content;
+            }
             // <a> がテキストを持たず <img> だけを wrap してる場合は内側の image markdown だけ返す
             if ((node.textContent || '').trim() === '' && node.querySelector && node.querySelector('img')) {
                 return content;
@@ -1354,7 +1359,19 @@ function addCustomRules(turndownService) {
         }
     });
 
-    // Rule 8: tight list item (Turndown default の loose list を抑止)
+    // Rule 8: inline SVG (mermaid / 図表) は outerHTML をそのまま残す
+    // GFM / fractal などは markdown 内の <svg> を認識する。中の text content が
+    // 垂れ流されるバグを抑止する目的もある。
+    turndownService.addRule('inlineSvg', {
+        filter: 'svg',
+        replacement: function(content, node) {
+            var html = (node.outerHTML || '').replace(/\s+/g, ' ').trim();
+            if (!html) return '';
+            return '\n\n' + html + '\n\n';
+        }
+    });
+
+    // Rule 9: tight list item (Turndown default の loose list を抑止)
     turndownService.addRule('compactListItem', {
         filter: 'li',
         replacement: function(content, node, options) {
