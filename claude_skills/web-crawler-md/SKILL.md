@@ -135,7 +135,8 @@ When a URL and output destination are provided by the user, follow these steps:
    - To run llms.txt mode without the probe overhead (when you already have an llms.txt URL), call `python <SKILL_DIR>/scripts/llms_collect.py "<llms.txt URL>" -o <output_dir>` directly.
 5. After completion, check the output directory contents and `map.json`, then report the results
 6. **If `--summarize` was requested:** Generate `SUMMARY.md` in the output directory using the hierarchical sampling strategy described in the Summarize section below
-7. **If `--to-fractal-*` was requested, OR `FRACTAL_DEFAULT_OUT` env is set (and `--no-fractal` was NOT given):** Run `register-fractal.mjs` to add the collected tree to a Fractal outliner (see "Register to Fractal" section below) — works identically for both modes since `map.json` shares the same schema. If env contains multiple paths, use `--list-default-outs` + `AskUserQuestion` to pick one before invoking.
+7. **If `--to-fractal-out` OR (`--to-fractal-notes` + `--to-fractal-outline`) was given:** Run `register-fractal.mjs` to add the collected tree to a Fractal outliner (see "Register to Fractal" section below) — works identically for both modes since `map.json` shares the same schema.
+   - **NOTE:** This skill does NOT consult the `FRACTAL_DEFAULT_OUT` environment variable on its own. The caller (typically `/collect`) is responsible for resolving env defaults and passing an explicit `--to-fractal-out <path>` (or notes/outline pair).
 
 ## Summarize
 
@@ -233,21 +234,12 @@ The script creates this structure in the target outliner:
 
 ### Outline targeting
 
-Pick one:
+Pick exactly one (otherwise the script errors):
 
 - `--fractal-out <path.out>` — write to an existing outliner directly
 - `--fractal-notes <folder> --fractal-outline <title>` — look up `outline.note` for a file item with the given `title`; auto-creates the outline (via `fractal-md.mjs --create-outliner`) if none matches
-- **`FRACTAL_DEFAULT_OUT` env var** — if neither CLI flag above is given, the script falls back to this env var. Single `.out` path → used automatically. Comma-separated multiple paths → script errors with a list of titles (caller must pick one and pass via `--fractal-out`)
 
-### Choosing among multiple FRACTAL_DEFAULT_OUT paths
-
-When `FRACTAL_DEFAULT_OUT` is a comma-separated list and the user did **not** pass `--to-fractal-out`, the calling skill should:
-
-1. Run `node <SKILL_DIR>/scripts/register-fractal.mjs --list-default-outs` — prints `[{path, title, exists}, ...]` as JSON
-2. Use `AskUserQuestion` to show each `.out`'s title (as option label) and path (as description)
-3. Pass the chosen path via `--fractal-out <path>` to override the env
-
-A `--no-fractal` flag at the wrapper level should skip Fractal registration entirely (env ignored).
+This script does NOT read `FRACTAL_DEFAULT_OUT`. The caller (`/collect` or the user) must resolve any env-driven default and pass `--fractal-out` explicitly.
 
 ### Title node default
 

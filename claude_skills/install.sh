@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# install.sh — Fractal claude_skills を各 AI IDE の user-level skill 領域に symlink で配置
+# install.sh — Fractal claude_skills を各 AI IDE の user-level skill 領域に配置
+#
+# 配置方式は IDE ごとに自動選択:
+#   - symlink: claude / cursor / antigravity  (source 直リンク・更新即反映)
+#   - copy:    kiro                            (Kiro が symlink 経由のスキルを認識しないため)
 #
 # 対応 IDE (それぞれ user dir があれば install):
-#   - Claude Code:  ~/.claude/skills/         (Claude CLI / extension 共通)
-#   - Cursor:       ~/.cursor/skills/         (Cursor native AI 用)
-#   - Kiro:         ~/.kiro/skills/           (Kiro native AI 用)
-#   - Antigravity:  ~/.antigravity/skills/    (Antigravity native AI 用)
+#   - Claude Code:  ~/.claude/skills/         (symlink)
+#   - Cursor:       ~/.cursor/skills/         (symlink)
+#   - Kiro:         ~/.kiro/skills/           (copy — 上書き)
+#   - Antigravity:  ~/.antigravity/skills/    (symlink)
 #
 # 使い方:
-#   ./install.sh                  # 検出した全 IDE に symlink 配置
+#   ./install.sh                  # 検出した全 IDE に配置 (kiro は毎回 copy 上書き)
 #   ./install.sh --dry-run        # 何をするか表示するだけ
-#   ./install.sh --uninstall      # symlink を削除
-#   ./install.sh --force          # 既存の同名 file/dir があっても上書き
+#   ./install.sh --uninstall      # 配置済みスキルを削除
+#   ./install.sh --force          # symlink 用: 既存の非 symlink を上書き (copy 方式は常に上書き)
 #   ./install.sh --only claude,kiro  # 対象 IDE を絞る (カンマ区切り)
 #
 # bash 3.2 (macOS 標準) 互換 — 連想配列を使わない
@@ -20,7 +24,7 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS="fractal-structure fractal-search fractal-edit collect web-crawler-md youtube-md doc-md arxiv-md aws-doc-maker"
+SKILLS="fractal-structure fractal-search fractal-edit collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
 IDE_LIST="claude cursor kiro antigravity"
 
 ide_parent() {
@@ -39,6 +43,13 @@ ide_dir() {
         kiro)        echo "$HOME/.kiro/skills" ;;
         antigravity) echo "$HOME/.antigravity/skills" ;;
         *) return 1 ;;
+    esac
+}
+ide_method() {
+    # symlink | copy
+    case "$1" in
+        kiro) echo "copy" ;;
+        *)    echo "symlink" ;;
     esac
 }
 
@@ -95,12 +106,30 @@ do_install_one() {
     src="$SOURCE_DIR/$skill"
     dest_dir=$(ide_dir "$ide")
     dest="$dest_dir/$skill"
+    method=$(ide_method "$ide")
 
     if [ ! -d "$src" ]; then
         err "source skill missing: $src"
         return 1
     fi
 
+    if [ "$method" = "copy" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            echo "  [dry-run] mkdir -p $dest_dir"
+            echo "  [dry-run] rm -rf $dest && cp -R $src $dest  (copy mode: always overwrite)"
+            return 0
+        fi
+
+        mkdir -p "$dest_dir"
+        if [ -e "$dest" ] || [ -L "$dest" ]; then
+            rm -rf "$dest"
+        fi
+        cp -R "$src" "$dest"
+        ok "  $skill → $dest (copy)"
+        return 0
+    fi
+
+    # method = symlink
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "  [dry-run] mkdir -p $dest_dir"
         echo "  [dry-run] ln -sfn $src $dest"
@@ -133,12 +162,33 @@ do_install_one() {
 do_uninstall_one() {
     ide=$1; skill=$2
     dest="$(ide_dir "$ide")/$skill"
+    method=$(ide_method "$ide")
 
     if [ "$DRY_RUN" -eq 1 ]; then
-        echo "  [dry-run] rm $dest (if symlink to $SOURCE_DIR/$skill)"
+        if [ "$method" = "copy" ]; then
+            echo "  [dry-run] rm -rf $dest (copy mode: 中身に関わらず削除)"
+        else
+            echo "  [dry-run] rm $dest (if symlink to $SOURCE_DIR/$skill)"
+        fi
         return 0
     fi
 
+    if [ "$method" = "copy" ]; then
+        if [ -L "$dest" ]; then
+            rm "$dest"
+            ok "  $skill ← 削除 ($dest, symlink)"
+        elif [ -d "$dest" ]; then
+            rm -rf "$dest"
+            ok "  $skill ← 削除 ($dest, copy)"
+        elif [ -e "$dest" ]; then
+            warn "  $skill ← 想定外 (file) なのでスキップ ($dest)"
+        else
+            dim "  $skill ← 未 install"
+        fi
+        return 0
+    fi
+
+    # method = symlink
     if [ -L "$dest" ]; then
         current=$(readlink "$dest")
         if [ "$current" = "$SOURCE_DIR/$skill" ]; then
@@ -174,7 +224,7 @@ for ide in $TARGETS; do
         continue
     fi
 
-    echo "─ $ide  →  $dest_dir"
+    echo "─ $ide  →  $dest_dir  [$(ide_method "$ide")]"
     for skill in $SKILLS; do
         if [ "$UNINSTALL" -eq 1 ]; then
             do_uninstall_one "$ide" "$skill" || true

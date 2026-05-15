@@ -1,6 +1,6 @@
 ---
 name: aws-doc-maker
-description: AWS サービスの公式ドキュメント（`.collected/web/<service>/` 配下の Markdown 群）を、12 軸に沿って理解しやすい md ファイル群に再構成する。生成した md はそのまま配置するか、fractal-edit 経由で Outliner に差し込む（末尾追加 or App-Link 指定のノード配下）
+description: AWS サービスの公式ドキュメント（`.collected/web/<service>/` 配下の Markdown 群）を、12 軸に沿って理解しやすい md ファイル群に再構成する。生成した md はそのまま配置するか、Outliner に差し込む（fractal-edit 直接 / register-fractal.mjs --mode tree いずれか）
 ---
 
 # aws-doc-maker — AWS ドキュメント整理スキル
@@ -10,11 +10,17 @@ AWS 公式ドキュメントをダウンロード済み (`.collected/web/<servic
 整理後の出力先は 2 種類:
 
 1. **ローカル md 群のみ**: `<workdir>/<service-slug>/` 配下に 12 個前後の md を生成
-2. **fractal 連携**: 上記 md を生成した上で、fractal-edit を使って Outliner に差し込む
-   - `outliner` モード: `.out` ファイルのパスを指定 → その outliner の末尾に一括追加
-   - `applink` モード: `fractal://note/<ws>/<outlineId>/<nodeId>` を指定 → そのノードの子として一括追加
+2. **fractal 連携**: 上記 md を生成した上で、Outliner に差し込む。次の 2 経路のどちらかを使う:
+   - **`/collect` 互換 — `--to-fractal-*` で `register-fractal.mjs --mode tree` を呼ぶ** ★推奨★。
+     `日付 > <サービス名> > 00-index > (01..12 軸の各ページ)` という階層を自動生成する。
+   - **fractal-edit を直接呼ぶレガシー経路** — `outliner:` / `applink:` 指定で `fractal-md.mjs` を一括モードで実行 (互換性のため残す)。
 
 ---
+
+## Scripts
+
+- [scripts/build-tree-json.mjs](scripts/build-tree-json.mjs) — Helper to scan a generated `<output_dir>` and emit a tree JSON for register-fractal.mjs (--mode tree)
+- [scripts/register-fractal.mjs](scripts/register-fractal.mjs) — Register the 12-axis MD tree into a Fractal outliner under `date > title > 00-index > (01..12)`
 
 ## 1. 12 軸（固定順）
 
@@ -163,7 +169,67 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
 
 ## 4. fractal 連携仕様
 
-### 4a. outliner モード（outliner 指定）
+### 4-0. `--to-fractal-*` 経路（推奨 / `/collect` から委譲時もこちら）
+
+ユーザー / 上位 skill が以下のいずれかを指定したとき、tree モードで Outliner に登録する:
+
+- `--to-fractal-out <path.out>` — 既存 `.out` を直接書き込む
+- `--to-fractal-notes <folder> --to-fractal-outline <title>` — Notes フォルダ内の outline を探索（無ければ自動作成）
+
+**NOTE:** この skill は `FRACTAL_DEFAULT_OUT` 環境変数を**自分では読まない**。env からの fallback は呼び出し元 (`/collect` 等) の責務であり、ここまで届く時点では `--to-fractal-out`（あるいは notes/outline pair）が必ず明示指定されている前提。
+
+#### 手順
+
+1. **md 群を生成** (セクション 3 の通常フロー)
+2. **tree JSON を生成**:
+   ```bash
+   node <SKILL_DIR>/scripts/build-tree-json.mjs <output_dir> \
+     --title "<service official name>" \
+     -o <output_dir>/.fractal-tree.json
+   ```
+   - `<output_dir>` 直下の `00-index.md` をルート、`NN-<slug>.md` を子として並べたツリーを出力する
+   - サブ軸ディレクトリ (`07-authz/index.md` + `07-authz/<topic>.md`) があれば 1 階層深い子として展開される
+   - `--title` 省略時は `00-index.md` の H1 を採用、それも無ければディレクトリ名を採用
+3. **register-fractal.mjs --mode tree を呼ぶ**:
+   ```bash
+   node <SKILL_DIR>/scripts/register-fractal.mjs --mode tree \
+     --tree-json <output_dir>/.fractal-tree.json \
+     --md-base <output_dir> \
+     --fractal-title "<service official name>" \
+     [--fractal-out <path.out> | --fractal-notes <folder> --fractal-outline <title>] \
+     [--fractal-date YYYY-MM-DD]
+   ```
+
+#### 出力構造
+
+```
+<outline-root>
+└── YYYY-MM-DD             ← reused if a root-level node with this exact text exists
+    └── <service title>    ← always newly created
+        └── 00-index.md page node      ← service root
+            ├── 01-purpose.md page node
+            ├── 02-features.md page node
+            ├── ...
+            └── 12-cost.md page node
+```
+
+`07-authz/` のような下位ディレクトリがある場合は `07-authz/index.md` がページノードとなり、その配下に `07-authz/<topic>.md` 群が子として並ぶ。
+
+#### Outline targeting
+
+`register-fractal.mjs` の `--fractal-out` か `--fractal-notes + --fractal-outline` の**いずれか一方**を必ず渡す（両方なし or 両方ありはエラー）。この script は `FRACTAL_DEFAULT_OUT` を読まない。
+
+#### Notes
+
+- `--fractal-title` 省略時は 00-index.md の H1（あるいは tree JSON のルート `title`）を使う
+- `register-fractal.mjs` は `fractal-edit/scripts/fractal-md.mjs` を sibling skill 位置 or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs` で自動解決する。`--fractal-md-script <path>` で上書き可能
+- `.fractal-tree.json` は中間ファイル。コミット対象から除外して良い（`.gitignore` 推奨）
+
+---
+
+### 4a. outliner モード（outliner 指定 — レガシー）
+
+> 互換性のため残す既存経路。`/collect` 由来の呼び出しでは 4-0 を使うこと。
 
 ユーザー指定: `outliner:/path/to/xxx.out` あるいは `outliner:<out-filename>`（pace ワークスペースなら basename のみも可）
 
@@ -183,7 +249,10 @@ md ファイル名は `NN-<slug>.md` 形式。番号は以下の固定順を推�
    - `--group-name` にサービス名を指定 (例 "Amazon Connect")
    - `--position after` でアウトライナー末尾に追加
 
-### 4b. applink モード（App-Link 指定）
+### 4b. applink モード（App-Link 指定 — レガシー）
+
+> 互換性のため残す既存経路。`/collect` 由来の呼び出しでは 4-0 を使うこと。
+
 
 ユーザー指定: `applink:fractal://note/<workspace>/<outlineId>/<nodeId>`
 

@@ -16,7 +16,7 @@
  *   - imports MD as page node(s)
  *   - for tree mode, recursively replicates a sitemap (e.g., map.json)
  *
- * Usage (single mode — for youtube-md / doc-md):
+ * Usage (single mode — for youtube-md / doc-md / arxiv-md / pptx-pages-md):
  *   node register-fractal.mjs \
  *     --mode single --md path/to/foo.md --fractal-title "Foo" \
  *     --fractal-out /path/notes/abc.out
@@ -25,22 +25,37 @@
  *     --mode single --md foo.md --fractal-title "Foo" \
  *     --fractal-notes /Users/you/Desktop/notes --fractal-outline "Research"
  *
- * Usage (tree mode — for web-crawler-md):
+ * Usage (tree mode — for web-crawler-md / aws-doc-maker):
  *   node register-fractal.mjs --mode tree \
  *     --tree-json output/map.json --md-base output \
  *     --fractal-title "Stripe API docs" \
  *     --fractal-notes /path/notes --fractal-outline "WebRefs"
  *
- * Common options:
- *   --fractal-out <path>           Direct .out file path
+ * Options (one of for outline target):
+ *   --fractal-out <path.out>       Direct .out file path
  *   --fractal-notes <folder>       Notes folder (used with --fractal-outline)
  *   --fractal-outline <title>      Outline title; auto-creates if missing
- *   --fractal-title <text>         Title node text (REQUIRED)
+ *
+ * Required:
+ *   --mode single|tree
+ *   --fractal-title <text>         Title node text under the date node
+ *
+ * Single mode:
+ *   --md <path>                    Path to the .md file
+ *
+ * Tree mode:
+ *   --tree-json <path>             Sitemap JSON describing the tree
+ *   --md-base <dir>                Base directory for file paths in tree JSON
+ *
+ * Optional:
  *   --fractal-date <YYYY-MM-DD>    Override date (default: today, local timezone)
  *   --fractal-md-script <path>     Path to fractal-edit's fractal-md.mjs
  *                                  (auto-resolved if fractal-edit skill is installed)
  *
- * Either --fractal-out OR (--fractal-notes + --fractal-outline) is required.
+ * NOTE: This script does NOT consult any environment variables. Environment
+ *       variable handling (e.g., FRACTAL_DEFAULT_OUT) is the responsibility of
+ *       the caller (typically the `collect` skill). Callers must resolve the
+ *       target outline up-front and pass it via the CLI flags above.
  */
 
 import fs from 'node:fs';
@@ -100,7 +115,6 @@ function parseArgs(argv) {
             case '--fractal-title':     needs(); args.titleNode = v; i++; break;
             case '--fractal-date':      needs(); args.date = v; i++; break;
             case '--fractal-md-script': needs(); args.fractalMdScript = v; i++; break;
-            case '--list-default-outs': args.listDefaultOuts = true; break;
             case '-h': case '--help':   usage(); break;
             default:                    usage(`unknown option: ${a}`);
         }
@@ -108,58 +122,11 @@ function parseArgs(argv) {
     return args;
 }
 
-// ────────────────── FRACTAL_DEFAULT_OUT env helpers ─────────────────────
-//
-// Users can set `FRACTAL_DEFAULT_OUT` to a single `.out` path or a
-// comma-separated list of paths. When `--fractal-out` is not given on the
-// CLI, this env serves as the default destination:
-//
-//   - 0 entries (env unset/empty): no default, fall through to other CLI flags
-//   - 1 entry: use it automatically
-//   - 2+ entries: error — caller must pick one and pass `--fractal-out`
-//
-// `--list-default-outs` prints a JSON array `[{path, title, exists}, ...]`
-// so a caller (e.g. Claude in a skill flow) can show titles to the user
-// and ask which one to use, then re-invoke with `--fractal-out`.
-
 function expandUser(p) {
     if (!p) return p;
     if (p === '~') return os.homedir();
     if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
     return p;
-}
-
-function parseDefaultOuts() {
-    const raw = process.env.FRACTAL_DEFAULT_OUT || '';
-    return raw
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((p) => {
-            let abs = path.resolve(expandUser(p));
-            if (!abs.endsWith('.out')) abs += '.out';
-            return abs;
-        });
-}
-
-function readOutTitle(outPath) {
-    try {
-        const d = JSON.parse(fs.readFileSync(outPath, 'utf-8'));
-        return d.title || path.basename(outPath, '.out');
-    } catch {
-        return path.basename(outPath, '.out');
-    }
-}
-
-function listDefaultOuts() {
-    const paths = parseDefaultOuts();
-    const result = paths.map((p) => ({
-        path: p,
-        title: fs.existsSync(p) ? readOutTitle(p) : null,
-        exists: fs.existsSync(p),
-    }));
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    process.exit(0);
 }
 
 // ─────────────────────── locate fractal-md.mjs ────────────────────────
@@ -253,36 +220,6 @@ function resolveOutline(args, fractalMd) {
         return p;
     }
 
-    // Fall back to FRACTAL_DEFAULT_OUT env when no explicit --fractal-out
-    // and no --fractal-notes/--fractal-outline pair was given.
-    if (!args.notesDir && !args.outlineTitle) {
-        const envOuts = parseDefaultOuts();
-        if (envOuts.length === 1) {
-            const p = envOuts[0];
-            if (!fs.existsSync(p)) {
-                console.error(`FRACTAL_DEFAULT_OUT points to missing file: ${p}`);
-                process.exit(1);
-            }
-            console.log(`Using FRACTAL_DEFAULT_OUT: ${p} ("${readOutTitle(p)}")`);
-            return p;
-        }
-        if (envOuts.length > 1) {
-            console.error(
-                `FRACTAL_DEFAULT_OUT has ${envOuts.length} paths; pass --fractal-out ` +
-                `to pick one. Available:`
-            );
-            for (const p of envOuts) {
-                const t = fs.existsSync(p) ? readOutTitle(p) : '(missing)';
-                console.error(`  - ${p}  ["${t}"]`);
-            }
-            console.error(
-                `\nHint: run \`register-fractal.mjs --list-default-outs\` for a ` +
-                `JSON listing suitable for piping into a chooser.`
-            );
-            process.exit(1);
-        }
-    }
-
     if (args.notesDir && args.outlineTitle) {
         const notesDir = path.resolve(args.notesDir);
         if (!fs.existsSync(notesDir) || !fs.statSync(notesDir).isDirectory()) {
@@ -328,10 +265,7 @@ function resolveOutline(args, fractalMd) {
         return created;
     }
 
-    usage(
-        'must specify --fractal-out OR (--fractal-notes + --fractal-outline), ' +
-        'or set the FRACTAL_DEFAULT_OUT env var to a single .out path'
-    );
+    usage('must specify --fractal-out OR (--fractal-notes + --fractal-outline)');
 }
 
 // ─────────────────────── date / title nodes ───────────────────────
@@ -453,11 +387,6 @@ function processTreeNode(treeNode, outPath, parentNodeId, prevSiblingId, mdBase,
 // ────────────────────────────── main ──────────────────────────────
 
 const args = parseArgs(process.argv);
-
-// Short-circuit utility command: print env paths + titles as JSON and exit.
-// Useful for callers (e.g. Claude skills) that need to show titles to the
-// user when FRACTAL_DEFAULT_OUT has multiple entries.
-if (args.listDefaultOuts) listDefaultOuts();
 
 if (!args.mode || !['single', 'tree'].includes(args.mode)) {
     usage('--mode must be "single" or "tree"');

@@ -70,7 +70,8 @@ When a YouTube URL or video ID is provided by the user, follow these steps:
 2. Run `python <SKILL_DIR>/scripts/get_transcript.py <url_or_id> [options]`
 3. Review the output file `transcript_<VIDEO_ID>.md` and report the results
 4. **If `--summarize` was requested:** Read `transcript_<VIDEO_ID>.md` and create `SUMMARY.md` in the same folder (see Summarize section below)
-5. **If `--to-fractal-*` was requested, OR `FRACTAL_DEFAULT_OUT` env is set (and `--no-fractal` was NOT given):** Run `register-fractal.mjs` to add the transcript to a Fractal outliner (see "Register to Fractal" section below). If env contains multiple paths, use `--list-default-outs` + `AskUserQuestion` to pick one before invoking.
+5. **If `--to-fractal-out` OR (`--to-fractal-notes` + `--to-fractal-outline`) was given:** Run `register-fractal.mjs` to add the transcript to a Fractal outliner (see "Register to Fractal" section below).
+   - **NOTE:** This skill does NOT consult the `FRACTAL_DEFAULT_OUT` environment variable on its own. The caller (typically `/collect`) is responsible for resolving env defaults and passing an explicit `--to-fractal-out <path>` (or notes/outline pair).
 
 ## Summarize
 
@@ -130,21 +131,12 @@ The script creates this structure in the target outliner:
 
 ### Outline targeting
 
-Pick one:
+Pick exactly one (otherwise the script errors):
 
 - `--fractal-out <path.out>` — write to an existing outliner directly
 - `--fractal-notes <folder> --fractal-outline <title>` — look up `outline.note` for a file item with the given `title`; auto-creates the outline if none matches
-- **`FRACTAL_DEFAULT_OUT` env var** — if neither CLI flag is given, falls back here. Single `.out` path → auto-used. Comma-separated multiple paths → script errors with a list; caller picks one via `--fractal-out`
 
-### Choosing among multiple FRACTAL_DEFAULT_OUT paths
-
-When `FRACTAL_DEFAULT_OUT` is a comma-separated list and no `--to-fractal-out` was given, the calling skill should:
-
-1. Run `node <SKILL_DIR>/scripts/register-fractal.mjs --list-default-outs` → JSON of `[{path, title, exists}, ...]`
-2. `AskUserQuestion` with each title as option label, path as description
-3. Pass chosen path via `--fractal-out <path>`
-
-`--no-fractal` (at the wrapper level) skips registration entirely, ignoring env.
+This script does NOT read `FRACTAL_DEFAULT_OUT`. The caller (`/collect` or the user) must resolve any env-driven default and pass `--fractal-out` explicitly.
 
 ### Title node default
 

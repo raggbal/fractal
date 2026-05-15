@@ -1,7 +1,7 @@
 ---
 name: arxiv-md
 description: Download a paper from an arXiv URL (abs / pdf / ID) and convert it to Markdown via the doc-md skill. Handles arXiv-specific URL normalization, prepends YAML front matter + header block with title / authors / abstract / links.
-argument-hint: <arxiv_url_or_id> [-o output_dir] [--keep-pdf] [--no-title] [--no-abstract] [--no-front-matter]
+argument-hint: <arxiv_url_or_id> [-o output_dir] [--keep-pdf] [--no-title] [--no-abstract] [--no-front-matter] [--to-fractal-*]
 ---
 
 # arxiv-md
@@ -14,6 +14,7 @@ YAML front matter + 可読ヘッダとして先頭に埋め込む。
 ## Scripts
 
 - [scripts/fetch_arxiv.py](scripts/fetch_arxiv.py) — メインスクリプト。URL 解析 / PDF 取得 / `doc-md/scripts/convert.py` 呼び出し / タイトル付きファイル名へのリネーム / front matter + ヘッダ挿入を担当
+- [scripts/register-fractal.mjs](scripts/register-fractal.mjs) — Optional: register the converted MD into a Fractal outliner under `date > title > md`
 
 ## Prerequisites
 
@@ -54,6 +55,11 @@ python <SKILL_DIR>/scripts/fetch_arxiv.py 2401.08822 --no-front-matter --no-abst
 | `--no-title` | arXiv API からメタデータ取得をスキップし、ファイル名を `<arxiv_id>.md` のみにする（front matter も最小化） |
 | `--no-abstract` | 冒頭に Abstract 本文の埋め込みをしない（既定は埋め込む） |
 | `--no-front-matter` | YAML front matter を付与しない（既定は付与する） |
+| `--to-fractal-out` | Direct path to a target `.out` file (Fractal outliner) |
+| `--to-fractal-notes` | Notes folder path (used with `--to-fractal-outline`) |
+| `--to-fractal-outline` | Outline title; auto-creates if not found in the Notes folder |
+| `--to-fractal-title` | Title node text under the date node (default: paper title) |
+| `--to-fractal-date` | Override date node text (default: today, `YYYY-MM-DD`) |
 
 ## Accepted Input Formats
 
@@ -77,6 +83,8 @@ python <SKILL_DIR>/scripts/fetch_arxiv.py 2401.08822 --no-front-matter --no-abst
    ```
 3. 出力された `.md` を軽く確認し、ファイル名・保存先・arXiv ID・タイトル・著者を報告する。
 4. PDF 変換は Docling がページごとに数秒〜数十秒かかることを伝える（長いログが出ても待つ）。
+5. **If `--to-fractal-out` OR (`--to-fractal-notes` + `--to-fractal-outline`) was given:** Run `register-fractal.mjs` to add the converted MD to a Fractal outliner (see "Register to Fractal" section below).
+   - **NOTE:** This skill does NOT consult the `FRACTAL_DEFAULT_OUT` environment variable on its own. The caller (typically `/collect`) is responsible for resolving env defaults and passing an explicit `--to-fractal-out <path>` (or notes/outline pair).
 
 ### `/collect` から呼ばれた場合の挙動
 
@@ -85,6 +93,8 @@ python <SKILL_DIR>/scripts/fetch_arxiv.py 2401.08822 --no-front-matter --no-abst
 ```bash
 python <SKILL_DIR>/scripts/fetch_arxiv.py <source> -o .collected/arxiv
 ```
+
+`/collect` から `--to-fractal-*` 系オプションも渡された場合は、変換完了後に「Register to Fractal」セクションの手順で `register-fractal.mjs` を実行する。
 
 ## Output
 
@@ -127,6 +137,44 @@ updated: "2024-01-20T00:00:00Z"
 ```
 
 `--no-front-matter` を指定すれば YAML ブロックを、`--no-abstract` を指定すれば `## Abstract` セクションを、それぞれ省略できる。
+
+## Register to Fractal
+
+When any `--to-fractal-*` option is given, after the paper MD is generated run:
+
+```bash
+node <SKILL_DIR>/scripts/register-fractal.mjs --mode single \
+  --md <converted .md path> \
+  --fractal-title "<title-node-text>" \
+  [--fractal-out <path.out> | --fractal-notes <folder> --fractal-outline <title>] \
+  [--fractal-date YYYY-MM-DD]
+```
+
+The script creates this structure in the target outliner:
+
+```
+<outline-root>
+└── YYYY-MM-DD            ← reused if a root-level node with this exact text exists
+    └── <fractal-title>   ← always newly created (default: paper title)
+        └── arXiv MD      ← page node containing the paper
+```
+
+### Outline targeting
+
+Pick exactly one (otherwise the script errors):
+
+- `--fractal-out <path.out>` — write to an existing outliner directly
+- `--fractal-notes <folder> --fractal-outline <title>` — look up `outline.note` for a file item with the given `title`; auto-creates the outline if none matches
+
+This script does NOT read `FRACTAL_DEFAULT_OUT`. The caller (`/collect` or the user) must resolve any env-driven default and pass `--fractal-out` explicitly.
+
+### Title node default
+
+If `--to-fractal-title` is not provided, derive it from the paper title (the H1 of the converted MD, equal to the arXiv `title` metadata) or fall back to the arXiv ID.
+
+### Notes
+
+- Auto-resolves `fractal-edit/scripts/fractal-md.mjs` via the sibling skill location or `~/.claude/skills/fractal-edit/scripts/fractal-md.mjs`. Override with `--fractal-md-script <path>`.
 
 ## Design Notes
 

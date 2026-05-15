@@ -1,10 +1,35 @@
 ---
 name: collect
-description: "Collect external materials (websites, YouTube, arXiv papers, PDF/Office) into .collected/ as Markdown. Auto-routes to web-crawler-md, youtube-md, arxiv-md, or doc-md based on input type."
+description: "Collect external materials (websites, YouTube, arXiv papers, PDF/Office) into .collected/ as Markdown. ALWAYS reads FRACTAL_DEFAULT_OUT env FIRST (before any sub-skill) and asks user to pick when multiple candidates exist."
 argument-hint: <URL or file path> [--summarize] [--limit N] [--scope PATTERN]
 ---
 
 # /collect — 素材収集
+
+## 🛑 PRE-FLIGHT CHECK (絶対遵守 / 最初のターンで必ず実行)
+
+サブ skill を呼ぶ・コードを書く・ファイルを変換する**より前に**、必ず以下を順に実行する。
+これは「ワークフロー」ではなく**事前チェック**である。スキップは禁止。
+
+```
+1. --no-fractal が引数にあるか確認 → あれば fractal_target = SKIP
+2. --to-fractal-out または (--to-fractal-notes + --to-fractal-outline) があるか確認 → あれば fractal_target = それ
+3. 上記いずれもない場合 → 必ず env を確認する:
+       node ~/.claude/skills/collect/scripts/list-default-outs.mjs
+   結果:
+     - []                → fractal_target = SKIP
+     - 1 件             → fractal_target = その --to-fractal-out
+     - 2 件以上         → AskUserQuestion でユーザーに選ばせる
+                            (label=title, description=path)
+                            → 選んだ path を fractal_target に
+```
+
+**この PRE-FLIGHT を済ませるまでは Skill(...) も Bash も発行してはならない。**
+**MD 変換済み (cache hit) のケースでも同じ。Fractal 登録だけ行う場合も先に env を確認すること。**
+
+これに失敗するとサブ skill 側は env を読まない設計のため、Fractal 登録が静かに skip される（実害: ユーザーがサイレントに登録忘れ）。過去に複数回失敗実績あり。
+
+---
 
 ## このスキルの機能
 
@@ -17,11 +42,14 @@ argument-hint: <URL or file path> [--summarize] [--limit N] [--scope PATTERN]
 |-----------|--------|------|
 | `youtube.com` or `youtu.be` URL | `/youtube-md` | URL パターン |
 | `arxiv.org` / `export.arxiv.org` の URL、または `arxiv:XXXX.XXXXX` / 裸の arXiv ID (`2506.23083`) | `/arxiv-md` | URL / ID パターン |
-| `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.png` 等 | `/doc-md` | 拡張子 |
+| `.pptx` | `/pptx-pages-md` | 拡張子 |
+| `.pdf`, `.docx`, `.xlsx`, `.png` 等（`.pptx` 以外のドキュメント） | `/doc-md` | 拡張子 |
 | URL 末尾が `/llms.txt` または `/llms-full.txt` | `/web-crawler-md` (llms.txt モード) | URL パターン |
 | その他の `http://` or `https://` URL | `/web-crawler-md` | URL パターン |
 
 **ルーティングの優先順位**: 上から順に評価（arXiv URL は `https://arxiv.org/abs/...` で `.pdf` 拡張子を含まないが、`https://arxiv.org/pdf/2506.23083.pdf` のように `.pdf` で終わる URL でも arxiv-md に委譲すること — arxiv-md は front matter でメタデータを付与するため doc-md より適切）。
+
+**`.pptx` は `/pptx-pages-md` に固定委譲**: doc-md (Docling) は装飾シェイプ・アイコン・SmartArt を生のテキストとしてダンプするため可読性が著しく落ちる。pptx-pages-md は各スライドを PNG レンダリング + テキスト + presenter notes の組で出力するため、視覚レイアウトを保ったまま検索可能な MD になる。`.pptx` で doc-md を使いたい場合はユーザーが明示的に `/doc-md` を直接呼ぶこと。
 
 **llms.txt 自動検出**: 通常の Web URL が渡された場合でも、web-crawler-md は内部で対象サイトの `/<dir>/llms.txt` / `/llms.txt` を probe し、見つかれば llms.txt モードに自動切替する（BFS クロールより圧倒的に高速・正確）。ユーザーが直接 `…/llms.txt` を渡した場合は probe をスキップしてそのまま llms.txt モードへ。
 
@@ -65,23 +93,50 @@ argument-hint: <URL or file path> [--summarize] [--limit N] [--scope PATTERN]
 
 ## ワークフロー
 
-### Step 1: 入力を分類
-各入力を URL パターンまたは拡張子で分類する。
+> **❗最重要 (順序固定)**: サブ skill を呼ぶ前に**必ず先に**「Step 1 = Fractal 取込み先の決定」を行う。
+> 変換 → 後から outliner を聞く流れは禁止。env が複数パスでユーザー選択が必要なケースでも、
+> 必ず**変換開始前**に AskUserQuestion を出して `--to-fractal-out <path>` を確定させること。
 
-### Step 2: 収集スキルを呼び出し
+### Step 1: Fractal 取込み先を最初に決定する（**必須・スキップ禁止**）
+
+サブ skill を呼ぶより**先に**、以下の順序で取込み先を決定する。
+
+1. **`--no-fractal` フラグ**が指定されていれば → Fractal 登録スキップ（env 無視）。Step 2 へ。
+2. ユーザーが **`--to-fractal-out` / (`--to-fractal-notes` + `--to-fractal-outline`)** を明示指定 → そのまま採用。env は確認しない。Step 2 へ。
+3. **必ず `FRACTAL_DEFAULT_OUT` env を確認する**。これは省略不可。次のヘルパーで読む:
+   ```bash
+   node <SKILL_DIR>/scripts/list-default-outs.mjs
+   # → JSON で [{path, title, exists}, ...] (env 未設定なら [])
+   ```
+   - 結果が**空配列**（未設定 or 空）→ Fractal 登録スキップ。Step 2 へ。
+   - **1 件のみ** → その path を `--to-fractal-out <path>` として確定。Step 2 へ。
+   - **2 件以上** → **AskUserQuestion でユーザーに選ばせる**（ラベル= title、description= path）。選択後の path を `--to-fractal-out <path>` として確定。Step 2 へ。
+
+**MD 変換が既に完了している（cache hit）ケースでも同じ**: Fractal 登録だけ行うとしても Step 1 を必ず実行する。
+
+### Step 2: 入力を分類
+各入力を URL パターンまたは拡張子で分類する（ルーティング表を参照）。
+
+### Step 3: 収集スキルを呼び出し
 分類に応じて Skill ツールで該当スキルを呼び出す:
 - Skill(web-crawler-md) — Webサイト
 - Skill(youtube-md) — YouTube
 - Skill(arxiv-md) — arXiv 論文
-- Skill(doc-md) — ドキュメント
+- Skill(pptx-pages-md) — `.pptx`（スライド PNG + テキスト + notes）
+- Skill(doc-md) — その他ドキュメント（`.pdf` / `.docx` / `.xlsx` / 画像 等）
 
 **複数入力の場合は並列で実行する。**
+
+**Step 1 で確定した Fractal フラグを必ず forward する**: `--to-fractal-out` / `--to-fractal-notes` /
+`--to-fractal-outline` / `--to-fractal-title` / `--to-fractal-date` をサブ skill にそのまま渡す。
+サブ skill 側の `register-fractal.mjs` は env を読まないため、`collect` がここで forward しないと
+Fractal 登録は実行されない。
 
 **Web サイト向けオプションは forward する**: `/collect` の引数に `--limit` / `--scope` /
 `--concurrency` / `--no-llms-txt` が含まれる場合、Web URL 入力に対しては web-crawler-md
 起動時にそのままパススルーする。他の入力種別 (YouTube / arXiv / ドキュメント) では無視。
 
-### Step 3: 出力先
+### Step 4: 出力先
 すべて `.collected/` に保存:
 
 ```
@@ -97,29 +152,27 @@ argument-hint: <URL or file path> [--summarize] [--limit N] [--scope PATTERN]
 ├── arxiv/                    ← arxiv-md
 │   ├── 2506.23083.md
 │   └── SUMMARY.md
-└── docs/                     ← doc-md
-    ├── api-spec.md
-    └── SUMMARY.md
+├── docs/                     ← doc-md
+│   ├── api-spec.md
+│   └── SUMMARY.md
+└── pptx/                      ← pptx-pages-md
+    └── deck/
+        ├── deck.md
+        └── images/slide-NN.png
 ```
 
-### Step 4: Fractal 連携
+### Step 5: Fractal 連携の詳細仕様
 
-Fractal に取り込むかどうかは以下の優先順位で決定する:
+Step 1 で確定済みのフラグを使ってサブ skill が `scripts/register-fractal.mjs` を実行し outliner に登録する。
+このセクションは仕様の詳細・参考情報のみ。実行順序は Step 1 を参照。
 
-1. **`--no-fractal` フラグ**が指定されていれば → Fractal 登録スキップ（env が set されていても無視）
-2. ユーザーが **`--to-fractal-out` / `--to-fractal-notes` / `--to-fractal-outline`** のいずれかを明示指定 → そのまま使う（最優先）
-3. **`FRACTAL_DEFAULT_OUT` 環境変数**が set されている場合 → 自動で取込み:
-   - 単一パス（カンマなし）→ そのまま使う（register-fractal.mjs が env から拾う）
-   - カンマ区切りで複数パス → **AskUserQuestion でユーザーに選ばせる**（手順は下記）
-4. いずれも無い → Fractal 登録しない（収集だけして終了）
+> **アーキテクチャ**: `FRACTAL_DEFAULT_OUT` env の解釈・複数パス時のユーザー選択は
+> **この `collect` skill だけ**が担う。配下のサブ skill (`web-crawler-md` / `youtube-md` /
+> `arxiv-md` / `doc-md` / `pptx-pages-md` / `aws-doc-maker`) の `register-fractal.mjs` は env を読まず、
+> 受け取った `--fractal-out` あるいは `--fractal-notes + --fractal-outline` だけで動く。
+> よって `collect` は env を解決した結果を必ず**明示的な CLI フラグ**としてサブ skill に forward する。
 
-ユーザーが `--to-fractal-*` を明示指定した場合 or 上記の条件で取込みが必要と判明した場合、Step 2 でサブ skill を呼び出すときにこれらのオプションを forward する:
-
-- `--to-fractal-out` / `--to-fractal-notes` / `--to-fractal-outline` / `--to-fractal-title` / `--to-fractal-date`
-
-各サブ skill 側の SKILL.md にあるとおり、変換完了後に `scripts/register-fractal.mjs` を実行して outliner に登録する。
-
-#### FRACTAL_DEFAULT_OUT の解釈
+#### FRACTAL_DEFAULT_OUT の書式
 
 ```bash
 # 単一パス（最もシンプル）
@@ -129,13 +182,23 @@ export FRACTAL_DEFAULT_OUT="/Users/me/Desktop/inbox/abc.out"
 export FRACTAL_DEFAULT_OUT="~/Desktop/inbox/a.out,~/Desktop/notes/b.out"
 ```
 
-複数パスの場合、サブ skill 呼び出し前に Claude が以下を実行:
+env を見るのは `collect` skill のみ。`collect` は次のヘルパースクリプトで env を読み取る:
 
-1. `node <SKILL_DIR>/scripts/register-fractal.mjs --list-default-outs` を実行 — JSON で `[{path, title, exists}, ...]` が返る
-2. その中身を `AskUserQuestion` でユーザーに見せる（title を選択肢のラベル、path を description に表示）
-3. 選ばれた path を `--to-fractal-out <path>` としてサブ skill に渡す（env を上書き）
+```bash
+node <SKILL_DIR>/scripts/list-default-outs.mjs
+# → JSON で [{path, title, exists}, ...] が返る (env 未設定なら [])
+```
 
-`--list-default-outs` は読み取り専用、副作用なし。
+このスクリプトは読み取り専用、副作用なし。
+
+#### 単一 / 複数パスのフロー
+
+- env が**未設定** または **空配列** → env 由来の取込みなし。`--to-fractal-*` が無ければ Fractal 登録スキップ
+- env が**1 件だけ** → そのまま `--to-fractal-out <path>` として forward
+- env が**2 件以上** → 以下を実行:
+  1. `node <SKILL_DIR>/scripts/list-default-outs.mjs` を実行 → JSON で候補一覧を取得
+  2. `AskUserQuestion` で各候補を表示（title をラベル、path を description に）
+  3. 選ばれた path を `--to-fractal-out <path>` としてサブ skill に渡す
 
 #### 並列実行時の注意
 
@@ -143,7 +206,7 @@ export FRACTAL_DEFAULT_OUT="~/Desktop/inbox/a.out,~/Desktop/notes/b.out"
 - **同じ `.out` に複数素材を登録するケース**: 同時書き込みは競合するので逐次実行する（並列収集後、登録だけは順番に）
 - **異なる `.out` に分けるケース**: 通常通り並列で OK
 
-### Step 5: 結果報告
+### Step 6: 結果報告
 保存先パス、ページ数/ファイル数を報告し、以下を案内:
 - 「`/researcher` で内容を分析できます」
 - 「`.collected/` のファイルは explorer が自動検索対象にします」
