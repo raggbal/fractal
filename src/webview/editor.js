@@ -19,6 +19,7 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
+    copyImageToOSClipboard(filePath) { this._mainHost.copyImageToOSClipboard(filePath); }
     requestInsertLink(text) {
         if (this._onLinkRequest) this._onLinkRequest();
         this._mainHost.requestInsertLink(text);
@@ -4440,6 +4441,158 @@ class EditorInstance {
         }
     });
 
+    // Copy Image ボタン → host で OS clipboard 書込中の button ref (absPath → btn) を保持
+    // host から copyImageToOSClipboardResult が返ってきた時に flash する
+    var pendingImageCopyButtons = new Map();
+
+    // 画像 src (webview URL / file:// / 絶対 fs path) → 絶対 fs path 抽出
+    //   1) vscode-resource webview URL → 接頭辞除去
+    //   2) file:// 接頭辞除去 (Electron standalone)
+    //   3) ?v=mtime / #fragment を除去
+    //   4) URL-decode (file:// は %20 等を含むことがある)
+    function deriveImageAbsPath(src) {
+        if (!src) return '';
+        var p = (typeof cleanImageSrc === 'function') ? cleanImageSrc(src) : src
+            .replace(/^https:\/\/file\+\.vscode-resource\.vscode-cdn\.net/, '')
+            .replace(/^https:\/\/file%2B\.vscode-resource\.vscode-cdn\.net/, '');
+        p = p.replace(/^file:\/\//, '');
+        p = p.split('?')[0].split('#')[0];
+        try { p = decodeURIComponent(p); } catch (e) {}
+        return p;
+    }
+
+    // overlay 右上に [Copy Image] [Open in New Tab] [Copy Path] を配置
+    function attachImageOverlayToolbar(overlay, imgSrc) {
+        var absPath = deriveImageAbsPath(imgSrc);
+
+        var bar = document.createElement('div');
+        bar.className = 'outliner-image-overlay-toolbar';
+
+        // クリックが overlay 背景クリック扱いにならないように
+        bar.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        bar.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+        bar.addEventListener('dblclick', function(ev) { ev.stopPropagation(); });
+
+        function makeBtn(label, title, onClick) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'outliner-image-overlay-btn';
+            btn.textContent = label;
+            btn.title = title;
+            btn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                onClick(btn);
+            });
+            return btn;
+        }
+
+        function flashLabel(btn, msg) {
+            var orig = btn.textContent;
+            btn.textContent = msg;
+            setTimeout(function() { btn.textContent = orig; }, 1000);
+        }
+
+        // 1) Copy Image — host (extension) 経由で OS clipboard に画像として乗せる。
+        //    VS Code webview の navigator.clipboard.write(ClipboardItem) は CSP / sandbox で
+        //    画像 MIME を弾かれるケースが多いので、必ず host 経由を試みる。
+        //    standalone HTML (browser) には host が無いので navigator.clipboard 直接に fallback。
+        var copyImageBtn = makeBtn('Copy Image', 'Copy image to clipboard', function(btn) {
+            if (typeof host !== 'undefined' && host && typeof host.copyImageToOSClipboard === 'function' && absPath) {
+                btn.dataset.origLabel = 'Copy Image';
+                btn.textContent = '…';
+                pendingImageCopyButtons.set(absPath, btn);
+                host.copyImageToOSClipboard(absPath);
+                return;
+            }
+            // browser/standalone fallback
+            copyImageToClipboard(imgSrc).then(function() {
+                flashLabel(btn, 'Copied!');
+            }).catch(function(err) {
+                if (typeof logger !== 'undefined' && logger.log) {
+                    logger.log('[image-overlay] copy image failed:', err && err.message);
+                }
+                flashLabel(btn, 'Failed');
+            });
+        });
+
+        // 2) Open in New Tab — 外部アプリで開く (host.openLink) / standalone は window.open
+        var openBtn = makeBtn('Open in New Tab', 'Open image in external viewer', function() {
+            if (typeof host !== 'undefined' && host && typeof host.openLink === 'function' && absPath) {
+                host.openLink(absPath);
+            } else {
+                try { window.open(imgSrc, '_blank'); } catch (e) {}
+            }
+        });
+
+        // 3) Copy Path — 絶対 fs path を clipboard へ
+        var copyPathBtn = makeBtn('Copy Path', 'Copy full image path to clipboard', function(btn) {
+            if (!absPath) { flashLabel(btn, 'No path'); return; }
+            try {
+                navigator.clipboard.writeText(absPath).then(function() {
+                    flashLabel(btn, 'Copied!');
+                }, function() {
+                    try { window.prompt('Copy path:', absPath); } catch (e) {}
+                });
+            } catch (e) {
+                try { window.prompt('Copy path:', absPath); } catch (e2) {}
+            }
+        });
+
+        bar.appendChild(copyImageBtn);
+        bar.appendChild(openBtn);
+        bar.appendChild(copyPathBtn);
+        overlay.appendChild(bar);
+    }
+
+    function copyImageToClipboard(imgSrc) {
+        if (!imgSrc) return Promise.reject(new Error('no src'));
+        if (typeof ClipboardItem === 'undefined' || !navigator.clipboard || !navigator.clipboard.write) {
+            return Promise.reject(new Error('ClipboardItem unsupported'));
+        }
+        return fetch(imgSrc).then(function(r) {
+            if (!r.ok) throw new Error('fetch failed ' + r.status);
+            return r.blob();
+        }).then(function(blob) {
+            // ClipboardItem は image/png / image/jpeg のみ広くサポート
+            // SVG など unsupported な場合は canvas で PNG 化
+            if (blob.type === 'image/png' || blob.type === 'image/jpeg') {
+                return navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            }
+            return blobToPngBlob(blob).then(function(pngBlob) {
+                return navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+            });
+        });
+    }
+
+    function blobToPngBlob(blob) {
+        return new Promise(function(resolve, reject) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function() {
+                try {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob(function(pngBlob) {
+                        URL.revokeObjectURL(url);
+                        if (pngBlob) resolve(pngBlob); else reject(new Error('toBlob failed'));
+                    }, 'image/png');
+                } catch (e) {
+                    URL.revokeObjectURL(url);
+                    reject(e);
+                }
+            };
+            img.onerror = function() {
+                URL.revokeObjectURL(url);
+                reject(new Error('image load failed'));
+            };
+            img.src = url;
+        });
+    }
+
     /**
      * 全画面 image overlay を生成。
      * - dblclick で起動 (caller 側)
@@ -4460,6 +4613,10 @@ class EditorInstance {
         hint.className = 'outliner-image-overlay-hint';
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
+
+        // Top-right toolbar: Copy Image / Open in New Tab / Copy Path
+        attachImageOverlayToolbar(overlay, imgSrc);
+
         document.body.appendChild(overlay);
 
         var scale = 1, tx = 0, ty = 0;
@@ -14539,6 +14696,17 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // Copy Image (fullscreen overlay) の host 側結果
+        if (message.type === 'copyImageToOSClipboardResult') {
+            var btn = pendingImageCopyButtons.get(message.filePath);
+            if (btn) {
+                pendingImageCopyButtons.delete(message.filePath);
+                var orig = btn.dataset.origLabel || 'Copy Image';
+                btn.textContent = message.ok ? 'Copied!' : 'Failed';
+                setTimeout(function() { btn.textContent = orig; }, 1200);
+            }
+            return;
+        }
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
         if (message.type === 'pasteWithAssetCopyResult') {
             logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);

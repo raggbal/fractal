@@ -7,6 +7,7 @@ import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, 
 import { safeResolveUnderDir } from './path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
+import { copyImageToOSClipboard } from './copy-image-to-clipboard';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -576,6 +577,27 @@ export async function handleNotesMessage(
                 platform.openFileInEditor(message.href);
             }
             break;
+
+        case 'copyImageToOSClipboard': {
+            const filePath: string = message.filePath;
+            try {
+                await copyImageToOSClipboard(filePath);
+                sender.postMessage({
+                    type: 'copyImageToOSClipboardResult',
+                    ok: true,
+                    filePath
+                });
+            } catch (e) {
+                const errMsg = (e as Error).message || String(e);
+                sender.postMessage({
+                    type: 'copyImageToOSClipboardResult',
+                    ok: false,
+                    filePath,
+                    error: errMsg
+                });
+            }
+            break;
+        }
 
         // ── Left File Panel Operations ──
 

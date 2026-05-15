@@ -1683,6 +1683,36 @@ body {
     user-select: none;
 }
 
+/* Image overlay top-right action buttons (Copy Image / Open / Copy Path) */
+.outliner-image-overlay-toolbar {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    gap: 6px;
+    z-index: 10002;
+    user-select: none;
+}
+.outliner-image-overlay-btn {
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 11px;
+    line-height: 1.1;
+    padding: 5px 9px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.outliner-image-overlay-btn:hover {
+    background: rgba(0, 0, 0, 0.75);
+    border-color: rgba(255, 255, 255, 0.45);
+}
+.outliner-image-overlay-btn:active {
+    background: rgba(0, 0, 0, 0.9);
+}
+
 /* v10: Translation Loading Overlay */
 .translate-loading-overlay {
     position: fixed;

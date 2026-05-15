@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.207.61] - 2026-05-15
+
+### Added
+- **画像 fullscreen overlay (画像ダブルクリック) に右上アクションボタン 3 種を追加**
+  - **Copy Image** — 画像を OS クリップボードに**画像として**コピー (Cmd+V で他アプリにペースト可能、スクリーンショット相当の挙動)。macOS は `sips`/`qlmanage` で PNG 化し `osascript «class PNGf»` 経由、Linux は `convert`+`xclip -t image/png` (fallback `wl-copy`)、Windows は PowerShell `[Clipboard]::SetImage` を使用
+  - **Open in New Tab** — OS 標準アプリで画像を開く (Preview.app / 既定の画像ビューア等)
+  - **Copy Path** — 画像の絶対フルパスをクリップボードに文字列としてコピー
+- 対応 webview: notes > outliner editor / standalone outliner editor (`.out`) / sidepanel markdown editor / standalone markdown editor の 4 文脈すべて
+- VS Code webview の CSP / sandbox 制約で `navigator.clipboard.write(ClipboardItem)` が画像 MIME を弾くケースに対応するため、extension 側で OS ネイティブのクリップボード API を直接呼ぶ経路に統一
+
 ## [0.207.59] - 2026-05-13
 
 ### Changed

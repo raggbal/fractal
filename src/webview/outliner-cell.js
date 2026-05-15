@@ -452,6 +452,165 @@
         }
     }
 
+    // Copy Image ボタン (host 経由 OS clipboard) の pending button (absPath → btn)
+    var pendingImageCopyButtons = (typeof Map !== 'undefined') ? new Map() : null;
+    var pendingImageCopyListenerRegistered = false;
+
+    function ensurePendingImageCopyListener() {
+        if (pendingImageCopyListenerRegistered) return;
+        if (typeof window === 'undefined' || !window.addEventListener) return;
+        pendingImageCopyListenerRegistered = true;
+        window.addEventListener('message', function(ev) {
+            var msg = ev && ev.data;
+            if (!msg || msg.type !== 'copyImageToOSClipboardResult') return;
+            if (!pendingImageCopyButtons) return;
+            var btn = pendingImageCopyButtons.get(msg.filePath);
+            if (!btn) return;
+            pendingImageCopyButtons.delete(msg.filePath);
+            var orig = btn.dataset && btn.dataset.origLabel ? btn.dataset.origLabel : 'Copy Image';
+            btn.textContent = msg.ok ? 'Copied!' : 'Failed';
+            setTimeout(function() { btn.textContent = orig; }, 1200);
+        });
+    }
+
+    // 画像 src (webview URL / file:// / 絶対 fs path) → 絶対 fs path 抽出
+    function deriveImageAbsPath(src) {
+        if (!src) return '';
+        var p = src
+            .replace(/^https:\/\/file\+\.vscode-resource\.vscode-cdn\.net/, '')
+            .replace(/^https:\/\/file%2B\.vscode-resource\.vscode-cdn\.net/, '')
+            .replace(/^file:\/\//, '');
+        p = p.split('?')[0].split('#')[0];
+        try { p = decodeURIComponent(p); } catch (e) {}
+        return p;
+    }
+
+    function blobToPngBlob(blob) {
+        return new Promise(function(resolve, reject) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function() {
+                try {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob(function(pngBlob) {
+                        URL.revokeObjectURL(url);
+                        if (pngBlob) resolve(pngBlob); else reject(new Error('toBlob failed'));
+                    }, 'image/png');
+                } catch (e) {
+                    URL.revokeObjectURL(url);
+                    reject(e);
+                }
+            };
+            img.onerror = function() {
+                URL.revokeObjectURL(url);
+                reject(new Error('image load failed'));
+            };
+            img.src = url;
+        });
+    }
+
+    function copyImageToClipboard(imgSrc) {
+        if (!imgSrc) return Promise.reject(new Error('no src'));
+        if (typeof ClipboardItem === 'undefined' || !navigator.clipboard || !navigator.clipboard.write) {
+            return Promise.reject(new Error('ClipboardItem unsupported'));
+        }
+        return fetch(imgSrc).then(function(r) {
+            if (!r.ok) throw new Error('fetch failed ' + r.status);
+            return r.blob();
+        }).then(function(blob) {
+            if (blob.type === 'image/png' || blob.type === 'image/jpeg') {
+                return navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            }
+            return blobToPngBlob(blob).then(function(pngBlob) {
+                return navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+            });
+        });
+    }
+
+    // overlay 右上に [Copy Image] [Open in New Tab] [Copy Path] を配置
+    function attachImageOverlayToolbar(overlay, imgSrc) {
+        var absPath = deriveImageAbsPath(imgSrc);
+
+        var bar = document.createElement('div');
+        bar.className = 'outliner-image-overlay-toolbar';
+        bar.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        bar.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+        bar.addEventListener('dblclick', function(ev) { ev.stopPropagation(); });
+
+        function makeBtn(label, title, onClick) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'outliner-image-overlay-btn';
+            btn.textContent = label;
+            btn.title = title;
+            btn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                onClick(btn);
+            });
+            return btn;
+        }
+
+        function flashLabel(btn, msg) {
+            var orig = btn.textContent;
+            btn.textContent = msg;
+            setTimeout(function() { btn.textContent = orig; }, 1000);
+        }
+
+        var copyImageBtn = makeBtn('Copy Image', 'Copy image to clipboard', function(btn) {
+            // VS Code webview / Electron では host (extension) 経由で OS clipboard に画像として乗せる
+            // (webview の navigator.clipboard.write(ClipboardItem) は CSP/sandbox で弾かれることが多い)
+            var hostBridge = (typeof window !== 'undefined') &&
+                (window.outlinerHostBridge || window.notesHostBridge || window.hostBridge || window.host || null);
+            if (hostBridge && typeof hostBridge.copyImageToOSClipboard === 'function' && absPath) {
+                ensurePendingImageCopyListener();
+                btn.dataset.origLabel = 'Copy Image';
+                btn.textContent = '…';
+                if (pendingImageCopyButtons) pendingImageCopyButtons.set(absPath, btn);
+                hostBridge.copyImageToOSClipboard(absPath);
+                return;
+            }
+            // browser/standalone fallback
+            copyImageToClipboard(imgSrc).then(function() {
+                flashLabel(btn, 'Copied!');
+            }).catch(function() {
+                flashLabel(btn, 'Failed');
+            });
+        });
+
+        var openBtn = makeBtn('Open in New Tab', 'Open image in external viewer', function() {
+            var hostBridge = (typeof window !== 'undefined') &&
+                (window.outlinerHostBridge || window.host || null);
+            if (hostBridge && typeof hostBridge.openLink === 'function' && absPath) {
+                hostBridge.openLink(absPath);
+            } else {
+                try { window.open(imgSrc, '_blank'); } catch (e) {}
+            }
+        });
+
+        var copyPathBtn = makeBtn('Copy Path', 'Copy full image path to clipboard', function(btn) {
+            if (!absPath) { flashLabel(btn, 'No path'); return; }
+            try {
+                navigator.clipboard.writeText(absPath).then(function() {
+                    flashLabel(btn, 'Copied!');
+                }, function() {
+                    try { window.prompt('Copy path:', absPath); } catch (e) {}
+                });
+            } catch (e) {
+                try { window.prompt('Copy path:', absPath); } catch (e2) {}
+            }
+        });
+
+        bar.appendChild(copyImageBtn);
+        bar.appendChild(openBtn);
+        bar.appendChild(copyPathBtn);
+        overlay.appendChild(bar);
+    }
+
     function showImageOverlay(src) {
         var overlay = document.createElement('div');
         overlay.className = 'outliner-image-overlay';
@@ -466,6 +625,9 @@
         hint.className = 'outliner-image-overlay-hint';
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
+
+        // Top-right toolbar: Copy Image / Open in New Tab / Copy Path
+        attachImageOverlayToolbar(overlay, src);
 
         document.body.appendChild(overlay);
 

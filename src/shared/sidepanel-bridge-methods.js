@@ -162,6 +162,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // 画像 fullscreen overlay: OS clipboard に画像として乗せる
+        copyImageToOSClipboard: function(filePath) {
+            postFn({ type: 'copyImageToOSClipboard', filePath: filePath });
+        },
+
         // メッセージ受信
         onMessage: function(handler) {
             window.addEventListener('message', function(e) {

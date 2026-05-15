@@ -8,6 +8,7 @@ import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
+import { copyImageToOSClipboard } from './shared/copy-image-to-clipboard';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
@@ -613,6 +614,28 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'openLinkInTab': {
                         const uri = vscode.Uri.file(message.href);
                         vscode.commands.executeCommand('vscode.openWith', uri, 'fractal.editor');
+                        break;
+                    }
+
+                    case 'copyImageToOSClipboard': {
+                        const filePath: string = message.filePath;
+                        try {
+                            await copyImageToOSClipboard(filePath);
+                            webviewPanel.webview.postMessage({
+                                type: 'copyImageToOSClipboardResult',
+                                ok: true,
+                                filePath
+                            });
+                        } catch (e) {
+                            const errMsg = (e as Error).message || String(e);
+                            webviewPanel.webview.postMessage({
+                                type: 'copyImageToOSClipboardResult',
+                                ok: false,
+                                filePath,
+                                error: errMsg
+                            });
+                            vscode.window.showErrorMessage('Fractal: Copy image failed — ' + errMsg);
+                        }
                         break;
                     }
 

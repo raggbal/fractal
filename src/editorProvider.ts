@@ -11,6 +11,7 @@ import {
     removeAllDirectives
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { copyImageToOSClipboard } from './shared/copy-image-to-clipboard';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
@@ -1116,6 +1117,29 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Open the same file in VS Code's default text editor
                     await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
                     break;
+
+                case 'copyImageToOSClipboard': {
+                    // Fullscreen image overlay の Copy Image ボタンから
+                    const filePath: string = message.filePath;
+                    try {
+                        await copyImageToOSClipboard(filePath);
+                        webviewPanel.webview.postMessage({
+                            type: 'copyImageToOSClipboardResult',
+                            ok: true,
+                            filePath
+                        });
+                    } catch (e) {
+                        const errMsg = (e as Error).message || String(e);
+                        webviewPanel.webview.postMessage({
+                            type: 'copyImageToOSClipboardResult',
+                            ok: false,
+                            filePath,
+                            error: errMsg
+                        });
+                        vscode.window.showErrorMessage('Fractal: Copy image failed — ' + errMsg);
+                    }
+                    break;
+                }
 
                 case 'copyFilePath':
                     await vscode.env.clipboard.writeText(document.uri.fsPath);
