@@ -14579,8 +14579,50 @@ class EditorInstance {
             if (!message.markdown) return;
             undoManager.saveSnapshot();
             markAsEdited();
-            editor.focus();
-            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            // Restore the caret captured at paste-time. editor.focus() alone
+            // can collapse the selection to editor's first child when a
+            // contenteditable=false wrapper (mermaid/math) is in the path.
+            const snap = self._pendingPasteSelection;
+            self._pendingPasteSelection = null;
+            const restoredPlainText = (snap && snap.plainText) || '';
+            try {
+                if (snap && snap.startContainer && snap.startContainer.isConnected) {
+                    const r = document.createRange();
+                    r.setStart(snap.startContainer, snap.startOffset);
+                    r.setEnd(snap.endContainer || snap.startContainer,
+                             typeof snap.endOffset === 'number' ? snap.endOffset : snap.startOffset);
+                    const target = (snap.startContainer.nodeType === 1
+                        ? snap.startContainer
+                        : snap.startContainer.parentNode);
+                    let focusable = target;
+                    while (focusable && focusable !== editor) {
+                        if (focusable.nodeType === 1
+                            && focusable.getAttribute &&
+                            focusable.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable = focusable.parentNode;
+                    }
+                    if (focusable && focusable !== editor && typeof focusable.focus === 'function') {
+                        focusable.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr) {
+                logger.warn('paste selection restore failed:', restoreErr);
+                editor.focus();
+            }
+            _insertPastedMarkdown(message.markdown, {
+                clipboardEvent: null,
+                isInternal: true,
+                plainText: restoredPlainText
+            });
             return;
         }
         // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
@@ -14591,7 +14633,41 @@ class EditorInstance {
             if (!message.markdown) return;
             var pending = self._pendingDataUrlPaste || {};
             self._pendingDataUrlPaste = null;
-            editor.focus();
+            // Restore caret from snapshot (same reason as pasteWithAssetCopyResult)
+            try {
+                var snap2 = pending.selection;
+                if (snap2 && snap2.startContainer && snap2.startContainer.isConnected) {
+                    var r2 = document.createRange();
+                    r2.setStart(snap2.startContainer, snap2.startOffset);
+                    r2.setEnd(snap2.endContainer || snap2.startContainer,
+                              typeof snap2.endOffset === 'number' ? snap2.endOffset : snap2.startOffset);
+                    var target2 = (snap2.startContainer.nodeType === 1
+                        ? snap2.startContainer
+                        : snap2.startContainer.parentNode);
+                    var focusable2 = target2;
+                    while (focusable2 && focusable2 !== editor) {
+                        if (focusable2.nodeType === 1
+                            && focusable2.getAttribute &&
+                            focusable2.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable2 = focusable2.parentNode;
+                    }
+                    if (focusable2 && focusable2 !== editor && typeof focusable2.focus === 'function') {
+                        focusable2.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    var selR2 = window.getSelection();
+                    selR2.removeAllRanges();
+                    selR2.addRange(r2);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr2) {
+                logger.warn('extractDataUrlsInPastedMdResult selection restore failed:', restoreErr2);
+                editor.focus();
+            }
             _insertPastedMarkdown(message.markdown, {
                 clipboardEvent: null,
                 isInternal: !!pending.isInternal,
@@ -16851,6 +16927,26 @@ class EditorInstance {
                 if (isCut && sameOutliner) {
                     // fallthrough → pastedMd = internalMd で内部挿入
                 } else {
+                    // Save current selection (range.startContainer / startOffset)
+                    // so the async pasteWithAssetCopyResult handler can restore
+                    // it. Without this, mermaid/math wrappers (contenteditable=false)
+                    // lose their inner caret on the editor.focus() roundtrip and
+                    // the paste lands at the top of the document.
+                    try {
+                        const sel0 = window.getSelection();
+                        if (sel0 && sel0.rangeCount > 0) {
+                            const r0 = sel0.getRangeAt(0).cloneRange();
+                            self._pendingPasteSelection = {
+                                startContainer: r0.startContainer,
+                                startOffset: r0.startOffset,
+                                endContainer: r0.endContainer,
+                                endOffset: r0.endOffset,
+                                plainText: e.clipboardData.getData('text/plain') || ''
+                            };
+                        }
+                    } catch (selErr) {
+                        logger.warn('paste selection snapshot failed:', selErr);
+                    }
                     host.pasteWithAssetCopy(internalMd, sourceCtx);
                     return; // Wait for pasteWithAssetCopyResult
                 }
@@ -16994,7 +17090,25 @@ class EditorInstance {
         if (pastedMd && pastedMd.indexOf('data:image/') >= 0 && typeof host.extractDataUrlsInPastedMd === 'function') {
             logger.log('Pasted MD contains data:image/, delegating to host for extraction');
             // 後の result handler で _insertPastedMarkdown するため、plainText を保持
-            self._pendingDataUrlPaste = { plainText: text || '', isInternal: !!internalMd };
+            // selection も保存して async result 受信時に復元する (mermaid/math 対応)
+            var selSnap = null;
+            try {
+                var selNow = window.getSelection();
+                if (selNow && selNow.rangeCount > 0) {
+                    var rNow = selNow.getRangeAt(0).cloneRange();
+                    selSnap = {
+                        startContainer: rNow.startContainer,
+                        startOffset: rNow.startOffset,
+                        endContainer: rNow.endContainer,
+                        endOffset: rNow.endOffset
+                    };
+                }
+            } catch (selSnapErr) { /* noop */ }
+            self._pendingDataUrlPaste = {
+                plainText: text || '',
+                isInternal: !!internalMd,
+                selection: selSnap
+            };
             host.extractDataUrlsInPastedMd(pastedMd);
             return;
         }
@@ -17135,7 +17249,8 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -17179,7 +17294,8 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
