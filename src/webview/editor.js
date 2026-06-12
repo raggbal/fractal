@@ -11111,67 +11111,20 @@ class EditorInstance {
                     return;
                 }
                 
-                // Handle blockquote - only convert to paragraph if at the very beginning
+                // Handle blockquote - block backspace at absolute beginning so the
+                // blockquote does not dissolve (matches code-block behavior).
+                // Range.toString() ignores <br>, so cloneContents() + querySelector('br')
+                // are used to also detect leading BR sentinels.
                 if (tag === 'blockquote') {
-                    // Check if cursor is truly at the beginning of the blockquote
-                    // (not just at offset 0 of some node in the middle)
                     const contentRange = document.createRange();
                     contentRange.selectNodeContents(currentLine);
                     contentRange.setEnd(range.startContainer, range.startOffset);
-                    const textBeforeCursor = contentRange.toString();
-                    
-                    logger.log('Backspace in blockquote:', { textBeforeCursor, length: textBeforeCursor.length });
-                    
-                    if (textBeforeCursor.length === 0) {
-                        // Truly at the beginning - convert to paragraph(s)
+                    const before = contentRange.cloneContents();
+                    const hasTextBefore = (before.textContent || '').length > 0;
+                    const hasBrBefore = !!before.querySelector('br');
+                    if (!hasTextBefore && !hasBrBefore) {
                         e.preventDefault();
-
-                        // Split blockquote content by <br> and \n into individual paragraphs
-                        // Blockquote content may use \n text nodes (from markdownToHtmlFragment)
-                        // or <br> elements (from insertLineBreak on Enter)
-                        const childNodes = Array.from(currentLine.childNodes);
-                        const lines = [];
-                        let currentFragment = document.createDocumentFragment();
-
-                        for (const node of childNodes) {
-                            if (node.nodeName === 'BR' && !node.hasAttribute?.('data-trailing-br')) {
-                                lines.push(currentFragment);
-                                currentFragment = document.createDocumentFragment();
-                            } else if (node.nodeType === 3 && node.textContent.includes('\n')) {
-                                // Text node containing \n - split it
-                                const parts = node.textContent.split('\n');
-                                for (let i = 0; i < parts.length; i++) {
-                                    if (i > 0) {
-                                        lines.push(currentFragment);
-                                        currentFragment = document.createDocumentFragment();
-                                    }
-                                    if (parts[i] !== '') {
-                                        currentFragment.appendChild(document.createTextNode(parts[i]));
-                                    }
-                                }
-                            } else {
-                                currentFragment.appendChild(node.cloneNode(true));
-                            }
-                        }
-                        lines.push(currentFragment);
-
-                        // Create <p> elements for each line
-                        const paragraphs = [];
-                        for (const fragment of lines) {
-                            const p = document.createElement('p');
-                            if (fragment.childNodes.length === 0 || (fragment.childNodes.length === 1 && fragment.firstChild.nodeType === 3 && fragment.firstChild.textContent === '')) {
-                                p.innerHTML = '<br>';
-                            } else {
-                                p.appendChild(fragment);
-                            }
-                            paragraphs.push(p);
-                        }
-
-                        // Replace blockquote with paragraphs
-                        const firstP = paragraphs[0];
-                        currentLine.replaceWith(...paragraphs);
-                        setCursorToStart(firstP);
-                        syncMarkdown();
+                        return;
                     }
                     // Otherwise, let default backspace behavior handle it (delete previous char/br)
                     return;
