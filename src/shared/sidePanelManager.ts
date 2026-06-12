@@ -87,30 +87,44 @@ export class SidePanelManager {
             if (this._isApplyingEdit) return;
             setTimeout(async () => {
                 try {
-                    if (!this._document) return;
-                    if (this._document.isClosed) {
-                        this._document = await vscode.workspace.openTextDocument(uri);
+                    // Race guard: navigation may have switched _document/_watchedPath
+                    // between the disk event and this setTimeout firing. Apply only
+                    // if we are still watching the same file the event is for.
+                    if (this._watchedPath !== filePath) return;
+                    const targetDoc = this._document;
+                    if (!targetDoc) return;
+                    if (targetDoc.uri.fsPath !== filePath) return;
+                    const liveDoc = targetDoc.isClosed
+                        ? await vscode.workspace.openTextDocument(uri)
+                        : targetDoc;
+                    // Re-check after await: navigation may have happened during openTextDocument
+                    if (this._watchedPath !== filePath) return;
+                    if (this._document !== liveDoc) {
+                        // Update the cached document only if we are still watching this file
+                        this._document = liveDoc;
                     }
                     const fileContent = await vscode.workspace.fs.readFile(uri);
+                    if (this._watchedPath !== filePath) return;
                     const newContent = new TextDecoder().decode(fileContent);
-                    const currentContent = this._document.getText();
+                    const currentContent = liveDoc.getText();
                     if (newContent !== currentContent) {
                         this._isApplyingEdit = true;
                         const fullRange = new vscode.Range(
-                            this._document.positionAt(0),
-                            this._document.positionAt(currentContent.length)
+                            liveDoc.positionAt(0),
+                            liveDoc.positionAt(currentContent.length)
                         );
                         const edit = new vscode.WorkspaceEdit();
-                        edit.replace(this._document.uri, fullRange, newContent);
+                        edit.replace(liveDoc.uri, fullRange, newContent);
                         await vscode.workspace.applyEdit(edit);
                         this._isApplyingEdit = false;
-                        if (this._document.isClosed) {
-                            this._document = await vscode.workspace.openTextDocument(uri);
-                        }
-                        await this._document.save();
+                        // Final guard before save: confirm no navigation happened
+                        if (this._watchedPath !== filePath) return;
+                        if (liveDoc.isClosed) return;
+                        await liveDoc.save();
+                        if (this._watchedPath !== filePath) return;
                         this.host.postMessage({
                             type: 'sidePanelMessage',
-                            data: { type: 'update', content: newContent }
+                            data: { type: 'update', content: newContent, filePath }
                         });
                     }
                 } catch (error) {
@@ -123,13 +137,15 @@ export class SidePanelManager {
         // Watch TextDocument changes → relay to iframe
         this._docChangeSubscription = vscode.workspace.onDidChangeTextDocument(e => {
             if (!this._document) return;
+            if (this._watchedPath !== filePath) return;
             if (e.document.uri.toString() !== this._document.uri.toString()) return;
+            if (e.document.uri.fsPath !== filePath) return;
             if (e.contentChanges.length === 0) return;
             if (this._isApplyingEdit) return;
             const content = e.document.getText();
             this.host.postMessage({
                 type: 'sidePanelMessage',
-                data: { type: 'update', content: content }
+                data: { type: 'update', content, filePath }
             });
         });
     }
@@ -157,30 +173,47 @@ export class SidePanelManager {
     async handleSave(filePath: string, content: string): Promise<void> {
         const prefix = this.config.logPrefix;
         try {
-            if (this._document && this._document.uri.fsPath === filePath) {
-                if (this._document.isClosed) {
-                    this._document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+            // Pin the target by URI once. Never trust this._document mid-save —
+            // navigation can swap it during await applyEdit, which previously
+            // could redirect _document.save() at a different file.
+            const targetUri = vscode.Uri.file(filePath);
+            const cached = this._document;
+            const useBuffer = !!cached && cached.uri.fsPath === filePath;
+            if (useBuffer) {
+                let targetDoc = cached!.isClosed
+                    ? await vscode.workspace.openTextDocument(targetUri)
+                    : cached!;
+                // Sanity-check we still target the same file
+                if (targetDoc.uri.fsPath !== filePath) {
+                    // Fall back to direct write — buffer no longer matches
+                    await vscode.workspace.fs.writeFile(
+                        targetUri,
+                        Buffer.from(content, 'utf8')
+                    );
+                    return;
                 }
                 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
-                if (normalize(content) === normalize(this._document.getText())) return;
+                if (normalize(content) === normalize(targetDoc.getText())) return;
 
                 this._isApplyingEdit = true;
                 const spEdit = new vscode.WorkspaceEdit();
                 spEdit.replace(
-                    this._document.uri,
-                    new vscode.Range(0, 0, this._document.lineCount, 0),
+                    targetDoc.uri,
+                    new vscode.Range(0, 0, targetDoc.lineCount, 0),
                     content
                 );
                 await vscode.workspace.applyEdit(spEdit);
                 this._isApplyingEdit = false;
-                if (this._document.isClosed) {
-                    this._document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+                if (targetDoc.isClosed) {
+                    targetDoc = await vscode.workspace.openTextDocument(targetUri);
                 }
-                await this._document.save();
+                if (targetDoc.uri.fsPath !== filePath) return;
+                await targetDoc.save();
             } else {
-                const spUri = vscode.Uri.file(filePath);
-                const spContent = Buffer.from(content, 'utf8');
-                await vscode.workspace.fs.writeFile(spUri, spContent);
+                await vscode.workspace.fs.writeFile(
+                    targetUri,
+                    Buffer.from(content, 'utf8')
+                );
             }
         } catch (e) {
             this._isApplyingEdit = false;

@@ -195,6 +195,19 @@ class EditorInstance {
     // ===== Destroy instance =====
     destroy() {
         console.log('[DEBUG] EditorInstance.destroy() called. instances before=' + EditorInstance.instances.length);
+        // Mark as destroyed FIRST so any pending timer that fires before
+        // clearTimeout completes will be a no-op (notifyChangeImmediate /
+        // notifyChange / setTimeout closures all check self._destroyed).
+        this._destroyed = true;
+        // Cancel any pending debounced/idle saves bound to closure variables
+        // inside _legacyInit() (saveTimeout / syncTimeout / editingIdleTimer).
+        try {
+            if (typeof this._cancelPendingSync === 'function') {
+                this._cancelPendingSync();
+            }
+        } catch (e) {
+            console.error('[DEBUG] _cancelPendingSync failed:', e);
+        }
         const idx = EditorInstance.instances.indexOf(this);
         if (idx !== -1) EditorInstance.instances.splice(idx, 1);
         if (EditorInstance.activeInstance === this) {
@@ -3412,16 +3425,24 @@ class EditorInstance {
             }
         }
         
-        // Focus and place cursor at start
+        // Focus and place cursor at end of content (re-edit UX: "continue from
+        // where I left off"). Placing at start would also leave cursor at
+        // offset 0 where Backspace gets blocked by the merge-protection at
+        // line ~11060, making the block feel uneditable.
         code.focus();
         const range = document.createRange();
         const sel = window.getSelection();
-        if (code.firstChild) {
-            if (code.firstChild.nodeType === 1 && code.firstChild.tagName === 'BR') {
-                // Empty code block - set cursor before the <br>
-                range.setStart(code, 0);
+        if (code.lastChild) {
+            const last = code.lastChild;
+            if (last.nodeType === 1 && last.tagName === 'BR') {
+                // Place cursor before the trailing <br> (sentinel or empty marker)
+                const idx = Array.prototype.indexOf.call(code.childNodes, last);
+                range.setStart(code, idx);
+            } else if (last.nodeType === 3) {
+                range.setStart(last, last.textContent.length);
             } else {
-                range.setStart(code.firstChild, 0);
+                range.selectNodeContents(code);
+                range.collapse(false);
             }
             range.collapse(true);
             sel.removeAllRanges();
@@ -11039,14 +11060,20 @@ class EditorInstance {
                         syncMarkdown();
                         return;
                     }
-                    // Non-empty code block: check if cursor is at the very beginning
-                    // If so, prevent backspace from merging with previous element
+                    // Non-empty code block: check if cursor is at the absolute beginning
+                    // (= nothing — neither text nor <br> — exists before the cursor).
+                    // If so, prevent backspace from merging with previous element.
+                    // Range.toString() ignores <br>, so we use cloneContents() to also
+                    // detect leading BR sentinels (e.g. when the code block starts with
+                    // an empty line and the cursor is on the second line).
                     if (codeElement) {
                         const contentRange = document.createRange();
                         contentRange.selectNodeContents(codeElement);
                         contentRange.setEnd(range.startContainer, range.startOffset);
-                        const textBeforeCursor = contentRange.toString();
-                        if (textBeforeCursor.length === 0) {
+                        const before = contentRange.cloneContents();
+                        const hasTextBefore = (before.textContent || '').length > 0;
+                        const hasBrBefore = !!before.querySelector('br');
+                        if (!hasTextBefore && !hasBrBefore) {
                             e.preventDefault();
                             return;
                         }
@@ -13482,6 +13509,11 @@ class EditorInstance {
     function notifyChangeImmediate() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        // Race guard: a destroyed instance must not save anymore. Otherwise
+        // a debounced sync (or an idle flush) belonging to the previous
+        // side-panel page can fire after navigation and write the current
+        // (visible) markdown to the OLD bridge's filePath.
+        if (self._destroyed) return;
         host.syncContent(markdown);
         updateOutline();
         updateWordCount();
@@ -13492,8 +13524,10 @@ class EditorInstance {
     function notifyChange() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        if (self._destroyed) return;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
+            if (self._destroyed) return;
             host.syncContent(markdown);
             updateOutline();
             updateWordCount();
@@ -14966,6 +15000,15 @@ class EditorInstance {
                 sidePanelCanGoBack = !!spData.canGoBack;
                 sidePanelCanGoForward = !!spData.canGoForward;
                 applySidePanelNavButtonState();
+                return;
+            }
+            // Race guard: external 'update' may arrive after a navigation has
+            // switched the side panel to a different file. Drop stale updates
+            // whose filePath does not match the currently displayed file.
+            if (spData.type === 'update' && spData.filePath
+                && sidePanelFilePath && spData.filePath !== sidePanelFilePath) {
+                logger.log('[Any MD] dropping stale sidePanel update for', spData.filePath,
+                    '(current=', sidePanelFilePath, ')');
                 return;
             }
             // それ以外は side panel EditorInstance に dispatch
@@ -17050,18 +17093,39 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty: pasteWithAssetCopyResult
+            // path passes plainText:'' but pastedMd contains the rewritten markdown,
+            // which for code-block paste is exactly the literal text we want.
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
-                const textNode = document.createTextNode(textToPaste);
-                range.insertNode(textNode);
-                
-                // Move cursor to end of inserted text
-                range.setStartAfter(textNode);
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                
+                // Code block: split on newlines and insert <br> between lines so
+                // multi-line paste becomes multiple visible lines (textNodes don't
+                // render \n inside contenteditable).
+                if (textToPaste.indexOf('\n') >= 0) {
+                    const lines = textToPaste.split('\n');
+                    const frag = document.createDocumentFragment();
+                    lines.forEach((line, idx) => {
+                        if (idx > 0) frag.appendChild(document.createElement('br'));
+                        if (line) frag.appendChild(document.createTextNode(line));
+                    });
+                    const lastChild = frag.lastChild;
+                    range.insertNode(frag);
+                    if (lastChild) {
+                        range.setStartAfter(lastChild);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                } else {
+                    const textNode = document.createTextNode(textToPaste);
+                    range.insertNode(textNode);
+                    range.setStartAfter(textNode);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+
                 syncMarkdownSync();
                 logger.log('Code block paste completed');
             }
@@ -17951,6 +18015,22 @@ class EditorInstance {
             set: (value) => { markdown = value; }
         });
     }
+
+    // Expose closure-scoped pending timers + cancel hook so destroy() can
+    // cancel them. Without this, a stale debounced sync (1000ms / 300ms /
+    // 1500ms idle flush) belonging to the OLD side-panel instance fires
+    // *after* the side panel has navigated, calling host.syncContent on
+    // an already-destroyed bridge — which is one of the contributors to
+    // the "back button overwrites parent markdown" race.
+    self._cancelPendingSync = function() {
+        try { if (saveTimeout) clearTimeout(saveTimeout); } catch (e) {}
+        try { if (syncTimeout) clearTimeout(syncTimeout); } catch (e) {}
+        try { if (editingIdleTimer) clearTimeout(editingIdleTimer); } catch (e) {}
+        saveTimeout = null;
+        syncTimeout = null;
+        editingIdleTimer = null;
+        pendingSync = false;
+    };
     } // end _legacyInit()
 } // end class EditorInstance
 

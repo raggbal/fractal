@@ -7771,6 +7771,12 @@ var Outliner = (function() {
                         applyOuterSidePanelNavButtonState();
                         break;
                     }
+                    // Race guard: drop stale 'update' targeting a file that the side
+                    // panel has already navigated away from (back button overwrite fix).
+                    if (spdata.type === 'update' && spdata.filePath
+                        && sidePanelFilePath && spdata.filePath !== sidePanelFilePath) {
+                        break;
+                    }
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage(msg.data);
                     }
