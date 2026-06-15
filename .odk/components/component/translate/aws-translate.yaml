@@ -1,0 +1,24 @@
+$schema: odk:schema:component
+id: odk:component:translate/aws-translate
+description: |
+  Markdown translator. Splits the source Markdown into translatable and
+  preserved segments (code blocks, math, raw HTML are preserved verbatim);
+  chunks each translatable segment under 10,000 bytes; calls AWS Translate
+  via the AWS CLI; reassembles. See docs/specs/aws-translate.md.
+type: layout
+framework: agnostic
+props:
+  markdown:
+    type: string
+    required: true
+    description: "Source Markdown to translate"
+  sourceLang:
+    type: string
+    required: true
+    description: "Source language code (e.g. ja, en)"
+  targetLang:
+    type: string
+    required: true
+    description: "Target language code"
+emits:
+  - "Translated Markdown string (preserved segments untouched)"

@@ -1,0 +1,36 @@
+name: error
+description: "An error response definition with status code, machine-readable code, and response shape"
+version: 1
+fields:
+  id:
+    type: string
+    required: true
+    pattern: "^odk:error:.+"
+    description: "Unique component identifier in odk:error:namespace/name format"
+  description:
+    type: text
+    required: true
+    description: "When and why this error is returned"
+  status_code:
+    type: integer
+    required: true
+    description: "HTTP status code (e.g. 400, 401, 404, 409, 422, 500, 503)"
+  code:
+    type: string
+    required: true
+    description: "Machine-readable error code, e.g. INSUFFICIENT_BALANCE"
+  detail_template:
+    type: string
+    required: true
+    description: "Human-readable detail with ${variable} placeholders"
+  response_shape:
+    type: map
+    required: true
+    description: "Fields in the error response body"
+  triggers:
+    type: list
+    required: true
+    description: "Conditions that produce this error"
+  related:
+    type: ref_list
+    description: "Components related to this error (routes that return it, entities involved)"

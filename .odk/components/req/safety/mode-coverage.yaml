@@ -1,0 +1,21 @@
+$schema: odk:schema:req
+id: odk:req:safety/mode-coverage
+description: |
+  Hard MUST: every feature addition or fix must function across all four
+  modes — Outliner Single, Outliner Note, Markdown Single, Markdown Side
+  Panel.
+type: policy
+priority: critical
+rule: |
+  A change is acceptable only if it has been verified in each of the four
+  modes that the feature touches. Modes that do not apply are noted
+  explicitly.
+failure_behavior: |
+  PR is blocked. Missing modes are treated as defects.
+related_components:
+  - odk:component:host/any-markdown-editor-provider
+  - odk:component:host/outliner-provider
+  - odk:component:host/notes-editor-provider
+acceptance_criteria:
+  - "Manual mode-matrix walkthrough recorded for each release"
+  - "Per-feature E2E specs cover the primary mode"

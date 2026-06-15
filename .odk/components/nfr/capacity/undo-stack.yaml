@@ -1,0 +1,16 @@
+$schema: odk:schema:nfr
+id: odk:nfr:capacity/undo-stack
+description: |
+  Editor and Outliner each retain up to 200 undo snapshots. Older snapshots
+  are discarded FIFO.
+category: scalability
+target: 200
+unit: snapshots
+measurement: |
+  Stack length capped at 200 in the webview undo manager.
+test_method: |
+  E2E spec performing > 200 edits and asserting undo stops at the oldest
+  retained snapshot.
+applies_to:
+  - odk:component:webview/editor
+  - odk:component:webview/outliner

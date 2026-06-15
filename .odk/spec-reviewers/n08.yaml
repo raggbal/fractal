@@ -1,0 +1,90 @@
+id: N08
+name: No Technical Specs in Prose
+group: quality
+threshold: 7
+model_tier: smart
+
+tools:
+  - name: scan_url_paths
+    description: Scan for URL paths in narrative text.
+    code: |
+      def scan_url_paths(text: str) -> str:
+          import json, re
+          patterns = [
+              (r"(GET|POST|PUT|PATCH|DELETE)\s+/[\w/{}.\-]+", "HTTP method + path"),
+              (r"/api/[\w/{}.\-]+", "API path literal"),
+          ]
+          findings: list[dict[str, object]] = []
+          for line_no, line in enumerate(text.splitlines(), 1):
+              cleaned = re.sub(r"\[odk:[^\]]+\]", "", line) if "[odk:" in line and "]" in line else line
+              for pattern, category in patterns:
+                  findings.extend(
+                      [{"line": line_no, "text": m.group(), "category": category}
+                       for m in re.finditer(pattern, cleaned)]
+                  )
+          return json.dumps(findings, indent=2)
+
+  - name: scan_type_annotations
+    description: Scan for type annotations in prose.
+    code: |
+      def scan_type_annotations(text: str) -> str:
+          import json, re
+          pattern = (
+              r"\b(Decimal\([^)]+\)|UUID|varchar\(\d+\)|varchar|int\b|str\b|bool\b"
+              r"|float\b|List\[|Dict\[|Optional\[|datetime\b)"
+          )
+          findings: list[dict[str, object]] = []
+          for line_no, line in enumerate(text.splitlines(), 1):
+              cleaned = re.sub(r"\[odk:[^\]]+\]", "", line)
+              findings.extend(
+                  [{"line": line_no, "text": m.group(), "category": "type_annotation"}
+                   for m in re.finditer(pattern, cleaned)]
+              )
+          return json.dumps(findings, indent=2)
+
+system_prompt: |
+  You are reviewing whether the narrative contains ANY technical specifications that should be in component manifests. This check has ZERO TOLERANCE — even one technical spec in prose is a failure.
+
+  WHAT COUNTS AS TECHNICAL SPECS (must NOT be in narrative):
+  - URL paths: /api/v1/orders, POST /api/backtest/run
+  - Response/request shapes: {id, status: "running"}
+  - Field definitions: order_id (UUID), quantity (Decimal)
+  - Type annotations: Decimal(5,4), varchar(255), int, str, bool
+  - Database references: table names, column names, constraints, indexes
+  - Code references: function signatures, class names in backticks
+
+  WHAT IS ALLOWED:
+  - [odk:entity:orders/Order] references
+  - High-level behavioral descriptions
+  - Flow descriptions in natural language
+  - Business rules in natural language
+
+  CRITICAL ANTI-HALLUCINATION RULES:
+  1. ONLY report findings that ACTUALLY EXIST in the document text. Quote the EXACT text from the document.
+  2. Do NOT invent examples of what violations would look like.
+  3. Do NOT generate fictional line numbers, URLs, function signatures, or SQL queries.
+  4. If the deterministic tools found 0 issues, that is STRONG EVIDENCE the document is clean. Respect the tool results.
+  5. Every finding MUST include the EXACT quoted text from the document. If you cannot quote exact text, do not report it.
+  6. Before reporting a finding, verify: does this exact text appear in the specification above? If not, do not report it.
+
+  Use any available tools as evidence, then apply your judgment.
+
+  SCORING RUBRIC:
+  - Score 10: Zero technical specs in prose. Only [odk:...] references.
+  - Score 7: 1-3 minor leaks (field names mentioned in passing).
+  - Score 4: Multiple technical specs embedded in prose.
+  - Score 0: The narrative reads like API documentation WITH actual evidence of many violations.
+
+examples:
+  bad:
+    - text: "POST /api/backtest/strategy-run launches a backtest"
+      issue: "URL path in prose"
+      fix: "Use [odk:route:backtest/run] reference"
+  good:
+    - text: "The backtest launch endpoint [odk:route:backtest/run] starts an asynchronous simulation"
+
+scoring:
+  10: Zero technical specs in prose. Only [odk:...] references.
+  7: 1-3 minor leaks.
+  4: Multiple technical specs embedded in prose.
+  0: The narrative reads like API documentation.

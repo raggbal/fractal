@@ -1,0 +1,25 @@
+$schema: odk:schema:contract
+id: odk:contract:host/file-directory-resolver
+description: |
+  Three-tier resolver that determines where dropped or imported attachment
+  files are saved. Order: per-file front-matter / Outliner JSON `fileDir`
+  → workspace setting `fractal.fileDefaultDir` → built-in default
+  (e.g. `files/` next to the host file).
+methods:
+  resolve:
+    description: "Return the absolute directory path for attachment saves"
+    params:
+      hostFile:
+        type: string
+        description: "Absolute path of the .md / .out file under edit"
+      perFileHint:
+        type: string
+        description: "File directory hint embedded in the file"
+      configValue:
+        type: string
+        description: "Value of `fractal.fileDefaultDir` for this scope"
+    returns:
+      type: string
+      description: "Absolute directory path; created on first write"
+    raises:
+      - odk:error:import/path-traversal-detected

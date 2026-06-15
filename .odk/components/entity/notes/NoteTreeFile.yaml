@@ -1,0 +1,31 @@
+$schema: odk:schema:entity
+id: odk:entity:notes/NoteTreeFile
+description: |
+  An entry inside `outline.note` that points to a `.out` file living in
+  the Note folder. Carries display metadata (title, color) but not the
+  Outliner tree itself; the tree is loaded from the referenced `.out`.
+fields:
+  type:
+    type: string
+    required: true
+    default: "file"
+    description: "Discriminator. Always 'file' for this entity."
+  id:
+    type: string
+    required: true
+    primary_key: true
+    description: "The basename of the `.out` file (without extension)"
+  title:
+    type: string
+    required: true
+    description: "Display title shown in the Notes File Panel"
+  color:
+    type: string
+    required: false
+    description: "Tailwind palette color name (added in v11+)"
+relationships:
+  - entity: odk:entity:outliner/OutFile
+    type: one-to-one
+    fk: id
+    description: "Refers to one OutFile"
+crud: [create, read, update, delete]

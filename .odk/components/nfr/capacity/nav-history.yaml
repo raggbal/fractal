@@ -1,0 +1,16 @@
+$schema: odk:schema:nfr
+id: odk:nfr:capacity/nav-history
+description: |
+  In-app navigation (`fractal://` link clicks within Notes) keeps a back /
+  forward history bounded at 50 entries.
+category: scalability
+target: 50
+unit: entries
+measurement: |
+  History stack capped at 50 in [odk:component:host/side-panel-manager].
+test_method: |
+  E2E spec performing > 50 in-app navigations and asserting the oldest
+  entry is dropped.
+applies_to:
+  - odk:component:host/side-panel-manager
+  - odk:component:host/notes-editor-provider

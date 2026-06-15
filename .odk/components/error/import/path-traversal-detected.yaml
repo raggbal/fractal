@@ -1,0 +1,27 @@
+$schema: odk:schema:error
+id: odk:error:import/path-traversal-detected
+description: |
+  Path construction with external input resolved outside the allowed root
+  directory. The operation is aborted and no file system change occurs.
+status_code: 400
+code: FRACTAL_PATH_TRAVERSAL_DETECTED
+detail_template: "Path '${child}' resolves outside its allowed root '${root}'."
+response_shape:
+  code:
+    type: string
+    description: "FRACTAL_PATH_TRAVERSAL_DETECTED"
+  message:
+    type: string
+    description: "Human-readable detail"
+  child:
+    type: string
+    description: "Offending input"
+  root:
+    type: string
+    description: "Allowed root directory"
+triggers:
+  - "`safeResolveUnderDir` rejects the resolved path"
+related:
+  - odk:req:security/path-traversal-guard
+  - odk:component:host/notes-file-manager
+  - odk:component:s3-sync/per-file-sync

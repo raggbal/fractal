@@ -1,0 +1,21 @@
+$schema: odk:schema:component
+id: odk:component:webview/outliner
+description: |
+  Tree UI plus pure data model (`outliner-model.js`). Renders every Node
+  into the DOM; supports Table View through `outliner-cell.js`. Owns its
+  own undo / redo stack (200 snapshots) and navigation history (50
+  entries). See docs/specs/outliner.md.
+type: input
+framework: agnostic
+props:
+  initialTree:
+    type: "OutFile"
+    required: true
+    description: "Initial Outliner JSON document from the host"
+  config:
+    type: "WebviewOutlinerConfig"
+    required: true
+    description: "fontSize, toolbarMode, theme tokens, taskMode"
+emits:
+  - "webview→host postMessage: sync (debounced JSON), save, page open, image, file, drawio, link"
+  - "Drop / import errors: odk:error:import/file-too-large, odk:error:import/directory-rejected"

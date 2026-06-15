@@ -1,0 +1,28 @@
+$schema: odk:schema:component
+id: odk:component:host/outliner-provider
+description: |
+  VS Code `CustomTextEditorProvider` for `.out` files (JSON outliner
+  documents). Owns the Outliner webview lifecycle, dispatches Page /
+  Image / File node side-effects (page MD writes, image saves, file
+  copies), and bridges Side Panel + drawio watch + Outliner-level S3
+  sync. See docs/specs/outliner-provider.md.
+type: layout
+framework: agnostic
+props:
+  document:
+    type: "vscode.TextDocument"
+    required: true
+    description: "The .out TextDocument (JSON)"
+  webviewPanel:
+    type: "vscode.WebviewPanel"
+    required: true
+    description: "The webview panel hosting the Outliner UI"
+  config:
+    type: "FractalConfig"
+    required: true
+    description: "fractal.* settings"
+emits:
+  - "host→webview postMessage (init, externalChange, pageOpen)"
+  - "TextDocument WorkspaceEdit (debounced JSON write)"
+  - "Page MD / image / file writes to disk"
+  - "S3 sync trigger via outliner-s3-sync"

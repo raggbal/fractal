@@ -1,0 +1,25 @@
+$schema: odk:schema:component
+id: odk:component:s3-sync/notes-s3-sync
+description: |
+  Note-folder-level S3 sync. Wraps per-file-sync with the Note-folder
+  layout (the entire Notes root including `outline.note`, `.out` files,
+  and asset directories). See docs/specs/s3-sync.md.
+type: layout
+framework: agnostic
+props:
+  notesFolderPath:
+    type: string
+    required: true
+    description: "Absolute path of the Notes root folder"
+  s3BucketPath:
+    type: string
+    required: true
+    description: "S3 destination from outline.note.s3BucketPath"
+  conflictMode:
+    type: "'auto' | 'confirm'"
+    required: false
+    default: "auto"
+    description: "Conflict mode forwarded to the per-file engine"
+emits:
+  - "Sync progress events to the host UI"
+  - "Conflict events when applicable"

@@ -1,0 +1,26 @@
+$schema: odk:schema:component
+id: odk:component:host/notes-editor-provider
+description: |
+  Notes workspace provider. Creates a single `WebviewPanel` per Notes
+  folder; embeds Notes file panel, Outliner, and Markdown editor views;
+  delegates `outline.note` CRUD to NotesFileManager and S3 sync to
+  notes-s3-sync. See docs/specs/notes-editor-provider.md.
+type: layout
+framework: agnostic
+props:
+  notesFolderPath:
+    type: string
+    required: true
+    description: "Absolute path of the Notes root folder"
+  webviewPanel:
+    type: "vscode.WebviewPanel"
+    required: true
+    description: "The Notes WebviewPanel"
+  config:
+    type: "FractalConfig"
+    required: true
+    description: "fractal.* settings"
+emits:
+  - "host→webview postMessage (init, file selection, page open, S3 sync state)"
+  - "outline.note writes via NotesFileManager"
+  - "Per-file .out / .md writes inside the Notes folder"

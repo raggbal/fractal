@@ -1,0 +1,65 @@
+name: route
+description: "An API endpoint with method, path, request/response shapes, and auth rules"
+version: 1
+fields:
+  id:
+    type: string
+    required: true
+    pattern: "^odk:route:.+"
+    description: "Unique component identifier in odk:route:namespace/name format"
+  description:
+    type: text
+    required: true
+    description: "What this endpoint does"
+  method:
+    type: enum
+    values: [GET, POST, PUT, PATCH, DELETE]
+    required: true
+    description: "HTTP method"
+  path:
+    type: string
+    required: true
+    pattern: "^/"
+    description: "URL path relative to API base, e.g. /api/v1/orders"
+  request:
+    type: map
+    description: "Request shape including body, query params, and path params"
+    items:
+      body:
+        type: map
+        description: "Request body fields"
+      query:
+        type: map
+        description: "Query string parameters"
+      path_params:
+        type: map
+        description: "URL path parameters"
+  responses:
+    type: map
+    required: true
+    description: "Response shapes keyed by HTTP status code"
+    items:
+      description:
+        type: string
+        required: true
+        description: "When this response is returned"
+      ref:
+        type: ref
+        description: "Reference to an entity or error component"
+      refs:
+        type: ref_list
+        description: "Multiple component references (for 4xx with multiple error types)"
+      shape:
+        type: map
+        description: "Inline response shape if not referencing a component"
+  auth:
+    type: enum
+    values: [required, optional, none]
+    required: true
+    description: "Authentication requirement for this endpoint"
+  rate_limit:
+    type: string
+    description: "Rate limiting rule, e.g. '10 req/sec per user'"
+  idempotency:
+    type: string
+    description: "Idempotency strategy for non-GET requests"

@@ -1,0 +1,58 @@
+$schema: odk:schema:entity
+id: odk:entity:outliner/OutFile
+description: |
+  An Outliner document persisted as a single JSON file with extension `.out`.
+  Stores the tree of nodes plus optional Table View columns and Task Mode flags.
+  The schema version is always `1`; backward compatibility is handled ad-hoc on load.
+fields:
+  version:
+    type: integer
+    required: true
+    default: 1
+    description: "Schema version. Always 1; legacy formats are auto-converted on load."
+  title:
+    type: string
+    required: false
+    nullable: true
+    description: "Optional document title shown in the title input"
+  rootIds:
+    type: list
+    required: true
+    description: "Ordered list of node IDs at the document root"
+  nodes:
+    type: map
+    required: true
+    description: "Node object keyed by node ID. Legacy array form is converted on load."
+  columns:
+    type: list
+    required: false
+    description: "Table View column definitions (Name, type, width). Empty array when in normal Outliner mode."
+  taskMode:
+    type: boolean
+    required: false
+    default: false
+    description: "When true, root nodes automatically receive checkboxes"
+  taskFilter:
+    type: string
+    required: false
+    default: "all"
+    values: [active, all]
+    description: "Task Mode filter. 'active' shows incomplete only, 'all' shows everything."
+  pageDir:
+    type: string
+    required: false
+    description: "Override directory for Page Markdown files; defaults to ./<basename>/"
+  fileDir:
+    type: string
+    required: false
+    description: "Override directory for attachment files; defaults to ./<basename>/files"
+  imageDir:
+    type: string
+    required: false
+    description: "Override directory for images; defaults to ./<basename>/images"
+relationships:
+  - entity: odk:entity:outliner/Node
+    type: one-to-many
+    fk: outFileId
+    description: "An OutFile contains many Nodes"
+crud: [create, read, update]

@@ -1,0 +1,72 @@
+$schema: odk:schema:entity
+id: odk:entity:outliner/Node
+description: |
+  A single bullet (row) in an Outliner tree. Identified by a short random ID
+  in the format `n` + base36 timestamp + 6-char random suffix.
+  The fields `isPage`, `filePath`, and `images[]` are mutually exclusive — a
+  node is either a Page node, a File node, an Image node, or a Plain node.
+fields:
+  id:
+    type: string
+    required: true
+    primary_key: true
+    description: "Node ID. Format: 'n' + Date.now().toString(36) + random(6)."
+  parentId:
+    type: string
+    nullable: true
+    fk: odk:entity:outliner/Node
+    description: "Parent node ID, or null for root nodes"
+  children:
+    type: list
+    required: true
+    default: []
+    description: "Ordered list of child node IDs"
+  text:
+    type: string
+    required: true
+    default: ""
+    description: "Inline Markdown text of the bullet (with #/@ tags parsed)"
+  subtext:
+    type: string
+    required: false
+    description: "Secondary descriptive text shown beneath the bullet"
+  isPage:
+    type: boolean
+    required: false
+    default: false
+    description: "True when the node owns a Page Markdown file"
+  pageId:
+    type: string
+    required: false
+    nullable: true
+    description: "UUID v4 identifying the Page when isPage=true"
+  filePath:
+    type: string
+    required: false
+    nullable: true
+    description: "Relative path to an attached file when this is a File node"
+  images:
+    type: list
+    required: false
+    default: []
+    description: "Image filenames attached to this node"
+  checked:
+    type: boolean
+    required: false
+    nullable: true
+    description: "Task Mode checkbox state. null = no checkbox; true/false = checked state."
+  collapsed:
+    type: boolean
+    required: false
+    default: false
+    description: "Whether the node's children are collapsed in the UI"
+relationships:
+  - entity: odk:entity:outliner/Node
+    type: one-to-many
+    fk: parentId
+    description: "Self-referential parent-child"
+  - entity: odk:entity:editor/Page
+    type: one-to-one
+    fk: pageId
+    description: "An isPage node references one Page"
+crud: [create, read, update, delete]

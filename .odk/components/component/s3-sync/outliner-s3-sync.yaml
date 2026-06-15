@@ -1,0 +1,25 @@
+$schema: odk:schema:component
+id: odk:component:s3-sync/outliner-s3-sync
+description: |
+  Single-Outliner S3 sync. Wraps per-file-sync to sync one `.out` file
+  plus its sibling `pages/`, `images/`, `files/` directories. See
+  docs/specs/s3-sync.md.
+type: layout
+framework: agnostic
+props:
+  outFilePath:
+    type: string
+    required: true
+    description: "Absolute path of the .out file"
+  s3BucketPath:
+    type: string
+    required: true
+    description: "S3 destination configured per-Outliner"
+  conflictMode:
+    type: "'auto' | 'confirm'"
+    required: false
+    default: "auto"
+    description: "Conflict mode forwarded to the per-file engine"
+emits:
+  - "Sync progress events to the host UI"
+  - "Conflict events when applicable"

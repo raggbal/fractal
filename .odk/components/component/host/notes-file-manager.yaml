@@ -1,0 +1,16 @@
+$schema: odk:schema:component
+id: odk:component:host/notes-file-manager
+description: |
+  CRUD and search over `outline.note`. Owns `syncStructureWithDisk` (the
+  on-disk `.out` file inventory must match the in-memory tree before any
+  write). See docs/specs/notes-file-manager.md.
+type: layout
+framework: agnostic
+props:
+  notesFolderPath:
+    type: string
+    required: true
+    description: "Absolute path of the Notes root folder"
+emits:
+  - "outline.note disk writes (after syncStructureWithDisk verifies)"
+  - "Per-file create / rename / delete operations"

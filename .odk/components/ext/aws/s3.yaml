@@ -1,0 +1,34 @@
+$schema: odk:schema:ext
+id: odk:ext:aws/s3
+description: |
+  AWS S3 used as optional cloud backup for Note folders and standalone
+  Outliners. Accessed exclusively via the AWS CLI (see [odk:ext:aws/cli]),
+  never via SDK. Sync uses mtime newer-wins comparison without `--delete`
+  to guarantee no remote-driven data loss.
+base_url: "s3://${bucket}/${prefix}"
+auth: "delegated to user's AWS CLI configuration"
+endpoints:
+  list:
+    method: GET
+    path: "s3://${bucket}/${prefix}"
+    response: any
+    description: "Recursive list of objects (via `aws s3 ls --recursive`)"
+  put:
+    method: PUT
+    path: "s3://${bucket}/${prefix}/${key}"
+    response: any
+    description: "Upload one local file"
+  get:
+    method: GET
+    path: "s3://${bucket}/${prefix}/${key}"
+    response: any
+    description: "Download one object"
+rate_limits:
+  notes: "S3 standard request quotas; sync batches in groups of 500 to keep CLI spawn count bounded"
+error_handling:
+  not_found: "Treated as 'remote file does not exist' for diff purposes"
+  forbidden: "Surface to user; abort sync session"
+  service_error: "Surface stderr; partial sync state preserved"
+retry_strategy:
+  max_retries: 0
+  notes: "User-initiated; manual retry. AWS CLI's own retries apply at the protocol layer."

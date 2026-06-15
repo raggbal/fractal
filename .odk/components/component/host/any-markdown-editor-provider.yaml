@@ -1,0 +1,27 @@
+$schema: odk:schema:component
+id: odk:component:host/any-markdown-editor-provider
+description: |
+  VS Code `CustomTextEditorProvider` for `.md` / `.markdown` files. Owns
+  the WYSIWYG Markdown Editor webview lifecycle: build webview HTML,
+  handle postMessage events (sync / save / image / file / drawio /
+  translate / paste), apply TextDocument edits, and forward External
+  Change Sync diffs to the webview. See docs/specs/any-markdown-editor-provider.md.
+type: layout
+framework: agnostic
+props:
+  document:
+    type: "vscode.TextDocument"
+    required: true
+    description: "The .md / .markdown TextDocument under edit"
+  webviewPanel:
+    type: "vscode.WebviewPanel"
+    required: true
+    description: "The webview panel hosting the WYSIWYG editor"
+  config:
+    type: "FractalConfig"
+    required: true
+    description: "fractal.* settings (image / file dirs, fontSize, etc.)"
+emits:
+  - "host→webview postMessage (init, themeChange, externalChange)"
+  - "TextDocument WorkspaceEdit (debounced sync)"
+  - "image / file / drawio.svg writes to disk"

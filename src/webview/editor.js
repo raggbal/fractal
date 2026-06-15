@@ -225,6 +225,10 @@ class EditorInstance {
             this._actionPanelEl.remove();
             this._actionPanelEl = null;
         }
+        if (this._tableToolbarEl) {
+            this._tableToolbarEl.remove();
+            this._tableToolbarEl = null;
+        }
         console.log('[DEBUG] EditorInstance.destroy() done. instances after=' + EditorInstance.instances.length);
     }
 
@@ -3804,6 +3808,11 @@ class EditorInstance {
         });
 
         document.body.appendChild(tableToolbar);
+        // Expose for destroy() so the toolbar (appended to document.body)
+        // doesn't survive after the owning EditorInstance is destroyed
+        // (e.g. when the side panel closes while a table cell is focused —
+        // otherwise the floating toolbar lingers over the outliner).
+        self._tableToolbarEl = tableToolbar;
     }
 
     function showTableToolbar(table) {

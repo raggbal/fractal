@@ -1,0 +1,25 @@
+$schema: odk:schema:error
+id: odk:error:import/directory-rejected
+description: |
+  A drag-and-drop or import operation received a directory rather than a
+  file. Fractal does not recursively import directory trees.
+status_code: 400
+code: FRACTAL_IMPORT_DIRECTORY_REJECTED
+detail_template: "'${path}' is a directory; only files can be dropped or imported."
+response_shape:
+  code:
+    type: string
+    description: "FRACTAL_IMPORT_DIRECTORY_REJECTED"
+  message:
+    type: string
+    description: "Human-readable detail"
+  path:
+    type: string
+    description: "Rejected directory path"
+triggers:
+  - "Drop / import target is a directory entry"
+related:
+  - odk:component:webview/editor
+  - odk:component:webview/outliner
+  - odk:component:host/any-markdown-editor-provider
+  - odk:component:host/outliner-provider

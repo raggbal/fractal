@@ -1,0 +1,16 @@
+#!/bin/sh
+# Skip verification if odk task done already ran it recently
+VERIFIED_FLAG=".odk/.verified"
+if [ -f "$VERIFIED_FLAG" ]; then
+  VERIFIED_TS=$(cat "$VERIFIED_FLAG")
+  NOW=$(python3 -c "import time; print(time.time())")
+  AGE=$(python3 -c "print(float('$NOW') - float('$VERIFIED_TS'))")
+  EXPIRED=$(python3 -c "print(1 if float('$AGE') > 300 else 0)")
+  if [ "$EXPIRED" = "0" ]; then
+    echo "Pre-push: skipping verification (odk task done verified recently)"
+    rm -f "$VERIFIED_FLAG"
+    exit 0
+  fi
+  rm -f "$VERIFIED_FLAG"
+fi
+odk verify run --trigger pre-push

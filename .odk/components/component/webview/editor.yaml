@@ -1,0 +1,21 @@
+$schema: odk:schema:component
+id: odk:component:webview/editor
+description: |
+  WYSIWYG contenteditable Markdown editor implemented as a single ~17,000-
+  line `editor.js`. Renders inline previews for headings, lists, tables,
+  code blocks, math, Mermaid, and drawio. Owns paste / drop classification
+  in the webview tier. See docs/specs/markdown-editor.md.
+type: input
+framework: agnostic
+props:
+  initialMarkdown:
+    type: string
+    required: true
+    description: "Initial Markdown source from the host"
+  config:
+    type: "WebviewEditorConfig"
+    required: true
+    description: "fontSize, toolbarMode, imageMaxWidth, theme tokens"
+emits:
+  - "webview→host postMessage: sync (debounced markdown), save, image, file, drawio, translate, link"
+  - "Drop / import errors: odk:error:import/file-too-large, odk:error:import/directory-rejected"

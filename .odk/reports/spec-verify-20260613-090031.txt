@@ -1,0 +1,367 @@
+===============================================================
+ ODK Spec Verification Report
+ Project: fractal | Files: 28 | Components: 48 | Duration: 25s
+===============================================================
+
+-- Summary --
+
+  Criterion                          Score     Threshold    Status        Time  
+  N01 Problem Statement                  8             8    PASS         10.5s  
+  N02 Success Criteria                   3             8    FAIL         10.4s  
+  N03 Scope Boundaries                   9             8    PASS          6.2s  
+  N04 Terminology Consistency            9             8    PASS          8.5s  
+  N05 Ambiguity                          9             8    PASS          7.0s  
+  N06 Flow Completeness                  4             8    FAIL         13.8s  
+  N07 Information Density                9             8    PASS          6.2s  
+  N08 No Technical Specs in              7             8    PASS          7.8s  
+  Prose                                                                         
+  N09 Component References               2             8    FAIL         13.0s  
+  N10 YAGNI                              9             8    PASS          7.2s  
+  Component Checks                                 48/48    PASS                
+  Reference Integrity                              48/48    PASS                
+
+ RESULT: 3 failed, 6 passed, 1 deterministic passed
+
+-- Deterministic Tool Findings --
+
+  Reviewer      Tool                                Findings  
+  N08           type_annotation                            7  
+  N09           unlinked_entity                           88  
+
+ Total deterministic findings: 95
+
+-- N01 Problem Statement -- 8/10 PASS --
+
+ LLM Assessment:
+   The specification contains a clear problem statement with all four required elements present. The WHO is identified 
+as users who need both structured thinking (outliner) and long-form writing capabilities. The WHAT is the lack of 
+integration between outlining tools and WYSIWYG Markdown editors. The WHY is implied through the goals of seamless 
+integration and cooperation with AI tools. The SUCCESS criteria are defined through the three main goals and acceptance 
+conditions. However, the problem statement could be more specific with quantifiable metrics and clearer pain points.
+
+ Suggestions:
+   1. Add specific quantifiable metrics to the problem statement (e.g., time spent switching between tools, productivity
+loss)
+   2. Make the pain points more explicit - what specific friction do users experience with existing separate tools?
+   3. Provide more concrete success metrics beyond the general goals (e.g., reduction in context switching time, 
+improvement in workflow efficiency)
+   4. Consider adding user personas or specific use cases to make the WHO element more concrete
+
+ Tool Findings (3):
+   Line 15: 1. **Integrate outliner and WYSIWYG Markdown editor** — A single tool that supports structured thinking 
+(tree) and long-form writing (page) seamlessly.
+   Line 16: 2. **Cooperate with external AI tools** — External Change Sync plus `Cmd+L` bridge to the IDE's native AI 
+features.
+   Line 17: 3. **Local-file-based with optional cloud backup** — Data lives in local files (`.out`, `.md`, 
+`outline.note`); S3 Sync is opt-in.
+
+-- N02 Success Criteria -- 3/10 FAIL --
+
+ LLM Assessment:
+   The specification contains success criteria, but they are mostly qualitative and lack quantification. The "Success 
+Criteria" section lists three items: "E2E tests stay green", "Zero S3 Sync data loss", and "No regressions across the 
+four modes" - but none specify measurable thresholds, timeframes, or quantified targets. While "zero data loss" could be
+considered quantified, it lacks verification methodology and timebound aspects. The "Acceptance Conditions" section is 
+similarly qualitative. Some quantified targets exist in the NFR summary table (like "50 MB per dropped file" and "200 
+snapshots"), but these are capacity limits rather than success criteria for the product's performance or user outcomes.
+
+ Suggestions:
+   1. Add quantified performance targets (e.g., 'UI response time under 100ms for typical operations')
+   2. Include measurable user experience metrics (e.g., 'File sync completes within 30 seconds for folders under 1GB')
+   3. Specify timebound criteria (e.g., 'All acceptance conditions met within 2 weeks of release')
+   4. Define verifiable test coverage targets (e.g., '95% of critical user flows covered by E2E tests')
+   5. Add quantified reliability metrics (e.g., 'Less than 1 data loss incident per 10,000 sync operations')
+   6. Include adoption or usage success metrics if applicable
+
+ Tool Findings (6):
+   Line 67: E2E tests stay green.
+   Line 68: Zero S3 Sync data loss.
+   Line 69: No regressions across the four modes (Outliner Single / Note, Markdown Single / Side Panel).
+   Line 73: E2E tests all pass.
+   Line 74: Manual confirmation across the four modes passes.
+   Line 76: No known bugs that violate the Hard MUST conditions.
+
+-- N03 Scope Boundaries -- 9/10 PASS --
+
+ LLM Assessment:
+   The specification has excellent scope definition across multiple documents. The overview.md explicitly defines goals 
+and non-goals with clear rationale. The scope.md document provides a comprehensive "Out of Scope / Future Work" section 
+with explicit categorization. Boundary definitions are well-established through system integration points and ownership 
+models. The only minor weakness is that the in-scope items could be more explicitly enumerated in a single consolidated 
+list, though they are clearly described throughout the goals and user stories sections.
+
+ Suggestions:
+   1. Consider adding a single consolidated 'IN SCOPE' list in the overview document that explicitly enumerates all 
+major functional areas
+   2. The scope boundaries are well-defined but could benefit from a summary table showing 'Fractal owns vs External 
+system owns' for quick reference
+   3. Consider adding rationale for why certain future work items are deferred (e.g., why unit tests are 'desired but 
+not yet introduced')
+
+-- N04 Terminology Consistency -- 9/10 PASS --
+
+ LLM Assessment:
+   The specification demonstrates excellent domain terminology consistency. Key concepts like "Node", "Page", 
+"Outliner", "Provider", "Side Panel", and "Host Bridge" are used consistently throughout all documents. The glossary 
+provides clear definitions for all major terms. There is one minor inconsistency where "Markdown Editor" is used in most
+places but "Page Editor" appears once with an explicit note that it should not be used. The specification also properly 
+defines abbreviations on first use (e.g., "automated market scanner (AMS)") and maintains consistent naming conventions 
+for components and entities.
+
+ Suggestions:
+   1. Consider adding a brief definition or reference to the glossary when first introducing technical terms like 
+'contenteditable' or 'WebviewPanel' for readers unfamiliar with VS Code extension development
+   2. Ensure all component references use the full odk:component format consistently (some places use just the component
+name)
+   3. Consider standardizing the capitalization of 'webview' vs 'Webview' throughout the documents
+
+ Tool Findings (1):
+   Line 0: DO NOT USE: "Page Editor" (ambiguous with the Page concept itself).
+
+-- N05 Ambiguity -- 9/10 PASS --
+
+ LLM Assessment:
+   The specification demonstrates exceptional precision throughout. The document uses concrete numbers (50 MB file 
+limits, 200 undo snapshots, 1000ms debounce), specific technical terms (CustomTextEditorProvider, postMessage, 
+WorkspaceEdit), and well-defined behaviors. Most language is deterministic and verifiable. Only one minor instance of 
+imprecise language was found: "N/A — local single process" uses a vague quantifier "single" without defining what 
+constitutes a process boundary in this context, though this appears in a non-critical scaling section.
+
+ Suggestions:
+   1. Replace 'N/A — local single process' with more specific language like 'N/A — runs within VS Code Extension Host 
+process' to clarify the process boundary
+
+ Tool Findings (1):
+   Line 35: N/A — local single process
+
+-- N06 Flow Completeness -- 4/10 FAIL --
+
+ LLM Assessment:
+   The specification documents describe many happy path flows but have significant gaps in error handling and edge case 
+coverage. While some error scenarios are mentioned (like "File-write failures surface via 
+`vscode.window.showErrorMessage`"), most flows focus on the success path without detailing what happens when operations 
+fail. Key missing areas include: network failures for S3/AWS operations, file system errors, validation failures, 
+concurrent access scenarios, and user input edge cases. The flows section shows good technical detail for happy paths 
+but lacks comprehensive error handling specifications.
+
+ Suggestions:
+   1. Add explicit error handling for each flow in the sequence diagrams, showing what happens when operations fail
+   2. Document specific error messages, who sees them, and what actions users can take
+   3. Add edge cases for empty states (empty outliners, missing files, network unavailable)
+   4. Specify timeout behaviors and retry policies for AWS operations
+   5. Document concurrent access scenarios and race condition handling
+   6. Add validation failure scenarios for user inputs (invalid file formats, oversized files, malformed JSON)
+   7. Specify rollback procedures when multi-step operations partially fail
+
+ Tool Findings (5):
+   Line 45: AI->>FS: write .md file
+    FS-->>EH: onDidChangeTextDocument (fs watch)
+    EH->>EH: filter out our own edits
+   Line 67: EH->>FS: importMdFilesCore (extract H1, copy images)
+    else kind = image
+        EH->>FS: saveImageFromDataUrl
+    else kind = file
+        EH->>FS: importFilesCore (copy with collision suffix)
+   Line 89: File-write failures surface via `vscode.window.showErrorMessage`. There is no DLQ.
+   Line 156: Spawn the AWS CLI (`aws s3 cp` / `aws s3 ls`).
+   Line 201: Auto-chunk at 10 KB per request (see ).
+
+-- N07 Information Density -- 9/10 PASS --
+
+ LLM Assessment:
+   The specification documents are exceptionally information-dense with minimal filler. The writing is direct and 
+technical, focusing on concrete responsibilities, dependencies, and implementation details. Most sections use bullet 
+points and structured formats that naturally eliminate conversational padding. The few instances of filler are minor and
+don't significantly impact the overall density of information.
+
+ Suggestions:
+   1. Remove the phrase 'It should be noted that' from conversational constructions
+   2. Consider replacing 'In order to' with 'To' for more concise phrasing
+   3. Replace 'Due to the fact that' with 'Because' where it appears
+
+ Tool Findings (3):
+   Line 1: It should be noted that
+   Line 1: in order to
+   Line 1: due to the fact that
+
+-- N08 No Technical Specs in Prose -- 7/10 PASS --
+
+ LLM Assessment:
+   The document contains 3 legitimate technical specification violations where type annotations appear in prose 
+descriptions. While the deterministic tool found 7 issues, 4 of them are false positives (the word "datetime" used as a 
+natural language description of column types in tables). The 3 real violations are: 1) "UUID v4" on line 463 in the ID 
+generation section, 2) "UUID" on line 1399 in the glossary defining Page ID, and 3) "datetime" on line 337 as a column 
+type. These are minor leaks of technical specifications into what should be purely behavioral descriptions, but the 
+document is otherwise well-structured with proper  references throughout.
+
+ Suggestions:
+   1. Replace 'UUID v4' with 'universally unique identifier' or reference an entity manifest
+   2. Replace 'UUID' in glossary with 'unique identifier' or reference appropriate entity
+   3. Replace 'datetime' column type with 'date and time' in natural language
+   4. Consider moving ID generation algorithms to entity manifests rather than including them in behavioral 
+specifications
+
+ Tool Findings (10):
+   Line 337: datetime
+   Line 463: UUID v4
+   Line 1399: UUID
+   Line 337: datetime
+   Line 463: UUID
+   Line 981: datetime
+   Line 1312: datetime
+   Line 1312: datetime
+   Line 1367: datetime
+   Line 1399: UUID
+
+-- N09 Component References -- 2/10 FAIL --
+
+ LLM Assessment:
+   The document has extensive use of  references throughout, but there are numerous legitimate violations where specific
+components, entities, and external systems are mentioned without proper references. The automated tool found 88 issues, 
+and manual review confirms many are real violations:
+   
+   1. **Component mentions without references**: Many specific components like "AnyMarkdownEditorProvider", 
+"OutlinerProvider", "NotesEditorProvider", "SidePanelManager", etc. are mentioned without  references
+   2. **Entity mentions without references**: Entities like "TextDocument", "WorkspaceEdit", "WebviewPanel", 
+"TreeDataProvider" lack  references  
+   3. **External system mentions**: Systems like "FileReader", "FileSystemWatcher" lack  references
+   
+   While the document does use many  references correctly (showing the author understands the system), the inconsistent 
+application across all specific component mentions significantly impacts compliance with the referencing standard.
+
+ Suggestions:
+   1. Add  reference for all mentions of AnyMarkdownEditorProvider
+   2. Add  reference for all mentions of OutlinerProvider
+   3. Add  reference for all mentions of NotesEditorProvider
+   4. Add  reference for all mentions of SidePanelManager
+   5. Add  reference for all mentions of TextDocument
+   6. Add  reference for all mentions of WorkspaceEdit
+   7. Add  reference for all mentions of WebviewPanel
+   8. Add  reference for all mentions of TreeDataProvider
+   9. Add  reference for all mentions of FileReader
+   10. Systematically review all component, entity, and external system mentions to ensure consistent  referencing
+
+ Tool Findings (101):
+   Line 3: AnyMarkdownEditorProvider
+   Line 17: CustomTextEditorProvider
+   Line 21: TextDocument
+   Line 22: WorkspaceEdit
+   Line 68: AnyMarkdownEditorProvider
+   Line 69: OutlinerProvider
+   Line 70: NotesEditorProvider
+   Line 70: WebviewPanel
+   Line 71: NotesFolderProvider
+   Line 71: TreeDataProvider
+   Line 72: SidePanelManager
+   Line 73: DrawioWatcherRegistry
+   Line 74: NotesFileManager
+   Line 3: AnyMarkdownEditorProvider
+   Line 17: CustomTextEditorProvider
+   Line 21: TextDocument
+   Line 22: TextDocument
+   Line 22: WorkspaceEdit
+   Line 68: AnyMarkdownEditorProvider
+   Line 69: OutlinerProvider
+   Line 70: NotesEditorProvider
+   Line 70: WebviewPanel
+   Line 71: NotesFolderProvider
+   Line 71: TreeDataProvider
+   Line 72: SidePanelManager
+   Line 73: DrawioWatcherRegistry
+   Line 74: NotesFileManager
+   Line 86: HtmlMdConverter
+   Line 126: WebviewPanel
+   Line 137: TextDocument
+   Line 137: TextDocument
+   Line 138: TextDocument
+   Line 139: WebviewPanel
+   Line 139: WebviewPanel
+   Line 140: TreeDataProvider
+   Line 140: TreeItem
+   Line 141: SidePanelHost
+   Line 155: HtmlMdConverter
+   Line 181: TreeDataProvider
+   Line 295: FileReader
+   Line 301: HtmlMdConverter
+   Line 333: NotesFileManager
+   Line 399: TextDocument
+   Line 430: NotesFileManager
+   Line 431: NotesFileManager
+   Line 432: SidePanelManager
+   Line 544: DrawioWatcherRegistry
+   Line 557: FileSystemWatcher
+   Line 578: SidePanel
+   Line 596: TextDocument
+   Line 596: WorkspaceEdit
+   Line 628: FileReader
+   Line 649: GraphState
+   Line 649: RunState
+   Line 658: TextDocument
+   Line 662: InProgress
+   Line 663: InProgress
+   Line 664: InProgress
+   Line 777: ArrowUp
+   Line 777: ArrowDown
+   Line 792: ArrowDown
+   Line 792: ArrowUp
+   Line 814: ArrowUp
+   Line 815: ArrowDown
+   Line 816: ArrowLeft
+   Line 817: ArrowRight
+   Line 1181: NoteTreeFile
+   Line 1182: NoteTreeFolder
+   Line 1409: HostBridge
+   Line 1409: SidePanelHostBridge
+   Line 1416: AnyMarkdownEditorProvider
+   Line 1417: OutlinerProvider
+   Line 1418: NotesEditorProvider
+   Line 1424: TreeViewTable
+   Line 1460: HtmlMdConverter
+   Line 1467: HtmlMdConverter
+   Line 1483: NoteTreeFile
+   Line 1483: NoteTreeFolder
+   Line 1488: HtmlMdConverter
+   Line 1519: HtmlMdConverter
+   Line 1603: NotesEditorProvider
+   Line 1609: WebviewPanel
+   Line 1618: WebviewPanel
+   Line 1623: WebviewPanel
+   Line 1639: NotesFileManager
+   Line 1661: NotesFolderProvider
+   Line 1667: TreeDataProvider
+   Line 1669: TreeItem
+   Line 1673: TreeDataProvider
+   Line 1682: CloudWatch
+   Line 1730: OutlinerProvider
+   Line 1746: CustomTextEditorProvider
+   Line 1750: TextDocument
+   Line 1925: HtmlMdConverter
+   Line 2060: SidePanelManager
+   Line 2088: OutlinerModel
+   Line 2099: SidePanelManager
+   Line 2102: NotesFileManager
+   Line 2113: TextDocument
+   Line 2114: SidePanelManager
+   Line 2115: NotesFileManager
+
+-- N10 YAGNI -- 9/10 PASS --
+
+ LLM Assessment:
+   The specification is very well-scoped and avoids most YAGNI violations. The system is built for specific, current 
+needs rather than hypothetical future requirements. The architecture is appropriately sized for a VS Code extension with
+clear use cases. There is one minor instance where future extensibility is mentioned without clear current need - the 
+component ID system uses a structured format that appears designed for broader organizational use when this is described
+as a "personal product" with no external integrations.
+
+ Suggestions:
+   1. Consider simplifying the component ID format (e.g., 'odk:component:host/any-markdown-editor-provider') to just use
+simple names since this is a personal product with no cross-organizational contracts
+   2. The structured component naming convention may be over-engineered for a single-person project - simple module 
+names would suffice
+
+ Tool Findings (1):
+   Line 45: Component: 
+
+===============================================================
+ 3 failed | 6 passed | 1 deterministic passed | 25s total
+===============================================================

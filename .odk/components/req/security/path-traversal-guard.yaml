@@ -1,0 +1,25 @@
+$schema: odk:schema:req
+id: odk:req:security/path-traversal-guard
+description: |
+  Every path operation that takes external input (node ID, page ID, file
+  name, S3 key) must be validated against its allowed root directory to
+  prevent path traversal.
+type: validation
+priority: critical
+rule: |
+  Use `safeResolveUnderDir(root, child)`: resolve the child relative to
+  the root, then assert the resolved path `is_relative_to(root)`. If the
+  check fails, raise [odk:error:import/path-traversal-detected] and abort
+  the operation.
+failure_behavior: |
+  Returns / surfaces [odk:error:import/path-traversal-detected]. The
+  offending operation does not touch the file system.
+related_components:
+  - odk:component:host/any-markdown-editor-provider
+  - odk:component:host/outliner-provider
+  - odk:component:host/notes-editor-provider
+  - odk:component:host/notes-file-manager
+  - odk:component:s3-sync/per-file-sync
+acceptance_criteria:
+  - "All path-construction helpers route through `safeResolveUnderDir`"
+  - "Unit / E2E specs covering `..`-bearing inputs assert rejection"
