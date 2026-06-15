@@ -3102,9 +3102,10 @@ class EditorInstance {
                 }
                 wrapper.dataset.mermaidSetup = 'true';
                 logger.log('Setting up wrapper');
-                
+
                 renderMermaidDiagram(wrapper);
-                
+                attachBlockFullscreenButton(wrapper, 'mermaid');
+
                 // Add click handler to enter editing mode
                 wrapper.addEventListener('click', function(e) {
                     // Don't enter edit mode if clicking on the diagram itself when already in display mode
@@ -3217,6 +3218,7 @@ class EditorInstance {
                 wrapper.dataset.mathSetup = 'true';
 
                 renderMathBlock(wrapper);
+                attachBlockFullscreenButton(wrapper, 'math');
 
                 // Click → edit mode
                 wrapper.addEventListener('click', function(e) {
@@ -3312,40 +3314,20 @@ class EditorInstance {
             copyCodeBlock(pre);
         });
         
-        // Expand/collapse button
+        // Fullscreen button (replaces the old width-expand toggle).
         const expandBtn = document.createElement('button');
         expandBtn.className = 'code-expand-btn';
         expandBtn.textContent = '⤢';
-        expandBtn.title = i18n.expandCodeBlock || 'Expand';
+        expandBtn.title = i18n.expandCodeBlock || 'Fullscreen';
         expandBtn.setAttribute('contenteditable', 'false');
         expandBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isExpanded = pre.classList.toggle('code-expanded');
-            expandBtn.textContent = isExpanded ? '⤡' : '⤢';
-            expandBtn.title = isExpanded ? (i18n.collapseCodeBlock || 'Collapse') : (i18n.expandCodeBlock || 'Expand');
-            
-            if (isExpanded) {
-                // Calculate width to fill editor-wrapper
-                const editorWrapper = container.querySelector('.editor-wrapper');
-                const editorEl = editor;
-                if (editorWrapper && editorEl) {
-                    const wrapperRect = editorWrapper.getBoundingClientRect();
-                    const editorRect = editorEl.getBoundingClientRect();
-                    const preRect = pre.getBoundingClientRect();
-                    
-                    // Calculate how much to expand left and right
-                    const leftOffset = preRect.left - wrapperRect.left - 20; // 20px padding
-                    const rightOffset = wrapperRect.right - preRect.right - 20;
-                    const newWidth = preRect.width + leftOffset + rightOffset;
-                    
-                    pre.style.width = newWidth + 'px';
-                    pre.style.marginLeft = -leftOffset + 'px';
-                }
-            } else {
-                // Reset to default
-                pre.style.width = '';
-                pre.style.marginLeft = '';
+            // Make sure the source block is in display mode so fullscreen
+            // shows highlighted output, not the editable plaintext.
+            if (pre.getAttribute('data-mode') === 'edit') {
+                enterDisplayMode(pre);
             }
+            openBlockFullscreen({ kind: 'code', source: pre });
         });
         
         header.appendChild(expandBtn);
@@ -3518,6 +3500,7 @@ class EditorInstance {
 
         wrapper.dataset[type + 'Setup'] = 'true';
         renderFn(wrapper);
+        attachBlockFullscreenButton(wrapper, type);
 
         // Add click handler to enter edit mode
         wrapper.addEventListener('click', function(e) {
@@ -4562,6 +4545,240 @@ class EditorInstance {
             overlay.remove();
             document.removeEventListener('keydown', escHandler);
         }
+    }
+
+    /**
+     * Attach a small fullscreen button (top-right) to a mermaid/math wrapper.
+     * Mirrors the codeblock expand button design but lives on the wrapper
+     * itself because the .pre is hidden in display mode.
+     */
+    function attachBlockFullscreenButton(wrapper, kind) {
+        if (!wrapper || wrapper.querySelector(':scope > .block-fullscreen-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'block-fullscreen-btn';
+        btn.type = 'button';
+        btn.textContent = '⤢';
+        btn.title = i18n.expandCodeBlock || 'Fullscreen';
+        btn.setAttribute('contenteditable', 'false');
+        btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Force display mode before snapshotting so the rendered diagram
+            // (not the source pre) is what we clone into the overlay.
+            if (wrapper.getAttribute('data-mode') === 'edit') {
+                wrapper.setAttribute('data-mode', 'display');
+                if (kind === 'mermaid') renderMermaidDiagram(wrapper);
+                else if (kind === 'math') renderMathBlock(wrapper);
+            }
+            openBlockFullscreen({ kind, source: wrapper });
+        });
+        wrapper.appendChild(btn);
+    }
+
+    /**
+     * Open a fullscreen overlay showing the rendered output of a code,
+     * mermaid, or math block. Closes on background click or ESC.
+     *
+     * - kind: 'code' | 'mermaid' | 'math'
+     * - source: the source <pre> (code) or wrapper div (mermaid/math)
+     */
+    function openBlockFullscreen({ kind, source }) {
+        if (!source) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'block-fullscreen-overlay block-fullscreen-' + kind;
+
+        const inner = document.createElement('div');
+        inner.className = 'block-fullscreen-inner';
+        overlay.appendChild(inner);
+
+        // Zoomable stage — content is mounted inside this so pinch/wheel
+        // zoom and drag pan work uniformly for code/mermaid/math.
+        const stage = document.createElement('div');
+        stage.className = 'block-fullscreen-stage';
+        inner.appendChild(stage);
+
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'block-fullscreen-close';
+        closeBtn.type = 'button';
+        closeBtn.textContent = '✕';
+        closeBtn.title = 'Close (ESC)';
+        overlay.appendChild(closeBtn);
+
+        // Hint banner (matches image overlay UX).
+        const hint = document.createElement('div');
+        hint.className = 'block-fullscreen-hint';
+        hint.textContent = 'Pinch / Ctrl+Wheel to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
+        // Build the content per kind
+        if (kind === 'code') {
+            // Clone the <pre> with its highlighted <code>, but drop the
+            // header (lang tag / copy / expand buttons live on the original).
+            const preClone = source.cloneNode(true);
+            const headerInClone = preClone.querySelector('.code-block-header');
+            if (headerInClone) headerInClone.remove();
+            preClone.classList.add('block-fullscreen-pre');
+            preClone.style.width = '';
+            preClone.style.marginLeft = '';
+            // Make code non-editable inside the overlay.
+            const codeInClone = preClone.querySelector('code');
+            if (codeInClone) codeInClone.setAttribute('contenteditable', 'false');
+            // Optional: language label in top-left
+            const langLabel = source.getAttribute('data-lang') || 'plaintext';
+            const label = document.createElement('div');
+            label.className = 'block-fullscreen-label';
+            label.textContent = langLabel;
+            overlay.appendChild(label);
+            stage.appendChild(preClone);
+
+            // Copy button: reuse copyCodeBlock against the original pre.
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'block-fullscreen-copy';
+            copyBtn.type = 'button';
+            copyBtn.textContent = i18n.copy || 'Copy';
+            copyBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                copyCodeBlock(source);
+            });
+            overlay.appendChild(copyBtn);
+        } else if (kind === 'mermaid') {
+            const diagram = source.querySelector('.mermaid-diagram');
+            if (diagram) {
+                const clone = diagram.cloneNode(true);
+                clone.classList.add('block-fullscreen-mermaid-diagram');
+                // Mermaid hardcodes an inline style="max-width: <px>" on its
+                // SVG that pins it to the original (small) render width.
+                // Compute a target size that fits the viewport while keeping
+                // the original aspect ratio (from viewBox).
+                const svg = clone.querySelector('svg');
+                if (svg) {
+                    let aspect = 1;
+                    const vb = svg.getAttribute('viewBox');
+                    if (vb) {
+                        const parts = vb.split(/\s+/).map(Number);
+                        if (parts.length === 4 && parts[3] > 0) {
+                            aspect = parts[2] / parts[3];
+                        }
+                    }
+                    // Target ~80% of viewport, fitting inside both axes.
+                    const maxW = Math.max(200, window.innerWidth - 160);
+                    const maxH = Math.max(200, window.innerHeight - 160);
+                    let targetW = maxW;
+                    let targetH = targetW / aspect;
+                    if (targetH > maxH) {
+                        targetH = maxH;
+                        targetW = targetH * aspect;
+                    }
+                    svg.removeAttribute('width');
+                    svg.removeAttribute('height');
+                    svg.style.maxWidth = 'none';
+                    svg.style.width = targetW + 'px';
+                    svg.style.height = targetH + 'px';
+                    svg.style.display = 'block';
+                }
+                stage.appendChild(clone);
+            }
+        } else if (kind === 'math') {
+            const display = source.querySelector('.math-display');
+            if (display) {
+                const clone = display.cloneNode(true);
+                clone.classList.add('block-fullscreen-math-display');
+                stage.appendChild(clone);
+            }
+        }
+
+        document.body.appendChild(overlay);
+
+        // ===== Pinch / wheel zoom + drag pan on the stage =====
+        let scale = 1, tx = 0, ty = 0;
+        const MIN_SCALE = 0.2, MAX_SCALE = 16;
+        let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+        function applyTransform() {
+            stage.style.transform =
+                'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        applyTransform();
+
+        // Mac touchpad pinch arrives as wheel + ctrlKey; regular wheel
+        // also zooms while ctrl/⌘ is held.
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey && !ev.metaKey) return;
+            ev.preventDefault();
+            const delta = -ev.deltaY * 0.01;
+            const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            // Zoom toward the cursor.
+            const rect = stage.getBoundingClientRect();
+            const ox = ev.clientX - rect.left;
+            const oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            applyTransform();
+        }, { passive: false });
+
+        // Drag to pan.
+        stage.addEventListener('mousedown', function(ev) {
+            // Don't start a drag from interactive elements (copy button, code).
+            if (ev.button !== 0) return;
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            stage.style.cursor = 'grabbing';
+            ev.preventDefault();
+        });
+        const onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            applyTransform();
+        };
+        const onUp = function() {
+            if (!isDragging) return;
+            isDragging = false;
+            stage.style.cursor = '';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+
+        // Double-click → reset zoom (clicking the dim border still closes).
+        stage.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            applyTransform();
+        });
+
+        function cleanup() {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler, true);
+        }
+        function escHandler(ev) {
+            if (ev.key === 'Escape') {
+                // Capture phase + stopImmediatePropagation so the side-panel
+                // close handler (also listening for ESC) doesn't run.
+                ev.preventDefault();
+                ev.stopPropagation();
+                ev.stopImmediatePropagation();
+                cleanup();
+            }
+        }
+        // Capture phase, registered AFTER appending overlay so it runs first.
+        document.addEventListener('keydown', escHandler, true);
+
+        overlay.addEventListener('click', (ev) => {
+            // Only the dim border closes; clicks inside the stage interact.
+            if (ev.target === overlay || ev.target === inner) cleanup();
+        });
+        closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            cleanup();
+        });
     }
 
     // drawio.svg / drawio.png 用「Open」「Copy Path」ボタン (codeblock copy ボタンと同じデザイン系統)

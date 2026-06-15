@@ -885,11 +885,196 @@ body {
 .code-block-header > :last-child {
     border-radius: 0 5px 0 0;
 }
-/* Expanded code block - width is set dynamically by JavaScript */
-.editor pre.code-expanded {
+/* Wrapper-level fullscreen button (mermaid / math).
+   Codeblock has its own button inside .code-block-header. */
+.editor .mermaid-wrapper,
+.editor .math-wrapper {
     position: relative;
-    max-width: none;
+}
+.block-fullscreen-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 5;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-color);
+    background: var(--border-color);
+    border: none;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+    user-select: none;
+}
+.block-fullscreen-btn:hover {
+    opacity: 1;
+    background: var(--selection-bg);
+}
+/* Hide wrapper-level button when the block is in edit mode so it doesn't
+   sit on top of the source pre. */
+.editor .mermaid-wrapper[data-mode="edit"] > .block-fullscreen-btn,
+.editor .math-wrapper[data-mode="edit"] > .block-fullscreen-btn {
+    display: none;
+}
+
+/* Fullscreen overlay shared by code / mermaid / math blocks. */
+.block-fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    /* Translucent black scrim (matches image overlay). Theme-independent so
+       the white close/copy buttons stay readable on either theme. */
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
     box-sizing: border-box;
+    cursor: zoom-out;
+}
+.block-fullscreen-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    overflow: hidden;
+}
+/* Zoomable / pannable wrapper around the cloned content. */
+.block-fullscreen-stage {
+    transform-origin: 0 0;
+    cursor: grab;
+    user-select: text;
+    will-change: transform;
+    /* Constrain visually but content can be panned around when zoomed. */
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10001;
+    user-select: none;
+}
+.block-fullscreen-close {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-close:hover {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+.block-fullscreen-label {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    user-select: none;
+    z-index: 10001;
+}
+.block-fullscreen-copy {
+    position: fixed;
+    top: 14px;
+    right: 60px;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    z-index: 10002;
+}
+.block-fullscreen-copy:hover {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+/* Code block in fullscreen: take available space, scroll if too big.
+   The cloned <pre> lives outside .editor so .editor pre styles do not
+   apply — set an opaque background explicitly here. */
+.block-fullscreen-pre {
+    width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    margin: 0;
+    box-sizing: border-box;
+    overflow: auto;
+    border-radius: 6px;
+    background: var(--code-bg, #1e1e1e);
+    color: var(--text-color, #d4d4d4);
+    font-family: var(--font-mono);
+    white-space: pre;
+    word-wrap: normal;
+}
+.block-fullscreen-pre code {
+    display: block;
+    padding: 18px;
+    margin: 0;
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    white-space: pre;
+    word-wrap: normal;
+}
+
+/* Mermaid / Math diagrams in fullscreen: scale to fit. */
+.block-fullscreen-mermaid-diagram,
+.block-fullscreen-math-display {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 24px;
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    box-sizing: border-box;
+}
+.block-fullscreen-mermaid-diagram {
+    display: block;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+.block-fullscreen-mermaid-diagram svg {
+    /* Sizes are set inline by JS using the viewBox aspect ratio. */
+    display: block;
+}
+.block-fullscreen-math-display .katex-display {
+    margin: 0;
 }
 .lang-selector {
     position: fixed;
