@@ -424,16 +424,23 @@ export class NotesFileManager {
 
     /**
      * フォルダ作成
+     * afterId 指定時は、その兄弟リストにおいて afterId の直後に挿入する。
+     * afterId が見つからない、または指定なしの場合は parentId 配下の先頭に挿入する。
      */
-    createFolder(title: string, parentId?: string | null): NoteStructure {
+    createFolder(title: string, parentId?: string | null, afterId?: string | null): NoteStructure {
         const structure = this.getStructure();
         const id = NotesFileManager.generateItemId();
         structure.items[id] = { type: 'folder', id, title, childIds: [], collapsed: false };
 
-        if (parentId && structure.items[parentId]?.type === 'folder') {
-            (structure.items[parentId] as NoteTreeFolder).childIds.push(id);
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+
+        const insertIdx = afterId ? siblings.indexOf(afterId) : -1;
+        if (insertIdx !== -1) {
+            siblings.splice(insertIdx + 1, 0, id);
         } else {
-            structure.rootIds.push(id);
+            siblings.unshift(id);
         }
 
         this.saveStructure();
@@ -754,8 +761,9 @@ export class NotesFileManager {
     /**
      * 新規 .out ファイルを作成しファイルパスを返す
      * ページフォルダも同時に作成、.note構造にも追加
+     * afterId 指定時は、その兄弟リストにおいて afterId の直後に挿入する。
      */
-    createFile(title: string, parentId?: string | null): string {
+    createFile(title: string, parentId?: string | null, afterId?: string | null): string {
         const id = NotesFileManager.generateOutlineId();
         const filePath = path.join(this.mainFolderPath, `${id}.out`);
         const pageDir = `./${id}`;
@@ -782,11 +790,17 @@ export class NotesFileManager {
         // .note 構造に追加
         const structure = this.getStructure();
         structure.items[id] = { type: 'file', id, title: title || 'Untitled' };
-        if (parentId && structure.items[parentId]?.type === 'folder') {
-            (structure.items[parentId] as NoteTreeFolder).childIds.unshift(id);
+
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        const insertIdx = afterId ? siblings.indexOf(afterId) : -1;
+        if (insertIdx !== -1) {
+            siblings.splice(insertIdx + 1, 0, id);
         } else {
-            structure.rootIds.unshift(id);
+            siblings.unshift(id);
         }
+
         this.saveStructure();
 
         return filePath;

@@ -360,6 +360,18 @@ var notesFilePanel = (function() {
             return;
         }
 
+        // クリックされた file 要素の親フォルダ ID を取得（ルート直下なら null）
+        var fileItemEl = clickedItem || (listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null);
+        var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
+
+        addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
+            closeContextMenu();
+            promptNewFile(fileParentId, fileId);
+        });
+        addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
+            closeContextMenu();
+            promptNewFolder(fileParentId, fileId);
+        });
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
@@ -719,7 +731,9 @@ var notesFilePanel = (function() {
 
     // ── 新規作成プロンプト ──
 
-    function promptNewFile(parentId) {
+    // afterId が渡された場合、そのアイテムの直後に input row を表示し、
+    // 確定時には bridge.createFile に afterId を渡してその直後に挿入させる。
+    function promptNewFile(parentId, afterId) {
         var inputRow = document.createElement('div');
         inputRow.className = 'file-panel-item active';
         var input = document.createElement('input');
@@ -729,22 +743,7 @@ var notesFilePanel = (function() {
         input.placeholder = 'Enter title...';
         inputRow.appendChild(input);
 
-        // 親フォルダ内に挿入
-        if (parentId) {
-            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
-            if (folderEl) {
-                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
-                if (childrenEl) {
-                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
-                } else {
-                    listEl.insertBefore(inputRow, listEl.firstChild);
-                }
-            } else {
-                listEl.insertBefore(inputRow, listEl.firstChild);
-            }
-        } else {
-            listEl.insertBefore(inputRow, listEl.firstChild);
-        }
+        insertPromptRow(inputRow, parentId, afterId);
         input.focus();
 
         var done = false;
@@ -754,7 +753,7 @@ var notesFilePanel = (function() {
             var val = input.value.trim();
             if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
             if (val) {
-                bridge.createFile(val, parentId || null);
+                bridge.createFile(val, parentId || null, afterId || null);
             }
         }
         input.addEventListener('blur', finish);
@@ -764,7 +763,7 @@ var notesFilePanel = (function() {
         });
     }
 
-    function promptNewFolder(parentId) {
+    function promptNewFolder(parentId, afterId) {
         var inputRow = document.createElement('div');
         inputRow.className = 'file-panel-folder-header';
         inputRow.style.margin = '1px 4px';
@@ -775,21 +774,7 @@ var notesFilePanel = (function() {
         input.placeholder = 'Folder name...';
         inputRow.appendChild(input);
 
-        if (parentId) {
-            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
-            if (folderEl) {
-                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
-                if (childrenEl) {
-                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
-                } else {
-                    listEl.insertBefore(inputRow, listEl.firstChild);
-                }
-            } else {
-                listEl.insertBefore(inputRow, listEl.firstChild);
-            }
-        } else {
-            listEl.insertBefore(inputRow, listEl.firstChild);
-        }
+        insertPromptRow(inputRow, parentId, afterId);
         input.focus();
 
         var done = false;
@@ -799,7 +784,7 @@ var notesFilePanel = (function() {
             var val = input.value.trim();
             if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
             if (val) {
-                bridge.createFolder(val, parentId || null);
+                bridge.createFolder(val, parentId || null, afterId || null);
             }
         }
         input.addEventListener('blur', finish);
@@ -807,6 +792,31 @@ var notesFilePanel = (function() {
             if (e.key === 'Enter') { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
+    }
+
+    // 入力行を DOM に挿入する位置決定ロジック:
+    //   afterId 指定 → そのアイテム要素の直後
+    //   parentId 指定 → そのフォルダの children 先頭
+    //   どちらも null → ルートリストの先頭
+    function insertPromptRow(inputRow, parentId, afterId) {
+        if (afterId) {
+            var anchor = listEl.querySelector('[data-item-id="' + CSS.escape(afterId) + '"]');
+            if (anchor && anchor.parentNode) {
+                anchor.parentNode.insertBefore(inputRow, anchor.nextSibling);
+                return;
+            }
+        }
+        if (parentId) {
+            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
+            if (folderEl) {
+                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
+                if (childrenEl) {
+                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
+                    return;
+                }
+            }
+        }
+        listEl.insertBefore(inputRow, listEl.firstChild);
     }
 
     // ── 検索 ──

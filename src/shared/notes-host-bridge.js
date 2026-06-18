@@ -188,8 +188,8 @@
             flushOutlinerSync();
             api.postMessage({ type: 'notesOpenFile', filePath: filePath });
         },
-        createFile: function(title, parentId) {
-            api.postMessage({ type: 'notesCreateFile', title: title, parentId: parentId || null });
+        createFile: function(title, parentId, afterId) {
+            api.postMessage({ type: 'notesCreateFile', title: title, parentId: parentId || null, afterId: afterId || null });
         },
         deleteFile: function(filePath) {
             api.postMessage({ type: 'notesDeleteFile', filePath: filePath });
@@ -202,8 +202,8 @@
         },
 
         // フォルダ操作
-        createFolder: function(title, parentId) {
-            api.postMessage({ type: 'notesCreateFolder', title: title, parentId: parentId || null });
+        createFolder: function(title, parentId, afterId) {
+            api.postMessage({ type: 'notesCreateFolder', title: title, parentId: parentId || null, afterId: afterId || null });
         },
         deleteFolder: function(folderId) {
             api.postMessage({ type: 'notesDeleteFolder', folderId: folderId });

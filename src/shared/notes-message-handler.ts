@@ -616,7 +616,7 @@ export async function handleNotesMessage(
 
         case 'notesCreateFile': {
             fileManager.flushSave();
-            const filePath = fileManager.createFile(message.title || 'Untitled', message.parentId || null);
+            const filePath = fileManager.createFile(message.title || 'Untitled', message.parentId || null, message.afterId || null);
             const content = fileManager.openFile(filePath);
             if (content !== null) {
                 if (platform.saveLastOpenedFile) {
@@ -680,7 +680,7 @@ export async function handleNotesMessage(
         // ── Folder Operations ──
 
         case 'notesCreateFolder': {
-            fileManager.createFolder(message.title || 'New Folder', message.parentId || null);
+            fileManager.createFolder(message.title || 'New Folder', message.parentId || null, message.afterId || null);
             sendFileListWithStructure(fileManager, sender);
             break;
         }
