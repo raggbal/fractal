@@ -467,6 +467,56 @@
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
 
+        // 右上 toolbar: Copy Image / Open in New Tab / Copy Path
+        var absPath = (src || '')
+            .replace(/^https:\/\/file\+\.vscode-resource\.vscode-cdn\.net/, '')
+            .replace(/^https:\/\/file%2B\.vscode-resource\.vscode-cdn\.net/, '')
+            .split('?')[0].split('#')[0];
+        var hostBridge = (typeof window !== 'undefined') ? window.outlinerHostBridge : null;
+        var toolbar = document.createElement('div');
+        toolbar.className = 'image-overlay-toolbar';
+        var btnCopyImg = document.createElement('button');
+        btnCopyImg.type = 'button';
+        btnCopyImg.textContent = 'Copy Image';
+        btnCopyImg.title = 'Copy image to clipboard';
+        var btnOpenTab = document.createElement('button');
+        btnOpenTab.type = 'button';
+        btnOpenTab.textContent = 'Open in New Tab';
+        btnOpenTab.title = 'Open image in a new VS Code tab';
+        var btnCopyPath = document.createElement('button');
+        btnCopyPath.type = 'button';
+        btnCopyPath.textContent = 'Copy Path';
+        btnCopyPath.title = 'Copy absolute path to clipboard';
+        toolbar.appendChild(btnCopyImg);
+        toolbar.appendChild(btnOpenTab);
+        toolbar.appendChild(btnCopyPath);
+        overlay.appendChild(toolbar);
+        function flash(btn, text) {
+            var orig = btn.textContent;
+            btn.textContent = text;
+            setTimeout(function() { btn.textContent = orig; }, 900);
+        }
+        btnCopyImg.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (hostBridge && hostBridge.copyImageToClipboard) {
+                hostBridge.copyImageToClipboard(absPath);
+                flash(btnCopyImg, 'Copied!');
+            }
+        });
+        btnOpenTab.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (hostBridge && hostBridge.openImageInNewTab) {
+                hostBridge.openImageInNewTab(absPath);
+            }
+        });
+        btnCopyPath.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            try {
+                navigator.clipboard.writeText(absPath);
+                flash(btnCopyPath, 'Copied!');
+            } catch (_e) { /* noop */ }
+        });
+
         document.body.appendChild(overlay);
 
         var scale = 1, tx = 0, ty = 0;

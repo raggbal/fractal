@@ -1,10 +1,13 @@
 $schema: odk:schema:component
 id: odk:component:webview/editor
 description: |
-  WYSIWYG contenteditable Markdown editor implemented as a single ~17,000-
+  WYSIWYG contenteditable Markdown editor implemented as a single ~18,000-
   line `editor.js`. Renders inline previews for headings, lists, tables,
   code blocks, math, Mermaid, and drawio. Owns paste / drop classification
-  in the webview tier. See docs/specs/markdown-editor.md.
+  in the webview tier. Provides a shared block fullscreen overlay
+  (`openBlockFullscreen`) for code / Mermaid / math blocks with zoom, pan,
+  and ESC-capture scoping so it closes only itself even when nested inside
+  the Markdown Side Panel. See docs/specs/markdown-editor.md and ADR-006.
 type: input
 framework: agnostic
 props:
@@ -19,3 +22,9 @@ props:
 emits:
   - "webview→host postMessage: sync (debounced markdown), save, image, file, drawio, translate, link"
   - "Drop / import errors: odk:error:import/file-too-large, odk:error:import/directory-rejected"
+lifecycle:
+  destroy:
+    description: |
+      EditorInstance.destroy() removes every DOM node appended to
+      document.body — currently the table toolbar (this._tableToolbarEl).
+      Required so closing the Markdown Side Panel leaves no orphan UI.

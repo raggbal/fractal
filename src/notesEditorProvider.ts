@@ -16,6 +16,7 @@ import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
+import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
@@ -549,6 +550,12 @@ export class NotesEditorProvider {
 
                 // Use openExternal to open with OS default app
                 await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
+            },
+            copyImageToClipboard: async (absPath: string) => {
+                await copyImageToClipboard(absPath);
+            },
+            openImageInNewTab: async (absPath: string) => {
+                await openImageInNewTab(absPath);
             },
             // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard へコピー
             copyAttachedFilePath: async (nodeId: string, outFilePath: string, _senderRef: NotesSender) => {

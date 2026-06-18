@@ -14,6 +14,7 @@ import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
+import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 
@@ -1119,6 +1120,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'copyFilePath':
                     await vscode.env.clipboard.writeText(document.uri.fsPath);
+                    break;
+
+                case 'copyImageToClipboard':
+                    await copyImageToClipboard(message.absPath);
+                    break;
+
+                case 'openImageInNewTab':
+                    await openImageInNewTab(message.absPath);
                     break;
 
                 case 'saveSidePanelFile':

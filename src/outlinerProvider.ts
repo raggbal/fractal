@@ -14,6 +14,7 @@ import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
+import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 
 
 /**
@@ -615,6 +616,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         vscode.commands.executeCommand('vscode.openWith', uri, 'fractal.editor');
                         break;
                     }
+
+                    case 'copyImageToClipboard':
+                        await copyImageToClipboard(message.absPath);
+                        break;
+
+                    case 'openImageInNewTab':
+                        await openImageInNewTab(message.absPath);
+                        break;
 
                     case 'getSidePanelImageDir':
                         if (message.sidePanelFilePath) {

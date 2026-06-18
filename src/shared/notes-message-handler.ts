@@ -100,6 +100,10 @@ export interface NotesPlatformActions {
     openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** FR-OL-COPYPATH-1: ファイル添付ノードの絶対 path を OS clipboard へコピー */
     copyAttachedFilePath?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** 画像 fullscreen overlay: 画像をピクセルとして OS clipboard へコピー */
+    copyImageToClipboard?(absPath: string): void;
+    /** 画像 fullscreen overlay: 画像を新規タブで開く */
+    openImageInNewTab?(absPath: string): void;
     /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
     copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
@@ -574,6 +578,18 @@ export async function handleNotesMessage(
         case 'openLinkInTab':
             if (message.href) {
                 platform.openFileInEditor(message.href);
+            }
+            break;
+
+        case 'copyImageToClipboard':
+            if (message.absPath) {
+                platform.copyImageToClipboard?.(message.absPath);
+            }
+            break;
+
+        case 'openImageInNewTab':
+            if (message.absPath) {
+                platform.openImageInNewTab?.(message.absPath);
             }
             break;
 

@@ -162,6 +162,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // 画像 fullscreen overlay の 3 ボタン用
+        copyImageToClipboard: function(absPath) {
+            postFn({ type: 'copyImageToClipboard', absPath: absPath });
+        },
+        openImageInNewTab: function(absPath) {
+            postFn({ type: 'openImageInNewTab', absPath: absPath });
+        },
+
         // メッセージ受信
         onMessage: function(handler) {
             window.addEventListener('message', function(e) {
