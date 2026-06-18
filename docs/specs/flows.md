@@ -24,7 +24,7 @@ sequenceDiagram
     U->>WV: type into contenteditable
     WV->>WV: htmlToMarkdown() (DOM → MD serialize)
     WV->>WV: debouncedSync (1000 ms + requestIdleCallback)
-    WV->>EH: postMessage({type: "sync", markdown})
+    WV->>EH: postMessage({type: "edit", content})
     EH->>EH: edit queue (debounce 100 ms)
     EH->>FS: TextDocument.applyEdit (WorkspaceEdit)
     FS-->>EH: onDidChangeTextDocument
@@ -63,14 +63,16 @@ sequenceDiagram
     EH->>EH: processDropFilesImport (classify by kind)
     alt kind = md
         EH->>FS: importMdFilesCore (extract H1, copy images)
+        EH->>WV: postMessage({type: "importMdFilesResult", nodes})
     else kind = image
         EH->>FS: saveImageFromDataUrl
+        EH->>WV: postMessage({type: "updateNodeImages"})
     else kind = file
         EH->>FS: importFilesCore (copy with collision suffix)
+        EH->>WV: postMessage({type: "importFilesResult", nodes})
     end
-    EH->>WV: postMessage({type: "dropFilesResult", nodes})
     WV->>WV: model.addNodes (insert into tree)
-    WV->>EH: postMessage({type: "sync", data}) → save
+    WV->>EH: postMessage({type: "syncData", content}) → save
 ```
 
 ## Retry strategy

@@ -23,3 +23,7 @@ Plain JavaScript, DOM API.
 
 - Input: `postMessage` events, user input.
 - Output: `postMessage` (sync, save, drop request, page open, etc.).
+
+## Image Fullscreen Overlay
+
+Image cells (`outliner-cell.js::showImageOverlay`) open the same `outliner-image-overlay` primitive used by the Markdown editor: zoom (⌘+wheel) / pan (drag) / dblclick reset / ESC close, plus a top-right toolbar with **Copy Image**, **Open in New Tab**, and **Copy Path**. Toolbar dispatch goes through `window.outlinerHostBridge.copyImageToClipboard(absPath)` and `openImageInNewTab(absPath)`. See the "Image Fullscreen Overlay" section in [docs/specs/markdown-editor.md](markdown-editor.md) for the canonical contract; the Outliner mirrors it.

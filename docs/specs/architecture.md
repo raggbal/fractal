@@ -141,8 +141,8 @@ fractal/
 │   │   ├── llms-txt-builder.ts
 │   │   └── ...
 │   └── webview/                # Webview assets (JavaScript)
-│       ├── editor.js           # WYSIWYG Editor (~17000 lines)
-│       ├── outliner.js         # Outliner UI (~8000 lines)
+│       ├── editor.js           # WYSIWYG Editor (~18,400 lines)
+│       ├── outliner.js         # Outliner UI (~8,500 lines)
 │       ├── outliner-model.js   # Tree data model
 │       ├── outliner-cell.js    # Table View cell
 │       ├── editor-utils.js

@@ -25,7 +25,8 @@ TypeScript, `child_process.spawn`, AWS CLI.
 
 ## Configuration
 
-- `fractal.translate.sourceLang`, `fractal.translate.targetLang`.
-- `fractal.translate.region`.
-- `fractal.translate.terminologyName`.
-- AWS credentials: environment variables or AWS CLI profiles.
+- `fractal.translateSourceLang`, `fractal.translateTargetLang` — default source / target language.
+- `fractal.transRegion` — AWS region for Amazon Translate.
+- `fractal.translateTerminologyFile`, `fractal.translateTerminologyName` — Custom Terminology file path and name registered in Amazon Translate.
+- `fractal.transAccessKeyId`, `fractal.transSecretAccessKey` — optional credentials passed to the spawned `aws` CLI as environment variables (otherwise the user's AWS CLI profile / env vars are used).
+- `fractal.showTranslateButtons` — show translate buttons in the editor toolbar / side-panel header.

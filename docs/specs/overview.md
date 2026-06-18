@@ -146,6 +146,6 @@ The design goal is "do not block the UI while the user is typing": editor sync i
 
 ### Scalability bottlenecks
 
-1. **editor.js DOM** — A single ~17,000-line JS file. With extremely large Markdown files (tens of thousands of lines), DOM node count may approach browser limits.
-2. **outliner.js tree rendering** — Every node is rendered into the DOM, so very large `.out` files (tens of thousands of nodes) increase render cost.
+1. **editor.js DOM** — A single ~18,400-line JS file. With extremely large Markdown files (tens of thousands of lines), DOM node count may approach browser limits.
+2. **outliner.js tree rendering** — Every node is rendered into the DOM (~8,500-line `outliner.js`), so very large `.out` files (tens of thousands of nodes) increase render cost.
 3. **S3 Sync** — Beyond ~10,000 files the CLI spawn count begins to dominate.

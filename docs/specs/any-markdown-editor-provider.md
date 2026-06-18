@@ -36,7 +36,8 @@ See [docs/specs/flows.md — Flow 1, Flow 2](flows.md#flow-1--markdown-editor-ed
 - `fractal.imageDefaultDir` — image save destination (3-tier: file > settings > default).
 - `fractal.fileDefaultDir` — file save destination.
 - `fractal.fontSize`, `fractal.toolbarMode`, `fractal.imageMaxWidth`.
-- Theme: follows the VS Code color theme.
+- `fractal.theme` (`light` / `dark` / `auto`) — Fractal uses its own token-based palette and does **not** follow the VS Code color theme. See [docs/specs/frontend.md](frontend.md#design-system--visual-foundation).
+- `fractal.language`, `fractal.outlinerPageTitle`, `fractal.showTranslateButtons`, `fractal.enableDebugLogging`, `fractal.forceRelativeImagePath`, `fractal.forceRelativeFilePath` — additional config keys read on webview refresh.
 
 ## Scaling
 

@@ -7,10 +7,11 @@ type: policy
 priority: critical
 rule: |
   No code path in Fractal may delete, truncate, or overwrite a user file
-  except as the direct, explicit result of a user action. S3 Sync must be
-  invoked without `--delete`. External Change Sync writes only via the
-  TextDocument API (preserves dirty / undo). Files present only on one
-  side of an S3 sync are preserved.
+  except as the direct, explicit result of a user action. S3 Sync uses
+  both `aws s3 cp` (per-file fallback) and `aws s3 sync` (bulk phases),
+  but **must never** pass `--delete` — files present on only one side are
+  preserved. External Change Sync writes only via the TextDocument API
+  (preserves dirty / undo).
 failure_behavior: |
   Treated as a release-blocking defect. No exception or escape hatch.
 related_components:
@@ -19,6 +20,6 @@ related_components:
   - odk:component:host/outliner-provider
   - odk:component:host/notes-editor-provider
 acceptance_criteria:
-  - "S3 Sync uses `aws s3 cp` (never `sync --delete`)"
+  - "S3 Sync never passes `--delete`; both `aws s3 cp` and `aws s3 sync` are used and neither path removes user files"
   - "External Change Sync routes writes through `workspace.applyEdit`"
   - "E2E specs assert files-only-on-one-side are preserved across sync"

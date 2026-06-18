@@ -218,7 +218,7 @@ Corresponds to [odk:component:host/any-markdown-editor-provider] + [odk:componen
 - Math: KaTeX rendering (inline `$...$`, block `$$...$$`).
 - Mermaid: SVG preview.
 - drawio: `.drawio.svg` / `.drawio.png` shown as images, auto-updated on external save, with "Open" and "Copy Path" buttons.
-- Image: `max-width` adjustable (`fractal.imageMaxWidth`, default 600 px), zoom 0.2× – 16×.
+- Image: `max-width` adjustable (`fractal.imageMaxWidth`, default 400 px, minimum 100 px), zoom 0.2× – 16×.
 
 ### Toolbar buttons (full mode)
 

@@ -1,16 +1,29 @@
 $schema: odk:schema:component
 id: odk:component:host/drawio-watcher-registry
 description: |
-  Registry of `fs.watch` watchers for `.drawio.svg` / `.drawio.png` files
-  referenced inside the host content. When drawio Desktop saves a file,
-  the registry notifies the owning provider, which then asks the webview
-  to refresh the affected image. See docs/specs/drawio-watcher-registry.md.
+  Registry of file watchers for `.drawio.svg` / `.drawio.png` files
+  referenced inside the host content. Maintains a bidirectional
+  drawio-path ↔ md-path map with reference counting, so watchers are
+  created when the first md references a drawio path and disposed when
+  the last md drops its reference. Each watcher combines
+  `vscode.workspace.createFileSystemWatcher` with `fs.watchFile` polling
+  (drawio Desktop's atomic-rename saves are missed by the VS Code
+  watcher). Change notifications are debounced (default 200 ms). See
+  docs/specs/drawio-watcher-registry.md.
 type: layout
 framework: agnostic
 props:
-  onChange:
-    type: "(path: string) => void"
+  createFileSystemWatcher:
+    type: "(drawioPath: string) => DrawioFileWatcher"
     required: true
-    description: "Callback fired when a watched drawio file changes"
+    description: "Factory used by the registry to create one watcher per drawio path. In production this is `createDrawioFileWatcher(path, vscode, fs)` which combines vscode FileSystemWatcher + fs.watchFile."
+  onChange:
+    type: "(drawioPath: string, mdPaths: string[]) => void"
+    required: true
+    description: "Callback fired when a watched drawio file changes; receives the drawio path plus the list of md paths currently referencing it."
+  debounceMs:
+    type: number
+    required: false
+    description: "Debounce window in ms for batching consecutive change events (default 200)."
 emits:
-  - "onChange(path) per filesystem write"
+  - "onChange(drawioPath, mdPaths) per debounced filesystem change"

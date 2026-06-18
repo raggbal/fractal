@@ -65,6 +65,48 @@ The backdrop is `rgba(0, 0, 0, 0.7)` rather than `var(--bg-color)` so it remains
 
 See [odk:req:ui/block-fullscreen-overlay].
 
+## Image Fullscreen Overlay
+
+Inline images (`<img>` rendered from Markdown image syntax or pasted/dropped images) open in a dedicated fullscreen overlay (`outliner-image-overlay`) on double-click. The same overlay primitive is used by the Outliner — see [odk:component:webview/outliner].
+
+### Overlay structure
+
+```
+.outliner-image-overlay        // fixed full viewport, rgba(0,0,0,0.7)
+  <cloned img>                 // transformable: translate() scale()
+  .image-overlay-toolbar       // top-right: 3 action buttons
+    button "Copy Image"        // pixel copy to OS clipboard
+    button "Open in New Tab"   // opens image in a VS Code editor tab
+    button "Copy Path"         // copies absolute filesystem path as text
+  .outliner-image-overlay-close // ✕
+```
+
+### Interaction model
+
+- **Wheel + ⌘ / Ctrl** — zoom toward the cursor.
+- **Drag** — pan the image when zoomed.
+- **Double-click** — reset to identity.
+- **Click backdrop or `✕`** — close.
+- **ESC** — close (capture-phase handler with `stopPropagation()` + `stopImmediatePropagation()` so nested side-panel ESC handlers do not also fire).
+
+### Toolbar contracts
+
+The webview computes `absPath` by stripping the `https://file%2B.vscode-resource.vscode-cdn.net` (or unencoded `file+`) prefix from the `<img src>` and dropping any `?` / `#` suffix, then dispatches via the host bridge:
+
+- **Copy Image** — `host.copyImageToClipboard(absPath)` → host posts an OS clipboard write of the raw pixel data:
+  - macOS — `osascript -e 'set the clipboard to (read (POSIX file "<path>") as «class PNGf»)'`
+  - Windows — PowerShell `[System.Windows.Forms.Clipboard]::SetImage`
+  - Linux — `xclip -selection clipboard -t image/png -i <path>`
+  - On any failure the host falls back to writing the absolute path as text via `vscode.env.clipboard.writeText` and shows an info notification.
+- **Open in New Tab** — `host.openImageInNewTab(absPath)` → host calls `vscode.commands.executeCommand('vscode.open', vscode.Uri.file(absPath))` so VS Code's built-in image preview opens in a new editor tab.
+- **Copy Path** — `navigator.clipboard.writeText(absPath)` directly in the webview (no host round-trip needed for plain text).
+
+After a successful action the button label flashes "Copied!" / "Opened!" for ~900 ms.
+
+### Theme independence
+
+Like the block overlay, the backdrop is `rgba(0,0,0,0.7)` and the toolbar buttons use a dark translucent background with a white border so they remain legible under any VS Code theme. See ADR-006.
+
 ## Side panel destroy lifecycle
 
 `EditorInstance.destroy()` must remove every DOM node it appended to `document.body`, otherwise lingering toolbars (notably the table toolbar attached at `document.body` so it can escape `overflow: hidden` containers) survive after the side panel closes. The instance tracks `this._tableToolbarEl` and removes it during `destroy()`.

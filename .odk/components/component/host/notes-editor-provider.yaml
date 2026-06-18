@@ -21,6 +21,30 @@ props:
     required: true
     description: "fractal.* settings"
 emits:
-  - "host→webview postMessage (init, file selection, page open, S3 sync state)"
+  # Initial / external sync (per-file)
+  - "host→webview postMessage: updateData"
+  # Notes file panel state
+  - "host→webview postMessage: notesFileListChanged, notesNavigateInAppLink"
+  # Notes-folder S3 sync lifecycle
+  - "host→webview postMessage: notesS3Status, notesS3Progress, sync-button-state, sync-button-visibility, sync-lock, sync-progress, sync-applied"
+  # Notes search (delegated through notes-message-handler)
+  - "host→webview postMessage: notesSearchStart, notesSearchPartial, notesSearchEnd"
+  # Drop / import results
+  - "host→webview postMessage: importMdFilesResult, importFilesResult"
+  # Image / file insert + dir status
+  - "host→webview postMessage: insertImageHtml, insertFileLink, insertLinkHtml, sidePanelImageDirStatus, sidePanelFileDirStatus, outlinerImageSaved"
+  # Page lifecycle
+  - "host→webview postMessage: pageDirChanged, pageCreated"
+  # Side Panel relay
+  - "host→webview postMessage: sidePanelAssetContext, sidePanelMessage"
+  # Paste asset extraction results
+  - "host→webview postMessage: pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult"
+  # Translate
+  - "host→webview postMessage: translateLangSelected, translateSaveOk, translateSaveError"
+  # Outliner / editor command bridge
+  - "host→webview postMessage: toggleSidebar, scrollToLine, scrollToText"
+  # File-system writes
   - "outline.note writes via NotesFileManager"
-  - "Per-file .out / .md writes inside the Notes folder"
+  - "Per-file .out / .md writes inside the Notes folder; image / file writes under fractal.outlinerImageDir / fractal.outlinerFileDir"
+  # Cloud
+  - "Notes-folder S3 sync trigger via notes-s3-sync"

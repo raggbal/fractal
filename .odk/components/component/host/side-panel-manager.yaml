@@ -2,8 +2,9 @@ $schema: odk:schema:component
 id: odk:component:host/side-panel-manager
 description: |
   Shared side-panel logic used by all three providers: file watch on the
-  side-panel host file, debounced save, navigation history (capped at 50),
-  and forward / back commands. See docs/specs/side-panel-manager.md.
+  side-panel host file, debounced save, in-flight back / forward
+  navigation stacks (unbounded; one chain per editor instance), and
+  forward / back commands. See docs/specs/side-panel-manager.md.
 type: layout
 framework: agnostic
 props:
@@ -16,5 +17,7 @@ props:
     required: true
     description: "fractal.* settings"
 emits:
-  - "Webview postMessage (navigate, save complete)"
-  - "File save via TextDocument API"
+  - "Webview postMessage: sidePanelMessage (wraps scrollToAnchor and other inner messages)"
+  - "Webview postMessage: sidePanelNavStateUpdate (canGoBack / canGoForward flags)"
+  - "File save via TextDocument applyEdit (debounced)"
+  - "File watcher notifications when the side-panel host file changes externally"

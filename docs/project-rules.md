@@ -5,7 +5,7 @@ Conventions, preferences, and domain knowledge.
 ## Tech Stack
 
 - **Extension Host**: TypeScript on the VS Code Extension API. Lives under `src/`.
-- **Webviews**: Plain JavaScript (no framework, no bundler) on a `contenteditable` DOM. Lives under `src/webview/`. The Markdown Editor (`editor.js`, ~17,000 lines) and Outliner (`outliner.js` + `outliner-model.js`, ~8,000 lines) are the two primary webviews.
+- **Webviews**: Plain JavaScript (no framework, no bundler) on a `contenteditable` DOM. Lives under `src/webview/`. The Markdown Editor (`editor.js`, ~18,400 lines) and Outliner (`outliner.js` + `outliner-model.js`, ~8,500 lines) are the two primary webviews.
 - **Shared sub-package**: `html-md-converter/` builds turndown + turndown-plugin-gfm with custom rules into `dist/`, consumed by both webviews. See ADR-003.
 - **External dependencies (vendored)**: KaTeX, Mermaid (loaded inside webviews via `vendor/`).
 - **Cloud (optional)**: AWS S3 and AWS Translate accessed exclusively via spawning the `aws` CLI binary; no AWS SDK is bundled. See ADR-002.
@@ -16,7 +16,7 @@ Conventions, preferences, and domain knowledge.
 ## Conventions
 
 - **Three providers, four modes**: Always evaluate change impact across `AnyMarkdownEditorProvider`, `OutlinerProvider`, and `NotesEditorProvider`, and across the four modes (Outliner Single / Outliner Note / Markdown Single / Markdown Side Panel). See [odk:req:safety/mode-coverage].
-- **No data loss**: S3 Sync uses `aws s3 cp` and never `sync --delete`. Files only on one side are preserved. External Change Sync writes through `workspace.applyEdit` (preserves dirty + undo). See [odk:req:safety/no-data-loss].
+- **No data loss**: S3 Sync uses both `aws s3 cp` (per-file fallback) and `aws s3 sync` (bulk phases) but never passes `--delete`. Files only on one side are preserved. External Change Sync writes through `workspace.applyEdit` (preserves dirty + undo). See [odk:req:safety/no-data-loss].
 - **Path safety**: Wrap every path operation taking external input in `safeResolveUnderDir(root, child)`. See [odk:req:security/path-traversal-guard].
 - **Mutually exclusive node types**: A Node is exactly one of Page / File / Image / Plain. See [odk:req:correctness/exclusive-node-types].
 - **Local-first**: All processing is on the user's machine. No backend, no telemetry, no analytics.

@@ -22,7 +22,27 @@ props:
     required: true
     description: "fractal.* settings"
 emits:
-  - "host→webview postMessage (init, externalChange, pageOpen)"
-  - "TextDocument WorkspaceEdit (debounced JSON write)"
-  - "Page MD / image / file writes to disk"
+  # Initial / external sync
+  - "host→webview postMessage: updateData"
+  # Drop / import results (split by asset type)
+  - "host→webview postMessage: importMdFilesResult, importFilesResult, updateNodeImages, updateNodeFilePath"
+  # Insert results (host wrote a file and tells the webview to insert HTML)
+  - "host→webview postMessage: insertImageHtml, insertFileLink, insertLinkHtml"
+  # Image / file dir status + change notifications
+  - "host→webview postMessage: outlinerImageDirStatus, outlinerImageDirChanged, outlinerFileDirChanged, outlinerImageSaved, sidePanelImageDirStatus, sidePanelFileDirStatus"
+  # Page lifecycle
+  - "host→webview postMessage: pageCreated, pageDirChanged"
+  # Side Panel relay (wraps inner messages from the side panel webview)
+  - "host→webview postMessage: sidePanelAssetContext, sidePanelMessage"
+  # Paste asset extraction results
+  - "host→webview postMessage: pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult"
+  # Translate results / errors / save status
+  - "host→webview postMessage: translateLangSelected, translateResult, translateError, translateSaveOk, translateSaveError"
+  # Outliner command bridge
+  - "host→webview postMessage: scopeIn, scopeOut, toggleSidebar"
+  # Document mutations
+  - "TextDocument WorkspaceEdit (debounced JSON write — applied through workspace.applyEdit)"
+  # File-system writes
+  - "Page MD writes (Page node body), image / file writes under fractal.outlinerImageDir / fractal.outlinerFileDir"
+  # Cloud
   - "S3 sync trigger via outliner-s3-sync"

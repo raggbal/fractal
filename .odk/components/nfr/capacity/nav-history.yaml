@@ -1,16 +1,20 @@
 $schema: odk:schema:nfr
 id: odk:nfr:capacity/nav-history
 description: |
-  In-app navigation (`fractal://` link clicks within Notes) keeps a back /
-  forward history bounded at 50 entries.
+  Outliner in-tree navigation (focus jumps, scope changes, fractal:// link
+  clicks) keeps a back / forward history bounded at 50 entries inside the
+  webview.
 category: scalability
 target: 50
 unit: entries
 measurement: |
-  History stack capped at 50 in [odk:component:host/side-panel-manager].
+  `MAX_NAV_HISTORY = 50` in `src/webview/outliner.js` caps the outliner's
+  navigation stacks. Side-panel host-side back / forward stacks
+  (`SidePanelManager._navBackStack` / `_navForwardStack`) are intentionally
+  unbounded — they only hold the in-flight side-panel chain for a single
+  editor instance, not a long-lived history.
 test_method: |
-  E2E spec performing > 50 in-app navigations and asserting the oldest
-  entry is dropped.
+  E2E spec performing > 50 navigations within the outliner and asserting
+  the oldest entry is dropped.
 applies_to:
-  - odk:component:host/side-panel-manager
-  - odk:component:host/notes-editor-provider
+  - odk:component:webview/outliner

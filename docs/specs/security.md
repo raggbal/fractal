@@ -19,7 +19,8 @@ N/A — IAM is not managed by Fractal; the AWS CLI uses whatever profile/role pe
 
 ## Secrets management
 
-- AWS credentials live in the user's AWS CLI profiles or environment variables. The extension stores no secrets.
+- **Preferred path**: AWS credentials live in the user's AWS CLI profiles or environment variables; Fractal then spawns `aws` with the user's ambient identity.
+- **Optional in-extension settings**: For users who prefer per-extension credentials, the following VS Code settings are accepted and exported as environment variables to the spawned `aws` CLI: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`, `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`. Because VS Code stores user settings as plain JSON in `settings.json`, **these values are not encrypted** — the user is responsible for choosing whether to use them. They are not synced to any backend by Fractal.
 - VS Code `globalState` only stores the list of registered Notes folder paths (non-sensitive).
 
 ## Network boundary

@@ -22,6 +22,27 @@ props:
     required: true
     description: "fractal.* settings (image / file dirs, fontSize, etc.)"
 emits:
-  - "host→webview postMessage (init, themeChange, externalChange)"
-  - "TextDocument WorkspaceEdit (debounced sync)"
-  - "image / file / drawio.svg writes to disk"
+  # Initial / external sync (host pushes the current document into the webview)
+  - "host→webview postMessage: update"
+  # Image / file / drawio dir status + change notifications
+  - "host→webview postMessage: imageDirStatus, sidePanelImageDirStatus, fileDirStatus, sidePanelFileDirStatus, drawioFileChanged"
+  # Insert results (host wrote a file and tells the webview to insert HTML)
+  - "host→webview postMessage: insertImageHtml, insertFileLink, insertLinkHtml"
+  # Editor command bridge
+  - "host→webview postMessage: performUndo, performRedo, toggleSourceMode, triggerTranslate, toggleSidebar"
+  # Outline / word count results
+  - "host→webview postMessage: outline, wordCount"
+  # Notes-mode page management results
+  - "host→webview postMessage: fileSearchResults, pageCreatedAtPath"
+  # Side Panel relay (wraps inner messages from the side panel webview)
+  - "host→webview postMessage: sidePanelAssetContext, sidePanelMessage"
+  # Paste asset extraction results
+  - "host→webview postMessage: pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult"
+  # Translate results / errors
+  - "host→webview postMessage: translateLangSelected, translateResult, translateError"
+  # Anchor scroll
+  - "host→webview postMessage: scrollToAnchor"
+  # Document mutations
+  - "TextDocument WorkspaceEdit (debounced — applied through workspace.applyEdit so dirty state and undo are preserved)"
+  # File-system writes
+  - "image / file / drawio.svg writes to disk under fractal.imageDir / fractal.fileDir / drawio.svg directory"
