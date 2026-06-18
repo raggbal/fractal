@@ -28,7 +28,7 @@ Conventions, preferences, and domain knowledge.
 - **Theme-independent overlay backdrop**: full-viewport overlays (image preview, block fullscreen) use `rgba(0, 0, 0, 0.7)` rather than `var(--bg-color)`. This keeps the close button (white border / icon) legible under any VS Code theme. See ADR-006.
 - **ESC capture-phase pattern for nested overlays**: when an overlay is opened from inside another ESC-closable surface (e.g. block fullscreen inside a Markdown Side Panel), the inner overlay registers its ESC handler with `addEventListener('keydown', handler, true)` (capture phase) and the handler calls both `stopPropagation()` and `stopImmediatePropagation()` before cleanup so the outer surface does not also close. See ADR-006.
 - **`EditorInstance.destroy()` must remove every DOM node it appended to `document.body`** — toolbars and overlays attached at body level (to escape `overflow: hidden` containers) are tracked on the instance (e.g. `this._tableToolbarEl`) and removed in `destroy()`. Otherwise the side-panel close leaves orphan UI on screen.
-- **ODK Git hooks are neutralized in this project.** `.odk/hooks/pre-commit` and `.odk/hooks/commit-msg` are `exit 0` stubs because the bundled verification plugins target Python and Conventional Commits is not enforced here. See ADR-007.
+- **ODK Git hooks are neutralized in this project.** `.odk/hooks/pre-commit`, `.odk/hooks/commit-msg`, and `.odk/hooks/pre-push` are `exit 0` stubs because the bundled verification plugins target Python / Next.js / Terraform / Conventional Commits / PR-body templates that Fractal does not use. See ADR-007.
 
 ## Product Context
 
