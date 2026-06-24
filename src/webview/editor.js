@@ -12286,6 +12286,11 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'openInNewTab':
+                if (typeof host.openInNewTab === 'function') {
+                    host.openInNewTab();
+                }
+                break;
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
                 break;
@@ -13459,6 +13464,11 @@ class EditorInstance {
     if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', function() {
         closeSidebar();
     });
+
+    // Apply initial sidebar state from options (e.g. notes md pane defaults to closed)
+    if (this.options.sidebarHidden) {
+        closeSidebar();
+    }
 
     // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
@@ -15630,12 +15640,6 @@ class EditorInstance {
     }
 
     function setupSidePanelImageDir() {
-        // Settings button click handler
-        if (sidePanelImageDirBtn) {
-            sidePanelImageDirBtn.onclick = function() {
-                if (sidePanelHostBridge) sidePanelHostBridge.requestSetImageDir();
-            };
-        }
         // Request initial image dir status from host
         host.getSidePanelImageDir(sidePanelFilePath);
     }

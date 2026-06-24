@@ -83,6 +83,39 @@ export function walkRecursive(dir: string, extensions: string[]): string[] {
     return result;
 }
 
+/**
+ * outline.note を読み、structure.items のうち ext==='md' のファイルを
+ * `_notes_md/<id>.md` の絶対パスとして liveMd に追加する。
+ *
+ * v0.207.92: notes editor 配下の .md (ADR-008) は `.out` の node.pageId 由来ではなく
+ * outline.note の structure に登録されているため、cleanup 対象から守るためには
+ * structure を読み込んで live set に加える必要がある。これをしないと notes-md が
+ * 全件 orphan-md として誤検出され、Clean Unused Files で破壊的に削除される。
+ */
+function addNotesMdToLiveSet(mainFolderPath: string, liveMd: Set<string>): void {
+    const noteFilePath = path.join(mainFolderPath, 'outline.note');
+    if (!fs.existsSync(noteFilePath)) return;
+
+    let structure: any;
+    try {
+        const content = fs.readFileSync(noteFilePath, 'utf8');
+        structure = JSON.parse(content);
+    } catch (e) {
+        console.warn('[Fractal] Failed to parse outline.note for cleanup:', noteFilePath, e);
+        return;
+    }
+
+    const items = structure?.items;
+    if (!items || typeof items !== 'object') return;
+
+    const mdRoot = path.join(mainFolderPath, '_notes_md');
+    for (const id of Object.keys(items)) {
+        const item = items[id];
+        if (!item || item.type !== 'file' || item.ext !== 'md') continue;
+        liveMd.add(path.join(mdRoot, `${id}.md`));
+    }
+}
+
 export async function buildLiveSetPass1(
     outFiles: string[],
     mainFolderPath: string
@@ -90,6 +123,9 @@ export async function buildLiveSetPass1(
     const liveMd = new Set<string>();
     const liveImages = new Set<string>();
     const liveFiles = new Set<string>();
+
+    // notes editor の .md (outline.note structure 経由) を liveMd に追加
+    addNotesMdToLiveSet(mainFolderPath, liveMd);
 
     for (const outPath of outFiles) {
         try {

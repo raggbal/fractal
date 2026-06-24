@@ -113,6 +113,10 @@
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },
+        // [PROBE v0.207.94] dedicated drop probe channel for diagnostics
+        dropProbe: function(payload) {
+            api.postMessage({ type: 'dropProbe', payload: payload });
+        },
 
         // ファイル添付操作
         openAttachedFile: function(nodeId) {

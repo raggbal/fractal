@@ -181,6 +181,122 @@
         }
     }
 
+    // ── ADR-008: Notes メインペイン Markdown 用ブリッジ ──
+    // editor.js (EditorInstance) と互換のインターフェース。
+    // 既存の outliner / sidepanel 経路には触らない。
+    // 画像/ファイル保存先は _notes_md/{images,files}/ で共通管理。
+    window.notesMarkdownHostBridge = Object.assign({}, shared, {
+        // Markdown 編集の auto-save: outline.note 構造内の現在の .md ファイルへ書き込み
+        syncContent: function(markdown) {
+            api.postMessage({
+                type: 'notesSaveCurrentMd',
+                content: markdown,
+                fileChangeId: currentFileChangeId,
+            });
+        },
+        save: function() {
+            api.postMessage({ type: 'save' });
+        },
+        reportEditingState: function(editing) {
+            api.postMessage({ type: 'editingStateChanged', editing: editing });
+        },
+        requestInsertLink: function(text) {
+            api.postMessage({ type: 'insertLink', text: text });
+        },
+        openInTextEditor: function() {
+            api.postMessage({ type: 'openInTextEditor' });
+        },
+        copyFilePath: function() {
+            api.postMessage({ type: 'copyFilePath' });
+        },
+        // v0.207.86: cmd+/ → Add Page を Notes 内 .md でも有効化。
+        // standalone editor の createPageAuto と同じ semantics で
+        // <_notes_md>/pages/<unique>.md を作成して相対 path を返す。
+        createPageAtPath: function() { /* no-op (legacy action panel flow) */ },
+        createPageAuto: function() {
+            api.postMessage({
+                type: 'notesMdCreatePageAuto',
+                filePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        updatePageH1: function(relativePath, h1Text) {
+            api.postMessage({
+                type: 'notesMdUpdatePageH1',
+                filePath: window.notesMarkdownHostBridge.filePath || '',
+                relativePath: relativePath,
+                h1Text: h1Text,
+            });
+        },
+
+        // v0.207.86: Notes 内 .md からのリンククリック動作を override。
+        // shared.openLink (= openExternalLink → vscode.env.openExternal) は相対 path を URL として
+        // 解釈しようとして「No application found to open URL」になるため、
+        // notes md 専用のメッセージで filePath コンテキストを backend に渡し、
+        // - plain click  → sidepanel で開く
+        // - cmd/ctrl+click → 新タブ standalone editor で開く
+        // で route する。http / fractal:// / # anchor 等の特殊 href は backend で個別処理。
+        openLink: function(href) {
+            api.postMessage({
+                type: 'notesMdOpenLink',
+                filePath: window.notesMarkdownHostBridge.filePath || '',
+                href: href,
+            });
+        },
+        openLinkInTab: function(href) {
+            api.postMessage({
+                type: 'notesMdOpenLinkInTab',
+                filePath: window.notesMarkdownHostBridge.filePath || '',
+                href: href,
+            });
+        },
+        // v0.207.88: notes md ヘッダーの「新タブで開く」ボタン → 現在編集中の .md を
+        // standalone customEditor で開き直す。sidepanel の side-panel-open-tab と同じ semantics。
+        openInNewTab: function() {
+            api.postMessage({
+                type: 'notesMdOpenSelfInNewTab',
+                filePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+
+        // 画像保存: _notes_md/images/ に保存する (v0.207.82: md ファイルは _notes_md/ 直下にあるため
+        // 相対パスは images/<fileName>)
+        // v0.207.80: editor.js は cmd+v / D&D 等で host.saveImageAndInsert(dataUrl[, fileName])
+        // を呼ぶため、これも notesMd 経路へ転送する (sidepanel 共通版は sidePanelFilePath
+        // 必須で undefined だと message-handler が silent no-op になっていた)。
+        saveImage: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveImage', dataUrl: dataUrl, fileName: fileName });
+        },
+        saveImageAndInsert: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveImage', dataUrl: dataUrl, fileName: fileName });
+        },
+        readAndInsertImage: function(filePath) {
+            api.postMessage({ type: 'notesMdReadAndInsertImage', filePath: filePath });
+        },
+        saveFileToDir: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveFile', dataUrl: dataUrl, fileName: fileName });
+        },
+        saveFileAndInsert: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveFile', dataUrl: dataUrl, fileName: fileName });
+        },
+        readAndInsertFile: function(filePath) {
+            api.postMessage({ type: 'notesMdReadAndInsertFile', filePath: filePath });
+        },
+        // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
+        // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
+        // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび
+        // EditorInstance を destroy → new EditorInstance するため、_legacyInit() 内の
+        // host.onMessage(...) で listener が累積し、insertImageHtml broadcast を N 個のハンドラが
+        // 同時受信して同じ画像を N 回挿入してしまう。
+        // 解決: onMessage は単一 window listener + 最新 handler だけを保持する形に上書き。
+        onMessage: (function() {
+            var current = null;
+            window.addEventListener('message', function(e) {
+                if (current) current(e.data);
+            });
+            return function(handler) { current = handler; };
+        })(),
+    });
+
     // ── notes-file-panel.js 用ブリッジ ──
     window.notesHostBridge = {
         // ファイル操作
@@ -190,6 +306,10 @@
         },
         createFile: function(title, parentId, afterId) {
             api.postMessage({ type: 'notesCreateFile', title: title, parentId: parentId || null, afterId: afterId || null });
+        },
+        // ADR-008: 新規 Markdown ファイル作成
+        createMarkdownFile: function(title, parentId, afterId) {
+            api.postMessage({ type: 'notesCreateMarkdownFile', title: title, parentId: parentId || null, afterId: afterId || null });
         },
         deleteFile: function(filePath) {
             api.postMessage({ type: 'notesDeleteFile', filePath: filePath });
@@ -228,6 +348,22 @@
         // v0.207.36: お気に入り toggle
         toggleFavorite: function(fileId) {
             api.postMessage({ type: 'notesToggleFavorite', fileId: fileId });
+        },
+
+        // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
+        notesImportMdIntoOut: function(mdFileId, targetOutId) {
+            api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+
+        // v0.207.77: D&D — outliner page-node を Notes panel にドロップして .md として登録
+        notesImportOutPageNodeAsMd: function(payload, parentId, index) {
+            flushOutlinerSync();
+            api.postMessage({
+                type: 'notesImportOutPageNodeAsMd',
+                payload: payload,
+                parentId: parentId || null,
+                index: index || 0,
+            });
         },
 
         // Daily Notes

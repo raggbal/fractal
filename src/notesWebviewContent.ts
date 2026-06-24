@@ -120,8 +120,14 @@ export function getNotesWebviewContent(
     const base64Content = Buffer.from(jsonToEncode, 'utf8').toString('base64');
 
     // Side panel HTML (shared with all editors)
-    const { generateSidePanelHtml } = require(path.join(__dirname, 'shared', 'editor-body-html.js'));
+    const { generateSidePanelHtml, generateEditorBodyHtml } = require(path.join(__dirname, 'shared', 'editor-body-html.js'));
     const sidePanelHtml = generateSidePanelHtml(msg);
+    // ADR-008: Notes 内 .md 用メインペイン (standalone と同じ body HTML)。
+    // ただし side-panel は notes-layout 側で別途出力するため、ここでは含めない
+    // (DOM 内 `.side-panel` 重複を避けるため。outliner.js が
+    // `document.querySelector('.side-panel')` で最初の要素を掴む仕様のため、
+    // 重複すると markdown-container 内側の hidden パネルを掴んでしまう)
+    const markdownPaneHtml = generateEditorBodyHtml(msg, process.platform, { includeSidePanel: false, showOpenInNewTab: true });
 
     return `<!DOCTYPE html>
 <html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}">
@@ -195,6 +201,9 @@ export function getNotesWebviewContent(
                     <div class="outliner-tree" role="tree"></div>
                 </div>
             </div>
+            <div class="markdown-container" style="display:none">
+                ${markdownPaneHtml}
+            </div>
         </div>
     </div>
 
@@ -239,6 +248,74 @@ export function getNotesWebviewContent(
             ${JSON.stringify(initData.structure || null)},
             ${JSON.stringify(initData.panelWidth || null)}
         );
+
+        // ─── ADR-008: Notes 内 .md ファイル用のメインペイン dispatcher ───
+        // updateData (kind='md') を受けて outliner-container と markdown-container
+        // の表示を切替え、必要なら EditorInstance を生成/再生成する。
+        (function() {
+            var outlinerContainer = document.querySelector('.outliner-container');
+            var markdownContainer = document.querySelector('.markdown-container');
+            // 初期 markdown pane の HTML テンプレートを保持。EditorInstance を再生成する際は
+            // この HTML を毎回 markdownContainer に書き戻して .editor を新規生成し、
+            // 旧インスタンスが addEventListener('paste'/...) で残した DOM listener を確実に切る。
+            // (destroy() は instances 配列から外すだけで DOM listener は剥がさないため、
+            //  同じ .editor を使い回すと paste handler が累積し cmd+v で N 枚画像が貼られる)
+            var markdownPaneTemplate = markdownContainer ? markdownContainer.innerHTML : '';
+            var mdInstance = null;
+
+            function showOutliner() {
+                if (markdownContainer) markdownContainer.style.display = 'none';
+                if (outlinerContainer) outlinerContainer.style.display = '';
+            }
+            function showMarkdown() {
+                if (outlinerContainer) outlinerContainer.style.display = 'none';
+                if (markdownContainer) markdownContainer.style.display = '';
+            }
+
+            function loadMarkdown(text, filePath, documentBaseUri) {
+                showMarkdown();
+                // 既存の EditorInstance があれば破棄して作り直す
+                if (mdInstance) {
+                    try { mdInstance.destroy(); } catch(e) { console.error(e); }
+                    mdInstance = null;
+                }
+                if (!markdownContainer) return;
+                // .editor 等の子要素を初期テンプレートで置換し、旧 instance が残した
+                // paste / keydown 等の listener を完全に剥がす。
+                markdownContainer.innerHTML = markdownPaneTemplate;
+                if (window.notesMarkdownHostBridge) {
+                    window.notesMarkdownHostBridge.filePath = filePath || null;
+                }
+                mdInstance = new window.EditorInstance(
+                    markdownContainer,
+                    window.notesMarkdownHostBridge,
+                    {
+                        initialContent: text || '',
+                        filePath: filePath || null,
+                        documentBaseUri: documentBaseUri || '',
+                        sidebarHidden: true,
+                    }
+                );
+            }
+
+            window.addEventListener('message', function(e) {
+                var msg = e.data;
+                if (!msg || msg.type !== 'updateData') return;
+                if (msg.kind === 'md') {
+                    loadMarkdown(msg.markdown || '', msg.filePath || null, msg.documentBaseUri || '');
+                } else {
+                    // outliner data — markdown container は隠して outliner を見せる
+                    if (mdInstance) {
+                        try { mdInstance.destroy(); } catch(err) { console.error(err); }
+                        mdInstance = null;
+                    }
+                    showOutliner();
+                }
+            });
+
+            // 初期状態は outliner 表示 (initData は .out を前提に渡されている)
+            showOutliner();
+        })();
     </script>
 </body>
 </html>`;

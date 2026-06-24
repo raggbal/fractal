@@ -31,6 +31,7 @@ var notesFilePanel = (function() {
     // D&D state (module-scope, VSCode webview の dataTransfer 制限回避)
     var dragItemId = null;
     var dragItemType = null; // 'file' or 'folder'
+    var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     var dropIndicator = null;
 
     // Resize state
@@ -55,6 +56,8 @@ var notesFilePanel = (function() {
 
     // SVG icons
     var ICON_FILE = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
+    // ADR-008: Notes 内 .md ファイル識別用アイコン (file の右下に "M" ラベル)
+    var ICON_FILE_MD = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>';
     var ICON_FOLDER = '<svg class="file-panel-folder-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
     var ICON_CHEVRON = '<svg class="file-panel-folder-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
@@ -151,20 +154,24 @@ var notesFilePanel = (function() {
 
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
+        var isMd = /\.md$/i.test(f.filePath);
         var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
         // v11: color class 反映
-        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, ''));
+        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, ''));
         if (itemColor) {
             itemClass += ' notes-item-color-' + itemColor;
         }
+        if (isMd) itemClass += ' is-md';
         item.className = itemClass;
         item.dataset.filePath = f.filePath;
-        item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
+        item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, '');
         item.dataset.itemType = 'file';
+        item.dataset.fileExt = isMd ? 'md' : 'out';
         if (parentId) item.dataset.parentId = parentId;
         item.draggable = true;
 
-        item.innerHTML = ICON_FILE + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
+        var icon = isMd ? ICON_FILE_MD : ICON_FILE;
+        item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function() {
             if (f.filePath !== currentFile) {
@@ -368,6 +375,11 @@ var notesFilePanel = (function() {
             closeContextMenu();
             promptNewFile(fileParentId, fileId);
         });
+        // ADR-008: 同階層に Markdown ファイルを新規作成
+        addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+            closeContextMenu();
+            promptNewMarkdownFile(fileParentId, fileId);
+        });
         addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
             closeContextMenu();
             promptNewFolder(fileParentId, fileId);
@@ -424,6 +436,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
             promptNewFile(folder.id);
+        });
+        // ADR-008: フォルダ内に Markdown ファイルを新規作成
+        addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+            closeContextMenu();
+            promptNewMarkdownFile(folder.id);
         });
         addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
             closeContextMenu();
@@ -528,12 +545,35 @@ var notesFilePanel = (function() {
 
     // ── Drag & Drop ──
 
+    // v0.207.77 (D&D Feature B): outliner page-node からの drag 判定。
+    // dragstart で application/x-fractal-out-node-page を setData している経路。
+    var OUT_NODE_PAGE_MIME = 'application/x-fractal-out-node-page';
+
+    function isOutNodePageDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(OUT_NODE_PAGE_MIME) !== -1;
+    }
+
+    function readOutNodePagePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(OUT_NODE_PAGE_MIME);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    }
+
     function setupDragSource(el) {
         el.addEventListener('dragstart', function(e) {
             var target = el.closest('[data-item-id]') || el;
             dragItemId = target.dataset.itemId;
             dragItemType = target.dataset.itemType;
-            e.dataTransfer.effectAllowed = 'move';
+            dragSourceFileExt = target.dataset.fileExt || null;
+            // v0.207.77: 'copyMove' にしないと、dropEffect='copy' (Feature A/B) との不一致で
+            // ブラウザが drop event をキャンセルする (HTML5 D&D 仕様)。
+            e.dataTransfer.effectAllowed = 'copyMove';
             // テキストを設定（VSCode webview互換）
             try { e.dataTransfer.setData('text/plain', dragItemId); } catch(err) { /* ignore */ }
             // ドラッグ中のスタイル
@@ -545,6 +585,7 @@ var notesFilePanel = (function() {
             target.style.opacity = '';
             dragItemId = null;
             dragItemType = null;
+            dragSourceFileExt = null;
             removeDropIndicator();
             clearAllDragOver();
         });
@@ -552,15 +593,28 @@ var notesFilePanel = (function() {
 
     function setupDropTarget(el) {
         el.addEventListener('dragover', function(e) {
-            if (!dragItemId) return;
+            // v0.207.77 (Feature B): outliner page-node からの drag を最優先で処理
+            var fromOutliner = isOutNodePageDrag(e);
+            if (!dragItemId && !fromOutliner) return;
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
+            e.dataTransfer.dropEffect = 'copy';
 
             clearAllDragOver();
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (target.dataset.itemId === dragItemId) return;
+            if (!fromOutliner && target.dataset.itemId === dragItemId) return;
+
+            // Feature A: md ファイルを .out item にドロップ → import (中央のみ、黄色 highlight)
+            if (
+                !fromOutliner &&
+                dragSourceFileExt === 'md' &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
 
             // フォルダヘッダーの場合: 上半分=前に挿入、中央=中に入れる、下半分=後に挿入
             // ファイルの場合: 上半分=前に挿入、下半分=後に挿入
@@ -590,25 +644,67 @@ var notesFilePanel = (function() {
         el.addEventListener('dragleave', function(e) {
             var target = el.closest('[data-item-id]') || el;
             target.classList.remove('file-panel-drag-over');
+            target.classList.remove('file-panel-drag-over-md-into-out');
         });
 
         el.addEventListener('drop', function(e) {
+            // v0.207.77 (Feature B): outliner page-node からの drop を最優先処理
+            var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             e.preventDefault();
-            if (!dragItemId) return;
+            if (!dragItemId && !outPayload) return;
 
             clearAllDragOver();
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (target.dataset.itemId === dragItemId) return;
-
-            var rect = target.getBoundingClientRect();
-            var y = e.clientY - rect.top;
-            var ratio = y / rect.height;
+            if (!outPayload && target.dataset.itemId === dragItemId) return;
 
             var targetId = target.dataset.itemId;
             var targetType = target.dataset.itemType;
             var targetParentId = target.dataset.parentId || null;
+
+            // Feature B: outliner page-node → Notes panel
+            if (outPayload) {
+                var rectB = target.getBoundingClientRect();
+                var yB = e.clientY - rectB.top;
+                var ratioB = yB / rectB.height;
+                var insertParentB = null;
+                var insertIndexB = 0;
+                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.75) {
+                    // フォルダ中央 → フォルダ内先頭
+                    insertParentB = target.dataset.folderId || targetId;
+                    insertIndexB = 0;
+                } else {
+                    insertParentB = targetParentId;
+                    var siblingsB = getChildIdsOfParent(insertParentB);
+                    var tIdxB = siblingsB.indexOf(targetId);
+                    if (tIdxB === -1) tIdxB = siblingsB.length;
+                    var aboveB = (targetType === 'folder' || target.classList.contains('file-panel-folder-header'))
+                        ? ratioB < 0.25
+                        : ratioB < 0.5;
+                    insertIndexB = aboveB ? tIdxB : tIdxB + 1;
+                }
+                if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                    bridge.notesImportOutPageNodeAsMd(outPayload, insertParentB, insertIndexB);
+                }
+                return;
+            }
+
+            // Feature A: md ファイル → .out item ドロップ → import
+            if (
+                dragSourceFileExt === 'md' &&
+                targetType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                if (typeof bridge.notesImportMdIntoOut === 'function') {
+                    bridge.notesImportMdIntoOut(dragItemId, targetId);
+                }
+                return;
+            }
+
+            var rect = target.getBoundingClientRect();
+            var y = e.clientY - rect.top;
+            var ratio = y / rect.height;
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
             if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
@@ -647,11 +743,12 @@ var notesFilePanel = (function() {
 
     function setupFolderChildrenDrop(childrenEl, folderId) {
         childrenEl.addEventListener('dragover', function(e) {
-            if (!dragItemId) return;
+            var fromOutliner = isOutNodePageDrag(e);
+            if (!dragItemId && !fromOutliner) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
                 clearAllDragOver();
                 childrenEl.classList.add('file-panel-drag-over');
             }
@@ -661,11 +758,18 @@ var notesFilePanel = (function() {
         });
         childrenEl.addEventListener('drop', function(e) {
             if (e.target !== childrenEl && e.target.className !== 'file-panel-folder-children') return;
+            var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             e.preventDefault();
-            if (!dragItemId) return;
+            if (!dragItemId && !outPayload) return;
             clearAllDragOver();
-            // フォルダ末尾に追加
             var childIds = getChildIdsOfParent(folderId);
+            if (outPayload) {
+                if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                    bridge.notesImportOutPageNodeAsMd(outPayload, folderId, childIds.length);
+                }
+                return;
+            }
+            // フォルダ末尾に追加
             bridge.moveItem(dragItemId, folderId, childIds.length);
         });
     }
@@ -692,6 +796,10 @@ var notesFilePanel = (function() {
         var els = listEl.querySelectorAll('.file-panel-drag-over');
         for (var i = 0; i < els.length; i++) {
             els[i].classList.remove('file-panel-drag-over');
+        }
+        var els2 = listEl.querySelectorAll('.file-panel-drag-over-md-into-out');
+        for (var j = 0; j < els2.length; j++) {
+            els2[j].classList.remove('file-panel-drag-over-md-into-out');
         }
     }
 
@@ -754,6 +862,44 @@ var notesFilePanel = (function() {
             if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
             if (val) {
                 bridge.createFile(val, parentId || null, afterId || null);
+            }
+        }
+        input.addEventListener('blur', finish);
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
+        });
+    }
+
+    // ADR-008: Markdown ファイル新規作成プロンプト
+    function promptNewMarkdownFile(parentId, afterId) {
+        if (!bridge.createMarkdownFile) {
+            // 古い host bridge への安全弁
+            return;
+        }
+        var inputRow = document.createElement('div');
+        inputRow.className = 'file-panel-item active is-md';
+        var iconWrap = document.createElement('span');
+        iconWrap.innerHTML = ICON_FILE_MD;
+        inputRow.appendChild(iconWrap.firstChild);
+        var input = document.createElement('input');
+        input.className = 'file-panel-rename-input';
+        input.type = 'text';
+        input.value = '';
+        input.placeholder = 'Markdown title...';
+        inputRow.appendChild(input);
+
+        insertPromptRow(inputRow, parentId, afterId);
+        input.focus();
+
+        var done = false;
+        function finish() {
+            if (done) return;
+            done = true;
+            var val = input.value.trim();
+            if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
+            if (val) {
+                bridge.createMarkdownFile(val, parentId || null, afterId || null);
             }
         }
         input.addEventListener('blur', finish);
@@ -1085,6 +1231,7 @@ var notesFilePanel = (function() {
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
         var addBtn = document.getElementById('filePanelAdd');
+        var addMdBtn = document.getElementById('filePanelAddMarkdown');
         var addFolderBtn = document.getElementById('filePanelAddFolder');
         var collapseBtn = document.getElementById('filePanelCollapse');
         var toggleBtn = document.getElementById('notesPanelToggleBtn');
@@ -1100,6 +1247,12 @@ var notesFilePanel = (function() {
         if (addBtn) {
             addBtn.addEventListener('click', function() {
                 promptNewFile(null);
+            });
+        }
+
+        if (addMdBtn) {
+            addMdBtn.addEventListener('click', function() {
+                promptNewMarkdownFile(null);
             });
         }
 
@@ -1176,20 +1329,28 @@ var notesFilePanel = (function() {
         // ルートエリアへのD&D（アイテム間の空白部分）
         if (listEl) {
             listEl.addEventListener('dragover', function(e) {
-                if (!dragItemId) return;
+                var fromOutliner = isOutNodePageDrag(e);
+                if (!dragItemId && !fromOutliner) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
             });
             listEl.addEventListener('drop', function(e) {
                 if (e.target !== listEl) return;
+                var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
                 e.preventDefault();
-                if (!dragItemId) return;
+                if (!dragItemId && !outPayload) return;
                 clearAllDragOver();
                 removeDropIndicator();
-                // ルート末尾に追加
                 var rootIds = structure ? structure.rootIds : [];
+                if (outPayload) {
+                    if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                        bridge.notesImportOutPageNodeAsMd(outPayload, null, rootIds.length);
+                    }
+                    return;
+                }
+                // ルート末尾に追加
                 bridge.moveItem(dragItemId, null, rootIds.length);
             });
         }

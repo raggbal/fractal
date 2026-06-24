@@ -11,9 +11,10 @@ export interface NotesFileEntry {
 
 export interface NoteTreeFile {
     type: 'file';
-    id: string;        // .out ファイル名（拡張子なし）
+    id: string;        // ファイル名（拡張子なし）
     title: string;     // 表示タイトル（.outのtitleと同期）
     color?: string;    // v11: Tailwind palette name ('red', 'orange', ..., 'zinc') or undefined
+    ext?: 'out' | 'md'; // v0.207.75: ファイル拡張子。省略時は 'out' (back-compat). ADR-008
 }
 
 export interface NoteTreeFolder {
@@ -87,11 +88,44 @@ export class NotesFileManager {
 
     private static SAVE_DEBOUNCE_MS = 1000;
 
+    // v0.207.76: Markdown ファイル用の仮想 outliner フォルダ
+    // mainFolderPath/_notes_md/ 配下に <id>.md を直接配置し、
+    // images/ files/ サブディレクトリだけを補助的に持つ。"_notes_md" は予約名。
+    // v0.207.82: _notes_md/pages/<id>.md → _notes_md/<id>.md にフラット化。
+    //            md ファイル側から見た相対パスが ./images/xxx.png となるよう統一。
+    static MD_VIRTUAL_DIR = '_notes_md';
+    static MD_IMAGES_SUBDIR = 'images';
+    static MD_FILES_SUBDIR = 'files';
+
     constructor(mainFolderPath: string) {
         this.mainFolderPath = mainFolderPath;
     }
 
     getMainFolderPath(): string { return this.mainFolderPath; }
+
+    // ── v0.207.76: Markdown 仮想フォルダのパス解決 ──
+    getMdRootDirPath(): string {
+        return path.join(this.mainFolderPath, NotesFileManager.MD_VIRTUAL_DIR);
+    }
+    getMdImagesDirPath(): string {
+        return path.join(this.getMdRootDirPath(), NotesFileManager.MD_IMAGES_SUBDIR);
+    }
+    getMdFilesDirPath(): string {
+        return path.join(this.getMdRootDirPath(), NotesFileManager.MD_FILES_SUBDIR);
+    }
+    getMdFilePath(id: string): string {
+        // v0.207.82: フラット化 — _notes_md/<id>.md
+        return path.join(this.getMdRootDirPath(), `${id}.md`);
+    }
+    private ensureMdDirs(): void {
+        try {
+            fs.mkdirSync(this.getMdRootDirPath(), { recursive: true });
+            fs.mkdirSync(this.getMdImagesDirPath(), { recursive: true });
+            fs.mkdirSync(this.getMdFilesDirPath(), { recursive: true });
+        } catch (e) {
+            console.error('[NotesFileManager] ensureMdDirs error:', e);
+        }
+    }
     getCurrentFilePath(): string | null { return this.currentFilePath; }
     isDirtyState(): boolean { return this.isDirty; }
     getFileChangeId(): number { return this.fileChangeId; }
@@ -184,6 +218,52 @@ export class NotesFileManager {
             structure = { version: 1, rootIds: [], items: {} };
         }
 
+        // v0.207.76 / v0.207.82: 旧配置を _notes_md/<id>.md (フラット) に集約
+        // (a) 旧 flat 配置 <mainFolderPath>/<id>.md
+        // (b) v0.207.76 配置 _notes_md/pages/<id>.md
+        try {
+            let didMigrate = false;
+            const legacyPagesDir = path.join(this.getMdRootDirPath(), 'pages');
+            for (const [id, item] of Object.entries(structure.items)) {
+                if (item.type !== 'file' || item.ext !== 'md') continue;
+                const newPath = this.getMdFilePath(id);
+                if (fs.existsSync(newPath)) continue;
+                // (a) <mainFolderPath>/<id>.md
+                const oldFlatPath = path.join(this.mainFolderPath, `${id}.md`);
+                // (b) _notes_md/pages/<id>.md
+                const oldPagesPath = path.join(legacyPagesDir, `${id}.md`);
+                let src: string | null = null;
+                if (fs.existsSync(oldPagesPath)) src = oldPagesPath;
+                else if (fs.existsSync(oldFlatPath)) src = oldFlatPath;
+                if (!src) continue;
+                this.ensureMdDirs();
+                try {
+                    fs.renameSync(src, newPath);
+                    didMigrate = true;
+                    console.log('[NotesFileManager] Migrated md:', src, '→', newPath);
+                } catch (e) {
+                    console.error('[NotesFileManager] md migration failed for', id, e);
+                }
+            }
+            // legacy pages/ ディレクトリが空になっていれば削除
+            try {
+                if (fs.existsSync(legacyPagesDir)) {
+                    const remaining = fs.readdirSync(legacyPagesDir);
+                    if (remaining.length === 0) {
+                        fs.rmdirSync(legacyPagesDir);
+                        console.log('[NotesFileManager] Removed empty legacy', legacyPagesDir);
+                    }
+                }
+            } catch (e) {
+                console.error('[NotesFileManager] legacy pages/ cleanup error:', e);
+            }
+            if (didMigrate) {
+                console.log('[NotesFileManager] _notes_md/ migration complete');
+            }
+        } catch (e) {
+            console.error('[NotesFileManager] _notes_md migration error:', e);
+        }
+
         // ディスク上の .out と同期
         this.syncStructureWithDisk(structure);
         this.structure = structure;
@@ -197,16 +277,19 @@ export class NotesFileManager {
      * - 欠損 .out（.noteにあるがディスクにない）→ 削除
      */
     private syncStructureWithDisk(structure: NoteStructure): void {
-        // ディスク上の .out ファイルをスキャン
-        const diskFiles = new Map<string, string>(); // id → title
+        // ディスク上の .out / .md ファイルをスキャン
+        const diskOutFiles = new Map<string, string>(); // id → title
+        const diskMdIds = new Set<string>();             // id (登録済みのみ意味あり)
+        let allEntries: string[] = [];
         try {
-            const entries = fs.readdirSync(this.mainFolderPath);
-            for (const entry of entries) {
-                if (!entry.endsWith('.out')) continue;
-                const filePath = path.join(this.mainFolderPath, entry);
-                try {
-                    if (!fs.statSync(filePath).isFile()) continue;
-                } catch { continue; }
+            allEntries = fs.readdirSync(this.mainFolderPath);
+        } catch { /* ignore */ }
+        for (const entry of allEntries) {
+            const filePath = path.join(this.mainFolderPath, entry);
+            try {
+                if (!fs.statSync(filePath).isFile()) continue;
+            } catch { continue; }
+            if (entry.endsWith('.out')) {
                 const id = entry.replace(/\.out$/, '');
                 let title = 'Untitled';
                 try {
@@ -214,7 +297,21 @@ export class NotesFileManager {
                     const data = JSON.parse(content);
                     if (data.title) title = data.title;
                 } catch { /* use default */ }
-                diskFiles.set(id, title);
+                diskOutFiles.set(id, title);
+            }
+        }
+        // v0.207.82: .md は _notes_md/ 直下をスキャン (フラット化)
+        try {
+            const mdRoot = this.getMdRootDirPath();
+            if (fs.existsSync(mdRoot)) {
+                for (const entry of fs.readdirSync(mdRoot)) {
+                    if (!entry.endsWith('.md')) continue;
+                    const filePath = path.join(mdRoot, entry);
+                    try {
+                        if (!fs.statSync(filePath).isFile()) continue;
+                    } catch { continue; }
+                    diskMdIds.add(entry.replace(/\.md$/, ''));
+                }
             }
         } catch { /* ignore */ }
 
@@ -227,24 +324,29 @@ export class NotesFileManager {
         }
 
         // 孤児 .out → rootIds末尾に追加
-        for (const [id, title] of diskFiles) {
+        for (const [id, title] of diskOutFiles) {
             if (!structureFileIds.has(id)) {
                 structure.items[id] = { type: 'file', id, title };
                 structure.rootIds.push(id);
             } else {
-                // タイトル同期
+                // タイトル同期 (out のみ; md は manifest が真)
                 const item = structure.items[id];
-                if (item && item.type === 'file') {
+                if (item && item.type === 'file' && (item.ext ?? 'out') === 'out') {
                     item.title = title;
                 }
             }
         }
 
-        // 欠損 .out → 構造から削除
+        // 欠損ファイル → 構造から削除
+        // ext === 'md' なら .md の存在を、それ以外は .out の存在を確認
         const toRemove: string[] = [];
         for (const [id, item] of Object.entries(structure.items)) {
-            if (item.type === 'file' && !diskFiles.has(id)) {
-                toRemove.push(id);
+            if (item.type !== 'file') continue;
+            const ext = item.ext ?? 'out';
+            if (ext === 'md') {
+                if (!diskMdIds.has(id)) toRemove.push(id);
+            } else {
+                if (!diskOutFiles.has(id)) toRemove.push(id);
             }
         }
         for (const id of toRemove) {
@@ -555,6 +657,7 @@ export class NotesFileManager {
         try {
             const entries = fs.readdirSync(this.mainFolderPath);
             const result: NotesFileEntry[] = [];
+            // .out ファイル
             for (const entry of entries) {
                 if (!entry.endsWith('.out')) continue;
                 const filePath = path.join(this.mainFolderPath, entry);
@@ -571,6 +674,22 @@ export class NotesFileManager {
                 }
                 result.push({ filePath, title, id });
             }
+            // v0.207.82: .md ファイル — _notes_md/ 直下から、outline.note 構造に登録された ID のみ列挙 (フラット化)
+            const structure = this.getStructure();
+            const mdRoot = this.getMdRootDirPath();
+            if (fs.existsSync(mdRoot)) {
+                for (const entry of fs.readdirSync(mdRoot)) {
+                    if (!entry.endsWith('.md')) continue;
+                    const id = entry.replace(/\.md$/, '');
+                    const item = structure.items[id];
+                    if (!item || item.type !== 'file' || item.ext !== 'md') continue;
+                    const filePath = path.join(mdRoot, entry);
+                    try {
+                        if (!fs.statSync(filePath).isFile()) continue;
+                    } catch { continue; }
+                    result.push({ filePath, title: item.title || id, id });
+                }
+            }
             result.sort((a, b) => a.title.localeCompare(b.title));
             return result;
         } catch (e) {
@@ -580,13 +699,19 @@ export class NotesFileManager {
     }
 
     /**
-     * .outファイルを開いてJSON文字列を返す
+     * .out / .md ファイルを開いて中身を返す
+     * .out → JSON 文字列 (parseable)
+     * .md  → raw markdown text
      * currentFilePathを更新する
      */
     openFile(filePath: string): string | null {
         try {
             const content = fs.readFileSync(filePath, 'utf8');
-            JSON.parse(content); // validate
+            if (filePath.endsWith('.md')) {
+                // Markdown: validate only existence, no JSON parse
+            } else {
+                JSON.parse(content); // validate
+            }
             this.currentFilePath = filePath;
             this.isDirty = false;
             this.lastJsonString = content;
@@ -807,13 +932,99 @@ export class NotesFileManager {
     }
 
     /**
-     * .outファイルと対応するページフォルダを削除、.note構造からも除去
+     * v0.207.75 (ADR-008) / v0.207.82: 新規 Markdown ファイル (.md) を作成し、構造に登録する
+     * 配置先は <mainFolderPath>/_notes_md/<id>.md (フラット化)
+     * 関連アセット (画像/添付) は _notes_md/{images,files}/ で共有する
+     */
+    createMarkdownFile(title: string, parentId?: string | null, afterId?: string | null): string {
+        const id = NotesFileManager.generateOutlineId();
+        this.ensureMdDirs();
+        const filePath = this.getMdFilePath(id);
+
+        // 空の .md を作成 (先頭 H1 だけ入れて編集の入り口を提供)
+        const initialBody = `# ${title || 'Untitled'}\n`;
+        fs.writeFileSync(filePath, initialBody, 'utf8');
+
+        const structure = this.getStructure();
+        structure.items[id] = { type: 'file', id, title: title || 'Untitled', ext: 'md' };
+
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        const insertIdx = afterId ? siblings.indexOf(afterId) : -1;
+        if (insertIdx !== -1) {
+            siblings.splice(insertIdx + 1, 0, id);
+        } else {
+            siblings.unshift(id);
+        }
+
+        this.saveStructure();
+        return filePath;
+    }
+
+    /**
+     * v0.207.77 (D&D Feature B): 既存 markdown 文字列を新規 .md ファイルとして
+     * _notes_md/<newId>.md に書き込み、構造に index 指定で挿入する。
+     * parentId=null → rootIds、parentId=folder → folder.childIds の `index` 位置に挿入。
+     * @returns 新しく採番した id (= ファイル名)
+     */
+    registerMarkdownFile(
+        content: string,
+        title: string,
+        parentId: string | null,
+        index: number
+    ): string {
+        const id = NotesFileManager.generateOutlineId();
+        this.ensureMdDirs();
+        const filePath = this.getMdFilePath(id);
+        fs.writeFileSync(filePath, content, 'utf8');
+
+        const structure = this.getStructure();
+        structure.items[id] = { type: 'file', id, title: title || 'Untitled', ext: 'md' };
+
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        const safeIndex = Math.max(0, Math.min(index, siblings.length));
+        siblings.splice(safeIndex, 0, id);
+
+        this.saveStructure();
+        return id;
+    }
+
+    /**
+     * v0.207.78 (D&D Feature A): 物理 .md ファイルは残したまま、.note 構造からのみ除去する。
+     * outliner cut/paste の「画面上のデータは消す、物理ファイルは消さない」既定挙動と整合させるため、
+     * Notes 内 .md を別 .out にドロップした後、コピー元 Notes panel エントリを除去する用途。
+     * @returns 除去した md の filePath。currentFile だった場合はクリア。
+     */
+    unregisterMdFromStructureOnly(mdFileId: string): string | null {
+        const structure = this.getStructure();
+        const item = structure.items[mdFileId];
+        if (!item || item.type !== 'file' || item.ext !== 'md') return null;
+        const filePath = this.getMdFilePath(mdFileId);
+
+        this.removeItemFromStructure(structure, mdFileId);
+        this.saveStructure();
+
+        if (this.currentFilePath === filePath) {
+            this.currentFilePath = null;
+            this.isDirty = false;
+            this.lastJsonString = null;
+        }
+        return filePath;
+    }
+
+    /**
+     * ファイルと対応するページフォルダ (.out のみ) を削除、.note構造からも除去
+     * .md ファイルの場合は flat な単一ファイルのみを削除
      */
     async deleteFile(filePath: string): Promise<void> {
         try {
             const vscode = require('vscode');
-            const id = path.basename(filePath, '.out');
-            const pageDirAbs = path.join(this.mainFolderPath, id);
+            const isMd = filePath.endsWith('.md');
+            const id = path.basename(filePath, isMd ? '.md' : '.out');
+            const pageDirAbs = isMd ? null : path.join(this.mainFolderPath, id);
 
             if (fs.existsSync(filePath)) {
                 await vscode.workspace.fs.delete(
@@ -821,7 +1032,8 @@ export class NotesFileManager {
                     { useTrash: true, recursive: false }
                 );
             }
-            if (fs.existsSync(pageDirAbs)) {
+            // .out のみ pageDir を削除する (.md は _notes_md/{images,files} を共有するため残す)
+            if (!isMd && pageDirAbs && fs.existsSync(pageDirAbs)) {
                 await vscode.workspace.fs.delete(
                     vscode.Uri.file(pageDirAbs),
                     { useTrash: true, recursive: true }
@@ -844,17 +1056,21 @@ export class NotesFileManager {
     }
 
     /**
-     * .outファイルのJSON内 title を変更、.note構造のtitleも同期
+     * .out: JSON内 title を変更、.note構造の title も同期
+     * .md : ディスク上のファイルは触らず、.note構造の title のみ更新 (タイトルはメタデータ)
      */
     renameTitle(filePath: string, newTitle: string): void {
         try {
-            const content = fs.readFileSync(filePath, 'utf8');
-            const data = JSON.parse(content);
-            data.title = newTitle;
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+            const isMd = filePath.endsWith('.md');
+            if (!isMd) {
+                const content = fs.readFileSync(filePath, 'utf8');
+                const data = JSON.parse(content);
+                data.title = newTitle;
+                fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+            }
 
             // .note 構造のタイトルも同期
-            const id = path.basename(filePath, '.out');
+            const id = path.basename(filePath, isMd ? '.md' : '.out');
             const structure = this.getStructure();
             const item = structure.items[id];
             if (item && item.type === 'file') {
@@ -868,9 +1084,16 @@ export class NotesFileManager {
 
     /**
      * 構造内で指定IDのファイルパスを返す
+     * 構造に登録された ext を見て .out か .md を解決する (default 'out')
      */
     getFilePathById(fileId: string): string {
-        return path.join(this.mainFolderPath, `${fileId}.out`);
+        const structure = this.getStructure();
+        const item = structure.items[fileId];
+        const ext = (item && item.type === 'file' && item.ext) ? item.ext : 'out';
+        if (ext === 'md') {
+            return this.getMdFilePath(fileId);
+        }
+        return path.join(this.mainFolderPath, `${fileId}.${ext}`);
     }
 
     /**
@@ -949,15 +1172,23 @@ export class NotesFileManager {
             } catch { /* skip corrupted */ }
         }
 
-        // 2. フォルダ直下の .md
+        // 2. v0.207.82: _notes_md/ 直下の .md (Notes-md エディタが管理するファイル, フラット化)
         try {
-            const mdFiles = fs.readdirSync(this.mainFolderPath).filter(f => f.endsWith('.md'));
-            for (const mdFile of mdFiles) {
-                this.searchMdFile(
-                    path.join(this.mainFolderPath, mdFile),
-                    mdFile, mdFile, regex, onResult,
-                    undefined, undefined
-                );
+            const mdRoot = this.getMdRootDirPath();
+            if (fs.existsSync(mdRoot)) {
+                const mdFiles = fs.readdirSync(mdRoot).filter(f => f.endsWith('.md'));
+                const structure = this.getStructure();
+                for (const mdFile of mdFiles) {
+                    const id = mdFile.replace(/\.md$/, '');
+                    const item = structure.items[id];
+                    if (!item || item.type !== 'file' || item.ext !== 'md') continue;
+                    const displayTitle = item.title || id;
+                    this.searchMdFile(
+                        path.join(mdRoot, mdFile),
+                        mdFile, displayTitle, regex, onResult,
+                        undefined, undefined
+                    );
+                }
             }
         } catch { /* skip */ }
 

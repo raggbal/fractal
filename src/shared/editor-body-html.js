@@ -5,12 +5,22 @@
  *
  * @param {Record<string, string>} messages - i18n メッセージ
  * @param {string} platform - process.platform ('darwin' | 'win32' | 'linux')
+ * @param {{ includeSidePanel?: boolean, showOpenInNewTab?: boolean }} [options]
+ *   includeSidePanel=false の場合 side-panel/overlay の HTML を出力しない
+ *   (Notes モードのように外側で side-panel を持つホスト用)。省略時は true。
+ *   showOpenInNewTab=true の場合 toolbar 右端に「新タブで開く」ボタンを追加
+ *   (Notes 内 .md メインペイン用)。
  * @returns {string} <div class="container">...</div> の HTML文字列
  */
-function generateEditorBodyHtml(messages, platform) {
+function generateEditorBodyHtml(messages, platform, options) {
     const msg = messages || {};
     const m = (key) => msg[key] || '';
     const mod = platform === 'darwin' ? 'Cmd' : 'Ctrl';
+    const includeSidePanel = !options || options.includeSidePanel !== false;
+    const showOpenInNewTab = !!(options && options.showOpenInNewTab);
+    const openInNewTabBtn = showOpenInNewTab
+        ? `<button data-action="openInNewTab" title="Open in new tab"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`
+        : '';
 
     return `<div class="container">
         <aside class="sidebar" id="sidebar">
@@ -80,6 +90,7 @@ function generateEditorBodyHtml(messages, platform) {
                         <button data-action="openInTextEditor" title="${m('openInTextEditor')} (${mod}+Shift+.)"></button>
                         <button data-action="source" title="${m('toggleSourceMode')} (${mod}+.)"></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
+                        ${openInNewTabBtn}
                     </div>
                 </div>
             </div>
@@ -107,7 +118,7 @@ function generateEditorBodyHtml(messages, platform) {
                 <div class="editor" id="editor" contenteditable="true" spellcheck="true"></div>
                 <textarea class="source-editor" id="sourceEditor" style="display: none;"></textarea>
             </div>
-            ${generateSidePanelHtml(msg)}
+            ${includeSidePanel ? generateSidePanelHtml(msg) : ''}
         </main>
     </div>`;
 }

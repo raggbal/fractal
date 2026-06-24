@@ -4,10 +4,20 @@ import * as path from 'path';
 /**
  * NotesFolderProvider — Activity Bar の Notes フォルダ一覧を提供する TreeDataProvider
  * globalState でフォルダ一覧を永続化
+ *
+ * D&D 並べ替え対応: TreeDragAndDropController を実装し、ツリー上でフォルダを掴んで
+ * 並べ替えると this.folders 配列の順序を更新して globalState に保存する。
  */
-export class NotesFolderProvider implements vscode.TreeDataProvider<NotesFolderItem> {
+const NOTES_FOLDER_DND_MIME = 'application/vnd.fractal.notes-folder';
+
+export class NotesFolderProvider
+    implements vscode.TreeDataProvider<NotesFolderItem>, vscode.TreeDragAndDropController<NotesFolderItem>
+{
     private _onDidChangeTreeData = new vscode.EventEmitter<NotesFolderItem | undefined>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+    readonly dragMimeTypes = [NOTES_FOLDER_DND_MIME];
+    readonly dropMimeTypes = [NOTES_FOLDER_DND_MIME];
 
     private folders: string[] = [];
 
@@ -21,6 +31,48 @@ export class NotesFolderProvider implements vscode.TreeDataProvider<NotesFolderI
 
     getChildren(): NotesFolderItem[] {
         return this.folders.map(f => new NotesFolderItem(f));
+    }
+
+    handleDrag(source: NotesFolderItem[], dataTransfer: vscode.DataTransfer): void {
+        const paths = source.map(item => item.folderPath);
+        dataTransfer.set(NOTES_FOLDER_DND_MIME, new vscode.DataTransferItem(paths));
+    }
+
+    async handleDrop(target: NotesFolderItem | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+        const transferItem = dataTransfer.get(NOTES_FOLDER_DND_MIME);
+        if (!transferItem) return;
+        const draggedPaths = transferItem.value as string[];
+        if (!Array.isArray(draggedPaths) || draggedPaths.length === 0) return;
+
+        // 既知のパスのみに絞り込み（外部からの偽データ対策）
+        const movingSet = new Set(draggedPaths.filter(p => this.folders.includes(p)));
+        if (movingSet.size === 0) return;
+
+        // 並べ替え: target の位置に挿入。target=undefined（空白へドロップ）なら末尾。
+        const remaining = this.folders.filter(p => !movingSet.has(p));
+        let insertIndex: number;
+        if (target && !movingSet.has(target.folderPath)) {
+            insertIndex = remaining.indexOf(target.folderPath);
+            if (insertIndex < 0) insertIndex = remaining.length;
+        } else if (target && movingSet.has(target.folderPath)) {
+            // ドラッグ元に重なる場合は末尾扱い
+            insertIndex = remaining.length;
+        } else {
+            insertIndex = remaining.length;
+        }
+
+        // 元の順序を保ったまま挿入
+        const orderedMoving = this.folders.filter(p => movingSet.has(p));
+        const next = [...remaining.slice(0, insertIndex), ...orderedMoving, ...remaining.slice(insertIndex)];
+
+        // 変化なしなら何もしない
+        if (next.length === this.folders.length && next.every((p, i) => p === this.folders[i])) {
+            return;
+        }
+
+        this.folders = next;
+        await this.context.globalState.update('notesFolders', this.folders);
+        this._onDidChangeTreeData.fire(undefined);
     }
 
     async addFolder(): Promise<void> {

@@ -156,6 +156,14 @@ function generateNotesFilePanelHtml(options) {
 
         /* ── Drag & Drop ── */
         .file-panel-drag-over { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); border-radius: var(--fr-radius-sm, 6px); }
+        /* v0.207.77 (D&D Feature A): md → .out item のドロップ時 yellow highlight。
+           既存の青系 .file-panel-drag-over (folder hover) と区別する。 */
+        .file-panel-drag-over-md-into-out {
+            background: var(--fr-color-warning-bg, rgba(255, 215, 64, 0.35));
+            outline: 2px solid var(--fr-color-warning, #f5a623);
+            outline-offset: -2px;
+            border-radius: var(--fr-radius-sm, 6px);
+        }
         .file-panel-drop-line {
             height: 2px; background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             margin: 0 4px; border-radius: 1px;
@@ -168,6 +176,19 @@ function generateNotesFilePanelHtml(options) {
             padding: 14px 11px; color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999)); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+        /* v0.207.88: notes md メインペインの toolbar アイコンを sidepanel md / outliner header
+           の色味と揃える。standalone editor の color: var(--text-color) は #1A1B1F の真っ黒で
+           outliner-search-bar/side-panel-header-btn の opacity: 0.5-0.6 軽減と乖離するため、
+           notes md main pane のみ scoped に opacity を当てる (standalone editor は影響なし)。 */
+        .notes-main-wrapper .markdown-container .toolbar button {
+            opacity: 0.6;
+        }
+        .notes-main-wrapper .markdown-container .toolbar button:hover:not(:disabled) {
+            opacity: 1;
+        }
+        .notes-main-wrapper .markdown-container .toolbar button:disabled {
+            opacity: 0.3;
+        }
         .notes-panel-toggle-btn {
             background: transparent; border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
             border-radius: var(--fr-radius-sm, 6px); cursor: pointer; padding: 4px 5px; line-height: 1;
@@ -396,6 +417,7 @@ function generateNotesFilePanelHtml(options) {
                 <div class="file-panel-content-actions">
                     <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="file-panel-btn" id="filePanelAddMarkdown" title="${m('notesNewMarkdown', 'New Markdown')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+md</span></button>
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>

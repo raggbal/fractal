@@ -35,7 +35,7 @@ body {
     flex-direction: column;
     position: relative;
 }
-.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; }
+.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; border-right: none; }
 .sidebar-resizer {
     position: absolute;
     top: 0;

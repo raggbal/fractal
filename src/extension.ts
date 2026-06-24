@@ -221,7 +221,10 @@ export function activate(context: vscode.ExtensionContext) {
     const notesEditorProvider = new NotesEditorProvider(context);
 
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('notesExplorer', notesFolderProvider)
+        vscode.window.createTreeView('notesExplorer', {
+            treeDataProvider: notesFolderProvider,
+            dragAndDropController: notesFolderProvider,
+        })
     );
 
     context.subscriptions.push(

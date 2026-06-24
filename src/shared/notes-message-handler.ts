@@ -45,6 +45,34 @@ export interface NotesPlatformActions {
     saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイル添付をコピーしてマークダウンリンク挿入 */
     readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ に保存して挿入 */
+    saveMdImageToDir?(dataUrl: string, fileName: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ にコピーして挿入 */
+    readAndInsertMdImage?(filePath: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ に保存して挿入 */
+    saveMdFileToDir?(dataUrl: string, fileName: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
+    readAndInsertMdFile?(filePath: string): void;
+    /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
+    sendMdDirStatus?(): void;
+    /** v0.207.82: Notes 内 .md エディタ用 — webview 内で相対画像 URL を解決するための base URI */
+    getMdDocumentBaseUri?(filePath: string): string;
+    /** v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page — <_notes_md>/pages/<unique>.md を作成 */
+    notesMdCreatePageAuto?(currentMdFilePath: string): void;
+    /** v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page で linkName を H1 に同期 */
+    notesMdUpdatePageH1?(currentMdFilePath: string, relativePath: string, h1Text: string): void;
+    /** v0.207.86: Notes 内 .md メインペインからのリンククリック (plain) — sidepanel で開く */
+    notesMdOpenLink?(currentMdFilePath: string, href: string): void;
+    /** v0.207.86: Notes 内 .md メインペインからのリンククリック (cmd/ctrl+click) — 新タブ standalone で開く */
+    notesMdOpenLinkInTab?(currentMdFilePath: string, href: string): void;
+    /** v0.207.88: Notes 内 .md メインペインヘッダーの「新タブで開く」ボタン — 自身を standalone editor で開く */
+    notesMdOpenSelfInNewTab?(currentMdFilePath: string): void;
+    /** v0.207.82: Notes 内 .md メインペインの open hook — sidepanel パターンで TextDocument 開き + FileSystemWatcher 起動 */
+    mdMainOpened?(filePath: string): void;
+    /** v0.207.82: Notes 内 .md メインペインの close hook — TextDocument / watcher を破棄 */
+    mdMainClosed?(): void;
+    /** v0.207.82: Notes 内 .md auto-save 経路 — TextDocument バッファ経由で書く (sidepanel と同じ) */
+    mdMainSave?(filePath: string, content: string): Promise<void> | void;
     /** MD-45: drawio dataUrl を fileDir に保存して `![]()` 挿入 */
     saveDrawioToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** MD-45 (URI 経路): drawio ファイルを fileDir にコピーして `![]()` 挿入 */
@@ -148,6 +176,15 @@ export interface NotesPlatformActions {
     showInformationMessage?(text: string): void;
     /** タスクモード archive: エラーメッセージ表示 */
     showErrorMessage?(text: string): void;
+    /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
+    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
+    notesImportOutPageNodeAsMd?(
+        payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
+        parentId: string | null,
+        index: number,
+        sender: NotesSender
+    ): Promise<void> | void;
 }
 
 /**
@@ -190,6 +227,25 @@ export async function handleNotesMessage(
             console.log('[NotesMessageHandler] syncData received from webview at', new Date().toISOString(), 'size=', (message.content || '').length, 'B fileChangeId=', message.fileChangeId);
             fileManager.saveCurrentFile(message.content);
             break;
+
+        // ADR-008: Notes メインペイン Markdown editor からの auto-save
+        case 'notesSaveCurrentMd': {
+            if (message.fileChangeId !== undefined && message.fileChangeId !== fileManager.getFileChangeId()) {
+                break;
+            }
+            const cur = fileManager.getCurrentFilePath();
+            if (!cur || !cur.endsWith('.md')) break;
+            // v0.207.82: sidepanel と同じく TextDocument バッファ経由で保存。
+            // mdMainSave が無い場合は従来の fileManager.saveCurrentFile (debounced fs.writeFile) に fallback。
+            if (platform.mdMainSave) {
+                Promise.resolve(platform.mdMainSave(cur, message.content)).catch(e => {
+                    console.error('[NotesMessageHandler] mdMainSave error:', e);
+                });
+            } else {
+                fileManager.saveCurrentFile(message.content);
+            }
+            break;
+        }
 
         case 'save':
             fileManager.flushSave();
@@ -521,6 +577,68 @@ export async function handleNotesMessage(
             }
             break;
 
+        // ── ADR-008: Notes 内 .md メインペイン editor 用 ──
+        case 'notesMdSaveImage':
+            if (message.dataUrl && platform.saveMdImageToDir) {
+                platform.saveMdImageToDir(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadAndInsertImage':
+            if (message.filePath && platform.readAndInsertMdImage) {
+                platform.readAndInsertMdImage(message.filePath);
+            }
+            break;
+
+        case 'notesMdSaveFile':
+            if (message.dataUrl && platform.saveMdFileToDir) {
+                platform.saveMdFileToDir(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadAndInsertFile':
+            if (message.filePath && platform.readAndInsertMdFile) {
+                platform.readAndInsertMdFile(message.filePath);
+            }
+            break;
+
+        // v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page
+        case 'notesMdCreatePageAuto':
+            if (platform.notesMdCreatePageAuto) {
+                platform.notesMdCreatePageAuto(message.filePath || '');
+            }
+            break;
+
+        case 'notesMdUpdatePageH1':
+            if (platform.notesMdUpdatePageH1) {
+                platform.notesMdUpdatePageH1(
+                    message.filePath || '',
+                    message.relativePath || '',
+                    message.h1Text || ''
+                );
+            }
+            break;
+
+        // v0.207.86: Notes 内 .md からのリンククリック route
+        case 'notesMdOpenLink':
+            if (platform.notesMdOpenLink) {
+                platform.notesMdOpenLink(message.filePath || '', message.href || '');
+            }
+            break;
+
+        case 'notesMdOpenLinkInTab':
+            if (platform.notesMdOpenLinkInTab) {
+                platform.notesMdOpenLinkInTab(message.filePath || '', message.href || '');
+            }
+            break;
+
+        // v0.207.88: notes md ヘッダーの「新タブで開く」ボタン
+        case 'notesMdOpenSelfInNewTab':
+            if (platform.notesMdOpenSelfInNewTab) {
+                platform.notesMdOpenSelfInNewTab(message.filePath || '');
+            }
+            break;
+
         case 'readAndInsertDrawio':
             if (message.sidePanelFilePath && message.filePath && platform.readAndInsertDrawio) {
                 platform.readAndInsertDrawio(message.filePath, message.sidePanelFilePath);
@@ -603,10 +721,27 @@ export async function handleNotesMessage(
                     platform.saveLastOpenedFile(message.filePath);
                 }
 
-                const data = JSON.parse(content);
-                sendFileListWithStructure(fileManager, sender, message.filePath);
-                const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes });
+                const isMd = message.filePath.endsWith('.md');
+                if (isMd) {
+                    sendFileListWithStructure(fileManager, sender, message.filePath);
+                    sender.postMessage({
+                        type: 'updateData',
+                        kind: 'md',
+                        markdown: content,
+                        filePath: message.filePath,
+                        documentBaseUri: platform.getMdDocumentBaseUri?.(message.filePath) || '',
+                        fileChangeId: fileManager.getFileChangeId(),
+                        outFileKey: fileManager.getCurrentFilePath(),
+                    });
+                    platform.sendMdDirStatus?.();
+                    platform.mdMainOpened?.(message.filePath);
+                } else {
+                    platform.mdMainClosed?.();
+                    const data = JSON.parse(content);
+                    sendFileListWithStructure(fileManager, sender, message.filePath);
+                    const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
+                    sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes });
+                }
             } else {
                 // ファイル読み込み失敗: 元のファイルリストを再送信してUI状態を復元
                 sendFileListWithStructure(fileManager, sender);
@@ -624,7 +759,31 @@ export async function handleNotesMessage(
                 }
                 const data = JSON.parse(content);
                 sendFileListWithStructure(fileManager, sender, filePath);
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+            }
+            break;
+        }
+
+        case 'notesCreateMarkdownFile': {
+            fileManager.flushSave();
+            const filePath = fileManager.createMarkdownFile(message.title || 'Untitled', message.parentId || null, message.afterId || null);
+            const content = fileManager.openFile(filePath);
+            if (content !== null) {
+                if (platform.saveLastOpenedFile) {
+                    platform.saveLastOpenedFile(filePath);
+                }
+                sendFileListWithStructure(fileManager, sender, filePath);
+                sender.postMessage({
+                    type: 'updateData',
+                    kind: 'md',
+                    markdown: content,
+                    filePath,
+                    documentBaseUri: platform.getMdDocumentBaseUri?.(filePath) || '',
+                    fileChangeId: fileManager.getFileChangeId(),
+                    outFileKey: fileManager.getCurrentFilePath(),
+                });
+                platform.sendMdDirStatus?.();
+                platform.mdMainOpened?.(filePath);
             }
             break;
         }
@@ -641,13 +800,29 @@ export async function handleNotesMessage(
                         if (platform.saveLastOpenedFile) {
                             platform.saveLastOpenedFile(fp);
                         }
-                        const data = JSON.parse(content);
+                        const isMd = fp.endsWith('.md');
                         sendFileListWithStructure(fileManager, sender, fp);
-                        sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                        if (isMd) {
+                            sender.postMessage({
+                                type: 'updateData',
+                                kind: 'md',
+                                markdown: content,
+                                filePath: fp,
+                                documentBaseUri: platform.getMdDocumentBaseUri?.(fp) || '',
+                                fileChangeId: fileManager.getFileChangeId(),
+                                outFileKey: fileManager.getCurrentFilePath(),
+                            });
+                            platform.sendMdDirStatus?.();
+                            platform.mdMainOpened?.(fp);
+                        } else {
+                            platform.mdMainClosed?.();
+                            const data = JSON.parse(content);
+                            sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                        }
                     }
                 } else {
                     sendFileListWithStructure(fileManager, sender);
-                    sender.postMessage({ type: 'updateData', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                    sender.postMessage({ type: 'updateData', kind: 'out', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
                 }
             } else {
                 sendFileListWithStructure(fileManager, sender);
@@ -706,6 +881,27 @@ export async function handleNotesMessage(
         case 'notesMoveItem': {
             fileManager.moveItem(message.itemId, message.targetParentId, message.index);
             sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
+        // v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加
+        case 'notesImportMdIntoOut': {
+            if (typeof platform.notesImportMdIntoOut === 'function') {
+                await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender);
+            }
+            break;
+        }
+
+        // v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → 独立 .md として登録
+        case 'notesImportOutPageNodeAsMd': {
+            if (typeof platform.notesImportOutPageNodeAsMd === 'function') {
+                await platform.notesImportOutPageNodeAsMd(
+                    message.payload,
+                    message.parentId ?? null,
+                    typeof message.index === 'number' ? message.index : 0,
+                    sender
+                );
+            }
             break;
         }
 

@@ -6,6 +6,7 @@ import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { NotesMdMainManager } from './shared/notesMdMainManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig, checkAwsCli } from './notes-s3-sync';
 import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgress } from './outliner-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
@@ -20,6 +21,14 @@ import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboar
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
+import {
+    imageDirectoryManager,
+    fileDirectoryManager,
+    toMarkdownPath,
+    ensureDirectoryExists,
+    generateUniqueFileName,
+} from './editorProvider';
+import { generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -195,6 +204,13 @@ export class NotesEditorProvider {
             },
             { logPrefix: '[Notes]' }
         );
+
+        // v0.207.82: Notes 内 .md メインペイン管理 (sidepanel と同じ
+        // openTextDocument + FileSystemWatcher + WorkspaceEdit パターン)
+        const mdMain = new NotesMdMainManager({
+            postMessage: (msg: any) => panel.webview.postMessage(msg),
+            asWebviewUri: (uri: vscode.Uri) => panel.webview.asWebviewUri(uri),
+        });
 
         // --- drawio watcher (MD-48 / Notes 経路): 既存 sidePanelManager とは完全分離 ---
         // NT-14 / OL-22 / MD-24 を破壊しないため、sidePanelManager / fileManager の経路には触らない。
@@ -746,6 +762,338 @@ export class NotesEditorProvider {
                     console.error('[Notes] readAndInsertFile error:', e);
                 }
             },
+
+            // ── ADR-008: Notes 内 .md メインペイン editor 用 ──
+            // sidepanel パターンに合わせ、imageDirectoryManager / fileDirectoryManager 経由で
+            // 保存先 (settings の imageDefaultDir / fileDefaultDir または _notes_md/{images,files}/) を解決。
+            // v0.207.82: md ファイルは _notes_md/<id>.md (フラット) にあるため、
+            // 相対パス基準は _notes_md/。imageDirectoryManager のデフォルトは ドキュメントの dir
+            // (= _notes_md/) になり、images/<fileName> という相対 path を生成できる。
+            saveMdImageToDir: (dataUrl: string, fileName: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                const docUri = vscode.Uri.file(cur);
+                const docContent = '';
+                const parsed = parseDataUrl(dataUrl);
+                if (!parsed) return;
+                // settings の imageDefaultDir があればそちら、なければ _notes_md/images/。
+                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('imageDefaultDir', '');
+                const imagesDir = settingsDir
+                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
+                    : fileManager.getMdImagesDirPath();
+                ensureDirectoryExists(imagesDir);
+                const useAbsolute = settingsDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
+                const forceRelative = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
+                const ext = parsed.ext || mimeToExt(parsed.ext) || 'png';
+                const destFileName = fileName
+                    ? generateUniqueFileNamePreserving(imagesDir, fileName)
+                    : generateUniqueFileName(imagesDir, ext);
+                const destPath = path.join(imagesDir, destFileName);
+                try {
+                    fs.writeFileSync(destPath, parsed.buffer);
+                    const markdownPath = toMarkdownPath(destPath, cur, useAbsolute, forceRelative);
+                    const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+                    panel.webview.postMessage({
+                        type: 'insertImageHtml',
+                        markdownPath,
+                        displayUri,
+                        dataUri: dataUrl,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveMdImageToDir error:', e);
+                }
+            },
+            readAndInsertMdImage: (filePath: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                const docUri = vscode.Uri.file(cur);
+                const docContent = '';
+                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('imageDefaultDir', '');
+                const imagesDir = settingsDir
+                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
+                    : fileManager.getMdImagesDirPath();
+                ensureDirectoryExists(imagesDir);
+                const useAbsolute = settingsDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
+                const forceRelative = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
+                const destFileName = generateUniqueFileNamePreserving(imagesDir, path.basename(filePath));
+                const destPath = path.join(imagesDir, destFileName);
+                try {
+                    fs.copyFileSync(filePath, destPath);
+                    const markdownPath = toMarkdownPath(destPath, cur, useAbsolute, forceRelative);
+                    const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
+                    panel.webview.postMessage({
+                        type: 'insertImageHtml',
+                        markdownPath,
+                        displayUri,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readAndInsertMdImage error:', e);
+                }
+            },
+            saveMdFileToDir: (dataUrl: string, fileName: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                const docUri = vscode.Uri.file(cur);
+                const docContent = '';
+                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('fileDefaultDir', '');
+                const filesDir = settingsDir
+                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
+                    : fileManager.getMdFilesDirPath();
+                ensureDirectoryExists(filesDir);
+                const useAbsolute = settingsDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
+                const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
+                const destFileName = generateUniqueFileNamePreserving(filesDir, fileName || `file_${Date.now()}`);
+                const destPath = path.join(filesDir, destFileName);
+                try {
+                    const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
+                    fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
+                    const markdownPath = toMarkdownPath(destPath, cur, useAbsolute, forceRelative);
+                    panel.webview.postMessage({
+                        type: 'insertFileLink',
+                        markdownPath,
+                        fileName: destFileName,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveMdFileToDir error:', e);
+                }
+            },
+            readAndInsertMdFile: (filePath: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                const docUri = vscode.Uri.file(cur);
+                const docContent = '';
+                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('fileDefaultDir', '');
+                const filesDir = settingsDir
+                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
+                    : fileManager.getMdFilesDirPath();
+                ensureDirectoryExists(filesDir);
+                const useAbsolute = settingsDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
+                const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
+                const destFileName = generateUniqueFileNamePreserving(filesDir, path.basename(filePath));
+                const destPath = path.join(filesDir, destFileName);
+                try {
+                    fs.copyFileSync(filePath, destPath);
+                    const markdownPath = toMarkdownPath(destPath, cur, useAbsolute, forceRelative);
+                    panel.webview.postMessage({
+                        type: 'insertFileLink',
+                        markdownPath,
+                        fileName: destFileName,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readAndInsertMdFile error:', e);
+                }
+            },
+            // v0.207.82: Notes 内 .md メインペイン用 — 相対画像/ファイル URL の解決基準
+            getMdDocumentBaseUri: (filePath: string): string => {
+                if (!filePath) return '';
+                const docDir = vscode.Uri.file(path.dirname(filePath));
+                return panel.webview.asWebviewUri(docDir).toString();
+            },
+            // v0.207.82: Notes 内 .md メインペイン用 — 画像/ファイル保存先をステータスバーに送出。
+            // editorProvider の sendImageDirStatus / sendFileDirStatus と同じ shape で post。
+            sendMdDirStatus: () => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                const docUri = vscode.Uri.file(cur);
+                const docContent = '';
+                const docDir = path.dirname(cur);
+                const config = vscode.workspace.getConfiguration('fractal');
+
+                // ── image dir status ──
+                const settingsImgDir = config.get<string>('imageDefaultDir', '');
+                const absImgDir = settingsImgDir
+                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
+                    : fileManager.getMdImagesDirPath();
+                const useAbsoluteImg = settingsImgDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
+                const forceRelImg = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
+                let imgDisplay: string;
+                if (forceRelImg || !useAbsoluteImg) {
+                    imgDisplay = path.relative(docDir, absImgDir).replace(/\\/g, '/') || '.';
+                } else {
+                    imgDisplay = absImgDir;
+                }
+                panel.webview.postMessage({
+                    type: 'imageDirStatus',
+                    displayPath: imgDisplay,
+                    source: settingsImgDir ? 'settings' : 'default',
+                    locked: false,
+                });
+
+                // ── file dir status ──
+                const settingsFileDir = config.get<string>('fileDefaultDir', '');
+                const absFileDir = settingsFileDir
+                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
+                    : fileManager.getMdFilesDirPath();
+                const useAbsoluteFile = settingsFileDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
+                const forceRelFile = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
+                let fileDisplay: string;
+                if (forceRelFile || !useAbsoluteFile) {
+                    fileDisplay = path.relative(docDir, absFileDir).replace(/\\/g, '/') || '.';
+                } else {
+                    fileDisplay = absFileDir;
+                }
+                panel.webview.postMessage({
+                    type: 'fileDirStatus',
+                    displayPath: fileDisplay,
+                    source: settingsFileDir ? 'settings' : 'default',
+                    locked: false,
+                });
+            },
+            // v0.207.82: Notes 内 .md メインペインが開いた時 — TextDocument open +
+            // FileSystemWatcher 起動（sidepanel と同じ pattern）。外部編集を検知して
+            // webview に updateData kind:'md' を relay する。
+            mdMainOpened: (filePath: string) => {
+                mdMain.setupFileWatcher(filePath).catch(e => {
+                    console.error('[Notes] mdMain.setupFileWatcher error:', e);
+                });
+            },
+            // v0.207.82: Notes 内 .md 以外のファイル (.out) に切り替わった時 / md ファイルが
+            // 削除された時 — TextDocument / watcher を破棄。
+            mdMainClosed: () => {
+                mdMain.disposeFileWatcher();
+            },
+            // v0.207.82: Notes 内 .md auto-save 経路 — sidepanel と同じく
+            // TextDocument バッファ経由 (WorkspaceEdit) で書く。fileManager の debounced
+            // fs.writeFile 経路は使わない (FileSystemWatcher との二重発火を避けるため)。
+            mdMainSave: async (filePath: string, content: string) => {
+                await mdMain.handleSave(filePath, content);
+            },
+            // v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page
+            // standalone editor の createPageAuto と同じ semantics で
+            // <md ファイルの dir>/pages/<unique>.md を作成し、md ファイルからの相対 path を
+            // pageCreatedAtPath で返す。
+            // Notes 構造では md ファイルは _notes_md/<id>.md にあるため、
+            // pages dir は _notes_md/pages/ になり、相対 path は ./pages/<unique>.md。
+            notesMdCreatePageAuto: (currentMdFilePath: string) => {
+                if (!currentMdFilePath || !currentMdFilePath.endsWith('.md')) return;
+                const mdDir = path.dirname(currentMdFilePath);
+                const pagesDir = path.join(mdDir, 'pages');
+                if (!fs.existsSync(pagesDir)) {
+                    try {
+                        fs.mkdirSync(pagesDir, { recursive: true });
+                    } catch (e) {
+                        console.error('[Notes] notesMdCreatePageAuto mkdir error:', e);
+                        return;
+                    }
+                }
+                const fileName = generateUniqueFileName(pagesDir, 'md');
+                const absPath = path.join(pagesDir, fileName);
+                try {
+                    fs.writeFileSync(absPath, '# ', 'utf8');
+                } catch (e) {
+                    console.error('[Notes] notesMdCreatePageAuto write error:', e);
+                    return;
+                }
+                const relPath = path.relative(mdDir, absPath).replace(/\\/g, '/');
+                panel.webview.postMessage({
+                    type: 'pageCreatedAtPath',
+                    relativePath: relPath,
+                });
+            },
+            notesMdUpdatePageH1: (currentMdFilePath: string, relativePath: string, h1Text: string) => {
+                if (!currentMdFilePath || !relativePath || !h1Text) return;
+                const mdDir = path.dirname(currentMdFilePath);
+                const absPath = path.resolve(mdDir, relativePath);
+                // safety: 解決後 path が _notes_md/ 配下に収まることを確認
+                const mdRoot = fileManager.getMdRootDirPath();
+                if (!absPath.startsWith(mdRoot + path.sep) && absPath !== mdRoot) {
+                    console.warn('[Notes] notesMdUpdatePageH1 rejected (outside md root):', absPath);
+                    return;
+                }
+                try {
+                    if (fs.existsSync(absPath)) {
+                        fs.writeFileSync(absPath, `# ${h1Text}\n`, 'utf8');
+                    }
+                } catch (e) {
+                    console.error('[Notes] notesMdUpdatePageH1 write error:', e);
+                }
+            },
+            // v0.207.86: Notes 内 .md からのリンククリック (plain) — sidepanel で開く
+            notesMdOpenLink: async (currentMdFilePath: string, href: string) => {
+                if (!href) return;
+                if (href.startsWith('fractal://')) {
+                    vscode.commands.executeCommand('fractal.navigateInAppLink', href);
+                    return;
+                }
+                if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+                    vscode.env.openExternal(vscode.Uri.parse(href));
+                    return;
+                }
+                if (href.startsWith('#')) {
+                    // 同一 md 内の anchor — メインペイン editor へ scrollToAnchor を送る
+                    panel.webview.postMessage({
+                        type: 'scrollToAnchor',
+                        anchor: href.substring(1),
+                    });
+                    return;
+                }
+                // 相対 / 絶対 file path
+                const baseDir = currentMdFilePath ? path.dirname(currentMdFilePath) : fileManager.getMdRootDirPath();
+                const resolvedUri = href.startsWith('/')
+                    ? vscode.Uri.file(href)
+                    : vscode.Uri.joinPath(vscode.Uri.file(baseDir), href);
+                const lower = resolvedUri.fsPath.toLowerCase();
+                if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+                    if (!fs.existsSync(resolvedUri.fsPath)) {
+                        vscode.window.showWarningMessage(`File not found: ${resolvedUri.fsPath}`);
+                        return;
+                    }
+                    // sidepanel で開く (outliner → side panel と同様 freshOpen=true)
+                    await sidePanel.openFile(resolvedUri.fsPath, true);
+                } else {
+                    // 非 .md ローカルファイル → OS デフォルトアプリ
+                    vscode.env.openExternal(resolvedUri);
+                }
+            },
+            // v0.207.86: Notes 内 .md からのリンククリック (cmd/ctrl+click) — 新タブ standalone editor で開く
+            notesMdOpenLinkInTab: async (currentMdFilePath: string, href: string) => {
+                if (!href) return;
+                if (href.startsWith('fractal://')) {
+                    vscode.commands.executeCommand('fractal.navigateInAppLink', href);
+                    return;
+                }
+                if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+                    vscode.env.openExternal(vscode.Uri.parse(href));
+                    return;
+                }
+                if (href.startsWith('#')) {
+                    // anchor は新タブで開く意味がないので sidepanel と同じ scroll 動作
+                    panel.webview.postMessage({
+                        type: 'scrollToAnchor',
+                        anchor: href.substring(1),
+                    });
+                    return;
+                }
+                const baseDir = currentMdFilePath ? path.dirname(currentMdFilePath) : fileManager.getMdRootDirPath();
+                const resolvedUri = href.startsWith('/')
+                    ? vscode.Uri.file(href)
+                    : vscode.Uri.joinPath(vscode.Uri.file(baseDir), href);
+                const lower = resolvedUri.fsPath.toLowerCase();
+                if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+                    if (!fs.existsSync(resolvedUri.fsPath)) {
+                        vscode.window.showWarningMessage(`File not found: ${resolvedUri.fsPath}`);
+                        return;
+                    }
+                    // 新タブで standalone customEditor として開く
+                    await vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
+                } else {
+                    vscode.env.openExternal(resolvedUri);
+                }
+            },
+            // v0.207.88: notes md メインペインヘッダーの「新タブで開く」ボタン
+            // 現在開いている .md ファイルを standalone customEditor で開き直す
+            notesMdOpenSelfInNewTab: async (currentMdFilePath: string) => {
+                if (!currentMdFilePath) return;
+                if (!fs.existsSync(currentMdFilePath)) {
+                    vscode.window.showWarningMessage(`File not found: ${currentMdFilePath}`);
+                    return;
+                }
+                await vscode.commands.executeCommand(
+                    'vscode.openWith',
+                    vscode.Uri.file(currentMdFilePath),
+                    'fractal.editor'
+                );
+            },
             // MD-45/46/47: drawio (.drawio.svg / .drawio.png / .drawio (XML))
             saveDrawioToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
@@ -1135,6 +1483,170 @@ export class NotesEditorProvider {
                     outPath: outFilePath
                 });
             },
+
+            // v0.207.77 (D&D Feature A): Notes 内 .md ファイルを別の .out item にドロップ →
+            // 当該 .out の rootIds 先頭に page-node として追加 (md は .out の pageDir にコピーする)
+            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender) => {
+                try {
+                    const mdSourcePath = fileManager.getFilePathById(mdFileId);
+                    const outFilePath = fileManager.getFilePathById(targetOutId);
+                    if (!mdSourcePath || !outFilePath) return;
+                    if (!fs.existsSync(mdSourcePath) || !fs.existsSync(outFilePath)) return;
+                    if (!outFilePath.endsWith('.out')) return;
+
+                    // 1. 対象 .out の json 読込 + pageDir 解決 (target が currentFile でなくても解決するため自前計算)
+                    const outRaw = fs.readFileSync(outFilePath, 'utf8');
+                    const outData = JSON.parse(outRaw);
+                    let pagesDir: string;
+                    if (outData.pageDir) {
+                        pagesDir = path.isAbsolute(outData.pageDir)
+                            ? outData.pageDir
+                            : path.resolve(path.dirname(outFilePath), outData.pageDir);
+                    } else {
+                        const outlinerId = path.basename(outFilePath, '.out');
+                        pagesDir = path.resolve(path.dirname(outFilePath), outlinerId);
+                    }
+                    const imagesDir = path.join(pagesDir, 'images');
+
+                    // 2. md を pagesDir に import (新 pageId 採番 + 画像コピー)
+                    const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
+                    if (!imported || imported.length === 0) return;
+                    const r = imported[0];
+
+                    // 3. .out の先頭に page-node を追加
+                    // outliner-model.js と一致するノード構造 (children / parentId / isPage / pageId / 等)
+                    const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                    outData.nodes = outData.nodes || {};
+                    outData.rootIds = outData.rootIds || [];
+                    outData.nodes[newNodeId] = {
+                        id: newNodeId,
+                        parentId: null,
+                        children: [],
+                        text: r.title || '',
+                        tags: [],
+                        isPage: true,
+                        pageId: r.pageId,
+                        collapsed: false,
+                        checked: null,
+                        subtext: '',
+                        images: [],
+                        filePath: null,
+                    };
+                    outData.rootIds.unshift(newNodeId);
+
+                    // 4. .out 保存
+                    const newJsonString = JSON.stringify(outData, null, 2);
+                    fs.writeFileSync(outFilePath, newJsonString, 'utf8');
+
+                    // 5. 対象 .out が current file なら updateData で UI 即時反映
+                    if (fileManager.getCurrentFilePath() === outFilePath) {
+                        fileManager.openFile(outFilePath); // bump fileChangeId + sync lastJsonString
+                        senderRef.postMessage({
+                            type: 'updateData',
+                            kind: 'out',
+                            data: outData,
+                            fileChangeId: fileManager.getFileChangeId(),
+                            outFileKey: outFilePath,
+                        });
+                    }
+
+                    // 6. v0.207.78: outliner cut/paste と同じく「画面上のデータは消す、
+                    // 物理ファイルは消さない」方針に合わせ、コピー元 Notes panel エントリを除去
+                    fileManager.unregisterMdFromStructureOnly(mdFileId);
+                    senderRef.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructure(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                    });
+                } catch (e) {
+                    console.error('[Notes] notesImportMdIntoOut error:', e);
+                    vscode.window.showErrorMessage('Failed to import .md into outliner');
+                }
+            },
+
+            // v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ →
+            // 当該 page の .md を _notes_md/<newId>.md (v0.207.82: フラット) に複製し、独立 .md として構造へ登録
+            notesImportOutPageNodeAsMd: async (
+                payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
+                parentId: string | null,
+                index: number,
+                senderRef: NotesSender
+            ) => {
+                try {
+                    if (!payload || !payload.outFileKey || !payload.pageId) return;
+                    const srcOutPath = payload.outFileKey;
+                    if (!srcOutPath.endsWith('.out')) return;
+                    if (!fs.existsSync(srcOutPath)) return;
+
+                    // 1. 元 .out の pageDir を解決 (target が currentFile でない場合も自前で読む)
+                    const outRaw = fs.readFileSync(srcOutPath, 'utf8');
+                    const outData = JSON.parse(outRaw);
+                    let srcPageDir: string;
+                    if (outData.pageDir) {
+                        srcPageDir = path.isAbsolute(outData.pageDir)
+                            ? outData.pageDir
+                            : path.resolve(path.dirname(srcOutPath), outData.pageDir);
+                    } else {
+                        const id = path.basename(srcOutPath, '.out');
+                        srcPageDir = path.resolve(path.dirname(srcOutPath), id);
+                    }
+
+                    // 2. 安全に <pageDir>/<pageId>.md を解決
+                    const srcMdPath = safeResolveUnderDir(srcPageDir, `${payload.pageId}.md`);
+                    if (!srcMdPath || !fs.existsSync(srcMdPath)) return;
+
+                    // 3. 中身を読み、H1 を抽出 (空 → payload.title → 'Untitled')
+                    const mdContent = fs.readFileSync(srcMdPath, 'utf8');
+                    const h1Match = mdContent.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m);
+                    const h1 = h1Match ? h1Match[1].trim() : '';
+                    const fallback = (payload.title || '').trim();
+                    const title = h1 || fallback || 'Untitled';
+
+                    // 4. _notes_md/<newId>.md として登録 (v0.207.82: フラット。内容そのままコピー、画像参照は元ディレクトリのまま)
+                    fileManager.registerMarkdownFile(mdContent, title, parentId, index);
+
+                    // 5. v0.207.78: outliner cmd+x 単一ノードと同じく「画面上のデータは消す、
+                    // 物理ファイルは消さない」方針。元の page-node の isPage/pageId/text/images
+                    // をクリア (ノード自体は残し、children も保つ)。物理 .md は元の pageDir に残存。
+                    // bridge.notesImportOutPageNodeAsMd 側で flushOutlinerSync 済 → disk が最新。
+                    if (srcOutPath === fileManager.getCurrentFilePath()) {
+                        try {
+                            const freshRaw = fs.readFileSync(srcOutPath, 'utf8');
+                            const freshData = JSON.parse(freshRaw);
+                            const target = freshData.nodes?.[payload.nodeId];
+                            if (target) {
+                                target.isPage = false;
+                                target.pageId = null;
+                                target.text = '';
+                                target.images = [];
+                                fs.writeFileSync(srcOutPath, JSON.stringify(freshData, null, 2), 'utf8');
+                                fileManager.openFile(srcOutPath); // bump fileChangeId + sync lastJsonString
+                                senderRef.postMessage({
+                                    type: 'updateData',
+                                    kind: 'out',
+                                    data: freshData,
+                                    fileChangeId: fileManager.getFileChangeId(),
+                                    outFileKey: srcOutPath,
+                                });
+                            }
+                        } catch (clearErr) {
+                            console.error('[Notes] clear source page-node error:', clearErr);
+                        }
+                    }
+
+                    // 6. webview に最新 fileList + structure を broadcast
+                    senderRef.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructure(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                    });
+                } catch (e) {
+                    console.error('[Notes] notesImportOutPageNodeAsMd error:', e);
+                    vscode.window.showErrorMessage('Failed to import outliner page into notes');
+                }
+            },
         };
 
         // --- パネル固有の disposables ---
@@ -1193,6 +1705,15 @@ export class NotesEditorProvider {
                     e.affectsConfiguration('fractal.translateTargetLang')
                 ) {
                     sendTranslateLangFromConfig();
+                }
+                // v0.207.82: imageDefaultDir / fileDefaultDir 変更時はステータスバー再送信
+                if (
+                    e.affectsConfiguration('fractal.imageDefaultDir') ||
+                    e.affectsConfiguration('fractal.fileDefaultDir') ||
+                    e.affectsConfiguration('fractal.forceRelativeImagePath') ||
+                    e.affectsConfiguration('fractal.forceRelativeFilePath')
+                ) {
+                    platform.sendMdDirStatus?.();
                 }
             })
         );
@@ -1288,6 +1809,7 @@ export class NotesEditorProvider {
         panel.onDidDispose(() => {
             fileManager.dispose();
             sidePanel.disposeFileWatcher();
+            mdMain.disposeFileWatcher();
             // MD-48: drawio watcher dispose
             try { sidePanelDocChangeSub.dispose(); } catch { /* ignore */ }
             drawioWatcher.disposeAll();

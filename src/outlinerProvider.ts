@@ -275,9 +275,22 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'dropProbe': {
+                        const payload = JSON.stringify(message.payload, null, 2);
+                        console.log('[fractal-probe] outliner drop probe:', payload);
+                        vscode.window.showInformationMessage(`File drop probe (see Output > Fractal): ${payload.slice(0, 500)}`);
+                        break;
+                    }
+
                     case 'notifyDropFileTooLarge': {
-                        // Note: t() doesn't support interpolation, keeping plain string with filename
-                        vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
+                        // [PROBE v0.207.95] If payload begins with "PROBE", surface the JSON directly
+                        const fn = String(message.fileName || '');
+                        if (fn.startsWith('PROBE')) {
+                            console.log('[fractal-probe] outliner drop probe:', fn);
+                            vscode.window.showInformationMessage(fn.slice(0, 1500));
+                        } else {
+                            vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
+                        }
                         break;
                     }
 

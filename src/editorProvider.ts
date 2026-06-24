@@ -62,7 +62,7 @@ function resolveToAbsolute(configPath: string, documentPath: string): string {
  * @param forceRelative 強制的に相対パスを使用するかどうか
  * @returns Markdown用のパス（絶対または相対）
  */
-function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: boolean, forceRelative: boolean = false): string {
+export function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: boolean, forceRelative: boolean = false): string {
     // forceRelative が true なら、常に相対パスを使用
     if (forceRelative || !useAbsolute) {
         const docDir = path.dirname(documentPath);
@@ -80,7 +80,7 @@ function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: bo
 /**
  * ディレクトリが存在しない場合は作成
  */
-function ensureDirectoryExists(dirPath: string): void {
+export function ensureDirectoryExists(dirPath: string): void {
     if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
     }
@@ -93,7 +93,7 @@ function ensureDirectoryExists(dirPath: string): void {
  * @param extension 拡張子（ドットなし）
  * @returns ユニークなファイル名
  */
-function generateUniqueFileName(dir: string, extension: string): string {
+export function generateUniqueFileName(dir: string, extension: string): string {
     const timestamp = Date.now();
     const baseName = `${timestamp}.${extension}`;
     const basePath = path.join(dir, baseName);
@@ -161,7 +161,7 @@ function normalizeTrailingSlash(p: string): string {
     return p.replace(/[\/\\]+$/, '');
 }
 
-class ImageDirectoryManager {
+export class ImageDirectoryManager {
     // ファイルURIをキーとしたIMAGE_DIRのマップ
     private fileImageDirs: Map<string, string> = new Map();
     // 最後に検出されたIMAGE_DIR（変更検出用）
@@ -240,13 +240,13 @@ class ImageDirectoryManager {
 }
 
 // グローバルインスタンス
-const imageDirectoryManager = new ImageDirectoryManager();
+export const imageDirectoryManager = new ImageDirectoryManager();
 
 // ============================================
 // FileDirectoryManager: ファイル保存ディレクトリの管理
 // ============================================
 
-class FileDirectoryManager {
+export class FileDirectoryManager {
     // ファイルURIをキーとしたFILE_DIRのマップ
     private fileFileDirs: Map<string, string> = new Map();
     // 最後に検出されたFILE_DIR（変更検出用）
@@ -325,7 +325,7 @@ class FileDirectoryManager {
 }
 
 // グローバルインスタンス
-const fileDirectoryManager = new FileDirectoryManager();
+export const fileDirectoryManager = new FileDirectoryManager();
 
 /**
  * v0.207.44: standalone で直接 .md を開いた時に「outliner page MD」と heuristic 検出する。

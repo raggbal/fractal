@@ -23,6 +23,15 @@ fields:
     type: string
     required: false
     description: "Tailwind palette color name (added in v11+)"
+  ext:
+    type: string
+    required: false
+    default: "out"
+    description: |
+      File-extension discriminant. "out" (default) means the entry references
+      an Outliner `.out` file with a per-id page directory. "md" means the
+      entry references a flat Markdown `.md` file at the Note root and is
+      opened in the Markdown editor (see ADR-008).
 relationships:
   - entity: odk:entity:outliner/OutFile
     type: one-to-one

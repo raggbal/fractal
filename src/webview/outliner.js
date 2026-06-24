@@ -1006,6 +1006,47 @@ var Outliner = (function() {
         var rejectedFolders = [];
         var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
+        // [PROBE v0.207.95] Use the well-known notifyDropFileTooLarge channel
+        // so the diagnostic always surfaces even when host.dropProbe is missing.
+        try {
+            var probe = { count: dt.items.length, hasWebUtils: typeof window !== 'undefined' && !!window.webUtils, items: [] };
+            for (var pi = 0; pi < dt.items.length; pi++) {
+                var pit = dt.items[pi];
+                var entryProbe = (pit.webkitGetAsEntry && pit.webkitGetAsEntry()) || null;
+                var pf = pit.getAsFile && pit.getAsFile();
+                var info = {
+                    idx: pi,
+                    kind: pit && pit.kind,
+                    type: pit && pit.type,
+                    entryName: entryProbe && entryProbe.name,
+                    entryIsDir: entryProbe && entryProbe.isDirectory,
+                    entryIsFile: entryProbe && entryProbe.isFile
+                };
+                if (pf) {
+                    info.fName = pf.name;
+                    info.fSize = pf.size;
+                    info.fType = pf.type;
+                    info.pathType = typeof pf.path;
+                    info.pathValue = pf.path || null;
+                    info.keys = Object.keys(pf);
+                    info.hasGetAsFileSystemHandle = typeof pit.getAsFileSystemHandle === 'function';
+                    if (typeof window !== 'undefined' && window.webUtils && typeof window.webUtils.getPathForFile === 'function') {
+                        try { info.webUtilsPath = window.webUtils.getPathForFile(pf); }
+                        catch (we) { info.webUtilsPathErr = String(we); }
+                    }
+                } else {
+                    info.fNull = true;
+                }
+                probe.items.push(info);
+            }
+            console.log('[fractal-probe v0.207.95]', probe);
+            try { host.notifyDropFileTooLarge('PROBE ' + JSON.stringify(probe)); } catch (_) {}
+            try { if (typeof host.dropProbe === 'function') host.dropProbe(probe); } catch (_) {}
+        } catch (perr) {
+            console.warn('[fractal-probe] error:', perr);
+            try { host.notifyDropFileTooLarge('PROBE-ERROR ' + String(perr)); } catch (_) {}
+        }
+
         // 1. Filter out folders and oversized files
         for (var i = 0; i < dt.items.length; i++) {
             var item = dt.items[i];
@@ -2671,8 +2712,23 @@ var Outliner = (function() {
             e.stopPropagation();
             dragState = { nodeId: node.id, nodeEl: el };
             el.classList.add('is-dragging');
-            e.dataTransfer.effectAllowed = 'move';
+            // v0.207.77: Notes panel への drop (Feature B) は 'copy' を使うため
+            // 'copyMove' にしないと dropEffect 不一致で drop がキャンセルされる
+            e.dataTransfer.effectAllowed = 'copyMove';
             e.dataTransfer.setData('text/plain', node.id);
+            // v0.207.77 (D&D Feature B): Notes mode + page-node を Notes panel にドロップする経路用
+            // のカスタム MIME。outFileKey + nodeId + pageId を payload。
+            if (isNotesMode() && node.isPage && node.pageId) {
+                try {
+                    var payload = JSON.stringify({
+                        outFileKey: currentOutFileKey,
+                        nodeId: node.id,
+                        pageId: node.pageId,
+                        title: node.text || '',
+                    });
+                    e.dataTransfer.setData('application/x-fractal-out-node-page', payload);
+                } catch (err) { /* ignore */ }
+            }
         });
         bulletEl.addEventListener('dragend', function() {
             if (dragState) {
@@ -7445,6 +7501,11 @@ var Outliner = (function() {
                 }
 
                 case 'updateData':
+                    // ADR-008: kind === 'md' の updateData は notes webview の markdown
+                    // dispatcher が処理する。outliner はノータッチ。
+                    if (msg.kind === 'md') {
+                        break;
+                    }
                     // file identity を先に反映 (同一性判定の唯一の根拠)
                     if (msg.outFileKey !== undefined) {
                         currentOutFileKey = msg.outFileKey;

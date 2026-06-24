@@ -11,6 +11,7 @@ JSON files are the source of truth. Types are defined implicitly: TypeScript int
 | `.out` ([odk:entity:outliner/OutFile]) | `outliner-model.js` | outlinerProvider, notesEditorProvider, NotesFileManager, chrome-extension | `<name>.out` file |
 | `outline.note` ([odk:entity:notes/OutlineNote]) | NotesFileManager | notesEditorProvider, `notes-file-panel.js`, chrome-extension | Note folder root |
 | Page `.md` ([odk:entity:editor/Page]) | `editor.js` (serialize) | editorProvider, SidePanelManager | `<pageDir>/<pageId>.md` |
+| Note `.md` (raw Markdown) | `editor.js` (serialize) | notesEditorProvider, NotesFileManager | `<noteFolder>/<id>.md` (only when [odk:entity:notes/NoteTreeFile] has `ext: "md"`; see ADR-008) |
 
 Field-level details for each schema live in the entity manifests:
 - [odk:entity:outliner/OutFile]
