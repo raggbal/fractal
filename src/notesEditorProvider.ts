@@ -12,6 +12,7 @@ import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgre
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
+import { DropStreamHost } from './shared/drop-stream-host';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
@@ -317,6 +318,23 @@ export class NotesEditorProvider {
             }
         });
 
+        // v0.207.96: Streaming D&D sink for files > 50MB.
+        // Mirrors the file/outDir resolution that makeNotesDropHandler uses.
+        const dropStreamHost = new DropStreamHost({
+            resolveDirs: () => {
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
+                return {
+                    fileDir: path.join(folderPath, outlinerId, 'files'),
+                    outDir: currentOutFilePath ? path.dirname(currentOutFilePath) : fileManager.getMainFolderPath()
+                };
+            },
+            postMessage: (msg) => sender.postMessage(msg),
+            onFailed: () => {
+                vscode.window.showWarningMessage(t('dropImportFailed'));
+            }
+        });
+
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
         const platform: NotesPlatformActions = {
             openExternalLink: (href: string) => {
@@ -540,6 +558,7 @@ export class NotesEditorProvider {
             notifyDropFileTooLarge: (fileName: string) => {
                 vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${fileName}`);
             },
+            dropStreamMessage: (message) => dropStreamHost.handle(message),
             showInformationMessage: (text: string) => {
                 vscode.window.showInformationMessage(text);
             },
@@ -1096,10 +1115,14 @@ export class NotesEditorProvider {
             },
             // MD-45/46/47: drawio (.drawio.svg / .drawio.png / .drawio (XML))
             saveDrawioToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
-                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
-                const filesDir = outlinerId
-                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
-                    : path.join(fileManager.getMainFolderPath(), 'files');
+                const cur = fileManager.getCurrentFilePath();
+                const isMd = !!cur && cur.endsWith('.md');
+                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
+                const filesDir = isMd
+                    ? fileManager.getMdFilesDirPath()
+                    : (outlinerId
+                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 const safeName = fileName || 'diagram.drawio.svg';
@@ -1109,8 +1132,8 @@ export class NotesEditorProvider {
                 try {
                     const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
                     fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
-                    const spDir = path.dirname(sidePanelFilePath);
-                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
                         type: 'insertImageHtml',
@@ -1123,10 +1146,14 @@ export class NotesEditorProvider {
                 }
             },
             readAndInsertDrawio: (filePath: string, sidePanelFilePath: string) => {
-                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
-                const filesDir = outlinerId
-                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
-                    : path.join(fileManager.getMainFolderPath(), 'files');
+                const cur = fileManager.getCurrentFilePath();
+                const isMd = !!cur && cur.endsWith('.md');
+                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
+                const filesDir = isMd
+                    ? fileManager.getMdFilesDirPath()
+                    : (outlinerId
+                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 if (!fs.existsSync(filePath)) {
@@ -1138,8 +1165,8 @@ export class NotesEditorProvider {
                 const destPath = path.join(filesDir, destFileName);
                 try {
                     fs.copyFileSync(filePath, destPath);
-                    const spDir = path.dirname(sidePanelFilePath);
-                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
                         type: 'insertImageHtml',
@@ -1165,18 +1192,22 @@ export class NotesEditorProvider {
             },
             requestCreateDrawio: async (sidePanelFilePath: string) => {
                 // v15+ で InputBox 廃止 → diagram.drawio.svg を自動命名で生成
-                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
-                const filesDir = outlinerId
-                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
-                    : path.join(fileManager.getMainFolderPath(), 'files');
+                const cur = fileManager.getCurrentFilePath();
+                const isMd = !!cur && cur.endsWith('.md');
+                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
+                const filesDir = isMd
+                    ? fileManager.getMdFilesDirPath()
+                    : (outlinerId
+                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 const destFileName = buildUniqueDrawioName('diagram.drawio.svg', (n) => fs.existsSync(path.join(filesDir, n)));
                 const destPath = path.join(filesDir, destFileName);
                 try {
                     fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');
-                    const spDir = path.dirname(sidePanelFilePath);
-                    const relPath = path.relative(spDir, destPath).replace(/\\/g, '/');
+                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
                         type: 'insertImageHtml',
@@ -1810,6 +1841,7 @@ export class NotesEditorProvider {
             fileManager.dispose();
             sidePanel.disposeFileWatcher();
             mdMain.disposeFileWatcher();
+            dropStreamHost.disposeAll();
             // MD-48: drawio watcher dispose
             try { sidePanelDocChangeSub.dispose(); } catch { /* ignore */ }
             drawioWatcher.disposeAll();

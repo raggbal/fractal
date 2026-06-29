@@ -605,9 +605,20 @@ async def process_page(
             return h1Text || docTitle;
         }""") or ""
 
-        # 1. Markdown保存（ページネーションでDOM変わる前に実行）
         filename = url_to_filename(url, base_path)
         filepath = output_dir / filename
+
+        # 1. リンク抽出を先に行う。convert_page_to_markdown 内の
+        #    HtmlMdConverter.unwrapHeadingAnchors(document) が live DOM から
+        #    heading 内の <a> を剥がす副作用があり、後にすると左 nav の TOC リンクも
+        #    巻き添えで消えて新規 URL が 0 件になる (Workshop Studio 等で再現)。
+        #    paginate_append は pagination の next クリックでコンテンツを上書きするので
+        #    こちらも先に実行して filepath に追記してしまい、MD 保存側で prepend する。
+        pag_path = filepath if (paginate_append and filename not in already_saved) else None
+        links = await extract_links(page, scope_patterns, paginate_filepath=pag_path)
+        new_urls = list(links)
+
+        # 2. Markdown保存
         if filename not in already_saved:
             # Readability + Turndown をページに注入
             await page.evaluate(READABILITY_JS)
@@ -617,14 +628,13 @@ async def process_page(
                 # data:image/... を実体ファイル化 (<output_dir>/images/<ts>.<ext>)
                 markdown = extract_data_url_images(markdown, output_dir, output_dir / "images")
                 header = f"# {title}\n\n[{url}]({url})\n\n" if title else f"[{url}]({url})\n\n"
-                filepath.write_text(header + markdown.rstrip() + "\n", encoding="utf-8")
+                if pag_path is not None and filepath.exists():
+                    # paginate_append が先に末尾追記したファイルが存在する → 先頭に prepend
+                    existing = filepath.read_text(encoding="utf-8")
+                    filepath.write_text(header + markdown.rstrip() + "\n\n" + existing, encoding="utf-8")
+                else:
+                    filepath.write_text(header + markdown.rstrip() + "\n", encoding="utf-8")
                 saved = True
-
-        # 2. リンク抽出（ページネーション含む — DOMが変わるので保存の後に実行）
-        #    paginate_append: ページネーションコンテンツをファイルに追記
-        pag_path = filepath if (paginate_append and saved) else None
-        links = await extract_links(page, scope_patterns, paginate_filepath=pag_path)
-        new_urls = list(links)
 
     except Exception as e:
         log(f"  ERROR: {url} -> {e}")

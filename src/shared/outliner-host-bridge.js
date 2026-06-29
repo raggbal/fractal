@@ -113,9 +113,23 @@
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },
-        // [PROBE v0.207.94] dedicated drop probe channel for diagnostics
-        dropProbe: function(payload) {
-            api.postMessage({ type: 'dropProbe', payload: payload });
+        // v0.207.96: Streaming D&D for files > 50MB. The outliner.js sender awaits
+        // dropStreamReady before pumping chunks and dropStreamAck between chunks
+        // to maintain back-pressure with the host-side fs.WriteStream.
+        dropStreamBegin: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamBegin' }, payload));
+        },
+        dropStreamChunk: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamChunk' }, payload));
+        },
+        dropStreamFileEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamFileEnd' }, payload));
+        },
+        dropStreamSessionEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamSessionEnd' }, payload));
+        },
+        dropStreamCancel: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamCancel' }, payload));
         },
 
         // ファイル添付操作

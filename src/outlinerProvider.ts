@@ -15,6 +15,7 @@ import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
+import { DropStreamHost } from './shared/drop-stream-host';
 
 
 /**
@@ -177,6 +178,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         const handleFinderDrop = createDropImportHandler(processDropFilesImport, dropHandlerDeps);
         const handleExplorerDrop = createDropImportHandler(processDropVscodeUrisImport, dropHandlerDeps);
 
+        // v0.207.96: Streaming D&D sink for files > 50MB.
+        const dropStreamHost = new DropStreamHost({
+            resolveDirs: () => ({
+                fileDir: this.getFileDirPath(document),
+                outDir: path.dirname(document.uri.fsPath)
+            }),
+            postMessage: (msg) => webviewPanel.webview.postMessage(msg),
+            onFailed: (names) => {
+                const head = names.slice(0, 3).join(', ');
+                vscode.window.showWarningMessage(`${t('dropImportFailed')}: ${head}${names.length > 3 ? '...' : ''}`);
+            }
+        });
+
         disposables.push(
             webviewPanel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.type) {
@@ -275,24 +289,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
-                    case 'dropProbe': {
-                        const payload = JSON.stringify(message.payload, null, 2);
-                        console.log('[fractal-probe] outliner drop probe:', payload);
-                        vscode.window.showInformationMessage(`File drop probe (see Output > Fractal): ${payload.slice(0, 500)}`);
+                    case 'notifyDropFileTooLarge': {
+                        vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
                         break;
                     }
 
-                    case 'notifyDropFileTooLarge': {
-                        // [PROBE v0.207.95] If payload begins with "PROBE", surface the JSON directly
-                        const fn = String(message.fileName || '');
-                        if (fn.startsWith('PROBE')) {
-                            console.log('[fractal-probe] outliner drop probe:', fn);
-                            vscode.window.showInformationMessage(fn.slice(0, 1500));
-                        } else {
-                            vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
-                        }
+                    case 'dropStreamBegin':
+                    case 'dropStreamChunk':
+                    case 'dropStreamFileEnd':
+                    case 'dropStreamSessionEnd':
+                    case 'dropStreamCancel':
+                        await dropStreamHost.handle(message);
                         break;
-                    }
 
                     case 'openAttachedFile': {
                         const data = JSON.parse(document.getText());
@@ -1247,6 +1255,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 this.activeWebviewPanel = undefined;
             }
             sidePanel.disposeFileWatcher();
+            dropStreamHost.disposeAll();
             disposables.forEach(d => d.dispose());
         });
 

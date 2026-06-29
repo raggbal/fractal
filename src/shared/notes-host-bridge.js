@@ -89,6 +89,22 @@
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },
+        // v0.207.96: Streaming D&D for files > 50MB.
+        dropStreamBegin: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamBegin' }, payload));
+        },
+        dropStreamChunk: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamChunk' }, payload));
+        },
+        dropStreamFileEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamFileEnd' }, payload));
+        },
+        dropStreamSessionEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamSessionEnd' }, payload));
+        },
+        dropStreamCancel: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamCancel' }, payload));
+        },
 
         // ファイル添付操作
         openAttachedFile: function(nodeId) {

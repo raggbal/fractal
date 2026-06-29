@@ -172,6 +172,9 @@ export interface NotesPlatformActions {
     notifyDropFolderRejected?(folders: string[]): void;
     /** v12: ファイルサイズ超過通知 */
     notifyDropFileTooLarge?(fileName: string): void;
+    /** v0.207.96: Streaming D&D pipeline (files > 50MB). Routes all 5 dropStream* messages
+     *  to a per-panel DropStreamHost on the platform side. */
+    dropStreamMessage?(message: { type: string } & Record<string, unknown>): Promise<boolean> | boolean;
     /** タスクモード archive: 情報メッセージ表示 */
     showInformationMessage?(text: string): void;
     /** タスクモード archive: エラーメッセージ表示 */
@@ -295,6 +298,14 @@ export async function handleNotesMessage(
 
         case 'notifyDropFileTooLarge':
             platform.notifyDropFileTooLarge?.(message.fileName);
+            break;
+
+        case 'dropStreamBegin':
+        case 'dropStreamChunk':
+        case 'dropStreamFileEnd':
+        case 'dropStreamSessionEnd':
+        case 'dropStreamCancel':
+            await platform.dropStreamMessage?.(message);
             break;
 
         case 'openAttachedFile': {

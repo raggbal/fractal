@@ -999,55 +999,27 @@ var Outliner = (function() {
         });
     }
 
-    /** Handle Files D&D drop event */
+    /**
+     * Handle Files D&D drop event.
+     *
+     * Two paths depending on size:
+     *   - Buffered (≤ 50MB): existing FileReader path → host.dropFilesImport
+     *   - Streamed (50MB < size ≤ 1GB): chunked transfer via dropStream*
+     *
+     * Limits (large path): 1GB per file, 1GB total per drop, max 10 files.
+     */
     async function handleFilesDrop(e, targetNodeId, position) {
         var dt = e.dataTransfer;
-        var items = [];
+        var bufferedItems = [];   // ≤ 50MB → existing buffered import
+        var streamItems = [];     // > 50MB → streaming import (only "file" kind)
         var rejectedFolders = [];
-        var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        var BUFFER_THRESHOLD = 50 * 1024 * 1024;        // 50MB → existing path boundary
+        var MAX_PER_FILE     = 1024 * 1024 * 1024;      // 1GB hard cap (per file)
+        var MAX_TOTAL        = 1024 * 1024 * 1024;      // 1GB hard cap (per drop)
+        var MAX_STREAM_FILES = 10;
+        var streamTotal = 0;
 
-        // [PROBE v0.207.95] Use the well-known notifyDropFileTooLarge channel
-        // so the diagnostic always surfaces even when host.dropProbe is missing.
-        try {
-            var probe = { count: dt.items.length, hasWebUtils: typeof window !== 'undefined' && !!window.webUtils, items: [] };
-            for (var pi = 0; pi < dt.items.length; pi++) {
-                var pit = dt.items[pi];
-                var entryProbe = (pit.webkitGetAsEntry && pit.webkitGetAsEntry()) || null;
-                var pf = pit.getAsFile && pit.getAsFile();
-                var info = {
-                    idx: pi,
-                    kind: pit && pit.kind,
-                    type: pit && pit.type,
-                    entryName: entryProbe && entryProbe.name,
-                    entryIsDir: entryProbe && entryProbe.isDirectory,
-                    entryIsFile: entryProbe && entryProbe.isFile
-                };
-                if (pf) {
-                    info.fName = pf.name;
-                    info.fSize = pf.size;
-                    info.fType = pf.type;
-                    info.pathType = typeof pf.path;
-                    info.pathValue = pf.path || null;
-                    info.keys = Object.keys(pf);
-                    info.hasGetAsFileSystemHandle = typeof pit.getAsFileSystemHandle === 'function';
-                    if (typeof window !== 'undefined' && window.webUtils && typeof window.webUtils.getPathForFile === 'function') {
-                        try { info.webUtilsPath = window.webUtils.getPathForFile(pf); }
-                        catch (we) { info.webUtilsPathErr = String(we); }
-                    }
-                } else {
-                    info.fNull = true;
-                }
-                probe.items.push(info);
-            }
-            console.log('[fractal-probe v0.207.95]', probe);
-            try { host.notifyDropFileTooLarge('PROBE ' + JSON.stringify(probe)); } catch (_) {}
-            try { if (typeof host.dropProbe === 'function') host.dropProbe(probe); } catch (_) {}
-        } catch (perr) {
-            console.warn('[fractal-probe] error:', perr);
-            try { host.notifyDropFileTooLarge('PROBE-ERROR ' + String(perr)); } catch (_) {}
-        }
-
-        // 1. Filter out folders and oversized files
+        // 1. Triage items
         for (var i = 0; i < dt.items.length; i++) {
             var item = dt.items[i];
             var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
@@ -1056,38 +1028,195 @@ var Outliner = (function() {
                 continue;
             }
             var file = item.getAsFile();
-            if (file) {
-                if (file.size > MAX_FILE_SIZE) {
-                    host.notifyDropFileTooLarge(file.name);
-                    continue;
-                }
-                items.push(file);
+            if (!file) continue;
+
+            if (file.size <= BUFFER_THRESHOLD) {
+                bufferedItems.push(file);
+                continue;
             }
+
+            if (file.size > MAX_PER_FILE) {
+                host.notifyDropFileTooLarge(file.name + ' (>1GB)');
+                continue;
+            }
+            if (streamItems.length >= MAX_STREAM_FILES) {
+                host.notifyDropFileTooLarge(file.name + ' (max 10 large files per drop)');
+                continue;
+            }
+            if (streamTotal + file.size > MAX_TOTAL) {
+                host.notifyDropFileTooLarge(file.name + ' (drop exceeds 1GB total)');
+                continue;
+            }
+            streamTotal += file.size;
+            streamItems.push(file);
         }
 
         if (rejectedFolders.length > 0) {
             host.notifyDropFolderRejected(rejectedFolders);
         }
-        if (items.length === 0) return;
+        if (bufferedItems.length === 0 && streamItems.length === 0) return;
 
-        // 2. Read each file by kind
-        var imports = [];
-        for (var j = 0; j < items.length; j++) {
-            var f = items[j];
-            var kind = classifyDroppedFile(f);
-            try {
-                var content = await readFileByKind(f, kind);
-                imports.push({ kind: kind, name: f.name, ...content });
-            } catch (err) {
-                // Skip failed reads
-                console.warn('Failed to read file:', f.name, err);
+        // 2. Buffered path (existing): read via FileReader → dropFilesImport
+        if (bufferedItems.length > 0) {
+            var imports = [];
+            for (var j = 0; j < bufferedItems.length; j++) {
+                var bf = bufferedItems[j];
+                var kind = classifyDroppedFile(bf);
+                try {
+                    var content = await readFileByKind(bf, kind);
+                    imports.push({ kind: kind, name: bf.name, ...content });
+                } catch (err) {
+                    console.warn('Failed to read file:', bf.name, err);
+                }
+            }
+            if (imports.length > 0) {
+                host.dropFilesImport(imports, targetNodeId, position);
             }
         }
 
-        if (imports.length === 0) return;
+        // 3. Streaming path: chunk over postMessage with ack-based back-pressure
+        if (streamItems.length > 0) {
+            await streamLargeFiles(streamItems, targetNodeId, position);
+        }
+    }
 
-        // 3. Send to host
-        host.dropFilesImport(imports, targetNodeId, position);
+    /**
+     * Stream a list of large files to the host one chunk at a time.
+     * Uses postMessage ACK as back-pressure (next chunk only after dropStreamAck).
+     */
+    async function streamLargeFiles(files, targetNodeId, position) {
+        var CHUNK_SIZE = 4 * 1024 * 1024; // 4MiB
+        var sessionId = 'ds-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+
+        // Per-session reply router. Each fileId has pending begin/ack/fail/end resolvers.
+        var pending = new Map();
+
+        function getPending(fileId) {
+            var p = pending.get(fileId);
+            if (p) return p;
+            p = {
+                ackSeq: -1,
+                ackResolvers: [],   // { seq, resolve }
+                readyResolve: null,
+                failed: null
+            };
+            pending.set(fileId, p);
+            return p;
+        }
+
+        function onAck(fileId, seq) {
+            var p = getPending(fileId);
+            p.ackSeq = Math.max(p.ackSeq, seq);
+            for (var k = p.ackResolvers.length - 1; k >= 0; k--) {
+                if (p.ackResolvers[k].seq <= p.ackSeq) {
+                    var r = p.ackResolvers.splice(k, 1)[0];
+                    r.resolve();
+                }
+            }
+        }
+
+        var sessionListener = function(ev) {
+            var msg = ev.data;
+            if (!msg || msg.sessionId !== sessionId) return;
+            switch (msg.type) {
+                case 'dropStreamReady': {
+                    var pr = getPending(msg.fileId);
+                    if (pr.readyResolve) { pr.readyResolve(); pr.readyResolve = null; }
+                    break;
+                }
+                case 'dropStreamAck':
+                    onAck(msg.fileId, msg.seq);
+                    break;
+                case 'dropStreamFailed': {
+                    var pf = getPending(msg.fileId);
+                    pf.failed = msg.error || 'unknown';
+                    if (pf.readyResolve) { pf.readyResolve(); pf.readyResolve = null; }
+                    // Wake any pending ack waiters so they fail fast
+                    while (pf.ackResolvers.length) pf.ackResolvers.pop().resolve();
+                    break;
+                }
+                case 'dropStreamCancel':
+                    // Host-initiated cancel (notification cancel button). Abort all.
+                    pending.forEach(function(pp) {
+                        pp.failed = pp.failed || 'cancelled';
+                        if (pp.readyResolve) { pp.readyResolve(); pp.readyResolve = null; }
+                        while (pp.ackResolvers.length) pp.ackResolvers.pop().resolve();
+                    });
+                    break;
+            }
+        };
+        window.addEventListener('message', sessionListener);
+
+        try {
+            for (var fi = 0; fi < files.length; fi++) {
+                var f = files[fi];
+                var fileId = 'f-' + fi + '-' + Math.random().toString(36).slice(2, 8);
+                var pr = getPending(fileId);
+
+                // Begin → wait for Ready
+                var readyPromise = new Promise(function(resolve) { pr.readyResolve = resolve; });
+                host.dropStreamBegin({
+                    sessionId: sessionId,
+                    fileId: fileId,
+                    name: f.name,
+                    size: f.size,
+                    targetNodeId: targetNodeId,
+                    position: position,
+                    totalFiles: files.length,
+                    isFirst: fi === 0
+                });
+                await readyPromise;
+                if (pr.failed) {
+                    console.warn('Stream begin failed:', f.name, pr.failed);
+                    continue;
+                }
+
+                // Pump chunks with ack-based back-pressure
+                var seq = 0;
+                var offset = 0;
+                var aborted = false;
+                while (offset < f.size) {
+                    if (pr.failed) { aborted = true; break; }
+                    var end = Math.min(offset + CHUNK_SIZE, f.size);
+                    var slice = f.slice(offset, end);
+                    var arrBuf = await slice.arrayBuffer();
+                    var b64 = arrayBufferToBase64(arrBuf);
+
+                    var thisSeq = seq++;
+                    var ackPromise = new Promise(function(resolve) {
+                        pr.ackResolvers.push({ seq: thisSeq, resolve: resolve });
+                    });
+
+                    host.dropStreamChunk({
+                        sessionId: sessionId,
+                        fileId: fileId,
+                        seq: thisSeq,
+                        bytesB64: b64
+                    });
+
+                    await ackPromise;
+                    offset = end;
+                }
+
+                if (!aborted && !pr.failed) {
+                    host.dropStreamFileEnd({ sessionId: sessionId, fileId: fileId });
+                }
+            }
+        } finally {
+            host.dropStreamSessionEnd({ sessionId: sessionId });
+            window.removeEventListener('message', sessionListener);
+        }
+    }
+
+    /** Encode an ArrayBuffer to base64 in chunks (avoids "argument list too long" on big buffers). */
+    function arrayBufferToBase64(buf) {
+        var bytes = new Uint8Array(buf);
+        var CHUNK = 0x8000; // 32KB worth of char codes per fromCharCode call
+        var binary = '';
+        for (var i = 0; i < bytes.length; i += CHUNK) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        return btoa(binary);
     }
 
     /**
