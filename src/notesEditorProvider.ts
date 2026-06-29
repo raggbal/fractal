@@ -1950,6 +1950,16 @@ export class NotesEditorProvider {
     ): Promise<void> {
         fileManager.flushSave();
 
+        // notes folder 配下の dirty な TextDocument (.md / .out 等) を flush。
+        // VSCode テキストエディタで `_notes_md/*.md` を編集中に S3 sync すると、
+        // dirty buffer がディスクに反映されないまま古い内容が S3 に upload されて
+        // 編集が失われるリスクがあるため、operation 前に必ず flush する。
+        const dirtyDecision = await this.flushDirtyDocsUnderFolder(folderPath);
+        if (dirtyDecision === 'cancel') {
+            sender.postMessage({ type: 'notesS3Progress', phase: 'cancelled', message: 'Sync cancelled' });
+            return;
+        }
+
         const config = this.getS3Config(bucketPath, folderPath);
         if (!config) {
             sender.postMessage({ type: 'notesS3Progress', phase: 'error', message: 'AWS credentials not configured.' });
@@ -2004,6 +2014,45 @@ export class NotesEditorProvider {
         if (panel && !needsDisposeAndReopen) {
             panel.webview.postMessage({ type: 'sync-applied', data: null, fileChangeId: -1 });
         }
+    }
+
+    /**
+     * notes folder 配下の dirty TextDocument を flush。拡張子制限なしで `folderPath`
+     * 配下の全 TextDocument を対象 (`.md` / `.out` / `_notes_md/files/*.drawio.svg`
+     * / `pages/*.md` 等)。バイナリ系 (画像) は VSCode の TextDocument に含まれないため
+     * 自然と対象外 (直接編集手段がないので問題なし)。
+     *
+     * VSCode テキストエディタで開いている未保存変更が S3 sync で上書き消失するのを
+     * 防ぐ。outliner-s3-sync.flushDirtyDocs と同じ user 選択 dialog。
+     */
+    private async flushDirtyDocsUnderFolder(folderPath: string): Promise<'continue' | 'cancel'> {
+        const prefix = folderPath.endsWith(path.sep) ? folderPath : folderPath + path.sep;
+        const dirtyDocs = vscode.workspace.textDocuments.filter((doc) => {
+            if (!doc.isDirty) return false;
+            const fp = doc.uri.fsPath;
+            return fp === folderPath || fp.startsWith(prefix);
+        });
+        if (dirtyDocs.length === 0) return 'continue';
+
+        const result = await vscode.window.showWarningMessage(
+            'Unsaved changes detected',
+            {
+                modal: true,
+                detail: `${dirtyDocs.length} file(s) have unsaved changes. How do you want to proceed?`,
+            },
+            'Save and continue',
+            'Discard and continue',
+            'Cancel sync',
+        );
+
+        if (!result || result === 'Cancel sync') return 'cancel';
+        if (result === 'Save and continue') {
+            for (const doc of dirtyDocs) {
+                try { await doc.save(); } catch { /* ignore */ }
+            }
+            return 'continue';
+        }
+        return 'continue';
     }
 
     /**
