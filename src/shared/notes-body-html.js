@@ -379,6 +379,16 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-match:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-search-highlight { background: rgba(255, 200, 0, 0.3); font-weight: 500; }
+        /* Yellow flash for explore-tree jump (search → notes tab) */
+        @keyframes file-panel-explore-flash-kf {
+            0%   { background: rgba(255, 215, 64, 0.85); }
+            60%  { background: rgba(255, 215, 64, 0.55); }
+            100% { background: rgba(255, 215, 64, 0); }
+        }
+        .file-panel-explore-flash {
+            animation: file-panel-explore-flash-kf 2s ease-out;
+            border-radius: var(--fr-radius-sm, 6px);
+        }
         .file-panel-search-count { padding: 4px 11px; font-size: 10px; opacity: 0.6; }
         .file-panel-search-spinner { padding: 7px 11px; font-size: 11px; opacity: 0.5; }
 

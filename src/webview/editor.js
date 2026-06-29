@@ -15236,35 +15236,38 @@ class EditorInstance {
             // Show toast notification for external change
             showExternalChangeToast(message.message);
         } else if (message.type === 'scrollToAnchor') {
-            // Scroll to anchor (heading) in the document
+            // Scroll to a heading in the document.
+            // Prefer headingIndex (deterministic, no slug mismatch); fall back to anchor slug.
             const anchor = message.anchor;
-            if (anchor) {
-                // Find heading by id or by text content
-                const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const headingIndex = (typeof message.headingIndex === 'number' && message.headingIndex >= 0)
+                ? message.headingIndex : null;
+            const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const scrollToHeading = function(heading) {
+                if (!heading) return;
+                const wrapper = editor.closest('.editor-wrapper');
+                if (wrapper) {
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    const headingRect = heading.getBoundingClientRect();
+                    wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
+                } else {
+                    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                heading.style.transition = 'background-color 0.3s';
+                heading.style.backgroundColor = 'var(--selection-bg)';
+                setTimeout(() => { heading.style.backgroundColor = ''; }, 1500);
+            };
+            if (headingIndex !== null && headings[headingIndex]) {
+                scrollToHeading(headings[headingIndex]);
+            } else if (anchor) {
                 for (const heading of headings) {
-                    // Generate slug from heading text (same as GitHub-style anchor)
                     const headingText = heading.textContent || '';
                     const slug = headingText
                         .toLowerCase()
                         .trim()
-                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '') // Keep alphanumeric, Japanese, Chinese, Korean, hyphen
-                        .replace(/\s+/g, '-'); // Replace spaces with hyphens
-                    
+                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '')
+                        .replace(/\s+/g, '-');
                     if (slug === anchor || heading.id === anchor) {
-                        const wrapper = editor.closest('.editor-wrapper');
-                        if (wrapper) {
-                            const wrapperRect = wrapper.getBoundingClientRect();
-                            const headingRect = heading.getBoundingClientRect();
-                            wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
-                        } else {
-                            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                        // Briefly highlight the heading
-                        heading.style.transition = 'background-color 0.3s';
-                        heading.style.backgroundColor = 'var(--selection-bg)';
-                        setTimeout(() => {
-                            heading.style.backgroundColor = '';
-                        }, 1500);
+                        scrollToHeading(heading);
                         break;
                     }
                 }
@@ -15585,8 +15588,9 @@ class EditorInstance {
         // 仕様: heading が無くても outline は default ON で表示する。
         //   user が明示的に閉じた (sidePanelTocVisible=false) 時は隠す。
         if (toc && toc.length > 0) {
-            sidePanelToc.innerHTML = toc.map(function(item) {
+            sidePanelToc.innerHTML = toc.map(function(item, i) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
+                    '" data-heading-index="' + i +
                     '" data-anchor="' + escapeHtml(item.anchor) + '" title="' + escapeHtml(item.text) + '">' +
                     escapeHtml(item.text) + '</a>';
             }).join('');
@@ -15606,8 +15610,13 @@ class EditorInstance {
         sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(item) {
             item.addEventListener('click', function() {
                 var anchor = item.dataset.anchor;
+                var headingIndex = item.dataset.headingIndex;
                 if (sidePanelHostBridge) {
-                    sidePanelHostBridge._sendMessage({ type: 'scrollToAnchor', anchor: anchor });
+                    sidePanelHostBridge._sendMessage({
+                        type: 'scrollToAnchor',
+                        anchor: anchor,
+                        headingIndex: headingIndex != null ? parseInt(headingIndex, 10) : undefined,
+                    });
                 }
                 // Update active state
                 sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(i) {

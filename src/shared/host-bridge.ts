@@ -53,7 +53,7 @@ export type HostMessage =
     | { type: 'insertImageHtml'; markdownPath: string; displayUri: string }
     | { type: 'insertLinkHtml'; url: string; text: string }
     | { type: 'externalChangeDetected'; message: string }
-    | { type: 'scrollToAnchor'; anchor: string }
+    | { type: 'scrollToAnchor'; anchor: string; headingIndex?: number }
     | { type: 'imageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelImageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'insertFileLink'; markdownPath: string; fileName: string }

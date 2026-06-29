@@ -7101,8 +7101,9 @@ var Outliner = (function() {
         var escapeHtml = window.__editorUtils ? window.__editorUtils.escapeHtml : function(s) { return s; };
         // 仕様: heading が無くても outline は default ON で表示する。
         if (toc && toc.length > 0) {
-            sidePanelTocEl.innerHTML = toc.map(function(item) {
+            sidePanelTocEl.innerHTML = toc.map(function(item, i) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
+                    '" data-heading-index="' + i +
                     '" data-anchor="' + escapeHtml(item.anchor) + '" title="' + escapeHtml(item.text) + '">' +
                     escapeHtml(item.text) + '</a>';
             }).join('');
@@ -7119,8 +7120,13 @@ var Outliner = (function() {
         sidePanelTocEl.querySelectorAll('.side-panel-toc-item').forEach(function(item) {
             item.addEventListener('click', function() {
                 var anchor = item.dataset.anchor;
+                var headingIndex = item.dataset.headingIndex;
                 if (sidePanelHostBridge) {
-                    sidePanelHostBridge._sendMessage({ type: 'scrollToAnchor', anchor: anchor });
+                    sidePanelHostBridge._sendMessage({
+                        type: 'scrollToAnchor',
+                        anchor: anchor,
+                        headingIndex: headingIndex != null ? parseInt(headingIndex, 10) : undefined,
+                    });
                 }
                 sidePanelTocEl.querySelectorAll('.side-panel-toc-item').forEach(function(i) {
                     i.classList.remove('active');

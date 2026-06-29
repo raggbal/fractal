@@ -316,9 +316,14 @@
     // ── notes-file-panel.js 用ブリッジ ──
     window.notesHostBridge = {
         // ファイル操作
-        openFile: function(filePath) {
+        openFile: function(filePath, searchQuery, searchOccurrence) {
             flushOutlinerSync();
-            api.postMessage({ type: 'notesOpenFile', filePath: filePath });
+            api.postMessage({
+                type: 'notesOpenFile',
+                filePath: filePath,
+                searchQuery: searchQuery || null,
+                searchOccurrence: typeof searchOccurrence === 'number' ? searchOccurrence : null,
+            });
         },
         createFile: function(title, parentId, afterId) {
             api.postMessage({ type: 'notesCreateFile', title: title, parentId: parentId || null, afterId: afterId || null });

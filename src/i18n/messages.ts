@@ -133,6 +133,9 @@ export interface WebviewMessages {
   notesUseRegex: string;
   notesSearching: string;
   notesResults: string;
+  notesSearchExploreResults: string;
+  notesSearchOutlinerResults: string;
+  notesSearchMarkdownResults: string;
   notesRename: string;
   notesDelete: string;
   notesDeleteFolder: string;

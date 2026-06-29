@@ -746,6 +746,21 @@ export async function handleNotesMessage(
                     });
                     platform.sendMdDirStatus?.();
                     platform.mdMainOpened?.(message.filePath);
+                    // search hit からの open の場合、markdown pane が rebuild された後に
+                    // ヒット箇所へジャンプ + 黄色ハイライト (scrollToText)。
+                    // EditorInstance の構築 & DOM レンダリング完了を待つため delay。
+                    if (message.searchQuery) {
+                        const sq = message.searchQuery;
+                        const so = typeof message.searchOccurrence === 'number'
+                            ? message.searchOccurrence : 0;
+                        setTimeout(() => {
+                            sender.postMessage({
+                                type: 'scrollToText',
+                                text: sq,
+                                occurrence: so,
+                            });
+                        }, 500);
+                    }
                 } else {
                     platform.mdMainClosed?.();
                     const data = JSON.parse(content);

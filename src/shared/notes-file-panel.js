@@ -1004,12 +1004,16 @@ var notesFilePanel = (function() {
 
     var searchSectionOut = null;
     var searchSectionMd = null;
+    var searchSectionExplore = null;
     var searchSectionOutBody = null;
     var searchSectionMdBody = null;
+    var searchSectionExploreBody = null;
     var searchSectionOutTitle = null;
     var searchSectionMdTitle = null;
+    var searchSectionExploreTitle = null;
     var searchCountOut = 0;
     var searchCountMd = 0;
+    var searchCountExplore = 0;
 
     function buildSearchSection(label) {
         var section = document.createElement('div');
@@ -1029,20 +1033,153 @@ var notesFilePanel = (function() {
         searchTotalCount = 0;
         searchCountOut = 0;
         searchCountMd = 0;
+        searchCountExplore = 0;
         if (searchResultsEl) {
             searchResultsEl.innerHTML = '';
+            var exploreSec = buildSearchSection((i18n.notesSearchExploreResults || 'Notes Exploreの検索結果'));
             var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
             var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            searchSectionExplore = exploreSec.section;
+            searchSectionExploreBody = exploreSec.body;
+            searchSectionExploreTitle = exploreSec.title;
             searchSectionOut = outSec.section;
             searchSectionOutBody = outSec.body;
             searchSectionOutTitle = outSec.title;
             searchSectionMd = mdSec.section;
             searchSectionMdBody = mdSec.body;
             searchSectionMdTitle = mdSec.title;
+            searchResultsEl.appendChild(searchSectionExplore);
             searchResultsEl.appendChild(searchSectionOut);
             searchResultsEl.appendChild(searchSectionMd);
+
+            // Render explore (file/folder name) results immediately (client-side).
+            // The backend streaming search covers content; this section covers names only.
+            renderExploreResults();
         }
         if (searchCountEl) searchCountEl.textContent = i18n.notesSearching || 'Searching...';
+    }
+
+    /** Collect file/folder name matches against searchInputEl.value, render into
+     *  the Explore section. Respects searchOptions (caseSensitive / wholeWord / useRegex). */
+    function renderExploreResults() {
+        if (!searchInputEl || !structure || !searchSectionExploreBody) return;
+        var query = searchInputEl.value.trim();
+        if (!query) return;
+
+        var matcher = buildNameMatcher(query);
+        if (!matcher) return;
+
+        var matches = []; // [{ id, type: 'file'|'folder', title, filePath?, fileExt? }]
+        var fileMap = buildFileMap(fileList);
+
+        Object.keys(structure.items || {}).forEach(function(id) {
+            var item = structure.items[id];
+            if (!item) return;
+            if (item.type === 'folder') {
+                var t = item.title || '';
+                if (matcher(t)) {
+                    matches.push({ id: id, type: 'folder', title: t });
+                }
+            } else if (item.type === 'file') {
+                var fileEntry = fileMap[id];
+                var title = (item.title) || (fileEntry && fileEntry.title) || '';
+                if (matcher(title)) {
+                    var fp = fileEntry ? fileEntry.filePath : null;
+                    var isMd = fp ? /\.md$/i.test(fp) : false;
+                    matches.push({
+                        id: id, type: 'file', title: title, filePath: fp,
+                        fileExt: isMd ? 'md' : 'out',
+                    });
+                }
+            }
+        });
+
+        if (matches.length === 0) {
+            updateExploreSectionTitle();
+            return;
+        }
+
+        searchSectionExplore.style.display = '';
+        matches.forEach(function(m) {
+            var matchEl = document.createElement('div');
+            matchEl.className = 'file-panel-search-match';
+            // Title (highlighted) + small badge for type
+            matchEl.innerHTML = highlightSearchText(m.title || (i18n.notesUntitled || 'Untitled'), query);
+            var badge = document.createElement('span');
+            badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
+            badge.textContent = '[' + (m.type === 'folder' ? 'folder' : (m.fileExt || 'file')) + ']';
+            matchEl.appendChild(badge);
+            matchEl.addEventListener('click', function() {
+                jumpToExploreItem(m);
+            });
+            searchSectionExploreBody.appendChild(matchEl);
+            searchCountExplore++;
+            searchTotalCount++;
+        });
+        updateExploreSectionTitle();
+    }
+
+    function updateExploreSectionTitle() {
+        var base = i18n.notesSearchExploreResults || 'Notes Exploreの検索結果';
+        if (searchSectionExploreTitle) {
+            searchSectionExploreTitle.textContent = base + ' (' + searchCountExplore + ')';
+        }
+    }
+
+    function buildNameMatcher(query) {
+        try {
+            var pattern = searchOptions.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b';
+            var flags = searchOptions.caseSensitive ? '' : 'i';
+            var re = new RegExp(pattern, flags);
+            return function(text) { return re.test(text || ''); };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /** Switch to Notes tab, expand ancestor folders, scroll target into view, flash yellow. */
+    function jumpToExploreItem(m) {
+        switchTab('notes');
+        if (!m || !m.id) return;
+        // Expand ancestor folders (collapsed=false) so the target is visible
+        expandAncestorFolders(m.id);
+        // Defer to next frame so renderTree() has propagated any collapse state changes
+        setTimeout(function() {
+            var sel = m.type === 'folder'
+                ? '[data-folder-id="' + CSS.escape(m.id) + '"] > .file-panel-folder-header'
+                : '[data-item-id="' + CSS.escape(m.id) + '"]';
+            var el = listEl ? listEl.querySelector(sel) : null;
+            if (!el) return;
+            if (typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+            el.classList.remove('file-panel-explore-flash');
+            // Force reflow so re-adding the class restarts the animation
+            void el.offsetWidth;
+            el.classList.add('file-panel-explore-flash');
+            setTimeout(function() {
+                el.classList.remove('file-panel-explore-flash');
+            }, 2200);
+        }, 50);
+    }
+
+    function expandAncestorFolders(itemId) {
+        if (!structure) return;
+        var changed = false;
+        var cursor = findParentIdOf(itemId);
+        var safety = 0;
+        while (cursor && safety++ < 100) {
+            var folder = structure.items ? structure.items[cursor] : null;
+            if (folder && folder.collapsed) {
+                folder.collapsed = false;
+                changed = true;
+                // Notify host so the toggled state is persisted
+                if (bridge && bridge.toggleFolder) bridge.toggleFolder(cursor);
+            }
+            cursor = findParentIdOf(cursor);
+        }
+        if (changed) renderTree();
     }
 
     function onSearchPartial(searchId, fileResult) {
@@ -1080,8 +1217,15 @@ var notesFilePanel = (function() {
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
                         bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0, query, matchIdx);
-                    } else if (fileResult.mdFilePath && bridge.openMdFileExternal) {
-                        bridge.openMdFileExternal(fileResult.mdFilePath);
+                    } else if (fileResult.mdFilePath && bridge.openFile) {
+                        // root-level .md は notes editor 内の markdown pane で開く
+                        // (旧実装は openMdFileExternal で VSCode 標準エディタ起動だったが、
+                        //  notes editor の content として表示するのが期待動作)。
+                        // query/occurrence を渡すと、ロード後にヒット箇所へジャンプ + 黄色ハイライト。
+                        if (fileResult.mdFilePath !== currentFile) {
+                            currentFile = fileResult.mdFilePath;
+                        }
+                        bridge.openFile(fileResult.mdFilePath, query, matchIdx);
                     }
                 }
             });
