@@ -8101,7 +8101,7 @@ var Outliner = (function() {
                     var filePanel = document.querySelector('.notes-file-panel');
                     if (!filePanel) break;
                     if (filePanel.classList.contains('collapsed')) {
-                        var openBtn = document.getElementById('notesPanelToggleBtn');
+                        var openBtn = document.querySelector('.notes-panel-toggle-btn');
                         if (openBtn) openBtn.click();
                     } else {
                         var closeBtn = document.getElementById('filePanelCollapse');

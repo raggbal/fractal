@@ -99,6 +99,22 @@ function generateNotesFilePanelHtml(options) {
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
+        /* notes file panel の ≡ (collapse) ボタン: 枠線なし、アイコン 15px、hover 水色 */
+        #filePanelCollapse.file-panel-btn {
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            padding: 4px 5px;
+            font-size: 15px;
+        }
+        #filePanelCollapse.file-panel-btn:hover {
+            background: var(--selection-bg);
+            border-color: transparent;
+        }
+        #filePanelCollapse.file-panel-btn:focus-visible {
+            box-shadow: none;
+            border-color: transparent;
+        }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 
         /* ── File item ── */
@@ -189,20 +205,59 @@ function generateNotesFilePanelHtml(options) {
         .notes-main-wrapper .markdown-container .toolbar button:disabled {
             opacity: 0.3;
         }
-        .notes-panel-toggle-btn {
-            background: transparent; border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
-            border-radius: var(--fr-radius-sm, 6px); cursor: pointer; padding: 4px 5px; line-height: 1;
-            display: none; color: var(--fr-color-text-primary, inherit); opacity: 0.7; font-size: 12px;
-            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
+        /* notes editor > markdown の outline header を file-panel-header と揃える
+           (standalone / sidepanel md は影響なし — scoped セレクタ) */
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header {
+            padding: 7px 11px;
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            box-sizing: border-box;
         }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header h3 {
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-toggle {
+            font-size: 15px;
+            padding: 4px 5px;
+            line-height: 1;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--fr-color-text-primary, inherit);
+            opacity: 0.7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-toggle:hover {
+            opacity: 1;
+            background: var(--selection-bg);
+        }
+        /* notes panel toggle (≡) — outliner / markdown 共通ベース、font-size 15px */
+        .notes-panel-toggle-btn,
+        .toolbar button.notes-panel-toggle-btn {
+            background: transparent; border: none; border-radius: 4px;
+            cursor: pointer; padding: 4px 5px; line-height: 1;
+            display: none; color: var(--fr-color-text-primary, inherit);
+            opacity: 0.7; font-size: 15px;
+            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
+            min-width: 0; min-height: 0;
+        }
+        /* outliner pane: hover で薄く色付け（既存トーン維持、塗りつぶしなし） */
         .notes-panel-toggle-btn:hover {
             opacity: 1;
-            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            background: transparent;
+        }
+        /* markdown pane: hover で水色塗りつぶし (markdown toolbar の他ボタンと同じ var(--selection-bg)) */
+        .toolbar button.notes-panel-toggle-btn:hover {
+            opacity: 1;
+            background: var(--selection-bg);
         }
         .notes-panel-toggle-btn:focus-visible {
             outline: none;
-            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
-            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            box-shadow: none;
         }
         .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
         .file-panel-rename-input {

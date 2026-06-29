@@ -1234,7 +1234,6 @@ var notesFilePanel = (function() {
         var addMdBtn = document.getElementById('filePanelAddMarkdown');
         var addFolderBtn = document.getElementById('filePanelAddFolder');
         var collapseBtn = document.getElementById('filePanelCollapse');
-        var toggleBtn = document.getElementById('notesPanelToggleBtn');
 
         // 初期パネル幅復元
         if (initialPanelWidth) {
@@ -1304,17 +1303,22 @@ var notesFilePanel = (function() {
             });
         }
 
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', function() {
-                if (panelEl) {
-                    panelEl.classList.remove('collapsed');
-                    if (lastSavedPanelWidth) {
-                        panelEl.style.width = lastSavedPanelWidth + 'px';
-                    }
+        // markdown pane の DOM は updateData で再生成されるため、
+        // 個別 button.addEventListener では listener が剥がれる。
+        // document に event delegation で張って、再生成後の button も拾う。
+        document.addEventListener('click', function(e) {
+            var t = e.target;
+            if (!t) return;
+            var btn = t.closest ? t.closest('.notes-panel-toggle-btn') : null;
+            if (!btn) return;
+            if (panelEl) {
+                panelEl.classList.remove('collapsed');
+                if (lastSavedPanelWidth) {
+                    panelEl.style.width = lastSavedPanelWidth + 'px';
                 }
-                bridge.togglePanel(false);
-            });
-        }
+            }
+            bridge.togglePanel(false);
+        });
 
         // Listen for file list + structure updates
         if (bridge.onFileListChanged) {

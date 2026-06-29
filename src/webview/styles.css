@@ -1717,9 +1717,10 @@ body {
 .side-panel-header-btn:disabled:hover {
     background: none;
 }
-.side-panel-header-btn svg {
-    width: 13px;
-    height: 13px;
+.side-panel-header-btn svg,
+.side-panel-outline-btn svg {
+    width: 14px;
+    height: 14px;
 }
 /* Side panel outline button (in header, mirrors main openOutline) */
 .side-panel-outline-btn {
