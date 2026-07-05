@@ -119,8 +119,19 @@ A Dynalist-like outliner built into VS Code.
 - **Navigation history** — Back / forward buttons to revisit previous search and scope states
 - **Node images** — Paste images with `Cmd+V`. Thumbnails shown below the node, drag to reorder, double-click to enlarge
 - **Undo / Redo** — Full undo/redo with `Cmd+Z` / `Cmd+Shift+Z`
+- **Mindmap Mode** — A third view mode (cycle Outliner View → Table View → Mindmap Mode via the view toggle). Renders the same `.out` as an SVG mindmap.
+  - Layouts: radial (both sides) / right / left / balanced, with the title as the center node. Automatic non-overlapping placement (d3-hierarchy + flextree)
+  - Fully keyboard-driven: Enter = younger sibling, Shift+Enter = elder sibling, Tab = child, Space = edit, arrows = spatial focus move, Delete = remove
+  - Rich nodes (icons / image thumbnails / tags / checkboxes); node width grows live while typing (fit to longest line, capped)
+  - Free styling (node fill / border / shape, link style / color, with subtree inheritance), grouping (Boundary), relationship lines, Floating Topics
+  - Attachments (file / image / markdown — markdown opens in the side panel)
+  - Export to PNG / SVG / OPML / Markdown
+  - Pan / zoom / fit / minimap; the viewport stays put on commit and follows by one node only when the target would go off-screen
+  - Works in both Single mode and Note mode
 
 <!-- TODO: Add Outliner feature screenshot -->
+<!-- TODO: Add Mindmap Mode screenshot -->
+
 
 ---
 

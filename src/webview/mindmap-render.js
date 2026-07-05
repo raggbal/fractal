@@ -19,6 +19,15 @@ var MindmapRender = (function() {
     var viewport = { scale: 1, translateX: 0, translateY: 0 };
     var _bodyEls = [];   // body 直下に付けた要素 (destroy で除去)
     var _lastCtx = null; // 再描画用に render の引数を保持
+    // --- viewport フレーム安定化 (FR-021-J2, iteration 16 / TASK-49) ---
+    // SVG viewBox origin = layout.bounds.min を毎 render 再計算するため、編集/追加/移動で
+    // bounds 原点が動くと viewport.translate 不変でも座標フレーム全体が画面上シフトする。
+    // 前回 render の bounds 原点を保持し、今回との差 Δ を viewport.translate に +Δ·scale
+    // 補正して「固定ノードの画面位置が rerender 前後で不変」にする。
+    var _prevBoundsMin = null;      // 前回 (非 secondPass) render の bounds 原点 {x, y}。初回は null。
+    var _skipStabilizeOnce = false; // updateViewport (ユーザー明示 pan/zoom/fit/minimap) 直後の
+                                    // 次 render は安定化補正をスキップ (基準だけ更新)。
+    var _stabilizeEnabled = true;   // テスト用: false にすると bounds シフト補償を無効化 (load-bearing 検証)。
 
     function el(tag, attrs) {
         var e = document.createElementNS(SVGNS, tag);
@@ -488,6 +497,26 @@ var MindmapRender = (function() {
             return { layout: layout };
         }
 
+        // --- viewport フレーム安定化 (FR-021-J2, TASK-49): bounds シフト補償 ---
+        // 補正・記録は非 secondPass render でのみ行う (2 パス構成でも estimate-pass の
+        // bounds 同士を比較し続けるので基準がぶれない)。secondPass は 1 パス目で確定済み。
+        if (!ctx._secondPass) {
+            var bMin = { x: layout.bounds.minX, y: layout.bounds.minY };
+            if (_prevBoundsMin && !_skipStabilizeOnce && _stabilizeEnabled) {
+                // 固定ノード画面位置 ≈ translate + scale·(nodeX − minX)。minX が Δ 動いても
+                // 画面位置を不変に保つには translate を +Δ·scale する。
+                var dbx = bMin.x - _prevBoundsMin.x;
+                var dby = bMin.y - _prevBoundsMin.y;
+                if (dbx || dby) {
+                    viewport.translateX += dbx * (viewport.scale || 1);
+                    viewport.translateY += dby * (viewport.scale || 1);
+                }
+            }
+            // updateViewport 由来のユーザー明示 viewport 変更は安定化で上書きしない (基準のみ更新)。
+            _skipStabilizeOnce = false;
+            _prevBoundsMin = bMin;
+        }
+
         // viewport コンテナ + SVG
         var vp = document.createElement('div');
         vp.className = 'mindmap-viewport';
@@ -680,6 +709,10 @@ var MindmapRender = (function() {
 
     function updateViewport(vp) {
         viewport = vp || viewport;
+        // ユーザー明示の pan/zoom/fit/minimap 由来の viewport 変更は、次 render の
+        // フレーム安定化補正で上書きしない (TASK-49)。次 render は基準 (_prevBoundsMin)
+        // だけ更新し、その次の render から通常どおり安定化する。
+        _skipStabilizeOnce = true;
         if (_lastCtx && _lastCtx.treeEl) {
             var vpEl = _lastCtx.treeEl.querySelector('.mindmap-viewport');
             if (vpEl) {
@@ -702,6 +735,9 @@ var MindmapRender = (function() {
             MindmapInteractions.detach();
         }
         _lastCtx = null;
+        // フレーム安定化の基準もリセット (次回 mindmap を開いた初回 render を補正しない, TASK-49)。
+        _prevBoundsMin = null;
+        _skipStabilizeOnce = false;
     }
 
     return {
@@ -716,7 +752,10 @@ var MindmapRender = (function() {
         _measureRealWidth: measureRealWidth,
         _measureBoxHeightAtWidth: measureBoxHeightAtWidth,
         _shapeToRadius: shapeToRadius,
-        _trackBodyEl: function(e) { _bodyEls.push(e); }
+        _trackBodyEl: function(e) { _bodyEls.push(e); },
+        // テスト用 (TASK-49 load-bearing): フレーム安定化補正の有効/無効を切り替える。
+        _setStabilizeEnabled: function(v) { _stabilizeEnabled = !!v; },
+        _getPrevBoundsMin: function() { return _prevBoundsMin ? { x: _prevBoundsMin.x, y: _prevBoundsMin.y } : null; }
     };
 })();
 

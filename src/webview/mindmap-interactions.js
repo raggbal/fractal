@@ -17,6 +17,31 @@ var MindmapInteractions = (function() {
     var _contextMenuEl = null;
     var _selectedGroupId = null; // クリック選択中のグループ (G5/G6)
 
+    // ensureNodeVisible の余白 (iteration 18 / TASK-52)。ユーザー報告バグ (#18/#19) は右側 (横方向)
+    // の子持ちノードがギリギリで見づらい件。→ 横方向マージンを 16 → 32 に広げ、右はみ出し補正のみ
+    // 折りたたみハンドルの右張り出し分 handlePad を加算する。
+    // 縦方向マージンは 16 のまま据え置く: iteration 17 の TC-V6 (ArrowDown 連打で選択ノードが下へ
+    // march する = 中央寄せしない invariant) が縦の最小パン量に依存しており、縦マージンを 32 に
+    // 上げると march の後退が TC-V6 の許容 (-2px) を超えて既存テストを壊すため (バグは横方向のみ)。
+    // テストが load-bearing 検証で横の旧値 (16, 0) に戻せるよう module 変数 + setter で公開する
+    // (mindmap-render.js の _setStabilizeEnabled と同方針)。
+    var _ensureMarginX = 32;     // 横方向 本番既定 (旧: 16)。左右対称の見やすい余白。
+    var _ensureMarginY = 16;     // 縦方向 本番既定 (据え置き。TC-V6 の march invariant を保つ)。
+    var _ensureHandlePad = 12;   // 本番既定 (旧: 0)。右のみ。ハンドル (~9px 右張り出し) + 余裕
+    // ensureNodeVisible の発動トリガー (iteration 19 / TASK-53)。本番既定 'margin' =
+    //   「マージン分の余白を確保して収まっているか」で判定 (端に密着=はみ出さないが余白 <marginX の
+    //   ケースでもパンして隙間を作る)。iteration 18 のバグは 'overflow' =「はみ出したときだけ」で、
+    //   端密着ノードに margin が効かなかった (Image #20)。テストが load-bearing 検証で旧 'overflow'
+    //   トリガーに戻せるよう module 変数 + setter で公開する。
+    var _ensureTrigger = 'margin'; // 'margin' (本番) | 'overflow' (旧・load-bearing 用)
+    // ensureNodeVisible の可視端を実ウィンドウ (window.innerWidth/innerHeight) と交差させるか
+    // (iteration 21 / TASK-54, decision-ensure-visible-clamp-to-window)。本番既定 true =
+    //   `.outliner-tree` が実ウィンドウより外側にオーバーフローしていても、実際に見えている端
+    //   (winW/winH) から余白を取る (実機の tree R716 > winW687 の 29px ズレで right-Tab だけ隙間が
+    //   潰れた真因への対処)。false = 旧挙動 (treeEl 矩形をそのまま可視端に使う) で、tree はみ出し
+    //   状況で window との隙間が marginX 未満になり red → load-bearing 検証に使う。
+    var _ensureClampToWindow = true; // true (本番) | false (旧・load-bearing 用)
+
     function closeContextMenu() {
         if (_contextMenuEl && _contextMenuEl.parentNode) {
             _contextMenuEl.parentNode.removeChild(_contextMenuEl);
@@ -102,7 +127,12 @@ var MindmapInteractions = (function() {
                     } else {
                         textEl.classList.remove('is-editing-nowrap');
                     }
-                    textEl.focus();
+                    // preventScroll: native focus scroll がコンテナ (.outliner-scroll-content)
+                    // を動かして中央寄せするのを止める (iteration 17 / TASK-51)。
+                    // 可視化は ensureNodeVisible (transform 最小パン) に一本化する。
+                    // caret 設定 (下の range) は focus 後に行う既存順序を維持。
+                    try { textEl.focus({ preventScroll: true }); }
+                    catch (e) { textEl.focus(); }
                     // カーソルを末尾へ
                     if (typeof document !== 'undefined' && document.createRange) {
                         var range = document.createRange();
@@ -132,9 +162,100 @@ var MindmapInteractions = (function() {
                 } else {
                     // 選択のみ: contenteditable にしない (tabindex フォーカスのみ)
                     textEl.setAttribute('contenteditable', 'false');
-                    textEl.focus();
+                    // preventScroll: 矢印移動・追加後・クリック選択の主経路。native focus
+                    // scroll がコンテナ (.outliner-scroll-content) を動かして選択ノードを
+                    // 中央寄せするのを止める (iteration 17 / TASK-51)。可視化は
+                    // ensureNodeVisible (transform 最小パン) に一本化。
+                    try { textEl.focus({ preventScroll: true }); }
+                    catch (e) { textEl.focus(); }
                 }
             }
+        }
+
+        // --- 移動・追加時の最小追従 (FR-021-J2, iteration 16 / TASK-50) ---
+        // 対象ノードが画面外のときだけ最小量パンして見せる (中央には寄せない)。
+        // 前提: viewport フレーム安定化 (mindmap-render.js, TASK-49) で「レイアウト起因の
+        //   bounds シフト」は打ち消され、rerender で固定ノードの画面位置は不変。この関数は
+        //   その上で「フォーカスが移る先が画面外なら最小パン」する。
+        // 正典: design/system/interactions.md「移動・追加時の最小追従」。
+        // 呼び出し元は各操作の rerender 後 (rerender は viewport を共有参照するため、この
+        //   時点の getBoundingClientRect は安定化後の座標)。ユーザー明示 pan/zoom/fit/minimap
+        //   と編集確定 (commitEdit) は呼ばない。
+        function ensureNodeVisible(nodeId) {
+            if (!nodeId || !_treeEl) { return; }
+            var fo = _treeEl.querySelector('.mindmap-node[data-node-id="' + nodeId + '"]');
+            if (!fo || !fo.getBoundingClientRect) { return; }
+            var nr = fo.getBoundingClientRect();
+            var vr = _treeEl.getBoundingClientRect();
+            // 可視領域を treeEl 矩形そのままでなく **実ウィンドウと交差させた矩形**にする
+            // (iteration 21 / TASK-54, decision-ensure-visible-clamp-to-window)。
+            // 実機ログ (0.208.32): `.outliner-tree` の getBoundingClientRect().right=716 が
+            // window.innerWidth=687 より 29px 外側にオーバーフローしていた (祖先 scroll-content
+            // 以上は R687 で clip)。→ treeEl 基準で marginX=32 を確保しても、実際に見えている
+            // 右端 (winW=687) との隙間は 3px でくっついて見えた (right-Tab だけ露呈)。
+            // 可視端を Math.min(vr.right, winW) 等で実ウィンドウと交差させ、実可視端から余白を取る。
+            // window が取れない環境 (テスト等) は vr フォールバック。treeEl と window が一致する
+            // standalone 既存ケースでは Math.min/max が no-op で従来と同一 (TC-V1〜V9 不変)。
+            var winW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : vr.right;
+            var winH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : vr.bottom;
+            // _ensureClampToWindow=false (load-bearing 用) では旧挙動 = treeEl 矩形をそのまま可視端に
+            //   使う (Math.min/max なし)。true (本番) では実ウィンドウと交差させる。
+            var visRight  = _ensureClampToWindow ? Math.min(vr.right, winW) : vr.right;
+            var visLeft   = _ensureClampToWindow ? Math.max(vr.left, 0) : vr.left;
+            var visTop    = _ensureClampToWindow ? Math.max(vr.top, 0) : vr.top;
+            var visBottom = _ensureClampToWindow ? Math.min(vr.bottom, winH) : vr.bottom;
+            // 横方向マージン (左右共通で _ensureMarginX=32px。iteration 18 / TASK-52: 左の見やすい
+            // 余白に合わせて 16 → 32 に拡大) / 縦方向マージン (_ensureMarginY=16px 据え置き)。
+            var marginX = _ensureMarginX;
+            var marginY = _ensureMarginY;
+            // 右はみ出し補正のみ、折りたたみハンドル (子持ちノードの `−`/`+`) の張り出し分を
+            // 加算する。`.mindmap-collapse-handle` は position:absolute; right:-9px; width:16px で
+            // box 右端を ~9px 右に張り出すが、fo.getBoundingClientRect() は absolute 子を含まない
+            // ため nr.right に反映されない。→ ハンドルありノードは右余白がその分削られるので、
+            // 右方向補正時だけ handlePad(=12, 実測 9px + 余裕) を上乗せする。ハンドルは右にしか
+            // 出ないので左・上・下方向には加算しない (iteration 18 / TASK-52)。
+            var handlePad = (fo.querySelector && fo.querySelector('.mindmap-collapse-handle')) ? _ensureHandlePad : 0;
+            var dx = 0, dy = 0;
+            if (_ensureTrigger === 'overflow') {
+                // 旧トリガー (iteration 18・load-bearing 用): ノードが可視領域を「はみ出した」
+                //   ときだけパン。端密着 (nr.right <= visRight だが余白 < marginX) では発動しない。
+                if (nr.top < visTop) {
+                    dy = (visTop - nr.top) + marginY;
+                } else if (nr.bottom > visBottom) {
+                    dy = -((nr.bottom - visBottom) + marginY);
+                }
+                if (nr.left < visLeft) {
+                    dx = (visLeft - nr.left) + marginX;
+                } else if (nr.right > visRight) {
+                    dx = -((nr.right - visRight) + marginX + handlePad);
+                }
+            } else {
+                // 本番トリガー (iteration 19 / TASK-53): 「マージン分の余白を確保して収まって
+                //   いるか」で判定 (4 方向対称)。端にピッタリ収まる (はみ出さないが余白 < margin)
+                //   ケースでも発動して隙間を作る。マージン分の余裕があれば全条件 false → dx=dy=0 →
+                //   何もしない (「端に近いときだけマージン分の最小パン・十分内側なら不動」)。中央寄せ
+                //   にはしない (マージン分だけ内側に入れる最小移動)。可視端は実ウィンドウとの交差
+                //   (visTop/visBottom/visRight/visLeft) を使う (iteration 21 / TASK-54)。
+                // 上: 上端がマージン込みで枠内に収まっていない → 下へずらす (translateY += ...)
+                if (nr.top - marginY < visTop) {
+                    dy = (visTop + marginY - nr.top);
+                } else if (nr.bottom + marginY > visBottom) {
+                    // 下: 下端がマージン込みで収まっていない → 上へずらす
+                    dy = -(nr.bottom + marginY - visBottom);
+                }
+                // 右: 右端 (ハンドル張り出し分含む) がマージン込みで収まっていない → 左へずらす。
+                //   右違反を優先し (else if 左)、通常ノードは同時発動しない。
+                if (nr.right + marginX + handlePad > visRight) {
+                    dx = -(nr.right + marginX + handlePad - visRight);
+                } else if (nr.left - marginX < visLeft) {
+                    // 左: 左端がマージン込みで収まっていない → 右へずらす
+                    dx = (visLeft + marginX - nr.left);
+                }
+            }
+            if (!dx && !dy) { return; } // マージン込みで完全に収まっている → 何もしない (viewport 不変)
+            viewport.translateX += dx;
+            viewport.translateY += dy;
+            applyViewport(); // MindmapRender.updateViewport(viewport), transform のみ・再レイアウトなし
         }
 
         // contenteditable の DOM を改行付きプレーンテキストに正規化 (FR-021-C13)。
@@ -298,10 +419,14 @@ var MindmapInteractions = (function() {
                         pushUndo();
                         var bro = model.addNodeBefore(node.parentId, nodeId, '');
                         scheduleSync(); rerender(); focusNode(bro.id, false);
+                        // 追加ノードの最小追従 (TASK-50): 画面内なら不変 (Shift+Enter の理想維持)、
+                        // 画面外のみ最小パン。rerender 後 = 安定化後の座標で可視判定。
+                        ensureNodeVisible(bro.id);
                     } else {
                         pushUndo();
                         var otouto = model.addNode(node.parentId, nodeId, '');
                         scheduleSync(); rerender(); focusNode(otouto.id, false);
+                        ensureNodeVisible(otouto.id); // 追加ノードの最小追従 (TASK-50)
                     }
                     return;
                 }
@@ -312,6 +437,7 @@ var MindmapInteractions = (function() {
                     var child = model.addNode(nodeId, null, '');
                     if (node.collapsed) { node.collapsed = false; }
                     scheduleSync(); rerender(); focusNode(child.id, false);
+                    ensureNodeVisible(child.id); // 追加ノードの最小追従 (TASK-50)
                     return;
                 }
                 case 'Delete':
@@ -340,7 +466,13 @@ var MindmapInteractions = (function() {
                     var adj = (typeof MindmapLayout !== 'undefined' && runtime.layout)
                         ? MindmapLayout.findAdjacent(runtime.layout.positions, nodeId, dir, settings.layout || 'right')
                         : null;
-                    if (adj) { focusNode(adj, false); } // 選択のみ (編集開始しない, C10)
+                    if (adj) {
+                        focusNode(adj, false); // 選択のみ (編集開始しない, C10)
+                        // 移動・追加時の最小追従 (TASK-50): 移動先が画面外なら最小パン。
+                        // 上下左右すべて対称 (現状の「上は追従しない/下は中央」の非対称を解消)。
+                        // 矢印移動は rerender せず選択のみ変わるので DOM は既存 → 直接可視判定。
+                        ensureNodeVisible(adj);
+                    }
                     return;
                 }
             }
@@ -710,6 +842,8 @@ var MindmapInteractions = (function() {
                     }
                     scheduleSync();
                     rerender();
+                    // reparent 移動の最小追従 (TASK-50): 移動ノードが画面外なら最小パン。
+                    ensureNodeVisible(draggedId);
                 });
             })(nodeEls[ni]);
         }
@@ -732,6 +866,8 @@ var MindmapInteractions = (function() {
             MindmapModel.detachToFloating(model, draggedId, x, y);
             scheduleSync();
             rerender();
+            // floating 移動の最小追従 (TASK-50): 移動ノードが画面外なら最小パン。
+            ensureNodeVisible(draggedId);
         });
 
         // ================= Wave 4-5: toolbar / zoom-pan / context menu / export =================
@@ -966,7 +1102,27 @@ var MindmapInteractions = (function() {
     return {
         attach: attach,
         detach: detach,
-        _prevSiblingId: prevSiblingId
+        _prevSiblingId: prevSiblingId,
+        // テスト用 (iteration 18 / TASK-52 の load-bearing): ensureNodeVisible の横マージンと
+        // ハンドル張り出し加算を旧値 (16, 0) に戻して「右のギリギリ (ハンドルが画面端に接近)」を
+        // 再現し、修正が効いていることを実証するためのフック。本番コードは既定 (32, 12) を使う。
+        // 縦マージン (_ensureMarginY) はこのフックでは変えない (TC-V6 の march invariant を保つ)。
+        _setEnsureVisibleParams: function(marginX, handlePad) {
+            _ensureMarginX = (typeof marginX === 'number') ? marginX : 32;
+            _ensureHandlePad = (typeof handlePad === 'number') ? handlePad : 12;
+        },
+        // テスト用 (iteration 19 / TASK-53 の load-bearing): ensureNodeVisible の発動トリガーを
+        // 旧 'overflow' (はみ出し時のみ) に戻して「端密着ノードでパンせず隙間 0」を再現し、本番の
+        // 'margin' (マージン込み収まりで判定) が効いていることを実証するためのフック。本番は 'margin'。
+        _setEnsureVisibleTrigger: function(mode) {
+            _ensureTrigger = (mode === 'overflow') ? 'overflow' : 'margin';
+        },
+        // テスト用 (iteration 21 / TASK-54 の load-bearing): ensureNodeVisible の可視端を実ウィンドウ
+        // と交差させるか。false に戻すと treeEl 矩形をそのまま可視端に使う (旧挙動) → tree が実ウィンドウ
+        // より外側にはみ出す状況で、window との隙間が marginX 未満になり red。本番は既定 true。
+        _setEnsureVisibleClampToWindow: function(on) {
+            _ensureClampToWindow = (on !== false);
+        }
     };
 })();
 

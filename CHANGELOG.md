@@ -5,6 +5,23 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.0] - 2026-07-06
+
+### Added
+- **Mindmap Mode (FR-021)** — Outliner の第3表示モード。View Toggle で Outliner View → Table View → Mindmap Mode を循環。同じ `.out` を SVG マインドマップとして描画・編集する（`viewMode:'mindmap'` を `.out` に永続化、後方互換）。
+  - **レイアウト**: d3-hierarchy + d3-flextree で radial（左右両側）/ right / left / balanced。title を中心ノードにして rootIds を左右展開。可変ノードサイズで重なり回避。
+  - **キーボード操作**: Enter=弟追加 / Shift+Enter=兄追加 / Tab=子追加（いずれも非編集）/ Space=編集開始 / 矢印=空間フォーカス移動 / Delete=削除 / undo・copy 等。マウスなしで完結。
+  - **編集**: contenteditable リッチノード（アイコン/画像/タグ/チェックボックス）。改行なし長文は編集中に横幅リアルタイム拡張（上限280px、最長行フィット）。編集ノード DOM 非再生成で caret/IME 保護、blur/focusout で自動 commit（データ損失防止）。
+  - **配置**: 内側エッジ合わせ（right=左端揃え / left=右端揃え）。接続線はノードのエッジに接続。
+  - **スタイル/構造**: ノード塗り/枠/形状・線種/色の自由設定（サブツリー継承）、複数選択グループ化（Boundary）、関連線（Relationship）、Floating Topic（自由配置）。
+  - **添付**: file/image/markdown を Outliner 同様に添付（markdown は side panel で開く）。
+  - **エクスポート**: PNG / SVG / OPML / Markdown。
+  - **ビューポート**: pan / zoom / fit / minimap。編集確定でフレーム不動（bounds シフト補償）、移動・追加は対象が画面外のときだけ最小パン（実ウィンドウ端から余白を確保、中央寄せしない）。
+  - Single mode / Note mode の両 provider で利用可能。
+
+### Changed
+- Outliner (FR-002) を「3 view modes（Outliner View / Table View / Mindmap Mode）」に更新。
+
 ## [0.207.59] - 2026-05-13
 
 ### Changed

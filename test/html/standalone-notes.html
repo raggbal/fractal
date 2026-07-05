@@ -27849,7 +27849,10 @@ var Outliner = (function() {
                         var textEl = treeEl.querySelector('.mindmap-node-text[data-node-id="' + n.id + '"]');
                         if (textEl) {
                             textEl.setAttribute('contenteditable', 'true');
-                            textEl.focus();
+                            // preventScroll: mindmap 空状態の初回 root 追加。native focus
+                            // scroll による中央寄せを止める (iteration 17 / TASK-51)。
+                            try { textEl.focus({ preventScroll: true }); }
+                            catch (e) { textEl.focus(); }
                         }
                     }
                 });
