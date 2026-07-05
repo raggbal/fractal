@@ -87,6 +87,23 @@ export function getOutlinerWebviewContent(
     const mermaidUri = vendorUri('mermaid.min.js');
     const katexJsUri = vendorUri('katex.min.js');
     const katexCssUri = vendorUri('katex.min.css');
+    // Mindmap Mode (sprint 20260701-122355): d3 layout engine (UMD, window.d3)
+    const d3HierarchyUri = vendorUri('d3-hierarchy.min.js');
+    const d3FlextreeUri = vendorUri('d3-flextree.min.js');
+
+    // Mindmap Mode: webview scripts + css (flat under src/webview/)
+    const mindmapModelScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-model.js'), 'utf8');
+    const mindmapLayoutScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-layout.js'), 'utf8');
+    const mindmapRenderScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-render.js'), 'utf8');
+    const mindmapExportScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-export.js'), 'utf8');
+    const mindmapInteractionsScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-interactions.js'), 'utf8');
+    const mindmapCssPath = path.join(__dirname, 'webview', 'mindmap.css');
+    const mindmapCss = fs.existsSync(mindmapCssPath) ? fs.readFileSync(mindmapCssPath, 'utf8') : '';
 
     // Base64 encode JSON content to prevent XSS
     const jsonToEncode = jsonContent || '{"version":1,"rootIds":[],"nodes":{}}';
@@ -114,6 +131,9 @@ export function getOutlinerWebviewContent(
     </style>
     <style>
         ${outlinerCss}
+    </style>
+    <style>
+        ${mindmapCss}
     </style>
     <link rel="stylesheet" href="${katexCssUri}">
     <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
@@ -148,6 +168,8 @@ export function getOutlinerWebviewContent(
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}"></script>
     <script src="${katexJsUri}"></script>
+    <script src="${d3HierarchyUri}"></script>
+    <script src="${d3FlextreeUri}"></script>
 
     <script nonce="${nonce}">
         window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -174,6 +196,21 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${outlinerModelScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapModelScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapLayoutScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapRenderScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapExportScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapInteractionsScript}
     </script>
     <script nonce="${nonce}">
         ${outlinerSearchScript}

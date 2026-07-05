@@ -46,33 +46,52 @@ var Outliner = (function() {
     //   'table'           : 列ヘッダー + 各 outliner row に列セルを並べる (table editor)
     // 列定義は model.columns で永続化、各 node の値は node.columnValues で保持。
     // F2.1 段階では 'table' は stub (= outliner と同じ描画)。F2.2 で実装。
+    // Mindmap Mode (sprint 20260701-122355): 'outliner' | 'table' | 'mindmap' の 3 状態。
     var VIEW_MODE = 'outliner';
     function getViewMode() { return VIEW_MODE; }
     function setViewMode(mode) {
-        if (mode !== 'outliner' && mode !== 'table') return;
+        if (mode !== 'outliner' && mode !== 'table' && mode !== 'mindmap') return;
         if (VIEW_MODE === mode) return;
+        var prev = VIEW_MODE;
         VIEW_MODE = mode;
+        // model にも反映 → serialize で永続化 (#M6, decision-persistence)
+        if (model) { model.viewMode = mode; }
         if (mode === 'table') ensureColumnsForTable();
         if (treeEl) {
-            // table mode → outliner に戻す時は inline grid styles を解除
-            if (mode === 'outliner') {
+            // table/mindmap → outliner に戻す時は inline grid/mindmap styles を解除
+            if (mode !== 'table') {
                 treeEl.style.display = '';
                 treeEl.style.gridTemplateColumns = '';
                 treeEl.style.width = '';
                 treeEl.style.minWidth = '';
             }
+            // mindmap から離れる時は mindmap DOM/リスナを破棄
+            if (prev === 'mindmap' && mode !== 'mindmap' &&
+                typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                MindmapRender.destroy();
+            }
             renderTree();
         }
         updateViewToggleButton();
+        scheduleSyncToHost();
     }
     function updateViewToggleButton() {
         if (!viewToggleBtn) return;
-        // 現在 outliner なら「table に切替えたい」アイコン (table icon)
-        // 現在 table なら「outliner に切替えたい」アイコン (outline icon)
-        viewToggleBtn.innerHTML = (VIEW_MODE === 'outliner') ? ICON_VIEW_TABLE : ICON_VIEW_OUTLINE;
-        viewToggleBtn.title = (VIEW_MODE === 'outliner')
-            ? 'Switch to Table view'
-            : 'Switch to Outline view';
+        // 3 状態循環: 現在のモードから「次に切替わるモード」のアイコン/ラベルを表示。
+        //   outliner → (押すと) table, table → mindmap, mindmap → outliner
+        if (VIEW_MODE === 'outliner') {
+            viewToggleBtn.innerHTML = ICON_VIEW_TABLE;
+            viewToggleBtn.title = 'Switch to Table view';
+        } else if (VIEW_MODE === 'table') {
+            viewToggleBtn.innerHTML = ICON_VIEW_MINDMAP;
+            viewToggleBtn.title = 'Switch to Mindmap mode';
+        } else { // mindmap
+            viewToggleBtn.innerHTML = ICON_VIEW_OUTLINE;
+            viewToggleBtn.title = 'Switch to Outline view';
+        }
+    }
+    function nextViewMode(mode) {
+        return mode === 'outliner' ? 'table' : (mode === 'table' ? 'mindmap' : 'outliner');
     }
 
 
@@ -297,7 +316,10 @@ var Outliner = (function() {
         // Phase F2: 列定義は model 側で serialize されるので known
         'columns',
         // タスクモード関連 (model 経由で serialize)
-        'taskMode', 'taskFilter'
+        'taskMode', 'taskFilter',
+        // Mindmap Mode (sprint 20260701-122355): model 側で serialize されるので known
+        // (rawDataExtras に二重取り込みしない #M6)
+        'viewMode', 'mindmap'
     ];
 
     function captureRawDataExtras(data) {
@@ -731,6 +753,8 @@ var Outliner = (function() {
     // Phase F3: outliner / table view 切替アイコン
     var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
     var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+    // Mindmap Mode (sprint 20260701-122355): 中心ノードから枝が伸びるアイコン
+    var ICON_VIEW_MINDMAP = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><line x1="7.3" y1="11" x2="17" y2="6.8"/><line x1="7.3" y1="13" x2="17" y2="17.2"/></svg>';
     // タスクモード: チェックボックス square + check
     var ICON_TASK_MODE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
     // フィルタ: 漏斗 (active 時 fill あり)
@@ -747,6 +771,10 @@ var Outliner = (function() {
         if (outFileKey) {
             currentOutFileKey = outFileKey;
         }
+        // Mindmap Mode (sprint 20260701-122355): model が復元した viewMode を runtime に同期。
+        // 旧 .out は 'outliner'。table/mindmap を永続化していれば復元する (decision-persistence)。
+        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
+            ? model.viewMode : 'outliner';
 
         // JSONから検索モードを復元
         if (data && data.searchFocusMode) {
@@ -822,7 +850,7 @@ var Outliner = (function() {
         if (viewToggleBtn) {
             updateViewToggleButton();
             viewToggleBtn.addEventListener('click', function () {
-                setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
+                setViewMode(nextViewMode(VIEW_MODE));
                 updateViewToggleButton();
             });
         }
@@ -1278,6 +1306,46 @@ var Outliner = (function() {
         // table mode は F2.2 以降で列ヘッダー + grid layout を追加。F2.1 は stub。
         if (VIEW_MODE === 'table') {
             renderTableMode();
+            return;
+        }
+        // Mindmap Mode (sprint 20260701-122355): SVG マインドマップ描画に委譲。
+        if (VIEW_MODE === 'mindmap') {
+            if (typeof MindmapRender !== 'undefined' && MindmapRender.render) {
+                MindmapRender.render(model, model.mindmap, treeEl, window.outlinerHostBridge, {
+                    i18n: i18n,
+                    imageBaseUri: (typeof window !== 'undefined' && window.__outlinerImageBaseUri) || '',
+                    scheduleSync: scheduleSyncToHost,
+                    focusedNodeId: focusedNodeId,
+                    selectedNodeIds: selectedNodeIds,
+                    // title 中心ノード (FR-021-B6)
+                    titleText: model.title || '',
+                    setTitle: function (t) {
+                        model.title = t;
+                        if (pageTitleInput) { pageTitleInput.value = t; }
+                    },
+                    // Mindmap interactions が使う outliner 内部フック
+                    pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    setFocusedNodeId: function (id) { focusedNodeId = id; },
+                    getFocusedNodeId: function () { return focusedNodeId; },
+                    openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
+                    // FR-021-A4: 空状態の "+ Add" から最初の root を作成
+                    addRootAndEdit: function () {
+                        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+                        var n = model.addNode(null, null, '');
+                        focusedNodeId = n.id;
+                        scheduleSyncToHost();
+                        renderTree();
+                        // 再描画後、新規ノードのテキストを編集状態にフォーカス
+                        var textEl = treeEl.querySelector('.mindmap-node-text[data-node-id="' + n.id + '"]');
+                        if (textEl) {
+                            textEl.setAttribute('contenteditable', 'true');
+                            textEl.focus();
+                        }
+                    }
+                });
+            } else {
+                treeEl.innerHTML = '<div class="outliner-empty"><div>Mindmap renderer not loaded</div></div>';
+            }
             return;
         }
         updateBreadcrumb();

@@ -114,6 +114,23 @@ export function getNotesWebviewContent(
     const mermaidUri = vendorUri('mermaid.min.js');
     const katexJsUri = vendorUri('katex.min.js');
     const katexCssUri = vendorUri('katex.min.css');
+    // Mindmap Mode (sprint 20260701-122355): d3 layout engine + mindmap scripts/css.
+    // Notes mode uses this generator (NOT outlinerWebviewContent.ts) — must inject here too
+    // for 4-mode coverage (Hard MUST). See design-review #H3.
+    const d3HierarchyUri = vendorUri('d3-hierarchy.min.js');
+    const d3FlextreeUri = vendorUri('d3-flextree.min.js');
+    const mindmapModelScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-model.js'), 'utf8');
+    const mindmapLayoutScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-layout.js'), 'utf8');
+    const mindmapRenderScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-render.js'), 'utf8');
+    const mindmapExportScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-export.js'), 'utf8');
+    const mindmapInteractionsScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-interactions.js'), 'utf8');
+    const mindmapCssPath = path.join(__dirname, 'webview', 'mindmap.css');
+    const mindmapCss = fs.existsSync(mindmapCssPath) ? fs.readFileSync(mindmapCssPath, 'utf8') : '';
 
     // Base64 encode JSON content
     const jsonToEncode = initData.jsonContent || '{"version":1,"rootIds":[],"nodes":{}}';
@@ -144,6 +161,7 @@ export function getNotesWebviewContent(
     <style>${frComponentsCss}</style>
     <style>${editorStyles}</style>
     <style>${outlinerCss}</style>
+    <style>${mindmapCss}</style>
     <link rel="stylesheet" href="${katexCssUri}">
     <style>${notesCss}</style>
     <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
@@ -212,6 +230,8 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}" nonce="${nonce}"></script>
     <script src="${katexJsUri}" nonce="${nonce}"></script>
+    <script src="${d3HierarchyUri}" nonce="${nonce}"></script>
+    <script src="${d3FlextreeUri}" nonce="${nonce}"></script>
 
     <script nonce="${nonce}">
         window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -228,6 +248,11 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${editorScript}</script>
     <script nonce="${nonce}">${outlinerCellScript}</script>
     <script nonce="${nonce}">${outlinerModelScript}</script>
+    <script nonce="${nonce}">${mindmapModelScript}</script>
+    <script nonce="${nonce}">${mindmapLayoutScript}</script>
+    <script nonce="${nonce}">${mindmapRenderScript}</script>
+    <script nonce="${nonce}">${mindmapExportScript}</script>
+    <script nonce="${nonce}">${mindmapInteractionsScript}</script>
     <script nonce="${nonce}">${outlinerSearchScript}</script>
     <script nonce="${nonce}">${outlinerScript}</script>
     <script nonce="${nonce}">${notesColorPaletteScript}</script>

@@ -29,6 +29,37 @@ var OutlinerModel = (function() {
         });
     }
 
+    // --- Mindmap 設定の正規化 (mindmap-model.js と同じ既定値。load-order 非依存にするため
+    //     outliner-model.js 内に自己完結で持つ。値の正典は design/system/data-model.md §2) ---
+    var MINDMAP_DEFAULTS = {
+        layout: 'right', linkStyle: 'curved', linkColor: null, linkWidth: 2,
+        siblingSpacing: 16, levelSpacing: 80
+    };
+    function normalizeMindmapSettings(s) {
+        s = (s && typeof s === 'object') ? s : {};
+        return {
+            layout: s.layout || MINDMAP_DEFAULTS.layout,
+            linkStyle: s.linkStyle || MINDMAP_DEFAULTS.linkStyle,
+            linkColor: (s.linkColor !== undefined) ? s.linkColor : MINDMAP_DEFAULTS.linkColor,
+            linkWidth: (typeof s.linkWidth === 'number') ? s.linkWidth : MINDMAP_DEFAULTS.linkWidth,
+            siblingSpacing: (typeof s.siblingSpacing === 'number') ? s.siblingSpacing : MINDMAP_DEFAULTS.siblingSpacing,
+            levelSpacing: (typeof s.levelSpacing === 'number') ? s.levelSpacing : MINDMAP_DEFAULTS.levelSpacing,
+            groups: Array.isArray(s.groups) ? s.groups.slice() : [],
+            relationships: Array.isArray(s.relationships) ? s.relationships.slice() : []
+        };
+    }
+    function isDefaultMindmapSettings(s) {
+        if (!s) { return true; }
+        return s.layout === MINDMAP_DEFAULTS.layout &&
+            s.linkStyle === MINDMAP_DEFAULTS.linkStyle &&
+            (s.linkColor === null || s.linkColor === undefined) &&
+            s.linkWidth === MINDMAP_DEFAULTS.linkWidth &&
+            s.siblingSpacing === MINDMAP_DEFAULTS.siblingSpacing &&
+            s.levelSpacing === MINDMAP_DEFAULTS.levelSpacing &&
+            (!s.groups || s.groups.length === 0) &&
+            (!s.relationships || s.relationships.length === 0);
+    }
+
     /** タグ解析: text内の #tag / @tag を抽出 */
     function parseTags(text) {
         var tags = [];
@@ -61,6 +92,14 @@ var OutlinerModel = (function() {
         // タスクモード時のフィルタ: 'active' (未完了のみ) | 'all'
         // デフォルトは 'all' (フィルタなし)。taskMode 有効化で 'active' に切替。
         this.taskFilter = (data.taskFilter === 'active') ? 'active' : 'all';
+
+        // Mindmap Mode (sprint 20260701-122355): 表示モード + mindmap 設定。
+        //   viewMode: 'outliner' | 'table' | 'mindmap'。旧 .out は 'outliner' 既定 (後方互換)。
+        //   mindmap : MindmapSettings (mindmap-model.js の defaultMindmapSettings)。
+        // どちらも全 optional。旧ファイルを壊さず、全デフォルト時は serialize で省略する。
+        this.viewMode = (data.viewMode === 'table' || data.viewMode === 'mindmap')
+            ? data.viewMode : 'outliner';
+        this.mindmap = normalizeMindmapSettings(data.mindmap);
 
         // nodes のマップ化
         if (data.nodes) {
@@ -173,6 +212,40 @@ var OutlinerModel = (function() {
                 parent.children.unshift(id);
             }
         }
+        return node;
+    };
+
+    /**
+     * beforeId の直前（同じ index 位置）に新ノードを挿入する。
+     * mindmap の「兄（上）を追加」用。beforeId が先頭なら先頭に入る。
+     * beforeId が見つからなければ末尾に追加（フォールバック）。
+     */
+    Model.prototype.addNodeBefore = function(parentId, beforeId, text) {
+        var id = generateNodeId();
+        text = text || '';
+        var isRoot = (parentId === null || parentId === undefined);
+        var node = {
+            id: id,
+            parentId: parentId || null,
+            children: [],
+            text: text,
+            tags: parseTags(text),
+            isPage: false,
+            pageId: null,
+            collapsed: false,
+            checked: (this.taskMode && isRoot) ? false : null,
+            subtext: '',
+            images: [],
+            filePath: null
+        };
+        this.nodes[id] = node;
+        var siblings = (parentId === null || parentId === undefined)
+            ? this.rootIds
+            : (this.nodes[parentId] ? this.nodes[parentId].children : null);
+        if (!siblings) { return node; }
+        var idx = beforeId ? siblings.indexOf(beforeId) : -1;
+        if (idx < 0) { idx = siblings.length; } // 見つからなければ末尾
+        siblings.splice(idx, 0, id);
         return node;
     };
 
@@ -525,6 +598,14 @@ var OutlinerModel = (function() {
         // taskFilter は 'active' 時のみ persist (デフォルト 'all' は省略)
         if (this.taskFilter === 'active') {
             data.taskFilter = 'active';
+        }
+        // Mindmap Mode: viewMode は 'outliner' 以外のときのみ出力 (旧 .out 非破壊)。
+        if (this.viewMode && this.viewMode !== 'outliner') {
+            data.viewMode = this.viewMode;
+        }
+        // mindmap 設定は全デフォルトでないときのみ出力 (.out を無駄に肥大させない)。
+        if (!isDefaultMindmapSettings(this.mindmap)) {
+            data.mindmap = JSON.parse(JSON.stringify(this.mindmap));
         }
         return data;
     };

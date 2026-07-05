@@ -5,6 +5,7 @@ import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
+import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
 
@@ -253,6 +254,15 @@ export async function handleNotesMessage(
         case 'save':
             fileManager.flushSave();
             break;
+
+        case 'exportMindmap': {
+            // Mindmap Mode (sprint 20260701-122355): Note モードの PNG/SVG/OPML/MD 書き出し (#M2, 4-mode)。
+            const cur = fileManager.getCurrentFilePath();
+            const baseDir = cur ? path.dirname(cur) : '';
+            const result = await handleExportMindmap(message, baseDir);
+            sender.postMessage({ type: 'mindmapExportDone', ...result });
+            break;
+        }
 
         case 'openInTextEditor':
             platform.openInTextEditor?.();

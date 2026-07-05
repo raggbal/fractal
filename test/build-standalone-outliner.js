@@ -18,6 +18,13 @@ const outlinerJsPath = path.join(__dirname, '../src/webview/outliner.js');
 const outlinerCellJsPath = path.join(__dirname, '../src/webview/outliner-cell.js');
 const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.js');
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
+// Mindmap Mode (sprint 20260701-122355)
+const mindmapModelJsPath = path.join(__dirname, '../src/webview/mindmap-model.js');
+const mindmapLayoutJsPath = path.join(__dirname, '../src/webview/mindmap-layout.js');
+const mindmapRenderJsPath = path.join(__dirname, '../src/webview/mindmap-render.js');
+const mindmapExportJsPath = path.join(__dirname, '../src/webview/mindmap-export.js');
+const mindmapInteractionsJsPath = path.join(__dirname, '../src/webview/mindmap-interactions.js');
+const mindmapCssPath = path.join(__dirname, '../src/webview/mindmap.css');
 const outlinerCssPath = path.join(__dirname, '../src/webview/outliner.css');
 const stylesPath = path.join(__dirname, '../src/webview/styles.css');
 const tokensCssPath = path.join(__dirname, '../src/webview/tokens.css');
@@ -73,6 +80,13 @@ const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
+// Mindmap Mode scripts + css
+const mindmapModelScript = fs.readFileSync(mindmapModelJsPath, 'utf-8');
+const mindmapLayoutScript = fs.readFileSync(mindmapLayoutJsPath, 'utf-8');
+const mindmapRenderScript = fs.readFileSync(mindmapRenderJsPath, 'utf-8');
+const mindmapExportScript = fs.readFileSync(mindmapExportJsPath, 'utf-8');
+const mindmapInteractionsScript = fs.readFileSync(mindmapInteractionsJsPath, 'utf-8');
+const mindmapCss = fs.existsSync(mindmapCssPath) ? fs.readFileSync(mindmapCssPath, 'utf-8') : '';
 
 // サイドパネルHTML生成
 const { generateSidePanelHtml } = require(editorBodyHtmlPath);
@@ -98,6 +112,11 @@ const testOutlinerHostBridge = `
         syncData: function(jsonString) {
             window.__testApi.messages.push({ type: 'syncData', content: jsonString });
             window.__testApi.lastSyncData = jsonString;
+        },
+        // Mindmap Mode (sprint 20260701-122355): export mock (#M1). TC-223/224/225 は
+        // window.__testApi.messages にこの msg が積まれることで検証する。
+        exportMindmap: function(format, payload, suggestedName) {
+            window.__testApi.messages.push({ type: 'exportMindmap', format: format, payload: payload, suggestedName: suggestedName });
         },
         makePage: function(nodeId, pageId, title) {
             window.__testApi.messages.push({ type: 'makePage', nodeId: nodeId, pageId: pageId, title: title });
@@ -201,6 +220,7 @@ const html = `<!DOCTYPE html>
     <style>${frComponentsCss}</style>
     <style>${stylesContent}</style>
     <style>${outlinerCss}</style>
+    <style>${mindmapCss}</style>
 </head>
 <body>
     <div class="outliner-container">
@@ -266,6 +286,8 @@ const html = `<!DOCTYPE html>
     <script src="vendor/turndown.js"></script>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>
+    <script src="vendor/d3-hierarchy.min.js"></script>
+    <script src="vendor/d3-flextree.min.js"></script>
 
     <script>
     window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -292,6 +314,21 @@ const html = `<!DOCTYPE html>
     </script>
     <script>
     __OUTLINER_MODEL_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_MODEL_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_LAYOUT_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_RENDER_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_EXPORT_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_INTERACTIONS_SCRIPT__
     </script>
     <script>
     __OUTLINER_SEARCH_SCRIPT__
@@ -331,6 +368,11 @@ result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testOutlinerHostBridge);
 result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
+result = safeReplace(result, '__MINDMAP_MODEL_SCRIPT__', mindmapModelScript);
+result = safeReplace(result, '__MINDMAP_LAYOUT_SCRIPT__', mindmapLayoutScript);
+result = safeReplace(result, '__MINDMAP_RENDER_SCRIPT__', mindmapRenderScript);
+result = safeReplace(result, '__MINDMAP_EXPORT_SCRIPT__', mindmapExportScript);
+result = safeReplace(result, '__MINDMAP_INTERACTIONS_SCRIPT__', mindmapInteractionsScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 fs.writeFileSync(outputPath, result);

@@ -18,6 +18,11 @@
             api.postMessage({ type: 'syncData', content: jsonString });
         },
 
+        // Mindmap Mode (sprint 20260701-122355): PNG/SVG/OPML/MD エクスポート
+        exportMindmap: function(format, payload, suggestedName) {
+            api.postMessage({ type: 'exportMindmap', format: format, payload: payload, suggestedName: suggestedName });
+        },
+
         // ページ操作
         makePage: function(nodeId, pageId, title) {
             api.postMessage({ type: 'makePage', nodeId: nodeId, pageId: pageId, title: title });

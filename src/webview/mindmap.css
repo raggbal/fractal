@@ -1,0 +1,332 @@
+/*
+ * mindmap.css — Mindmap Mode 専用スタイル
+ * 全色は --fr-* トークン (tokens.css) を既定にし light/dark/auto に追従。
+ * ノード個別スタイル (node.mindmap.fill 等) はインラインで上書きされる。
+ */
+
+/* FR-021-J1/J3 (TASK-39): mindmap モードでは外側スクロールを止め、tree 自身を
+   非スクロールの固定枠にする。これで tree の子である absolute な toolbar (左上) /
+   minimap (右下) がスクロールで流れず可視領域に固定される。
+   mindmap は .mindmap-viewport の transform で pan/zoom するのでコンテナ縦スクロールは不要。
+   outliner.css は触らず mindmap.css 内の :has() で mindmap モード時のみ限定する
+   (Single/Note 両 provider が同じ .outliner-container/.outliner-scroll-content 構造)。
+   table mode の既存 :has() 挙動 (outliner.css:401) には干渉しない。 */
+.outliner-container:has(.outliner-tree[data-view-mode="mindmap"]) .outliner-scroll-content {
+    overflow: hidden;
+}
+
+.outliner-tree[data-view-mode="mindmap"] {
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    background: var(--fr-bg-app, #fff);
+    cursor: default;
+}
+
+.mindmap-viewport {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+.mindmap-svg {
+    display: block;
+    overflow: visible;
+}
+
+/* --- links --- */
+.mindmap-link {
+    stroke: var(--fr-border-strong, #b0b0b0);
+    stroke-width: 2px;
+    fill: none;
+}
+
+/* --- nodes --- */
+.mindmap-node {
+    overflow: visible;
+}
+
+.mindmap-node-box {
+    box-sizing: border-box;
+    /* FR-021-A6: アイコンで改行させない。アイコン+テキストは同一行、テキストは折り返す。
+       画像行だけ別行に落とす (row wrap は許すが、icon/text は nowrap 相当に). */
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+    gap: 4px 6px;
+    min-height: 100%;
+    /* FR-021-A7: 編集中の横伸びが 280px で頭打ちになる CSS 保険
+       (JS 側の width クランプと二重で 280 を担保。decision-a7-width-cap-280)。
+       width:100% (foreignObject 追従) は既存レイアウトを崩さないため設定しない。 */
+    max-width: 280px;
+    padding: 6px 10px;
+    background: var(--fr-bg-panel, #f7f7f7);
+    border: 1.5px solid var(--fr-border, #d0d0d0);
+    border-radius: var(--fr-radius-md, 8px);
+    color: var(--fr-text, #222);
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: box-shadow 0.12s, border-color 0.12s;
+}
+
+.mindmap-node-box.is-focused {
+    border-color: var(--fr-color-primary, #7dc4df);
+    box-shadow: var(--fr-shadow-focus, 0 0 0 2px rgba(125, 196, 223, 0.4));
+}
+
+.mindmap-node-box.is-selected {
+    border-color: var(--fr-color-primary, #7dc4df);
+    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.15));
+}
+
+.mindmap-node-text {
+    flex: 1 1 0;
+    min-width: 0;            /* flex item がはみ出さないための必須指定 */
+    outline: none;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;   /* FR-021-C13: \n 改行を表示に反映 */
+}
+
+.mindmap-node-text[contenteditable="true"] {
+    cursor: text;
+}
+
+/* FR-021-A7: 編集中・改行なしのとき折り返しを止めて横に伸ばす。
+   上限 280px 到達 or \n 入力で JS(TASK-37) がこのクラスを外し pre-wrap に戻す。 */
+.mindmap-node-text.is-editing-nowrap {
+    white-space: nowrap;
+}
+
+.mindmap-node-icon {
+    flex: 0 0 auto;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.mindmap-node-images {
+    flex: 1 1 100%;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.mindmap-node-images img {
+    max-width: 60px;
+    max-height: 48px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.mindmap-node-tags {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--fr-text-muted, #888);
+}
+
+.mindmap-node-checkbox {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.mindmap-collapse-handle {
+    position: absolute;
+    right: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    line-height: 14px;
+    font-size: 12px;
+    border-radius: 50%;
+    border: 1px solid var(--fr-border, #d0d0d0);
+    background: var(--fr-bg-app, #fff);
+    color: var(--fr-text, #222);
+    cursor: pointer;
+}
+
+/* --- groups (boundary) --- */
+.mindmap-group-rect {
+    fill: var(--fr-color-primary-soft, rgba(125, 196, 223, 0.08));
+    stroke: var(--fr-color-primary, #7dc4df);
+    stroke-width: 1.5px;
+    stroke-dasharray: 6 4;
+    pointer-events: all;   /* FR-021-G5: 枠をクリック可能に (ノードの下でも枠部分は hit) */
+    cursor: pointer;
+}
+
+.mindmap-group.is-selected .mindmap-group-rect {
+    stroke-width: 2.5px;
+    stroke-dasharray: none;
+    fill: var(--fr-bg-selection, rgba(125, 196, 223, 0.18));
+}
+
+.mindmap-group-label {
+    fill: var(--fr-text-muted, #888);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* --- title center node --- */
+.mindmap-title-box {
+    font-weight: 700;
+    font-size: 15px;
+    background: var(--fr-color-primary, #7dc4df);
+    color: #fff;
+    border-color: var(--fr-color-primary, #7dc4df);
+}
+
+/* --- relationships --- */
+.mindmap-rel-path {
+    stroke: var(--fr-color-accent, #d99a9a);
+    stroke-width: 1.5px;
+    fill: none;
+    stroke-dasharray: 5 3;
+}
+
+.mindmap-arrow-head {
+    fill: var(--fr-color-accent, #d99a9a);
+}
+
+.mindmap-rel-label {
+    fill: var(--fr-text-muted, #888);
+    font-size: 11px;
+    text-anchor: middle;
+}
+
+/* --- minimap --- */
+.mindmap-minimap {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    width: 160px;
+    height: 120px;
+    background: var(--fr-bg-panel, rgba(247, 247, 247, 0.9));
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: 6px;
+    overflow: hidden;
+    opacity: 0.85;
+    pointer-events: auto;
+}
+
+.mindmap-minimap-dot {
+    fill: var(--fr-color-primary, #7dc4df);
+}
+
+/* --- empty state --- */
+.mindmap-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 300px;
+    gap: 12px;
+    color: var(--fr-text-muted, #888);
+}
+
+.mindmap-empty-add {
+    padding: 6px 16px;
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: var(--fr-radius-md, 8px);
+    background: var(--fr-bg-panel, #f7f7f7);
+    color: var(--fr-text, #222);
+    cursor: pointer;
+}
+
+/* --- style panel / toolbar --- */
+.mindmap-toolbar {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    display: flex;
+    gap: 6px;
+    z-index: 5;
+}
+
+.mindmap-style-panel {
+    position: absolute;
+    z-index: 20;
+    padding: 10px;
+    background: var(--fr-bg-panel, #fff);
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: var(--fr-radius-md, 8px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    font-size: 12px;
+}
+
+.mindmap-toolbar {
+    align-items: center;
+    padding: 4px 6px;
+    background: var(--fr-bg-panel, rgba(247, 247, 247, 0.92));
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: var(--fr-radius-md, 8px);
+}
+
+.mindmap-tb-btn,
+.mindmap-tb-layout {
+    padding: 3px 8px;
+    font-size: 12px;
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: 6px;
+    background: var(--fr-bg-app, #fff);
+    color: var(--fr-text, #222);
+    cursor: pointer;
+}
+
+.mindmap-tb-btn:hover {
+    border-color: var(--fr-color-primary, #7dc4df);
+}
+
+.mm-drop-target {
+    outline: 2px dashed var(--fr-color-primary, #7dc4df);
+    outline-offset: 2px;
+}
+
+.mindmap-context-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 160px;
+    padding: 4px 0;
+    background: var(--fr-bg-panel, #fff);
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: var(--fr-radius-md, 8px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    color: var(--fr-text, #222);
+}
+
+.mindmap-ctx-item {
+    padding: 5px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.mindmap-ctx-item:hover {
+    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.15));
+}
+
+.mindmap-ctx-colors {
+    display: flex;
+    gap: 4px;
+    padding: 6px 12px;
+    flex-wrap: wrap;
+}
+
+.mindmap-ctx-swatch {
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--fr-border, #d0d0d0);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 18px;
+    padding: 0;
+}

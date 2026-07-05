@@ -789,7 +789,7 @@ body {
     flex-direction: column;
     position: relative;
 }
-.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; }
+.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; border-right: none; }
 .sidebar-resizer {
     position: absolute;
     top: 0;
@@ -801,8 +801,10 @@ body {
 }
 .sidebar-resizer:hover,
 .sidebar-resizer.dragging {
-    background: var(--link-color);
-    opacity: 0.5;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px) に統一 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
+    right: -1px;
 }
 .sidebar-header {
     display: flex;
@@ -866,6 +868,21 @@ body {
 .side-panel-imagedir .imagedir-path,
 .side-panel-filedir .filedir-path {
     font-size: 9px;
+}
+/* v0.207.44: outliner page heuristic 検出時の固定表示 (編集不可) */
+.sidebar-status-imagedir.is-locked,
+.sidebar-status-filedir.is-locked,
+.side-panel-imagedir.is-locked,
+.side-panel-filedir.is-locked {
+    pointer-events: none;
+    user-select: none;
+    cursor: not-allowed;
+}
+.sidebar-status-imagedir.is-locked .imagedir-path,
+.sidebar-status-filedir.is-locked .filedir-path,
+.side-panel-imagedir.is-locked .imagedir-path,
+.side-panel-filedir.is-locked .filedir-path {
+    font-style: italic;
 }
 .side-panel-imagedir,
 .side-panel-filedir {
@@ -1622,11 +1639,196 @@ body {
 .code-block-header > :last-child {
     border-radius: 0 5px 0 0;
 }
-/* Expanded code block - width is set dynamically by JavaScript */
-.editor pre.code-expanded {
+/* Wrapper-level fullscreen button (mermaid / math).
+   Codeblock has its own button inside .code-block-header. */
+.editor .mermaid-wrapper,
+.editor .math-wrapper {
     position: relative;
-    max-width: none;
+}
+.block-fullscreen-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 5;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-color);
+    background: var(--border-color);
+    border: none;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+    user-select: none;
+}
+.block-fullscreen-btn:hover {
+    opacity: 1;
+    background: var(--selection-bg);
+}
+/* Hide wrapper-level button when the block is in edit mode so it doesn't
+   sit on top of the source pre. */
+.editor .mermaid-wrapper[data-mode="edit"] > .block-fullscreen-btn,
+.editor .math-wrapper[data-mode="edit"] > .block-fullscreen-btn {
+    display: none;
+}
+
+/* Fullscreen overlay shared by code / mermaid / math blocks. */
+.block-fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    /* Translucent black scrim (matches image overlay). Theme-independent so
+       the white close/copy buttons stay readable on either theme. */
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
     box-sizing: border-box;
+    cursor: zoom-out;
+}
+.block-fullscreen-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    overflow: hidden;
+}
+/* Zoomable / pannable wrapper around the cloned content. */
+.block-fullscreen-stage {
+    transform-origin: 0 0;
+    cursor: grab;
+    user-select: text;
+    will-change: transform;
+    /* Constrain visually but content can be panned around when zoomed. */
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10001;
+    user-select: none;
+}
+.block-fullscreen-close {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-close:hover {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+.block-fullscreen-label {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    user-select: none;
+    z-index: 10001;
+}
+.block-fullscreen-copy {
+    position: fixed;
+    top: 14px;
+    right: 60px;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    z-index: 10002;
+}
+.block-fullscreen-copy:hover {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+/* Code block in fullscreen: take available space, scroll if too big.
+   The cloned <pre> lives outside .editor so .editor pre styles do not
+   apply — set an opaque background explicitly here. */
+.block-fullscreen-pre {
+    width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    margin: 0;
+    box-sizing: border-box;
+    overflow: auto;
+    border-radius: 6px;
+    background: var(--code-bg, #1e1e1e);
+    color: var(--text-color, #d4d4d4);
+    font-family: var(--font-mono);
+    white-space: pre;
+    word-wrap: normal;
+}
+.block-fullscreen-pre code {
+    display: block;
+    padding: 18px;
+    margin: 0;
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    white-space: pre;
+    word-wrap: normal;
+}
+
+/* Mermaid / Math diagrams in fullscreen: scale to fit. */
+.block-fullscreen-mermaid-diagram,
+.block-fullscreen-math-display {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 24px;
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    box-sizing: border-box;
+}
+.block-fullscreen-mermaid-diagram {
+    display: block;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+.block-fullscreen-mermaid-diagram svg {
+    /* Sizes are set inline by JS using the viewBox aspect ratio. */
+    display: block;
+}
+.block-fullscreen-math-display .katex-display {
+    margin: 0;
 }
 .lang-selector {
     position: fixed;
@@ -2118,8 +2320,9 @@ body {
 }
 .side-panel-resize-handle:hover,
 .side-panel-resize-handle.active {
-    background: var(--vscode-focusBorder, #007acc);
-    width: 3px;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
     left: -1px;
 }
 /* Side panel sidebar (mirrors main .sidebar) */
@@ -2149,8 +2352,9 @@ body {
 }
 .side-panel-sidebar-resize-handle:hover,
 .side-panel-sidebar-resize-handle.active {
-    background: var(--vscode-focusBorder, #007acc);
-    width: 3px;
+    /* v0.207.43: notes-resize-handle と同 token + 同太さ (2px)、edge 中央配置 */
+    background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+    width: 2px;
     right: -1px;
 }
 .side-panel-sidebar:not(.visible) .side-panel-sidebar-resize-handle {
@@ -2267,9 +2471,10 @@ body {
 .side-panel-header-btn:disabled:hover {
     background: none;
 }
-.side-panel-header-btn svg {
-    width: 13px;
-    height: 13px;
+.side-panel-header-btn svg,
+.side-panel-outline-btn svg {
+    width: 14px;
+    height: 14px;
 }
 /* Side panel outline button (in header, mirrors main openOutline) */
 .side-panel-outline-btn {
@@ -2416,6 +2621,34 @@ body {
     pointer-events: none;
     z-index: 10001;
     user-select: none;
+}
+/* 画像 fullscreen overlay 右上の 3 ボタン (Copy Image / Open in New Tab / Copy Path) */
+.image-overlay-toolbar {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    gap: 6px;
+    z-index: 10002;
+    user-select: none;
+}
+.image-overlay-toolbar button {
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1.2;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.image-overlay-toolbar button:hover {
+    background: rgba(0, 0, 0, 0.78);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+.image-overlay-toolbar button:active {
+    background: rgba(0, 0, 0, 0.92);
 }
 
 /* v10: Translation Loading Overlay */
@@ -2822,6 +3055,15 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
 
+        // HTML paste で MD 内に残った data:image/... を images/ に実体化し相対 path 化
+        extractDataUrlsInPastedMd: function(markdown, sidePanelFilePath) {
+            postFn({
+                type: 'extractDataUrlsInPastedMd',
+                markdown: markdown,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
+
         // v10: Translation
         translateContent: function(markdown, sourceLang, targetLang, sidePanelFilePath) {
             postFn({
@@ -2858,6 +3100,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 sourceLang: sourceLang,
                 targetLang: targetLang
             });
+        },
+
+        // 画像 fullscreen overlay の 3 ボタン用
+        copyImageToClipboard: function(absPath) {
+            postFn({ type: 'copyImageToClipboard', absPath: absPath });
+        },
+        openImageInNewTab: function(absPath) {
+            postFn({ type: 'openImageInNewTab', absPath: absPath });
         },
 
         // メッセージ受信
@@ -3411,6 +3661,8 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
+    copyImageToClipboard(absPath) { this._mainHost.copyImageToClipboard(absPath); }
+    openImageInNewTab(absPath) { this._mainHost.openImageInNewTab(absPath); }
     requestInsertLink(text) {
         if (this._onLinkRequest) this._onLinkRequest();
         this._mainHost.requestInsertLink(text);
@@ -3502,6 +3754,9 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    extractDataUrlsInPastedMd(markdown) {
+        this._mainHost.extractDataUrlsInPastedMd(markdown, this.filePath);
+    }
     translateContent(markdown, sourceLang, targetLang) {
         this._mainHost.translateContent(markdown, sourceLang, targetLang, this.filePath);
     }
@@ -3584,6 +3839,19 @@ class EditorInstance {
     // ===== Destroy instance =====
     destroy() {
         console.log('[DEBUG] EditorInstance.destroy() called. instances before=' + EditorInstance.instances.length);
+        // Mark as destroyed FIRST so any pending timer that fires before
+        // clearTimeout completes will be a no-op (notifyChangeImmediate /
+        // notifyChange / setTimeout closures all check self._destroyed).
+        this._destroyed = true;
+        // Cancel any pending debounced/idle saves bound to closure variables
+        // inside _legacyInit() (saveTimeout / syncTimeout / editingIdleTimer).
+        try {
+            if (typeof this._cancelPendingSync === 'function') {
+                this._cancelPendingSync();
+            }
+        } catch (e) {
+            console.error('[DEBUG] _cancelPendingSync failed:', e);
+        }
         const idx = EditorInstance.instances.indexOf(this);
         if (idx !== -1) EditorInstance.instances.splice(idx, 1);
         if (EditorInstance.activeInstance === this) {
@@ -3600,6 +3868,10 @@ class EditorInstance {
         if (this._actionPanelEl) {
             this._actionPanelEl.remove();
             this._actionPanelEl = null;
+        }
+        if (this._tableToolbarEl) {
+            this._tableToolbarEl.remove();
+            this._tableToolbarEl = null;
         }
         console.log('[DEBUG] EditorInstance.destroy() done. instances after=' + EditorInstance.instances.length);
     }
@@ -3861,8 +4133,10 @@ class EditorInstance {
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
     let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
     let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -6472,9 +6746,10 @@ class EditorInstance {
                 }
                 wrapper.dataset.mermaidSetup = 'true';
                 logger.log('Setting up wrapper');
-                
+
                 renderMermaidDiagram(wrapper);
-                
+                attachBlockFullscreenButton(wrapper, 'mermaid');
+
                 // Add click handler to enter editing mode
                 wrapper.addEventListener('click', function(e) {
                     // Don't enter edit mode if clicking on the diagram itself when already in display mode
@@ -6587,6 +6862,7 @@ class EditorInstance {
                 wrapper.dataset.mathSetup = 'true';
 
                 renderMathBlock(wrapper);
+                attachBlockFullscreenButton(wrapper, 'math');
 
                 // Click → edit mode
                 wrapper.addEventListener('click', function(e) {
@@ -6682,40 +6958,20 @@ class EditorInstance {
             copyCodeBlock(pre);
         });
         
-        // Expand/collapse button
+        // Fullscreen button (replaces the old width-expand toggle).
         const expandBtn = document.createElement('button');
         expandBtn.className = 'code-expand-btn';
         expandBtn.textContent = '⤢';
-        expandBtn.title = i18n.expandCodeBlock || 'Expand';
+        expandBtn.title = i18n.expandCodeBlock || 'Fullscreen';
         expandBtn.setAttribute('contenteditable', 'false');
         expandBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isExpanded = pre.classList.toggle('code-expanded');
-            expandBtn.textContent = isExpanded ? '⤡' : '⤢';
-            expandBtn.title = isExpanded ? (i18n.collapseCodeBlock || 'Collapse') : (i18n.expandCodeBlock || 'Expand');
-            
-            if (isExpanded) {
-                // Calculate width to fill editor-wrapper
-                const editorWrapper = container.querySelector('.editor-wrapper');
-                const editorEl = editor;
-                if (editorWrapper && editorEl) {
-                    const wrapperRect = editorWrapper.getBoundingClientRect();
-                    const editorRect = editorEl.getBoundingClientRect();
-                    const preRect = pre.getBoundingClientRect();
-                    
-                    // Calculate how much to expand left and right
-                    const leftOffset = preRect.left - wrapperRect.left - 20; // 20px padding
-                    const rightOffset = wrapperRect.right - preRect.right - 20;
-                    const newWidth = preRect.width + leftOffset + rightOffset;
-                    
-                    pre.style.width = newWidth + 'px';
-                    pre.style.marginLeft = -leftOffset + 'px';
-                }
-            } else {
-                // Reset to default
-                pre.style.width = '';
-                pre.style.marginLeft = '';
+            // Make sure the source block is in display mode so fullscreen
+            // shows highlighted output, not the editable plaintext.
+            if (pre.getAttribute('data-mode') === 'edit') {
+                enterDisplayMode(pre);
             }
+            openBlockFullscreen({ kind: 'code', source: pre });
         });
         
         header.appendChild(expandBtn);
@@ -6799,16 +7055,24 @@ class EditorInstance {
             }
         }
         
-        // Focus and place cursor at start
+        // Focus and place cursor at end of content (re-edit UX: "continue from
+        // where I left off"). Placing at start would also leave cursor at
+        // offset 0 where Backspace gets blocked by the merge-protection at
+        // line ~11060, making the block feel uneditable.
         code.focus();
         const range = document.createRange();
         const sel = window.getSelection();
-        if (code.firstChild) {
-            if (code.firstChild.nodeType === 1 && code.firstChild.tagName === 'BR') {
-                // Empty code block - set cursor before the <br>
-                range.setStart(code, 0);
+        if (code.lastChild) {
+            const last = code.lastChild;
+            if (last.nodeType === 1 && last.tagName === 'BR') {
+                // Place cursor before the trailing <br> (sentinel or empty marker)
+                const idx = Array.prototype.indexOf.call(code.childNodes, last);
+                range.setStart(code, idx);
+            } else if (last.nodeType === 3) {
+                range.setStart(last, last.textContent.length);
             } else {
-                range.setStart(code.firstChild, 0);
+                range.selectNodeContents(code);
+                range.collapse(false);
             }
             range.collapse(true);
             sel.removeAllRanges();
@@ -6880,6 +7144,7 @@ class EditorInstance {
 
         wrapper.dataset[type + 'Setup'] = 'true';
         renderFn(wrapper);
+        attachBlockFullscreenButton(wrapper, type);
 
         // Add click handler to enter edit mode
         wrapper.addEventListener('click', function(e) {
@@ -7170,6 +7435,11 @@ class EditorInstance {
         });
 
         document.body.appendChild(tableToolbar);
+        // Expose for destroy() so the toolbar (appended to document.body)
+        // doesn't survive after the owning EditorInstance is destroyed
+        // (e.g. when the side panel closes while a table cell is focused —
+        // otherwise the floating toolbar lingers over the outliner).
+        self._tableToolbarEl = tableToolbar;
     }
 
     function showTableToolbar(table) {
@@ -7847,6 +8117,51 @@ class EditorInstance {
         hint.className = 'outliner-image-overlay-hint';
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
+        // 右上 toolbar: Copy Image / Open in New Tab / Copy Path
+        var absPath = (typeof cleanImageSrc === 'function' ? cleanImageSrc(imgSrc) : imgSrc).split('?')[0].split('#')[0];
+        var toolbar = document.createElement('div');
+        toolbar.className = 'image-overlay-toolbar';
+        var btnCopyImg = document.createElement('button');
+        btnCopyImg.type = 'button';
+        btnCopyImg.textContent = 'Copy Image';
+        btnCopyImg.title = 'Copy image to clipboard';
+        var btnOpenTab = document.createElement('button');
+        btnOpenTab.type = 'button';
+        btnOpenTab.textContent = 'Open in New Tab';
+        btnOpenTab.title = 'Open image in a new VS Code tab';
+        var btnCopyPath = document.createElement('button');
+        btnCopyPath.type = 'button';
+        btnCopyPath.textContent = 'Copy Path';
+        btnCopyPath.title = 'Copy absolute path to clipboard';
+        toolbar.appendChild(btnCopyImg);
+        toolbar.appendChild(btnOpenTab);
+        toolbar.appendChild(btnCopyPath);
+        overlay.appendChild(toolbar);
+        function flash(btn, text) {
+            var orig = btn.textContent;
+            btn.textContent = text;
+            setTimeout(function() { btn.textContent = orig; }, 900);
+        }
+        btnCopyImg.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (host && host.copyImageToClipboard) {
+                host.copyImageToClipboard(absPath);
+                flash(btnCopyImg, 'Copied!');
+            }
+        });
+        btnOpenTab.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (host && host.openImageInNewTab) {
+                host.openImageInNewTab(absPath);
+            }
+        });
+        btnCopyPath.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            try {
+                navigator.clipboard.writeText(absPath);
+                flash(btnCopyPath, 'Copied!');
+            } catch (_e) { /* noop */ }
+        });
         document.body.appendChild(overlay);
 
         var scale = 1, tx = 0, ty = 0;
@@ -7919,6 +8234,240 @@ class EditorInstance {
             overlay.remove();
             document.removeEventListener('keydown', escHandler);
         }
+    }
+
+    /**
+     * Attach a small fullscreen button (top-right) to a mermaid/math wrapper.
+     * Mirrors the codeblock expand button design but lives on the wrapper
+     * itself because the .pre is hidden in display mode.
+     */
+    function attachBlockFullscreenButton(wrapper, kind) {
+        if (!wrapper || wrapper.querySelector(':scope > .block-fullscreen-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'block-fullscreen-btn';
+        btn.type = 'button';
+        btn.textContent = '⤢';
+        btn.title = i18n.expandCodeBlock || 'Fullscreen';
+        btn.setAttribute('contenteditable', 'false');
+        btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Force display mode before snapshotting so the rendered diagram
+            // (not the source pre) is what we clone into the overlay.
+            if (wrapper.getAttribute('data-mode') === 'edit') {
+                wrapper.setAttribute('data-mode', 'display');
+                if (kind === 'mermaid') renderMermaidDiagram(wrapper);
+                else if (kind === 'math') renderMathBlock(wrapper);
+            }
+            openBlockFullscreen({ kind, source: wrapper });
+        });
+        wrapper.appendChild(btn);
+    }
+
+    /**
+     * Open a fullscreen overlay showing the rendered output of a code,
+     * mermaid, or math block. Closes on background click or ESC.
+     *
+     * - kind: 'code' | 'mermaid' | 'math'
+     * - source: the source <pre> (code) or wrapper div (mermaid/math)
+     */
+    function openBlockFullscreen({ kind, source }) {
+        if (!source) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'block-fullscreen-overlay block-fullscreen-' + kind;
+
+        const inner = document.createElement('div');
+        inner.className = 'block-fullscreen-inner';
+        overlay.appendChild(inner);
+
+        // Zoomable stage — content is mounted inside this so pinch/wheel
+        // zoom and drag pan work uniformly for code/mermaid/math.
+        const stage = document.createElement('div');
+        stage.className = 'block-fullscreen-stage';
+        inner.appendChild(stage);
+
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'block-fullscreen-close';
+        closeBtn.type = 'button';
+        closeBtn.textContent = '✕';
+        closeBtn.title = 'Close (ESC)';
+        overlay.appendChild(closeBtn);
+
+        // Hint banner (matches image overlay UX).
+        const hint = document.createElement('div');
+        hint.className = 'block-fullscreen-hint';
+        hint.textContent = 'Pinch / Ctrl+Wheel to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
+        // Build the content per kind
+        if (kind === 'code') {
+            // Clone the <pre> with its highlighted <code>, but drop the
+            // header (lang tag / copy / expand buttons live on the original).
+            const preClone = source.cloneNode(true);
+            const headerInClone = preClone.querySelector('.code-block-header');
+            if (headerInClone) headerInClone.remove();
+            preClone.classList.add('block-fullscreen-pre');
+            preClone.style.width = '';
+            preClone.style.marginLeft = '';
+            // Make code non-editable inside the overlay.
+            const codeInClone = preClone.querySelector('code');
+            if (codeInClone) codeInClone.setAttribute('contenteditable', 'false');
+            // Optional: language label in top-left
+            const langLabel = source.getAttribute('data-lang') || 'plaintext';
+            const label = document.createElement('div');
+            label.className = 'block-fullscreen-label';
+            label.textContent = langLabel;
+            overlay.appendChild(label);
+            stage.appendChild(preClone);
+
+            // Copy button: reuse copyCodeBlock against the original pre.
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'block-fullscreen-copy';
+            copyBtn.type = 'button';
+            copyBtn.textContent = i18n.copy || 'Copy';
+            copyBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                copyCodeBlock(source);
+            });
+            overlay.appendChild(copyBtn);
+        } else if (kind === 'mermaid') {
+            const diagram = source.querySelector('.mermaid-diagram');
+            if (diagram) {
+                const clone = diagram.cloneNode(true);
+                clone.classList.add('block-fullscreen-mermaid-diagram');
+                // Mermaid hardcodes an inline style="max-width: <px>" on its
+                // SVG that pins it to the original (small) render width.
+                // Compute a target size that fits the viewport while keeping
+                // the original aspect ratio (from viewBox).
+                const svg = clone.querySelector('svg');
+                if (svg) {
+                    let aspect = 1;
+                    const vb = svg.getAttribute('viewBox');
+                    if (vb) {
+                        const parts = vb.split(/\s+/).map(Number);
+                        if (parts.length === 4 && parts[3] > 0) {
+                            aspect = parts[2] / parts[3];
+                        }
+                    }
+                    // Target ~80% of viewport, fitting inside both axes.
+                    const maxW = Math.max(200, window.innerWidth - 160);
+                    const maxH = Math.max(200, window.innerHeight - 160);
+                    let targetW = maxW;
+                    let targetH = targetW / aspect;
+                    if (targetH > maxH) {
+                        targetH = maxH;
+                        targetW = targetH * aspect;
+                    }
+                    svg.removeAttribute('width');
+                    svg.removeAttribute('height');
+                    svg.style.maxWidth = 'none';
+                    svg.style.width = targetW + 'px';
+                    svg.style.height = targetH + 'px';
+                    svg.style.display = 'block';
+                }
+                stage.appendChild(clone);
+            }
+        } else if (kind === 'math') {
+            const display = source.querySelector('.math-display');
+            if (display) {
+                const clone = display.cloneNode(true);
+                clone.classList.add('block-fullscreen-math-display');
+                stage.appendChild(clone);
+            }
+        }
+
+        document.body.appendChild(overlay);
+
+        // ===== Pinch / wheel zoom + drag pan on the stage =====
+        let scale = 1, tx = 0, ty = 0;
+        const MIN_SCALE = 0.2, MAX_SCALE = 16;
+        let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+        function applyTransform() {
+            stage.style.transform =
+                'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        applyTransform();
+
+        // Mac touchpad pinch arrives as wheel + ctrlKey; regular wheel
+        // also zooms while ctrl/⌘ is held.
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey && !ev.metaKey) return;
+            ev.preventDefault();
+            const delta = -ev.deltaY * 0.01;
+            const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            // Zoom toward the cursor.
+            const rect = stage.getBoundingClientRect();
+            const ox = ev.clientX - rect.left;
+            const oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            applyTransform();
+        }, { passive: false });
+
+        // Drag to pan.
+        stage.addEventListener('mousedown', function(ev) {
+            // Don't start a drag from interactive elements (copy button, code).
+            if (ev.button !== 0) return;
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            stage.style.cursor = 'grabbing';
+            ev.preventDefault();
+        });
+        const onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            applyTransform();
+        };
+        const onUp = function() {
+            if (!isDragging) return;
+            isDragging = false;
+            stage.style.cursor = '';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+
+        // Double-click → reset zoom (clicking the dim border still closes).
+        stage.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            applyTransform();
+        });
+
+        function cleanup() {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler, true);
+        }
+        function escHandler(ev) {
+            if (ev.key === 'Escape') {
+                // Capture phase + stopImmediatePropagation so the side-panel
+                // close handler (also listening for ESC) doesn't run.
+                ev.preventDefault();
+                ev.stopPropagation();
+                ev.stopImmediatePropagation();
+                cleanup();
+            }
+        }
+        // Capture phase, registered AFTER appending overlay so it runs first.
+        document.addEventListener('keydown', escHandler, true);
+
+        overlay.addEventListener('click', (ev) => {
+            // Only the dim border closes; clicks inside the stage interact.
+            if (ev.target === overlay || ev.target === inner) cleanup();
+        });
+        closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            cleanup();
+        });
     }
 
     // drawio.svg / drawio.png 用「Open」「Copy Path」ボタン (codeblock copy ボタンと同じデザイン系統)
@@ -14426,14 +14975,20 @@ class EditorInstance {
                         syncMarkdown();
                         return;
                     }
-                    // Non-empty code block: check if cursor is at the very beginning
-                    // If so, prevent backspace from merging with previous element
+                    // Non-empty code block: check if cursor is at the absolute beginning
+                    // (= nothing — neither text nor <br> — exists before the cursor).
+                    // If so, prevent backspace from merging with previous element.
+                    // Range.toString() ignores <br>, so we use cloneContents() to also
+                    // detect leading BR sentinels (e.g. when the code block starts with
+                    // an empty line and the cursor is on the second line).
                     if (codeElement) {
                         const contentRange = document.createRange();
                         contentRange.selectNodeContents(codeElement);
                         contentRange.setEnd(range.startContainer, range.startOffset);
-                        const textBeforeCursor = contentRange.toString();
-                        if (textBeforeCursor.length === 0) {
+                        const before = contentRange.cloneContents();
+                        const hasTextBefore = (before.textContent || '').length > 0;
+                        const hasBrBefore = !!before.querySelector('br');
+                        if (!hasTextBefore && !hasBrBefore) {
                             e.preventDefault();
                             return;
                         }
@@ -14471,67 +15026,20 @@ class EditorInstance {
                     return;
                 }
                 
-                // Handle blockquote - only convert to paragraph if at the very beginning
+                // Handle blockquote - block backspace at absolute beginning so the
+                // blockquote does not dissolve (matches code-block behavior).
+                // Range.toString() ignores <br>, so cloneContents() + querySelector('br')
+                // are used to also detect leading BR sentinels.
                 if (tag === 'blockquote') {
-                    // Check if cursor is truly at the beginning of the blockquote
-                    // (not just at offset 0 of some node in the middle)
                     const contentRange = document.createRange();
                     contentRange.selectNodeContents(currentLine);
                     contentRange.setEnd(range.startContainer, range.startOffset);
-                    const textBeforeCursor = contentRange.toString();
-                    
-                    logger.log('Backspace in blockquote:', { textBeforeCursor, length: textBeforeCursor.length });
-                    
-                    if (textBeforeCursor.length === 0) {
-                        // Truly at the beginning - convert to paragraph(s)
+                    const before = contentRange.cloneContents();
+                    const hasTextBefore = (before.textContent || '').length > 0;
+                    const hasBrBefore = !!before.querySelector('br');
+                    if (!hasTextBefore && !hasBrBefore) {
                         e.preventDefault();
-
-                        // Split blockquote content by <br> and \n into individual paragraphs
-                        // Blockquote content may use \n text nodes (from markdownToHtmlFragment)
-                        // or <br> elements (from insertLineBreak on Enter)
-                        const childNodes = Array.from(currentLine.childNodes);
-                        const lines = [];
-                        let currentFragment = document.createDocumentFragment();
-
-                        for (const node of childNodes) {
-                            if (node.nodeName === 'BR' && !node.hasAttribute?.('data-trailing-br')) {
-                                lines.push(currentFragment);
-                                currentFragment = document.createDocumentFragment();
-                            } else if (node.nodeType === 3 && node.textContent.includes('\n')) {
-                                // Text node containing \n - split it
-                                const parts = node.textContent.split('\n');
-                                for (let i = 0; i < parts.length; i++) {
-                                    if (i > 0) {
-                                        lines.push(currentFragment);
-                                        currentFragment = document.createDocumentFragment();
-                                    }
-                                    if (parts[i] !== '') {
-                                        currentFragment.appendChild(document.createTextNode(parts[i]));
-                                    }
-                                }
-                            } else {
-                                currentFragment.appendChild(node.cloneNode(true));
-                            }
-                        }
-                        lines.push(currentFragment);
-
-                        // Create <p> elements for each line
-                        const paragraphs = [];
-                        for (const fragment of lines) {
-                            const p = document.createElement('p');
-                            if (fragment.childNodes.length === 0 || (fragment.childNodes.length === 1 && fragment.firstChild.nodeType === 3 && fragment.firstChild.textContent === '')) {
-                                p.innerHTML = '<br>';
-                            } else {
-                                p.appendChild(fragment);
-                            }
-                            paragraphs.push(p);
-                        }
-
-                        // Replace blockquote with paragraphs
-                        const firstP = paragraphs[0];
-                        currentLine.replaceWith(...paragraphs);
-                        setCursorToStart(firstP);
-                        syncMarkdown();
+                        return;
                     }
                     // Otherwise, let default backspace behavior handle it (delete previous char/br)
                     return;
@@ -15419,6 +15927,11 @@ class EditorInstance {
                 break;
             case 'copyPath':
                 host.copyFilePath();
+                break;
+            case 'openInNewTab':
+                if (typeof host.openInNewTab === 'function') {
+                    host.openInNewTab();
+                }
                 break;
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
@@ -16594,6 +17107,11 @@ class EditorInstance {
         closeSidebar();
     });
 
+    // Apply initial sidebar state from options (e.g. notes md pane defaults to closed)
+    if (this.options.sidebarHidden) {
+        closeSidebar();
+    }
+
     // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
     // Sidebar resize functionality
@@ -16869,6 +17387,11 @@ class EditorInstance {
     function notifyChangeImmediate() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        // Race guard: a destroyed instance must not save anymore. Otherwise
+        // a debounced sync (or an idle flush) belonging to the previous
+        // side-panel page can fire after navigation and write the current
+        // (visible) markdown to the OLD bridge's filePath.
+        if (self._destroyed) return;
         host.syncContent(markdown);
         updateOutline();
         updateWordCount();
@@ -16879,8 +17402,10 @@ class EditorInstance {
     function notifyChange() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        if (self._destroyed) return;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
+            if (self._destroyed) return;
             host.syncContent(markdown);
             updateOutline();
             updateWordCount();
@@ -16986,15 +17511,21 @@ class EditorInstance {
             const pathEl = container.querySelector('.imagedir-path');
             if (pathEl && imageDirDisplayPath !== null) {
                 pathEl.textContent = imageDirDisplayPath;
-                pathEl.title = imageDirDisplayPath;
+                pathEl.title = imageDirLocked
+                    ? (i18n.imageDirLockedTitle || 'Image directory is fixed (outliner page convention)')
+                    : imageDirDisplayPath;
             }
+            statusImageDir.classList.toggle('is-locked', imageDirLocked);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
             if (pathEl && fileDirDisplayPath !== null) {
                 pathEl.textContent = fileDirDisplayPath;
-                pathEl.title = fileDirDisplayPath;
+                pathEl.title = fileDirLocked
+                    ? (i18n.fileDirLockedTitle || 'File directory is fixed (outliner page convention)')
+                    : fileDirDisplayPath;
             }
+            statusFileDir.classList.toggle('is-locked', fileDirLocked);
         }
     }
 
@@ -17926,8 +18457,100 @@ class EditorInstance {
             if (!message.markdown) return;
             undoManager.saveSnapshot();
             markAsEdited();
-            editor.focus();
-            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            // Restore the caret captured at paste-time. editor.focus() alone
+            // can collapse the selection to editor's first child when a
+            // contenteditable=false wrapper (mermaid/math) is in the path.
+            const snap = self._pendingPasteSelection;
+            self._pendingPasteSelection = null;
+            const restoredPlainText = (snap && snap.plainText) || '';
+            try {
+                if (snap && snap.startContainer && snap.startContainer.isConnected) {
+                    const r = document.createRange();
+                    r.setStart(snap.startContainer, snap.startOffset);
+                    r.setEnd(snap.endContainer || snap.startContainer,
+                             typeof snap.endOffset === 'number' ? snap.endOffset : snap.startOffset);
+                    const target = (snap.startContainer.nodeType === 1
+                        ? snap.startContainer
+                        : snap.startContainer.parentNode);
+                    let focusable = target;
+                    while (focusable && focusable !== editor) {
+                        if (focusable.nodeType === 1
+                            && focusable.getAttribute &&
+                            focusable.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable = focusable.parentNode;
+                    }
+                    if (focusable && focusable !== editor && typeof focusable.focus === 'function') {
+                        focusable.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr) {
+                logger.warn('paste selection restore failed:', restoreErr);
+                editor.focus();
+            }
+            _insertPastedMarkdown(message.markdown, {
+                clipboardEvent: null,
+                isInternal: true,
+                plainText: restoredPlainText
+            });
+            return;
+        }
+        // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
+        if (message.type === 'extractDataUrlsInPastedMdResult') {
+            console.log('[paste] extractDataUrlsInPastedMdResult: savedCount=', message.savedCount,
+                'mdLength=', message.markdown?.length, 'error=', message.error || 'none');
+            if (message.error) console.error('[paste] host error:', message.error);
+            if (!message.markdown) return;
+            var pending = self._pendingDataUrlPaste || {};
+            self._pendingDataUrlPaste = null;
+            // Restore caret from snapshot (same reason as pasteWithAssetCopyResult)
+            try {
+                var snap2 = pending.selection;
+                if (snap2 && snap2.startContainer && snap2.startContainer.isConnected) {
+                    var r2 = document.createRange();
+                    r2.setStart(snap2.startContainer, snap2.startOffset);
+                    r2.setEnd(snap2.endContainer || snap2.startContainer,
+                              typeof snap2.endOffset === 'number' ? snap2.endOffset : snap2.startOffset);
+                    var target2 = (snap2.startContainer.nodeType === 1
+                        ? snap2.startContainer
+                        : snap2.startContainer.parentNode);
+                    var focusable2 = target2;
+                    while (focusable2 && focusable2 !== editor) {
+                        if (focusable2.nodeType === 1
+                            && focusable2.getAttribute &&
+                            focusable2.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable2 = focusable2.parentNode;
+                    }
+                    if (focusable2 && focusable2 !== editor && typeof focusable2.focus === 'function') {
+                        focusable2.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    var selR2 = window.getSelection();
+                    selR2.removeAllRanges();
+                    selR2.addRange(r2);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr2) {
+                logger.warn('extractDataUrlsInPastedMdResult selection restore failed:', restoreErr2);
+                editor.focus();
+            }
+            _insertPastedMarkdown(message.markdown, {
+                clipboardEvent: null,
+                isInternal: !!pending.isInternal,
+                plainText: pending.plainText || ''
+            });
             return;
         }
         if (message.type === 'performUndo') {
@@ -18017,15 +18640,17 @@ class EditorInstance {
         } else if (message.type === 'imageDirStatus') {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
+            imageDirLocked = !!message.locked;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
+            fileDirLocked = !!message.locked;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
-            updateSidePanelImageDir(message.displayPath, message.source);
+            updateSidePanelImageDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'sidePanelFileDirStatus') {
-            updateSidePanelFileDir(message.displayPath, message.source);
+            updateSidePanelFileDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'insertImageHtml') {
             logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
             // If image was requested from side panel, dispatch to side panel instance
@@ -18204,6 +18829,11 @@ class EditorInstance {
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message);
             }
+        } else if (message.type === 'extractDataUrlsInPastedMdResult') {
+            // data URL extraction result - delegate to side panel EditorInstance if present
+            if (sidePanelHostBridge) {
+                sidePanelHostBridge._sendMessage(message);
+            }
         } else if (message.type === 'insertLinkHtml') {
             // If link was requested from side panel, dispatch to side panel instance
             if (sidePanelLinkPending && sidePanelHostBridge) {
@@ -18248,35 +18878,38 @@ class EditorInstance {
             // Show toast notification for external change
             showExternalChangeToast(message.message);
         } else if (message.type === 'scrollToAnchor') {
-            // Scroll to anchor (heading) in the document
+            // Scroll to a heading in the document.
+            // Prefer headingIndex (deterministic, no slug mismatch); fall back to anchor slug.
             const anchor = message.anchor;
-            if (anchor) {
-                // Find heading by id or by text content
-                const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const headingIndex = (typeof message.headingIndex === 'number' && message.headingIndex >= 0)
+                ? message.headingIndex : null;
+            const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const scrollToHeading = function(heading) {
+                if (!heading) return;
+                const wrapper = editor.closest('.editor-wrapper');
+                if (wrapper) {
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    const headingRect = heading.getBoundingClientRect();
+                    wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
+                } else {
+                    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                heading.style.transition = 'background-color 0.3s';
+                heading.style.backgroundColor = 'var(--selection-bg)';
+                setTimeout(() => { heading.style.backgroundColor = ''; }, 1500);
+            };
+            if (headingIndex !== null && headings[headingIndex]) {
+                scrollToHeading(headings[headingIndex]);
+            } else if (anchor) {
                 for (const heading of headings) {
-                    // Generate slug from heading text (same as GitHub-style anchor)
                     const headingText = heading.textContent || '';
                     const slug = headingText
                         .toLowerCase()
                         .trim()
-                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '') // Keep alphanumeric, Japanese, Chinese, Korean, hyphen
-                        .replace(/\s+/g, '-'); // Replace spaces with hyphens
-                    
+                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '')
+                        .replace(/\s+/g, '-');
                     if (slug === anchor || heading.id === anchor) {
-                        const wrapper = editor.closest('.editor-wrapper');
-                        if (wrapper) {
-                            const wrapperRect = wrapper.getBoundingClientRect();
-                            const headingRect = heading.getBoundingClientRect();
-                            wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
-                        } else {
-                            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                        // Briefly highlight the heading
-                        heading.style.transition = 'background-color 0.3s';
-                        heading.style.backgroundColor = 'var(--selection-bg)';
-                        setTimeout(() => {
-                            heading.style.backgroundColor = '';
-                        }, 1500);
+                        scrollToHeading(heading);
                         break;
                     }
                 }
@@ -18324,6 +18957,15 @@ class EditorInstance {
                 sidePanelCanGoBack = !!spData.canGoBack;
                 sidePanelCanGoForward = !!spData.canGoForward;
                 applySidePanelNavButtonState();
+                return;
+            }
+            // Race guard: external 'update' may arrive after a navigation has
+            // switched the side panel to a different file. Drop stale updates
+            // whose filePath does not match the currently displayed file.
+            if (spData.type === 'update' && spData.filePath
+                && sidePanelFilePath && spData.filePath !== sidePanelFilePath) {
+                logger.log('[Any MD] dropping stale sidePanel update for', spData.filePath,
+                    '(current=', sidePanelFilePath, ')');
                 return;
             }
             // それ以外は side panel EditorInstance に dispatch
@@ -18588,8 +19230,9 @@ class EditorInstance {
         // 仕様: heading が無くても outline は default ON で表示する。
         //   user が明示的に閉じた (sidePanelTocVisible=false) 時は隠す。
         if (toc && toc.length > 0) {
-            sidePanelToc.innerHTML = toc.map(function(item) {
+            sidePanelToc.innerHTML = toc.map(function(item, i) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
+                    '" data-heading-index="' + i +
                     '" data-anchor="' + escapeHtml(item.anchor) + '" title="' + escapeHtml(item.text) + '">' +
                     escapeHtml(item.text) + '</a>';
             }).join('');
@@ -18609,8 +19252,13 @@ class EditorInstance {
         sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(item) {
             item.addEventListener('click', function() {
                 var anchor = item.dataset.anchor;
+                var headingIndex = item.dataset.headingIndex;
                 if (sidePanelHostBridge) {
-                    sidePanelHostBridge._sendMessage({ type: 'scrollToAnchor', anchor: anchor });
+                    sidePanelHostBridge._sendMessage({
+                        type: 'scrollToAnchor',
+                        anchor: anchor,
+                        headingIndex: headingIndex != null ? parseInt(headingIndex, 10) : undefined,
+                    });
                 }
                 // Update active state
                 sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(i) {
@@ -18643,27 +19291,32 @@ class EditorInstance {
     }
 
     function setupSidePanelImageDir() {
-        // Settings button click handler
-        if (sidePanelImageDirBtn) {
-            sidePanelImageDirBtn.onclick = function() {
-                if (sidePanelHostBridge) sidePanelHostBridge.requestSetImageDir();
-            };
-        }
         // Request initial image dir status from host
         host.getSidePanelImageDir(sidePanelFilePath);
     }
 
-    function updateSidePanelImageDir(displayPath, source) {
+    function updateSidePanelImageDir(displayPath, source, locked) {
         if (sidePanelImageDirPath) {
             sidePanelImageDirPath.textContent = displayPath || '';
-            sidePanelImageDirPath.title = displayPath || '';
+            sidePanelImageDirPath.title = locked
+                ? (i18n.imageDirLockedTitle || 'Image directory is fixed (outliner page convention)')
+                : (displayPath || '');
+        }
+        if (sidePanelImageDirEl) {
+            sidePanelImageDirEl.classList.toggle('is-locked', !!locked);
         }
     }
 
-    function updateSidePanelFileDir(displayPath, source) {
+    function updateSidePanelFileDir(displayPath, source, locked) {
         if (sidePanelFileDirPath) {
             sidePanelFileDirPath.textContent = displayPath || '';
-            sidePanelFileDirPath.title = displayPath || '';
+            sidePanelFileDirPath.title = locked
+                ? (i18n.fileDirLockedTitle || 'File directory is fixed (outliner page convention)')
+                : (displayPath || '');
+        }
+        const sidePanelFileDirEl = container.querySelector('.side-panel-filedir');
+        if (sidePanelFileDirEl) {
+            sidePanelFileDirEl.classList.toggle('is-locked', !!locked);
         }
     }
 
@@ -20083,12 +20736,38 @@ class EditorInstance {
         logger.log('Paste event triggered');
 
         // Check for image files first (unless Kiro keydown will handle via Clipboard API)
+        //
+        // 例外: clipboard に "SVG 単体でない HTML" + "image/*" の両方がある
+        //       (= ページ全体 or テキスト含むコピー + ブラウザが自動生成した PNG)
+        //       の場合は HTML paste を優先する。ここで image を取ってしまうと、
+        //       せっかくコピーしたテキスト・表・コード等が全部 PNG に化けるため。
+        //       SVG 単体コピー (HTML が <svg> のみ) のときは class 依存 CSS で
+        //       黒化するリスクがあるので image/* を採用する。
         if (!kiroSkipImage) {
             const items = e.clipboardData?.items;
+            const htmlSnapshot = e.clipboardData?.getData('text/html') || '';
+            function hasRichHtmlContent(h) {
+                if (!h) return false;
+                var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
+                // SVG のみ / div > svg のみ / img のみは rich でない
+                if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
+                if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
+                if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
+                // テキストや他要素が含まれていれば rich
+                var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
+                if (textContent.length > 0) return true;
+                // 複数 element (svg と img が並ぶ等) も rich 扱い
+                return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
+            }
+            const htmlIsRich = hasRichHtmlContent(htmlSnapshot);
             if (items) {
                 for (let i = 0; i < items.length; i++) {
                     const item = items[i];
                     if (item.kind === 'file' && item.type.startsWith('image/')) {
+                        if (htmlIsRich) {
+                            logger.log('Image found but HTML is rich — preferring HTML paste');
+                            break;
+                        }
                         e.preventDefault();
                         logger.log('Image found in paste event');
                         const file = item.getAsFile();
@@ -20129,6 +20808,26 @@ class EditorInstance {
                 if (isCut && sameOutliner) {
                     // fallthrough → pastedMd = internalMd で内部挿入
                 } else {
+                    // Save current selection (range.startContainer / startOffset)
+                    // so the async pasteWithAssetCopyResult handler can restore
+                    // it. Without this, mermaid/math wrappers (contenteditable=false)
+                    // lose their inner caret on the editor.focus() roundtrip and
+                    // the paste lands at the top of the document.
+                    try {
+                        const sel0 = window.getSelection();
+                        if (sel0 && sel0.rangeCount > 0) {
+                            const r0 = sel0.getRangeAt(0).cloneRange();
+                            self._pendingPasteSelection = {
+                                startContainer: r0.startContainer,
+                                startOffset: r0.startOffset,
+                                endContainer: r0.endContainer,
+                                endOffset: r0.endOffset,
+                                plainText: e.clipboardData.getData('text/plain') || ''
+                            };
+                        }
+                    } catch (selErr) {
+                        logger.warn('paste selection snapshot failed:', selErr);
+                    }
                     host.pasteWithAssetCopy(internalMd, sourceCtx);
                     return; // Wait for pasteWithAssetCopyResult
                 }
@@ -20159,252 +20858,59 @@ class EditorInstance {
             // Use plain text directly (Turndown would break table structure with double newlines)
             pastedMd = text;
             logger.log('Using plain text for markdown table (bypassing Turndown)');
-        } else if (html && typeof TurndownService !== 'undefined') {
-            // External HTML - convert via Turndown
+        } else if (html && typeof HtmlMdConverter !== 'undefined') {
+            // v0.207.50: External HTML → html-md-converter (turndown + GFM + 8 rules + pre/post)
+            // https://github.com/raggbal/html-md-converter
             try {
-                const turndownService = new TurndownService({
-                    headingStyle: 'atx',
-                    codeBlockStyle: 'fenced',
-                    emDelimiter: '*',
-                    bulletListMarker: '-'
-                });
-                if (typeof turndownPluginGfm !== 'undefined') {
-                    turndownService.use(turndownPluginGfm.gfm);
-                }
-
-                // Override GFM tableCell rule to:
-                // 1. Escape pipe characters in cell content (prevents table structure breakage)
-                // 2. Convert newlines to <br> (table cells must be single-line in markdown)
-                turndownService.addRule('tableCellEscapePipe', {
-                    filter: ['th', 'td'],
-                    replacement: function(content, node) {
-                        var index = Array.prototype.indexOf.call(node.parentNode.childNodes, node);
-                        var prefix = ' ';
-                        if (index === 0) prefix = '| ';
-                        // Convert newlines to <br> (table cells must stay on one line)
-                        content = content.replace(/\n/g, '<br>');
-                        // Collapse multiple <br> into single
-                        content = content.replace(/(<br>)+/g, '<br>');
-                        // Trim leading/trailing <br>
-                        content = content.replace(/^(<br>)+/, '').replace(/(<br>)+$/, '');
-                        // Escape pipe characters in cell content
-                        content = content.replace(/\|/g, '\\|');
-                        return prefix + content + ' |';
-                    }
-                });
-
-                // Custom rule: Remove empty span tags and Apple-converted-space spans
-                turndownService.addRule('cleanupSpans', {
-                    filter: function(node) {
-                        if (node.nodeName !== 'SPAN') return false;
-                        // Apple-converted-space spans contain only &nbsp;
-                        if (node.classList && node.classList.contains('Apple-converted-space')) {
-                            return true;
-                        }
-                        // Empty styling spans (no meaningful content)
-                        const hasOnlyStyleAttr = node.attributes.length === 1 && 
-                                                  node.hasAttribute('style');
-                        const hasNoContent = !node.textContent || node.textContent.trim() === '';
-                        return hasOnlyStyleAttr && hasNoContent;
-                    },
-                    replacement: function(content, node, options) {
-                        // For Apple-converted-space, return a single space
-                        if (node.classList && node.classList.contains('Apple-converted-space')) {
-                            return ' ';
-                        }
-                        return content;
-                    }
-                });
-                
-                // Custom rule: CSS style-based bold recognition
-                // Handles <span style="font-weight: bold"> etc. from Google Docs, web pages
-                turndownService.addRule('styledBold', {
-                    filter: function(node) {
-                        if (node.nodeName !== 'SPAN') return false;
-                        const fw = node.style.fontWeight;
-                        return fw === 'bold' || fw === 'bolder' || (parseInt(fw) >= 700);
-                    },
-                    replacement: function(content) {
-                        content = content.trim();
-                        if (!content) return '';
-                        return '**' + content + '**';
-                    }
-                });
-
-                // Custom rule: CSS style-based italic recognition
-                turndownService.addRule('styledItalic', {
-                    filter: function(node) {
-                        if (node.nodeName !== 'SPAN') return false;
-                        const fs = node.style.fontStyle;
-                        return fs === 'italic' || fs === 'oblique';
-                    },
-                    replacement: function(content) {
-                        content = content.trim();
-                        if (!content) return '';
-                        return '*' + content + '*';
-                    }
-                });
-
-                // Custom rule: CSS style-based strikethrough recognition
-                turndownService.addRule('styledStrikethrough', {
-                    filter: function(node) {
-                        if (node.nodeName !== 'SPAN') return false;
-                        const td = node.style.textDecoration || node.style.textDecorationLine || '';
-                        return td.includes('line-through');
-                    },
-                    replacement: function(content) {
-                        content = content.trim();
-                        if (!content) return '';
-                        return '~~' + content + '~~';
-                    }
-                });
-
-                // Custom rule: Robust fenced code block with language extraction
-                // Handles Shiki-styled code blocks (language= attribute instead of class=)
-                // and code blocks with indented whitespace before <code>
-                // <pre> 配下を再帰 walk して text 抽出 (<br> を \n に置換)
-                function preToText(n) {
-                    var out = '';
-                    var child = n.firstChild;
-                    while (child) {
-                        if (child.nodeType === 3) {
-                            out += child.nodeValue || '';
-                        } else if (child.nodeName === 'BR') {
-                            out += '\n';
-                        } else if (child.nodeType === 1) {
-                            out += preToText(child);
-                        }
-                        child = child.nextSibling;
-                    }
-                    return out;
-                }
-
-                // Medium 等の <pre><span class="hljs-*">...<br>...</pre> (code 要素なし、改行 <br>) も対応
-                turndownService.addRule('fencedCodeWithLang', {
-                    filter: function(node) {
-                        if (node.nodeName !== 'PRE') return false;
-                        if (node.querySelector('code')) return true;
-                        if (node.querySelector('[class*="hljs-"]')) return true;
-                        if (node.querySelector('br')) return true;
-                        return false;
-                    },
-                    replacement: function(content, node) {
-                        var code = node.querySelector('code');
-                        var lang = '';
-                        var text = '';
+                // SVG の前処理: clipboard HTML を一時 DOM にマウントして
+                // inlineSvgComputedStyles を適用。paste では source サイトの
+                // CSS class 定義を失っているので、Mermaid の class-based 色を
+                // 復元するために Mermaid default theme の fallback CSS を
+                // sandbox に先に注入してから computed style を焼き付ける。
+                var htmlForConvert = html;
+                try {
+                    if (HtmlMdConverter.inlineSvgComputedStyles && /<svg\b/i.test(html)) {
+                        var sandbox = document.createElement('div');
+                        sandbox.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1200px;';
+                        // Mermaid default flowchart theme の最小再現 CSS。
+                        // class 依存の fill/stroke がこの style 経由で getComputedStyle に
+                        // 反映されるので、その後 inlineSvgComputedStyles で焼き付けられる。
+                        var mermaidFallbackCss = ''
+                            + '.node rect,.node polygon,.node ellipse,.node circle,.node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}'
+                            + '.node .basic.label-container{fill:#ECECFF;stroke:#9370DB;}'
+                            + '.cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}'
+                            + '.cluster text,.cluster span{fill:#333;color:#333;}'
+                            + '.label{color:#333;}'
+                            + '.nodeLabel,.edgeLabel{color:#333;}'
+                            + '.edgePath .path{stroke:#333333;stroke-width:2px;fill:none;}'
+                            + '.flowchart-link{stroke:#333333;fill:none;}'
+                            + '.edgeLabel rect{fill:#e8e8e8;}'
+                            + '.marker{fill:#333333;stroke:#333333;}'
+                            + '.marker.cross{stroke:#333333;}'
+                            + '.arrowheadPath,.arrowMarkerPath{fill:#333333;stroke:none;}';
+                        var styleEl = document.createElement('style');
+                        styleEl.setAttribute('data-paste-fallback', '1');
+                        styleEl.textContent = mermaidFallbackCss;
+                        sandbox.appendChild(styleEl);
+                        var content = document.createElement('div');
+                        content.innerHTML = html;
+                        sandbox.appendChild(content);
+                        document.body.appendChild(sandbox);
                         try {
-                            if (code) {
-                                var cls = code.className || '';
-                                lang = (cls.match(/language-(\S+)/) || [null, ''])[1];
-                                if (!lang) lang = code.getAttribute('language') || node.getAttribute('language') || '';
-                                if (!lang) lang = node.getAttribute('data-lang') || '';
-                                text = code.textContent || '';
-                            } else {
-                                text = preToText(node);
-                                var langEl = node.querySelector('[class*="language-"]');
-                                if (langEl) lang = (langEl.className.match(/language-(\S+)/) || [null, ''])[1];
-                            }
-                        } catch (e) {
-                            text = '';
+                            HtmlMdConverter.inlineSvgComputedStyles(content);
+                            htmlForConvert = content.innerHTML;
+                        } finally {
+                            sandbox.parentNode && sandbox.parentNode.removeChild(sandbox);
                         }
-                        // フォールバック: 何があっても text は空にしない
-                        if (!text) text = node.textContent || content || '';
-                        lang = (lang || '').split(/\s+/)[0] || '';
-                        if (['hljs', 'nohighlight', 'shiki'].indexOf(lang) !== -1) lang = '';
-                        return '\n\n```' + lang + '\n' + text.replace(/\n$/, '') + '\n```\n\n';
                     }
-                });
-
-                // Custom rule: Normalize link content
-                // When <a> tags contain block elements (div, span) or newlines,
-                // Turndown produces multi-line markdown links like:
-                //   [\n  How Claude Code works\n  ](/docs/en/...)
-                // This rule collapses whitespace/newlines into a single-line link.
-                turndownService.addRule('normalizeLink', {
-                    filter: function(node) {
-                        return node.nodeName === 'A' && node.getAttribute('href');
-                    },
-                    replacement: function(content, node) {
-                        var href = node.getAttribute('href');
-                        if (href) href = href.replace(/([()])/g, '\\$1');
-                        var title = node.getAttribute('title');
-                        if (title) title = ' "' + title.replace(/"/g, '\\"') + '"';
-                        else title = '';
-                        // <a> がテキストを持たず <img> だけを wrap してる場合は、内側の image
-                        // markdown だけを返す。`[![alt](src)](href)` を `![alt](src)` に簡略化
-                        // (note.com 等の見出し画像 link を綺麗な image embed に)
-                        if ((node.textContent || '').trim() === '' && node.querySelector && node.querySelector('img')) {
-                            return content;
-                        }
-                        // Collapse multi-line link text (e.g. <a><div>text</div></a>)
-                        content = content.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-                        if (!content) return '';
-                        // Wikipedia-style citation links: link text like `[40]` should render as
-                        // `[` + link(40) + `]` (brackets literal, number clickable), not as a link
-                        // whose text is `[40]`. Move the bracket pair outside the link.
-                        var bracketMatch = content.match(/^\\?\[(.+?)\\?\]$/);
-                        if (bracketMatch) {
-                            return '[[' + bracketMatch[1] + '](' + href + title + ')]';
-                        }
-                        return '[' + content + '](' + href + title + ')';
-                    }
-                });
-
-                // Custom rule: Compact list items (remove blank lines between items)
-                // Turndown's default listItem rule produces "loose" lists with blank lines
-                // when <li> contains <p> elements (common in web pages, Google Docs).
-                // Override to always produce "tight" lists without blank lines.
-                turndownService.addRule('compactListItem', {
-                    filter: 'li',
-                    replacement: function (content, node, options) {
-                        content = content
-                            .replace(/^\n+/, '')           // remove leading newlines
-                            .replace(/\n+$/, '');          // remove trailing newlines
-                        // Indent nested content (only internal newlines, not trailing)
-                        content = content.replace(/\n/gm, '\n    ');
-
-                        var prefix = options.bulletListMarker + ' ';
-                        var parent = node.parentNode;
-                        if (parent.nodeName === 'OL') {
-                            var start = parent.getAttribute('start');
-                            var index = Array.prototype.indexOf.call(parent.children, node);
-                            prefix = (start ? Number(start) + index : index + 1) + '. ';
-                        }
-
-                        return (
-                            prefix + content + (node.nextSibling ? '\n' : '')
-                        );
-                    }
-                });
-
-                pastedMd = turndownService.turndown(html);
-
-                // Post-process: Un-escape Markdown block-level syntax markers
-                // Turndown escapes characters like -, +, #, > at line starts to prevent
-                // Markdown interpretation (preserving original HTML paragraph semantics).
-                // Since we're pasting into a Markdown editor, we want these interpreted as Markdown.
-                pastedMd = pastedMd.replace(/^\\([-+*]) /gm, '$1 ');         // list markers: \- , \+ , \*
-                pastedMd = pastedMd.replace(/^\\(#{1,6}) /gm, '$1 ');        // headings: \# , \## , etc.
-                pastedMd = pastedMd.replace(/^\\(>) ?/gm, '$1 ');            // blockquote: \>
-                pastedMd = pastedMd.replace(/^(\d+)\\(\. )/gm, '$1$2');      // ordered list: 1\.
-                pastedMd = pastedMd.replace(/^\\(~~~)/gm, '$1');             // code fence: \~~~
-                // Inline escapes: \* \_ \` \[ \] \\ \. (Turndown escapes these in text nodes)
-                pastedMd = pastedMd.replace(/\\([*_`\[\]\\.])/g, '$1');
-
-                // Post-process: Remove blank lines between consecutive list items
-                // Safety net for edge cases where the custom listItem rule doesn't catch all cases
-                var prevPastedMd;
-                do {
-                    prevPastedMd = pastedMd;
-                    pastedMd = pastedMd.replace(
-                        /(^[ \t]*(?:[-*+]|\d+\.)\s+.*)\n{2,}([ \t]*(?:[-*+]|\d+\.)\s)/gm,
-                        '$1\n$2'
-                    );
-                } while (pastedMd !== prevPastedMd);
-
-                logger.log('Converted external HTML to markdown via Turndown');
+                } catch (svgErr) {
+                    logger.warn('SVG preprocess skipped:', svgErr);
+                }
+                pastedMd = HtmlMdConverter.htmlToMarkdown(htmlForConvert);
+                logger.log('Converted external HTML to markdown via html-md-converter v' +
+                    (HtmlMdConverter.version || '?'));
             } catch (err) {
-                logger.error('Turndown error:', err);
+                logger.error('html-md-converter error:', err);
                 pastedMd = text || '';
             }
         } else {
@@ -20459,6 +20965,34 @@ class EditorInstance {
             }
             return lines.join('\n');
         })(pastedMd);
+
+        // HTML paste で MD に data:image/... が残っている場合、host に実体化を依頼
+        // (cleanImageSrc が data URL を strip するため、DOM 挿入前にファイル化する必要あり)
+        if (pastedMd && pastedMd.indexOf('data:image/') >= 0 && typeof host.extractDataUrlsInPastedMd === 'function') {
+            logger.log('Pasted MD contains data:image/, delegating to host for extraction');
+            // 後の result handler で _insertPastedMarkdown するため、plainText を保持
+            // selection も保存して async result 受信時に復元する (mermaid/math 対応)
+            var selSnap = null;
+            try {
+                var selNow = window.getSelection();
+                if (selNow && selNow.rangeCount > 0) {
+                    var rNow = selNow.getRangeAt(0).cloneRange();
+                    selSnap = {
+                        startContainer: rNow.startContainer,
+                        startOffset: rNow.startOffset,
+                        endContainer: rNow.endContainer,
+                        endOffset: rNow.endOffset
+                    };
+                }
+            } catch (selSnapErr) { /* noop */ }
+            self._pendingDataUrlPaste = {
+                plainText: text || '',
+                isInternal: !!internalMd,
+                selection: selSnap
+            };
+            host.extractDataUrlsInPastedMd(pastedMd);
+            return;
+        }
 
         _insertPastedMarkdown(pastedMd, { clipboardEvent: e, isInternal: !!internalMd, plainText: text || '' });
     });
@@ -20554,18 +21088,39 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty: pasteWithAssetCopyResult
+            // path passes plainText:'' but pastedMd contains the rewritten markdown,
+            // which for code-block paste is exactly the literal text we want.
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
-                const textNode = document.createTextNode(textToPaste);
-                range.insertNode(textNode);
-                
-                // Move cursor to end of inserted text
-                range.setStartAfter(textNode);
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                
+                // Code block: split on newlines and insert <br> between lines so
+                // multi-line paste becomes multiple visible lines (textNodes don't
+                // render \n inside contenteditable).
+                if (textToPaste.indexOf('\n') >= 0) {
+                    const lines = textToPaste.split('\n');
+                    const frag = document.createDocumentFragment();
+                    lines.forEach((line, idx) => {
+                        if (idx > 0) frag.appendChild(document.createElement('br'));
+                        if (line) frag.appendChild(document.createTextNode(line));
+                    });
+                    const lastChild = frag.lastChild;
+                    range.insertNode(frag);
+                    if (lastChild) {
+                        range.setStartAfter(lastChild);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                } else {
+                    const textNode = document.createTextNode(textToPaste);
+                    range.insertNode(textNode);
+                    range.setStartAfter(textNode);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+
                 syncMarkdownSync();
                 logger.log('Code block paste completed');
             }
@@ -20575,7 +21130,8 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -20619,7 +21175,8 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -21455,6 +22012,22 @@ class EditorInstance {
             set: (value) => { markdown = value; }
         });
     }
+
+    // Expose closure-scoped pending timers + cancel hook so destroy() can
+    // cancel them. Without this, a stale debounced sync (1000ms / 300ms /
+    // 1500ms idle flush) belonging to the OLD side-panel instance fires
+    // *after* the side panel has navigated, calling host.syncContent on
+    // an already-destroyed bridge — which is one of the contributors to
+    // the "back button overwrites parent markdown" race.
+    self._cancelPendingSync = function() {
+        try { if (saveTimeout) clearTimeout(saveTimeout); } catch (e) {}
+        try { if (syncTimeout) clearTimeout(syncTimeout); } catch (e) {}
+        try { if (editingIdleTimer) clearTimeout(editingIdleTimer); } catch (e) {}
+        saveTimeout = null;
+        syncTimeout = null;
+        editingIdleTimer = null;
+        pendingSync = false;
+    };
     } // end _legacyInit()
 } // end class EditorInstance
 

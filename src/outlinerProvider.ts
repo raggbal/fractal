@@ -10,6 +10,7 @@ import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHa
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
+import { handleExportMindmap } from './shared/mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { parseDataUrl } from './shared/data-url-image-extractor';
@@ -272,6 +273,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             targetNodeId: message.targetNodeId,
                             position: 'after'
                         });
+                        break;
+                    }
+
+                    case 'exportMindmap': {
+                        // Mindmap Mode (sprint 20260701-122355): PNG/SVG/OPML/MD 書き出し。
+                        const baseDir = path.dirname(document.uri.fsPath);
+                        const result = await handleExportMindmap(message as any, baseDir);
+                        webviewPanel.webview.postMessage({ type: 'mindmapExportDone', ...result });
                         break;
                     }
 
