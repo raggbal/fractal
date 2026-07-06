@@ -110,6 +110,13 @@
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
         },
+        // FR-FR-01/02: Finder (OS ファイラ) で選択状態表示
+        revealAttachedFileInOS: function(nodeId) {
+            api.postMessage({ type: 'revealAttachedFileInOS', nodeId: nodeId });
+        },
+        revealPageInOS: function(nodeId) {
+            api.postMessage({ type: 'revealPageInOS', nodeId: nodeId });
+        },
         handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
             api.postMessage({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
         },
@@ -338,6 +345,14 @@
         renameTitle: function(filePath, newTitle) {
             api.postMessage({ type: 'notesRenameTitle', filePath: filePath, newTitle: newTitle });
         },
+        // FR-NT-02: note フォルダ全体のタイトルを保存
+        setNoteTitle: function(title) {
+            api.postMessage({ type: 'notesSetNoteTitle', title: title });
+        },
+        // FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick は host 側)
+        moveToOtherNote: function(itemId) {
+            api.postMessage({ type: 'notesMoveToOtherNote', itemId: itemId });
+        },
         togglePanel: function(collapsed) {
             api.postMessage({ type: 'notesTogglePanel', collapsed: collapsed });
         },
@@ -461,7 +476,8 @@
         onFileListChanged: function(handler) {
             window.addEventListener('message', function(e) {
                 if (e.data && e.data.type === 'notesFileListChanged') {
-                    handler(e.data.fileList, e.data.currentFile, e.data.structure);
+                    // FR-NT-01: noteFolderName を第4引数で渡す (noteTitle 未設定時の既定表示)
+                    handler(e.data.fileList, e.data.currentFile, e.data.structure, e.data.noteFolderName);
                 }
             });
         },

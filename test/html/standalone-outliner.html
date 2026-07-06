@@ -36041,6 +36041,11 @@ var Outliner = (function() {
                 openPage(nodeId);
                 hideContextMenu();
             }, modLabel + '+Enter');
+            // FR-FR-02: md ページ実体を Finder (OS ファイラ) で選択状態表示
+            addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
+                if (host.revealPageInOS) { host.revealPageInOS(nodeId); }
+                hideContextMenu();
+            });
             if (selectedNodeIds.size === 0) {
                 addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
                     host.copyPagePaths([node.pageId]);
@@ -36062,6 +36067,11 @@ var Outliner = (function() {
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
                 host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            // FR-FR-01: 添付ファイルを Finder (OS ファイラ) で選択状態表示
+            addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
+                if (host.revealAttachedFileInOS) { host.revealAttachedFileInOS(nodeId); }
                 hideContextMenu();
             });
             // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を clipboard へコピー

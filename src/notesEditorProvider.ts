@@ -76,7 +76,54 @@ export class NotesEditorProvider {
         }
     }
 
+    // FR-NT-03 / FR-MV-01: Notes Folder ツリー provider への参照 (ツリー更新 + 移動先一覧に使う)
+    private folderProvider?: { refresh(): void; getFolders(): string[] };
+    public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {
+        this.folderProvider = fp;
+    }
+
     constructor(private context: vscode.ExtensionContext) {}
+
+    /**
+     * FR-MV-01: Notes タブの item を別 Note へ移動する。
+     * QuickPick で移動先 Note (現在の note を除く) を選ばせ、物理移動 + 両 outline.note 整合 +
+     * 移動先の先頭に登録。移動後に src webview を更新し Notes Folder ツリーを refresh。
+     */
+    private async handleMoveItemToOtherNote(
+        itemId: string,
+        fm: NotesFileManager,
+        sender: NotesSender
+    ): Promise<void> {
+        const srcFolder = fm.getMainFolderPath();
+        const folders = (this.folderProvider?.getFolders() || []).filter(f => f !== srcFolder);
+        if (folders.length === 0) {
+            vscode.window.showInformationMessage(t('notesMoveNoOtherNote') || 'No other note to move to.');
+            return;
+        }
+        // resolveNoteLabel で noteTitle 反映のラベルを出す
+        const { resolveNoteLabel } = require('./notesFolderProvider');
+        const picked = await vscode.window.showQuickPick(
+            folders.map(f => ({ label: resolveNoteLabel(f), description: f, folderPath: f })),
+            { placeHolder: t('notesMoveOtherNotePick') || 'Move to which note?' }
+        );
+        if (!picked) { return; } // キャンセル → 何もしない
+
+        const newId = fm.moveFileItemToOtherNote(itemId, picked.folderPath);
+        if (!newId) {
+            vscode.window.showErrorMessage(t('notesMoveFailed') || 'Move failed.');
+            return;
+        }
+        // src webview 更新 + ツリー refresh (dst は次回開いた時に反映)
+        sender.postMessage({
+            type: 'notesFileListChanged',
+            fileList: fm.listFiles(),
+            structure: fm.getStructure(),
+            currentFile: fm.getCurrentFilePath(),
+            noteFolderName: path.basename(srcFolder),
+        });
+        this.folderProvider?.refresh();
+        vscode.window.showInformationMessage(t('notesMoveDone') || 'Moved to the selected note.');
+    }
 
     async openNotesFolder(folderPath: string): Promise<void> {
         // 同じフォルダのパネルが既に存在する場合はrevealして再利用
@@ -193,6 +240,7 @@ export class NotesEditorProvider {
                 noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
                 fileChangeId: fileManager.getFileChangeId(),
                 s3BucketPathSet: !!(fileManager.getS3BucketPath() || '').trim(),
+                noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
             }
         );
         sendTranslateLangFromConfig();
@@ -585,6 +633,44 @@ export class NotesEditorProvider {
 
                 // Use openExternal to open with OS default app
                 await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
+            },
+            // FR-NT-03: note タイトル変更後に Notes Folder ツリーを更新
+            refreshNotesFolderTree: () => {
+                this.folderProvider?.refresh();
+            },
+            // FR-FR-01: file 添付ノードを OS ファイラ (Finder) で選択状態表示
+            revealAttachedFileInOS: async (nodeId: string, outFilePath: string, _senderRef: NotesSender) => {
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const node = data.nodes?.[nodeId];
+                if (!node?.filePath) return;
+                const outDir = path.dirname(outFilePath);
+                const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                if (!safeFilePath || !fs.existsSync(safeFilePath)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(safeFilePath));
+            },
+            // FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示
+            revealPageInOS: async (nodeId: string, fm: NotesFileManager, _senderRef: NotesSender) => {
+                const outFilePath = fm.getCurrentFilePath();
+                if (!outFilePath) return;
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const node = data.nodes?.[nodeId];
+                if (!node?.isPage || !node.pageId) return;
+                const pagesDir = fm.getPagesDirPath(data);
+                const pagePath = path.join(pagesDir, `${node.pageId}.md`);
+                if (!fs.existsSync(pagePath)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(pagePath));
+            },
+            // FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick で移動先選択)
+            moveItemToOtherNote: async (itemId: string, fm: NotesFileManager, senderRef: NotesSender) => {
+                await this.handleMoveItemToOtherNote(itemId, fm, senderRef);
             },
             copyImageToClipboard: async (absPath: string) => {
                 await copyImageToClipboard(absPath);

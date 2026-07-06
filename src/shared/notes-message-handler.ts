@@ -127,6 +127,14 @@ export interface NotesPlatformActions {
     importFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
     /** ファイル添付を開く */
     openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** FR-NT-03: note タイトル変更後に Notes Folder ツリービューを更新する */
+    refreshNotesFolderTree?(): void;
+    /** FR-FR-01: ファイル添付を OS ファイラ (Finder) で選択状態表示する */
+    revealAttachedFileInOS?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示する */
+    revealPageInOS?(nodeId: string, fileManager: NotesFileManager, sender: NotesSender): void;
+    /** FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick で移動先選択) */
+    moveItemToOtherNote?(itemId: string, fileManager: NotesFileManager, sender: NotesSender): void;
     /** FR-OL-COPYPATH-1: ファイル添付ノードの絶対 path を OS clipboard へコピー */
     copyAttachedFilePath?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** 画像 fullscreen overlay: 画像をピクセルとして OS clipboard へコピー */
@@ -206,6 +214,8 @@ function sendFileListWithStructure(
         fileList,
         structure,
         currentFile: currentFile !== undefined ? currentFile : fileManager.getCurrentFilePath(),
+        // FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示に webview 側で使う)
+        noteFolderName: path.basename(fileManager.getMainFolderPath()),
     });
 }
 
@@ -323,6 +333,27 @@ export async function handleNotesMessage(
             if (currentFilePath) {
                 platform.openAttachedFile?.(message.nodeId, currentFilePath, sender);
             }
+            break;
+        }
+
+        // FR-FR-01: file 添付ノードを OS ファイラ (Finder) で選択状態表示 (Notes mode)
+        case 'revealAttachedFileInOS': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.revealAttachedFileInOS?.(message.nodeId, currentFilePath, sender);
+            }
+            break;
+        }
+
+        // FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示 (Notes mode)
+        case 'revealPageInOS': {
+            platform.revealPageInOS?.(message.nodeId, fileManager, sender);
+            break;
+        }
+
+        // FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick で移動先選択)
+        case 'notesMoveToOtherNote': {
+            platform.moveItemToOtherNote?.(message.itemId, fileManager, sender);
             break;
         }
 
@@ -869,6 +900,15 @@ export async function handleNotesMessage(
         case 'notesRenameTitle': {
             fileManager.renameTitle(message.filePath, message.newTitle);
             sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
+        // FR-NT-02: note フォルダ全体のタイトルを outline.note に保存し、webview 再描画 +
+        // Notes Folder ツリーの表示名を更新する。
+        case 'notesSetNoteTitle': {
+            fileManager.setNoteTitle(message.title || '');
+            sendFileListWithStructure(fileManager, sender);
+            platform.refreshNotesFolderTree?.();
             break;
         }
 

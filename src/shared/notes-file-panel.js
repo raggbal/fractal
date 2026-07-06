@@ -22,6 +22,9 @@ var notesFilePanel = (function() {
     var fileList = [];
     var currentFile = null;
     var structure = null;
+    var noteFolderName = '';       // FR-NT-01: noteTitle 未設定時の既定表示 (フォルダ名)
+    var titleLabelEl = null;       // FR-NT-01: #notesTitleLabel
+    var _titleEditing = false;     // 二重編集ガード
     var listEl = null;
     var panelEl = null;
     var contextMenu = null;
@@ -70,6 +73,58 @@ var notesFilePanel = (function() {
             map[id] = f;
         });
         return map;
+    }
+
+    // ── FR-NT-01/02: note フォルダタイトル (見出し) の表示と inline 編集 ──
+
+    function currentNoteTitleText() {
+        var t = structure && structure.noteTitle;
+        return (t && String(t).trim()) ? String(t).trim() : (noteFolderName || '');
+    }
+
+    function renderNoteTitle() {
+        if (!titleLabelEl) { titleLabelEl = document.getElementById('notesTitleLabel'); }
+        if (!titleLabelEl || _titleEditing) { return; }
+        titleLabelEl.textContent = currentNoteTitleText();
+    }
+
+    function beginNoteTitleEdit() {
+        if (!titleLabelEl || _titleEditing) { return; }
+        _titleEditing = true;
+        var original = currentNoteTitleText();
+        titleLabelEl.setAttribute('contenteditable', 'true');
+        titleLabelEl.classList.add('editing');
+        titleLabelEl.focus();
+        // 全選択
+        try {
+            var range = document.createRange();
+            range.selectNodeContents(titleLabelEl);
+            var sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(range);
+        } catch (e) { /* noop */ }
+
+        var finish = function(commit) {
+            if (!_titleEditing) { return; }
+            _titleEditing = false;
+            titleLabelEl.removeAttribute('contenteditable');
+            titleLabelEl.classList.remove('editing');
+            titleLabelEl.removeEventListener('keydown', onKey);
+            titleLabelEl.removeEventListener('blur', onBlur);
+            if (commit) {
+                var val = (titleLabelEl.textContent || '').trim();
+                if (val !== original && bridge && bridge.setNoteTitle) {
+                    bridge.setNoteTitle(val); // 空文字なら host 側でクリア (フォルダ名表示に戻る)
+                }
+            }
+            renderNoteTitle(); // 表示を確定値 (or 元) に戻す
+        };
+        var onKey = function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+            else if (e.key === 'Escape') { e.preventDefault(); titleLabelEl.textContent = original; finish(false); }
+        };
+        var onBlur = function() { finish(true); };
+        titleLabelEl.addEventListener('keydown', onKey);
+        titleLabelEl.addEventListener('blur', onBlur);
     }
 
     // ── ツリーレンダリング ──
@@ -399,6 +454,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
+        });
+        // FR-MV-01: 別 Note へ移動 (QuickPick は host 側)。file item のみ (outliner/md)。
+        addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
+            closeContextMenu();
+            if (bridge.moveToOtherNote) { bridge.moveToOtherNote(file.id || fileId); }
         });
         // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
         addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
@@ -1366,11 +1426,12 @@ var notesFilePanel = (function() {
         }
     }
 
-    function init(noteBridge, initialFileList, initialCurrentFile, initialStructure, initialPanelWidth) {
+    function init(noteBridge, initialFileList, initialCurrentFile, initialStructure, initialPanelWidth, initialNoteFolderName) {
         bridge = noteBridge;
         fileList = initialFileList || [];
         currentFile = initialCurrentFile || null;
         structure = initialStructure || null;
+        noteFolderName = initialNoteFolderName || '';  // FR-NT-01
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
@@ -1464,12 +1525,21 @@ var notesFilePanel = (function() {
             bridge.togglePanel(false);
         });
 
+        // FR-NT-01/02: note タイトル見出しの初期化 + inline 編集バインド
+        titleLabelEl = document.getElementById('notesTitleLabel');
+        if (titleLabelEl) {
+            titleLabelEl.addEventListener('click', function() { beginNoteTitleEdit(); });
+        }
+        renderNoteTitle();
+
         // Listen for file list + structure updates
         if (bridge.onFileListChanged) {
-            bridge.onFileListChanged(function(newList, newCurrentFile, newStructure) {
+            bridge.onFileListChanged(function(newList, newCurrentFile, newStructure, newNoteFolderName) {
                 fileList = newList;
                 if (newCurrentFile) currentFile = newCurrentFile;
                 if (newStructure) structure = newStructure;
+                if (typeof newNoteFolderName === 'string') noteFolderName = newNoteFolderName;
+                renderNoteTitle();  // FR-NT-01: タイトル更新
                 renderTree();
             });
         }

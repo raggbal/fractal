@@ -457,7 +457,7 @@ function generateNotesFilePanelHtml(options) {
 
     var html = `<aside class="notes-file-panel${panelClass}" id="notesFilePanel">
             <div class="file-panel-header">
-                <span class="file-panel-title">Outlines</span>
+                <span class="file-panel-title" id="notesTitleLabel" title="${m('notesRenameNoteTitle', 'Click to rename this note')}"></span>
                 <div class="file-panel-actions">
                     <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 </div>

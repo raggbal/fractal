@@ -1,5 +1,25 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+
+/**
+ * FR-NT-03: note フォルダの表示名を解決する。
+ * outline.note に noteTitle があればそれを、無ければフォルダ名 (basename) を返す。
+ */
+export function resolveNoteLabel(folderPath: string): string {
+    try {
+        const p = path.join(folderPath, 'outline.note');
+        if (fs.existsSync(p)) {
+            const s = JSON.parse(fs.readFileSync(p, 'utf8'));
+            if (s && typeof s.noteTitle === 'string' && s.noteTitle.trim()) {
+                return s.noteTitle.trim();
+            }
+        }
+    } catch {
+        /* 壊れた outline.note はフォルダ名にフォールバック */
+    }
+    return path.basename(folderPath);
+}
 
 /**
  * NotesFolderProvider — Activity Bar の Notes フォルダ一覧を提供する TreeDataProvider
@@ -97,6 +117,11 @@ export class NotesFolderProvider
         return [...this.folders];
     }
 
+    /** FR-NT-03: note タイトル変更後にツリーを再描画する (label が noteTitle を拾い直す) */
+    refresh(): void {
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
     async removeFolder(item: NotesFolderItem): Promise<void> {
         const idx = this.folders.indexOf(item.folderPath);
         if (idx >= 0) {
@@ -111,7 +136,8 @@ export class NotesFolderItem extends vscode.TreeItem {
     public readonly folderPath: string;
 
     constructor(folderPath: string) {
-        super(path.basename(folderPath), vscode.TreeItemCollapsibleState.None);
+        // FR-NT-03: noteTitle があれば表示名に使う (無ければフォルダ名)
+        super(resolveNoteLabel(folderPath), vscode.TreeItemCollapsibleState.None);
         this.folderPath = folderPath;
         this.tooltip = folderPath;
         this.contextValue = 'notesFolder';
