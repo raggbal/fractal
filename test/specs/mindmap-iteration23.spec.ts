@@ -467,7 +467,7 @@ test('TC-M11 編集中の横幅が EN/JP とも intrinsic テキスト幅に対�
     await setup(page);
     await toMindmapProd(page, enjpMap());
 
-    const PAD = 20;   // 実 CSS padding (水平) = PAD_H。
+    const PAD = 38;   // iteration 32 test_update: PAD_H(20) + BORDER_W(18, border + 1文字余裕)。折り返し防止で box を広げた。
     const FLOOR = 80; // ノード最小幅。
 
     const en = await typeAndRecord(page, 'e', 'a', 14);
@@ -567,9 +567,10 @@ test('TC-M12 確定後の右空白が過大でない (右 padding + 小マージ
         return { rightWhitespace, leftPad, boxW: br.width, intrinsic };
     });
 
-    // ★ 右空白 (box 右端とテキスト実描画右端の隙間) が実 CSS 右 padding (10px) + 小マージン以内 (<= 16px)。
-    expect(info.rightWhitespace).toBeLessThanOrEqual(16);
-    // 右空白は負にならない範囲 (テキストが box を突き抜けない = 少なくとも padding 分は空く)。
+    // iteration 32 test_update: 折り返し防止 (Image #6) 優先で box を 1 文字分広げた (BORDER_W 4→18)。
+    // #10「右空白を最小に」より「実機で折り返さない」を優先する判断に切替。右空白は右 padding(10) +
+    // border(1) + 1 文字余裕(~15) の範囲 (<= 32px) に緩和。負にならない下限は維持。
+    expect(info.rightWhitespace).toBeLessThanOrEqual(32);
     expect(info.rightWhitespace).toBeGreaterThanOrEqual(-2);
 });
 
@@ -602,11 +603,10 @@ test('TC-M12 編集中幅 == 確定後幅 (|editW − commitW| <= 8)', async ({ 
     expect(Math.abs(editW - commitW)).toBeLessThanOrEqual(8);
 });
 
-test('TC-M12 load-bearing: padding 想定を過大 (+24 相当) に戻すと右空白が閾値超で red', async ({ page }) => {
-    // ★ commit 幅の padding 想定を実 CSS (20px) に整合させたのが #10 の是正。過大 padding (旧 +24) だと
-    //   右空白が広がる。load-bearing: measureRealWidth の戻り値に手動で +4px (過大分) 上乗せした幅を
-    //   foreignObject に適用して「過大 padding 時の box」を再現し、その右空白が閾値 16 を超えること、
-    //   一方 現行 (PAD_H=20) では <= 16 に収まることを対比する。
+test('TC-M12 load-bearing: 幅をさらに過大にすると右空白が閾値超で red', async ({ page }) => {
+    // iteration 32 test_update: 折り返し防止で box を 1 文字分広げた (BORDER_W=18) ため右空白の
+    //   許容は <= 32 に緩和済み。load-bearing: それでもさらに過大 (+24) にすると 32 を超えることを
+    //   対比し、「際限なく広げているのではなく一定余白で頭打ち」を実証する。
     await setup(page);
     await toMindmapProd(page, commitMap());
     await page.waitForTimeout(120);
@@ -622,13 +622,13 @@ test('TC-M12 load-bearing: padding 想定を過大 (+24 相当) に戻すと右�
         document.body.appendChild(clone); const intr = clone.scrollWidth; clone.remove();
         return { rw: br.right - (tr.left + intr), foW: parseFloat(fo.getAttribute('width')) };
     });
-    expect(cur.rw).toBeLessThanOrEqual(16); // 現行は右空白 <= 16
+    expect(cur.rw).toBeLessThanOrEqual(32); // 現行は右空白 <= 32 (iter32 で緩和)
 
-    // 過大 padding を再現: fo 幅を現行 + 過大分 (旧 +24 と実 20 の差 4px + 保険 12 = +16 で明確に過大に)。
+    // さらに過大にする: fo 幅を +24 して明確に閾値 32 超へ。
     await page.evaluate(() => {
         const fo = document.querySelector('.mindmap-node[data-node-id="n"]') as any;
         const w = parseFloat(fo.getAttribute('width'));
-        fo.setAttribute('width', w + 16);
+        fo.setAttribute('width', w + 24);
     });
     await page.waitForTimeout(60);
     const bloated = await page.evaluate(() => {
@@ -641,6 +641,6 @@ test('TC-M12 load-bearing: padding 想定を過大 (+24 相当) に戻すと右�
         document.body.appendChild(clone); const intr = clone.scrollWidth; clone.remove();
         return { rw: br.right - (tr.left + intr) };
     });
-    // ★ 過大 padding 相当だと右空白が閾値 16 を超える (現行 <= 16 との対比で是正が実効)。
-    expect(bloated.rw).toBeGreaterThan(16);
+    // ★ さらに過大にすると右空白が閾値 32 を超える (現行 <= 32 との対比)。
+    expect(bloated.rw).toBeGreaterThan(32);
 });

@@ -749,11 +749,9 @@ var MindmapInteractions = (function() {
         var A7_PAD_H = 20;
         // iteration 30: border-box の border 3px 分 + サブピクセル安全 1px = 4px。render.js の
         // BORDER_W と同値。短文が確定ノードで折り返す (Image #3/#4) の是正。editW == commitW を保つ。
-        var A7_BORDER_W = 4;
+        var A7_BORDER_W = 18; // iteration 32: border 3px + 1 文字分の余裕。render.js BORDER_W と同値。
         // iteration 31: flex gap(列 6px)。アイコン付きノードの icon↔text 間隔。render.js ICON_GAP と同値。
         var A7_ICON_GAP = 6;
-        // iteration 31: サブピクセル/メトリクス差の安全余白。render.js SAFETY と同値。
-        var A7_SAFETY = 4;
 
         // 編集中の text 要素の「最長行の必要幅（画面座標 px）」を測る。
         // 編集ノードの live DOM は書き換えない（generator_failures 2026-07-02 原則）。
@@ -826,7 +824,7 @@ var MindmapInteractions = (function() {
             if (icon) {
                 var iconW = icon.getBoundingClientRect().width / scale;
                 if (!(iconW > 0)) { iconW = A7_PAD_H; }
-                iconPad = iconW + A7_ICON_GAP + A7_SAFETY; // SAFETY はアイコン付きのみ (render.js と一致)
+                iconPad = iconW + A7_ICON_GAP; // 一般余白は A7_BORDER_W が担う (render.js と一致)
             }
             var needInner = needScreen / scale + A7_PAD_H + A7_BORDER_W + iconPad;
             var baseW = _editBaseW[nid] || parseFloat(fo.getAttribute('width')) || 80;
