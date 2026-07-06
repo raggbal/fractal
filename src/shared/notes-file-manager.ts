@@ -37,6 +37,7 @@ export interface NoteStructure {
     sidePanelOutlineWidth?: number;       // ノート全体共通の sidepanel TOC 幅 (px)
     s3BucketPath?: string;                // S3バケットパス (例: "my-bucket/notes-backup")
     favorites?: string[];                 // v0.207.36: お気に入り outliner ID 配列 (NoteTreeFile.id を参照、順序維持)
+    noteTitle?: string;                   // FR-NT-01: note フォルダ全体のタイトル。未設定=フォルダ名表示 (後方互換)
 }
 
 // ── 検索関連 ──
@@ -515,6 +516,34 @@ export class NotesFileManager {
      */
     getS3BucketPath(): string | undefined {
         return this.getStructure().s3BucketPath;
+    }
+
+    /**
+     * FR-NT-01/02: note フォルダ全体のタイトル。
+     * 表示用 getNoteTitle は未設定時にフォルダ名 (basename) へフォールバック。
+     * getRawNoteTitle は保存値そのもの (未設定なら undefined)。
+     */
+    getNoteTitle(): string {
+        const t = this.getStructure().noteTitle;
+        return (t && t.trim()) ? t.trim() : path.basename(this.mainFolderPath);
+    }
+
+    getRawNoteTitle(): string | undefined {
+        return this.getStructure().noteTitle;
+    }
+
+    /**
+     * note タイトルを outline.note に保存。空文字で確定するとクリア (= フォルダ名表示に戻る)。
+     */
+    setNoteTitle(title: string): void {
+        const structure = this.getStructure();
+        const v = (title || '').trim();
+        if (v) {
+            structure.noteTitle = v;
+        } else {
+            delete structure.noteTitle;
+        }
+        this.saveStructure();
     }
 
     /**
