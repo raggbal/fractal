@@ -747,6 +747,9 @@ var MindmapInteractions = (function() {
         // 「テキスト実幅 + 水平 padding」。実 CSS は .mindmap-node-box { padding: 6px 10px } = 20px。
         // 従来の +24 は 4px 過大。render.js の PAD_H (=20) と同値にして editW == commitW を保つ。
         var A7_PAD_H = 20;
+        // iteration 30: border-box の border 3px 分 + サブピクセル安全 1px = 4px。render.js の
+        // BORDER_W と同値。短文が確定ノードで折り返す (Image #3/#4) の是正。editW == commitW を保つ。
+        var A7_BORDER_W = 4;
 
         // 編集中の text 要素の「最長行の必要幅（画面座標 px）」を測る。
         // 編集ノードの live DOM は書き換えない（generator_failures 2026-07-02 原則）。
@@ -814,7 +817,7 @@ var MindmapInteractions = (function() {
             //   PAD_H(=20)+iconPad に整合。editW == commitW を保つ, TASK-63/64）。
             var icon = box.querySelector('.mindmap-node-icon');
             var iconPad = icon ? A7_PAD_H : 0;
-            var needInner = needScreen / scale + A7_PAD_H + iconPad;
+            var needInner = needScreen / scale + A7_PAD_H + A7_BORDER_W + iconPad;
             var baseW = _editBaseW[nid] || parseFloat(fo.getAttribute('width')) || 80;
             var targetW = Math.max(baseW, Math.min(A7_MAX_W, needInner));
             var curW = parseFloat(fo.getAttribute('width')) || baseW;

@@ -45,6 +45,11 @@ var MindmapRender = (function() {
     // 確定 (measureRealWidth / estimateMeasure) で同じ定数を使い editW == commitW を保つ。
     // interactions.js の A7_PAD_H と同値であること (両ファイルで 20 に統一)。
     var PAD_H = 20;
+    // iteration 30: .mindmap-node-box は box-sizing:border-box + border:1.5px (水平 3px)。
+    // PAD_H は padding(20px) しか勘定しないため、border 分だけ content 領域が狭くなり短文が
+    // 折り返す (ユーザー報告 Image #3/#4)。border 3px + サブピクセル丸め安全 1px = 4px を加算する。
+    // interactions.js A7_BORDER_W と同値 (両ファイルで統一 → editW == commitW)。
+    var BORDER_W = 4;
 
     function el(tag, attrs) {
         var e = document.createElementNS(SVGNS, tag);
@@ -72,12 +77,12 @@ var MindmapRender = (function() {
             if (explicitLines[i].length > longest) { longest = explicitLines[i].length; }
         }
         var maxW = 280;
-        // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)。padding は実 CSS の 20px (PAD_H)。
-        var naturalW = longest * charW + PAD_H + iconPad;
+        // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)。padding 20px (PAD_H) + border 3px 分 (BORDER_W)。
+        var naturalW = longest * charW + PAD_H + BORDER_W + iconPad;
         var w = Math.max(80, Math.min(maxW, naturalW));
         var wrapCount = 0;
         for (var j = 0; j < explicitLines.length; j++) {
-            wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - PAD_H - iconPad || 1)));
+            wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - PAD_H - BORDER_W - iconPad || 1)));
         }
         var lines = Math.max(explicitLines.length, wrapCount);
         // #改 (iteration 13, TASK-43): ノード幅 = 最長行の自然幅にフィット・上限 280。
@@ -145,7 +150,8 @@ var MindmapRender = (function() {
         if (maxScreen <= 0) { return estW; }
         // iconPad: box 内にアイコン要素があれば余白 (adjustEditWidth と同じ PAD_H)。
         var iconPad = (box.querySelector('.mindmap-node-icon')) ? PAD_H : 0;
-        var needInner = maxScreen / scale + PAD_H + iconPad;
+        // + BORDER_W: border-box の border 3px 分を足して短文が折り返さないようにする (iteration 30)
+        var needInner = maxScreen / scale + PAD_H + BORDER_W + iconPad;
         return Math.max(80, Math.min(280, needInner));
     }
 
