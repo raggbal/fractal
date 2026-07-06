@@ -17,6 +17,13 @@ var MindmapInteractions = (function() {
     var _contextMenuEl = null;
     var _selectedGroupId = null; // クリック選択中のグループ (G5/G6)
 
+    // [M] iteration 29 / TASK-78: mindmap 検索。attach 内の centerOnNode 実装への参照を保持し、
+    // module-level の search/searchNext/clearSearch から呼ぶ。_searchHits = 一致ノードID配列、
+    // _searchIdx = 現在の巡回位置。
+    var _centerOnNodeFn = null; // function(nodeId): 対象ノードを画面中心へパン (attach で設定)
+    var _searchHits = [];
+    var _searchIdx = -1;
+
     // ensureNodeVisible の余白 (iteration 18 / TASK-52)。ユーザー報告バグ (#18/#19) は右側 (横方向)
     // の子持ちノードがギリギリで見づらい件。→ 横方向マージンを 16 → 32 に広げ、右はみ出し補正のみ
     // 折りたたみハンドルの右張り出し分 handlePad を加算する。
@@ -461,10 +468,14 @@ var MindmapInteractions = (function() {
             // undo/redo は outliner グローバルに委ねる
             if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) { return; }
 
-            // Cmd+Enter → Page open
+            // Cmd+Enter → 添付を開く (outliner と同じ挙動, iteration 29 / TASK-76)。
+            //   [J] isPage (md 添付) → openPage = side panel md editor で開く (既存)。
+            //   [I] filePath (file 添付) → host.openAttachedFile = 外部アプリで開く (新規追加)。
+            //   isPage と filePath は相互排他 (data-model §4.2)。
             if (mod && e.key === 'Enter') {
                 e.preventDefault();
                 if (node && node.isPage && ctx.openPage) { ctx.openPage(nodeId); }
+                else if (node && node.filePath && host && typeof host.openAttachedFile === 'function') { host.openAttachedFile(nodeId); }
                 return;
             }
             // Cmd+A 全選択
@@ -483,6 +494,9 @@ var MindmapInteractions = (function() {
                 var order = ['radial', 'right', 'left', 'balanced'];
                 var cur = order.indexOf(settings.layout || 'right');
                 settings.layout = order[(cur + 1) % order.length];
+                // [G] (iteration 29 / TASK-75): 形状変更後は開いた時と同じく title 中央ノードを
+                // 画面中心へ。_needsOpenCenter を立ててから rerender (open-centering が発火)。
+                _needsOpenCenter = true;
                 pushUndo(); scheduleSync(); rerender();
                 return;
             }
@@ -1245,6 +1259,18 @@ var MindmapInteractions = (function() {
             viewport.translateY = (screenY - tr.top) - s * (svgY - (b.minY - PAD));
         }
 
+        // [M] iteration 29 / TASK-78: 指定ノードを画面中心へパンする (検索の巡回中央化用)。
+        // その SVG 座標を可視領域中心に placeSvgAtScreen で置く。scale は変えない。
+        function centerOnNode(nodeId) {
+            var positions = runtime.layout && runtime.layout.positions;
+            if (!positions || !positions[nodeId]) { return; }
+            syncViewport();
+            var vis = visibleFrame();
+            placeSvgAtScreen(positions[nodeId].x, positions[nodeId].y, vis.cx, vis.cy);
+            applyViewport();
+        }
+        _centerOnNodeFn = centerOnNode; // module-level 検索 API から呼べるよう参照を保持
+
         // #5 fit: content bbox [b.min, b.max] を実可視領域に収める scale + bbox 中心を可視中心へ。
         function fitToScreen() {
             var b = runtime.layout && runtime.layout.bounds;
@@ -1303,6 +1329,8 @@ var MindmapInteractions = (function() {
                 if (t && t.getAttribute && t.getAttribute('data-mm-action') === 'layout') {
                     pushUndo();
                     settings.layout = t.value;
+                    // [G] (iteration 29 / TASK-75): 形状変更後は title 中央ノードを画面中心へ。
+                    _needsOpenCenter = true;
                     scheduleSync();
                     rerender();
                 }
@@ -1577,6 +1605,8 @@ var MindmapInteractions = (function() {
         _handlers = [];
         _treeEl = null;
         _dragState = null;
+        _centerOnNodeFn = null; // [M] 検索 API の参照を解放
+        _searchHits = []; _searchIdx = -1;
         closeContextMenu();
         // 外部 (MindmapRender.destroy = mindmap を離れる) からの detach なら、次の attach で
         // 開いた時 centering を要求する (TASK-56 #2)。attach 内部からの detach (_inAttach=true)
@@ -1584,9 +1614,73 @@ var MindmapInteractions = (function() {
         if (!_inAttach) { _needsOpenCenter = true; }
     }
 
+    // [M] iteration 29 / TASK-78: mindmap 検索 API (outliner.js の executeSearch が VIEW_MODE==='mindmap'
+    // 時に呼ぶ)。絞り込み (filter) ではなく「該当テキストを含むノードをハイライト + 最初の一致を画面
+    // 中央へパン、searchNext で次の一致へ巡回中央化」。ハイライトは .mindmap-node-box.is-search-hit。
+    function _applyHitClasses() {
+        if (!_treeEl) { return; }
+        var boxes = _treeEl.querySelectorAll('.mindmap-node-box');
+        var hitSet = {};
+        for (var i = 0; i < _searchHits.length; i++) { hitSet[_searchHits[i]] = true; }
+        for (var j = 0; j < boxes.length; j++) {
+            var fo = boxes[j].closest ? boxes[j].closest('.mindmap-node') : null;
+            var id = fo ? fo.getAttribute('data-node-id') : null;
+            var isHit = !!(id && hitSet[id]);
+            var isCur = !!(id && _searchIdx >= 0 && _searchHits[_searchIdx] === id);
+            if (isHit) { boxes[j].classList.add('is-search-hit'); } else { boxes[j].classList.remove('is-search-hit'); }
+            if (isCur) { boxes[j].classList.add('is-search-current'); } else { boxes[j].classList.remove('is-search-current'); }
+        }
+    }
+    // query 文字列に一致するノードID一覧を返す (単純な部分一致・大小無視。text と subtext を対象)。
+    function _findHits(model, queryStr) {
+        var q = String(queryStr || '').trim().toLowerCase();
+        var hits = [];
+        if (!q || !model || !model.nodes) { return hits; }
+        // rootIds からの DFS 順で安定した巡回順にする。
+        var order = [];
+        var visit = function(id) {
+            var n = model.nodes[id]; if (!n) { return; }
+            order.push(id);
+            if (n.children) { for (var k = 0; k < n.children.length; k++) { visit(n.children[k]); } }
+        };
+        var roots = model.rootIds || [];
+        for (var r = 0; r < roots.length; r++) { visit(roots[r]); }
+        // rootIds に到達しない孤立ノードも拾う。
+        for (var id2 in model.nodes) { if (model.nodes.hasOwnProperty(id2) && order.indexOf(id2) < 0) { order.push(id2); } }
+        for (var oi = 0; oi < order.length; oi++) {
+            var node = model.nodes[order[oi]];
+            var hay = ((node.text || '') + ' ' + (node.subtext || '')).toLowerCase();
+            if (hay.indexOf(q) >= 0) { hits.push(order[oi]); }
+        }
+        return hits;
+    }
+    // search(model, queryStr): 一致ノードをハイライトし最初の一致を中央へ。戻り値 = 一致件数。
+    function search(model, queryStr) {
+        _searchHits = _findHits(model, queryStr);
+        _searchIdx = _searchHits.length ? 0 : -1;
+        _applyHitClasses();
+        if (_searchIdx >= 0 && _centerOnNodeFn) { _centerOnNodeFn(_searchHits[_searchIdx]); }
+        return _searchHits.length;
+    }
+    // searchNext(): 次の一致へ巡回して中央化 (末尾で先頭へラップ)。戻り値 = 現在の 1-based index。
+    function searchNext() {
+        if (!_searchHits.length) { return 0; }
+        _searchIdx = (_searchIdx + 1) % _searchHits.length;
+        _applyHitClasses();
+        if (_centerOnNodeFn) { _centerOnNodeFn(_searchHits[_searchIdx]); }
+        return _searchIdx + 1;
+    }
+    function clearSearch() {
+        _searchHits = []; _searchIdx = -1;
+        _applyHitClasses();
+    }
+
     return {
         attach: attach,
         detach: detach,
+        search: search,
+        searchNext: searchNext,
+        clearSearch: clearSearch,
         _prevSiblingId: prevSiblingId,
         // テスト用 (iteration 18 / TASK-52 の load-bearing): ensureNodeVisible の横マージンと
         // ハンドル張り出し加算を旧値 (16, 0) に戻して「右のギリギリ (ハンドルが画面端に接近)」を

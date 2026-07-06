@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.7] - 2026-07-06
+
+### Added
+- **Mindmap Mode の検索**: 検索ボックスに入力すると、該当テキストを含むノードをハイライトし、最初の一致を画面中央へパンする。Enter で次の一致へ順に巡回して中央化（Outliner の絞り込みと異なり、ノードは全表示のまま「発見」する）。
+
+### Changed
+- **Mindmap Mode で形状（layout）を変更したとき、title 中央ノードを画面中心に再配置**（Cmd+Shift+L / ツールバーの layout 選択の両方）。開いた直後と同じ見え方になる。
+- **Mindmap Mode でヘッダーの使わないボタンをグレーアウト（無効化）**。有効: undo / redo / ビュー切替 / S3 sync / 検索ボックス。無効: タスクモード / タスクフィルタ / アーカイブ / メニュー / 戻る・進む / 検索モード切替（Outliner に戻すと復帰）。
+
+### Fixed
+- **Mindmap Mode で file 添付ノードの Cmd+Enter が外部アプリでファイルを開くように**（Outliner と同じ挙動）。md（ページ）添付ノードの Cmd+Enter は従来どおり side panel の md エディタで開く。
+
+### Removed
+- **Mindmap Mode ツールバーの PNG / SVG / OPML / Markdown エクスポートボタンを削除**（現時点で不要のため。将来復活可能な形で内部ハンドラは残置）。
+
 ## [0.209.6] - 2026-07-06
 
 ### Fixed

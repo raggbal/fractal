@@ -300,6 +300,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 0.3;
     cursor: default;
 }
+/* [K] iteration 29 / TASK-77: mindmap モードで使わないヘッダーボタンのグレーアウト。
+   disabled 属性 + このクラスで淡く・クリック不可にする (mindmap を抜けると解除)。 */
+.outliner-search-bar button.is-mindmap-disabled,
+.outliner-search-bar .is-mindmap-disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
+}
 /* active toggle: opacity 1 で目立たせる */
 .outliner-task-mode-toggle-btn.is-active,
 .outliner-task-filter-toggle-btn.is-active {

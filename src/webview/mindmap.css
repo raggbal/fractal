@@ -135,6 +135,18 @@
     cursor: text;
 }
 
+/* [M] iteration 29 (TASK-78): mindmap 検索の一致ノードをハイライト。is-search-hit = 一致、
+   is-search-current = 現在巡回中の一致 (中央化対象・より強調)。絞り込みでなく全ノード表示のまま。 */
+.mindmap-node-box.is-search-hit {
+    background: var(--fr-bg-search-hit, rgba(255, 213, 79, 0.35));
+    border-color: var(--fr-color-search-hit, #f5b301);
+}
+.mindmap-node-box.is-search-current {
+    background: var(--fr-bg-search-current, rgba(255, 179, 0, 0.55));
+    border-color: var(--fr-color-search-current, #ff8f00);
+    box-shadow: 0 0 0 2px var(--fr-color-search-current, #ff8f00);
+}
+
 /* iteration 28 (TASK-73): committed active ノードは IME 合成のため contenteditable=true だが
    編集中 (is-editing) ではない。focus された contenteditable の caret 点滅が「編集モードに見える」
    不具合 (矢印移動で移動先が編集モードに見える) を防ぐため、is-editing でない間は caret を透明にする。

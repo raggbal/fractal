@@ -208,21 +208,16 @@ test.describe('Mindmap zoom & export', () => {
         expect(md).toMatch(/[-#]\s*A/);
     });
 
-    test('TC-223/224/225 export buttons post exportMindmap message', async ({ page }) => {
+    // [H] iteration 29 / TASK-74 (test_update): PNG/SVG/OPML/MD エクスポートボタンは
+    // ツールバーから削除した (まだ不要)。→ ボタンが存在しないことを検証する
+    // (doExport ハンドラ自体は将来復活用に残置しているが UI からは出さない)。
+    test('TC-223/224/225改 export ボタンはツールバーに存在しない (iter29 で削除)', async ({ page }) => {
         await setup(page); await init(page, tree3());
-        // clear messages
-        await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
-        // OPML (synchronous)
-        await page.locator('.mindmap-tb-btn[data-mm-action="export"][data-mm-value="opml"]').click();
-        await page.waitForTimeout(80);
-        // SVG (synchronous)
-        await page.locator('.mindmap-tb-btn[data-mm-action="export"][data-mm-value="svg"]').click();
-        await page.waitForTimeout(80);
-        const msgs = await page.evaluate(() => (window as any).__testApi.messages.filter((m: any) => m.type === 'exportMindmap'));
-        const formats = msgs.map((m: any) => m.format);
-        expect(formats).toContain('opml');
-        expect(formats).toContain('svg');
-        const svgMsg = msgs.find((m: any) => m.format === 'svg');
-        expect(svgMsg.payload).toContain('<svg');
+        const exportBtnCount = await page.locator('.mindmap-tb-btn[data-mm-action="export"]').count();
+        expect(exportBtnCount).toBe(0);
+        // zoom/fit/layout の主要ツールバー機能は残っている。
+        expect(await page.locator('.mindmap-tb-btn[data-mm-action="zoom-in"]').count()).toBe(1);
+        expect(await page.locator('.mindmap-tb-btn[data-mm-action="fit"]').count()).toBe(1);
+        expect(await page.locator('.mindmap-tb-layout[data-mm-action="layout"]').count()).toBe(1);
     });
 });

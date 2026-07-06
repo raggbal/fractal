@@ -868,10 +868,8 @@ var MindmapRender = (function() {
         bar.appendChild(btn('zoom-in', '＋', 'Zoom in'));
         bar.appendChild(btn('zoom-out', '－', 'Zoom out'));
         bar.appendChild(btn('fit', 'Fit', 'Fit to screen'));
-        bar.appendChild(btn('export', '⬇ PNG', 'Export PNG', 'png'));
-        bar.appendChild(btn('export', 'SVG', 'Export SVG', 'svg'));
-        bar.appendChild(btn('export', 'OPML', 'Export OPML', 'opml'));
-        bar.appendChild(btn('export', 'MD', 'Export Markdown', 'markdown'));
+        // [H] (iteration 29 / TASK-74): PNG/SVG/OPML/MD エクスポートボタンは削除 (まだ不要)。
+        // doExport ハンドラ (interactions) は残置 (無害・将来復活用)。
         return bar;
     }
 

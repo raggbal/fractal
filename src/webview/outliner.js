@@ -73,6 +73,7 @@ var Outliner = (function() {
             renderTree();
         }
         updateViewToggleButton();
+        updateHeaderForViewMode(); // [K] iteration 29 / TASK-77
         scheduleSyncToHost();
     }
     function updateViewToggleButton() {
@@ -92,6 +93,42 @@ var Outliner = (function() {
     }
     function nextViewMode(mode) {
         return mode === 'outliner' ? 'table' : (mode === 'table' ? 'mindmap' : 'outliner');
+    }
+
+    /** [K] iteration 29 / TASK-77: mindmap モードでは使わないヘッダーボタンをグレーアウト
+     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box。
+     *  使わないボタン: task-mode / task-filter / archive / menu / nav-back / nav-forward /
+     *  search-mode-toggle。mindmap を抜けると解除 (元の enabled 状態へ戻す)。
+     *  undo/redo の disabled は履歴状態 (updateUndoRedoButtons) が管理するので触らない。
+     *  S3 sync button は Note mode の HTML にのみ存在 (Single mode には無い) → 存在時のみ制御。 */
+    function updateHeaderForViewMode() {
+        var isMindmap = (VIEW_MODE === 'mindmap');
+        // 「mindmap で使わない」ボタン群 → mindmap 時 disabled、それ以外は解除。
+        var s3SyncBtn = document.querySelector('.outliner-s3-sync-btn');
+        var disableInMindmap = [
+            taskModeToggleBtn, taskFilterToggleBtn, archiveBtn, menuBtn,
+            navBackBtn, navForwardBtn, searchModeToggleBtn
+        ];
+        for (var i = 0; i < disableInMindmap.length; i++) {
+            var b = disableInMindmap[i];
+            if (!b) { continue; }
+            if (isMindmap) {
+                b.classList.add('is-mindmap-disabled');
+                b.setAttribute('disabled', '');
+            } else {
+                b.classList.remove('is-mindmap-disabled');
+                // nav-back/forward は履歴状態で別途 disabled 制御されるため、
+                // mindmap 由来の disabled のみ外す (履歴側は updateNavButtons が再設定)。
+                b.removeAttribute('disabled');
+            }
+        }
+        // nav ボタンの履歴状態を復元 (mindmap 解除後)。
+        if (!isMindmap && typeof updateNavButtons === 'function') {
+            try { updateNavButtons(); } catch (e) { /* noop */ }
+        }
+        // 使うボタン (search / undo / redo / view-toggle / s3) は触らない
+        // (それぞれの状態管理に委ねる)。s3SyncBtn は mindmap でも活かす。
+        void s3SyncBtn;
     }
 
 
@@ -884,6 +921,9 @@ var Outliner = (function() {
         setupTextSearchReplace();
         initSidePanel();
         setupS3SyncButton();
+
+        // [K] iteration 29 / TASK-77: 初期 VIEW_MODE (mindmap で開いた場合) のヘッダー状態を反映。
+        updateHeaderForViewMode();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
@@ -5340,6 +5380,26 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('keydown', function(e) {
+            // [M] iteration 29 / TASK-79: mindmap モードの検索は「Enter で次の一致へ巡回中央化」。
+            // Escape でハイライト解除。絞り込み系 (currentSearchResult) は使わない。
+            if (VIEW_MODE === 'mindmap') {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    if (typeof MindmapInteractions !== 'undefined') { MindmapInteractions.clearSearch(); }
+                    return;
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    // 同一 Enter イベントで handler が二重登録環境でも 1 回だけ進める (dedupe)。
+                    if (e.__mmSearchNextHandled) { return; }
+                    e.__mmSearchNextHandled = true;
+                    if (typeof MindmapInteractions !== 'undefined') {
+                        // 未検索 (ハイライトなし) なら現在の入力で検索、既に検索済みなら次へ巡回。
+                        if (searchInput.value.trim()) { MindmapInteractions.searchNext(); }
+                    }
+                    return;
+                }
+                // それ以外のキーは通常の入力処理 (debounce → executeSearch) に委ねる。
+            }
             if (e.key === 'Escape') {
                 e.preventDefault();
                 clearSearch();
@@ -5701,8 +5761,17 @@ var Outliner = (function() {
     }
 
     function executeSearch() {
-        pushNavState();
         var queryStr = searchInput.value.trim();
+        // [M] iteration 29 / TASK-79: mindmap モードは絞り込み (filter) ではなく
+        // 「該当テキストを含むノードをハイライト + 最初の一致を画面中央へ」。renderTree はしない。
+        if (VIEW_MODE === 'mindmap') {
+            if (typeof MindmapInteractions !== 'undefined') {
+                if (!queryStr) { MindmapInteractions.clearSearch(); }
+                else { MindmapInteractions.search(model, queryStr); }
+            }
+            return;
+        }
+        pushNavState();
         if (!queryStr) {
             clearSearch();
             return;
