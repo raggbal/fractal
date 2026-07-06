@@ -87,3 +87,53 @@ test('TC-M27 長文 (280 超) は従来どおり折り返す (上限クランプ
     expect(m!.boxW).toBeLessThanOrEqual(281);
     expect(m!.txtH).toBeGreaterThan(28); // 折り返して 2 行以上
 });
+
+// ── iteration 31: アイコン(📄/📎)付き短文の折り返し是正 ──
+// 根本原因: iconPad を PAD_H(20) 固定推定していたため、実機 Electron の emoji グリフ幅
+// (headless より広い) + flex gap(6) が 20 を超え content 領域不足 → アイコン付き短文が折り返した。
+// 修正: iconPad = アイコン実測幅 + gap + SAFETY (アイコン付きのみ)。アイコン無しは iter30 の
+// BORDER_W のみ (TC-M12 #10 の右空白最小化を維持)。
+// headless では元々折り返さない (font metrics 差) ため、絶対的な「折り返し再現」でなく
+// 「アイコン付き box が同テキストのアイコン無しより icon+gap+safety 分広い」invariant で検証する
+// (font 字幅非依存・load-bearing)。
+
+function iconModel() {
+    return {
+        version: 1, viewMode: 'mindmap', rootIds: ['r'],
+        nodes: {
+            r: node('r', 'root', ['plain', 'ico']),
+            plain: node('plain', 'コールリーズン一覧', [], 'r'),
+            ico: Object.assign(node('ico', 'コールリーズン一覧', [], 'r'), { isPage: true, pageId: 'p1' }),
+        },
+    };
+}
+
+test('TC-M28 アイコン付き短文が折り返さない (icon box は同テキストの icon 無しより広い)', async ({ page }) => {
+    await setup(page);
+    await toMindmap(page, iconModel());
+    const plain = await metrics(page, 'plain');
+    const ico = await metrics(page, 'ico');
+    // 両方 1 行 (折り返さない)
+    expect(plain!.txtH).toBeLessThanOrEqual(28);
+    expect(ico!.txtH).toBeLessThanOrEqual(28);
+    // アイコン付き box は icon 幅 + gap + safety 分だけ広い (>= 20px の headroom)。
+    // iter30 の iconPad=PAD_H(20) 固定だと差が ~20 で headless slack=0 → 実機で折り返した。
+    // 実測 (icon幅 + gap6 + safety4) で常に正の headroom を確保 → 差 >= 20 を検証。
+    expect(ico!.boxW - plain!.boxW).toBeGreaterThanOrEqual(20);
+    // 280 は超えない
+    expect(ico!.boxW).toBeLessThanOrEqual(280);
+});
+
+test('TC-M28 アイコン付き長文は 280 クランプで折り返す (上限維持)', async ({ page }) => {
+    await setup(page);
+    await toMindmap(page, {
+        version: 1, viewMode: 'mindmap', rootIds: ['r'],
+        nodes: {
+            r: node('r', 'root', ['ico']),
+            ico: Object.assign(node('ico', 'ああああああああああああああああああああああああああああああ', [], 'r'), { isPage: true, pageId: 'p1' }),
+        },
+    });
+    const m = await metrics(page, 'ico');
+    expect(m!.boxW).toBeLessThanOrEqual(281);
+    expect(m!.txtH).toBeGreaterThan(28);
+});
