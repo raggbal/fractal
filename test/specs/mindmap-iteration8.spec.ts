@@ -57,7 +57,10 @@ async function measureMidBottom(page: import('@playwright/test').Page) {
         const sameSide = Math.abs(mid.left - bottom.left) < 80;
         // 縦の隙間（正なら重ならない、負なら overlap）
         const gap = bottom.top - mid.bottom;
-        const midEditable = document.querySelector('.mindmap-node-text[data-node-id="mid"]')?.getAttribute('contenteditable');
+        // iteration 27 (TASK-71): 編集中信号は is-editing クラス (committed active も
+        // contenteditable=true になったため)。'true'/'false' 互換で返す。
+        const midEl = document.querySelector('.mindmap-node-text[data-node-id="mid"]');
+        const midEditable = midEl && midEl.classList.contains('is-editing') ? 'true' : 'false';
         return { sameSide, gap: Math.round(gap), midEditable };
     });
 }

@@ -35,10 +35,11 @@ test('TC-210b (#4) Ctrl+wheel deltaY=10 のズームが緩やか (<5%)', async (
     });
     await page.waitForTimeout(50);
     const after = await scaleOf();
-    // 1 発の変化が ±5% 未満（旧実装は固定 10%）
-    expect(Math.abs(after - before) / before).toBeLessThan(0.05);
+    // iteration 27 (TASK-72, test_update): wheel ズームを速く (K=0.003, clamp 0.8〜1.25)。
+    // 小さい deltaY=10 → factor=exp(-0.03)=0.9704 ≒ 3% 変化 (急激でない緩やかさは保つ)。
+    expect(Math.abs(after - before) / before).toBeLessThan(0.08);
     expect(after).not.toBe(before); // でも変化はする
-    // 大きい deltaY でも 1 発の変化は上限内（クランプ 0.9〜1.1 = ±10%）
+    // 大きい deltaY でも 1 発の変化は上限内（クランプ 0.8〜1.25 = 最大 ±25%）。
     const s2before = await scaleOf();
     await page.evaluate(() => {
         const tree = document.querySelector('.outliner-tree') as HTMLElement;
@@ -46,7 +47,7 @@ test('TC-210b (#4) Ctrl+wheel deltaY=10 のズームが緩やか (<5%)', async (
     });
     await page.waitForTimeout(50);
     const s2after = await scaleOf();
-    expect(Math.abs(s2after - s2before) / s2before).toBeLessThanOrEqual(0.11);
+    expect(Math.abs(s2after - s2before) / s2before).toBeLessThanOrEqual(0.26);
 });
 
 test('TC-150d (#1) 編集中 Shift+Enter で下ノードと重ならない (再レイアウト)', async ({ page }) => {

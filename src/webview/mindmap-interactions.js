@@ -123,8 +123,20 @@ var MindmapInteractions = (function() {
 
         // startEdit=false: 選択のみ (contenteditable にしない、C10 — 空ノードでも編集開始しない)
         // startEdit=true : 編集開始 (Space/F2/dblclick 経由のみ)
-        function focusNode(nodeId, startEdit) {
+        // keepSelection=true: 既存の複数選択 (selected) を維持する (shift 系操作用)。
+        //   既定 (falsy) では **active node の移動時に複数選択をクリア**する (iteration 25 / TASK-68)。
+        //   これで「click で太枠になったノードが、矢印/Enter/Tab で active が移った後も太枠のまま
+        //   残る」問題を解消する。active(=is-focused) が唯一の太枠になり、移動で古い太枠が消える。
+        function focusNode(nodeId, startEdit, keepSelection) {
             setFocused(nodeId);
+            // active 移動時は複数選択(selected)をクリアし、active ノードのみを選択集合にする。
+            // これにより is-selected の太枠が active に追従し、古いノードの太枠が消える。
+            // shift 系 (keepSelection=true) では触らない。
+            if (!keepSelection && selected && selected.clear) {
+                selected.clear();
+                if (nodeId) { selected.add(nodeId); }
+                paintSelection();
+            }
             var box = boxOf(nodeId);
             if (box) {
                 var boxes = _treeEl.querySelectorAll('.mindmap-node-box.is-focused');
@@ -147,6 +159,10 @@ var MindmapInteractions = (function() {
                         }
                     }
                     textEl.setAttribute('contenteditable', 'true');
+                    // iteration 27 (TASK-71): 「編集中」の判定信号を is-editing クラスに分離する。
+                    // committed active ノードも IME 合成のため contenteditable=true にするので、
+                    // contenteditable だけでは編集中を区別できない。is-editing が真の編集状態。
+                    textEl.classList.add('is-editing');
                     // FR-021-A7: 編集開始時、テキストに \n が無ければ横伸びモード
                     // (is-editing-nowrap = white-space:nowrap) にして折り返しを止める。
                     // \n があれば従来 pre-wrap のまま (FR-021-A6 折り返し維持)。
@@ -188,8 +204,16 @@ var MindmapInteractions = (function() {
                         }
                     }
                 } else {
-                    // 選択のみ: contenteditable にしない (tabindex フォーカスのみ)
-                    textEl.setAttribute('contenteditable', 'false');
+                    // 選択のみ (committed active): contenteditable=true にして IME 合成のターゲットに
+                    // なれるようにする (ひらがなで打ち始めても英数リセットされず composition が始まる,
+                    // iteration 27 #E)。ただし is-editing は付けない = まだ編集中でない。
+                    // iteration 28 (TASK-73): focus された contenteditable の caret 点滅が「編集モードに
+                    // 見える」不具合 → CSS で `.mindmap-node-text:not(.is-editing){caret-color:transparent}`
+                    // により committed active の caret を隠す (編集に入って is-editing が付くと caret 表示)。
+                    // 実際の編集は「印字キー(keydown) / compositionstart / beforeinput」で is-editing へ昇格。
+                    textEl.setAttribute('contenteditable', 'true');
+                    textEl.classList.remove('is-editing');
+                    textEl.classList.remove('is-editing-nowrap');
                     // preventScroll: 矢印移動・追加後・クリック選択の主経路。native focus
                     // scroll がコンテナ (.outliner-scroll-content) を動かして選択ノードを
                     // 中央寄せするのを止める (iteration 17 / TASK-51)。可視化は
@@ -334,6 +358,8 @@ var MindmapInteractions = (function() {
             if (!textEl) { return; }
             var newText = readEditableText(textEl);
             textEl.setAttribute('contenteditable', 'false');
+            // iteration 27 (TASK-71): 編集終了 → is-editing を外す (committed 状態へ)。
+            textEl.classList.remove('is-editing');
             // FR-021-A7: 横伸びモードのクラス/基準幅をクリア（commit の rerender で
             // 新規要素生成により消えるが、text 不変で rerender しない経路の保険）。
             textEl.classList.remove('is-editing-nowrap');
@@ -374,8 +400,8 @@ var MindmapInteractions = (function() {
             if (!_selectedGroupId) { return; }
             if (e.key !== 'Delete' && e.key !== 'Backspace') { return; }
             var activeEditing = document.activeElement &&
-                document.activeElement.getAttribute &&
-                document.activeElement.getAttribute('contenteditable') === 'true';
+                document.activeElement.classList &&
+                document.activeElement.classList.contains('is-editing');
             if (activeEditing) { return; }
             e.preventDefault();
             pushUndo();
@@ -385,13 +411,28 @@ var MindmapInteractions = (function() {
         });
 
         function handleKeydown(e) {
-            if (e.isComposing || e.keyCode === 229) { return; }
+            // iteration 28 (TASK-73): IME 変換開始 (keyCode 229 / isComposing) の扱い。
+            // committed active (非編集) ノード上で IME 入力が始まった (ひらがな等) 場合は、
+            // ここで編集モードへ in-place 昇格して composition をそのノードで受ける (英数リセット
+            // されないよう再 focus はしない = promoteToEditing)。既に編集中なら従来どおり IME に委ねる。
+            if (e.isComposing || e.keyCode === 229) {
+                var cid = (nodeElFromEvent(e) && nodeElFromEvent(e).getAttribute('data-node-id')) || getFocused();
+                if (cid) {
+                    var cte = textElOf(cid);
+                    if (cte && cte.classList && !cte.classList.contains('is-editing')) {
+                        promoteToEditing(cid); // committed → editing (再 focus せず contenteditable 化)
+                    }
+                }
+                return; // 変換キー自体は IME/contenteditable に委ねる
+            }
             var nodeEl = nodeElFromEvent(e);
             var nodeId = nodeEl ? nodeEl.getAttribute('data-node-id') : getFocused();
             if (!nodeId) { return; }
             var isTitle = (nodeId === '__title__');
             var textEl = textElOf(nodeId);
-            var isEditing = textEl && textEl.getAttribute('contenteditable') === 'true';
+            // iteration 27 (TASK-71): 編集中判定は is-editing クラス (committed も contenteditable を
+            // 一時的に true にするため、contenteditable では区別できない)。
+            var isEditing = textEl && textEl.classList && textEl.classList.contains('is-editing');
 
             // IME 変換中は無視
             if (e.isComposing || e.keyCode === 229) { return; }
@@ -498,9 +539,29 @@ var MindmapInteractions = (function() {
                         return;
                     }
                     pushUndo();
+                    // iteration 26 (TASK-69): 削除後に active を残存ノードへ移して連続操作を可能にする。
+                    // 優先順: 上の兄 (prev sibling) → 下の弟 (next sibling) → 親。兄弟も親も無ければ null
+                    // (最後の root を消した等) → focus なし。削除「前」に後継を算出する (削除後は自分の
+                    // 兄弟配列から自分が消えるため)。
+                    var successorId = deleteSuccessorId(model, nodeId);
+                    // iteration 27 (TASK-70, decision-delete-screen-frozen): Delete では viewport
+                    // (pan/zoom = translate/scale) を動かさない。ノード削除でツリーは再レイアウトされ
+                    // 残りノードの位置は本質的に変わる (兄弟が詰まる・全体が縮む) が、それは自然な挙動
+                    // として許容する (ユーザー判断)。ここで保証するのは「見ている位置・倍率が勝手に
+                    // 飛ばない」こと。ensureNodeVisible (最小パン) は呼ばず、rerender 前後で translate/
+                    // scale を保存→復元するだけ (viewBox origin 補正はしない = 残りノードの reflow は自然に)。
+                    var _dtx = viewport.translateX, _dty = viewport.translateY, _ds = viewport.scale;
                     model.removeNode(nodeId);
                     if (typeof MindmapModel !== 'undefined') { MindmapModel.cleanupDanglingRefs(model, settings); }
                     scheduleSync(); rerender();
+                    // rerender で安定化補正が入っても、Delete は「見ている pan/zoom を保持」に一本化する。
+                    viewport.translateX = _dtx; viewport.translateY = _dty; viewport.scale = _ds;
+                    applyViewport();
+                    if (successorId && model.getNode(successorId)) {
+                        focusNode(successorId, false); // preventScroll 付き = native scroll も起きない
+                    } else {
+                        setFocused(null);
+                    }
                     return;
                 case 'ArrowUp':
                 case 'ArrowDown':
@@ -711,7 +772,7 @@ var MindmapInteractions = (function() {
         function adjustEditWidth(nid) {
             if (_isComposing) { return; }
             var t = textElOf(nid);
-            if (!t || t.getAttribute('contenteditable') !== 'true') { return; }
+            if (!t || !(t.classList && t.classList.contains('is-editing'))) { return; }
             var fo = boxOf(nid) && boxOf(nid).parentNode; // foreignObject
             if (!fo || !fo.getAttribute) { return; }
             var scale = (runtime.viewport && runtime.viewport.scale) || 1;
@@ -771,7 +832,7 @@ var MindmapInteractions = (function() {
         function adjustEditOverlap(nid) {
             if (_isComposing) { return; } // IME 変換中はスキップ（compositionend でまとめて）
             var t = textElOf(nid);
-            if (!t || t.getAttribute('contenteditable') !== 'true') { return; }
+            if (!t || !(t.classList && t.classList.contains('is-editing'))) { return; }
             var box = t.closest && t.closest('.mindmap-node-box');
             if (!box) { return; }
             var h = box.getBoundingClientRect().height;
@@ -782,9 +843,78 @@ var MindmapInteractions = (function() {
             shiftBelowNodes(nid, dy);
         }
 
+        // iteration 27/28 (TASK-71/73): committed active ノード (is-focused・非編集) を
+        // 「再 focus せずに」編集モードへ in-place 昇格する。既に focus 済みの要素の
+        // contenteditable を true にするだけ (focusNode(true) と違い .focus() を呼ばない) ので
+        // IME composition が途切れず、ひらがなで打ち始めても英数リセットされない。
+        // caret は末尾へ (composition 中でなければ)。
+        function promoteToEditing(nid) {
+            if (!nid) { return; }
+            var t = textElOf(nid);
+            if (!t || !t.classList) { return; }
+            if (t.classList.contains('is-editing')) { return; } // 既に編集中
+            // 編集開始: 改行を含む生テキストを <br> 付きで編集用に流し込む (focusNode(true) と同じ)。
+            var node = (nid === '__title__') ? { text: (ctx.titleText || '') } : model.getNode(nid);
+            var raw = (node && node.text) || '';
+            if (raw.indexOf('\n') >= 0) {
+                t.textContent = '';
+                var parts = raw.split('\n');
+                for (var pp = 0; pp < parts.length; pp++) {
+                    if (pp > 0) { t.appendChild(document.createElement('br')); }
+                    t.appendChild(document.createTextNode(parts[pp]));
+                }
+            }
+            t.setAttribute('contenteditable', 'true'); // in-place (再 focus しない = IME 無傷)
+            t.classList.add('is-editing');
+            // 単一行 (改行なし) は横伸びモード。既存テキストの \n 有無で判定。
+            if (raw.indexOf('\n') < 0) { t.classList.add('is-editing-nowrap'); }
+            else { t.classList.remove('is-editing-nowrap'); }
+            // caret を末尾へ (IME composition 中でなければ。composition 中は IME が caret を管理)。
+            if (!_isComposing && typeof document !== 'undefined' && document.createRange) {
+                try {
+                    var range = document.createRange();
+                    range.selectNodeContents(t);
+                    range.collapse(false);
+                    var sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                } catch (ce) { /* noop */ }
+            }
+            // A7 基準 (編集開始時の高さ・幅) を記録 (focusNode(true) と同じ）。
+            if (_editBaseH) {
+                var eb = t.closest && t.closest('.mindmap-node-box');
+                if (eb) { _editBaseH[nid] = eb.getBoundingClientRect().height; }
+            }
+            if (_editBaseW) {
+                var fo = boxOf(nid) && boxOf(nid).parentNode;
+                if (fo && fo.getAttribute) {
+                    var w0 = parseFloat(fo.getAttribute('width')) || 0;
+                    _editBaseW[nid] = w0;
+                    var positions = runtime.layout && runtime.layout.positions;
+                    var ex = (positions && positions[nid]) ? positions[nid].x : 0;
+                    if (ex < 0 && _editRightEdge) { _editRightEdge[nid] = (parseFloat(fo.getAttribute('x')) || 0) + w0; }
+                }
+            }
+        }
+
         on(treeEl, 'compositionstart', function(e) {
             var t = e.target;
-            if (t && t.classList && t.classList.contains('mindmap-node-text')) { _isComposing = true; }
+            if (t && t.classList && t.classList.contains('mindmap-node-text')) {
+                _isComposing = true;
+                // committed active ノードで IME 合成が始まった → 編集モードへ昇格 (ひらがな type-to-edit)。
+                promoteToEditing(t.getAttribute('data-node-id'));
+            }
+        });
+        // 半角英数以外でも beforeinput (insertText / insertCompositionText) で committed active から
+        // 編集へ昇格する保険 (compositionstart が発火しない IME/環境向け)。既に is-editing なら無害。
+        on(treeEl, 'beforeinput', function(e) {
+            var t = e.target;
+            if (!t || !t.classList || !t.classList.contains('mindmap-node-text')) { return; }
+            if (t.classList.contains('is-editing')) { return; }
+            var it = e.inputType || '';
+            if (it.indexOf('insert') === 0) { // insertText / insertCompositionText / insertFromComposition 等
+                promoteToEditing(t.getAttribute('data-node-id'));
+            }
         });
         on(treeEl, 'compositionend', function(e) {
             var t = e.target;
@@ -797,7 +927,9 @@ var MindmapInteractions = (function() {
         on(treeEl, 'input', function(e) {
             var t = e.target;
             if (!t || !t.classList || !t.classList.contains('mindmap-node-text')) { return; }
-            if (t.getAttribute('contenteditable') !== 'true') { return; }
+            // committed active への input (IME でない直接入力等) でも編集へ昇格。
+            if (!t.classList.contains('is-editing')) { promoteToEditing(t.getAttribute('data-node-id')); }
+            if (!t.classList.contains('is-editing')) { return; }
             if (e.isComposing || _isComposing) { return; } // IME 中は skip
             // FR-021-A7: 先に横幅を調整（横伸び or 上限到達で pre-wrap 遷移）→ その後に縦の重なり調整。
             adjustEditWidth(t.getAttribute('data-node-id'));
@@ -811,7 +943,8 @@ var MindmapInteractions = (function() {
         on(treeEl, 'focusout', function(e) {
             var t = e.target;
             if (!t || !t.classList || !t.classList.contains('mindmap-node-text')) { return; }
-            if (t.getAttribute('contenteditable') !== 'true') { return; }
+            // is-editing でない (= committed active から編集に入らず離脱) なら commit 不要。
+            if (!(t.classList && t.classList.contains('is-editing'))) { return; }
             if (_committing) { return; }
             if (_isComposing) { return; } // IME 変換中の blur は compositionend 後に任せる
             var nid = t.getAttribute('data-node-id');
@@ -827,7 +960,7 @@ var MindmapInteractions = (function() {
         // 現在編集中の別ノードがあれば commit する（#B 保険: focusout が先行しない環境用）。
         function commitEditingExcept(exceptId) {
             if (_committing) { return; }
-            var editing = _treeEl.querySelector('.mindmap-node-text[contenteditable="true"]');
+            var editing = _treeEl.querySelector('.mindmap-node-text.is-editing');
             if (!editing) { return; }
             var eid = editing.getAttribute('data-node-id');
             if (eid === exceptId) { return; }
@@ -878,21 +1011,12 @@ var MindmapInteractions = (function() {
                     rerender();
                 }
             } else {
-                // #3 (iteration 23 / TASK-60, decision-plain-click-seeds-anchor):
-                // 素のクリックでアンカーノードを選択集合に入れる。従来は clear のみで add せず、
-                // click A → shift+click B が selected={B}（A 欠落）になり「単一しか選べない」に見えた。
-                // add(nid) でアンカーを含めることで、以降の shift+click が A に累積する。
-                // rerender を先に呼んで is-selected を描画してから focusNode で DOM フォーカスを
-                // 復元する（順序が逆だと rerender で focus が焼失しキーボード操作が届かない,
-                // generator_failures 2026-07-02）。selected が無い環境では従来どおり focus のみ。
-                if (selected && selected.clear) {
-                    selected.clear(); selected.add(nid);
-                    // is-selected を DOM に直接反映する（rerender しない）。plain click は直後に
-                    // dblclick が続くことがあり、rerender で DOM を作り直すと dblclick の対象要素が
-                    // 焼失して Page open 等が届かなくなる（generator_failures 2026-07-02: 操作中の
-                    // DOM 再生成は避ける）。is-focused と同じく class を直接付け替える。
-                    paintSelection();
-                }
+                // #3 (iteration 23 / TASK-60) + iteration 25 / TASK-68:
+                // 素のクリックはアンカーノードを唯一の選択にして active 化する。selected の
+                // clear+add(nid)+paintSelection は focusNode(keepSelection 省略=既定) が担う
+                // (active 移動で古い太枠が消える統一挙動)。以降 shift+click で累積する。
+                // rerender せず class を直接付け替えるのは dblclick 対象 DOM の焼失回避のため
+                // (generator_failures 2026-07-02)。focusNode が paintSelection まで行う。
                 focusNode(nid, false);
             }
         });
@@ -1038,18 +1162,47 @@ var MindmapInteractions = (function() {
         //   + rerender) → 捕捉値を復元 + native scroll を 0 に戻す」で不動を保証する。
         //   restore は placeSvgAtScreen/pan 等の updateViewport 経由 (= _skipStabilizeOnce を立てる) なので、
         //   直後の安定化と競合しない。テストが load-bearing 検証で無効化できるよう module フラグで公開。
-        function withViewportFrozen(action) {
+        function withViewportFrozen(action, refIdOverride) {
             if (!_freezeViewportOnStructuralEdit) { action(); return; }
             syncViewport();
             var tx0 = viewport.translateX, ty0 = viewport.translateY, s0 = viewport.scale;
+            // [C] (iteration 24 / TASK-67): raw translate の復元だけでは不十分。scale≠1 で group 作成すると
+            //   bounds.min/幅が動き viewBox が変化するため、translate を同値に戻しても全ノードが一様に
+            //   平行移動する (実測: scale=1.2 で ~(−10,+11)px)。runtime.layout は rerender で新オブジェクトに
+            //   差し替わり差分が取れないので、**screen 空間**で基準ノード (右クリック対象 = 位置が安定) の
+            //   移動量を実測し、その分だけ translate を逆補正する。全ノードが同一シフトを受ける group 作成
+            //   では 1 ノードの counter-shift で全体が戻る (viewBox origin/幅の両効果を screen 実測が捉える)。
+            // 注: Delete のように「基準近傍が局所再レイアウトされる」ケースはこの方式が誤補正するため、
+            //   Delete は withViewportFrozen を使わず translate/scale 保存→復元のみで処理する (TASK-70)。
+            var refId = refIdOverride || (getFocused && getFocused()) || ((model.rootIds && model.rootIds.length) ? model.rootIds[0] : null);
+            var refBefore = null;
+            if (refId) {
+                var foB = _treeEl && _treeEl.querySelector('.mindmap-node[data-node-id="' + refId + '"]');
+                if (foB) { var rb = foB.getBoundingClientRect(); refBefore = { x: rb.left + rb.width / 2, y: rb.top + rb.height / 2 }; }
+            }
             // scroll 祖先 (.outliner-scroll-content 等) の scroll 位置も捕捉 (native focus scroll 対策)。
             var scrollAnc = _treeEl && _treeEl.closest ? _treeEl.closest('.outliner-scroll-content') : null;
             var st0 = scrollAnc ? scrollAnc.scrollTop : 0;
             var sl0 = scrollAnc ? scrollAnc.scrollLeft : 0;
             action();
-            // rerender 後、捕捉した viewport を復元 (updateViewport 経由で反映 = 安定化 skip)。
-            viewport.translateX = tx0; viewport.translateY = ty0; viewport.scale = s0;
+            // rerender 後: まず raw translate を復元 (scale も戻す)。
+            viewport.scale = s0;
+            viewport.translateX = tx0; viewport.translateY = ty0;
             applyViewport();
+            // 基準ノードの screen 移動量を実測し、その分だけ translate を逆補正 (viewBox シフト吸収)。
+            if (refId && refBefore) {
+                var foA = _treeEl && _treeEl.querySelector('.mindmap-node[data-node-id="' + refId + '"]');
+                if (foA) {
+                    var ra = foA.getBoundingClientRect();
+                    var dx = (ra.left + ra.width / 2) - refBefore.x;
+                    var dy = (ra.top + ra.height / 2) - refBefore.y;
+                    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+                        viewport.translateX -= dx;
+                        viewport.translateY -= dy;
+                        applyViewport();
+                    }
+                }
+            }
             // native focus scroll で scroll 祖先が動いていたら元に戻す。
             var scrollAnc2 = _treeEl && _treeEl.closest ? _treeEl.closest('.outliner-scroll-content') : null;
             if (scrollAnc2) {
@@ -1109,6 +1262,39 @@ var MindmapInteractions = (function() {
             applyViewport();
         }
 
+        // [A] (iteration 24 / TASK-65, decision-zoom-anchor-active-node): ズームは共通ヘルパ
+        // zoomTo(newScale) を通す。active(focused) node があればその SVG 点をズーム後に画面中心へ
+        // 寄せる。active 無しなら現可視領域中心に対応する SVG 点をその場で維持する（その場ズーム）。
+        // toolbar +/− と wheel の両方から呼ぶ（挙動を統一）。
+        function zoomTo(newScale) {
+            var b = runtime.layout && runtime.layout.bounds;
+            if (!b) { return; }
+            syncViewport();
+            var clamped = Math.max(0.2, Math.min(4, newScale));
+            var vis = visibleFrame();
+            // アンカー SVG 点と、その点を置く画面座標を決める。
+            var fid = getFocused && getFocused();
+            var positions = runtime.layout && runtime.layout.positions;
+            var anchor = (fid && positions && positions[fid]) ? positions[fid] : null;
+            var svgX, svgY, screenX, screenY;
+            if (anchor) {
+                // active node: ズーム後に画面中心へ寄せる（ユーザー要望）。
+                svgX = anchor.x; svgY = anchor.y;
+                screenX = vis.cx; screenY = vis.cy;
+            } else {
+                // active 無し: 可視領域中心に写っている SVG 点を維持（その場ズーム）。
+                // 現 scale/translate から可視中心の SVG 座標を逆算する。
+                var s0 = viewport.scale || 1;
+                var tr = treeEl.getBoundingClientRect();
+                svgX = ((vis.cx - tr.left) - viewport.translateX) / s0 + (b.minX - PAD);
+                svgY = ((vis.cy - tr.top) - viewport.translateY) / s0 + (b.minY - PAD);
+                screenX = vis.cx; screenY = vis.cy;
+            }
+            viewport.scale = clamped;
+            placeSvgAtScreen(svgX, svgY, screenX, screenY);
+            applyViewport();
+        }
+
         // --- toolbar ---
         var toolbar = treeEl.querySelector('.mindmap-toolbar');
         if (toolbar) {
@@ -1125,8 +1311,8 @@ var MindmapInteractions = (function() {
                 var t = e.target;
                 var action = t && t.getAttribute && t.getAttribute('data-mm-action');
                 if (!action) { return; }
-                if (action === 'zoom-in') { viewport.scale = Math.min(4, viewport.scale * 1.2); applyViewport(); }
-                else if (action === 'zoom-out') { viewport.scale = Math.max(0.2, viewport.scale / 1.2); applyViewport(); }
+                if (action === 'zoom-in') { zoomTo((viewport.scale || 1) * 1.2); }
+                else if (action === 'zoom-out') { zoomTo((viewport.scale || 1) / 1.2); }
                 else if (action === 'fit') { fitToScreen(); }
                 else if (action === 'export') { doExport(t.getAttribute('data-mm-value')); }
             });
@@ -1138,13 +1324,14 @@ var MindmapInteractions = (function() {
             e.preventDefault();
             syncViewport();
             // #4: deltaY に比例した滑らかな係数。Mac トラックパッドのピンチは wheel を高頻度
-            // 発火するため、固定 1.1 倍だと一気にズームしてしまう。exp(-deltaY*K) で連続的にし、
-            // 1 イベントあたりの変化を 0.9〜1.1 にクランプして緩やかにする。
-            var K = 0.0015;
+            // 発火するため、固定倍率だと一気にズームしてしまう。exp(-deltaY*K) で連続的にする。
+            // iteration 27 (TASK-72): K=0.0015・clamp 0.9〜1.1 は「少しずつしか変わらず遅い」との
+            // 報告 → K=0.003・clamp 0.8〜1.25 に上げて 1 イベントあたりの変化量を増やす (体感を速く)。
+            var K = 0.003;
             var factor = Math.exp(-e.deltaY * K);
-            factor = Math.max(0.9, Math.min(1.1, factor));
-            viewport.scale = Math.max(0.2, Math.min(4, viewport.scale * factor));
-            applyViewport();
+            factor = Math.max(0.8, Math.min(1.25, factor));
+            // [A] (TASK-65): active node を画面中心へ寄せながらズーム（toolbar +/− と統一）。
+            zoomTo((viewport.scale || 1) * factor);
         }, { passive: false });
 
         var panning = null;
@@ -1366,6 +1553,20 @@ var MindmapInteractions = (function() {
         var sibs = node.parentId ? model.getNode(node.parentId).children : model.rootIds;
         var idx = sibs.indexOf(nodeId);
         return idx > 0 ? sibs[idx - 1] : null;
+    }
+
+    // iteration 26 (TASK-69): delete 後に active を移す後継ノードを算出する。
+    //   優先順: 上の兄 (prev sibling) → 下の弟 (next sibling) → 親 → (どれも無ければ) null。
+    //   削除前に呼ぶこと (削除後は sibs から自分が消える)。closure の model/MindmapInteractions とは
+    //   独立に model を引数で受ける (prevSiblingId と同スタイル)。
+    function deleteSuccessorId(model, nodeId) {
+        var node = model.getNode(nodeId);
+        if (!node) { return null; }
+        var sibs = node.parentId ? (model.getNode(node.parentId) || {}).children || [] : (model.rootIds || []);
+        var idx = sibs.indexOf(nodeId);
+        if (idx > 0) { return sibs[idx - 1]; }              // 上の兄
+        if (idx >= 0 && idx + 1 < sibs.length) { return sibs[idx + 1]; } // 下の弟
+        return node.parentId || null;                        // 親 (root なら null)
     }
 
     function detach() {

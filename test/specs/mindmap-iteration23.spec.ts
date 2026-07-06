@@ -234,7 +234,9 @@ function abcMap() {
 function nodeState(page: import('@playwright/test').Page, id: string) {
     return page.evaluate((nid) => {
         const t = document.querySelector(`.mindmap-node-text[data-node-id="${nid}"]`) as HTMLElement | null;
-        return t ? { editable: t.getAttribute('contenteditable'), text: (t.textContent || '') } : null;
+        // iteration 27 (TASK-71): 編集中信号を contenteditable → is-editing クラスへ移行
+        // (committed active も contenteditable=true になったため)。editable は 'true'/'false' 互換シム。
+        return t ? { editable: t.classList.contains('is-editing') ? 'true' : 'false', text: (t.textContent || '') } : null;
     }, id);
 }
 

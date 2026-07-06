@@ -106,7 +106,9 @@ var MindmapRender = (function() {
         var text = box.querySelector('.mindmap-node-text');
         if (!text) { return estW; }
         // 編集中ノードは触らない (A7 管理中)。概算で返す。
-        if (text.getAttribute && text.getAttribute('contenteditable') === 'true') { return estW; }
+        // iteration 27 (TASK-71): 編集中の判定は is-editing クラス (committed active も
+        // contenteditable=true になったため contenteditable では区別できない)。
+        if (text.classList && text.classList.contains('is-editing')) { return estW; }
         var raw = (node && node.text) || '';
         var lines = String(raw).split('\n');
         var scale = viewport.scale || 1;
@@ -162,7 +164,8 @@ var MindmapRender = (function() {
     function measureBoxHeightAtWidth(box, fo, realW, fallbackHeight) {
         if (!box || !fo || !fo.setAttribute) { return fallbackHeight; }
         var text = box.querySelector && box.querySelector('.mindmap-node-text');
-        if (text && text.getAttribute && text.getAttribute('contenteditable') === 'true') {
+        // iteration 27 (TASK-71): 編集中判定は is-editing クラス。
+        if (text && text.classList && text.classList.contains('is-editing')) {
             return fallbackHeight;
         }
         var scale = viewport.scale || 1;

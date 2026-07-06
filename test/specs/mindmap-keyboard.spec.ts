@@ -54,7 +54,12 @@ test.describe('Mindmap keyboard v2 (sync 2026-07-01)', () => {
         await page.waitForTimeout(50);
     }
     async function isEditing(page: import('@playwright/test').Page, nodeId: string) {
-        return page.getAttribute(`.mindmap-node-text[data-node-id="${nodeId}"]`, 'contenteditable');
+        // iteration 27 (TASK-71): 編集状態の信号を contenteditable → is-editing クラスへ移行
+        // (committed active も contenteditable=true になったため)。'true'/'false' 互換シム。
+        return page.evaluate((nid) => {
+            const el = document.querySelector(`.mindmap-node-text[data-node-id="${nid}"]`);
+            return el && el.classList.contains('is-editing') ? 'true' : 'false';
+        }, nodeId);
     }
 
     test('TC-160b non-cursor Enter → younger sibling, NOT editing', async ({ page }) => {

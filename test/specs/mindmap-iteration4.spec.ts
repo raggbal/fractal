@@ -26,7 +26,13 @@ async function selectBox(page: import('@playwright/test').Page, id: string) {
     await page.waitForTimeout(50);
 }
 async function editable(page: import('@playwright/test').Page, id: string) {
-    return page.getAttribute(`.mindmap-node-text[data-node-id="${id}"]`, 'contenteditable');
+    // iteration 27 (TASK-71): 編集状態の信号を contenteditable → is-editing クラスへ移行
+    // (committed active も contenteditable=true になったため)。旧アサーション
+    // (.toBe('true') / .not.toBe('true')) を活かす互換シム。
+    return page.evaluate((nid) => {
+        const el = document.querySelector(`.mindmap-node-text[data-node-id="${nid}"]`);
+        return el && el.classList.contains('is-editing') ? 'true' : 'false';
+    }, id);
 }
 async function modelNodes(page: import('@playwright/test').Page) {
     return page.evaluate(() => JSON.parse(JSON.stringify((window as any).Outliner.getModel().nodes)));

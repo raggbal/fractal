@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.6] - 2026-07-06
+
+### Fixed
+- **Mindmap Mode の実機バグ修正（iteration 24–28、FR-021 の挙動修正・仕様変更なし）**
+  - **ズーム時に active node を画面中心へ**: ツールバーの +/− ボタンでもトラックパッド（Ctrl/Cmd+wheel）でも、選択中ノードを画面中心に寄せながらズームする。
+  - **複数選択の視認性強化**: shift+click で複数選択したとき、選択ノードがはっきりした枠（背景＋リング）で表示される（従来は選択解除に見えた）。
+  - **active 太枠の一貫性**: 矢印/Enter/Tab で active が別ノードへ移ると、クリックで付いた太枠は消え、移動先のみが太枠になる（複数選択は shift 操作でのみ維持）。
+  - **Group 作成で画面が動かない**: ズーム状態（scale≠1）で Create Group しても固定ノードの画面位置が保たれる。
+  - **Delete 後の active 移動**: ノード削除後、active が「上の兄 → 下の弟 → 親」の順で残存ノードへ移り、連続操作が可能。
+  - **Delete で画面（pan/zoom）を動かさない**: 削除時に viewport の translate/scale を保持する。
+  - **ひらがなで即編集開始（IME 対応）**: 確定ノード上でひらがなを打ち始めると、英数にリセットされずそのまま編集モードに入り日本語が入力される。
+  - **トラックパッドのズームを高速化**: Ctrl/Cmd+wheel の 1 操作あたりの変化量を増やした。
+  - **矢印移動で編集モードに見えない**: 選択中（active）ノードはキャレットを表示せず、編集開始時のみキャレットを出す（選択と編集を視覚的に区別）。
+
 ## [0.209.2] - 2026-07-06
 
 ### Fixed

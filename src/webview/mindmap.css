@@ -107,9 +107,19 @@
     box-shadow: var(--fr-shadow-focus, 0 0 0 2px rgba(125, 196, 223, 0.4));
 }
 
+/* #B (iteration 24 / TASK-66): 複数選択 (shift+click) が「解除されて見える」問題の是正。
+   従来は薄い 15% 背景 + border-color のみで、is-focused (box-shadow リング) が外れると
+   選択が視認できなかった。濃いめの背景 + 明確な選択リング (box-shadow) を付けて、
+   focus が無くても「選択中」が明確に分かるようにする。is-focused と併用しても両立する。 */
 .mindmap-node-box.is-selected {
     border-color: var(--fr-color-primary, #7dc4df);
-    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.15));
+    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
+    box-shadow: 0 0 0 2px var(--fr-color-primary, #7dc4df);
+}
+/* focus + selected 併用時: 選択リング (実線) の外側に focus のソフトリングを重ねて両方見せる。 */
+.mindmap-node-box.is-selected.is-focused {
+    box-shadow: 0 0 0 2px var(--fr-color-primary, #7dc4df),
+                0 0 0 4px var(--fr-shadow-focus-ring, rgba(125, 196, 223, 0.4));
 }
 
 .mindmap-node-text {
@@ -123,6 +133,15 @@
 
 .mindmap-node-text[contenteditable="true"] {
     cursor: text;
+}
+
+/* iteration 28 (TASK-73): committed active ノードは IME 合成のため contenteditable=true だが
+   編集中 (is-editing) ではない。focus された contenteditable の caret 点滅が「編集モードに見える」
+   不具合 (矢印移動で移動先が編集モードに見える) を防ぐため、is-editing でない間は caret を透明にする。
+   実際に編集へ入る (is-editing が付く) と caret を表示。cursor も text にしない (選択のみ)。 */
+.mindmap-node-text[contenteditable="true"]:not(.is-editing) {
+    caret-color: transparent;
+    cursor: default;
 }
 
 /* FR-021-A7: 編集中・改行なしのとき折り返しを止めて横に伸ばす。
