@@ -1071,18 +1071,20 @@ export class NotesEditorProvider {
             // pages dir は _notes_md/pages/ になり、相対 path は ./pages/<unique>.md。
             notesMdCreatePageAuto: (currentMdFilePath: string) => {
                 if (!currentMdFilePath || !currentMdFilePath.endsWith('.md')) return;
+                // Add Page (cmd+/) は「今の md と同じ階層」に作る。従来は pages/ サブフォルダに
+                // 作っており、standalone/sidepanel (outliner page 検出で同階層に作る) と挙動が
+                // 食い違っていた (ユーザー報告)。→ mdDir 直下に作成しリンクは [page](xxx.md)。
                 const mdDir = path.dirname(currentMdFilePath);
-                const pagesDir = path.join(mdDir, 'pages');
-                if (!fs.existsSync(pagesDir)) {
+                if (!fs.existsSync(mdDir)) {
                     try {
-                        fs.mkdirSync(pagesDir, { recursive: true });
+                        fs.mkdirSync(mdDir, { recursive: true });
                     } catch (e) {
                         console.error('[Notes] notesMdCreatePageAuto mkdir error:', e);
                         return;
                     }
                 }
-                const fileName = generateUniqueFileName(pagesDir, 'md');
-                const absPath = path.join(pagesDir, fileName);
+                const fileName = generateUniqueFileName(mdDir, 'md');
+                const absPath = path.join(mdDir, fileName);
                 try {
                     fs.writeFileSync(absPath, '# ', 'utf8');
                 } catch (e) {
