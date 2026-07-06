@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.2] - 2026-07-06
+
+### Fixed
+- **Mindmap Mode の実機バグ修正（iteration 22–23、FR-021 の挙動修正・仕様変更なし）**
+  - **#1 toolbar/minimap 固定**: rerender・pan・スクロールをまたいで toolbar/minimap が可視枠内に固定され、消えない/上にずれない（chrome overlay 化）。
+  - **#2 開いた時 title を画面中心**: mindmap を開いたとき title 中心ノードを**縦横とも**可視領域中心へ配置（従来は縦のみで、巨大マップで横方向に中心へ来なかった）。
+  - **#3 shift+click で複数選択**: 素のクリックでアンカーノードを選択集合に含めるようにし、shift+click で選択が累積する（従来は単一ノードしか選べなかった）。
+  - **#4 minimap click / #5 fit**: screen↔SVG 変換を viewBox origin（bounds.min − pad）込みで是正。クリック位置のノードが画面中心付近へ、fit で全ノードが可視領域に収まる（左上に固まらない）。
+  - **#7 group 作成で画面不動**: グループ作成の rerender をまたいで viewport を凍結・復元し、画面がずれない。
+  - **#8 type-to-edit**: 確定ノード上で印字可能文字を打つと、Space を押さずにそのまま編集モードに入り入力できる（非破壊・末尾挿入）。
+  - **#9 編集中の横幅追従**: 英語/日本語とも入力テキストの実幅に対称・単調に横幅が追従する（従来は英語だけ急拡大してすぐ上限280pxに張り付いた）。
+  - **#10 確定後の右空白削減**: ノード幅の padding 想定を実 CSS（水平20px）に整合させ、確定後の右側の余分な空白を解消（編集中幅==確定後幅）。
+
 ## [0.209.0] - 2026-07-06
 
 ### Added

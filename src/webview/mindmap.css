@@ -17,7 +17,15 @@
 
 .outliner-tree[data-view-mode="mindmap"] {
     position: relative;
-    overflow: hidden;
+    /* #7 (iteration 23 / TASK-62): overflow:hidden は MDN 上「スクロールコンテナのまま」で
+       programmatic/focus 由来のスクロール (scrollLeft/scrollTop 代入) を止めない。フォーカス移動や
+       クリック (context menu 経由の group 作成含む) で tree.scrollLeft/Top がドリフトすると、
+       viewport.translate 不変でもマップ全体が画面上でずれる (「group を作ると画面がずれる」)。
+       overflow:clip は「スクロールコンテナでなくなる」ため programmatic スクロールが no-op になり、
+       マップの画面位置は viewport.transform のみで決まる (iteration 17 の native-scroll 教訓の
+       tree コンテナ版)。クリップ挙動自体は hidden と同一 (toolbar/minimap は .mindmap-chrome
+       overlay を JS が可視枠へ配置するので影響なし)。 */
+    overflow: clip;
     width: 100%;
     height: 100%;
     min-height: 400px;
@@ -31,6 +39,25 @@
     left: 0;
     transform-origin: 0 0;
     will-change: transform;
+}
+
+/* FR-021-J1/J3 (TASK-58, iteration 22): toolbar / minimap を可視クリップ矩形に固定する overlay。
+   render.js の positionChrome が left/top/width/height を「実際に見えている可視枠」に合わせて
+   セットする (treeEl が min-height:400 で可視領域より高い/スクロールで流れても可視枠に追従)。
+   overlay 自体はクリックを透過し (pointer-events:none)、中の toolbar/minimap のみ受け取る。
+   toolbar(left/top:12) / minimap(right/bottom:12) は position:absolute のままこの overlay
+   (= 可視枠) を基準に配置されるので、常に可視枠の左上/右下に固定される。 */
+.mindmap-chrome {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.mindmap-chrome > .mindmap-toolbar,
+.mindmap-chrome > .mindmap-minimap {
+    pointer-events: auto;
 }
 
 .mindmap-svg {

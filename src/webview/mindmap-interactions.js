@@ -42,6 +42,31 @@ var MindmapInteractions = (function() {
     //   状況で window との隙間が marginX 未満になり red → load-bearing 検証に使う。
     var _ensureClampToWindow = true; // true (本番) | false (旧・load-bearing 用)
 
+    // #2 開いた時 title 中心 (iteration 22 / TASK-56)。
+    // mindmap を「開いた」初回 render/attach でのみ title node を画面中心に置く
+    // (編集・追加・移動のたびに中心化しない = iteration 16-21 の挙動を壊さない)。
+    // attach は 2 パス render・rerender のたびに呼ばれるため、「viewMode が mindmap に
+    // なった最初の attach か」を判定する必要がある。
+    //   - attach は冒頭で毎回 detach() を呼ぶが、それは「attach 内部からの detach」。
+    //     外部 (MindmapRender.destroy = mindmap を離れる) からの detach() だけが「開き直し」。
+    //   - _inAttach で「attach 内部からの detach」か「外部 detach」かを区別し、外部 detach
+    //     (= mindmap を離れた) が起きたら次の attach で 1 回だけ centering する。
+    //   - 初期値 true: 最初に開いた時 (destroy 前) も centering する。
+    var _needsOpenCenter = true; // 次の attach で開いた時中心化するか
+    var _inAttach = false;       // attach 本体の実行中か (内部 detach を外部 detach と区別)
+    // テスト用 (TASK-56 load-bearing): 開いた時 centering を無効化するフック。
+    var _openCenterEnabled = true;
+    // グループ作成メニューの表示に必要な対象ノード数の下限 (#3 iteration 22 / TASK-57)。
+    //   本番既定 1 = 単一ノード (or 選択 1 個) でも「Create Group」を出す (1 ノードグループ許可)。
+    //   テストが load-bearing 検証で旧ゲート (>= 2 = 複数選択時のみ) に戻せるよう
+    //   module 変数 + setter で公開する (単一ノードで項目が出ない = red を実証)。
+    var _groupMinSelection = 1;  // 1 (本番) | 2 (旧・load-bearing 用)
+    // #7 グループ作成で画面を不動にする (iteration 23 / TASK-62)。本番既定 true =
+    //   構造変更 rerender をまたいで viewport / scroll 位置を捕捉→復元し不動を保証する。
+    //   テストが load-bearing 検証で false に戻すと防御が外れる (native scroll / 同期ぶれが起きた際に
+    //   viewport が動きうる) → 修正が実効していることを実証するためのフック。
+    var _freezeViewportOnStructuralEdit = true; // true (本番) | false (旧・load-bearing 用)
+
     function closeContextMenu() {
         if (_contextMenuEl && _contextMenuEl.parentNode) {
             _contextMenuEl.parentNode.removeChild(_contextMenuEl);
@@ -81,6 +106,9 @@ var MindmapInteractions = (function() {
      * @param {Object} runtime - { layout, viewport, rerender }
      */
     function attach(treeEl, model, settings, host, ctx, runtime) {
+        // _inAttach: この attach 内部から呼ぶ detach() を「外部 detach (mindmap を離れる)」と
+        // 区別する。detach() は _inAttach=true の間は _needsOpenCenter を立てない (TASK-56 #2)。
+        _inAttach = true;
         detach();
         _treeEl = treeEl;
         ctx = ctx || {};
@@ -172,6 +200,20 @@ var MindmapInteractions = (function() {
             }
         }
 
+        // selected 集合を DOM の .mindmap-node-box.is-selected に直接反映する（rerender しない）。
+        // #3 plain click 用（rerender すると直後の dblclick 対象が焼失する, TASK-60）。
+        function paintSelection() {
+            if (!_treeEl) { return; }
+            var boxes = _treeEl.querySelectorAll('.mindmap-node-box');
+            for (var i = 0; i < boxes.length; i++) {
+                var fo = boxes[i].closest ? boxes[i].closest('.mindmap-node') : null;
+                var id = fo ? fo.getAttribute('data-node-id') : null;
+                var sel = !!(selected && selected.has && id && selected.has(id));
+                if (sel) { boxes[i].classList.add('is-selected'); }
+                else { boxes[i].classList.remove('is-selected'); }
+            }
+        }
+
         // --- 移動・追加時の最小追従 (FR-021-J2, iteration 16 / TASK-50) ---
         // 対象ノードが画面外のときだけ最小量パンして見せる (中央には寄せない)。
         // 前提: viewport フレーム安定化 (mindmap-render.js, TASK-49) で「レイアウト起因の
@@ -183,6 +225,9 @@ var MindmapInteractions = (function() {
         //   と編集確定 (commitEdit) は呼ばない。
         function ensureNodeVisible(nodeId) {
             if (!nodeId || !_treeEl) { return; }
+            // render の live viewport と同期してから増分する (外部 updateViewport(新オブジェクト) で
+            // interactions の捕捉参照が取り残される desync を防ぐ, TASK-56)。
+            syncViewport();
             var fo = _treeEl.querySelector('.mindmap-node[data-node-id="' + nodeId + '"]');
             if (!fo || !fo.getBoundingClientRect) { return; }
             var nr = fo.getBoundingClientRect();
@@ -476,6 +521,47 @@ var MindmapInteractions = (function() {
                     return;
                 }
             }
+
+            // #8 (iteration 23 / TASK-61, decision-type-to-edit-nondestructive):
+            // 確定 (非編集) ノード上で印字可能な 1 文字キーを打ったら編集開始する
+            // (Space を押さずにいきなりタイプで編集モードに入る)。
+            //   - 非破壊: focusNode(nodeId, true) は既存テキストを保持し caret を末尾に置く。
+            //     その後タイプ文字を caret 位置へ挿入 = 「Space で編集開始してからタイプ」と同じ最終状態。
+            //   - 修飾キー (Cmd/Ctrl/Alt) 併用はショートカット保護のため除外。
+            //   - IME 変換開始 (keyCode 229 / isComposing) は冒頭ガードで既に除外済み。
+            //   - title ノードも Space / dblclick と同様に編集可 (focusNode(true))。
+            if (!mod && !e.altKey && e.key && e.key.length === 1) {
+                e.preventDefault();
+                focusNode(nodeId, true); // 既存テキスト保持・caret 末尾で編集開始
+                if (typeof document !== 'undefined' && document.execCommand) {
+                    try { document.execCommand('insertText', false, e.key); }
+                    catch (ex) { insertTextAtCaret(nodeId, e.key); }
+                } else {
+                    insertTextAtCaret(nodeId, e.key);
+                }
+                adjustEditWidth(nodeId); // A7: タイプで伸びた分の横幅を追従
+                return;
+            }
+        }
+
+        // caret 位置にテキストを挿入する (execCommand フォールバック)。編集開始直後の caret は
+        // focusNode(true) が末尾に置いているので、そこへ e.key を挿入する。
+        function insertTextAtCaret(nodeId, ch) {
+            var textEl = textElOf(nodeId);
+            if (!textEl) { return; }
+            var sel = (typeof window !== 'undefined') ? window.getSelection() : null;
+            if (sel && sel.rangeCount && document.createRange) {
+                var range = sel.getRangeAt(0);
+                range.deleteContents();
+                var tn = document.createTextNode(ch);
+                range.insertNode(tn);
+                range.setStartAfter(tn);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                textEl.textContent = (textEl.textContent || '') + ch;
+            }
         }
 
         // treeEl レベルで keydown を捕捉 (mindmap-node-text からバブルアップ)
@@ -582,6 +668,10 @@ var MindmapInteractions = (function() {
         // 複数行（\n あり, TASK-42 #2）: pre-wrap のまま（折り返し表示・caret/IME 無傷）だが、
         //   box 幅を「最長行の必要幅」に合わせて広げる（測定は offscreen clone を nowrap で測る）。
         var A7_MAX_W = 280;
+        // #9/#10 (iteration 23 / TASK-63,64, generator_failures 2026-07-04): 編集中の box 幅も
+        // 「テキスト実幅 + 水平 padding」。実 CSS は .mindmap-node-box { padding: 6px 10px } = 20px。
+        // 従来の +24 は 4px 過大。render.js の PAD_H (=20) と同値にして editW == commitW を保つ。
+        var A7_PAD_H = 20;
 
         // 編集中の text 要素の「最長行の必要幅（画面座標 px）」を測る。
         // 編集ノードの live DOM は書き換えない（generator_failures 2026-07-02 原則）。
@@ -597,10 +687,17 @@ var MindmapInteractions = (function() {
             clone.style.width = 'auto';
             clone.style.maxWidth = 'none';
             clone.style.whiteSpace = 'nowrap';
+            clone.style.flex = '0 0 auto'; // flex 伸長を止めて intrinsic 幅を測る (render.js と同方式)
             clone.style.visibility = 'hidden';
             var lines = (raw || '').split('\n');
-            var parent = t.parentNode || document.body;
-            parent.appendChild(clone);
+            // #9/#10 (iteration 23 / TASK-63,64): clone を **document.body 直下**に置く。
+            //   t.parentNode (.mindmap-node-box = flex; max-width:280) の中に置くと、absolute でも
+            //   親コンテキストの影響で scrollWidth が実グリフより過小に出ることがあり (実測: box 内
+            //   clone は body clone より ~16px 小さい)、編集中 (adjustEditWidth) と確定
+            //   (render.measureRealWidth = body clone) で幅が食い違う (editW != commitW = TC-U3 の 16px 乖離)。
+            //   render.js の measureRealWidth と同じく body 直下で測って editW == commitW を保つ。
+            var host = (t.ownerDocument && t.ownerDocument.body) || document.body;
+            host.appendChild(clone);
             var maxW = 0;
             for (var li = 0; li < lines.length; li++) {
                 clone.textContent = (lines[li] === '' ? '​' : lines[li]);
@@ -627,15 +724,22 @@ var MindmapInteractions = (function() {
             if (isMultiline && t.classList.contains('is-editing-nowrap')) {
                 t.classList.remove('is-editing-nowrap');
             }
-            // 必要幅（画面座標）を測る。単一行は live 要素の scrollWidth（nowrap）で足りるが、
-            // 複数行は pre-wrap で折り返し済みのため clone を nowrap にして最長行を測る。
-            var needScreen = isMultiline
-                ? measureLongestLineWidth(t, raw)
-                : t.scrollWidth;
-            // + パディング/アイコン余白（estimateMeasure の +24+iconPad に整合）。
+            // 必要幅（画面座標）を測る。単一行・複数行とも **offscreen clone を flex-neutral nowrap
+            // にして intrinsic テキスト幅**を測る（measureLongestLineWidth）。
+            // #9 (iteration 23 / TASK-63): 従来は単一行を live 要素の `t.scrollWidth` で測っていたが、
+            //   `.mindmap-node-text` は `flex: 1 1 0` で box を埋めるまで伸長するため、`t.scrollWidth` は
+            //   「テキスト実幅」ではなく「伸長後の clientWidth（= 現在の box 幅の内側）」を返す（実測:
+            //   グリフ 8〜61px でも live scrollWidth は 58 に張り付き）。→ box 幅がテキストを追わず、
+            //   テキストが現 box 幅を超えるまで固定 → その後まとめて追従、という非線形（EN/JP で font 差の
+            //   分だけ挙動が食い違い、実機で EN が早期に 280 クランプに見えた真因）。clone を flex:0 0 auto;
+            //   width:auto; nowrap で測れば EN/JP とも intrinsic 幅に線形追従する（render.js の
+            //   measureRealWidth と同方式・editW == commitW を保つ, generator_failures 2026-07-04）。
+            var needScreen = measureLongestLineWidth(t, raw);
+            // + パディング/アイコン余白（render.js の measureRealWidth/estimateMeasure の
+            //   PAD_H(=20)+iconPad に整合。editW == commitW を保つ, TASK-63/64）。
             var icon = box.querySelector('.mindmap-node-icon');
-            var iconPad = icon ? 24 : 0;
-            var needInner = needScreen / scale + 24 + iconPad;
+            var iconPad = icon ? A7_PAD_H : 0;
+            var needInner = needScreen / scale + A7_PAD_H + iconPad;
             var baseW = _editBaseW[nid] || parseFloat(fo.getAttribute('width')) || 80;
             var targetW = Math.max(baseW, Math.min(A7_MAX_W, needInner));
             var curW = parseFloat(fo.getAttribute('width')) || baseW;
@@ -774,7 +878,21 @@ var MindmapInteractions = (function() {
                     rerender();
                 }
             } else {
-                if (selected && selected.clear) { selected.clear(); }
+                // #3 (iteration 23 / TASK-60, decision-plain-click-seeds-anchor):
+                // 素のクリックでアンカーノードを選択集合に入れる。従来は clear のみで add せず、
+                // click A → shift+click B が selected={B}（A 欠落）になり「単一しか選べない」に見えた。
+                // add(nid) でアンカーを含めることで、以降の shift+click が A に累積する。
+                // rerender を先に呼んで is-selected を描画してから focusNode で DOM フォーカスを
+                // 復元する（順序が逆だと rerender で focus が焼失しキーボード操作が届かない,
+                // generator_failures 2026-07-02）。selected が無い環境では従来どおり focus のみ。
+                if (selected && selected.clear) {
+                    selected.clear(); selected.add(nid);
+                    // is-selected を DOM に直接反映する（rerender しない）。plain click は直後に
+                    // dblclick が続くことがあり、rerender で DOM を作り直すと dblclick の対象要素が
+                    // 焼失して Page open 等が届かなくなる（generator_failures 2026-07-02: 操作中の
+                    // DOM 再生成は避ける）。is-focused と同じく class を直接付け替える。
+                    paintSelection();
+                }
                 focusNode(nid, false);
             }
         });
@@ -874,21 +992,120 @@ var MindmapInteractions = (function() {
 
         var viewport = (runtime.viewport) || { scale: 1, translateX: 0, translateY: 0 };
 
+        // #4/#5/#2 座標系是正 (iteration 22 / TASK-56, decision-viewport-transform-correct)。
+        // mindmap の SVG viewBox origin = bounds.min − PAD (mindmap-render.js:526-533)。
+        // .mindmap-viewport div に transform: translate(tx,ty) scale(s) がかかるので、
+        //   画面座標 screen(P) = viewport.translate + scale·(P − (bounds.min − PAD))。
+        // ★ PAD は render 側 (mindmap-render.js の `var pad = 120;`) と必ず一致させること。
+        //   render の pad を変えたらここも合わせる (定数同期をコメントで明記)。
+        var PAD = 120; // render の viewBox pad と一致 (mindmap-render.js:526)
+
+        // ★ viewport 参照の同期 (iteration 22 / TASK-56)。
+        //   MindmapRender.updateViewport(vp) は render 内部で `viewport = vp` と**参照ごと差し替える**
+        //   (mindmap-render.js:825)。一方 interactions は attach 時に runtime.viewport (= その render
+        //   時点の render.viewport オブジェクト) を捕捉して以降 in-place で mutate する。外部 (テストの
+        //   resetViewport / pan プローブ / fit ボタン等) が `updateViewport(新オブジェクト)` を呼ぶと
+        //   render.viewport は新オブジェクトになるが interactions が捕捉した古いオブジェクトは取り残され、
+        //   両者が desync する。この状態で ensureNodeVisible が「実際の画面 rect (= render 適用後の
+        //   transform を反映) から算出した dx」を「古い translate」に足すと、差分が二重に乗って過剰パン
+        //   になる (open-centering で -377 に mutate 済みのまま resetViewport 後もそれを基準にしてしまう等)。
+        //   → viewport を mutate する直前に render の live viewport から現在値を取り込み、常に「今画面に
+        //   適用されている translate/scale」を基準に増分させる。render が同一オブジェクトを返す通常時は
+        //   値が一致するので no-op (既存挙動不変)。
+        function syncViewport() {
+            if (typeof MindmapRender !== 'undefined' && MindmapRender.getViewport) {
+                var live = MindmapRender.getViewport();
+                if (live && live !== viewport) {
+                    viewport.translateX = live.translateX;
+                    viewport.translateY = live.translateY;
+                    viewport.scale = live.scale;
+                }
+            }
+        }
+
         function applyViewport() {
             if (typeof MindmapRender !== 'undefined' && MindmapRender.updateViewport) {
                 MindmapRender.updateViewport(viewport);
             }
         }
+
+        // #7 (iteration 23 / TASK-62): 構造変更操作 (グループ作成等) の rerender をまたいで viewport を
+        //   不動に保つ。実測 (本番同等 3 段 DOM・genuinely scrollable・実クリック) では createGroup は
+        //   node positions を変えない → フレーム安定化 (render.js) は 0 補正で標準経路でも viewport は
+        //   不変だった。ただし実機 (VS Code webview) では context-menu 経由の focus 遷移で native focus
+        //   scroll が起きたり、rerender タイミングで viewport 同期がぶれる可能性がある (静的読解では
+        //   断定不能・headless で再現せず)。→ 防御的に「操作前の live viewport を捕捉 → 操作 (createGroup
+        //   + rerender) → 捕捉値を復元 + native scroll を 0 に戻す」で不動を保証する。
+        //   restore は placeSvgAtScreen/pan 等の updateViewport 経由 (= _skipStabilizeOnce を立てる) なので、
+        //   直後の安定化と競合しない。テストが load-bearing 検証で無効化できるよう module フラグで公開。
+        function withViewportFrozen(action) {
+            if (!_freezeViewportOnStructuralEdit) { action(); return; }
+            syncViewport();
+            var tx0 = viewport.translateX, ty0 = viewport.translateY, s0 = viewport.scale;
+            // scroll 祖先 (.outliner-scroll-content 等) の scroll 位置も捕捉 (native focus scroll 対策)。
+            var scrollAnc = _treeEl && _treeEl.closest ? _treeEl.closest('.outliner-scroll-content') : null;
+            var st0 = scrollAnc ? scrollAnc.scrollTop : 0;
+            var sl0 = scrollAnc ? scrollAnc.scrollLeft : 0;
+            action();
+            // rerender 後、捕捉した viewport を復元 (updateViewport 経由で反映 = 安定化 skip)。
+            viewport.translateX = tx0; viewport.translateY = ty0; viewport.scale = s0;
+            applyViewport();
+            // native focus scroll で scroll 祖先が動いていたら元に戻す。
+            var scrollAnc2 = _treeEl && _treeEl.closest ? _treeEl.closest('.outliner-scroll-content') : null;
+            if (scrollAnc2) {
+                if (scrollAnc2.scrollTop !== st0) { scrollAnc2.scrollTop = st0; }
+                if (scrollAnc2.scrollLeft !== sl0) { scrollAnc2.scrollLeft = sl0; }
+            }
+        }
+
+        // 実可視領域 (treeEl 矩形 ∩ window)。iteration 21 (TASK-54) と同じ実可視端の取り方。
+        // window が取れない環境 (テスト等) は treeEl 矩形をそのまま使う。
+        function visibleFrame() {
+            var vr = treeEl.getBoundingClientRect();
+            var winW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : vr.right;
+            var winH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : vr.bottom;
+            var visLeft = Math.max(vr.left, 0);
+            var visRight = Math.min(vr.right, winW);
+            var visTop = Math.max(vr.top, 0);
+            var visBottom = Math.min(vr.bottom, winH);
+            return {
+                left: visLeft, right: visRight, top: visTop, bottom: visBottom,
+                cx: (visLeft + visRight) / 2, cy: (visTop + visBottom) / 2,
+                width: visRight - visLeft, height: visBottom - visTop
+            };
+        }
+
+        // SVG 座標 (svgX,svgY) を画面座標 (screenX,screenY) に置く viewport.translate を計算する。
+        // ★ .mindmap-viewport は treeEl 内で position:absolute; top:0; left:0; transform-origin:0 0
+        //   なので transform (translate) は **treeEl の左上原点相対**。一方 screenX/screenY は
+        //   window/getBoundingClientRect の絶対座標なので、treeEl.left/top を引いて treeEl 相対に
+        //   変換してから translate を求める (この変換を忘れると treeEl.top 分ずれる)。
+        //   screen = treeEl.left/top + translate + scale·(svg − (b.min − PAD))
+        //   ⇒ translate = (screen − treeEl.left/top) − scale·(svg − (b.min − PAD))。
+        // scale は既存 viewport.scale を使う (呼び出し側が先に scale を確定してから呼ぶ)。
+        function placeSvgAtScreen(svgX, svgY, screenX, screenY) {
+            var b = runtime.layout && runtime.layout.bounds;
+            if (!b) { return; }
+            var s = viewport.scale || 1;
+            var tr = treeEl.getBoundingClientRect();
+            viewport.translateX = (screenX - tr.left) - s * (svgX - (b.minX - PAD));
+            viewport.translateY = (screenY - tr.top) - s * (svgY - (b.minY - PAD));
+        }
+
+        // #5 fit: content bbox [b.min, b.max] を実可視領域に収める scale + bbox 中心を可視中心へ。
         function fitToScreen() {
             var b = runtime.layout && runtime.layout.bounds;
             if (!b) { return; }
-            var rect = treeEl.getBoundingClientRect();
+            syncViewport();
+            var vis = visibleFrame();
             var bw = Math.max(b.maxX - b.minX, 1), bh = Math.max(b.maxY - b.minY, 1);
-            var scale = Math.min(rect.width / (bw + 240), rect.height / (bh + 240), 2);
+            var margin = 40;
+            var scale = Math.min(vis.width / (bw + 2 * margin), vis.height / (bh + 2 * margin), 2);
             scale = Math.max(0.2, Math.min(4, scale || 1));
             viewport.scale = scale;
-            viewport.translateX = 20 - b.minX * scale + 100 * scale;
-            viewport.translateY = 20 - b.minY * scale + 100 * scale;
+            // bbox 中心を可視領域中心に置く (placeSvgAtScreen は確定済み scale を使う)。
+            var cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+            placeSvgAtScreen(cx, cy, vis.cx, vis.cy);
             applyViewport();
         }
 
@@ -919,6 +1136,7 @@ var MindmapInteractions = (function() {
         on(treeEl, 'wheel', function(e) {
             if (!(e.ctrlKey || e.metaKey)) { return; }
             e.preventDefault();
+            syncViewport();
             // #4: deltaY に比例した滑らかな係数。Mac トラックパッドのピンチは wheel を高頻度
             // 発火するため、固定 1.1 倍だと一気にズームしてしまう。exp(-deltaY*K) で連続的にし、
             // 1 イベントあたりの変化を 0.9〜1.1 にクランプして緩やかにする。
@@ -933,6 +1151,7 @@ var MindmapInteractions = (function() {
         on(treeEl, 'mousedown', function(e) {
             // 空白部 (ノードでない) のみパン
             if (nodeElFromEvent(e) || (e.target.closest && (e.target.closest('.mindmap-toolbar') || e.target.closest('.mindmap-minimap')))) { return; }
+            syncViewport();
             panning = { x: e.clientX, y: e.clientY, tx: viewport.translateX, ty: viewport.translateY };
         });
         on(document, 'mousemove', function(e) {
@@ -943,20 +1162,24 @@ var MindmapInteractions = (function() {
         });
         on(document, 'mouseup', function() { panning = null; });
 
-        // --- minimap click → move viewport ---
+        // --- minimap click → move viewport (#4 iteration 22 / TASK-56) ---
+        // minimap の dot は (p − bounds.min)·miniScale で描画される (mindmap-render.js:700-701)
+        // ので、クリック割合 fx/fy → SVG 座標 tx=b.minX+fx·bw, ty=b.minY+fy·bh。その SVG 座標を
+        // 可視領域中心に placeSvgAtScreen で置く。旧実装は viewBox origin 項 (b.min − PAD) が
+        // 抜けていて、どこをクリックしても同方向 (左上) へ飛んでいた。
         var minimap = treeEl.querySelector('.mindmap-minimap');
         if (minimap) {
             on(minimap, 'click', function(e) {
                 var b = runtime.layout && runtime.layout.bounds;
                 if (!b) { return; }
+                syncViewport();
                 var r = minimap.getBoundingClientRect();
                 var fx = (e.clientX - r.left) / (r.width || 1);
                 var fy = (e.clientY - r.top) / (r.height || 1);
                 var tx = b.minX + fx * (b.maxX - b.minX);
                 var ty = b.minY + fy * (b.maxY - b.minY);
-                var rect = treeEl.getBoundingClientRect();
-                viewport.translateX = rect.width / 2 - tx * viewport.scale;
-                viewport.translateY = rect.height / 2 - ty * viewport.scale;
+                var vis = visibleFrame();
+                placeSvgAtScreen(tx, ty, vis.cx, vis.cy);
                 applyViewport();
             });
         }
@@ -991,6 +1214,23 @@ var MindmapInteractions = (function() {
                 menu.appendChild(it);
             }
             var selectedIds = selected ? Array.from(selected) : [];
+            // グループ作成の対象集合 (#3 iteration 22 / TASK-57):
+            //   selected があれば selected、無ければ右クリックしたノード 1 個。
+            //   右クリックが空白 (nodeId なし) かつ selected も空なら対象なし。
+            //   1 ノードグループも許可 (groupTargets.length >= 1 で「Create Group (N)」)。
+            var groupTargets = selectedIds.length ? selectedIds : (nodeId ? [nodeId] : []);
+            function addGroupItem() {
+                if (groupTargets.length >= _groupMinSelection) {
+                    item('Create Group (' + groupTargets.length + ')', function() {
+                        // #7 (TASK-62): グループ作成の rerender をまたいで viewport を不動に保つ。
+                        withViewportFrozen(function() {
+                            pushUndo();
+                            MindmapModel.createGroup(settings, groupTargets, '', null);
+                            scheduleSync(); rerender();
+                        });
+                    });
+                }
+            }
             if (nodeId) {
                 // スタイル: 色プリセット
                 var palette = ['#ffd1d1', '#ffe8c2', '#fff7b2', '#d7f5c2', '#c2e8ff', '#e0d1ff', '#ffd1f0', null];
@@ -1027,14 +1267,9 @@ var MindmapInteractions = (function() {
                         scheduleSync(); rerender();
                     });
                 });
-                // グループ作成 (複数選択時)
-                if (selectedIds.length >= 2) {
-                    item('Create Group (' + selectedIds.length + ')', function() {
-                        pushUndo();
-                        MindmapModel.createGroup(settings, selectedIds, '', null);
-                        scheduleSync(); rerender();
-                    });
-                }
+                // グループ作成 (単一ノード or 複数選択、#3 TASK-57)。
+                //   groupTargets = selected があれば selected、無ければ右クリックノード 1 個。
+                addGroupItem();
                 // 関連線 (選択が1つ + nodeId が別)
                 if (selectedIds.length === 1 && selectedIds[0] !== nodeId) {
                     item('Link ' + selectedIds[0] + ' → ' + nodeId, function() {
@@ -1044,7 +1279,11 @@ var MindmapInteractions = (function() {
                     });
                 }
             } else {
-                // 空白: グループ/関連線の全解除などは今は無し。フィット。
+                // 空白右クリック: 選択が 1 つ以上あれば group 項目を出す (#3 TASK-57)。
+                //   groupTargets は selectedIds (空白では nodeId 無しなので nodeId 分岐に落ちない)。
+                //   選択が空なら対象が無いため group は出さない。
+                addGroupItem();
+                // フィット。
                 item('Fit to screen', function() { fitToScreen(); });
             }
             return menu;
@@ -1079,6 +1318,47 @@ var MindmapInteractions = (function() {
                 }
             }
         }
+
+        // #2 開いた時 title 縦センタリング (iteration 22 / TASK-56)。
+        // mindmap を「開いた」初回 attach でのみ、title 中心ノード (__title__) の縦位置 (y) を
+        // 可視領域の縦中心に合わせる。編集・追加・移動の rerender では centering しない
+        // (_needsOpenCenter は外部 detach = mindmap を離れた後にのみ立つ)。
+        // ★ centering は「title 中心ノードが存在するマップ」に限定 (positions['__title__'] あり)。
+        //   title 無しマップ (title 空 = 単なる複数 root / 単一 root ツリー) は既定フレーム
+        //   (translate 0,0 = 内容左上原点が可視左上) に依存する既存挙動 (縦長ツリーで上端の子が
+        //   初期可視・末尾が画面外, iteration 16/17/18/19 の TC-V2〜V9) を壊さないため centering しない。
+        // ★ 縦横とも full center する (iteration 23 / TASK-59, decision-open-center-full-both-axes)。
+        //   iteration 22 (TASK-56) は「横 translate を動かすと TC-V7/V8 の固定 px pan 校正が崩れる」ため
+        //   縦のみ centering に妥協した (keepTX ロールバック)。しかし巨大マップ (title=default, root 24,
+        //   node 293) では横方向を動かさないと __title__ が水平方向に画面中心へ来ない (ユーザー報告 #2)。
+        //   → 縦横とも placeSvgAtScreen で可視領域中心へ置く。TC-V7/V8 は open-center が横も動かす前提で
+        //     「対象ノードの現在位置を実測してから端へ相対 pan」する方式に test_update 済み (TASK-59)。
+        // ★ applyViewport (= MindmapRender.updateViewport) を使わず DOM transform を直接書き換える。
+        //   updateViewport は _skipStabilizeOnce=true を立て、それだと開いた直後の最初の構造変更
+        //   rerender (Shift+Enter 等) がフレーム安定化 (TASK-49) をスキップして固定ノードがずれる
+        //   (TC-V5 が壊れる)。open-centering は「開いた時の初期フレーム」を置くだけで、以降のフレーム
+        //   安定化は通常どおり働かせたい (次 render で _prevBoundsMin=開いた時 bounds との差を補正し
+        //   centering した縦位置が固定され続ける)。→ 共有 viewport の translateY を更新し
+        //   .mindmap-viewport の transform だけ直接反映する。
+        if (_needsOpenCenter && _openCenterEnabled) {
+            _needsOpenCenter = false;
+            var b0 = runtime.layout && runtime.layout.bounds;
+            var positions0 = (runtime.layout && runtime.layout.positions) || {};
+            var tp = positions0['__title__'];
+            // title 中心ノードがあるマップのみ centering (無ければ既定フレーム維持 = 既存挙動)。
+            if (b0 && tp) {
+                var tx0 = tp.x, ty0 = tp.y;
+                var vis0 = visibleFrame();
+                // 縦横とも title を可視領域中心へ配置 (full center, TASK-59)。
+                placeSvgAtScreen(tx0, ty0, vis0.cx, vis0.cy);
+                var vpEl = treeEl.querySelector('.mindmap-viewport');
+                if (vpEl) {
+                    vpEl.style.transform = 'translate(' + viewport.translateX + 'px,' + viewport.translateY + 'px) scale(' + viewport.scale + ')';
+                }
+            }
+        }
+
+        _inAttach = false;
     }
 
     function prevSiblingId(model, nodeId) {
@@ -1097,6 +1377,10 @@ var MindmapInteractions = (function() {
         _treeEl = null;
         _dragState = null;
         closeContextMenu();
+        // 外部 (MindmapRender.destroy = mindmap を離れる) からの detach なら、次の attach で
+        // 開いた時 centering を要求する (TASK-56 #2)。attach 内部からの detach (_inAttach=true)
+        // は「開き直し」ではないので要求しない (2 パス render・rerender で再中心化しない)。
+        if (!_inAttach) { _needsOpenCenter = true; }
     }
 
     return {
@@ -1122,6 +1406,24 @@ var MindmapInteractions = (function() {
         // より外側にはみ出す状況で、window との隙間が marginX 未満になり red。本番は既定 true。
         _setEnsureVisibleClampToWindow: function(on) {
             _ensureClampToWindow = (on !== false);
+        },
+        // テスト用 (iteration 22 / TASK-56 の load-bearing): 開いた時 title 中心化を無効化する
+        // フック。false にすると mindmap を開いても centering しない (title が中心に来ず TC-M3 red)。
+        // 本番は既定 true。
+        _setOpenCenterEnabled: function(on) {
+            _openCenterEnabled = (on !== false);
+        },
+        // テスト用 (iteration 22 / TASK-57 の load-bearing): グループ作成メニューを出す対象数の
+        // 下限を切り替えるフック。2 に戻すと旧ゲート (複数選択時のみ) となり、単一ノード右クリックで
+        // 「Create Group」が出ず TC-M4 が red。本番は既定 1 (単一ノードでも作成可)。
+        _setGroupMinSelection: function(n) {
+            _groupMinSelection = (n === 2) ? 2 : 1;
+        },
+        // テスト用 (iteration 23 / TASK-62 の load-bearing): グループ作成 rerender の viewport 凍結を
+        // 無効化するフック。false にすると捕捉→復元をせず、native scroll / 同期ぶれで viewport が
+        // 動きうる (実機の #7 相当)。本番は既定 true。
+        _setFreezeViewportOnStructuralEdit: function(on) {
+            _freezeViewportOnStructuralEdit = (on !== false);
         }
     };
 })();

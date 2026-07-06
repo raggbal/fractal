@@ -19,13 +19,20 @@
  *   page.locator(...).click() (実選択) → page.keyboard.press(...) (実キー) の実フロー。
  *   screen 位置は getBoundingClientRect。ハンドル張り出しは .mindmap-collapse-handle の rect で測る。
  *
- * ジオメトリ (standalone で実測): title 中心 + balanced で、right 側 (R0/R0a) は translate=0 で
- *   自然に画面右外へ、left 側 (L0/L0a) は viewport を左へ pan して画面左外へ追いやれる。
- *   対象ノードへ矢印移動すると ensureNodeVisible が発火して最小パンで可視化する。補正後:
- *   - right 側 R0a (ハンドルあり): fo 右端が tree 右端から margin+handlePad=44px 内側 → ハンドル
- *     (9px 張り出し) 込みの右端も 35px 余白 (>= 20)。旧値 (16,0) だと 7px でギリギリ (< 20)。
- *   - left 側 L0 (ハンドルあり): 左端が tree 左端から margin=32px 内側 (leftGap≈32)。
- *   → rightGap≈35 / leftGap≈32 で |差|≈3 <= 16 (左右対称)。
+ * ★ TASK-59 (test_update): iteration 23 で open-centering が縦のみ → 縦横とも full center に変わり、
+ *   title マップの初期 translateX が非 0 になった。従来この spec は「translate=0 の既定フレーム」で
+ *   right 側が自然に画面右外・left 側は固定 700px pan で左外、を前提にしていたが、full center で初期
+ *   フレームがずれるとその前提が崩れる。→ pan 起点を「対象ノードの getBoundingClientRect を実測して
+ *   から」の相対 pan に変える (panNodeOffRight = R0a を実可視右端の外へ / panNodeOffLeft = L0 を実可視
+ *   左端の外へ、いずれも現在位置を測って相対 pan)。TC の意図 (右追従の余白が左と対称) と閾値 (20/16)
+ *   は不変。pan の起点を実測相対にするだけ。
+ *
+ * ジオメトリ: title 中心 + balanced。対象ノードへ矢印移動すると ensureNodeVisible が発火して最小パンで
+ *   可視化する。補正後:
+ *   - right 側 R0a (ハンドルあり): fo 右端が実可視右端から margin+handlePad=44px 内側 → ハンドル
+ *     (9px 張り出し) 込みの右端も余白 (>= 20)。旧値 (16,0) だと 7px でギリギリ (< 20)。
+ *   - left 側 L0 (ハンドルあり): 左端が実可視左端から margin=32px 内側。
+ *   → 左右の余白が対称 (|差| <= 16)。
  *
  * load-bearing: MindmapInteractions._setEnsureVisibleParams(16,0) で旧挙動に戻すと、同じ操作で
  *   右側のハンドル込み余白が 20px 未満 (実測 7px) になり red。既定 (32,12) で >= 20 になり green。
@@ -118,11 +125,50 @@ async function resetViewport(page: import('@playwright/test').Page) {
     await page.waitForTimeout(60);
 }
 
+// ★ TASK-59 test_update: 対象ノードを実可視右端の外へ相対 pan する (現在位置を実測して pan 量を決める。
+//   full center で初期 translateX が非 0 でも確実に画面右外へ追いやれる)。fo 右端を visRight + OFF に置く。
+const OFF = 60;
+async function panNodeOffRight(page: import('@playwright/test').Page, id: string) {
+    await page.evaluate((args) => {
+        const { nid, off } = args as { nid: string; off: number };
+        const fo = document.querySelector(`.mindmap-node[data-node-id="${nid}"]`) as any;
+        const t = document.querySelector('.outliner-tree') as HTMLElement;
+        const tr = t.getBoundingClientRect();
+        const winW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : tr.right;
+        const visRight = Math.min(tr.right, winW);
+        const r = fo.getBoundingClientRect();
+        const dx = (visRight + off) - r.right; // fo 右端を実可視右端の off px 外へ
+        const MR = (window as any).MindmapRender;
+        const vp = MR.getViewport();
+        vp.translateX = vp.translateX + dx;
+        MR.updateViewport(vp);
+    }, { nid: id, off: OFF });
+    await page.waitForTimeout(80);
+}
+// 対象ノードを実可視左端の外へ相対 pan する (現在位置を実測)。fo 左端を visLeft - OFF に置く。
+async function panNodeOffLeft(page: import('@playwright/test').Page, id: string) {
+    await page.evaluate((args) => {
+        const { nid, off } = args as { nid: string; off: number };
+        const fo = document.querySelector(`.mindmap-node[data-node-id="${nid}"]`) as any;
+        const t = document.querySelector('.outliner-tree') as HTMLElement;
+        const tr = t.getBoundingClientRect();
+        const visLeft = Math.max(tr.left, 0);
+        const r = fo.getBoundingClientRect();
+        const dx = (visLeft - off) - r.left; // fo 左端を実可視左端の off px 外へ
+        const MR = (window as any).MindmapRender;
+        const vp = MR.getViewport();
+        vp.translateX = vp.translateX + dx;
+        MR.updateViewport(vp);
+    }, { nid: id, off: OFF });
+    await page.waitForTimeout(80);
+}
+
 /**
- * right 側の子持ちノード R0a (translate=0 で自然に画面右外) へ矢印移動して ensureNodeVisible を
- * 発火させ、補正後のハンドル込み右端と tree 右端の余白 (rightGap) を返す。
+ * right 側の子持ちノード R0a を実可視右端の外へ pan してから R1 → R0a へ矢印移動して
+ * ensureNodeVisible を発火させ、補正後のハンドル込み右端と実可視右端の余白 (rightGap) を返す。
  */
 async function reachRightHandleNode(page: import('@playwright/test').Page) {
+    await panNodeOffRight(page, 'R0a'); // R0a を画面右外へ (full center 対応の実測相対 pan)
     await page.locator('.mindmap-node[data-node-id="R1"] .mindmap-node-box').click();
     await page.waitForTimeout(60);
     await page.keyboard.press('ArrowRight'); // R1 → R0a (右側の深いノード = 画面外だった)
@@ -138,7 +184,10 @@ test('TC-V7 右側子持ちノードの追従余白がギリギリでなく左�
     await setup(page);
     await toMindmap(page, FIXTURE);
 
-    // 前提: R0a は初期 (translate=0) で画面右外にあること。
+    // R0a を実可視右端の外へ pan して「画面外」状態を作る (full center で初期 translateX が非 0 でも
+    // 確実に外へ出す実測相対 pan, TASK-59 test_update)。
+    await panNodeOffRight(page, 'R0a');
+    // 前提: R0a が子持ち (ハンドルあり) で、pan 後にハンドル込み右端が実可視右端の外にあること。
     const tr0 = await treeRect(page);
     const e0 = await nodeEdges(page, 'R0a');
     expect(e0).not.toBeNull();
@@ -146,6 +195,7 @@ test('TC-V7 右側子持ちノードの追従余白がギリギリでなく左�
     expect(e0!.handleRight > tr0.visRight).toBe(true); // ハンドル込み右端が実可視右端の外
 
     // --- 右側: R0a へ矢印移動 → ensureNodeVisible 発火 → ハンドル込み右端の余白を測る ---
+    // (reachRightHandleNode が冒頭で改めて panNodeOffRight するので初期状態から独立)
     const right = await reachRightHandleNode(page);
     expect(right.fid).toBe('R0a');       // 意図した子持ちノードに到達
     expect(right.hasHandle).toBe(true);
@@ -154,18 +204,11 @@ test('TC-V7 右側子持ちノードの追従余白がギリギリでなく左�
     expect(right.rightGap!).toBeGreaterThanOrEqual(20);
 
     // --- 左側: L0 を画面左外へ pan → 矢印移動 → 左端の余白を測る ---
-    // 左側ノードは translate=0 では画面内 (bounds.minX が原点)。viewport を左へ pan して外へ出す。
-    // getViewport() が返す live オブジェクトを in-place で変更 → interactions の viewport 参照と同期。
-    // (別オブジェクトを updateViewport に渡すと interactions 側の参照が stale になるため in-place)
+    // L0 の現在位置を実測してから実可視左端の外へ相対 pan する (TASK-59 test_update: full center で
+    // 初期 translateX が非 0 でも確実に L0 を左外へ出す)。R1 を選択してから L0 を pan で外へ。
     await page.locator('.mindmap-node[data-node-id="R1"] .mindmap-node-box').click();
     await page.waitForTimeout(60);
-    await page.evaluate(() => {
-        const MR = (window as any).MindmapRender;
-        const vp = MR.getViewport();
-        vp.translateX = vp.translateX - 700; // 全体を左へ → 左側ノードが画面左外へ
-        MR.updateViewport(vp);
-    });
-    await page.waitForTimeout(80);
+    await panNodeOffLeft(page, 'L0'); // L0 を実可視左端の外へ (現在位置を実測して相対 pan)
 
     // L0 が画面左外にあることを前提確認。
     const trPan = await treeRect(page);

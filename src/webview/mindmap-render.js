@@ -19,6 +19,16 @@ var MindmapRender = (function() {
     var viewport = { scale: 1, translateX: 0, translateY: 0 };
     var _bodyEls = [];   // body 直下に付けた要素 (destroy で除去)
     var _lastCtx = null; // 再描画用に render の引数を保持
+    // --- toolbar / minimap の可視枠固定 (FR-021-J1/J3, iteration 22 / TASK-58) ---
+    // toolbar(top:12) / minimap(bottom:12) は treeEl の absolute 子。treeEl は
+    // min-height:400px を持つため、可視領域 (scroll ancestor ∩ window) が 400px 未満の窓では
+    // treeEl が可視領域より高くなり、minimap(bottom) が可視枠外にアンカーされてクリップされる
+    // (= ミニマップが消える/ずれる, ユーザー #1)。逆に scroll ancestor が縦スクロールする場合は
+    // treeEl 全体が上へ流れ toolbar(top) が画面上に消える。→ toolbar/minimap を「treeEl の box」
+    // ではなく「実際に見えている可視クリップ矩形」に追従させる chrome overlay に入れて固定する。
+    // treeEl の高さ (min-height:400) は TC-V6 等の scroll テストのため変えない (decoupling)。
+    var _chromeReposition = null; // scroll/resize で chrome を再配置するハンドラ (detach で解除)
+    var _chromeResizeObs = null;  // treeEl / scroll 祖先のサイズ変化を監視 (detach で解除)
     // --- viewport フレーム安定化 (FR-021-J2, iteration 16 / TASK-49) ---
     // SVG viewBox origin = layout.bounds.min を毎 render 再計算するため、編集/追加/移動で
     // bounds 原点が動くと viewport.translate 不変でも座標フレーム全体が画面上シフトする。
@@ -28,6 +38,13 @@ var MindmapRender = (function() {
     var _skipStabilizeOnce = false; // updateViewport (ユーザー明示 pan/zoom/fit/minimap) 直後の
                                     // 次 render は安定化補正をスキップ (基準だけ更新)。
     var _stabilizeEnabled = true;   // テスト用: false にすると bounds シフト補償を無効化 (load-bearing 検証)。
+
+    // #10 (iteration 23 / TASK-64, generator_failures 2026-07-04): ノード幅 = テキスト実幅 +
+    // 水平 padding。実 CSS は .mindmap-node-box { padding: 6px 10px } = 水平 20px。従来の +24 は
+    // 実 padding 20px より 4px 過大で右空白の一因だった。編集 (interactions.js adjustEditWidth) と
+    // 確定 (measureRealWidth / estimateMeasure) で同じ定数を使い editW == commitW を保つ。
+    // interactions.js の A7_PAD_H と同値であること (両ファイルで 20 に統一)。
+    var PAD_H = 20;
 
     function el(tag, attrs) {
         var e = document.createElementNS(SVGNS, tag);
@@ -55,12 +72,12 @@ var MindmapRender = (function() {
             if (explicitLines[i].length > longest) { longest = explicitLines[i].length; }
         }
         var maxW = 280;
-        // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)
-        var naturalW = longest * charW + 24 + iconPad;
+        // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)。padding は実 CSS の 20px (PAD_H)。
+        var naturalW = longest * charW + PAD_H + iconPad;
         var w = Math.max(80, Math.min(maxW, naturalW));
         var wrapCount = 0;
         for (var j = 0; j < explicitLines.length; j++) {
-            wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - 24 - iconPad || 1)));
+            wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - PAD_H - iconPad || 1)));
         }
         var lines = Math.max(explicitLines.length, wrapCount);
         // #改 (iteration 13, TASK-43): ノード幅 = 最長行の自然幅にフィット・上限 280。
@@ -93,34 +110,40 @@ var MindmapRender = (function() {
         var raw = (node && node.text) || '';
         var lines = String(raw).split('\n');
         var scale = viewport.scale || 1;
-        // 一時 nowrap にして最長行の scrollWidth を測り、必ず元に戻す (DOM 破壊しない)。
-        var hadNowrap = text.classList && text.classList.contains('is-editing-nowrap');
-        var prevWhiteSpace = text.style ? text.style.whiteSpace : '';
-        if (text.style) { text.style.whiteSpace = 'nowrap'; }
-        var savedHTML = null;
+        // #10 (iteration 23 / TASK-64): .mindmap-node-text は flex: 1 1 0 で box を埋めるまで
+        // 伸長する。単に white-space:nowrap にして scrollWidth を読むと「伸長後の clientWidth」
+        // (= 1 パス目の過大な box 幅) が返り、実グリフより広い確定幅 → 右空白になる。
+        // 逆に live 要素を flex:0 0 auto; width:auto にして測っても、text は依然 .mindmap-node-box
+        // (max-width:280; flex-wrap:wrap; foreignObject 幅で制約) の中にあるため、box の現在幅で
+        // 折り返されて scrollWidth が **過小**になることがある (実測: intrinsic 151 なのに live 測定は
+        // 141 → realW=161 で確定 box が折り返し = TC-U4 の 2 行高さバグ)。
+        // → **document.body 直下の offscreen 分離 clone** を nowrap で測る (親制約を受けない真の
+        //   intrinsic 幅)。interactions.js の measureLongestLineWidth と同方式。live DOM は触らない
+        //   (caret/IME・レイアウト無傷、generator_failures 2026-07-02 原則)。
         var maxScreen = 0;
-        if (lines.length <= 1) {
-            // 単一行: そのまま nowrap の scrollWidth。
-            maxScreen = text.scrollWidth;
-        } else {
-            // 複数行: 各行を個別に測って最大を取る (renderInlineText で改行が <br> になっていても
-            //  行ごとの生テキストで測る = measureLongestLineWidth と同方式)。測定後 innerHTML を復元。
-            savedHTML = text.innerHTML;
-            for (var li = 0; li < lines.length; li++) {
-                text.textContent = (lines[li] === '' ? '​' : lines[li]);
-                var w2 = text.scrollWidth;
-                if (w2 > maxScreen) { maxScreen = w2; }
-            }
-            text.innerHTML = savedHTML;
+        var clone = text.cloneNode(false); // 属性のみ (子は行ごとに入れ直す)
+        clone.removeAttribute('contenteditable');
+        clone.removeAttribute('data-node-id');
+        clone.style.position = 'absolute';
+        clone.style.left = '-99999px';
+        clone.style.top = '0';
+        clone.style.whiteSpace = 'nowrap';
+        clone.style.flex = '0 0 auto';
+        clone.style.width = 'auto';
+        clone.style.maxWidth = 'none';
+        clone.style.visibility = 'hidden';
+        var host = (text.ownerDocument && text.ownerDocument.body) || document.body;
+        host.appendChild(clone);
+        for (var li = 0; li < lines.length; li++) {
+            clone.textContent = (lines[li] === '' ? '​' : lines[li]);
+            var w2 = clone.scrollWidth;
+            if (w2 > maxScreen) { maxScreen = w2; }
         }
-        // 元の white-space / nowrap クラス状態に戻す。
-        if (text.style) { text.style.whiteSpace = prevWhiteSpace; }
-        if (!hadNowrap && text.classList) { text.classList.remove('is-editing-nowrap'); }
+        if (clone.parentNode) { clone.parentNode.removeChild(clone); }
         if (maxScreen <= 0) { return estW; }
-        var fs = fontSize || 14;
-        // iconPad: box 内にアイコン要素があれば余白 (adjustEditWidth と同じ 24)。
-        var iconPad = (box.querySelector('.mindmap-node-icon')) ? 24 : 0;
-        var needInner = maxScreen / scale + 24 + iconPad;
+        // iconPad: box 内にアイコン要素があれば余白 (adjustEditWidth と同じ PAD_H)。
+        var iconPad = (box.querySelector('.mindmap-node-icon')) ? PAD_H : 0;
+        var needInner = maxScreen / scale + PAD_H + iconPad;
         return Math.max(80, Math.min(280, needInner));
     }
 
@@ -450,6 +473,11 @@ var MindmapRender = (function() {
         _lastCtx = { model: model, settings: settings, treeEl: treeEl, host: host, ctx: ctx };
         treeEl.innerHTML = '';
         treeEl.dataset.viewMode = 'mindmap';
+        // #7 (iteration 23 / TASK-62): mindmap の tree コンテナは overflow:clip で
+        // programmatic スクロールが止まる想定だが、clip を honor しない環境の保険として
+        // scrollLeft/Top を 0 に固定する。focus/click 由来のドリフトで map がずれるのを防ぐ
+        // (viewport.transform のみが map の画面位置を決める = group 作成でも不動)。
+        keepTreeUnscrolled(treeEl);
 
         // title 中心ノード (FR-021-B6): ctx.titleText か model.title を使う
         var titleText = (ctx.titleText != null) ? ctx.titleText : (model.title || '');
@@ -498,13 +526,20 @@ var MindmapRender = (function() {
         }
 
         // --- viewport フレーム安定化 (FR-021-J2, TASK-49): bounds シフト補償 ---
-        // 補正・記録は非 secondPass render でのみ行う (2 パス構成でも estimate-pass の
-        // bounds 同士を比較し続けるので基準がぶれない)。secondPass は 1 パス目で確定済み。
-        if (!ctx._secondPass) {
+        // 固定ノード画面位置 ≈ translate + scale·(nodeX − minX)。minX が Δ 動いても画面位置を
+        // 不変に保つには translate を +Δ·scale する。
+        // ★ 安定化補正は「最終表示に使う bounds」を持つ pass で行う。この render で 2 パス目
+        //   (実測 realDims 再レイアウト) が走るなら、1 パス目 (estimate bounds) では補正せず、
+        //   2 パス目 (real bounds) で補正する。理由: CJK 等では estimate 幅 (charW=fs*0.6) と実測幅が
+        //   大きく食い違い、1 パス estimate delta で補正すると実際の表示シフト (real delta) に届かず
+        //   その差分だけ固定ノードがずれる (TC-V1 の anchor 50px ずれ)。real bounds で補正すれば一致する。
+        //   2 パス目が走らない (単一行等) 通常マップは 1 パス目で補正 (従来どおり)。
+        //   基準 (_prevBoundsMin) は常に最終表示 bounds で更新し、次回 delta を real→real に閉じる。
+        var willSecondPass = !ctx._secondPass && needsRealMeasure(model, positions);
+        var _isFinalFrame = ctx._secondPass || !willSecondPass; // このパスの bounds が最終表示になるか
+        if (_isFinalFrame) {
             var bMin = { x: layout.bounds.minX, y: layout.bounds.minY };
             if (_prevBoundsMin && !_skipStabilizeOnce && _stabilizeEnabled) {
-                // 固定ノード画面位置 ≈ translate + scale·(nodeX − minX)。minX が Δ 動いても
-                // 画面位置を不変に保つには translate を +Δ·scale する。
                 var dbx = bMin.x - _prevBoundsMin.x;
                 var dby = bMin.y - _prevBoundsMin.y;
                 if (dbx || dby) {
@@ -516,6 +551,7 @@ var MindmapRender = (function() {
             _skipStabilizeOnce = false;
             _prevBoundsMin = bMin;
         }
+        // 1 パス目で 2 パスが走る場合は補正も基準更新もしない (2 パス目 = 最終 frame で行う)。
 
         // viewport コンテナ + SVG
         var vp = document.createElement('div');
@@ -612,11 +648,48 @@ var MindmapRender = (function() {
             }
         }
 
-        // ツールバー (レイアウト切替 / エクスポート / ズーム / フィット)
-        treeEl.appendChild(buildToolbar(settings));
+        // 安全網: willSecondPass=true と予測して 1 パス目で安定化を deferred したが、実際には
+        // 2 パス目が走らなかった (box 幅 0 等で realDims が空) 場合、この 1 パス目が最終 frame に
+        // なるのでここで安定化を適用する (deferred のまま drift させない)。通常は上の 2 パス目で
+        // 補正済みなのでここは到達しない (return するため)。
+        if (willSecondPass && !_isFinalFrame) {
+            var bMinF = { x: layout.bounds.minX, y: layout.bounds.minY };
+            if (_prevBoundsMin && !_skipStabilizeOnce && _stabilizeEnabled) {
+                var dbxF = bMinF.x - _prevBoundsMin.x;
+                var dbyF = bMinF.y - _prevBoundsMin.y;
+                if (dbxF || dbyF) {
+                    viewport.translateX += dbxF * (viewport.scale || 1);
+                    viewport.translateY += dbyF * (viewport.scale || 1);
+                    vp.style.transform = 'translate(' + viewport.translateX + 'px,' + viewport.translateY + 'px) scale(' + viewport.scale + ')';
+                }
+            }
+            _skipStabilizeOnce = false;
+            _prevBoundsMin = bMinF;
+        }
 
-        // ミニマップ (簡易: bounds を縮小した点群)
-        treeEl.appendChild(buildMinimap(positions, layout.bounds));
+        // ツールバー (左上) / ミニマップ (右下) を可視枠固定 chrome に入れる (TASK-58)。
+        // treeEl 直下に absolute 子として置くと、treeEl が可視領域より高い/スクロールで流れる
+        // 場合に可視枠外へ出てしまう (ユーザー #1)。chrome overlay は「実際に見えている可視
+        // クリップ矩形」に追従するので、rerender・スクロール・小さい窓でも常に可視枠の
+        // 左上/右下に固定される。
+        var chrome = document.createElement('div');
+        chrome.className = 'mindmap-chrome';
+        chrome.appendChild(buildToolbar(settings));
+        chrome.appendChild(buildMinimap(positions, layout.bounds));
+        treeEl.appendChild(chrome);
+        positionChrome(treeEl);
+        // 初回 render / モード切替直後は祖先 (scroll-content / container) の高さ変化がまだ
+        // レイアウトに反映されておらず、可視クリップ矩形が確定していないことがある。
+        // 二重 rAF (ブラウザのレイアウト+ペイント後) でもう一度確定して、settle 後の正しい
+        // 可視枠に合わせる (単発 rAF ではまだ祖先 flex が再計算されていない場合がある)。
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function() {
+                positionChrome(treeEl);
+                requestAnimationFrame(function() { positionChrome(treeEl); });
+            });
+        }
+        // scroll / resize でも可視枠に追従させる (前回のハンドラは解除して二重登録を防ぐ)。
+        bindChromeReposition(treeEl);
 
         // interactions を配線 (存在すれば)
         if (typeof MindmapInteractions !== 'undefined' && MindmapInteractions.attach) {
@@ -643,7 +716,12 @@ var MindmapRender = (function() {
             if (id === '__title__') { continue; }
             var n = model.nodes[id];
             if (!n) { continue; }
-            if ((n.text && n.text.indexOf('\n') >= 0) ||
+            // #10 (iteration 23 / TASK-64): 単一行の素テキストノードも 2 パス実測する。
+            // 従来は \n/icon/image/tag が無いと char 推定 (fs*0.6/字) のみで確定していたが、
+            // char 推定は proportional フォントで実グリフより過大 (実測: "Hello World Foo" 15字で
+            // 幅 150px vs 実グリフ 96px = 右に ~45px の空白) → ユーザー報告 #10「右側に空白が多い」。
+            // 非空テキストがあれば measureRealWidth (intrinsic 実測) を走らせて右空白を padding のみに。
+            if ((n.text && n.text.length > 0) ||
                 n.isPage || n.filePath ||
                 (n.images && n.images.length) ||
                 (n.tags && n.tags.length)) {
@@ -651,6 +729,114 @@ var MindmapRender = (function() {
             }
         }
         return false;
+    }
+
+    // --- chrome overlay を「可視クリップ矩形」に配置する (TASK-58) ---
+    // 可視クリップ = treeEl の rect を、overflow を持つ祖先すべて + window で交差クランプした矩形。
+    // chrome は treeEl の absolute 子なので、位置は treeEl rect からの相対オフセットで与える。
+    // これで treeEl が可視領域より高い (min-height:400 で overflow) / スクロールで流れても、
+    // chrome (と中の toolbar 左上・minimap 右下) は常に見えている枠にぴったり載る。
+    // #7 (TASK-62): tree コンテナが programmatic/focus スクロールでドリフトしないよう
+    // scrollLeft/Top を 0 に固定する。overflow:clip の保険 (clip 非対応環境向け) +
+    // scroll イベントで即時リセットして map の画面位置を viewport.transform のみに委ねる。
+    var _treeScrollGuard = null;
+    var _treeScrollGuardEl = null;
+    function keepTreeUnscrolled(treeEl) {
+        if (!treeEl) { return; }
+        if (treeEl.scrollLeft) { treeEl.scrollLeft = 0; }
+        if (treeEl.scrollTop) { treeEl.scrollTop = 0; }
+        // scroll ハンドラを (最新 treeEl に) 1 つだけ張り、ドリフトを即座に戻す。
+        if (_treeScrollGuardEl === treeEl && _treeScrollGuard) { return; }
+        if (_treeScrollGuardEl && _treeScrollGuard && _treeScrollGuardEl.removeEventListener) {
+            _treeScrollGuardEl.removeEventListener('scroll', _treeScrollGuard, true);
+        }
+        _treeScrollGuardEl = treeEl;
+        _treeScrollGuard = function() {
+            if (treeEl.scrollLeft) { treeEl.scrollLeft = 0; }
+            if (treeEl.scrollTop) { treeEl.scrollTop = 0; }
+        };
+        if (treeEl.addEventListener) { treeEl.addEventListener('scroll', _treeScrollGuard, true); }
+    }
+
+    function positionChrome(treeEl) {
+        var chrome = treeEl.querySelector && treeEl.querySelector('.mindmap-chrome');
+        if (!chrome || !treeEl.getBoundingClientRect) { return; }
+        var tr = treeEl.getBoundingClientRect();
+        var top = tr.top, left = tr.left, right = tr.right, bottom = tr.bottom;
+        // overflow を持つ祖先で交差クランプ (scroll-content の overflow:hidden/auto 等)。
+        var anc = treeEl.parentElement;
+        var guard = 0;
+        while (anc && guard++ < 100) {
+            var cs = null;
+            try { cs = window.getComputedStyle(anc); } catch (e) { cs = null; }
+            if (cs) {
+                var ox = cs.overflowX, oy = cs.overflowY;
+                var clips = /(auto|scroll|hidden|clip)/;
+                if (clips.test(ox) || clips.test(oy)) {
+                    var ar = anc.getBoundingClientRect();
+                    if (ar.top > top) { top = ar.top; }
+                    if (ar.left > left) { left = ar.left; }
+                    if (ar.right < right) { right = ar.right; }
+                    if (ar.bottom < bottom) { bottom = ar.bottom; }
+                }
+            }
+            anc = anc.parentElement;
+        }
+        // 実ウィンドウとも交差 (iteration 21: treeEl が window より外にはみ出すことがある)。
+        var winW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : right;
+        var winH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : bottom;
+        if (top < 0) { top = 0; }
+        if (left < 0) { left = 0; }
+        if (right > winW) { right = winW; }
+        if (bottom > winH) { bottom = winH; }
+        var w = Math.max(0, right - left), h = Math.max(0, bottom - top);
+        // treeEl rect からの相対オフセットで chrome を配置 (chrome は treeEl の absolute 子)。
+        chrome.style.left = (left - tr.left) + 'px';
+        chrome.style.top = (top - tr.top) + 'px';
+        chrome.style.width = w + 'px';
+        chrome.style.height = h + 'px';
+    }
+
+    // scroll / resize / (祖先の) サイズ変化でも chrome を可視枠へ追従させる。render 毎に呼び、
+    // 前回ハンドラを解除して二重登録を防ぐ (最新の treeEl を対象にする)。detach でも解除する。
+    // ResizeObserver は「祖先 flex の高さ確定が非同期に起きる」場合 (モード切替直後・窓リサイズ・
+    // 分割ペインのドラッグ等) に、rAF/タイマーに頼らず確定タイミングで再配置できるので堅牢。
+    function bindChromeReposition(treeEl) {
+        unbindChromeReposition();
+        if (typeof window === 'undefined' || !window.addEventListener) { return; }
+        _chromeReposition = function() { positionChrome(treeEl); };
+        // scroll は capture (祖先 scroll-content のスクロールも拾う)。
+        window.addEventListener('scroll', _chromeReposition, true);
+        window.addEventListener('resize', _chromeReposition);
+        // treeEl と overflow を持つ祖先 (scroll-content 等) のサイズ変化を監視して再配置。
+        if (typeof ResizeObserver === 'function') {
+            try {
+                _chromeResizeObs = new ResizeObserver(function() { positionChrome(treeEl); });
+                _chromeResizeObs.observe(treeEl);
+                var anc = treeEl.parentElement;
+                var guard = 0;
+                while (anc && guard++ < 100) {
+                    var cs = null;
+                    try { cs = window.getComputedStyle(anc); } catch (e) { cs = null; }
+                    if (cs && /(auto|scroll|hidden|clip)/.test(cs.overflowX + cs.overflowY)) {
+                        _chromeResizeObs.observe(anc);
+                    }
+                    anc = anc.parentElement;
+                }
+            } catch (e) { _chromeResizeObs = null; }
+        }
+    }
+
+    function unbindChromeReposition() {
+        if (_chromeReposition && typeof window !== 'undefined' && window.removeEventListener) {
+            window.removeEventListener('scroll', _chromeReposition, true);
+            window.removeEventListener('resize', _chromeReposition);
+        }
+        _chromeReposition = null;
+        if (_chromeResizeObs) {
+            try { _chromeResizeObs.disconnect(); } catch (e) { /* noop */ }
+            _chromeResizeObs = null;
+        }
     }
 
     function buildToolbar(settings) {
@@ -731,6 +917,14 @@ var MindmapRender = (function() {
             }
         }
         _bodyEls = [];
+        // chrome overlay の scroll/resize ハンドラを解除 (TASK-58, リーク防止)。
+        unbindChromeReposition();
+        // tree scroll guard を解除 (TASK-62, リーク防止)。
+        if (_treeScrollGuardEl && _treeScrollGuard && _treeScrollGuardEl.removeEventListener) {
+            _treeScrollGuardEl.removeEventListener('scroll', _treeScrollGuard, true);
+        }
+        _treeScrollGuard = null;
+        _treeScrollGuardEl = null;
         if (typeof MindmapInteractions !== 'undefined' && MindmapInteractions.detach) {
             MindmapInteractions.detach();
         }

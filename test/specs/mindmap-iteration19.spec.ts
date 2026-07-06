@@ -19,14 +19,20 @@
  * ★ TASK-55 (測定基準是正): TASK-54 で ensureNodeVisible の可視右端が treeEl.right(=1309) →
  *   実可視右端 visRight = Math.min(tree.right, window.innerWidth) = 1280 に変わった (standalone でも
  *   .outliner-tree は right=1309 が innerWidth=1280 を 29px はみ出す)。よって余白/端密着は visRight 基準で
- *   測り、端密着を作る pan 量も visRight に合わせて 109 → 140 に再校正 (閾値 32 は不変、基準のみ是正)。
+ *   測る (閾値 32 は不変、基準のみ是正)。
  *
- * ジオメトリ (standalone で実測): title 中心 + balanced。right 側の子持ちノード R0 は translate=0 で
- *   fo.right≈1404 (visRight=1280 を超えてはみ出す)。viewport を左へ 140px pan すると
- *   fo.right≈1264 (visRight=1280 の 16px 内側 = 端密着・はみ出さない・余白 < marginX(32))。
- *   この状態で R1 (下の兄弟) を click → ArrowUp で R0 へ移動 → ensureNodeVisible が R0 に発火。
- *   マージン込みトリガー: nr.right+32+12 > visRight → dx=-(超過分) → handleRight が visRight から
- *   handle gap ≈ 35 (>= 32) 内側へ。旧 overflow トリガーでは発動せず handle gap ≈ 7 (< 32)。
+ * ★ TASK-59 (test_update): iteration 23 で open-centering が縦のみ → 縦横とも full center に変わり、
+ *   title マップの初期 translateX が非 0 になった。従来この spec は「translate=0 の既定フレームから
+ *   固定 140px pan して端密着」を前提にしていたが、full center で初期フレームがずれると固定 px pan の
+ *   前提が崩れる。→ pan 起点を「対象ノードの getBoundingClientRect を実測してから」の相対 pan に変える
+ *   (panNodeToRightEdge = R0 の現在 foRight を測り、実可視右端の EDGE_INSET px 内側になるよう相対 pan)。
+ *   TC の意図 (端密着で発動して隙間) と閾値 (32) は不変。pan の起点を実測相対にするだけ。
+ *
+ * ジオメトリ (standalone): title 中心 + balanced。right 側の子持ちノード R0 を、その現在の foRight を
+ *   実測して「実可視右端 (visRight=1280) の EDGE_INSET(16) px 内側 = 端密着・はみ出さない・余白 < marginX(32)」
+ *   になるよう相対 pan する。この状態で R1 (下の兄弟) を click → ArrowUp で R0 へ移動 → ensureNodeVisible が
+ *   R0 に発火。マージン込みトリガー: nr.right+32+12 > visRight → dx=-(超過分) → handleRight が visRight から
+ *   handle gap (>= 32) 内側へ。旧 overflow トリガーでは発動せず handle gap < 32。
  *
  * load-bearing: MindmapInteractions._setEnsureVisibleTrigger('overflow') で旧トリガー (はみ出し時のみ)
  *   に戻すと、端密着ノードで発動せず隙間 < 32 で red。既定 'margin' で >= 32 になり green。
@@ -121,15 +127,30 @@ function getViewport(page: import('@playwright/test').Page) {
     });
 }
 
-// viewport を左へ pan して R0 を「画面内かつ右端に密着 (はみ出さない・余白 < marginX)」にする。
+// ★ TASK-59 test_update: 対象ノード (R0) の現在の foRight を実測してから、その fo 右端が
+//   「実可視右端 (min(tree.right, innerWidth)) の EDGE_INSET px 内側」になるよう相対 pan する。
+//   open-centering が横も動かすようになった (full center) ため、固定 px pan (translate=0 前提) では
+//   端密着を作れない。実測相対にすることで初期フレームに依存せず端密着を再現する。
+//   EDGE_INSET(16) < marginX(32) なので「はみ出さない・余白 < marginX」= 端密着になる。
 // getViewport() が返す live オブジェクトを in-place 変更 → interactions の viewport 参照と同期。
-async function panRightNodeToEdge(page: import('@playwright/test').Page, dx: number) {
-    await page.evaluate((d) => {
+const EDGE_INSET = 16;
+async function panNodeToRightEdge(page: import('@playwright/test').Page, id: string) {
+    await page.evaluate((args) => {
+        const { nid, inset } = args as { nid: string; inset: number };
+        const fo = document.querySelector(`.mindmap-node[data-node-id="${nid}"]`) as any;
+        const t = document.querySelector('.outliner-tree') as HTMLElement;
+        const tr = t.getBoundingClientRect();
+        const winW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : tr.right;
+        const visRight = Math.min(tr.right, winW);
+        const r = fo.getBoundingClientRect();
+        // fo.right を visRight - inset に合わせる相対 pan (右にはみ出していれば左へ、内側すぎれば右へ)。
+        const targetRight = visRight - inset;
+        const dx = targetRight - r.right; // 負 = 左へ pan
         const MR = (window as any).MindmapRender;
         const vp = MR.getViewport();
-        vp.translateX = vp.translateX - d;
+        vp.translateX = vp.translateX + dx;
         MR.updateViewport(vp);
-    }, dx);
+    }, { nid: id, inset: EDGE_INSET });
     await page.waitForTimeout(80);
 }
 
@@ -145,8 +166,10 @@ test('TC-V8 端密着ノード (はみ出さない) でも ensureNodeVisible が
     await setup(page);
     await toMindmap(page, FIXTURE);
 
-    // 初期 (translate=0) では R0 は画面右外へはみ出している。左へ 140px pan して実可視右端に密着させる。
-    await panRightNodeToEdge(page, 140);
+    // R0 の現在位置を実測してから、fo 右端が実可視右端の EDGE_INSET px 内側になるよう相対 pan して
+    // 端密着 (はみ出さない・余白 < marginX) にする (TASK-59 test_update: full center で初期フレームが
+    // 動くため固定 px pan をやめ実測相対に)。
+    await panNodeToRightEdge(page, 'R0');
 
     // ★ 前提 assert (偽陽性防止・iteration 18 の反省): 発火前に R0 が
     //   「画面内 (nr.right <= vr.right = はみ出さない) かつ 端に密着 (余白 < marginX)」であることを確認。
@@ -181,7 +204,7 @@ test('TC-V8 load-bearing: 旧 overflow トリガーに戻すと端密着で発�
 
     // --- (a) 旧トリガー 'overflow' (はみ出し時のみ) → 端密着ノードで発動せず隙間据え置き (< 32) ---
     await page.evaluate(() => { (window as any).MindmapInteractions._setEnsureVisibleTrigger('overflow'); });
-    await panRightNodeToEdge(page, 140);
+    await panNodeToRightEdge(page, 'R0');
     const trBeforeOld = await treeRect(page);
     const eBeforeOld = await nodeEdges(page, 'R0');
     // 前提: 端密着 (はみ出していない)。実可視右端基準。
@@ -199,7 +222,7 @@ test('TC-V8 load-bearing: 旧 overflow トリガーに戻すと端密着で発�
     // --- (b) 既定トリガー 'margin' に戻す → 端密着でも発動して隙間 >= 32 (green) ---
     await page.evaluate(() => { (window as any).MindmapInteractions._setEnsureVisibleTrigger('margin'); });
     await toMindmap(page, FIXTURE);
-    await panRightNodeToEdge(page, 140);
+    await panNodeToRightEdge(page, 'R0');
     await reachR0ViaArrow(page);
     expect(await focusedId(page)).toBe('R0');
     const trFix = await treeRect(page);

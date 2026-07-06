@@ -24,12 +24,13 @@
  *   tree.right≈1729 (>> innerWidth=1280) にして「tree が実ウィンドウより大きくはみ出す」実機状況を
  *   はっきり再現する。設定後に前提 assert で treeRect.right > window.innerWidth を確認する。
  *
- * ジオメトリ (standalone で実測, tree.width=1700 + viewport translateX=-150):
- *   R0 (子持ち = ハンドルあり) の handleRight≈1263。gapToWin = 1280-1263 = 17 (< marginX=32 = バグ)、
- *   gapToTree = 1729-1263 = 466 (>> 32 = tree 基準では余白十分に見える)。
- *   → 修正なし (可視端=vr.right): margin トリガーは gapToTree=466 で発動せず gapToWin=17 のまま (red)。
- *   → 修正あり (可視端=min(vr.right, innerWidth)=1280): gapToWin=17<32 で発動 → 左へパン →
- *      gapToWin≈35 (>= 32, green)。
+ * ジオメトリ (standalone, tree.width=1700 + panR0ToWindowEdge で R0 を実測相対 pan):
+ *   R0 (子持ち = ハンドルあり) の handleRight を window.innerWidth(=1280) の EDGE_INSET(16)px 内側へ
+ *   pan → gapToWin ≈ 16 (< marginX=32 = バグ)、gapToTree は tree.right(≈1729) 基準で >> 32 (余白十分に見える)。
+ *   → 修正なし (可視端=vr.right): margin トリガーは gapToTree で発動せず gapToWin≈16 のまま (red)。
+ *   → 修正あり (可視端=min(vr.right, innerWidth)=1280): gapToWin<32 で発動 → 左へパン → gapToWin>=32 (green)。
+ *   ★ TASK-59 test_update: 固定 tx=-150 pan は open-center full center + node 幅実測是正で R0 の初期位置が
+ *     動いたため成立しなくなった → R0 の現在位置を実測してから window 端へ相対 pan する方式に是正。
  *
  * load-bearing: MindmapInteractions._setEnsureVisibleClampToWindow(false) で可視端を vr.right に
  *   戻すと、tree はみ出し状況で gapToWin が marginX 未満 (17) のまま red。既定 (true, 実ウィンドウ交差)
@@ -115,14 +116,25 @@ function focusedId(page: import('@playwright/test').Page) {
     });
 }
 
-// viewport を絶対値で pan する (getViewport が返す live オブジェクトを in-place 変更)。
-async function setPanX(page: import('@playwright/test').Page, tx: number) {
-    await page.evaluate((v) => {
+// ★ TASK-59 test_update: R0 のハンドル込み右端 (handleRight) を実測してから、それが
+//   window.innerWidth の EDGE_INSET px 内側になるよう相対 pan する。iteration 23 で open-centering が
+//   縦横 full center に変わり title マップの初期 translateX が非 0 になった + node 幅の実測是正で R0 の
+//   初期位置が動いたため、固定 tx=-150 では「実ウィンドウ端に密着 (gapWin < marginX)」を作れなくなった。
+//   実測相対にすることで初期フレームに依存せず「window 端密着だが tree 内側では余白十分」を再現する。
+//   EDGE_INSET(16) < MARGIN_X(32) なので gapWin < marginX = バグ再現条件を満たす。
+const EDGE_INSET = 16;
+async function panR0ToWindowEdge(page: import('@playwright/test').Page) {
+    await page.evaluate((inset) => {
+        const fo = document.querySelector('.mindmap-node[data-node-id="R0"]') as any;
+        const h = fo.querySelector('.mindmap-collapse-handle');
+        const hr = h ? h.getBoundingClientRect() : fo.getBoundingClientRect();
+        const targetRight = window.innerWidth - inset; // handleRight を window 端の inset px 内側へ
+        const dx = targetRight - hr.right;             // 相対 pan 量
         const MR = (window as any).MindmapRender;
         const vp = MR.getViewport();
-        vp.translateX = v;
+        vp.translateX = vp.translateX + dx;
         MR.updateViewport(vp);
-    }, tx);
+    }, EDGE_INSET);
     await page.waitForTimeout(80);
 }
 
@@ -141,7 +153,7 @@ test('TC-V10 tree が実ウィンドウより外にはみ出していても実�
     // tree を実ウィンドウより大きく広げ、viewport を pan して R0 を「実ウィンドウ右端に密着だが
     //   tree 矩形の内側 (tree 基準では余白十分)」の状態にする。
     await forceTreeOverflowWindow(page);
-    await setPanX(page, -150);
+    await panR0ToWindowEdge(page);
 
     // ★ 前提 assert (真因の再現・偽陽性防止): tree.right が window.innerWidth より外側にはみ出す。
     const fr = await frame(page);
@@ -180,7 +192,7 @@ test('TC-V10 load-bearing: 可視端を vr.right に戻すと gapToWin < 32 で 
     // --- (a) 可視端を treeEl 矩形のまま (window 交差なし = 旧挙動) にする ---
     await page.evaluate(() => { (window as any).MindmapInteractions._setEnsureVisibleClampToWindow(false); });
     await forceTreeOverflowWindow(page);
-    await setPanX(page, -150);
+    await panR0ToWindowEdge(page);
 
     const frOld = await frame(page);
     expect(frOld.treeRight).toBeGreaterThan(frOld.innerWidth); // 前提: tree が window より外
@@ -203,7 +215,7 @@ test('TC-V10 load-bearing: 可視端を vr.right に戻すと gapToWin < 32 で 
     await page.evaluate(() => { (window as any).MindmapInteractions._setEnsureVisibleClampToWindow(true); });
     await toMindmap(page, FIXTURE);
     await forceTreeOverflowWindow(page);
-    await setPanX(page, -150);
+    await panR0ToWindowEdge(page);
     await reachR0ViaArrow(page);
     expect(await focusedId(page)).toBe('R0');
     const frFix = await frame(page);
