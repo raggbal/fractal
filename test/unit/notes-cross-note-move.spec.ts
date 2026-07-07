@@ -88,6 +88,48 @@ test.describe('NotesFileManager — cross-note move', () => {
         expect((dst2.getStructure().items[newId as string] as any).ext).toBe('md');
     });
 
+    // TC-FS-40: 共有アセットが残留 item に参照されていれば移動時に削除しない（データロス防止）
+    test('TC-FS-40 移動する md と残留 md が同名共有アセットを参照 → 移動後も残留側のアセットが残る', () => {
+        const src = new NotesFileManager(srcDir);
+        // 移動対象 md と、src に残る別 md の両方が shared.png を参照
+        const movingMd = src.createMarkdownFile('Moving', null);
+        const movingId = path.basename(movingMd, '.md');
+        const stayingMd = src.createMarkdownFile('Staying', null);
+        const imgDir = path.join(srcDir, 'images');
+        fs.mkdirSync(imgDir, { recursive: true });
+        fs.writeFileSync(path.join(imgDir, 'shared.png'), 'PNG', 'utf8');
+        // 両方の本文が shared.png を参照
+        fs.writeFileSync(movingMd, '![](images/shared.png)\n', 'utf8');
+        fs.writeFileSync(stayingMd, '![](images/shared.png)\n', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        const newId = src.moveFileItemToOtherNote(movingId, dstDir);
+        expect(newId).toBeTruthy();
+
+        // dst にはコピーされる
+        expect(fs.existsSync(path.join(dstDir, 'images', 'shared.png'))).toBe(true);
+        // ★残留 md がまだ参照しているので src の shared.png は削除されない（データロス防止）
+        expect(fs.existsSync(path.join(srcDir, 'images', 'shared.png'))).toBe(true);
+    });
+
+    // TC-FS-40b: 残留参照が無ければ従来どおり src から削除される
+    test('TC-FS-40b 残留参照が無い共有アセットは移動後 src から削除される', () => {
+        const src = new NotesFileManager(srcDir);
+        const movingMd = src.createMarkdownFile('Moving', null);
+        const movingId = path.basename(movingMd, '.md');
+        const imgDir = path.join(srcDir, 'images');
+        fs.mkdirSync(imgDir, { recursive: true });
+        fs.writeFileSync(path.join(imgDir, 'only.png'), 'PNG', 'utf8');
+        fs.writeFileSync(movingMd, '![](images/only.png)\n', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        const newId = src.moveFileItemToOtherNote(movingId, dstDir);
+        expect(newId).toBeTruthy();
+        expect(fs.existsSync(path.join(dstDir, 'images', 'only.png'))).toBe(true);
+        // 誰も参照していないので src からは消える
+        expect(fs.existsSync(path.join(srcDir, 'images', 'only.png'))).toBe(false);
+    });
+
     // TC-MV-03: id 衝突時の採番
     test('TC-MV-03 dst に同 id が存在する場合は採番し直す', () => {
         const src = new NotesFileManager(srcDir);

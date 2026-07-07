@@ -50,12 +50,25 @@ function resolveHint(hint: string | undefined, base: string): string | null {
 }
 
 /**
+ * .out の pageDir ヒントがフラット規約（basedir 直下 = "." or "" or "./"）を示すかを判定する。
+ * flat 判定の唯一の正典（migration / cleanup / s3-sync / path builder が共通で使う）。
+ */
+export function isFlatOut(pageDir: unknown): boolean {
+    if (typeof pageDir !== 'string') return false;
+    const norm = pageDir.replace(/^\.\//, '').replace(/\/+$/, '');
+    return norm === '' || norm === '.';
+}
+
+/**
  * ページ md の置き場（ディレクトリ）を返す。decision: 新レイアウトは basedir 直下。
  */
 export function resolvePagesDir(outFilePath: string | null, mainFolder?: string, hints?: OutDirHints): string {
     const base = baseDir(outFilePath, mainFolder);
+    // TASK-12: flat ヒント（pageDir="."）は最優先。legacy dir が併存しても disk-scan 前に base を返す
+    // （hint 無し flat + legacy 併存時の誤 fallback を防ぐ）。
+    if (isFlatOut(hints?.pageDir)) return base;
     const hinted = resolveHint(hints?.pageDir, base);
-    if (hinted) return hinted; // 移行済みは pageDir="." → base
+    if (hinted) return hinted; // 明示的な非フラット pageDir（絶対/相対サブ）
     // 新 default = basedir 直下。legacy は <base>/<basename>/ か <base>/pages。
     if (outFilePath) {
         const stem = path.basename(outFilePath, '.out');

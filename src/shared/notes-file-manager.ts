@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as flatLayout from './flat-layout';
+import * as assetMover from './notes-asset-mover';
 
 export interface NotesFileEntry {
     filePath: string;
@@ -1064,32 +1065,43 @@ export class NotesFileManager {
         }
         dstFm.saveStructure();
 
-        // src から物理削除 + 構造除去 (copy 検証済みなので安全)
+        // src から物理削除 + 構造除去 (copy 検証済みなので安全)。
+        // notes-flat-storage TASK-09/10: 共有アセット（images/・files/）は残留 item が参照中なら
+        // 削除しない（データロス防止）。削除判定は notes-asset-mover に集約（DOD-24 allowlist）。
         try {
+            // 移動 id は残留参照走査の除外対象（移動元 itemId + 移動後 newId 両方）
+            const movedIds = new Set<string>([itemId, newId]);
+            // 共有アセット dir（basename が images/files 配下か）を判定するためのパス集合
+            const sharedImagesDir = path.join(this.mainFolderPath, 'images');
+            const sharedFilesDir = path.join(this.mainFolderPath, 'files');
+            const isShared = (p: string): boolean => {
+                const d = path.dirname(p);
+                return d === sharedImagesDir || d === sharedFilesDir;
+            };
+            const candidates: { absPath: string; recursive: boolean; isSharedAsset: boolean }[] = [];
             if (ext === 'out') {
                 const srcOut = path.join(this.mainFolderPath, `${itemId}.out`);
-                if (fs.existsSync(srcOut)) { fs.rmSync(srcOut, { force: true }); }
+                candidates.push({ absPath: srcOut, recursive: false, isSharedAsset: false });
                 const srcPageDir = path.join(this.mainFolderPath, itemId);
                 if (fs.existsSync(srcPageDir)) {
-                    // legacy per-id フォルダ: 丸ごと削除
-                    fs.rmSync(srcPageDir, { recursive: true, force: true });
+                    // legacy per-id フォルダ: 丸ごと削除（隔離なので残留参照リスクなし）
+                    candidates.push({ absPath: srcPageDir, recursive: true, isSharedAsset: false });
                 } else if (outIsFlat) {
-                    // flat: 収集した page md + 参照 assets（copies の src）を個別削除。
-                    // .out 本体（srcOut）は既に削除済みなのでスキップ。
+                    // flat: page md（Note 直下・共有でない）+ 参照 assets（共有）を候補に
                     for (const c of copies) {
-                        if (c.src !== srcOut && fs.existsSync(c.src)) {
-                            fs.rmSync(c.src, { recursive: c.recursive, force: true });
-                        }
+                        if (c.src === srcOut) { continue; }
+                        candidates.push({ absPath: c.src, recursive: c.recursive, isSharedAsset: isShared(c.src) });
                     }
                 }
             } else {
                 const srcMd = this.getMdFilePath(itemId);
-                if (fs.existsSync(srcMd)) { fs.rmSync(srcMd, { force: true }); }
-                // 移動した assets を src からも削除
+                candidates.push({ absPath: srcMd, recursive: false, isSharedAsset: false });
                 for (const c of copies) {
-                    if (c.src !== srcMd && fs.existsSync(c.src)) { fs.rmSync(c.src, { force: true }); }
+                    if (c.src === srcMd) { continue; }
+                    candidates.push({ absPath: c.src, recursive: false, isSharedAsset: isShared(c.src) });
                 }
             }
+            assetMover.cleanupMovedAssets(this.mainFolderPath, movedIds, candidates);
         } catch (e) {
             console.error('[NotesFileManager] moveFileItemToOtherNote src cleanup error:', e);
         }

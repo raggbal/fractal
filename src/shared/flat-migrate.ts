@@ -18,6 +18,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { isFlatOut } from './flat-layout';
 
 export type MoveKind = 'page' | 'image' | 'file';
 export interface Move { from: string; to: string; kind: MoveKind; }
@@ -56,10 +57,9 @@ export function resolveOldDirs(outPath: string, data: any): { pageDir: string; i
     };
 }
 
-/** ある .out が既にフラット（pageDir="." かつ imageDir が共有 images）かを判定 */
-function isAlreadyFlat(outPath: string, data: any): boolean {
-    const norm = (v: unknown) => (typeof v === 'string' ? v.replace(/^\.\//, '').replace(/\/$/, '') : undefined);
-    return norm(data?.pageDir) === '' || data?.pageDir === '.' || norm(data?.pageDir) === '.';
+/** ある .out が既にフラット（pageDir="."）かを判定（flat-layout.isFlatOut に集約） */
+function isAlreadyFlat(_outPath: string, data: any): boolean {
+    return isFlatOut(data?.pageDir);
 }
 
 /**
@@ -169,11 +169,14 @@ function rewriteAssetRef(ref: unknown, kind: 'images' | 'files'): unknown {
  * 検証済み計画を実行する。rename を順に行い、全 rename 成功後に .out JSON を書き換える。
  * 途中失敗時は実行済み rename を逆順で戻す（ロールバック）。md 本文は書き換えない（md 直下で ./images 有効）。
  */
-export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: number } = {}): { executedMoves: number; rolledBack: boolean; error?: string } {
+export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: number; injectFailOnRewrite?: number } = {}): { executedMoves: number; rolledBack: boolean; error?: string } {
     if (plan.moves.some(m => m.kind === 'image')) fs.mkdirSync(plan.newImages, { recursive: true });
     if (plan.moves.some(m => m.kind === 'file')) fs.mkdirSync(plan.newFiles, { recursive: true });
 
     const done: Move[] = [];
+    // TASK-11: .out JSON 書換の元バイト列を snapshot し、書換途中失敗時に復元して
+    //          rename ロールバックと header/disk 整合を保つ（非対称ロールバックの解消）。
+    const rewrittenOut: { outPath: string; originalText: string }[] = [];
     try {
         let i = 0;
         for (const m of plan.moves) {
@@ -186,8 +189,13 @@ export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: numbe
             i++;
         }
         // 全 rename 成功後に .out JSON を書換（ヘッダ + node.images/filePath）。
+        let j = 0;
         for (const r of plan.outRewrites) {
-            const data = readJson(r.outPath);
+            const originalText = fs.readFileSync(r.outPath, 'utf8');
+            if (opts.injectFailOnRewrite != null && j === opts.injectFailOnRewrite) {
+                throw new Error(`INJECTED rewrite failure at outRewrite ${j}`);
+            }
+            const data = JSON.parse(originalText);
             data.pageDir = '.';
             data.imageDir = './images';
             data.fileDir = './files';
@@ -202,10 +210,17 @@ export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: numbe
                 }
             }
             writeJson(r.outPath, data);
+            rewrittenOut.push({ outPath: r.outPath, originalText }); // 書換成功分を記録
+            j++;
         }
         return { executedMoves: done.length, rolledBack: false };
     } catch (err) {
-        // rollback: 実行済み rename を逆順で戻す（JSON はまだ書いていないので巻き戻し不要）
+        // rollback（対称）: (1) 書換済み .out を元テキストに復元 → (2) rename を逆順で戻す。
+        // 順序は逆でもよいが、まず JSON を戻してから物理を戻すことで、
+        // 途中失敗しても「header と disk が両方 legacy」の整合状態に収束させる。
+        for (const rw of rewrittenOut.reverse()) {
+            try { fs.writeFileSync(rw.outPath, rw.originalText, 'utf8'); } catch { /* best effort */ }
+        }
         for (const m of done.reverse()) {
             try { fs.renameSync(m.to, m.from); } catch { /* best effort */ }
         }

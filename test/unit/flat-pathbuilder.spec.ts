@@ -92,6 +92,19 @@ test('TC-FS-05 Notes-md も basedir 直下 + 共有 images/ (outFile 無しの�
     fs.rmSync(main, { recursive: true, force: true });
 });
 
+test('TC-FS-42 pageDir="." hint がある flat .out は legacy dir 併存でも basedir 直下に解決（TASK-12）', () => {
+    const dir = mkTmp();
+    const outFile = path.join(dir, 'memo.out');
+    // flat hint あり + legacy <basename>/ dir に .md が併存（部分移行 or hint 書換直後）
+    fs.writeFileSync(outFile, JSON.stringify({ title: 'memo', pageDir: '.', rootIds: [], nodes: {} }));
+    const legacyDir = path.join(dir, 'memo');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'old.md'), '# legacy');
+    // hint 最優先 → basedir 直下（legacy に誤 fallback しない）
+    expect(resolvePagesDir(outFile, undefined, { pageDir: '.' })).toBe(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('TC-FS-24 共有 images/ で同名保存は unique 名で共存（上書きしない）', () => {
     const dir = mkTmp();
     const imagesDir = path.join(dir, 'images');

@@ -350,7 +350,6 @@ export class NotesEditorProvider {
         ) => createDropImportHandler(processor, {
             resolveDirs: () => {
                 const currentOutFilePath = fileManager.getCurrentFilePath();
-                const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
                 const pagesDir = fileManager.getPagesDirPath();
                 return {
                     fileDir: fileManager.getOutlinerFileDirPath(),
@@ -371,7 +370,6 @@ export class NotesEditorProvider {
         const dropStreamHost = new DropStreamHost({
             resolveDirs: () => {
                 const currentOutFilePath = fileManager.getCurrentFilePath();
-                const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
                 return {
                     fileDir: fileManager.getOutlinerFileDirPath(),
                     outDir: currentOutFilePath ? path.dirname(currentOutFilePath) : fileManager.getMainFolderPath()
@@ -576,10 +574,9 @@ export class NotesEditorProvider {
                 if (!fileUris || fileUris.length === 0) return;
 
                 const filePaths = fileUris.map(u => u.fsPath).sort();
-                // Notes mode: fileDir = {outliner id}/files/
+                // Notes mode: fileDir = 共有 files/ (flat-layout)
                 const currentOutFilePath = fileManager.getCurrentFilePath();
                 if (!currentOutFilePath) return;
-                const outlinerId = path.basename(currentOutFilePath, '.out');
                 const fileDir = fileManager.getOutlinerFileDirPath();
                 const outDir = path.dirname(currentOutFilePath);
                 const results = importFiles(filePaths, fileDir, outDir);

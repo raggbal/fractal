@@ -67,12 +67,20 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
     });
 
     test('DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)', () => {
-        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' || true`;
+        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' | grep -v 'notes-asset-mover.ts' | grep -v 'drop-stream.ts' | grep -v 'notes-file-manager.ts' || true`;
         const output = execSync(cmd, { encoding: 'utf-8' }).trim();
 
-        // 例外 (v7.1 DOD-24 の除外リスト):
+        // 例外 (DOD-24 除外リスト):
         // - paste-asset-handler.ts: cross-outliner cut-paste の move semantics (実害ゼロ)
         // - notes-s3-sync.ts: S3 同期処理、リモートから再取得できる即時削除セマンティクス
+        // - notes-asset-mover.ts: cross-note move の src cleanup (move semantics)。共有アセットは
+        //     collectSurvivingAssetRefs で残留参照を確認してからのみ削除 = データロス防止済み
+        //     (sprint 20260707-124018-notes-flat-storage TASK-09/10, ADRL-notes-flat-storage)
+        // - drop-stream.ts: ストリーミング D&D の中断時 temp ファイル削除 (ユーザーデータでない)
+        // - notes-file-manager.ts: (a) 空 legacy pages/ dir の rmdirSync (remaining.length===0 ガード),
+        //     (b) copy-error 時に「作成した dst コピー」のみ rollback rmSync (src ユーザーデータは消さない)。
+        //     いずれもユーザーデータの unrecoverable 削除ではない。cross-note move の src 削除は
+        //     notes-asset-mover.cleanupMovedAssets に集約済み (残留参照ガード + move semantics)。
         expect(output).toBe('');
     });
 });

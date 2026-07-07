@@ -29,6 +29,7 @@ import {
     SyncDirectoryProgress,
 } from './s3-per-file-sync';
 import { showSyncConflictDialog } from './sync-conflict-dialog';
+import { isFlatOut } from './shared/flat-layout';
 export {
     AwsCredentials,
     FileInfo,
@@ -104,8 +105,7 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
     let isFlat = false;
     try {
         const outData = JSON.parse(fs.readFileSync(localOutFile, 'utf8'));
-        const pd = typeof outData.pageDir === 'string' ? outData.pageDir.replace(/^\.\//, '').replace(/\/$/, '') : undefined;
-        isFlat = pd === '' || pd === '.';
+        isFlat = isFlatOut(outData.pageDir);
     } catch { /* 読めなければ legacy 扱い */ }
     const { s3FolderPrefix, localFolderPath } = computeSyncFolderPaths(opts.outlinerId, opts.localDir, prefix, isFlat);
 
