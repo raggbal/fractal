@@ -139,7 +139,7 @@ function rewriteMdLinksInBody(
  * `note.md` の書換が `mynote.md` を巻き込む部分文字列誤置換が起きない（HIGH バグ修正）。
  * renames のキーは「本文に現れる生の url 文字列」（extractAllAssetRefs / extract*Paths が返す値）。
  */
-function applyLinkUrlRewrites(body: string, renames: Map<string, string>): string {
+export function applyLinkUrlRewrites(body: string, renames: Map<string, string>): string {
     if (renames.size === 0) return body;
     const links = parser.parseMarkdownLinks(body) as Array<{ url: string; start: number; end: number }>;
     // url span を特定するため、各リンクトークン内で url 部分の絶対 index を求める。
@@ -723,7 +723,7 @@ function stripWebviewUrlPrefixes(md: string): string {
  * - files:  `[📎 ...](url)` (添付ファイル指定)
  * - mdLinks: `[text](url)` で url が `.md` で終わるもの (📎 でも image でもない通常リンク)
  */
-function extractAllAssetRefs(md: string): { images: string[]; files: string[]; mdLinks: string[] } {
+export function extractAllAssetRefs(md: string): { images: string[]; files: string[]; mdLinks: string[] } {
     const images = new Set<string>();
     const files = new Set<string>();
     const mdLinks = new Set<string>();

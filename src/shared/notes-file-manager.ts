@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
+import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs } from './paste-asset-handler';
+const mdLinkParser = require('./markdown-link-parser');
 
 export interface NotesFileEntry {
     filePath: string;
@@ -972,6 +974,11 @@ export class NotesFileManager {
 
         // コピー対象 (src 絶対パス → dst 絶対パス) を収集
         const copies: Array<{ src: string; dst: string; recursive: boolean }> = [];
+        // move-other-note-recursive-md: md 再帰移動の状態
+        const mdClosureIdMap = new Map<string, string>();   // srcMdAbs → dst 新 id（起点 + closure）
+        const mdMoveClosureAbs = new Set<string>();          // move する closure md（src 削除・structure 除去）
+        const mdCopyFallbackAbs = new Set<string>();         // copy する closure md（src 温存）
+        const mdClosureItemIds: { srcId: string; newId: string; title: string }[] = []; // dst 登録する md item
         // notes-flat-storage (2026-07-07): flat .out は per-id フォルダを持たない。
         // page md は Note 直下、images/files は共有。フラットかどうかを .out の pageDir で判定。
         let outIsFlat = false;
@@ -1008,19 +1015,65 @@ export class NotesFileManager {
                 } catch { /* .out 読めなければ本体だけ移動 */ }
             }
         } else {
-            copies.push({ src: this.getMdFilePath(itemId), dst: dstFm.getMdFilePath(newId), recursive: false });
-            // md が参照する images/files を移す。安全側で md 本文から参照名を抽出し該当ファイルのみ移動。
-            const mdPath = this.getMdFilePath(itemId);
-            if (fs.existsSync(mdPath)) {
-                const body = fs.readFileSync(mdPath, 'utf8');
+            // move-other-note-recursive-md: 移動する md が参照する自note内 md を再帰的に移動。
+            // closure 収集 → move/copy 判定 → copies + id 対応表 + 本文書換計画を組む。
+            const srcMdRoot = this.getMdRootDirPath();
+            const dstMdRoot = dstFm.getMdRootDirPath();
+            const srcMd = this.getMdFilePath(itemId);
+            // 起点 md（新 id で dst へ）
+            copies.push({ src: srcMd, dst: dstFm.getMdFilePath(newId), recursive: false });
+            mdClosureIdMap.set(srcMd, newId); // 起点も id 対応表に（本文書換の基準）
+
+            // closure 収集（自note内、循環検出済み）
+            let closure: string[] = [];
+            try { closure = collectMdLinkClosure(srcMd, srcMdRoot).closure; } catch { closure = []; }
+
+            // 移動 id 集合（起点 + closure 全 id）= 残留参照走査の除外対象
+            const closureIds = new Set<string>([itemId]);
+            for (const cAbs of closure) { closureIds.add(path.basename(cAbs, '.md')); }
+            // 残留参照（closure 以外の item が参照する md の絶対パス集合）
+            const survivingRefs = assetMover.collectSurvivingMdLinkRefs(this.mainFolderPath, closureIds);
+
+            // closure 各 md の move/copy 判定 + dst id 採番 + copies 追加
+            for (const cAbs of closure) {
+                const cId = path.basename(cAbs, '.md');
+                let newCId = cId;
+                if (dstStructure.items[newCId] || newCId === newId) { newCId = NotesFileManager.generateOutlineId(); }
+                mdClosureIdMap.set(cAbs, newCId);
+                copies.push({ src: cAbs, dst: dstFm.getMdFilePath(newCId), recursive: false });
+                // move か copy か: 残留参照あり（他 item がまだ参照）なら copy（元残す）
+                if (survivingRefs.has(cAbs)) { mdCopyFallbackAbs.add(cAbs); } else { mdMoveClosureAbs.add(cAbs); }
+                // 元 structure で ext:'md' item だったものだけ dst に item 登録（.out page md 等は除く）
+                const cItem = structure.items[cId];
+                if (cItem && cItem.type === 'file' && cItem.ext === 'md') {
+                    mdClosureItemIds.push({ srcId: cId, newId: newCId, title: cItem.title });
+                }
+            }
+
+            // 起点 + closure 各 md が参照する images/files を exact ref で移す（body.includes 廃止）
+            const allMdAbs = [srcMd, ...closure];
+            for (const mdAbs of allMdAbs) {
+                if (!fs.existsSync(mdAbs)) { continue; }
+                let body = '';
+                try { body = fs.readFileSync(mdAbs, 'utf8'); } catch { continue; }
+                const refBasenames = new Set<string>();
+                const refs = extractAllAssetRefs(body);
+                // 画像 + 📎添付 + 全リンク URL（プレーン `[doc](files/x.pdf)` も拾う。exact basename なので substring 誤爆なし）
+                const allLinkUrls = (mdLinkParser.parseMarkdownLinks(body) as Array<{ url: string }>).map(l => l.url);
+                for (const r of [...refs.images, ...refs.files, ...allLinkUrls]) {
+                    if (!r || /^(https?:|data:|file:|fractal:)/i.test(r) || r.startsWith('#')) { continue; }
+                    if (r.toLowerCase().endsWith('.md') || r.toLowerCase().endsWith('.markdown')) { continue; } // md-link は closure 側で処理
+                    refBasenames.add(path.posix.basename(r.replace(/\\/g, '/').split(/[?#]/)[0]));
+                }
                 for (const sub of [NotesFileManager.MD_IMAGES_SUBDIR, NotesFileManager.MD_FILES_SUBDIR]) {
-                    const srcSub = path.join(this.getMdRootDirPath(), sub);
-                    const dstSub = path.join(dstFm.getMdRootDirPath(), sub);
+                    const srcSub = path.join(srcMdRoot, sub);
                     if (!fs.existsSync(srcSub)) { continue; }
                     for (const fname of fs.readdirSync(srcSub)) {
-                        // 本文が参照しているアセットのみ移動 (共有ディレクトリの巻き添え防止)
-                        if (body.includes(fname)) {
-                            copies.push({ src: path.join(srcSub, fname), dst: path.join(dstSub, fname), recursive: false });
+                        if (refBasenames.has(fname)) {
+                            const dstAsset = path.join(dstMdRoot, sub, fname);
+                            if (!copies.some(c => c.dst === dstAsset)) {
+                                copies.push({ src: path.join(srcSub, fname), dst: dstAsset, recursive: false });
+                            }
                         }
                     }
                 }
@@ -1048,6 +1101,43 @@ export class NotesFileManager {
         const movedItem: NoteTreeFile = { type: 'file', id: newId, title: item.title, ...(item.color ? { color: item.color } : {}), ...(ext === 'md' ? { ext: 'md' } : {}) };
         dstStructure.items[newId] = movedItem;
         dstStructure.rootIds.unshift(newId);
+
+        // move-other-note-recursive-md: closure md item を dst に登録 + 起点/closure の dst コピー本文を書換。
+        if (ext === 'md') {
+            // closure md item（元 note で ext:'md' item だったもの）を dst 登録
+            for (const ci of mdClosureItemIds) {
+                dstStructure.items[ci.newId] = { type: 'file', id: ci.newId, title: ci.title, ext: 'md' };
+                dstStructure.rootIds.unshift(ci.newId);
+            }
+            // 起点 + closure 各 dst コピー本文の md-link を書換（closure→新 id / external→dst 相対）。
+            // srcMdAbs → newId の対応表を「その md の本文中に現れる生 ref → 新 ref」に変換して applyLinkUrlRewrites。
+            const srcMdRoot = this.getMdRootDirPath();
+            for (const [srcMdAbs, dstNewId] of mdClosureIdMap.entries()) {
+                const dstMdAbs = dstFm.getMdFilePath(dstNewId);
+                if (!fs.existsSync(dstMdAbs)) { continue; }
+                let body = '';
+                try { body = fs.readFileSync(dstMdAbs, 'utf8'); } catch { continue; }
+                const curDir = path.dirname(srcMdAbs); // 相対リンクの解決基準 = 元 md の dir
+                const renames = new Map<string, string>();
+                for (const ref of extractAllAssetRefs(body).mdLinks) {
+                    const targetAbs = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(curDir, ref);
+                    if (mdClosureIdMap.has(targetAbs)) {
+                        // closure 内 → dst の新 id 相対
+                        const targetNewId = mdClosureIdMap.get(targetAbs)!;
+                        const newRel = path.relative(dstFm.getMdRootDirPath(), dstFm.getMdFilePath(targetNewId)).replace(/\\/g, '/');
+                        if (newRel !== ref) { renames.set(ref, newRel); }
+                    } else if (fs.existsSync(targetAbs)) {
+                        // 自note外だが実在 → dst から元 md への相対（絶対にしない）
+                        const newRel = path.relative(dstFm.getMdRootDirPath(), targetAbs).replace(/\\/g, '/');
+                        if (newRel !== ref) { renames.set(ref, newRel); }
+                    }
+                }
+                if (renames.size > 0) {
+                    try { fs.writeFileSync(dstMdAbs, applyLinkUrlRewrites(body, renames), 'utf8'); } catch { /* ignore */ }
+                }
+            }
+        }
+
         // .out の pageDir を書き換え。flat は "."（Note 直下）、legacy per-id は './<newId>'。
         if (ext === 'out') {
             try {
@@ -1069,8 +1159,10 @@ export class NotesFileManager {
         // notes-flat-storage TASK-09/10: 共有アセット（images/・files/）は残留 item が参照中なら
         // 削除しない（データロス防止）。削除判定は notes-asset-mover に集約（DOD-24 allowlist）。
         try {
-            // 移動 id は残留参照走査の除外対象（移動元 itemId + 移動後 newId 両方）
+            // 移動 id は残留参照走査の除外対象（移動元 itemId + 移動後 newId 両方 + closure 全 id）
             const movedIds = new Set<string>([itemId, newId]);
+            for (const srcMdAbs of mdClosureIdMap.keys()) { movedIds.add(path.basename(srcMdAbs, '.md')); }
+            for (const dstNewId of mdClosureIdMap.values()) { movedIds.add(dstNewId); }
             // 共有アセット dir（basename が images/files 配下か）を判定するためのパス集合
             const sharedImagesDir = path.join(this.mainFolderPath, 'images');
             const sharedFilesDir = path.join(this.mainFolderPath, 'files');
@@ -1098,6 +1190,8 @@ export class NotesFileManager {
                 candidates.push({ absPath: srcMd, recursive: false, isSharedAsset: false });
                 for (const c of copies) {
                     if (c.src === srcMd) { continue; }
+                    // move-other-note-recursive-md: copy-fallback の closure md は src 温存（削除しない）。
+                    if (mdCopyFallbackAbs.has(c.src)) { continue; }
                     candidates.push({ absPath: c.src, recursive: false, isSharedAsset: isShared(c.src) });
                 }
             }
@@ -1106,6 +1200,11 @@ export class NotesFileManager {
             console.error('[NotesFileManager] moveFileItemToOtherNote src cleanup error:', e);
         }
         this.removeItemFromStructure(structure, itemId);
+        // move-other-note-recursive-md: MOVE した closure md item を src structure から除去（copy-fallback は残す）。
+        for (const srcMdAbs of mdMoveClosureAbs) {
+            const cId = path.basename(srcMdAbs, '.md');
+            if (structure.items[cId]) { this.removeItemFromStructure(structure, cId); }
+        }
         this.saveStructure();
 
         return newId;

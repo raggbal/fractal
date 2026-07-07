@@ -18,6 +18,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { extractAllAssetRefs } from './paste-asset-handler';
 
 const IMG_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico']);
 
@@ -86,6 +87,66 @@ export function collectSurvivingAssetRefs(mainFolderPath: string, excludeIds: Se
                 const id = f.replace(/\.md$/, '');
                 if (excludeIds.has(id)) { continue; }
                 try { addAll(refBasenames(extractMdLinkUrls(fs.readFileSync(path.join(full, f), 'utf8')))); } catch { /* 無視 */ }
+            }
+        }
+    }
+    return refs;
+}
+
+/**
+ * move-other-note-recursive-md: src Note フォルダ内で、moving item（excludeIds）を除いた
+ * 残留 item が参照する **md-to-md リンク先の絶対パス集合** を返す。
+ *
+ * collectSurvivingAssetRefs（images/files の basename 版）と役割は同じだが、md-link は
+ * 参照元 md の dir 基準で resolve した **絶対パス**で判定する（basename でない）ため別実装。
+ * closure md の move/copy 判定に使う: 返り値に当該 md の絶対パスが含まれる = まだ他が参照中 → copy。
+ */
+export function collectSurvivingMdLinkRefs(mainFolderPath: string, excludeIds: Set<string>): Set<string> {
+    const refs = new Set<string>();
+    // md 本文から md-link（.md/.markdown）の解決先絶対パスを、その md の dir 基準で集める
+    const addMdLinksFrom = (mdAbs: string) => {
+        let body = '';
+        try { body = fs.readFileSync(mdAbs, 'utf8'); } catch { return; }
+        const dir = path.dirname(mdAbs);
+        for (const ref of extractAllAssetRefs(body).mdLinks) {
+            const abs = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(dir, ref);
+            refs.add(abs);
+        }
+    };
+
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(mainFolderPath); } catch { return refs; }
+
+    for (const entry of entries) {
+        const full = path.join(mainFolderPath, entry);
+        let stat: fs.Stats;
+        try { stat = fs.statSync(full); } catch { continue; }
+
+        if (stat.isFile() && entry.endsWith('.out')) {
+            const id = entry.replace(/\.out$/, '');
+            if (excludeIds.has(id)) { continue; }
+            // .out の page md 本文からも md-link を辿る
+            try {
+                const data = JSON.parse(fs.readFileSync(full, 'utf8'));
+                const nodes = (data.nodes || {}) as Record<string, { isPage?: boolean; pageId?: string }>;
+                for (const n of Object.values(nodes)) {
+                    if (n && n.isPage && n.pageId) {
+                        addMdLinksFrom(path.join(mainFolderPath, `${n.pageId}.md`));
+                    }
+                }
+            } catch { /* 無視 */ }
+        } else if (stat.isFile() && entry.endsWith('.md')) {
+            const id = entry.replace(/\.md$/, '');
+            if (excludeIds.has(id)) { continue; }
+            addMdLinksFrom(full);
+        } else if (stat.isDirectory() && entry === '_notes_md') {
+            let mds: string[] = [];
+            try { mds = fs.readdirSync(full); } catch { /* 無視 */ }
+            for (const f of mds) {
+                if (!f.endsWith('.md')) { continue; }
+                const id = f.replace(/\.md$/, '');
+                if (excludeIds.has(id)) { continue; }
+                addMdLinksFrom(path.join(full, f));
             }
         }
     }
