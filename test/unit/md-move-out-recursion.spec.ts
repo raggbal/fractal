@@ -8,6 +8,7 @@
  * TC-OUT-10 残留参照ありは copy-fallback（.out 版）
  * TC-OUT-11 残留が .out 内 page md のみなら move
  * TC-OUT-14 (load-bearing データロス) copy-fallback md の共有 image が src に残る
+ * TC-OUT-15 (multi-root) 同一 .out の 2 page md（P1→P2 md-link）で P2 が closure 二重コピーされない
  * TC-OUT-20 外部note リンクは移動せず相対書換・絶対禁止
  * TC-OUT-30 (load-bearing) 部分文字列リンク誤置換しない（.out 版）
  * TC-OUT-40 後方互換: md-link 無しの .out は従来どおり（TC-MV-01 と同結果）
@@ -52,6 +53,19 @@ function makeMdItem(fm: NotesFileManager, title: string, body: string): string {
     const id = path.basename(p, '.md');
     fs.writeFileSync(p, body, 'utf8');
     return id;
+}
+
+/**
+ * 既存 flat .out（makeOutWithPage で作成済み）に 2 つ目の page ノード（isPage/pageId）を追加する。
+ * makeOutWithPage と同じノード注入スタイルを踏襲。page md（`<src>/<pageId>.md`）は呼び出し側で書く。
+ */
+function addPageToOut(fm: NotesFileManager, srcDir: string, outId: string, pageId: string): void {
+    const outPath = path.join(srcDir, `${outId}.out`);
+    const data = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+    const pid = 'n_' + pageId;
+    data.nodes[pid] = { id: pid, isPage: true, pageId, text: '', childIds: [], collapsed: false };
+    (data.rootIds as string[]).push(pid);
+    fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
 }
 
 test('TC-OUT-01 (load-bearing) .out page md の md-link 先 B が再帰移動 + dst 内で解決', () => {
@@ -171,6 +185,42 @@ test('TC-OUT-14 (load-bearing データロス) copy-fallback md の共有 image 
     expect(fs.existsSync(path.join(src, 'images', 'bimg.png'))).toBe(true);
     // dst にも bimg.png が届く
     expect(fs.existsSync(path.join(dst, 'images', 'bimg.png'))).toBe(true);
+    cleanup();
+});
+
+test('TC-OUT-15 (multi-root) 2 page md（P1→P2 md-link）で P2 が closure 二重コピーされない', () => {
+    const { src, dst, cleanup } = setupNotes();
+    const fm = new NotesFileManager(src);
+    // 同一 .out に 2 つの page node P1(pageId=p1) / P2(pageId=p2)。両方が root（page md）。
+    const outId = makeOutWithPage(fm, src, 'p1');
+    addPageToOut(fm, src, outId, 'p2');
+    // P1 の page md が P2 の page md を md-link 参照（同一 .out 内の root 間リンク）。
+    fs.writeFileSync(path.join(src, 'p1.md'), '[p2](p2.md)', 'utf8');
+    fs.writeFileSync(path.join(src, 'p2.md'), '# p2', 'utf8');
+
+    const newId = fm.moveFileItemToOtherNote(outId, dst);
+    expect(newId).toBeTruthy();
+    expect(fs.existsSync(path.join(dst, `${newId}.out`))).toBe(true);
+
+    // (a) P2 は closure として二重コピーされない: dst の .md 枚数 == page node 数（2）= p1 + p2 各 1 枚。
+    // counterfactual: `_planMdRecursiveMove` の `rootSet.has(abs) continue`（他起点を closure から除外）が
+    //   無いと、P1 の [p2] リンクが P2 を closure として拾い、renumber された 2 枚目の p2 が増えて枚数 3 になる。
+    expect(fs.readdirSync(dst).filter(f => f.endsWith('.md')).length).toBe(2);
+    // p2 は元 pageId 維持でちょうど 1 枚（closure 複製 = 別 id の 2 枚目が生えていない）。
+    expect(fs.existsSync(path.join(dst, 'p2.md'))).toBe(true);
+
+    // (b) P1 の [p2] リンクが dst の root P2（元 pageId 'p2' 維持）に解決し中身が '# p2'。
+    // counterfactual: root 除外が無いと [p2] は closure 複製（renumber された別 id）を指し、root p2 ではなくなる。
+    const p1Body = fs.readFileSync(path.join(dst, 'p1.md'), 'utf8');
+    const m = p1Body.match(/\[p2\]\(([^)]+)\)/);
+    expect(m).toBeTruthy();
+    expect(path.resolve(dst, m![1])).toBe(path.resolve(dst, 'p2.md'));
+    expect(fs.existsSync(path.resolve(dst, m![1]))).toBe(true);
+    expect(fs.readFileSync(path.resolve(dst, m![1]), 'utf8')).toBe('# p2');
+
+    // (c) src から両 page md が消える（move）。
+    expect(fs.existsSync(path.join(src, 'p1.md'))).toBe(false);
+    expect(fs.existsSync(path.join(src, 'p2.md'))).toBe(false);
     cleanup();
 });
 
