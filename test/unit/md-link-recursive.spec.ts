@@ -149,27 +149,24 @@ test('TC-ML-25 部分文字列重複リンクを誤置換しない（note.md 改
     fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('TC-ML-26 root-level 画像の部分文字列重複を誤置換しない（pic.png 改名で mypic.png 無傷）★HIGH', () => {
+test('TC-ML-26 root-level 画像の部分文字列重複を誤置換しない（bare basename: pic.png 改名で mypic.png 無傷）★HIGH load-bearing', () => {
     const { root, src, dest } = setup();
-    fs.mkdirSync(path.join(src, 'images'), { recursive: true });
-    fs.writeFileSync(path.join(src, 'images', 'pic.png'), 'PIC');
-    fs.writeFileSync(path.join(src, 'images', 'mypic.png'), 'MYPIC');
-    // 起点 md 本文に bare basename でない相対（images/ 付き）と、誤置換を誘発する bare basename の両方を検証。
-    // root-level 画像書換は copy-<ts>-<name> に必ず改名するので部分文字列衝突が起きうる。
-    const md = '![a](images/pic.png) ![b](images/mypic.png)';
+    // ★spec (tasks.md:80) どおり bare basename を使う。pic.png は mypic.png の部分文字列なので
+    //   旧 substring .replace だと mypic.png→mycopy-<ts>-pic.png に巻き込まれて壊れる（load-bearing）。
+    //   root-level 画像は sourceMdDir 基準で resolve されるので src 直下に置く。
+    fs.writeFileSync(path.join(src, 'pic.png'), 'PIC');
+    fs.writeFileSync(path.join(src, 'mypic.png'), 'MYPIC');
+    const md = '![a](pic.png) ![b](mypic.png)';
     const { rewrittenMarkdown } = callPaste(md, src, dest);
-    // 両画像が dest/images に複製される
-    const destImgs = fs.readdirSync(path.join(dest, 'images'));
-    expect(destImgs.some(f => f.endsWith('pic.png') && !f.includes('mypic'))).toBe(true);
-    expect(destImgs.some(f => f.includes('mypic.png'))).toBe(true);
-    // ★load-bearing: 両リンクが dest で正しく解決（mypic 側が pic 改名に巻き込まれて壊れていない）
     const mA = rewrittenMarkdown.match(/!\[a\]\(([^)]+)\)/);
     const mB = rewrittenMarkdown.match(/!\[b\]\(([^)]+)\)/);
+    // ★load-bearing: 両リンクが dest で正しく解決し、mypic 側が pic 改名に巻き込まれていない
     expect(fs.existsSync(path.resolve(dest, mA![1]))).toBe(true);
     expect(fs.existsSync(path.resolve(dest, mB![1]))).toBe(true);
-    // mypic の複製先が pic の複製先と別ファイル（巻き込み時は同一化 or 壊れる）
-    expect(fs.readFileSync(path.resolve(dest, mB![1]), 'utf8')).toBe('MYPIC');
     expect(fs.readFileSync(path.resolve(dest, mA![1]), 'utf8')).toBe('PIC');
+    expect(fs.readFileSync(path.resolve(dest, mB![1]), 'utf8')).toBe('MYPIC');
+    // mB のリンクが 'my' + (pic の複製名) に化けていない（部分文字列巻き込みの直接検出）
+    expect(mB![1]).not.toContain('mycopy-');
     fs.rmSync(root, { recursive: true, force: true });
 });
 
