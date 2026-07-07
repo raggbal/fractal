@@ -149,6 +149,30 @@ test('TC-ML-25 部分文字列重複リンクを誤置換しない（note.md 改
     fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('TC-ML-26 root-level 画像の部分文字列重複を誤置換しない（pic.png 改名で mypic.png 無傷）★HIGH', () => {
+    const { root, src, dest } = setup();
+    fs.mkdirSync(path.join(src, 'images'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'images', 'pic.png'), 'PIC');
+    fs.writeFileSync(path.join(src, 'images', 'mypic.png'), 'MYPIC');
+    // 起点 md 本文に bare basename でない相対（images/ 付き）と、誤置換を誘発する bare basename の両方を検証。
+    // root-level 画像書換は copy-<ts>-<name> に必ず改名するので部分文字列衝突が起きうる。
+    const md = '![a](images/pic.png) ![b](images/mypic.png)';
+    const { rewrittenMarkdown } = callPaste(md, src, dest);
+    // 両画像が dest/images に複製される
+    const destImgs = fs.readdirSync(path.join(dest, 'images'));
+    expect(destImgs.some(f => f.endsWith('pic.png') && !f.includes('mypic'))).toBe(true);
+    expect(destImgs.some(f => f.includes('mypic.png'))).toBe(true);
+    // ★load-bearing: 両リンクが dest で正しく解決（mypic 側が pic 改名に巻き込まれて壊れていない）
+    const mA = rewrittenMarkdown.match(/!\[a\]\(([^)]+)\)/);
+    const mB = rewrittenMarkdown.match(/!\[b\]\(([^)]+)\)/);
+    expect(fs.existsSync(path.resolve(dest, mA![1]))).toBe(true);
+    expect(fs.existsSync(path.resolve(dest, mB![1]))).toBe(true);
+    // mypic の複製先が pic の複製先と別ファイル（巻き込み時は同一化 or 壊れる）
+    expect(fs.readFileSync(path.resolve(dest, mB![1]), 'utf8')).toBe('MYPIC');
+    expect(fs.readFileSync(path.resolve(dest, mA![1]), 'utf8')).toBe('PIC');
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('TC-ML-30 既存 1 階層 md-link 複製が従来どおり（リンク先 md 複製 + 書換）', () => {
     const { root, src, dest } = setup();
     fs.writeFileSync(path.join(src, 'leaf.md'), '# leaf (no further links)');

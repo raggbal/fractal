@@ -840,15 +840,8 @@ export function copyMdPasteAssets(opts: {
         imageRenameMap.set(drawioPath, newRelativePath);
     }
 
-    // Rewrite image paths in markdown
-    for (const [oldPath, newPath] of imageRenameMap.entries()) {
-        // Use function-based replace to avoid $ injection (patterns/work/string-replace-safety.md)
-        const escapedOldPath = escapeRegExp(oldPath);
-        rewrittenMarkdown = rewrittenMarkdown.replace(
-            new RegExp(escapedOldPath, 'g'),
-            function() { return newPath; }
-        );
-    }
+    // Rewrite image paths in markdown（whole-link-target: 部分文字列誤置換を防ぐ。TASK-05）
+    rewrittenMarkdown = applyLinkUrlRewrites(rewrittenMarkdown, imageRenameMap);
 
     // Copy files with original name + collision suffix
     const fileRenameMap = new Map<string, string>();
@@ -875,14 +868,8 @@ export function copyMdPasteAssets(opts: {
         fileRenameMap.set(filePath, newRelativePath);
     }
 
-    // Rewrite file paths in markdown
-    for (const [oldPath, newPath] of fileRenameMap.entries()) {
-        const escapedOldPath = escapeRegExp(oldPath);
-        rewrittenMarkdown = rewrittenMarkdown.replace(
-            new RegExp(escapedOldPath, 'g'),
-            function() { return newPath; }
-        );
-    }
+    // Rewrite file paths in markdown（whole-link-target。TASK-05）
+    rewrittenMarkdown = applyLinkUrlRewrites(rewrittenMarkdown, fileRenameMap);
 
     // mdLinks: [text](*.md) 通常リンク → **自note内は再帰複製**、外部は相対パス書換のみ。
     // md-link-recursive-copy (2026-07-07): 収集フェーズ（closure）→ 複製フェーズ（per-md 書換）の 2 パス。
