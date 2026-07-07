@@ -1374,10 +1374,12 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'createPageAuto': {
                     const docDir3 = path.dirname(document.uri.fsPath);
-                    // outliner page MD なら outliner の pageDir 直下、それ以外は <docDir>/pages
+                    // outliner page MD なら outliner の pageDir 直下、それ以外は md と同階層（フラット）。
+                    // notes-flat-storage (2026-07-07): standalone md の Add Page も pages/ サブフォルダを作らず
+                    // <docDir> 直下に置く（md 本文リンクは ./<file>.md）。
                     const pagesDir = (isOutlinerPage && outlinerPageDir)
                         ? outlinerPageDir
-                        : path.join(docDir3, 'pages');
+                        : docDir3;
                     if (!fs.existsSync(pagesDir)) {
                         fs.mkdirSync(pagesDir, { recursive: true });
                     }
@@ -1403,9 +1405,11 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // side panel が outliner page MD かどうか判定
                     const spIsOutlinerPage = OutlinerProvider.outlinerPagePaths.has(sidePanelFilePath);
                     const spOutlinerPageDir = OutlinerProvider.outlinerPagePaths.get(sidePanelFilePath);
+                    // notes-flat-storage (2026-07-07): outliner page なら pageDir 直下、
+                    // それ以外（standalone md の side panel）は md と同階層（フラット、pages/ を作らない）。
                     const pagesDir = (spIsOutlinerPage && spOutlinerPageDir)
                         ? spOutlinerPageDir
-                        : path.join(spDir, 'pages');
+                        : spDir;
                     if (!fs.existsSync(pagesDir)) {
                         fs.mkdirSync(pagesDir, { recursive: true });
                     }
