@@ -1398,7 +1398,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'createPageAutoForSidePanel': {
                     // v15+: side panel の cmd+/ Add Page (simple flow)
                     // sidePanel が outliner page を開いている場合は outliner の pageDir 直下、
-                    // それ以外は side panel file dir/pages に作る
+                    // それ以外は side panel file と同階層（フラット、pages/ を作らない）
                     const sidePanelFilePath: string = message.sidePanelFilePath || '';
                     if (!sidePanelFilePath) break;
                     const spDir = path.dirname(sidePanelFilePath);
