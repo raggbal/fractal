@@ -130,6 +130,27 @@ test('TC-MVR-11 残留が移動 closure だけなら move', () => {
     cleanup();
 });
 
+test('TC-MVR-14 copy-fallback md が参照する共有 image は src に残る（HIGH データロス防止）', () => {
+    const { src, dst, cleanup } = setupNotes();
+    const fm = new NotesFileManager(src);
+    // 共有 image bimg.png を B だけが参照
+    const imgDir = path.join(src, 'images');
+    fs.mkdirSync(imgDir, { recursive: true });
+    fs.writeFileSync(path.join(imgDir, 'bimg.png'), 'BIMG');
+    const bId = makeMd(fm, 'B', '# b\n![](images/bimg.png)');
+    const aId = makeMd(fm, 'A', `[b](${bId}.md)`);
+    makeMd(fm, 'C', `[b](${bId}.md)`); // C 残留 → B は copy-fallback（src に残る）
+    fm.moveFileItemToOtherNote(aId, dst);
+    // B は copy-fallback で src に残る
+    expect(fs.existsSync(path.join(src, `${bId}.md`))).toBe(true);
+    // ★load-bearing: B が参照する共有 bimg.png も src に残る（copy-fallback の id を除外集合に
+    //   入れていた旧実装だと「残留参照なし」と誤判定され削除される = データロス）
+    expect(fs.existsSync(path.join(src, 'images', 'bimg.png'))).toBe(true);
+    // dst にも B コピー + bimg.png が届く
+    expect(fs.existsSync(path.join(dst, 'images', 'bimg.png'))).toBe(true);
+    cleanup();
+});
+
 test('TC-MVR-13 move md → copy-fallback md への link が dst 新 id に解決', () => {
     const { src, dst, cleanup } = setupNotes();
     const fm = new NotesFileManager(src);

@@ -1159,10 +1159,19 @@ export class NotesFileManager {
         // notes-flat-storage TASK-09/10: 共有アセット（images/・files/）は残留 item が参照中なら
         // 削除しない（データロス防止）。削除判定は notes-asset-mover に集約（DOD-24 allowlist）。
         try {
-            // 移動 id は残留参照走査の除外対象（移動元 itemId + 移動後 newId 両方 + closure 全 id）
+            // 移動 id は残留参照走査の除外対象。
+            // ★TASK-04（HIGH データロス修正）: copy-fallback の closure md は src に残り、
+            // その md が参照する共有 image/file はまだ src で生きている。よって共有アセットの
+            // surviving 走査（collectSurvivingAssetRefs）の除外集合には copy-fallback の id を含めない
+            // （含めると copy-fallback md 参照の共有アセットが「残留参照なし」と誤判定され削除される）。
+            // = 除外するのは「起点 + MOVE する closure md + それらの dst id」のみ。
             const movedIds = new Set<string>([itemId, newId]);
-            for (const srcMdAbs of mdClosureIdMap.keys()) { movedIds.add(path.basename(srcMdAbs, '.md')); }
-            for (const dstNewId of mdClosureIdMap.values()) { movedIds.add(dstNewId); }
+            for (const srcMdAbs of mdMoveClosureAbs) {
+                const cId = path.basename(srcMdAbs, '.md');
+                movedIds.add(cId);
+                const dstNewId = mdClosureIdMap.get(srcMdAbs);
+                if (dstNewId) { movedIds.add(dstNewId); }
+            }
             // 共有アセット dir（basename が images/files 配下か）を判定するためのパス集合
             const sharedImagesDir = path.join(this.mainFolderPath, 'images');
             const sharedFilesDir = path.join(this.mainFolderPath, 'files');
