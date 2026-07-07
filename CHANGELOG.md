@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.11] - 2026-07-07
+
+### Added
+- **Note タイトルの編集**: Notes モードのファイルパネル見出し（従来「Outlines」固定）が編集可能な note タイトルになった。クリックして変更すると `outline.note` の `noteTitle` に保存され、Activity Bar の FRACTAL NOTES ツリーにも反映される（未設定時はフォルダ名にフォールバック＝後方互換）。
+- **Reveal in Finder**: Outliner の file 添付ノード / md ページノードの右クリックメニューから、実体ファイルを OS ファイラ（Finder 等）で選択状態表示できる。
+- **Move Other Note（別 Note へ移動）**: ページ / 添付を別の Note へ移動できる。移動先へ関連アセット（画像・添付・同一 Note 内から参照される md）を再帰的に複製し、ID 衝突時は上書き確認する。
+
+### Fixed
+- **Mindmap Mode のノード横幅（iteration 30–32、FR-021 の挙動修正・仕様変更なし）**: 短いテキスト（英数・ひらがな）やファイルアイコン付きノードが実機で必ず 1 文字分だけ折り返してしまう問題を修正。ノード幅の算出に border + 1 文字分の余裕（`BORDER_W=18`）を全ノードへ加算し、編集中幅と確定後幅を一致させた（上限 280px クランプは維持）。
+
 ## [0.209.7] - 2026-07-06
 
 ### Added

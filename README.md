@@ -229,6 +229,9 @@ If AWS CLI is not installed, the core editor features (Markdown, Outliner, Notes
 1. Click the **Notes** icon in the Activity Bar (left sidebar)
 2. Add a folder to register it as a notes workspace
 3. Click a folder to open the 3-pane Notes UI
+4. Click the file-panel title to **rename the note** — the name is saved per note and shown in the FRACTAL NOTES tree
+5. Right-click a file/page node → **Reveal in Finder** to open its real file in the OS file manager
+6. Right-click a page/attachment → **Move to Other Note** to move it (with its assets) into another note
 
 ### In-App Links
 - Right-click an outliner node → **Copy In-App Link** to create a link to that node
