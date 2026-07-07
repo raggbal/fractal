@@ -32,10 +32,6 @@ function resolveSourceImage(ref: string, srcOutDir: string, srcPagesDir: string)
     return null;
 }
 
-function escapeRegExp(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // md-link-recursive-copy (2026-07-07): md-to-md リンクの再帰複製 closure 収集
 // ────────────────────────────────────────────────────────────────────────────
@@ -271,55 +267,88 @@ export function handlePageAssets(opts: {
     const nodeImageDrawio = nodeImagesArr.filter(isDrawioAsset);
     const allRefs = Array.from(new Set([...nodeImageOnly, ...bodyImageRefs]));
 
-    // Build rename map (only for copy, not for cut)
-    const renameMap = new Map<string, string>();
-    if (!isCut) {
-        const prefix = `copy-${targetPageId}-`;
-        for (const ref of allRefs) {
-            const base = path.basename(ref);
-            if (!renameMap.has(base)) renameMap.set(base, prefix + base);
-        }
-    } else {
-        for (const ref of allRefs) {
-            const base = path.basename(ref);
-            if (!renameMap.has(base)) renameMap.set(base, base);
-        }
-    }
-
-    // Copy images
     const destImagesDir = path.join(opts.destPagesDir, 'images');
-    if (allRefs.length > 0) ensureDir(destImagesDir);
-    for (const ref of allRefs) {
-        const base = path.basename(ref);
-        const newBase = renameMap.get(base)!;
+    const destFilesDir = path.join(opts.destPagesDir, 'files');
+    const destMdDir = opts.destPagesDir; // 起点 md の dir（= 書換の resolve/相対の基準）
+
+    // ── Images ──────────────────────────────────────────────────────────────
+    // scope2: 部分文字列誤置換 + basename 衝突を解消するため、
+    //   - 本文書換は「本文中の生 ref → destMdDir 基準の新相対」を renames に集約 → applyLinkUrlRewrites で一括。
+    //   - dest ファイル名は既定で `copy-<targetPageId>-<basename>`（後方互換 NFR-U-04）。同一 dest 名が
+    //     別の物理ファイルに既に割り当て済みなら `-<n>` を basename 前に付けて衝突回避（TC-HPA-02）。
+    //   - 同一物理ファイルを指す複数 ref（body ref と nodeImage ref が別文字列で同一ファイル）は
+    //     source 絶対パスで dedupe して 1 回だけコピーし、両 ref に同じ dest を割り当てる。
+    // cut 経路は従来どおり basename 維持（rename しない）。
+    const imgRenames = new Map<string, string>();       // 本文 ref → destMdDir 基準の新相対（本文書換用）
+    const nodeImgRename = new Map<string, string>();     // nodeImage ref → destOutDir 基準の新相対
+    const srcAbsToDestImg = new Map<string, string>();   // src 絶対 → dest 絶対（同一物理ファイルの再コピー防止）
+    const usedImgNames = new Set<string>();              // 既に割当済みの dest ファイル名（衝突回避）
+
+    // 別 src 同名の衝突回避: base 名で衝突したら `<name>-<n><ext>` に退避する。
+    const uniqueImgName = (desired: string): string => {
+        if (!usedImgNames.has(desired) && !fs.existsSync(path.join(destImagesDir, desired))) {
+            usedImgNames.add(desired);
+            return desired;
+        }
+        const ext = path.extname(desired);
+        const stem = desired.slice(0, desired.length - ext.length);
+        let n = 1;
+        let cand = `${stem}-${n}${ext}`;
+        while (usedImgNames.has(cand) || fs.existsSync(path.join(destImagesDir, cand))) {
+            n++;
+            cand = `${stem}-${n}${ext}`;
+        }
+        usedImgNames.add(cand);
+        return cand;
+    };
+
+    // body ref を先に処理してから nodeImage-only を処理する（本文書換の対象を優先）。
+    const bodyImageSet = new Set(bodyImageRefs);
+    const imageRefsOrdered = [...bodyImageRefs, ...nodeImageOnly.filter(r => !bodyImageSet.has(r))];
+    const allImageRefs = Array.from(new Set(imageRefsOrdered));
+    if (allImageRefs.length > 0) ensureDir(destImagesDir);
+    for (const ref of allImageRefs) {
         const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
         if (!srcImg) continue;
-        const destImg = path.join(destImagesDir, newBase);
-        if (srcImg === destImg) continue;
-        try {
-            if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-        } catch { /* ignore */ }
-    }
-
-    // Rewrite MD content (only for copy, not for cut)
-    let newMdContent = mdContent;
-    if (!isCut) {
-        for (const [oldBase, newBase] of renameMap.entries()) {
-            if (oldBase !== newBase) {
-                newMdContent = newMdContent.replace(
-                    new RegExp(escapeRegExp(oldBase), 'g'),
-                    function() { return newBase; }
-                );
+        const srcAbs = path.resolve(srcImg);
+        let destImg = srcAbsToDestImg.get(srcAbs);
+        if (!destImg) {
+            const base = path.basename(ref);
+            const destName = isCut ? base : uniqueImgName(`copy-${targetPageId}-${base}`);
+            destImg = path.join(destImagesDir, destName);
+            if (srcAbs !== path.resolve(destImg)) {
+                try {
+                    if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
+                } catch { /* ignore */ }
             }
+            srcAbsToDestImg.set(srcAbs, destImg);
+        }
+        // 本文用: destMdDir 基準の相対（body ref はこの md 基準で書かれている）
+        if (bodyImageSet.has(ref)) {
+            imgRenames.set(ref, path.relative(destMdDir, destImg).replace(/\\/g, '/'));
         }
     }
+    // nodeImage 用マップ: nodeImage ref → destOutDir 基準の新相対
+    for (const ref of nodeImageOnly) {
+        const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
+        if (!srcImg) continue;
+        const destImg = srcAbsToDestImg.get(path.resolve(srcImg));
+        if (!destImg) continue;
+        nodeImgRename.set(ref, path.relative(opts.destOutDir, destImg).replace(/\\/g, '/'));
+    }
 
-    // Handle file links + drawio (image syntax で参照されている drawio.svg/png も file 扱い)
+    // Rewrite image links in MD content (only for copy, not for cut)
+    let newMdContent = mdContent;
+    if (!isCut) {
+        newMdContent = applyLinkUrlRewrites(newMdContent, imgRenames);
+    }
+
+    // ── Files + drawio (image syntax の drawio.svg/png も file 扱い) ──────────
     const regularFileRefs: string[] = parser.extractMarkdownFileLinks(mdContent);
     const fileRefs: string[] = Array.from(new Set([...regularFileRefs, ...bodyDrawioRefs, ...nodeImageDrawio]));
     if (fileRefs.length > 0) {
-        const destFilesDir = path.join(opts.destPagesDir, 'files');
         ensureDir(destFilesDir);
+        const fileRenames = new Map<string, string>();
         for (const fileRef of fileRefs) {
             const srcFile = resolveSourceImage(fileRef, opts.srcOutDir, opts.srcPagesDir);
             if (!srcFile) continue;
@@ -338,60 +367,73 @@ export function handlePageAssets(opts: {
                 newName = generateUniqueFileNamePreserving(destFilesDir, originalName);
             }
             const destFile = path.join(destFilesDir, newName);
-            if (srcFile === destFile) continue;
+            if (path.resolve(srcFile) === path.resolve(destFile)) continue;
             try {
                 if (!fs.existsSync(destFile)) fs.copyFileSync(srcFile, destFile);
             } catch { /* ignore */ }
-            // Rewrite MD content if name changed
-            if (!isCut && newName !== originalName) {
-                const oldRelPath = escapeRegExp(fileRef);
-                const dirPart = fileRef.substring(0, fileRef.length - originalName.length);
-                const newRelPath = dirPart + newName;
-                newMdContent = newMdContent.replace(
-                    new RegExp(oldRelPath, 'g'),
-                    function() { return newRelPath; }
-                );
+            // 本文書換: 生 ref → destMdDir 基準の新相対（whole-link-target）
+            if (!isCut && bodyDrawioRefs.includes(fileRef)) {
+                // drawio は本文中 ![]() 構文の image ref なので imgRenames に集約して後で処理
+                imgRenames.set(fileRef, path.relative(destMdDir, destFile).replace(/\\/g, '/'));
+            } else if (!isCut) {
+                fileRenames.set(fileRef, path.relative(destMdDir, destFile).replace(/\\/g, '/'));
             }
+        }
+        if (!isCut) {
+            // drawio（image 構文）分は imgRenames に入っているので再度画像書換を適用
+            newMdContent = applyLinkUrlRewrites(newMdContent, imgRenames);
+            newMdContent = applyLinkUrlRewrites(newMdContent, fileRenames);
         }
     }
 
-    // mdLinks: [text](*.md) 通常リンクを destPagesDir に複製
-    // (page MD の中で別の .md を参照しているケース。`isCut` 時は名前変えずそのまま、copy 時は collision suffix)
-    const pageRefs = extractAllAssetRefs(mdContent);
-    for (const mdLinkRef of pageRefs.mdLinks) {
-        const srcMdLink = resolveSourceImage(mdLinkRef, opts.srcOutDir, opts.srcPagesDir);
-        if (!srcMdLink) continue;
-        const originalName = path.basename(mdLinkRef);
-        const newName = isCut
-            ? originalName
-            : generateUniqueFileNamePreserving(opts.destPagesDir, originalName);
-        const destMdLink = path.join(opts.destPagesDir, newName);
-        if (srcMdLink === destMdLink) continue;
-        try {
-            if (!fs.existsSync(destMdLink)) fs.copyFileSync(srcMdLink, destMdLink);
-        } catch { /* ignore */ }
-        if (!isCut && newName !== originalName) {
-            const oldRelPath = escapeRegExp(mdLinkRef);
-            const dirPart = mdLinkRef.substring(0, mdLinkRef.length - originalName.length);
-            const newRelPath = dirPart + newName;
-            newMdContent = newMdContent.replace(
-                new RegExp(oldRelPath, 'g'),
-                function() { return newRelPath; }
+    // ── mdLinks: [text](*.md) の完全再帰複製（scope3） ────────────────────────
+    // cut 経路は再帰しない（同一 note 内移動 / 名前維持の従来挙動を温存）。
+    if (!isCut) {
+        // sourceMdDir = srcPagesDir（page md が置かれる dir）を自note境界とする。
+        const sourceMdDir = opts.srcPagesDir;
+        const syntheticRoot = path.join(sourceMdDir, '__page_paste_root__.md');
+        const { closure } = collectMdLinkClosure(syntheticRoot, sourceMdDir, mdContent);
+        if (closure.length > 0) ensureDir(opts.destPagesDir);
+        const closureNameMap = new Map<string, string>(); // srcAbs → destMdDir 基準 rel
+        const closureDestAbs = new Map<string, string>();  // srcAbs → destAbs
+        for (const srcAbs of closure) {
+            const uniqueName = generateUniqueFileNamePreserving(opts.destPagesDir, path.basename(srcAbs));
+            const destAbs = path.join(opts.destPagesDir, uniqueName);
+            try { fs.copyFileSync(srcAbs, destAbs); } catch { continue; }
+            closureNameMap.set(srcAbs, path.relative(opts.destPagesDir, destAbs).replace(/\\/g, '/'));
+            closureDestAbs.set(srcAbs, destAbs);
+        }
+        // 起点(newMdContent) の md-link のみ書換（★LOW-1: 起点の画像/添付は scope2 で処理済み・二重処理しない）
+        newMdContent = rewriteMdLinksInBody(newMdContent, sourceMdDir, opts.destPagesDir, closureNameMap);
+        // closure 各複製 md をフル処理（画像/添付複製 + 全リンク書換）。
+        // 起点 md に画像が無いケースでも closure md の画像を受けられるよう images/files を事前作成する
+        // （copyAssetsAndRewriteForMd は destImageDir を ensureDir しないため）。
+        if (closureDestAbs.size > 0) {
+            ensureDir(destImagesDir);
+            ensureDir(destFilesDir);
+        }
+        for (const srcAbs of closure) {
+            const destAbs = closureDestAbs.get(srcAbs);
+            if (!destAbs) continue;
+            const curDir = path.dirname(srcAbs); // resolve 基準 = その md 自身の dir（= srcPagesDir）
+            let body = '';
+            try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
+            body = copyAssetsAndRewriteForMd(
+                body, curDir,
+                destImagesDir,
+                destFilesDir,
+                destAbs,
             );
+            body = rewriteMdLinksInBody(body, curDir, opts.destPagesDir, closureNameMap);
+            try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
         }
     }
 
     try { fs.writeFileSync(destMdPath, newMdContent, 'utf8'); } catch { /* ignore */ }
 
-    // Build newNodeImages
-    const destImagesRelToOut = path
-        .relative(opts.destOutDir, destImagesDir)
-        .replace(/\\/g, '/');
-    const newNodeImages = (opts.nodeImages || []).map(orig => {
-        const base = path.basename(orig);
-        const newBase = renameMap.get(base) || base;
-        return destImagesRelToOut ? `${destImagesRelToOut}/${newBase}` : newBase;
-    });
+    // Build newNodeImages（ref キー単位で解決。ヒットしない = コピー対象外は原値維持）
+    const newNodeImages = (opts.nodeImages || []).map(orig =>
+        nodeImgRename.get(orig) ?? orig);
 
     return { newNodeImages };
 }
