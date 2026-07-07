@@ -37,6 +37,7 @@ export interface NoteStructure {
     sidePanelOutlineWidth?: number;       // ノート全体共通の sidepanel TOC 幅 (px)
     s3BucketPath?: string;                // S3バケットパス (例: "my-bucket/notes-backup")
     favorites?: string[];                 // v0.207.36: お気に入り outliner ID 配列 (NoteTreeFile.id を参照、順序維持)
+    noteTitle?: string;                   // FR-NT-01: note フォルダ全体のタイトル。未設定=フォルダ名表示 (後方互換)
 }
 
 // ── 検索関連 ──
@@ -518,6 +519,34 @@ export class NotesFileManager {
     }
 
     /**
+     * FR-NT-01/02: note フォルダ全体のタイトル。
+     * 表示用 getNoteTitle は未設定時にフォルダ名 (basename) へフォールバック。
+     * getRawNoteTitle は保存値そのもの (未設定なら undefined)。
+     */
+    getNoteTitle(): string {
+        const t = this.getStructure().noteTitle;
+        return (t && t.trim()) ? t.trim() : path.basename(this.mainFolderPath);
+    }
+
+    getRawNoteTitle(): string | undefined {
+        return this.getStructure().noteTitle;
+    }
+
+    /**
+     * note タイトルを outline.note に保存。空文字で確定するとクリア (= フォルダ名表示に戻る)。
+     */
+    setNoteTitle(title: string): void {
+        const structure = this.getStructure();
+        const v = (title || '').trim();
+        if (v) {
+            structure.noteTitle = v;
+        } else {
+            delete structure.noteTitle;
+        }
+        this.saveStructure();
+    }
+
+    /**
      * 現在の構造を取得（ロード済みならキャッシュ利用）
      */
     getStructure(): NoteStructure {
@@ -929,6 +958,115 @@ export class NotesFileManager {
         this.saveStructure();
 
         return filePath;
+    }
+
+    /**
+     * FR-MV-01/02: この note の item (file: .out or .md) を別 note フォルダへ物理移動し、
+     * 移動先 outline.note の rootIds 先頭に登録する。フォルダ item は対象外 (file のみ)。
+     *
+     * - .out: `<src>/<id>.out` + pageDir `<src>/<id>/`（pages/assets 丸ごと）を dst へ移動。
+     * - .md : `<src>/_notes_md/<id>.md` + その md が参照する images/files を dst の `_notes_md/` へ移動。
+     * - id が dst で衝突する場合は dst 用に採番し直す（ファイル名・pageDir・構造 id を一貫更新）。
+     * - copy→検証→元削除の順で、途中失敗時は dst の部分コピーを cleanup（NFR-03）。
+     *
+     * @returns 移動先での新 id（成功時）/ null（対象が file でない・存在しない等）
+     */
+    moveFileItemToOtherNote(itemId: string, dstFolderPath: string): string | null {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file') { return null; }
+        const ext: 'out' | 'md' = item.ext === 'md' ? 'md' : 'out';
+
+        const dstFm = new NotesFileManager(dstFolderPath);
+        const dstStructure = dstFm.getStructure();
+        // id 衝突なら dst 用に採番
+        let newId = itemId;
+        if (dstStructure.items[newId]) {
+            newId = NotesFileManager.generateOutlineId();
+        }
+
+        // コピー対象 (src 絶対パス → dst 絶対パス) を収集
+        const copies: Array<{ src: string; dst: string; recursive: boolean }> = [];
+        if (ext === 'out') {
+            copies.push({ src: path.join(this.mainFolderPath, `${itemId}.out`), dst: path.join(dstFolderPath, `${newId}.out`), recursive: false });
+            const srcPageDir = path.join(this.mainFolderPath, itemId);
+            if (fs.existsSync(srcPageDir)) {
+                copies.push({ src: srcPageDir, dst: path.join(dstFolderPath, newId), recursive: true });
+            }
+        } else {
+            copies.push({ src: this.getMdFilePath(itemId), dst: dstFm.getMdFilePath(newId), recursive: false });
+            // md が参照する images/files を移す。安全側で md 本文から参照名を抽出し該当ファイルのみ移動。
+            const mdPath = this.getMdFilePath(itemId);
+            if (fs.existsSync(mdPath)) {
+                const body = fs.readFileSync(mdPath, 'utf8');
+                for (const sub of [NotesFileManager.MD_IMAGES_SUBDIR, NotesFileManager.MD_FILES_SUBDIR]) {
+                    const srcSub = path.join(this.getMdRootDirPath(), sub);
+                    const dstSub = path.join(dstFm.getMdRootDirPath(), sub);
+                    if (!fs.existsSync(srcSub)) { continue; }
+                    for (const fname of fs.readdirSync(srcSub)) {
+                        // 本文が参照しているアセットのみ移動 (共有ディレクトリの巻き添え防止)
+                        if (body.includes(fname)) {
+                            copies.push({ src: path.join(srcSub, fname), dst: path.join(dstSub, fname), recursive: false });
+                        }
+                    }
+                }
+            }
+        }
+
+        // copy フェーズ (dst に配置)。失敗したら dst の作成済みを cleanup。
+        const created: string[] = [];
+        try {
+            for (const c of copies) {
+                if (!fs.existsSync(c.src)) { continue; }
+                fs.mkdirSync(path.dirname(c.dst), { recursive: true });
+                fs.cpSync(c.src, c.dst, { recursive: c.recursive });
+                created.push(c.dst);
+            }
+        } catch (e) {
+            for (const d of created) {
+                try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* noop */ }
+            }
+            console.error('[NotesFileManager] moveFileItemToOtherNote copy error:', e);
+            return null;
+        }
+
+        // dst 構造に登録 (rootIds 先頭)。.out は title/pageDir を newId に合わせる。
+        const movedItem: NoteTreeFile = { type: 'file', id: newId, title: item.title, ...(item.color ? { color: item.color } : {}), ...(ext === 'md' ? { ext: 'md' } : {}) };
+        dstStructure.items[newId] = movedItem;
+        dstStructure.rootIds.unshift(newId);
+        // .out の pageDir を新 id 基準に書き換え (相対 './<id>')
+        if (ext === 'out') {
+            try {
+                const dstOut = path.join(dstFolderPath, `${newId}.out`);
+                const data = JSON.parse(fs.readFileSync(dstOut, 'utf8'));
+                data.pageDir = `./${newId}`;
+                fs.writeFileSync(dstOut, JSON.stringify(data, null, 2), 'utf8');
+            } catch { /* pageDir 書換失敗は致命的でない */ }
+        }
+        dstFm.saveStructure();
+
+        // src から物理削除 + 構造除去 (copy 検証済みなので安全)
+        try {
+            if (ext === 'out') {
+                const srcOut = path.join(this.mainFolderPath, `${itemId}.out`);
+                if (fs.existsSync(srcOut)) { fs.rmSync(srcOut, { force: true }); }
+                const srcPageDir = path.join(this.mainFolderPath, itemId);
+                if (fs.existsSync(srcPageDir)) { fs.rmSync(srcPageDir, { recursive: true, force: true }); }
+            } else {
+                const srcMd = this.getMdFilePath(itemId);
+                if (fs.existsSync(srcMd)) { fs.rmSync(srcMd, { force: true }); }
+                // 移動した assets を src からも削除
+                for (const c of copies) {
+                    if (c.src !== srcMd && fs.existsSync(c.src)) { fs.rmSync(c.src, { force: true }); }
+                }
+            }
+        } catch (e) {
+            console.error('[NotesFileManager] moveFileItemToOtherNote src cleanup error:', e);
+        }
+        this.removeItemFromStructure(structure, itemId);
+        this.saveStructure();
+
+        return newId;
     }
 
     /**

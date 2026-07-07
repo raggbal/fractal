@@ -219,6 +219,8 @@ export function activate(context: vscode.ExtensionContext) {
     // --- Notes (Activity Bar + WebviewPanel) ---
     const notesFolderProvider = new NotesFolderProvider(context);
     const notesEditorProvider = new NotesEditorProvider(context);
+    // FR-NT-03 / FR-MV-01: editor provider が Notes Folder ツリーを更新・列挙できるよう配線
+    notesEditorProvider.setFolderProvider(notesFolderProvider);
 
     context.subscriptions.push(
         vscode.window.createTreeView('notesExplorer', {

@@ -36,6 +36,11 @@ export interface Messages {
   failedToProcessFile: string;
   fileNotFound: string;
   fileNotFoundOrUnsafe: string;
+  // FR-MV-01: Move Other Note
+  notesMoveNoOtherNote: string;
+  notesMoveOtherNotePick: string;
+  notesMoveFailed: string;
+  notesMoveDone: string;
   forceRelativeFileNo: string;
   forceRelativeFileYes: string;
   forceRelativeFilePrompt: string;

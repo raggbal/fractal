@@ -28,6 +28,8 @@ interface NotesInitData {
     fileChangeId?: number;
     /** FR-OS3-02: outliner toolbar の S3 sync ボタン初期表示判定 */
     s3BucketPathSet?: boolean;
+    /** FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示) */
+    noteFolderName?: string;
 }
 
 export function getNotesWebviewContent(
@@ -271,7 +273,8 @@ export function getNotesWebviewContent(
             ${JSON.stringify(initData.fileList)},
             ${JSON.stringify(initData.currentFilePath)},
             ${JSON.stringify(initData.structure || null)},
-            ${JSON.stringify(initData.panelWidth || null)}
+            ${JSON.stringify(initData.panelWidth || null)},
+            ${JSON.stringify(initData.noteFolderName || '')}
         );
 
         // ─── ADR-008: Notes 内 .md ファイル用のメインペイン dispatcher ───

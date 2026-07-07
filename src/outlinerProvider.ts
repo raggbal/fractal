@@ -333,6 +333,36 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    // FR-FR-01: file 添付ノードを OS ファイラ (Finder) で選択状態表示
+                    case 'revealAttachedFileInOS': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.filePath) break;
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                        if (!safeFilePath || !fs.existsSync(safeFilePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+                        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(safeFilePath));
+                        break;
+                    }
+
+                    // FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示
+                    case 'revealPageInOS': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.isPage || !node.pageId) break;
+                        const pageDir = this.getPagesDirPath(document);
+                        const pagePath = path.join(pageDir, `${node.pageId}.md`);
+                        if (!fs.existsSync(pagePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+                        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(pagePath));
+                        break;
+                    }
+
                     // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard へコピー
                     case 'copyAttachedFilePath': {
                         const data = JSON.parse(document.getText());

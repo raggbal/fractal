@@ -141,6 +141,13 @@
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
         },
+        // FR-FR-01/02: Finder (OS ファイラ) で選択状態表示
+        revealAttachedFileInOS: function(nodeId) {
+            api.postMessage({ type: 'revealAttachedFileInOS', nodeId: nodeId });
+        },
+        revealPageInOS: function(nodeId) {
+            api.postMessage({ type: 'revealPageInOS', nodeId: nodeId });
+        },
         handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
             api.postMessage({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
         },
