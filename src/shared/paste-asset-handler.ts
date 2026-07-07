@@ -115,7 +115,8 @@ function rewriteMdLinksInBody(
     destMdDir: string,
     closureNameMap: Map<string, string>,
 ): string {
-    let out = body;
+    // oldRef → newRef を確定してから whole-link-target 置換（部分文字列誤置換を防ぐ）
+    const renames = new Map<string, string>();
     for (const ref of extractAllAssetRefs(body).mdLinks) {
         const target = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(curDir, ref);
         let newRef: string | null = null;
@@ -127,10 +128,45 @@ function rewriteMdLinksInBody(
         } else {
             continue; // 解決不能 → 触らない
         }
-        if (newRef && newRef !== ref) {
-            out = out.replace(new RegExp(escapeRegExp(ref), 'g'), function() { return newRef!; });
-        }
+        if (newRef && newRef !== ref) renames.set(ref, newRef);
     }
+    return applyLinkUrlRewrites(body, renames);
+}
+
+/**
+ * markdown 本文中の各リンク/画像の **URL span のみ**を renames に従って差し替える。
+ * `parseMarkdownLinks` の {start,end,url} で url 位置を特定し、右→左で splice するので
+ * `note.md` の書換が `mynote.md` を巻き込む部分文字列誤置換が起きない（HIGH バグ修正）。
+ * renames のキーは「本文に現れる生の url 文字列」（extractAllAssetRefs / extract*Paths が返す値）。
+ */
+function applyLinkUrlRewrites(body: string, renames: Map<string, string>): string {
+    if (renames.size === 0) return body;
+    const links = parser.parseMarkdownLinks(body) as Array<{ url: string; start: number; end: number }>;
+    // url span を特定するため、各リンクトークン内で url 部分の絶対 index を求める。
+    // トークンは `...](url)`。url は closeParen 直前まで。token 文字列内の url の開始 = end-1-url.length。
+    type Edit = { at: number; len: number; repl: string };
+    const edits: Edit[] = [];
+    for (const lk of links) {
+        // parseMarkdownLinks の url は raw（trim/クエリ除去前）。extractAllAssetRefs 側は
+        // trim + <>除去 + ?# 分割後の値なので、raw url を同じ正規化して renames と突き合わせる。
+        const norm = (lk.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        const repl = renames.get(norm);
+        if (repl == null || repl === norm) continue;
+        // token 内の url 実体位置: token = body.slice(lk.start, lk.end)、url は `(` の次〜`)` の前。
+        const token = body.slice(lk.start, lk.end);
+        const urlIdxInToken = token.lastIndexOf(lk.url);
+        if (urlIdxInToken < 0) continue;
+        // norm と raw が違う（<> や ?# 付き）場合は raw 内の norm 位置に限定して置換
+        const rawUrl = lk.url;
+        const normIdxInRaw = rawUrl.indexOf(norm);
+        if (normIdxInRaw < 0) continue;
+        const at = lk.start + urlIdxInToken + normIdxInRaw;
+        edits.push({ at, len: norm.length, repl });
+    }
+    // 右→左で適用（index を保つ）
+    edits.sort((a, b) => b.at - a.at);
+    let out = body;
+    for (const e of edits) out = out.slice(0, e.at) + e.repl + out.slice(e.at + e.len);
     return out;
 }
 
@@ -146,13 +182,14 @@ function copyAssetsAndRewriteForMd(
     destFileDir: string,
     destMdAbs: string,
 ): string {
-    let out = body;
     const destMdDir = path.dirname(destMdAbs);
     const refs = extractAllAssetRefs(body);
     const isDrawio = (p: string): boolean => {
         const l = (p || '').toLowerCase();
         return l.endsWith('.drawio.svg') || l.endsWith('.drawio.png');
     };
+    // oldRef → newRef を確定してから whole-link-target 置換（部分文字列誤置換を防ぐ）
+    const renames = new Map<string, string>();
     // 画像（drawio 以外）→ destImageDir
     for (const ref of refs.images.filter(p => !isDrawio(p))) {
         const src = path.resolve(curDir, ref);
@@ -160,8 +197,7 @@ function copyAssetsAndRewriteForMd(
         const newName = `copy-${Date.now()}-${path.basename(ref)}`;
         const destAbs = path.join(destImageDir, newName);
         try { if (!fs.existsSync(destAbs)) fs.copyFileSync(src, destAbs); } catch { continue; }
-        const rel = path.relative(destMdDir, destAbs).replace(/\\/g, '/');
-        out = out.replace(new RegExp(escapeRegExp(ref), 'g'), function() { return rel; });
+        renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
     // drawio 画像 + 添付（📎）→ destFileDir
     const fileLikeRefs = [...refs.images.filter(isDrawio), ...refs.files];
@@ -176,10 +212,9 @@ function copyAssetsAndRewriteForMd(
             : generateUniqueFileNamePreserving(destFileDir, originalName);
         const destAbs = path.join(destFileDir, newName);
         try { if (!fs.existsSync(destAbs)) fs.copyFileSync(src, destAbs); } catch { continue; }
-        const rel = path.relative(destMdDir, destAbs).replace(/\\/g, '/');
-        out = out.replace(new RegExp(escapeRegExp(ref), 'g'), function() { return rel; });
+        renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
-    return out;
+    return applyLinkUrlRewrites(body, renames);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

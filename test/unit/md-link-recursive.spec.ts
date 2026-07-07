@@ -129,6 +129,26 @@ test('TC-ML-24 循環参照込みでも有限完了（A↔B）', () => {
     fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('TC-ML-25 部分文字列重複リンクを誤置換しない（note.md 改名で mynote.md 無傷）★HIGH 修正', () => {
+    const { root, src, dest } = setup();
+    // dest に note.md が既存 → src の note.md は改名（suffix）される。mynote.md はそれに巻き込まれてはいけない。
+    fs.writeFileSync(path.join(src, 'note.md'), '# src note');
+    fs.writeFileSync(path.join(src, 'mynote.md'), '# src mynote');
+    fs.writeFileSync(path.join(dest, 'note.md'), '# preexisting'); // note.md 衝突 → 改名を誘発
+    const { rewrittenMarkdown } = callPaste('[a](note.md) [b](mynote.md)', src, dest);
+    // note.md リンクは別名（note-1.md 等）に、mynote.md リンクは mynote.md のまま（無傷）で dest に解決
+    const mA = rewrittenMarkdown.match(/\[a\]\(([^)]+)\)/);
+    const mB = rewrittenMarkdown.match(/\[b\]\(([^)]+)\)/);
+    expect(mA![1]).not.toBe('note.md'); // 衝突で改名された
+    // ★load-bearing: mynote 側が mynote-1.md 等に化けていない（部分文字列誤置換なし）
+    expect(mB![1]).toBe('mynote.md');
+    // 両方 dest で解決する
+    expect(fs.existsSync(path.resolve(dest, mA![1]))).toBe(true);
+    expect(fs.existsSync(path.resolve(dest, mB![1]))).toBe(true);
+    expect(fs.readFileSync(path.resolve(dest, mB![1]), 'utf8')).toBe('# src mynote');
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('TC-ML-30 既存 1 階層 md-link 複製が従来どおり（リンク先 md 複製 + 書換）', () => {
     const { root, src, dest } = setup();
     fs.writeFileSync(path.join(src, 'leaf.md'), '# leaf (no further links)');
