@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as flatLayout from './flat-layout';
 
 export interface NotesFileEntry {
     filePath: string;
@@ -105,18 +106,19 @@ export class NotesFileManager {
     getMainFolderPath(): string { return this.mainFolderPath; }
 
     // ── v0.207.76: Markdown 仮想フォルダのパス解決 ──
+    // notes-flat-storage (2026-07-07): md=mainFolder 直下 / images・files=共有。
+    // legacy _notes_md/ は flat-layout の fallback で読む（新 wins）。
     getMdRootDirPath(): string {
-        return path.join(this.mainFolderPath, NotesFileManager.MD_VIRTUAL_DIR);
+        return flatLayout.resolveMdRootDir(this.mainFolderPath);
     }
     getMdImagesDirPath(): string {
-        return path.join(this.getMdRootDirPath(), NotesFileManager.MD_IMAGES_SUBDIR);
+        return flatLayout.resolveMdImagesDir(this.mainFolderPath);
     }
     getMdFilesDirPath(): string {
-        return path.join(this.getMdRootDirPath(), NotesFileManager.MD_FILES_SUBDIR);
+        return flatLayout.resolveMdFilesDir(this.mainFolderPath);
     }
     getMdFilePath(id: string): string {
-        // v0.207.82: フラット化 — _notes_md/<id>.md
-        return path.join(this.getMdRootDirPath(), `${id}.md`);
+        return flatLayout.resolveMdFilePath(this.mainFolderPath, id);
     }
     private ensureMdDirs(): void {
         try {
@@ -301,18 +303,12 @@ export class NotesFileManager {
                 diskOutFiles.set(id, title);
             }
         }
-        // v0.207.82: .md は _notes_md/ 直下をスキャン (フラット化)
+        // notes-flat-storage (2026-07-07): .md は mainFolder 直下 + legacy _notes_md/ の両方をスキャン。
+        // diskMdIds は ext==='md' の登録済み item id でのみ照会されるため、
+        // page md (<pageId>.md) が混ざっても無害（id は一意）。
         try {
-            const mdRoot = this.getMdRootDirPath();
-            if (fs.existsSync(mdRoot)) {
-                for (const entry of fs.readdirSync(mdRoot)) {
-                    if (!entry.endsWith('.md')) continue;
-                    const filePath = path.join(mdRoot, entry);
-                    try {
-                        if (!fs.statSync(filePath).isFile()) continue;
-                    } catch { continue; }
-                    diskMdIds.add(entry.replace(/\.md$/, ''));
-                }
+            for (const id of flatLayout.listNotesMdIds(this.mainFolderPath)) {
+                diskMdIds.add(id);
             }
         } catch { /* ignore */ }
 
@@ -836,73 +832,59 @@ export class NotesFileManager {
     /**
      * pageDir解決: JSON内のpageDirフィールドを優先、なければデフォルト ./pages
      */
-    getPagesDirPath(outJsonData?: Record<string, unknown>): string {
-        if (outJsonData && outJsonData.pageDir) {
-            const pd = outJsonData.pageDir as string;
-            if (path.isAbsolute(pd)) return pd;
-            if (this.currentFilePath) {
-                return path.resolve(path.dirname(this.currentFilePath), pd);
-            }
+    /**
+     * .out JSON ヒント（pageDir/imageDir/fileDir）を outJsonData or currentFilePath から取り出す
+     */
+    private readOutHints(outJsonData?: Record<string, unknown>): flatLayout.OutDirHints {
+        if (outJsonData) {
+            return {
+                pageDir: outJsonData.pageDir as string | undefined,
+                imageDir: outJsonData.imageDir as string | undefined,
+                fileDir: outJsonData.fileDir as string | undefined,
+            };
         }
-
         if (this.currentFilePath) {
             try {
-                const content = fs.readFileSync(this.currentFilePath, 'utf8');
-                const data = JSON.parse(content);
-                if (data.pageDir) {
-                    if (path.isAbsolute(data.pageDir)) return data.pageDir;
-                    return path.resolve(path.dirname(this.currentFilePath), data.pageDir);
-                }
-            } catch {
-                // fallthrough
-            }
-            // Notes mode default: ./<basename> (Notes-created files have pageDir
-            // explicit via createFile; legacy / dailynotes.out without pageDir
-            // 用 fallback も <basename> で self-contained 構造を実現)
-            const outlinerId = path.basename(this.currentFilePath, '.out');
-            return path.resolve(path.dirname(this.currentFilePath), outlinerId);
+                const data = JSON.parse(fs.readFileSync(this.currentFilePath, 'utf8'));
+                return { pageDir: data.pageDir, imageDir: data.imageDir, fileDir: data.fileDir };
+            } catch { /* fallthrough */ }
         }
+        return {};
+    }
 
-        return path.join(this.mainFolderPath, 'pages');
+    // notes-flat-storage (2026-07-07): .out ページ/画像/添付のパスは flat-layout に一元化。
+    // md=basedir 直下、images/files=共有サブフォルダ。currentFilePath があれば outFile 基準。
+    getPagesDirPath(outJsonData?: Record<string, unknown>): string {
+        return flatLayout.resolvePagesDir(this.currentFilePath ?? null, this.mainFolderPath, this.readOutHints(outJsonData));
     }
 
     /**
      * ページファイルのフルパスを返す
      */
     getPageFilePath(pageId: string, outJsonData?: Record<string, unknown>): string {
-        return path.join(this.getPagesDirPath(outJsonData), `${pageId}.md`);
+        return flatLayout.resolvePageFilePath(this.currentFilePath ?? null, pageId, this.mainFolderPath, this.readOutHints(outJsonData));
     }
 
     /**
-     * fileDir解決: JSON内のfileDirフィールドを優先、なければデフォルト ./files
+     * fileDir解決: 共有 files/ (flat-layout)
      */
     getFileDirPath(outJsonData?: Record<string, unknown>): string {
-        if (outJsonData && outJsonData.fileDir) {
-            const fd = outJsonData.fileDir as string;
-            if (path.isAbsolute(fd)) return fd;
-            if (this.currentFilePath) {
-                return path.resolve(path.dirname(this.currentFilePath), fd);
-            }
-        }
+        return flatLayout.resolveFilesDir(this.currentFilePath ?? null, this.mainFolderPath, this.readOutHints(outJsonData));
+    }
 
-        if (this.currentFilePath) {
-            try {
-                const content = fs.readFileSync(this.currentFilePath, 'utf8');
-                const data = JSON.parse(content);
-                if (data.fileDir) {
-                    if (path.isAbsolute(data.fileDir)) return data.fileDir;
-                    return path.resolve(path.dirname(this.currentFilePath), data.fileDir);
-                }
-            } catch {
-                // fallthrough
-            }
-            // Notes mode default: {mainFolderPath}/{outlinerId}/files
-            // Same pattern as importFilesDialog in notesEditorProvider.ts
-            const outlinerId = path.basename(this.currentFilePath, '.out');
-            return path.join(this.mainFolderPath, outlinerId, 'files');
-        }
+    /**
+     * ★HIGH-1: .out 画像 dir の共有 builder（Notes provider のインライン導出を集約）。
+     * 共有 <basedir>/images。currentFilePath があれば outFile 基準。
+     */
+    getOutlinerImageDirPath(outJsonData?: Record<string, unknown>): string {
+        return flatLayout.resolveImagesDir(this.currentFilePath ?? null, this.mainFolderPath, this.readOutHints(outJsonData));
+    }
 
-        return path.join(this.mainFolderPath, 'files');
+    /**
+     * ★HIGH-1: .out 添付 dir の共有 builder（getFileDirPath の別名。明示的に対称化）。
+     */
+    getOutlinerFileDirPath(outJsonData?: Record<string, unknown>): string {
+        return flatLayout.resolveFilesDir(this.currentFilePath ?? null, this.mainFolderPath, this.readOutHints(outJsonData));
     }
 
     /**
@@ -920,13 +902,15 @@ export class NotesFileManager {
     createFile(title: string, parentId?: string | null, afterId?: string | null): string {
         const id = NotesFileManager.generateOutlineId();
         const filePath = path.join(this.mainFolderPath, `${id}.out`);
-        const pageDir = `./${id}`;
-        const pageDirAbs = path.join(this.mainFolderPath, id);
 
         const firstNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        // notes-flat-storage (2026-07-07): 新規 .out は flat 規約。
+        // md=basedir(=mainFolder) 直下、images/files=共有。per-<id>/ フォルダは作らない。
         const data = {
             title: title || 'Untitled',
-            pageDir: pageDir,
+            pageDir: flatLayout.FLAT_OUT_HINTS.pageDir,
+            imageDir: flatLayout.FLAT_OUT_HINTS.imageDir,
+            fileDir: flatLayout.FLAT_OUT_HINTS.fileDir,
             rootIds: [firstNodeId],
             nodes: {
                 [firstNodeId]: {
@@ -939,7 +923,7 @@ export class NotesFileManager {
         };
 
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-        fs.mkdirSync(pageDirAbs, { recursive: true });
+        // 共有 dir はページ/画像追加時に必要に応じて作成される（ここでは per-<id>/ を作らない）。
 
         // .note 構造に追加
         const structure = this.getStructure();
@@ -987,11 +971,40 @@ export class NotesFileManager {
 
         // コピー対象 (src 絶対パス → dst 絶対パス) を収集
         const copies: Array<{ src: string; dst: string; recursive: boolean }> = [];
+        // notes-flat-storage (2026-07-07): flat .out は per-id フォルダを持たない。
+        // page md は Note 直下、images/files は共有。フラットかどうかを .out の pageDir で判定。
+        let outIsFlat = false;
+        const srcOutPath = path.join(this.mainFolderPath, `${itemId}.out`);
         if (ext === 'out') {
-            copies.push({ src: path.join(this.mainFolderPath, `${itemId}.out`), dst: path.join(dstFolderPath, `${newId}.out`), recursive: false });
+            copies.push({ src: srcOutPath, dst: path.join(dstFolderPath, `${newId}.out`), recursive: false });
             const srcPageDir = path.join(this.mainFolderPath, itemId);
             if (fs.existsSync(srcPageDir)) {
+                // legacy per-id フォルダ: 丸ごと移動
                 copies.push({ src: srcPageDir, dst: path.join(dstFolderPath, newId), recursive: true });
+            } else {
+                // flat: page md（Note 直下）+ 本文参照 images/files（共有）を個別収集
+                outIsFlat = true;
+                try {
+                    const outData = JSON.parse(fs.readFileSync(srcOutPath, 'utf8'));
+                    const nodes = (outData.nodes || {}) as Record<string, { isPage?: boolean; pageId?: string }>;
+                    for (const n of Object.values(nodes)) {
+                        if (!n.isPage || !n.pageId) { continue; }
+                        const srcMd = path.join(this.mainFolderPath, `${n.pageId}.md`);
+                        if (!fs.existsSync(srcMd)) { continue; }
+                        copies.push({ src: srcMd, dst: path.join(dstFolderPath, `${n.pageId}.md`), recursive: false });
+                        // page md 本文が参照する共有 images/files を移す
+                        const body = fs.readFileSync(srcMd, 'utf8');
+                        for (const sub of ['images', 'files']) {
+                            const srcSub = path.join(this.mainFolderPath, sub);
+                            if (!fs.existsSync(srcSub)) { continue; }
+                            for (const fname of fs.readdirSync(srcSub)) {
+                                if (body.includes(fname)) {
+                                    copies.push({ src: path.join(srcSub, fname), dst: path.join(dstFolderPath, sub, fname), recursive: false });
+                                }
+                            }
+                        }
+                    }
+                } catch { /* .out 読めなければ本体だけ移動 */ }
             }
         } else {
             copies.push({ src: this.getMdFilePath(itemId), dst: dstFm.getMdFilePath(newId), recursive: false });
@@ -1034,12 +1047,18 @@ export class NotesFileManager {
         const movedItem: NoteTreeFile = { type: 'file', id: newId, title: item.title, ...(item.color ? { color: item.color } : {}), ...(ext === 'md' ? { ext: 'md' } : {}) };
         dstStructure.items[newId] = movedItem;
         dstStructure.rootIds.unshift(newId);
-        // .out の pageDir を新 id 基準に書き換え (相対 './<id>')
+        // .out の pageDir を書き換え。flat は "."（Note 直下）、legacy per-id は './<newId>'。
         if (ext === 'out') {
             try {
                 const dstOut = path.join(dstFolderPath, `${newId}.out`);
                 const data = JSON.parse(fs.readFileSync(dstOut, 'utf8'));
-                data.pageDir = `./${newId}`;
+                if (outIsFlat) {
+                    data.pageDir = flatLayout.FLAT_OUT_HINTS.pageDir;
+                    data.imageDir = flatLayout.FLAT_OUT_HINTS.imageDir;
+                    data.fileDir = flatLayout.FLAT_OUT_HINTS.fileDir;
+                } else {
+                    data.pageDir = `./${newId}`;
+                }
                 fs.writeFileSync(dstOut, JSON.stringify(data, null, 2), 'utf8');
             } catch { /* pageDir 書換失敗は致命的でない */ }
         }
@@ -1051,7 +1070,18 @@ export class NotesFileManager {
                 const srcOut = path.join(this.mainFolderPath, `${itemId}.out`);
                 if (fs.existsSync(srcOut)) { fs.rmSync(srcOut, { force: true }); }
                 const srcPageDir = path.join(this.mainFolderPath, itemId);
-                if (fs.existsSync(srcPageDir)) { fs.rmSync(srcPageDir, { recursive: true, force: true }); }
+                if (fs.existsSync(srcPageDir)) {
+                    // legacy per-id フォルダ: 丸ごと削除
+                    fs.rmSync(srcPageDir, { recursive: true, force: true });
+                } else if (outIsFlat) {
+                    // flat: 収集した page md + 参照 assets（copies の src）を個別削除。
+                    // .out 本体（srcOut）は既に削除済みなのでスキップ。
+                    for (const c of copies) {
+                        if (c.src !== srcOut && fs.existsSync(c.src)) {
+                            fs.rmSync(c.src, { recursive: c.recursive, force: true });
+                        }
+                    }
+                }
             } else {
                 const srcMd = this.getMdFilePath(itemId);
                 if (fs.existsSync(srcMd)) { fs.rmSync(srcMd, { force: true }); }
@@ -1162,7 +1192,30 @@ export class NotesFileManager {
             const vscode = require('vscode');
             const isMd = filePath.endsWith('.md');
             const id = path.basename(filePath, isMd ? '.md' : '.out');
-            const pageDirAbs = isMd ? null : path.join(this.mainFolderPath, id);
+            // notes-flat-storage (2026-07-07): flat .out（pageDir=".")は per-<id>/ フォルダを持たない。
+            // page md はこの .out のノード pageId ごとに basedir 直下 <pageId>.md として存在する。
+            // 削除対象の page md 一覧を、.out を消す前に集める。
+            let flatPageMdPaths: string[] = [];
+            const legacyPageDirAbs = isMd ? null : path.join(this.mainFolderPath, id);
+            if (!isMd) {
+                try {
+                    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                    const pageDir = data.pageDir;
+                    // flat（pageDir="." or basedir 直下解決）なら page md を個別収集。
+                    // 旧 per-<id>/（pageDir="./<id>"）はフォルダごと削除するので個別収集不要。
+                    const isLegacyPerId = typeof pageDir === 'string' && pageDir.replace(/^\.\//, '') === id;
+                    if (!isLegacyPerId) {
+                        const pagesDir = this.getPagesDirPath(data);
+                        const nodes = (data.nodes || {}) as Record<string, { isPage?: boolean; pageId?: string }>;
+                        for (const n of Object.values(nodes)) {
+                            if (n.isPage && n.pageId) {
+                                const mp = path.join(pagesDir, `${n.pageId}.md`);
+                                if (fs.existsSync(mp)) flatPageMdPaths.push(mp);
+                            }
+                        }
+                    }
+                } catch { /* ignore parse errors — .out 本体だけ消す */ }
+            }
 
             if (fs.existsSync(filePath)) {
                 await vscode.workspace.fs.delete(
@@ -1170,12 +1223,18 @@ export class NotesFileManager {
                     { useTrash: true, recursive: false }
                 );
             }
-            // .out のみ pageDir を削除する (.md は _notes_md/{images,files} を共有するため残す)
-            if (!isMd && pageDirAbs && fs.existsSync(pageDirAbs)) {
+            // 旧 per-<id>/ レイアウトのみ pageDir フォルダごと削除（存在すれば）。
+            // flat .out は mainFolder 共有なのでフォルダを消さず、page md を個別に削除する。
+            if (!isMd && legacyPageDirAbs && fs.existsSync(legacyPageDirAbs)) {
                 await vscode.workspace.fs.delete(
-                    vscode.Uri.file(pageDirAbs),
+                    vscode.Uri.file(legacyPageDirAbs),
                     { useTrash: true, recursive: true }
                 );
+            }
+            for (const mp of flatPageMdPaths) {
+                try {
+                    await vscode.workspace.fs.delete(vscode.Uri.file(mp), { useTrash: true, recursive: false });
+                } catch { /* best-effort: cleanup が孤児として拾う */ }
             }
 
             if (this.currentFilePath === filePath) {

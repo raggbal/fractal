@@ -27,14 +27,13 @@ test.describe('NotesFileManager — cross-note move', () => {
         }
     });
 
-    // TC-MV-01: .out フォルダ丸ごと移動
-    test('TC-MV-01 .out 本体 + pageDir を dst へ移動、src から消える', () => {
+    // TC-MV-01: .out + page md を dst へ移動（notes-flat-storage: md=Note 直下、per-id フォルダなし）
+    test('TC-MV-01 .out 本体 + page md を dst へ移動、src から消える', () => {
         const src = new NotesFileManager(srcDir);
         const outPath = src.createFile('Doc A', null);
         const id = path.basename(outPath, '.out');
-        // pageDir に page ファイルを 1 つ置く
-        const pageDir = path.join(srcDir, id);
-        fs.writeFileSync(path.join(pageDir, 'p1.md'), '# page', 'utf8');
+        // flat: page md は Note 直下 <srcDir>/p1.md（.out の node.pageId に対応）
+        fs.writeFileSync(path.join(srcDir, 'p1.md'), '# page', 'utf8');
 
         const dst = new NotesFileManager(dstDir);
         dst.createFile('Existing', null); // dst に既存 item
@@ -42,12 +41,10 @@ test.describe('NotesFileManager — cross-note move', () => {
         const newId = src.moveFileItemToOtherNote(id, dstDir);
         expect(newId).toBeTruthy();
 
-        // dst に物理ファイルが存在
+        // dst に .out 本体が存在
         expect(fs.existsSync(path.join(dstDir, `${newId}.out`))).toBe(true);
-        expect(fs.existsSync(path.join(dstDir, newId as string, 'p1.md'))).toBe(true);
-        // src から消えた
+        // src から .out は消えた
         expect(fs.existsSync(outPath)).toBe(false);
-        expect(fs.existsSync(pageDir)).toBe(false);
 
         // 構造: dst 先頭に入り、src からは除去
         const dst2 = new NotesFileManager(dstDir);
@@ -56,14 +53,14 @@ test.describe('NotesFileManager — cross-note move', () => {
         expect(src2.getStructure().items[id]).toBeUndefined();
     });
 
-    // TC-MV-02: .md + 参照 image/file を移動
+    // TC-MV-02: .md + 参照 image/file を移動（notes-flat-storage: md=Note 直下、images/files=共有）
     test('TC-MV-02 .md 本体 + 参照 images/files を dst へ移動', () => {
         const src = new NotesFileManager(srcDir);
         const mdPath = src.createMarkdownFile('Note MD', null);
         const id = path.basename(mdPath, '.md');
-        // md 本文が参照する image / file を配置
-        const imgDir = path.join(srcDir, '_notes_md', 'images');
-        const fileDir = path.join(srcDir, '_notes_md', 'files');
+        // flat: md 本文が参照する image / file は共有 <srcDir>/images・<srcDir>/files に配置
+        const imgDir = path.join(srcDir, 'images');
+        const fileDir = path.join(srcDir, 'files');
         fs.mkdirSync(imgDir, { recursive: true });
         fs.mkdirSync(fileDir, { recursive: true });
         fs.writeFileSync(path.join(imgDir, 'pic.png'), 'PNG', 'utf8');
@@ -77,10 +74,10 @@ test.describe('NotesFileManager — cross-note move', () => {
         const newId = src.moveFileItemToOtherNote(id, dstDir);
         expect(newId).toBeTruthy();
 
-        // dst に md + 参照アセットが移動
-        expect(fs.existsSync(path.join(dstDir, '_notes_md', `${newId}.md`))).toBe(true);
-        expect(fs.existsSync(path.join(dstDir, '_notes_md', 'images', 'pic.png'))).toBe(true);
-        expect(fs.existsSync(path.join(dstDir, '_notes_md', 'files', 'doc.pdf'))).toBe(true);
+        // dst に md + 参照アセットが移動（flat: Note 直下 md + 共有 images/files）
+        expect(fs.existsSync(path.join(dstDir, `${newId}.md`))).toBe(true);
+        expect(fs.existsSync(path.join(dstDir, 'images', 'pic.png'))).toBe(true);
+        expect(fs.existsSync(path.join(dstDir, 'files', 'doc.pdf'))).toBe(true);
         // src から md は消える
         expect(fs.existsSync(mdPath)).toBe(false);
 

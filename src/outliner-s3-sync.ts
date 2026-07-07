@@ -9,12 +9,14 @@
  * バグが発生した。現在は per-file mtime 比較 + `aws s3 cp` で本物の newer-wins を実装。
  */
 import * as path from 'path';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import {
     AwsCredentials,
     FileInfo,
     TargetTextDocPaths,
     computeTargetTextDocPaths,
+    computeSyncFolderPaths,
     isTargetTextDoc,
     decideSyncDirection,
     parseBucketPath,
@@ -34,6 +36,7 @@ export {
     TargetTextDocPaths,
     computeTargetPaths,
     computeTargetTextDocPaths,
+    computeSyncFolderPaths,
     normalizeBucketUri,
     normalizeLocalUri,
     isTargetTextDoc,
@@ -95,9 +98,16 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
     const targetTextDocPaths = computeTargetTextDocPaths(opts.outlinerId, opts.localDir);
     const { bucket, prefix } = parseBucketPath(opts.bucketPath);
     const s3OutKey = `${prefix}${opts.outlinerId}.out`;
-    const s3FolderPrefix = `${prefix}${opts.outlinerId}/`;
     const localOutFile = path.join(opts.localDir, `${opts.outlinerId}.out`);
-    const localFolderPath = path.join(opts.localDir, opts.outlinerId);
+    // notes-flat-storage (2026-07-07): .out の pageDir="." なら flat レイアウト。
+    // flat は共有 root（<localDir>）を、legacy は per-<id>/ フォルダを sync する。
+    let isFlat = false;
+    try {
+        const outData = JSON.parse(fs.readFileSync(localOutFile, 'utf8'));
+        const pd = typeof outData.pageDir === 'string' ? outData.pageDir.replace(/^\.\//, '').replace(/\/$/, '') : undefined;
+        isFlat = pd === '' || pd === '.';
+    } catch { /* 読めなければ legacy 扱い */ }
+    const { s3FolderPrefix, localFolderPath } = computeSyncFolderPaths(opts.outlinerId, opts.localDir, prefix, isFlat);
 
     // Phase 1: webview lock
     opts.onProgress({ phase: 'locking', message: 'Locking editor…' });

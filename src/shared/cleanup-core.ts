@@ -108,11 +108,16 @@ function addNotesMdToLiveSet(mainFolderPath: string, liveMd: Set<string>): void 
     const items = structure?.items;
     if (!items || typeof items !== 'object') return;
 
-    const mdRoot = path.join(mainFolderPath, '_notes_md');
+    // notes-flat-storage (2026-07-07) + MEDIUM-1: md=mainFolder 直下（新）と _notes_md/（legacy）の
+    // 両方を live に足す（安全側）。cleanup の false-negative（生存 md を live から漏らす）は
+    // trash=データロスなので致命。false-positive（orphan 過小検出）は無害。移行途中・S3 で
+    // 新旧混在した Note でも生存 md を落とさないよう、両方の候補パスを live に加える。
+    const legacyMdRoot = path.join(mainFolderPath, '_notes_md');
     for (const id of Object.keys(items)) {
         const item = items[id];
         if (!item || item.type !== 'file' || item.ext !== 'md') continue;
-        liveMd.add(path.join(mdRoot, `${id}.md`));
+        liveMd.add(path.join(mainFolderPath, `${id}.md`));      // 新: basedir 直下
+        liveMd.add(path.join(legacyMdRoot, `${id}.md`));         // legacy: _notes_md/
     }
 }
 

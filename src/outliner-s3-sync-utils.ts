@@ -30,7 +30,10 @@ export interface TargetPaths {
 
 export interface TargetTextDocPaths {
     outFilePath: string;
-    pagesDir: string;            // <localDir>/<id>/pages/ (末尾 sep 強制)
+    pagesDir: string;            // legacy: <localDir>/<id>/pages/ (末尾 sep 強制)
+    // notes-flat-storage (2026-07-07): flat レイアウトでは md=<localDir>/ 直下。
+    // dirty flush 判定が新レイアウトの page md を取りこぼさないよう root dir も保持する。
+    flatMdDir: string;           // <localDir>/ (末尾 sep 強制)
 }
 
 /**
@@ -48,7 +51,27 @@ export function computeTargetPaths(outlinerId: string, localDir: string): Target
 export function computeTargetTextDocPaths(outlinerId: string, localDir: string): TargetTextDocPaths {
     const outFilePath = path.join(localDir, `${outlinerId}.out`);
     const pagesDir = path.join(localDir, outlinerId, 'pages') + path.sep;
-    return { outFilePath, pagesDir };
+    const flatMdDir = (localDir.endsWith(path.sep) ? localDir : localDir + path.sep);
+    return { outFilePath, pagesDir, flatMdDir };
+}
+
+/**
+ * notes-flat-storage (2026-07-07): toolbar sync のフォルダ範囲を決める。
+ * - legacy（per-<id>/）: S3 `<prefix><id>/` ↔ local `<localDir>/<id>`
+ * - flat（pageDir="."）: 共有レイアウトのため S3 `<prefix>` ↔ local `<localDir>`（root 全体）
+ *   → md=root 直下 <pageId>.md + 共有 images/ files/ が sync 対象になる。
+ *     .out 本体は s3OutKey で別途扱う。共有 dir を全 .out で共有するため他 .out の資産も含む（設計 §4 で許容）。
+ */
+export function computeSyncFolderPaths(
+    outlinerId: string, localDir: string, s3Prefix: string, isFlat: boolean
+): { s3FolderPrefix: string; localFolderPath: string } {
+    if (isFlat) {
+        return { s3FolderPrefix: s3Prefix, localFolderPath: localDir };
+    }
+    return {
+        s3FolderPrefix: `${s3Prefix}${outlinerId}/`,
+        localFolderPath: path.join(localDir, outlinerId),
+    };
 }
 
 /**
@@ -76,7 +99,13 @@ export function normalizeLocalUri(localDir: string, outlinerId: string): { folde
  */
 export function isTargetTextDoc(filePath: string, targets: TargetTextDocPaths): boolean {
     if (filePath === targets.outFilePath) return true;
-    if (filePath.startsWith(targets.pagesDir) && filePath.endsWith('.md')) return true;
+    if (filePath.startsWith(targets.pagesDir) && filePath.endsWith('.md')) return true; // legacy <id>/pages/
+    // notes-flat-storage (2026-07-07): flat md=<localDir>/ 直下。<localDir>/<pageId>.md を flush 対象に。
+    // ただし .out / .note / サブディレクトリの md は除外（root 直下の *.md のみ）。
+    if (targets.flatMdDir && filePath.endsWith('.md') && filePath.startsWith(targets.flatMdDir)) {
+        const rest = filePath.slice(targets.flatMdDir.length);
+        if (!rest.includes(path.sep)) return true; // root 直下（サブディレクトリを含まない）
+    }
     return false;
 }
 

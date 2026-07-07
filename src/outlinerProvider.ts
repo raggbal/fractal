@@ -10,6 +10,7 @@ import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHa
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
 import { safeResolveUnderDir } from './shared/path-safety';
+import * as flatLayout from './shared/flat-layout';
 import { handleExportMindmap } from './shared/mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
@@ -61,13 +62,16 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         const documentDir = vscode.Uri.joinPath(document.uri, '..');
         const outlinerImageDir = vscode.Uri.file(this.getOutlinerImageDirPath(document));
+        // notes-flat-storage (2026-07-07): 共有 files/ も明示（画像 dir は documentDir 配下だが念のため）。
+        const outlinerFileDir = vscode.Uri.file(this.getFileDirPath(document));
 
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, 'media'),
                 documentDir,
-                outlinerImageDir
+                outlinerImageDir,
+                outlinerFileDir
             ]
         };
 
@@ -1320,87 +1324,30 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
     // --- ページ管理 ---
 
-    private getOutlinerImageDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のimageDirフィールドを優先
+    // notes-flat-storage (2026-07-07): .out ページ/画像/添付のパスは flat-layout に一元化。
+    // md=basedir(=.out と同階層) 直下、images/files=共有サブフォルダ。
+    // .out JSON の pageDir/imageDir/fileDir ヒントを優先、新 wins + legacy fallback。
+    private readOutHints(document: vscode.TextDocument): flatLayout.OutDirHints {
         try {
             const data = JSON.parse(document.getText());
-            if (data.imageDir) {
-                if (path.isAbsolute(data.imageDir)) {
-                    return data.imageDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.imageDir);
-            }
-        } catch { /* ignore parse errors */ }
+            return { pageDir: data.pageDir, imageDir: data.imageDir, fileDir: data.fileDir };
+        } catch { return {}; }
+    }
 
-        // 2. デフォルト: ./<basename>/images (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerImageDefaultDir` を撤廃。
-        //    per-.out-file 上書きは data.imageDir で対応 (priority 1)。
-        //    互換性: 既存の ./images が物理的に存在し、新 ./<basename>/images が存在しない場合は
-        //    旧パスを使い続ける (旧ファイル参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename, 'images');
-        const legacyDir = path.resolve(outDir, 'images');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+    private getOutlinerImageDirPath(document: vscode.TextDocument): string {
+        return flatLayout.resolveImagesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getPagesDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のpageDirフィールドを優先
-        try {
-            const data = JSON.parse(document.getText());
-            if (data.pageDir) {
-                if (path.isAbsolute(data.pageDir)) {
-                    return data.pageDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.pageDir);
-            }
-        } catch { /* ignore parse errors */ }
-
-        // 2. デフォルト: ./<basename>/ (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerPageDir` を撤廃。
-        //    互換性: 既存の ./pages が物理的に存在し、新 ./<basename>/ が存在しない場合は
-        //    旧パスを使い続ける (旧 page MD 参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename);
-        const legacyDir = path.resolve(outDir, 'pages');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+        return flatLayout.resolvePagesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getFileDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のfileDirフィールドを優先
-        try {
-            const data = JSON.parse(document.getText());
-            if (data.fileDir) {
-                if (path.isAbsolute(data.fileDir)) {
-                    return data.fileDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.fileDir);
-            }
-        } catch { /* ignore parse errors */ }
-
-        // 2. デフォルト: ./<basename>/files (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerFileDir` を撤廃。
-        //    互換性: 既存の ./files が物理的に存在し、新 ./<basename>/files が存在しない場合は
-        //    旧パスを使い続ける (旧ファイル参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename, 'files');
-        const legacyDir = path.resolve(outDir, 'files');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+        return flatLayout.resolveFilesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getPageFilePath(document: vscode.TextDocument, pageId: string): string {
-        return path.join(this.getPagesDirPath(document), `${pageId}.md`);
+        return flatLayout.resolvePageFilePath(document.uri.fsPath, pageId, undefined, this.readOutHints(document));
     }
 
     private async ensurePagesDir(document: vscode.TextDocument): Promise<void> {

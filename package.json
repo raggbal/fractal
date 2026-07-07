@@ -84,6 +84,11 @@
         "category": "Fractal"
       },
       {
+        "command": "fractal.migrateToFlatLayout",
+        "title": "Migrate to Flat Layout",
+        "category": "Fractal"
+      },
+      {
         "command": "fractal.exportToPdf",
         "title": "Export to PDF",
         "category": "Fractal"
@@ -381,6 +386,11 @@
           "command": "fractal.removeNotesFolder",
           "when": "view == notesExplorer",
           "group": "inline"
+        },
+        {
+          "command": "fractal.migrateToFlatLayout",
+          "when": "view == notesExplorer && viewItem == notesFolder",
+          "group": "1_modification"
         }
       ]
     },

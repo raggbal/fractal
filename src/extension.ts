@@ -247,6 +247,58 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // notes-flat-storage (2026-07-07): 旧レイアウト（<outId>/ / _notes_md/）を
+    // 共有フラット（md=Note 直下、images/files=共有）へ移行する手動コマンド。
+    // dry-run 提示 → 承認 → validate → execute（アトミック / 失敗時ロールバック）。
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.migrateToFlatLayout', async (item?: { folderPath?: string }) => {
+            const flatMigrate = await import('./shared/flat-migrate');
+            // 対象 Note フォルダを決定（ツリー item.folderPath > 登録フォルダから選択）
+            let target = item && item.folderPath;
+            if (!target) {
+                const folders = notesFolderProvider.getFolders();
+                if (folders.length === 0) {
+                    vscode.window.showInformationMessage('No notes folders registered.');
+                    return;
+                }
+                const pick = await vscode.window.showQuickPick(
+                    folders.map(f => ({ label: path.basename(f), description: f, folderPath: f })),
+                    { title: 'Migrate to flat layout: select a notes folder' }
+                );
+                if (!pick) return;
+                target = pick.folderPath;
+            }
+            try {
+                const plan = flatMigrate.planMigration(target);
+                const s = flatMigrate.summarizePlan(plan);
+                if (s.total === 0) {
+                    vscode.window.showInformationMessage('Already flat — nothing to migrate.');
+                    return;
+                }
+                const proceed = await vscode.window.showWarningMessage(
+                    `Migrate to flat layout?\n\nPages: ${s.pages}, Images: ${s.images}, Files: ${s.files} (total ${s.total})` +
+                    (s.conflicts > 0 ? `\n⚠️ ${s.conflicts} name collision(s) — will abort validation.` : ''),
+                    { modal: true },
+                    'Migrate'
+                );
+                if (proceed !== 'Migrate') return;
+                const v = flatMigrate.validatePlan(plan);
+                if (!v.ok) {
+                    vscode.window.showErrorMessage(`Migration aborted (no files moved):\n${v.reasons.slice(0, 5).join('\n')}`);
+                    return;
+                }
+                const res = flatMigrate.executePlan(plan);
+                if (res.rolledBack) {
+                    vscode.window.showErrorMessage(`Migration failed and was rolled back (old layout restored): ${res.error ?? ''}`);
+                } else {
+                    vscode.window.showInformationMessage(`Migrated ${res.executedMoves} item(s) to flat layout. Reopen the note to see changes.`);
+                }
+            } catch (e) {
+                vscode.window.showErrorMessage(`Migration error: ${String((e as Error).message || e)}`);
+            }
+        })
+    );
+
     // In-app link navigation command
     context.subscriptions.push(
         vscode.commands.registerCommand('fractal.navigateInAppLink', async (linkUrl: string) => {

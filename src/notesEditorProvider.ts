@@ -353,9 +353,9 @@ export class NotesEditorProvider {
                 const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
                 const pagesDir = fileManager.getPagesDirPath();
                 return {
-                    fileDir: path.join(folderPath, outlinerId, 'files'),
+                    fileDir: fileManager.getOutlinerFileDirPath(),
                     pageDir: pagesDir,
-                    imageDir: path.join(pagesDir, 'images'),
+                    imageDir: fileManager.getOutlinerImageDirPath(),
                     outDir: currentOutFilePath ? path.dirname(currentOutFilePath) : fileManager.getMainFolderPath()
                 };
             },
@@ -373,7 +373,7 @@ export class NotesEditorProvider {
                 const currentOutFilePath = fileManager.getCurrentFilePath();
                 const outlinerId = currentOutFilePath ? path.basename(currentOutFilePath, '.out') : '';
                 return {
-                    fileDir: path.join(folderPath, outlinerId, 'files'),
+                    fileDir: fileManager.getOutlinerFileDirPath(),
                     outDir: currentOutFilePath ? path.dirname(currentOutFilePath) : fileManager.getMainFolderPath()
                 };
             },
@@ -461,7 +461,7 @@ export class NotesEditorProvider {
             },
             requestInsertImage: async (sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = path.join(pagesDir, 'images');
+                const imagesDir = fileManager.getOutlinerImageDirPath();
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const options: vscode.OpenDialogOptions = {
                     canSelectMany: false,
@@ -521,7 +521,7 @@ export class NotesEditorProvider {
             },
             saveOutlinerImage: (nodeId: string, dataUrl: string, fileName: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = path.join(pagesDir, 'images');
+                const imagesDir = fileManager.getOutlinerImageDirPath();
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const parsed = parseDataUrl(dataUrl);
                 if (!parsed) return;
@@ -555,7 +555,7 @@ export class NotesEditorProvider {
 
                 const filePaths = fileUris.map(u => u.fsPath).sort();
                 const pagesDir = fileManager.getPagesDirPath();
-                const imageDir = path.join(pagesDir, 'images');
+                const imageDir = fileManager.getOutlinerImageDirPath();
                 const results = importMdFiles(filePaths, pagesDir, imageDir);
 
                 senderRef.postMessage({
@@ -580,7 +580,7 @@ export class NotesEditorProvider {
                 const currentOutFilePath = fileManager.getCurrentFilePath();
                 if (!currentOutFilePath) return;
                 const outlinerId = path.basename(currentOutFilePath, '.out');
-                const fileDir = path.join(folderPath, outlinerId, 'files');
+                const fileDir = fileManager.getOutlinerFileDirPath();
                 const outDir = path.dirname(currentOutFilePath);
                 const results = importFiles(filePaths, fileDir, outDir);
 
@@ -762,7 +762,7 @@ export class NotesEditorProvider {
             },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = path.join(pagesDir, 'images');
+                const imagesDir = fileManager.getOutlinerImageDirPath();
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const parsed = parseDataUrl(dataUrl);
                 if (!parsed) return;
@@ -784,7 +784,7 @@ export class NotesEditorProvider {
             },
             readAndInsertImage: (filePath: string, sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = path.join(pagesDir, 'images');
+                const imagesDir = fileManager.getOutlinerImageDirPath();
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const imgFileName = path.basename(filePath);
                 const destPath = path.join(imagesDir, imgFileName);
@@ -805,7 +805,7 @@ export class NotesEditorProvider {
             saveFileToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
                 const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
                 const filesDir = outlinerId
-                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    ? fileManager.getOutlinerFileDirPath()
                     : path.join(fileManager.getMainFolderPath(), 'files');
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
@@ -838,7 +838,7 @@ export class NotesEditorProvider {
             readAndInsertFile: (filePath: string, sidePanelFilePath: string) => {
                 const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
                 const filesDir = outlinerId
-                    ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                    ? fileManager.getOutlinerFileDirPath()
                     : path.join(fileManager.getMainFolderPath(), 'files');
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
@@ -1209,7 +1209,7 @@ export class NotesEditorProvider {
                 const filesDir = isMd
                     ? fileManager.getMdFilesDirPath()
                     : (outlinerId
-                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        ? fileManager.getOutlinerFileDirPath()
                         : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
@@ -1240,7 +1240,7 @@ export class NotesEditorProvider {
                 const filesDir = isMd
                     ? fileManager.getMdFilesDirPath()
                     : (outlinerId
-                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        ? fileManager.getOutlinerFileDirPath()
                         : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
@@ -1286,7 +1286,7 @@ export class NotesEditorProvider {
                 const filesDir = isMd
                     ? fileManager.getMdFilesDirPath()
                     : (outlinerId
-                        ? path.join(fileManager.getMainFolderPath(), outlinerId, 'files')
+                        ? fileManager.getOutlinerFileDirPath()
                         : path.join(fileManager.getMainFolderPath(), 'files'));
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
@@ -1345,7 +1345,7 @@ export class NotesEditorProvider {
             },
             sendSidePanelImageDir: (sidePanelFilePath: string) => {
                 const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = path.join(pagesDir, 'images');
+                const imagesDir = fileManager.getOutlinerImageDirPath();
                 const spDir = path.dirname(sidePanelFilePath);
                 const displayPath = path.relative(spDir, imagesDir).replace(/\\/g, '/') || '.';
                 panel.webview.postMessage({
@@ -1431,7 +1431,7 @@ export class NotesEditorProvider {
             pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string) => {
                 // v9: MD paste with asset copy (cross-outliner/cross-note paste)
                 const pagesDir = fileManager.getPagesDirPath();
-                const destImageDir = path.join(pagesDir, 'images');
+                const destImageDir = fileManager.getOutlinerImageDirPath();
                 const destFileDir = fileManager.getFileDirPath();
                 const destMdDir = path.dirname(sidePanelFilePath);
 
@@ -1456,7 +1456,7 @@ export class NotesEditorProvider {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
                     const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
                     const pagesDir = fileManager.getPagesDirPath();
-                    const imageDir = path.join(pagesDir, 'images');
+                    const imageDir = fileManager.getOutlinerImageDirPath();
                     const mdFileDir = sidePanelFilePath ? path.dirname(sidePanelFilePath) : pagesDir;
                     const { newContent, savedCount } = processDataUrlsInContent(markdown, imageDir, mdFileDir);
                     panel.webview.postMessage({
@@ -1625,7 +1625,7 @@ export class NotesEditorProvider {
                         const outlinerId = path.basename(outFilePath, '.out');
                         pagesDir = path.resolve(path.dirname(outFilePath), outlinerId);
                     }
-                    const imagesDir = path.join(pagesDir, 'images');
+                    const imagesDir = fileManager.getOutlinerImageDirPath();
 
                     // 2. md を pagesDir に import (新 pageId 採番 + 画像コピー)
                     const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
