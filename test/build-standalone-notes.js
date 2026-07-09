@@ -26,6 +26,7 @@ const frBaseCssPath = path.join(__dirname, '../src/webview/fr-base.css');
 const frComponentsCssPath = path.join(__dirname, '../src/webview/fr-components.css');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
 const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
+const clipSelectPath = path.join(__dirname, '../src/webview/outliner-clip-select.js');
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
 const notesBodyHtmlPath = path.join(__dirname, '../src/shared/notes-body-html.js');
 const notesFilePanelJsPath = path.join(__dirname, '../src/shared/notes-file-panel.js');
@@ -80,6 +81,7 @@ editorScript = editorScript
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
+const clipSelectScript = fs.readFileSync(clipSelectPath, 'utf-8');
 const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
@@ -376,6 +378,9 @@ const html = `<!DOCTYPE html>
     __OUTLINER_SEARCH_SCRIPT__
     </script>
     <script>
+    __CLIP_SELECT_SCRIPT__
+    </script>
+    <script>
     __OUTLINER_SCRIPT__
     </script>
     <script>
@@ -424,6 +429,7 @@ result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
+result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);

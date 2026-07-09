@@ -78,6 +78,10 @@ export function getNotesWebviewContent(
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
 
+    // Load clip-source selector (paste 時のクリップボード源判定, outliner.js の前に注入)
+    const clipSelectScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'outliner-clip-select.js'), 'utf8');
+
     // Load HostBridge (shared + notes)
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
@@ -256,6 +260,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${mindmapExportScript}</script>
     <script nonce="${nonce}">${mindmapInteractionsScript}</script>
     <script nonce="${nonce}">${outlinerSearchScript}</script>
+    <script nonce="${nonce}">${clipSelectScript}</script>
     <script nonce="${nonce}">${outlinerScript}</script>
     <script nonce="${nonce}">${notesColorPaletteScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>

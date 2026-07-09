@@ -48,6 +48,10 @@ export function getOutlinerWebviewContent(
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
 
+    // Load clip-source selector (paste 時のクリップボード源判定, outliner.js の前に注入)
+    const clipSelectScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'outliner-clip-select.js'), 'utf8');
+
     // Load HostBridge
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
@@ -214,6 +218,9 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${outlinerSearchScript}
+    </script>
+    <script nonce="${nonce}">
+        ${clipSelectScript}
     </script>
     <script nonce="${nonce}">
         ${outlinerScript}

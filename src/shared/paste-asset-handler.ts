@@ -251,6 +251,14 @@ export function handlePageAssets(opts: {
         try { mdContent = fs.readFileSync(srcMdPath, 'utf8'); } catch { /* ignore */ }
     }
 
+    // 修正2（バックストップ）: copy 経路（!isCut）で src の page md が存在しない場合は
+    // dest md を書かない。src md が無ければ本文参照アセットも複製しようがないので
+    // nodeImages はそのまま返す。webview が stale pageId を送った際の 0 バイト md 残渣を防ぐ防御。
+    // cut 経路は同一 note 内移動の従来挙動を温存するため対象外。
+    if (!isCut && !fs.existsSync(srcMdPath)) {
+        return { newNodeImages: opts.nodeImages || [] };
+    }
+
     // Extract all image references
     // MD-41: drawio.svg / drawio.png は ![]() 構文だが意味的には file (pages/files/ 配下)。
     // images から分離して file 側で処理する。

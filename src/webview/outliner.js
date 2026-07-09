@@ -3657,13 +3657,6 @@ var Outliner = (function() {
         return nodes;
     }
 
-    /** 内部クリップボードの照合（テキスト一致チェック） */
-    function getValidInternalClipboard(clipText) {
-        if (!internalClipboard) { return null; }
-        if (internalClipboard.plainText !== clipText) { return null; }
-        return internalClipboard;
-    }
-
     /** HTMLクリップボードからcross-outlinerメタデータを抽出 */
     function extractOutlinerClipboardMeta(html) {
         if (!html) { return null; }
@@ -3712,10 +3705,10 @@ var Outliner = (function() {
     }
 
     /** クリップボードに text/plain + text/html を書き込む (cross-outlinerメタデータ埋め込み) */
-    function writeClipboardWithHtml(plainText, nodesData, isCut) {
+    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId) {
         var htmlText = buildSelectedNodesHtml(nodesData);
-        // メタデータをHTMLに埋め込み (cross-webview paste用)
-        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut });
+        // メタデータをHTMLに埋め込み (cross-webview paste用)。copyId(nonce) で同一コピー操作を識別。
+        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
         try {
             navigator.clipboard.write([
@@ -3796,25 +3789,20 @@ var Outliner = (function() {
         var node = model.getNode(nodeId);
         if (!node) { return; }
 
-        // 内部クリップボードの照合 (Priority 1: 同一webview)
-        var intClip = getValidInternalClipboard(clipText);
-        var clipNodes = intClip ? intClip.nodes : null;
-        var isCutPaste = intClip ? intClip.isCut : false;
-        var clipSourceKey = intClip ? (intClip.sourceOutFileKey || null) : null;
+        // クリップボード源の選定 (copyId nonce による同一コピー操作判定)
+        // internalClipboard は「copyId が OS crossMeta の copyId と一致する時だけ」勝つ。
+        // 不一致（別のコピー操作 = OS クリップボードが新しい）なら crossMeta を優先し、
+        // round-trip の stale internalClipboard シャドウを防ぐ。
+        var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
+        var crossMeta = extractOutlinerClipboardMeta(htmlData);
+        var sel = OutlinerClipSelect.selectClipSource(internalClipboard, crossMeta, clipText);
+        if (!sel) { return; }   // 貼り付け対象なし (従来 clipText 無し等と同じ扱い)
+        var clipNodes = sel.nodes;
+        var isCutPaste = sel.isCut;
+        var clipSourceKey = sel.sourceOutFileKey || null;
 
-        // Priority 2: HTMLクリップボードからcross-outlinerメタデータ抽出
-        if (!intClip) {
-            var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
-            var crossMeta = extractOutlinerClipboardMeta(htmlData);
-            if (crossMeta && crossMeta.nodes) {
-                clipNodes = crossMeta.nodes;
-                isCutPaste = !!crossMeta.isCut; // cross-webview でも cut 情報を保持
-                clipSourceKey = crossMeta.sourceOutFileKey || null;
-            }
-        }
-
-        // カット時は1回消費
-        if (intClip && intClip.isCut) {
+        // カット消費: internalClip が採用され かつ cut の時のみ (従来と同一)
+        if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
             internalClipboard = null;
         }
 
@@ -4709,12 +4697,14 @@ var Outliner = (function() {
                         e.preventDefault();
                         var copyText = getSelectedText();
                         var copyNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(copyText, copyNodesData, false);
+                        var copyIdC = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC);
                         internalClipboard = {
                             plainText: copyText,
                             isCut: false,
                             nodes: copyNodesData,
-                            sourceOutFileKey: currentOutFileKey
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyIdC
                         };
                         host.saveOutlinerClipboard(copyText, false, copyNodesData);
                     } else {
@@ -4731,12 +4721,14 @@ var Outliner = (function() {
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
                                 filePath: node.filePath || null
                             }];
-                            writeClipboardWithHtml(singleText, singleNodesData, false);
+                            var copyIdCS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            writeClipboardWithHtml(singleText, singleNodesData, false, copyIdCS);
                             internalClipboard = {
                                 plainText: singleText,
                                 isCut: false,
                                 nodes: singleNodesData,
-                                sourceOutFileKey: currentOutFileKey
+                                sourceOutFileKey: currentOutFileKey,
+                                copyId: copyIdCS
                             };
                             host.saveOutlinerClipboard(singleText, false, singleNodesData);
                         }
@@ -4748,12 +4740,14 @@ var Outliner = (function() {
                         e.preventDefault();
                         var cutText = getSelectedText();
                         var cutNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(cutText, cutNodesData, true);
+                        var copyIdX = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(cutText, cutNodesData, true, copyIdX);
                         internalClipboard = {
                             plainText: cutText,
                             isCut: true,
                             nodes: cutNodesData,
-                            sourceOutFileKey: currentOutFileKey
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyIdX
                         };
                         host.saveOutlinerClipboard(cutText, true, cutNodesData);
                         deleteSelectedNodes();
@@ -4771,12 +4765,14 @@ var Outliner = (function() {
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
                                 filePath: node.filePath || null
                             }];
-                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
+                            var copyIdXS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true, copyIdXS);
                             internalClipboard = {
                                 plainText: cutSingleText,
                                 isCut: true,
                                 nodes: cutSingleNodesData,
-                                sourceOutFileKey: currentOutFileKey
+                                sourceOutFileKey: currentOutFileKey,
+                                copyId: copyIdXS
                             };
                             host.saveOutlinerClipboard(cutSingleText, true, cutSingleNodesData);
                             saveSnapshot();
