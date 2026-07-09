@@ -171,4 +171,24 @@ test.describe('selectClipSource', () => {
         expect(r2.source).toBe('internal');
         expect(r2.isCut).toBe(true);
     });
+
+    // TC-CS-08（load-bearing 契約文書化: null は「外部プレーンテキスト経路に落とす」前提）
+    // paste-block 側は sel===null のとき early-return せず external sentinel
+    // ({source:'external', nodes:null}) にフォールバックし pasteNodesFromText で行分割する。
+    // このヘルパは「outliner メタが無い＝内部/cross 経路に載らない」ことを null で表明するだけで、
+    // 「貼り付け中止」の意味ではない（TASK-04 で混入した早期 return 回帰の契約ガード）。
+    test('TC-CS-08 outliner メタ無し（純粋外部プレーンテキスト）→ null（=external プレーンテキスト経路へ落とす前提）', () => {
+        // internal も cross も無い純粋な外部プレーンテキスト paste
+        expect(selectClipSource(null, null, 'a\nb\nc')).toBeNull();
+
+        // plainText 不一致の内部 clip（stale）+ crossMeta 無し → null
+        // （internal は採用できず、cross も無いのでメタ経路に載らない = 外部テキスト扱い）
+        const staleInternal = {
+            plainText: 'x',
+            isCut: false,
+            nodes: [{ pageId: 'p1' }],
+            copyId: 'c1',
+        };
+        expect(selectClipSource(staleInternal, null, 'different')).toBeNull();
+    });
 });

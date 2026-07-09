@@ -33829,8 +33829,12 @@ var Outliner = (function() {
         var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
         var crossMeta = extractOutlinerClipboardMeta(htmlData);
         var sel = OutlinerClipSelect.selectClipSource(internalClipboard, crossMeta, clipText);
-        if (!sel) { return; }   // 貼り付け対象なし (従来 clipText 無し等と同じ扱い)
-        var clipNodes = sel.nodes;
+        // sel===null = クリップボードに outliner メタが無い（純粋な外部プレーンテキスト
+        // paste、または plainText 不一致で内部 clip を無視）ケース。旧コードは clipNodes=null
+        // のまま **早期 return せず** fall-through して pasteNodesFromText で行分割していた。
+        // 早期 return は外部プレーンテキスト貼り付けを殺すので、external sentinel にフォールバック。
+        if (!sel) { sel = { source: 'external', nodes: null, isCut: false, sourceOutFileKey: null }; }
+        var clipNodes = sel.nodes;   // null → 下流のプレーンテキスト行分割経路へ
         var isCutPaste = sel.isCut;
         var clipSourceKey = sel.sourceOutFileKey || null;
 
