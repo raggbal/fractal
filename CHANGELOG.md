@@ -5,6 +5,39 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.16] - 2026-07-09
+
+### Fixed
+- **Notes の cmd+c / cmd+v ラウンドトリップで page md が作られないバグ**: Note A の node を別 Note B に貼り付け、さらに B で複製した node を A に貼り戻すと、新しい pageId は振られるのに page md ファイルが作られない（node から md が開けない）問題を修正。原因は webview の内部クリップボードが貼り付け先ごとに保持され、テキスト一致だけで最優先されて古い pageId を送っていたこと。コピー操作ごとに一意 ID（copyId nonce）を刻み、OS クリップボードと照合して最新のコピー元を選ぶようにした。あわせて、コピー元 md が存在しない場合に空ファイルを書かない防御を追加。外部アプリからのプレーンテキスト貼り付け（行分割）も従来どおり動作する。
+
+## [0.209.15] - 2026-07-08
+
+### Changed
+- **md 移動 / 複製経路の md-to-md リンク扱いを統一**: md（またはそれを含む Outliner ノード）を移動・複製する各経路で、md 内の別 md へのリンクの扱いがバラバラだったのを共通の再帰機構に統一した。
+  - **Move Other Note（.out ページ）**: ページ md が参照する自 Note 内の md も再帰的に一緒に移動し、移動後もリンクが切れないようにした（残留参照があれば移動せずコピー、循環検出あり）。
+  - **Outliner → Outliner のノード貼り付け**: 直接リンク先だけでなく多段（A→B→C）の md リンク先も再帰的に複製し、リンクを複製先に書き換えるようにした（md エディタへの貼り付けと同じ挙動に統一）。
+
+### Fixed
+- **貼り付け時のファイル名の部分文字列誤置換**: 画像名 `a.png` の改名が本文中の `banana.png` を巻き込んで壊す不具合、および同名（別フォルダ）画像が衝突して片方が失われる不具合を修正（リンク URL 全体を単位に書き換え）。
+
+## [0.209.14] - 2026-07-07
+
+### Added
+- **Outliner 間コピーでリンク先 md も再帰複製**: md 付きノードを別 Outliner に cmd+c / cmd+v したとき、その md が参照する自 Note 内の別 md（およびその md 内の画像・添付）も再帰的に複製するようにした。外部 Note の md へのリンクは複製せず相対パスに書き換えて維持する（循環リンク検出あり）。
+
+## [0.209.13] - 2026-07-07
+
+### Fixed
+- **standalone md の Add Page がフラット化に追従**: standalone md エディタで Add Page したとき `pages/` サブフォルダを作らず、md と同じ階層にフラットに作成するよう修正。
+
+## [0.209.12] - 2026-07-07
+
+### Changed
+- **Notes のオンディスク構成をフラット化**: 従来 Outliner ごとに `<outId>/` フォルダを作り page md / 画像 / 添付を隔離していたのを、Note フォルダ直下の md ＋ 共有 `images/`・`files/` に統合した。既存レイアウトは後方互換で読み込め、手動マイグレーションコマンド（`Fractal: Migrate to Flat Layout`）で移行できる。
+
+### Fixed
+- **共有アセットの誤削除防止**: フラット化で画像 / 添付を Note 内で共有するようになったため、item 移動時に「他の item がまだ参照しているアセットは削除しない」データロスガードを追加。
+
 ## [0.209.11] - 2026-07-07
 
 ### Added
