@@ -7,7 +7,7 @@
  *
  * (A) copyMdPasteAssets       TC-1A-01 (load-bearing) / TC-1A-02
  * (B) copyAssetsAndRewriteForMd 経由（closure md）  TC-1B-01 (load-bearing)
- * (C) handleImageAssets       TC-1C-01 (load-bearing) / TC-1C-02
+ * (C) handleImageAssets       TC-1C-01 (regression guard) / TC-1C-02 (load-bearing)
  *
  * counterfactual: 現行の `copy-<timestamp>-<basename>` + `if(!existsSync) skip` /
  *   basename キー renameMap では、別 dir 同名別実体の 2 枚目が 1 枚目に畳み込まれ、
@@ -179,7 +179,9 @@ test('TC-1B-01 (load-bearing) 2 closure md が同名の別画像 → 別コピ�
 
 // ─── (C) handleImageAssets（copyImagesCross）─────────────────────────────────
 
-test('TC-1C-01 (load-bearing) 別実体同名を 2 回 → 別コピー', () => {
+// 注: prefix が別（copy-n1-/copy-n2-）なので pre-fix でも別ファイルになる = regression ガード。
+// 同一呼び出し内 basename 畳み込みの真の load-bearing は TC-1C-02。
+test('TC-1C-01 (regression guard) 別実体同名を 2 回 → 別コピー', () => {
     const root = mkTmp();
     const srcA = path.join(root, 'srcA');
     const srcB = path.join(root, 'srcB');
