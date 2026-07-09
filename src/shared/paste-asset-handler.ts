@@ -33,6 +33,54 @@ function resolveSourceImage(ref: string, srcOutDir: string, srcPagesDir: string)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// paste-image-1to1-ownership (2026-07-09): 貼り付け画像の 1:1 所有権保証ファクトリ
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 1 paste 呼び出しにつき 1 インスタンス。destImagesDir に対する unique 名採番 + 同一 src dedup。
+ *
+ * 返す closure `(srcAbs, desiredName) => destAbs`:
+ * - `srcAbsToDest.has(srcAbs)` → 既存の dest を返す（同一物理ソース = 1 コピー共有、1:1 OK）。
+ * - それ以外 → existence + used-set の連番退避（`name-1.ext`, `name-2.ext`…）で必ず別名を割当て、
+ *   物理コピー（`srcAbs===destAbs` の自己コピーのみ skip）してから srcAbsToDest に記録、destAbs を返す。
+ *
+ * ★basename 衝突 skip は廃止: 別 src（src 絶対が違う）は必ず別名 → 物理コピーされる（データロス防止）。
+ * 手本 = handlePageAssets のインライン `usedImgNames`/`srcAbsToDestImg`/`uniqueImgName` と同一ロジック。
+ */
+function makeUniqueImageCopier(destImagesDir: string): (srcAbs: string, desiredName: string) => string {
+    const used = new Set<string>();                 // 既に割当済みの dest ファイル名
+    const srcAbsToDest = new Map<string, string>(); // src 絶対 → dest 絶対（同一物理ソースの再コピー防止）
+    const uniqueName = (desired: string): string => {
+        if (!used.has(desired) && !fs.existsSync(path.join(destImagesDir, desired))) {
+            used.add(desired);
+            return desired;
+        }
+        const ext = path.extname(desired);
+        const stem = desired.slice(0, desired.length - ext.length);
+        let n = 1;
+        let cand = `${stem}-${n}${ext}`;
+        while (used.has(cand) || fs.existsSync(path.join(destImagesDir, cand))) {
+            n++;
+            cand = `${stem}-${n}${ext}`;
+        }
+        used.add(cand);
+        return cand;
+    };
+    return (srcAbs: string, desiredName: string): string => {
+        const key = path.resolve(srcAbs);
+        const hit = srcAbsToDest.get(key);
+        if (hit) return hit; // 同一物理ソース → 既存コピーを共有（1:1 OK）
+        const destName = uniqueName(desiredName);
+        const destAbs = path.join(destImagesDir, destName);
+        if (path.resolve(srcAbs) !== path.resolve(destAbs)) {
+            try { fs.copyFileSync(srcAbs, destAbs); } catch { /* ignore */ }
+        }
+        srcAbsToDest.set(key, destAbs);
+        return destAbs;
+    };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // md-link-recursive-copy (2026-07-07): md-to-md リンクの再帰複製 closure 収集
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -177,6 +225,7 @@ function copyAssetsAndRewriteForMd(
     destImageDir: string,
     destFileDir: string,
     destMdAbs: string,
+    imgCopier?: (srcAbs: string, desiredName: string) => string,
 ): string {
     const destMdDir = path.dirname(destMdAbs);
     const refs = extractAllAssetRefs(body);
@@ -184,15 +233,17 @@ function copyAssetsAndRewriteForMd(
         const l = (p || '').toLowerCase();
         return l.endsWith('.drawio.svg') || l.endsWith('.drawio.png');
     };
+    // 1:1 所有権保証: 同一物理 src は 1 コピー共有・別 src 同名は連番退避で別ファイル化。
+    // closure ループから共有 copier を受ければ closure md 群で used セットを共有する（同名別画像の衝突回避）。
+    // 未指定なら関数内で生成（単独呼び出しの後方互換）。
+    const copyImg = imgCopier || makeUniqueImageCopier(destImageDir);
     // oldRef → newRef を確定してから whole-link-target 置換（部分文字列誤置換を防ぐ）
     const renames = new Map<string, string>();
     // 画像（drawio 以外）→ destImageDir
     for (const ref of refs.images.filter(p => !isDrawio(p))) {
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) continue;
-        const newName = `copy-${Date.now()}-${path.basename(ref)}`;
-        const destAbs = path.join(destImageDir, newName);
-        try { if (!fs.existsSync(destAbs)) fs.copyFileSync(src, destAbs); } catch { continue; }
+        const destAbs = copyImg(path.resolve(src), `copy-${Date.now()}-${path.basename(ref)}`);
         renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
     // drawio 画像 + 添付（📎）→ destFileDir
@@ -289,26 +340,9 @@ export function handlePageAssets(opts: {
     // cut 経路は従来どおり basename 維持（rename しない）。
     const imgRenames = new Map<string, string>();       // 本文 ref → destMdDir 基準の新相対（本文書換用）
     const nodeImgRename = new Map<string, string>();     // nodeImage ref → destOutDir 基準の新相対
-    const srcAbsToDestImg = new Map<string, string>();   // src 絶対 → dest 絶対（同一物理ファイルの再コピー防止）
-    const usedImgNames = new Set<string>();              // 既に割当済みの dest ファイル名（衝突回避）
-
-    // 別 src 同名の衝突回避: base 名で衝突したら `<name>-<n><ext>` に退避する。
-    const uniqueImgName = (desired: string): string => {
-        if (!usedImgNames.has(desired) && !fs.existsSync(path.join(destImagesDir, desired))) {
-            usedImgNames.add(desired);
-            return desired;
-        }
-        const ext = path.extname(desired);
-        const stem = desired.slice(0, desired.length - ext.length);
-        let n = 1;
-        let cand = `${stem}-${n}${ext}`;
-        while (usedImgNames.has(cand) || fs.existsSync(path.join(destImagesDir, cand))) {
-            n++;
-            cand = `${stem}-${n}${ext}`;
-        }
-        usedImgNames.add(cand);
-        return cand;
-    };
+    const srcAbsToDestImg = new Map<string, string>();   // src 絶対 → dest 絶対（同一物理ファイルの再コピー防止 + nodeImage 追従）
+    // 1:1 所有権保証ファクトリ（copy 経路のみ）。同一 src dedup + 別 src 同名は連番退避で別ファイル化。
+    const copyImg = makeUniqueImageCopier(destImagesDir);
 
     // body ref を先に処理してから nodeImage-only を処理する（本文書換の対象を優先）。
     const bodyImageSet = new Set(bodyImageRefs);
@@ -322,12 +356,16 @@ export function handlePageAssets(opts: {
         let destImg = srcAbsToDestImg.get(srcAbs);
         if (!destImg) {
             const base = path.basename(ref);
-            const destName = isCut ? base : uniqueImgName(`copy-${targetPageId}-${base}`);
-            destImg = path.join(destImagesDir, destName);
-            if (srcAbs !== path.resolve(destImg)) {
-                try {
-                    if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-                } catch { /* ignore */ }
+            if (isCut) {
+                // cut は移動セマンティクス: basename 維持・存在時 skip（従来どおり）。
+                destImg = path.join(destImagesDir, base);
+                if (srcAbs !== path.resolve(destImg)) {
+                    try {
+                        if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
+                    } catch { /* ignore */ }
+                }
+            } else {
+                destImg = copyImg(srcAbs, `copy-${targetPageId}-${base}`);
             }
             srcAbsToDestImg.set(srcAbs, destImg);
         }
@@ -420,6 +458,9 @@ export function handlePageAssets(opts: {
             ensureDir(destImagesDir);
             ensureDir(destFilesDir);
         }
+        // closure md 群で 1 つの copier を共有: 別 closure md が同名の別画像を持つ時、
+        // 同じ used セット + srcAbs dedup で連番退避しないと衝突する（1:1 所有権保証）。
+        const closureImgCopier = makeUniqueImageCopier(destImagesDir);
         for (const srcAbs of closure) {
             const destAbs = closureDestAbs.get(srcAbs);
             if (!destAbs) continue;
@@ -431,6 +472,7 @@ export function handlePageAssets(opts: {
                 destImagesDir,
                 destFilesDir,
                 destAbs,
+                closureImgCopier,
             );
             body = rewriteMdLinksInBody(body, curDir, opts.destPagesDir, closureNameMap);
             try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
@@ -474,39 +516,46 @@ export function handleImageAssets(opts: {
     ensureDir(destImagesDir);
 
     const isCut = opts.renamePrefix === null;
-    const renameMap = new Map<string, string>();
-
-    if (!isCut) {
-        for (const ref of images) {
-            const base = path.basename(ref);
-            if (!renameMap.has(base)) renameMap.set(base, opts.renamePrefix + base);
-        }
-    } else {
-        for (const ref of images) {
-            const base = path.basename(ref);
-            if (!renameMap.has(base)) renameMap.set(base, base);
-        }
-    }
-
-    // Copy images
-    for (const ref of images) {
-        const base = path.basename(ref);
-        const newBase = renameMap.get(base)!;
-        const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
-        if (!srcImg) continue;
-        const destImg = path.join(destImagesDir, newBase);
-        if (srcImg === destImg) continue;
-        try {
-            if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
-        } catch { /* ignore */ }
-    }
-
     const destImagesRelToOut = path
         .relative(opts.destOutDir, destImagesDir)
         .replace(/\\/g, '/');
+
+    // cut 経路（renamePrefix===null）: 移動セマンティクスで従来どおり basename 維持（既に 1:1）。
+    if (isCut) {
+        for (const ref of images) {
+            const base = path.basename(ref);
+            const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
+            if (!srcImg) continue;
+            const destImg = path.join(destImagesDir, base);
+            if (srcImg === destImg) continue;
+            try {
+                if (!fs.existsSync(destImg)) fs.copyFileSync(srcImg, destImg);
+            } catch { /* ignore */ }
+        }
+        const newNodeImages = images.map(orig => {
+            const base = path.basename(orig);
+            return destImagesRelToOut ? `${destImagesRelToOut}/${base}` : base;
+        });
+        return { newNodeImages };
+    }
+
+    // copy 経路: 1:1 所有権保証。ref ごとに src 絶対を解決し copier で dest を決定する。
+    // basename キー renameMap（旧）だと同名別 dir 参照が同一 dest に畳まれ 1 枚消失したため、
+    // per-ref マップ（ref → dest 相対）に置き換える。別 src 同名は連番退避で別ファイル化。
+    const copyImg = makeUniqueImageCopier(destImagesDir);
+    const refToNodeImage = new Map<string, string>(); // ref → destOutDir 基準の新相対
+    for (const ref of images) {
+        const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
+        if (!srcImg) continue;
+        const destAbs = copyImg(path.resolve(srcImg), opts.renamePrefix + path.basename(ref));
+        refToNodeImage.set(ref, path.relative(opts.destOutDir, destAbs).replace(/\\/g, '/'));
+    }
     const newNodeImages = images.map(orig => {
+        const hit = refToNodeImage.get(orig);
+        if (hit) return hit;
+        // 解決不能（src 不在）は後方互換で従来の basename 命名を返す。
         const base = path.basename(orig);
-        const newBase = renameMap.get(base) || base;
+        const newBase = opts.renamePrefix + base;
         return destImagesRelToOut ? `${destImagesRelToOut}/${newBase}` : newBase;
     });
 
@@ -844,8 +893,11 @@ export function copyMdPasteAssets(opts: {
     }
 
     // Copy images with rename pattern: copy-{timestamp}-{originalName}
+    // 1:1 所有権保証: 別 dir 同名の別実体は連番退避で別ファイル化・同一物理 src は 1 コピー集約。
+    // basename 衝突 skip（旧 `if(!existsSync) skip`）は廃止（別 src が 1 枚目に畳まれるデータロスを防止）。
     const timestamp = Date.now();
     const imageRenameMap = new Map<string, string>();
+    const copyImg = makeUniqueImageCopier(opts.destImageDir);
 
     for (const imagePath of imagePaths) {
         const srcAbsolute = path.resolve(opts.sourceMdDir, imagePath);
@@ -854,17 +906,7 @@ export function copyMdPasteAssets(opts: {
         }
 
         const originalName = path.basename(imagePath);
-        const newName = `copy-${timestamp}-${originalName}`;
-        const destAbsolute = path.join(opts.destImageDir, newName);
-
-        // Copy file
-        try {
-            if (!fs.existsSync(destAbsolute)) {
-                fs.copyFileSync(srcAbsolute, destAbsolute);
-            }
-        } catch {
-            continue; // Skip on error
-        }
+        const destAbsolute = copyImg(path.resolve(srcAbsolute), `copy-${timestamp}-${originalName}`);
 
         // Calculate new relative path from destMdDir
         const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
@@ -956,6 +998,15 @@ export function copyMdPasteAssets(opts: {
     );
 
     // closure 各複製 md をフル処理（画像/添付複製 + 全リンク書換）
+    // 起点 md に画像/添付が無いケース（imagePaths/filePaths が空で上の ensureDir を通っていない）でも
+    // closure md の画像/添付を受けられるよう、dest image/file dir を事前作成する
+    // （copyAssetsAndRewriteForMd / copier は destImageDir を ensureDir しないため）。
+    if (closureDestAbs.size > 0) {
+        ensureDir(opts.destImageDir);
+        ensureDir(opts.destFileDir);
+    }
+    // closure md 群で 1 つの copier を共有（別 md が同名別画像を持っても連番退避で別ファイル化 = 1:1 所有権保証）。
+    const closureImgCopier = makeUniqueImageCopier(opts.destImageDir);
     for (const srcAbs of closure) {
         const destAbs = closureDestAbs.get(srcAbs);
         if (!destAbs) continue; // 複製失敗はスキップ
@@ -963,7 +1014,7 @@ export function copyMdPasteAssets(opts: {
         let body = '';
         try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
         // 画像/添付を dest へ複製 + 本文書換（起点と同じ dest image/file dir を共有）
-        body = copyAssetsAndRewriteForMd(body, curSrcDir, opts.destImageDir, opts.destFileDir, destAbs);
+        body = copyAssetsAndRewriteForMd(body, curSrcDir, opts.destImageDir, opts.destFileDir, destAbs, closureImgCopier);
         // md-link を書換（closure→dest 相対 / external→dest からの相対）
         body = rewriteMdLinksInBody(body, curSrcDir, opts.destMdDir, closureNameMap);
         try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
