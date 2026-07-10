@@ -15,6 +15,8 @@
  * TC-M-09 load-bearing: drawio 本文画像は files/ に保存 + 本文リンクも files/ に書換
  * TC-M-10 load-bearing: 同一 md が別 dir 同名画像 2 枚を参照 → 各々別コピー・各々別リンク書換
  * TC-M-11 load-bearing: rename と copy 混在プランの途中失敗ロールバック
+ * TC-M-12 load-bearing: 1 つの .out 内の 2 node が同一 oldRef（同一物理 asset）を node.images 参照
+ *                       → 各 node が別 dst に 1:1 書換わり orphan 0（per-node 化前は両者同一 dst で片方孤児化）
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -471,5 +473,53 @@ test('TC-M-11 rename と copy 混在プランの途中失敗ロールバック�
 
     // counterfactual: copy 分を「rename 戻し」で処理すると元ファイル shared.png を消す（sharedSrc 消失）→ RED。
     //   dst 残骸を消し忘れると leftover.length>0 → RED。
+    rm(note);
+});
+
+test('TC-M-12 1 .out 内の 2 node が同一 oldRef を参照 → 各 node が別 dst に 1:1 書換わり orphan 0（load-bearing）', () => {
+    const note = mkTmp();
+    // 旧レイアウト: pageDir='./work'。node.images は note 相対 'work/images/s.png'（同一物理ファイルを 2 node が参照）。
+    const workImg = path.join(note, 'work', 'images');
+    fs.mkdirSync(workImg, { recursive: true });
+    fs.writeFileSync(path.join(workImg, 's.png'), 'S');
+    // 2 node a/b が同じ物理パス文字列 'work/images/s.png' を node.images で参照（本文 md 参照なし = filePath/images owner）。
+    fs.writeFileSync(path.join(note, 'work.out'), JSON.stringify({
+        title: 'work', pageDir: './work', rootIds: ['a', 'b'], nodes: {
+            a: { id: 'a', text: 'A', childIds: [], images: ['work/images/s.png'] },
+            b: { id: 'b', text: 'B', childIds: [], images: ['work/images/s.png'] },
+        },
+    }, null, 2));
+
+    const plan = planMigration(note);
+    expect(validatePlan(plan).ok).toBe(true);
+    const res = executePlan(plan);
+    expect(res.rolledBack).toBe(false);
+
+    // 共有 images/ に 2 物理ファイル（cross-owner なので content-dedup せず別コピー: s.png / s-1.png）
+    const imgs = fs.readdirSync(path.join(note, 'images')).sort();
+    expect(imgs.length).toBe(2);
+
+    const data = JSON.parse(read(path.join(note, 'work.out')));
+    const aRef = data.nodes.a.images[0] as string;
+    const bRef = data.nodes.b.images[0] as string;
+    // 各 node が **別々の dst** を指す（oldRef キー last-wins による同一 dst 畳み込みが起きていない）
+    expect(aRef).not.toBe(bRef);
+    // 両 dst が実在
+    expect(fs.existsSync(path.resolve(note, aRef))).toBe(true);
+    expect(fs.existsSync(path.resolve(note, bRef))).toBe(true);
+    // 孤児（どの node も指さない物理コピー）が 0 = 全 dst が exactly 1 node に参照される（1:1）
+    const referenced = new Set<string>([
+        path.resolve(note, aRef),
+        path.resolve(note, bRef),
+    ]);
+    const physical = new Set(imgs.map(f => path.resolve(note, 'images', f)));
+    expect(referenced.size).toBe(2);          // 2 node が別 dst（重複なし）
+    expect(physical.size).toBe(2);            // 物理コピー 2 個
+    // 参照集合 == 物理集合（orphan コピー 0・dangling 参照 0）
+    expect([...referenced].sort()).toEqual([...physical].sort());
+
+    // counterfactual: 現行（per-`.out` の `renameOf: Map<oldRef,newRef>` が同一 oldRef 'work/images/s.png' を
+    //   後勝ちで畳む）だと両 node が同じ dst（'images/s-1.png'）を指し 'images/s.png' が孤児化 →
+    //   aRef===bRef で RED（1:1 破れ検出）。per-node 化した現在は別 dst に解決される。
     rm(note);
 });

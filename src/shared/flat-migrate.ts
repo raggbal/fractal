@@ -33,12 +33,19 @@ export interface Move { from: string; to: string; kind: MoveKind; }
 export interface BodyRewrite { mdPath: string; renames: { oldRef: string; newRef: string }[]; }
 export interface OutRewrite {
     outPath: string;
-    /** ★この .out 内の node 参照書換（node.filePath / node.images の旧文字列 → 新相対）を完全一致で行う */
-    refRenames: { oldRef: string; newRef: string }[];
+    /**
+     * ★この .out 内の node 参照書換を **node（owner）単位**で行う。
+     * plan 段で owner ごとに別 dst を採番している（cross-owner は content-dedup 禁止 = ADRL-0001）ため、
+     * 適用段でも oldRef キーの単一 Map で畳まず、node ごとの renames Map で自 node の
+     * node.filePath / node.images のみを完全一致で書換える。
+     * これにより 1 つの .out 内の 2 node が同一 oldRef 文字列（同一物理 asset）を参照しても、
+     * それぞれ別 dst（s.png / s-1.png）に 1:1 で書換わる（oldRef キー last-wins による畳み込みを防ぐ）。
+     */
+    nodeRenames: { nodeId: string; renames: { oldRef: string; newRef: string }[] }[];
 }
 export interface MigrationPlan {
     moves: Move[];               // uniquify 済み最終 to（同名でも別 owner は別 to）
-    outRewrites: OutRewrite[];   // .out ヘッダ(pageDir 等) + node.filePath/images 書換
+    outRewrites: OutRewrite[];   // .out ヘッダ(pageDir 等) + node.filePath/images 書換（node 単位）
     bodyRewrites: BodyRewrite[]; // ★page md 本文の asset リンク書換
     strayDirs: string[];         // ★.md 名ディレクトリ残骸（中身救出後に削除）
     conflicts: { to: string; a: string; b: string }[]; // 「情報」に降格（abort 理由にしない）
@@ -187,7 +194,9 @@ export function planMigration(noteDir: string): MigrationPlan {
         if (isAlreadyFlat(outPath, data)) { continue; } // 既にフラットな .out はスキップ
         const old = resolveOldDirs(outPath, data);
         const nodes = data.nodes || {};
-        const refRenames: { oldRef: string; newRef: string }[] = [];
+        // ★node（owner）単位で参照書換を集める。同一 .out 内の別 node が同一 oldRef 文字列を
+        //   参照しても、node ごとに別 dst に採番された renames をそのまま適用できるようにする。
+        const nodeRenames: { nodeId: string; renames: { oldRef: string; newRef: string }[] }[] = [];
 
         for (const nid of Object.keys(nodes)) {
             const node = nodes[nid];
@@ -195,6 +204,9 @@ export function planMigration(noteDir: string): MigrationPlan {
             // 1 node = 1 owner。本文 refs / node.images / node.filePath を同一 dedup Map で処理し、
             // 同じ物理 src は 1 コピーに集約（owner 内 1:1）。別 node/別 src は別コピー（ADRL-0001）。
             const reserve = makeOwnerReserver();
+            // この node（owner）専用の参照書換。同一 owner 内で同一 src を複数参照した場合の
+            // 集約（TC-M-05/08）は reserve 内 dedup が同一 newRef を返すので、この配列内でも矛盾しない。
+            const refRenames: { oldRef: string; newRef: string }[] = [];
 
             // (1) page md owner: node.pageId → 本文 asset を予約 + BodyRewrite
             if (node.pageId) {
@@ -239,8 +251,9 @@ export function planMigration(noteDir: string): MigrationPlan {
                 const newRef = reserve(ref, noteDir, false); // node.filePath は outDir(=noteDir) 基準
                 if (newRef && newRef !== ref) refRenames.push({ oldRef: ref, newRef });
             }
+            if (refRenames.length > 0) nodeRenames.push({ nodeId: nid, renames: refRenames });
         }
-        outRewrites.push({ outPath, refRenames });
+        outRewrites.push({ outPath, nodeRenames });
     }
 
     // (4) notes-md（_notes_md/）→ page md owner と同じ扱い（本文 refs を uniquify + BodyRewrite）
@@ -327,7 +340,7 @@ export function validatePlan(plan: MigrationPlan, opts: { forceFailTarget?: stri
  *   (0) stray dir の中身 move/copy → 空になった stray dir を rmdir（先に名前を空ける）
  *   (1) 残り asset move/copy
  *   (2) page md move
- *   (3) .out ヘッダ(pageDir='.'/imageDir='./images'/fileDir='./files') + refRenames 完全一致書換
+ *   (3) .out ヘッダ(pageDir='.'/imageDir='./images'/fileDir='./files') + node 単位の参照 完全一致書換
  *   (4) bodyRewrites を dst md に適用（renames が空ならスキップ = 後方互換）
  *
  * rename vs copy: source が 1 回だけ moves に現れる → rename、2 回以上（複数 owner）→ copy。
@@ -404,7 +417,7 @@ export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: numbe
         // (2) page md move
         for (const m of pageMoves) doMove(m);
 
-        // (3) .out ヘッダ + refRenames 完全一致書換
+        // (3) .out ヘッダ + node（owner）単位の参照書換（完全一致）
         let j = 0;
         for (const r of plan.outRewrites) {
             const originalText = fs.readFileSync(r.outPath, 'utf8');
@@ -415,12 +428,16 @@ export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: numbe
             data.pageDir = '.';
             data.imageDir = './images';
             data.fileDir = './files';
-            const renameOf = new Map<string, string>();
-            for (const rr of r.refRenames) renameOf.set(rr.oldRef, rr.newRef);
             const nodes = data.nodes || {};
-            for (const nid of Object.keys(nodes)) {
-                const node = nodes[nid];
+            // ★node ごとに **自分の renames のみ** を Map にして書換える。
+            //   oldRef キーの単一 Map で全 node 分を畳むと、同一 .out 内の 2 node が同一 oldRef
+            //   （同一物理 asset）を参照した際に last-wins で両者が同一 dst に潰れて片方が孤児化する。
+            //   plan が owner 単位に別 dst を採番しているので、適用も owner（node）単位に解決する。
+            for (const nr of r.nodeRenames) {
+                const node = nodes[nr.nodeId];
                 if (!node) continue;
+                const renameOf = new Map<string, string>();
+                for (const rr of nr.renames) renameOf.set(rr.oldRef, rr.newRef);
                 if (Array.isArray(node.images)) {
                     node.images = node.images.map((img: unknown) =>
                         (typeof img === 'string' && renameOf.has(img)) ? renameOf.get(img)! : img);
