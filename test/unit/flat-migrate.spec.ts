@@ -65,20 +65,31 @@ test('TC-FS-10 planMigration が旧→新の移動計画を正しく列挙', () 
     fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('TC-FS-11 validatePlan が移動先衝突を検出し execute を止める', () => {
+// TC-FS-11（test_update・sprint 20260709-195420-flat-migrate-1to1）:
+// 旧仕様「移動先衝突で validate abort」→ 1:1 化で「衝突は uniquify で回避して移行する（abort しない・データロスなし）」に変更。
+// design/system.md step 9（validatePlan 緩和）+ ADRL-0001（content-dedup 禁止）に伴う契約変更。
+test('TC-FS-11 移動先衝突は uniquify で回避され pre-existing はデータロスしない（旧: abort → 新: 1:1 移行）', () => {
     const dir = mkTmp();
     makeOldNote(dir);
-    // 移動先 <dir>/p1.md に既存ファイルを置く（衝突）
+    // 移動先 <dir>/workp1.md に既存ファイルを置く（旧レイアウトの移行先名と衝突）
     fs.writeFileSync(path.join(dir, 'workp1.md'), 'PRE-EXISTING');
-    const snapshotBefore = fs.readFileSync(path.join(dir, 'work', 'workp1.md'), 'utf8');
 
     const plan = planMigration(dir);
     const v = validatePlan(plan);
-    expect(v.ok).toBe(false);
-    expect(v.reasons.some(r => r.includes('pre-existing target'))).toBe(true);
-    // execute しない → 旧レイアウト維持
-    expect(fs.existsSync(path.join(dir, 'work', 'workp1.md'))).toBe(true);
-    expect(fs.readFileSync(path.join(dir, 'work', 'workp1.md'), 'utf8')).toBe(snapshotBefore);
+    // 新仕様: 衝突は abort 理由にしない（uniquify/stray で解消）
+    expect(v.ok).toBe(true);
+    expect(v.reasons.some(r => r.includes('pre-existing target'))).toBe(false);
+
+    const res = executePlan(plan);
+    expect(res.rolledBack).toBe(false);
+    // pre-existing な workp1.md は上書き・消失しない（データロスなし）
+    expect(fs.existsSync(path.join(dir, 'workp1.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'workp1.md'), 'utf8')).toBe('PRE-EXISTING');
+    // 移行された旧 md は uniquify された別名で存在（workp1-1.md 等）し中身が保たれる
+    const migrated = fs.readdirSync(dir).filter(f => /^workp1(-\d+)?\.md$/.test(f) && f !== 'workp1.md');
+    expect(migrated.length).toBeGreaterThanOrEqual(1);
+    const body = fs.readFileSync(path.join(dir, migrated[0]), 'utf8');
+    expect(body).toContain('# workp1');
     fs.rmSync(dir, { recursive: true, force: true });
 });
 
