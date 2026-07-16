@@ -119,7 +119,7 @@ var notesFilePanel = (function() {
             renderNoteTitle(); // 表示を確定値 (or 元) に戻す
         };
         var onKey = function(e) {
-            if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); finish(true); }
             else if (e.key === 'Escape') { e.preventDefault(); titleLabelEl.textContent = original; finish(false); }
         };
         var onBlur = function() { finish(true); };
@@ -329,7 +329,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; titleSpan.innerHTML = originalHtml; }
         });
     }
@@ -356,7 +356,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; itemEl.textContent = file.title || (i18n.notesUntitled || 'Untitled'); }
         });
     }
@@ -390,7 +390,7 @@ var notesFilePanel = (function() {
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
             e.stopPropagation();
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; titleSpan.innerHTML = originalHtml; }
         });
     }
@@ -926,7 +926,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
     }
@@ -964,7 +964,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
     }
@@ -995,7 +995,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
     }
@@ -1331,7 +1331,7 @@ var notesFilePanel = (function() {
 
         if (searchInputEl) {
             searchInputEl.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
                     executeSearch();
                 } else if (e.key === 'Escape') {
                     switchTab('notes');
