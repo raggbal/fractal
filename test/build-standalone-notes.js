@@ -88,6 +88,9 @@ const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
 const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
+// FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
+// （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
+const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
 
 // サイドパネルHTML生成
 const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtmlPath);
@@ -405,6 +408,9 @@ const html = `<!DOCTYPE html>
     __NOTES_FILE_PANEL_SCRIPT__
     </script>
     <script>
+    __NOTES_MD_DISPATCHER_SCRIPT__
+    </script>
+    <script>
     // テストAPI公開
     window.__testApi.ready = false;
     window.__testApi.initOutliner = function(data) {
@@ -441,6 +447,31 @@ const html = `<!DOCTYPE html>
             sidebarHidden: true,
         });
     };
+    // FR-LR-03: production notesWebviewContent と同じ md dispatcher を初期化。
+    // bridge は production の notesMarkdownHostBridge 相当（onMessage は test bridge の配列登録を共有）。
+    // standalone の message 配送は window event 非経由（__hostMessageHandler → handlers 配列直呼び）のため、
+    // subscribe / deliverUpdate とも配列経由を注入する（本番は既定の window listener / window.postMessage）。
+    window.notesMarkdownHostBridge = Object.assign({}, window.outlinerHostBridge, {
+        // 本番 notes-host-bridge.js の notesMarkdownHostBridge 相当（editor.js の編集/idle 経路が呼ぶ）
+        syncContent: function(markdown) {
+            // fileChangeId は test bridge IIFE のクロージャ内なのでここでは 0 固定（テストで参照しない）
+            window.__testApi.messages.push({ type: 'notesSaveCurrentMd', content: markdown, fileChangeId: 0 });
+        },
+        save: function() { window.__testApi.messages.push({ type: 'save' }); },
+        reportEditingState: function(editing) {
+            window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
+        },
+    });
+    window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({
+        outlinerContainer: document.querySelector('.outliner-container'),
+        markdownContainer: document.querySelector('.markdown-container'),
+        bridge: window.notesMarkdownHostBridge,
+        subscribe: function(handler) {
+            window.__hostMessageHandlers = window.__hostMessageHandlers || [];
+            window.__hostMessageHandlers.push(handler);
+        },
+        deliverUpdate: function(msg) { window.__hostMessageHandler(msg); },
+    });
     // 空データで初期化
     window.__testApi.initOutliner();
     window.__testApi.initNotesPanel();
@@ -462,6 +493,7 @@ result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
+result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

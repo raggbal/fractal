@@ -286,6 +286,14 @@ export function createDrawioFileWatcher(
 }
 
 /**
+ * 汎用 alias (FR-LR-04): createDrawioFileWatcher の実装は drawio 非依存の
+ * 「単一ファイルの FSW + fs.watchFile(polling) ハイブリッド watcher」なので、
+ * sidepanel md / notes メインペイン md の外部変更検知（workspace 外でも fire させる）にも
+ * 同じ実装を流用する。名前だけ用途中立にした alias。
+ */
+export const createHybridFileWatcher = createDrawioFileWatcher;
+
+/**
  * mdContent から `![](*.drawio.svg)` / `![](*.drawio.png)` を抽出して
  * absolute path のリストを返す。
  *

@@ -9,8 +9,10 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { extractToc, TocItem } from './toc-utils';
 import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
+import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
 
 /** Webview への通信インターフェース */
 export interface SidePanelHost {
@@ -29,8 +31,11 @@ export type { TocItem } from './toc-utils';
 export class SidePanelManager {
     // --- 内部状態 ---
     private _document: vscode.TextDocument | undefined;
-    private _fileWatcher: vscode.FileSystemWatcher | undefined;
-    private _fileChangeSubscription: vscode.Disposable | undefined;
+    // FR-LR-01: FSW + fs.watchFile(polling) ハイブリッド。
+    // sidepanel の TextDocument はタブなしバッファのため VS Code ネイティブの外部変更検知が効かず、
+    // FSW 単独では workspace フォルダ外のファイルに fire しない（editorProvider.ts:792 / MD-48 と同じ既知制約）。
+    private _hybridWatcher: DrawioFileWatcher | undefined;
+    private _fileChangeSubscription: { dispose: () => void } | undefined;
     private _docChangeSubscription: vscode.Disposable | undefined;
     private _watchedPath: string | undefined;
     private _isApplyingEdit = false;
@@ -80,11 +85,11 @@ export class SidePanelManager {
         this._document = await vscode.workspace.openTextDocument(fileUri);
 
         // Watch for external file changes → sync TextDocument
-        this._fileWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.Uri.joinPath(fileUri, '..'), path.basename(filePath))
-        );
-        this._fileChangeSubscription = this._fileWatcher.onDidChange(async (uri) => {
-            if (uri.fsPath !== filePath) return;
+        // FR-LR-01: FSW 単独から createHybridFileWatcher（FSW + fs.watchFile 1s polling）に変更。
+        // workspace 外の note でも外部編集（AI CLI 等）を検知してライブ反映する。
+        // ポーリングが自己保存の後に発火しても下の newContent !== currentContent 差分チェックで no-op（NFR-LR-02）。
+        this._hybridWatcher = createHybridFileWatcher(filePath, vscode, fs);
+        this._fileChangeSubscription = this._hybridWatcher.onDidChange(() => {
             if (this._isApplyingEdit) return;
             setTimeout(async () => {
                 try {
@@ -96,7 +101,7 @@ export class SidePanelManager {
                     if (!targetDoc) return;
                     if (targetDoc.uri.fsPath !== filePath) return;
                     const liveDoc = targetDoc.isClosed
-                        ? await vscode.workspace.openTextDocument(uri)
+                        ? await vscode.workspace.openTextDocument(fileUri)
                         : targetDoc;
                     // Re-check after await: navigation may have happened during openTextDocument
                     if (this._watchedPath !== filePath) return;
@@ -104,7 +109,7 @@ export class SidePanelManager {
                         // Update the cached document only if we are still watching this file
                         this._document = liveDoc;
                     }
-                    const fileContent = await vscode.workspace.fs.readFile(uri);
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
                     if (this._watchedPath !== filePath) return;
                     const newContent = new TextDecoder().decode(fileContent);
                     const currentContent = liveDoc.getText();
@@ -159,8 +164,9 @@ export class SidePanelManager {
         this._docChangeSubscription = undefined;
         this._fileChangeSubscription?.dispose();
         this._fileChangeSubscription = undefined;
-        this._fileWatcher?.dispose();
-        this._fileWatcher = undefined;
+        // FR-LR-01: hybrid watcher の dispose（内部で fs.unwatchFile + FSW dispose）
+        this._hybridWatcher?.dispose();
+        this._hybridWatcher = undefined;
         this._document = undefined;
         this._watchedPath = undefined;
     }
