@@ -639,14 +639,15 @@ class EditorInstance {
     // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
-    function classifyLinkHref(href) {
+    function classifyLinkHref(href, isSubpage) {
         if (!href) return '';
         if (href.startsWith('fractal://note/')) {
             return /\/page\/[^/?]+$/.test(href) ? 'link-fractal-page' : 'link-fractal-node';
         }
         if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#') &&
             /\.(?:md|markdown)(?:[#?]|$)/i.test(href)) {
-            return 'link-internal-md';
+            // subpage marker は参照リンクと区別する class を付与
+            return isSubpage ? 'link-internal-md link-subpage' : 'link-internal-md';
         }
         return '';
     }
@@ -1969,9 +1970,11 @@ class EditorInstance {
                     html = html.slice(0, ln.start) + imgPlaceholder + html.slice(ln.end);
                 } else if (ln.kind === 'link' && ln.alt.length > 0) {
                     // link は空 text を許容しない (旧 regex 挙動踏襲)
-                    var linkClass = classifyLinkHref(ln.url);
+                    var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + '>' + ln.alt + '</a>';
+                    // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -6548,6 +6551,10 @@ class EditorInstance {
     // by collecting character-level style information and generating
     // minimal Markdown output.
 
+    // subpage serialize フラグ（既定 true）。テストで counterfactual（subpage 分岐を切って [] 劣化を実証）用に
+    // __testApi.__setSubpageSerialize(false) で無効化できる。本番では常に true。
+    let _subpageSerializeEnabled = true;
+
     /**
      * Collect character-level style information from a DOM node.
      * Each character gets a style set indicating which formatting applies.
@@ -6586,6 +6593,8 @@ class EditorInstance {
         if (tag === 'a') {
             // Check if this is a file attachment link
             const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            // subpage marker `[[]]` 往路フラグ（serialize が [[]] に書き戻す）
+            const isSubpage = node.dataset.subpage === 'true';
             // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
             const href = resolveLinkRefForCopy(node);
 
@@ -6615,6 +6624,7 @@ class EditorInstance {
                 for (const c of childChars) {
                     c.isLink = true;
                     c.href = href;
+                    c.isSubpage = isSubpage;   // subpage フラグを char entry に伝播
                     result.push(c);
                 }
             }
@@ -6717,6 +6727,7 @@ class EditorInstance {
                     styles: c.styles,
                     isLink: c.isLink,
                     href: c.href,
+                    isSubpage: c.isSubpage,   // subpage フラグを group に運ぶ
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
@@ -6736,8 +6747,9 @@ class EditorInstance {
         const mergedGroups = [];
         for (const g of groups) {
             const prev = mergedGroups[mergedGroups.length - 1];
-            if (prev && prev.isLink && g.isLink && 
-                prev.href === g.href && 
+            if (prev && prev.isLink && g.isLink &&
+                prev.href === g.href &&
+                prev.isSubpage === g.isSubpage &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else if (prev && prev.isCode && g.isCode &&
@@ -6782,6 +6794,10 @@ class EditorInstance {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
             text = applyInlineStyles(text, group.styles);
+            // subpage marker はラウンドトリップで [[]] を保持（劣化防止・INV-1）
+            if (group.isSubpage && _subpageSerializeEnabled) {
+                return '[[' + text + ']](' + group.href + ')';
+            }
             return '[' + text + '](' + group.href + ')';
         }
         
@@ -7006,6 +7022,10 @@ class EditorInstance {
             } else if (tag === 'a') {
                 // BUG-FIX: documentBaseUri 経由で相対化
                 const href = resolveLinkRefForCopy(node);
+                // subpage marker はテーブルセル内でも [[]] を保持（INV-1）
+                if (node.dataset && node.dataset.subpage === 'true' && _subpageSerializeEnabled) {
+                    return '[[' + innerContent + ']](' + href + ')';
+                }
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
                 // BUG-FIX: documentBaseUri 経由で相対化
@@ -13235,6 +13255,11 @@ class EditorInstance {
         var a = document.createElement('a');
         a.href = filePath;
         a.textContent = linkName;
+        // 新規ページ作成時のみ subpage（既存ファイルへの参照挿入は参照リンクのまま・ADRL-0003）
+        if (!isExistingFile) {
+            a.dataset.subpage = 'true';
+            a.className = 'link-internal-md link-subpage';
+        }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
             var range = sel2.getRangeAt(0);
@@ -13390,6 +13415,9 @@ class EditorInstance {
                 pcA.href = relativePath;
                 pcA.textContent = pcLinkText;
                 pcA.dataset.markdownPath = relativePath;
+                // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
+                pcA.dataset.subpage = 'true';
+                pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
                 } else {
@@ -14807,6 +14835,42 @@ class EditorInstance {
         syncMarkdown();
     }
 
+    // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア。
+    // notes モードでは outliner/markdown の 2 ペインに帯があるため全 .fractal-resource-footer を更新。
+    // count/samplePath があれば data-rrf-template（{count}/{sample} プレースホルダ）を textContent で動的表示（XSS 回避で innerHTML 不使用）。
+    function updateResourceAccessFooter(outOfRange, count, samplePath) {
+        const footers = document.querySelectorAll('.fractal-resource-footer');
+        footers.forEach(function(footer) {
+            if (outOfRange && count > 0) {
+                footer.style.display = '';
+                const msgEl = footer.querySelector('.rrf-msg');
+                const tmpl = footer.getAttribute('data-rrf-template');
+                if (msgEl && tmpl) {
+                    // 関数置換で samplePath の $&/$1 等の特殊置換パターンによる意図せぬ展開を防ぐ。
+                    msgEl.textContent = tmpl
+                        .replace('{count}', function() { return String(count); })
+                        .replace('{sample}', function() { return samplePath || ''; });
+                }
+            } else {
+                footer.style.display = 'none';
+            }
+        });
+    }
+
+    // FR-RR-06: フッターの「設定を開く」ボタン → host.openResourceRootsSettings()
+    // isMainInstance ガードで main + side panel の二重登録を防ぐ（他の全 document listener と同書式）。
+    // さらに notes モードは editor.js と outliner.js を同一 document に両ロードするため、
+    // 共有グローバルフラグ window.__rrfClickWired で cross-script 二重登録も先勝ち 1 回に抑える。
+    if (isMainInstance && !window.__rrfClickWired) {
+        window.__rrfClickWired = true;
+        document.addEventListener('click', function(e) {
+            const btn = e.target && e.target.closest && e.target.closest('.rrf-open-settings');
+            if (btn && typeof host.openResourceRootsSettings === 'function') {
+                host.openResourceRootsSettings();
+            }
+        });
+    }
+
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
@@ -15009,20 +15073,26 @@ class EditorInstance {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'sidePanelFileDirStatus') {
             updateSidePanelFileDir(message.displayPath, message.source, message.locked);
+        } else if (message.type === 'resourceAccessStatus') {
+            updateResourceAccessFooter(!!message.outOfRange, message.count || 0, message.samplePath);
         } else if (message.type === 'insertImageHtml') {
-            logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
-            // If image was requested from side panel, dispatch to side panel instance
-            if (sidePanelImagePending && sidePanelHostBridge) {
-                sidePanelImagePending = false;
-                sidePanelHostBridge._sendMessage({
-                    type: 'insertImageHtml',
-                    markdownPath: message.markdownPath,
-                    displayUri: message.displayUri,
-                    dataUri: message.dataUri
-                });
-                return;
+            logger.log('insertImageHtml received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): 宛先判定。message.sidePanelFilePath があれば sidepanel 宛。
+            // このインスタンスが該当 sidepanel を管理している（filePath 一致）ときだけ中継し、
+            // 管理していなければ何もしない（notes メインペイン md instance の誤挿入を防ぐ）。
+            // instance-local フラグ（sidePanelImagePending）依存は廃止（cross-instance で破れるため）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: message.markdownPath,
+                        displayUri: message.displayUri,
+                        dataUri: message.dataUri
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
             }
-            sidePanelImagePending = false;
+            // sidePanelFilePath 無し = 自分（この instance）宛 → 自分の editor に挿入
             // Insert image at cursor position
             const img = document.createElement('img');
             img.src = message.displayUri;
@@ -15152,7 +15222,19 @@ class EditorInstance {
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertFileLink') {
-            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            logger.log('insertFileLink received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): insertImageHtml と同じ宛先判定。sidepanel 宛は自分に挿入せず、
+            // 自分が該当 sidepanel を管理していれば中継（standalone editor の file 添付 sidepanel 中継はここが担う）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertFileLink',
+                        markdownPath: message.markdownPath,
+                        fileName: message.fileName
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
+            }
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
@@ -15419,6 +15501,10 @@ class EditorInstance {
     var sidePanelCustomWidth = null; // session-only resize width
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
+        // FR-C (cross-instance): notes の markdown pane は side-panel DOM を持たない（sidePanelIframeContainer=null）。
+        // sidepanel は outliner.js が管轄するので、editor.js md instance は浮遊 sidepanel instance / scope 汚染を作らず早期 return。
+        // standalone editor は side-panel DOM を持つので非 null → 従来どおり続行。
+        if (!sidePanelIframeContainer) return;
         // Close existing panel if open (panel switch, not full close — preserve nav history)
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
@@ -18326,6 +18412,13 @@ class EditorInstance {
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;
+        // subpage serialize 分岐の on/off（TC-SP-10 counterfactual: false で [[]] → [] 劣化を機械実証）
+        window.__testApi.__setSubpageSerialize = (v) => { _subpageSerializeEnabled = !!v; };
+        // finalizeAddPage を直接呼ぶ（TC-SP-15: action panel 経由 = 新規/既存で subpage 分岐を検証）
+        window.__testApi.__finalizeAddPage = (filePath, linkName, isExistingFile) => {
+            actionPanelState.isExistingFile = !!isExistingFile;
+            finalizeAddPage(filePath, linkName);
+        };
         window.__testApi.ready = true;
         
         // Table operation functions for testing

@@ -128,15 +128,16 @@ test('TC-1B-01 (load-bearing) 2 closure md が同名の別画像 → 別コピ�
     const dst = path.join(root, 'dst');
     fs.mkdirSync(src, { recursive: true });
     fs.mkdirSync(dst, { recursive: true });
-    // md-link 再帰を通す: root.md → a.md / b.md（同 note 内）。a.md/b.md が同名別画像を参照。
-    writeF(src, 'root.md', '[a](a.md) [b](b.md)');
+    // md-link 再帰を通す: root.md → a.md / b.md（同 note 内・subpage marker で複製対象）。a.md/b.md が同名別画像を参照。
+    // ※ subpage-marker sprint（20260711-190326）でゲート反転: 複製されるのは subpage `[[]]` のみ（プレーン `[]` は参照）。
+    writeF(src, 'root.md', '[[a]](a.md) [[b]](b.md)');
     writeF(src, 'a.md', '![](imgs/p.png)');
     writeF(src, 'b.md', '![](other/p.png)');
     writeF(src, 'imgs/p.png', 'PA');
     writeF(src, 'other/p.png', 'PB');
 
     const { rewrittenMarkdown } = copyMdPasteAssets({
-        markdown: '[a](a.md) [b](b.md)',
+        markdown: '[[a]](a.md) [[b]](b.md)',
         sourceMdDir: src,
         sourceImageDir: src,
         sourceFileDir: src,
@@ -145,8 +146,8 @@ test('TC-1B-01 (load-bearing) 2 closure md が同名の別画像 → 別コピ�
         destMdDir: dst,
     });
 
-    // root 本文の md-link が dst 内の a.md / b.md 複製を指す
-    const mdLinks = [...rewrittenMarkdown.matchAll(/\[[ab]\]\(([^)]+)\)/g)].map(m => m[1]);
+    // root 本文の md-link が dst 内の a.md / b.md 複製を指す（subpage marker [[ ]] 保持）
+    const mdLinks = [...rewrittenMarkdown.matchAll(/\[\[[ab]\]\]\(([^)]+)\)/g)].map(m => m[1]);
     expect(mdLinks.length).toBe(2);
     const aAbs = path.resolve(dst, mdLinks[0]);
     const bAbs = path.resolve(dst, mdLinks[1]);
@@ -172,8 +173,8 @@ test('TC-1B-01 (load-bearing) 2 closure md が同名の別画像 → 別コピ�
     // dst/images に 2 物理ファイル
     const files = listImages(path.join(dst, 'images'));
     expect(files.length).toBe(2);
-    // counterfactual: 現行（closure md ごとに `copy-${Date.now()}-p.png` + skip）だと 1 つに畳まれ
-    //   b.md が 'PA' を指す → contents.has('PB') false / files.length 1 → fail。
+    // counterfactual: closure md ごとに `copy-${Date.now()}-p.png` + skip だと 1 つに畳まれ
+    //   b.md が 'PA' を指す → contents.has('PB') false / files.length 1 → fail（1:1 所有の番人）。
     fs.rmSync(root, { recursive: true, force: true });
 });
 

@@ -1388,14 +1388,27 @@ body {
     position: relative;
     top: 0.15em;
 }
+/* md リンク系（subpage / 参照）のアイコンをやや大きく */
+.editor a.link-internal-md::before,
+.editor a.link-subpage::before {
+    width: 1.2em;
+    height: 1.2em;
+    margin-right: 3px;
+    top: 0.22em;
+}
 .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%236c6c6c' stroke-width='1.5'/%3E%3C/svg%3E");
 }
 .editor a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%236c6c6c' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
+/* md 参照リンク [](x.md): ページ + 右上外向き矢印 ↗（別ページへ飛ぶ参照） */
 .editor a.link-internal-md::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%236c6c6c' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%236c6c6c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+/* subpage [[]](x.md): 角折れドキュメント（矢印なし・子ページ）。link-internal-md より後に置き後勝ちで上書き */
+.editor a.link-subpage::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%236c6c6c' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -1405,7 +1418,10 @@ body {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
 [data-fr-theme="dark"] .editor a.link-internal-md::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+[data-fr-theme="dark"] .editor a.link-subpage::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: dark) {
     [data-fr-theme="auto"] .editor a.link-fractal-node::before {
@@ -1415,7 +1431,10 @@ body {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
     }
     [data-fr-theme="auto"] .editor a.link-internal-md::before {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-subpage::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
     }
 }
 
@@ -2683,6 +2702,35 @@ body {
     font-family: var(--font-family);
 }
 
+/* FR-RR-05: リソースアクセス範囲外の控えめなフッター帯 */
+.fractal-resource-footer {
+    padding: 6px 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 10px;
+    color: var(--text-color);
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.fractal-resource-footer .rrf-msg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fractal-resource-footer .rrf-open-settings {
+    flex-shrink: 0;
+    font-size: 10px;
+    cursor: pointer;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    color: var(--link-color, inherit);
+    font-family: inherit;
+    padding: 0;
+}
+
     </style>
 </head>
 <body>
@@ -2714,7 +2762,11 @@ body {
         <input class="search-regex" id="searchRegex" type="checkbox">
     </div>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false"></div>
-    
+    <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+        <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+        <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+    </div>
+
     <script src="vendor/turndown.js"></script>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>
@@ -2783,12 +2835,39 @@ body {
                 i++;
                 continue;
             }
-            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
-            // outer `[...]` is literal text, inner `[text](url)` is the link.
-            // Detect: next char is `[`, and there's a complete inner link whose end is
-            // immediately followed by `]`. In that case skip the outer `[` so the inner
-            // one parses as the link.
-            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+            // 二重ブラケット判定:
+            //   `[[label]](url)`  = `[[` + label + `]]` + `(url)`  → subpage marker (isSubpage=true)
+            //   `[[label](url)]`  = 外側 `[` literal + 内側 `[label](url)` + `]`  → Wikipedia 引用 (従来通り)
+            // 直前が `!` の場合は画像 (`![[alt]](url)`) なので subpage 判定に入らない
+            // (i を進めて再走査したとき、消費済み `!` の直後の `[` を subpage と誤検出しないため)
+            var precededByBang = (bracketOpen > 0 && text.charAt(bracketOpen - 1) === '!');
+            var isSubpage = false;
+            if (!isImage && !precededByBang && text.charAt(bracketOpen + 1) === '[') {
+                // 内側の label 終わり `]` を探す (label に `]` は含まない前提 = 現行 indexOf と同じ制約)
+                var lblClose = text.indexOf(']', bracketOpen + 2);
+                if (lblClose !== -1 && text.charAt(lblClose + 1) === ']' && text.charAt(lblClose + 2) === '(') {
+                    // `[[label]](` パターン = subpage。label = bracketOpen+2 .. lblClose、url = (lblClose+2 の '(' から)
+                    var spCloseParen = findBalancedClose(text, lblClose + 2);
+                    if (spCloseParen !== -1) {
+                        var spAlt = text.slice(bracketOpen + 2, lblClose);
+                        var spUrl = text.slice(lblClose + 3, spCloseParen);
+                        result.push({
+                            kind: 'link',
+                            alt: spAlt,
+                            url: spUrl,
+                            isSubpage: true,
+                            start: tokenStart,        // 外側 `[[` の先頭
+                            end: spCloseParen + 1     // 末尾 `)` の次
+                        });
+                        i = spCloseParen + 1;
+                        continue;
+                    }
+                }
+                // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+                // outer `[...]` is literal text, inner `[text](url)` is the link.
+                // Detect: next char is `[`, and there's a complete inner link whose end is
+                // immediately followed by `]`. In that case skip the outer `[` so the inner
+                // one parses as the link.
                 var innerCloseBr = text.indexOf(']', bracketOpen + 2);
                 if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
                     var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
@@ -2815,6 +2894,7 @@ body {
                 kind: isImage ? 'image' : 'link',
                 alt: alt,
                 url: url,
+                isSubpage: false,        // 参照リンク・画像は false
                 start: tokenStart,
                 end: closeParen + 1
             });
@@ -2972,6 +3052,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         reportBlur: function() {
             postFn({ type: 'webviewBlur' });
+        },
+
+        // リソースアクセス範囲設定 (FR-RR-06)
+        openResourceRootsSettings: function() {
+            postFn({ type: 'openResourceRootsSettings' });
         },
 
         // 検索
@@ -4281,14 +4366,15 @@ class EditorInstance {
     // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
-    function classifyLinkHref(href) {
+    function classifyLinkHref(href, isSubpage) {
         if (!href) return '';
         if (href.startsWith('fractal://note/')) {
             return /\/page\/[^/?]+$/.test(href) ? 'link-fractal-page' : 'link-fractal-node';
         }
         if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#') &&
             /\.(?:md|markdown)(?:[#?]|$)/i.test(href)) {
-            return 'link-internal-md';
+            // subpage marker は参照リンクと区別する class を付与
+            return isSubpage ? 'link-internal-md link-subpage' : 'link-internal-md';
         }
         return '';
     }
@@ -5611,9 +5697,11 @@ class EditorInstance {
                     html = html.slice(0, ln.start) + imgPlaceholder + html.slice(ln.end);
                 } else if (ln.kind === 'link' && ln.alt.length > 0) {
                     // link は空 text を許容しない (旧 regex 挙動踏襲)
-                    var linkClass = classifyLinkHref(ln.url);
+                    var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + '>' + ln.alt + '</a>';
+                    // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -10190,6 +10278,10 @@ class EditorInstance {
     // by collecting character-level style information and generating
     // minimal Markdown output.
 
+    // subpage serialize フラグ（既定 true）。テストで counterfactual（subpage 分岐を切って [] 劣化を実証）用に
+    // __testApi.__setSubpageSerialize(false) で無効化できる。本番では常に true。
+    let _subpageSerializeEnabled = true;
+
     /**
      * Collect character-level style information from a DOM node.
      * Each character gets a style set indicating which formatting applies.
@@ -10228,6 +10320,8 @@ class EditorInstance {
         if (tag === 'a') {
             // Check if this is a file attachment link
             const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            // subpage marker `[[]]` 往路フラグ（serialize が [[]] に書き戻す）
+            const isSubpage = node.dataset.subpage === 'true';
             // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
             const href = resolveLinkRefForCopy(node);
 
@@ -10257,6 +10351,7 @@ class EditorInstance {
                 for (const c of childChars) {
                     c.isLink = true;
                     c.href = href;
+                    c.isSubpage = isSubpage;   // subpage フラグを char entry に伝播
                     result.push(c);
                 }
             }
@@ -10359,6 +10454,7 @@ class EditorInstance {
                     styles: c.styles,
                     isLink: c.isLink,
                     href: c.href,
+                    isSubpage: c.isSubpage,   // subpage フラグを group に運ぶ
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
@@ -10378,8 +10474,9 @@ class EditorInstance {
         const mergedGroups = [];
         for (const g of groups) {
             const prev = mergedGroups[mergedGroups.length - 1];
-            if (prev && prev.isLink && g.isLink && 
-                prev.href === g.href && 
+            if (prev && prev.isLink && g.isLink &&
+                prev.href === g.href &&
+                prev.isSubpage === g.isSubpage &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else if (prev && prev.isCode && g.isCode &&
@@ -10424,6 +10521,10 @@ class EditorInstance {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
             text = applyInlineStyles(text, group.styles);
+            // subpage marker はラウンドトリップで [[]] を保持（劣化防止・INV-1）
+            if (group.isSubpage && _subpageSerializeEnabled) {
+                return '[[' + text + ']](' + group.href + ')';
+            }
             return '[' + text + '](' + group.href + ')';
         }
         
@@ -10648,6 +10749,10 @@ class EditorInstance {
             } else if (tag === 'a') {
                 // BUG-FIX: documentBaseUri 経由で相対化
                 const href = resolveLinkRefForCopy(node);
+                // subpage marker はテーブルセル内でも [[]] を保持（INV-1）
+                if (node.dataset && node.dataset.subpage === 'true' && _subpageSerializeEnabled) {
+                    return '[[' + innerContent + ']](' + href + ')';
+                }
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
                 // BUG-FIX: documentBaseUri 経由で相対化
@@ -16877,6 +16982,11 @@ class EditorInstance {
         var a = document.createElement('a');
         a.href = filePath;
         a.textContent = linkName;
+        // 新規ページ作成時のみ subpage（既存ファイルへの参照挿入は参照リンクのまま・ADRL-0003）
+        if (!isExistingFile) {
+            a.dataset.subpage = 'true';
+            a.className = 'link-internal-md link-subpage';
+        }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
             var range = sel2.getRangeAt(0);
@@ -17032,6 +17142,9 @@ class EditorInstance {
                 pcA.href = relativePath;
                 pcA.textContent = pcLinkText;
                 pcA.dataset.markdownPath = relativePath;
+                // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
+                pcA.dataset.subpage = 'true';
+                pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
                 } else {
@@ -18449,6 +18562,42 @@ class EditorInstance {
         syncMarkdown();
     }
 
+    // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア。
+    // notes モードでは outliner/markdown の 2 ペインに帯があるため全 .fractal-resource-footer を更新。
+    // count/samplePath があれば data-rrf-template（{count}/{sample} プレースホルダ）を textContent で動的表示（XSS 回避で innerHTML 不使用）。
+    function updateResourceAccessFooter(outOfRange, count, samplePath) {
+        const footers = document.querySelectorAll('.fractal-resource-footer');
+        footers.forEach(function(footer) {
+            if (outOfRange && count > 0) {
+                footer.style.display = '';
+                const msgEl = footer.querySelector('.rrf-msg');
+                const tmpl = footer.getAttribute('data-rrf-template');
+                if (msgEl && tmpl) {
+                    // 関数置換で samplePath の $&/$1 等の特殊置換パターンによる意図せぬ展開を防ぐ。
+                    msgEl.textContent = tmpl
+                        .replace('{count}', function() { return String(count); })
+                        .replace('{sample}', function() { return samplePath || ''; });
+                }
+            } else {
+                footer.style.display = 'none';
+            }
+        });
+    }
+
+    // FR-RR-06: フッターの「設定を開く」ボタン → host.openResourceRootsSettings()
+    // isMainInstance ガードで main + side panel の二重登録を防ぐ（他の全 document listener と同書式）。
+    // さらに notes モードは editor.js と outliner.js を同一 document に両ロードするため、
+    // 共有グローバルフラグ window.__rrfClickWired で cross-script 二重登録も先勝ち 1 回に抑える。
+    if (isMainInstance && !window.__rrfClickWired) {
+        window.__rrfClickWired = true;
+        document.addEventListener('click', function(e) {
+            const btn = e.target && e.target.closest && e.target.closest('.rrf-open-settings');
+            if (btn && typeof host.openResourceRootsSettings === 'function') {
+                host.openResourceRootsSettings();
+            }
+        });
+    }
+
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
@@ -18651,20 +18800,26 @@ class EditorInstance {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'sidePanelFileDirStatus') {
             updateSidePanelFileDir(message.displayPath, message.source, message.locked);
+        } else if (message.type === 'resourceAccessStatus') {
+            updateResourceAccessFooter(!!message.outOfRange, message.count || 0, message.samplePath);
         } else if (message.type === 'insertImageHtml') {
-            logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
-            // If image was requested from side panel, dispatch to side panel instance
-            if (sidePanelImagePending && sidePanelHostBridge) {
-                sidePanelImagePending = false;
-                sidePanelHostBridge._sendMessage({
-                    type: 'insertImageHtml',
-                    markdownPath: message.markdownPath,
-                    displayUri: message.displayUri,
-                    dataUri: message.dataUri
-                });
-                return;
+            logger.log('insertImageHtml received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): 宛先判定。message.sidePanelFilePath があれば sidepanel 宛。
+            // このインスタンスが該当 sidepanel を管理している（filePath 一致）ときだけ中継し、
+            // 管理していなければ何もしない（notes メインペイン md instance の誤挿入を防ぐ）。
+            // instance-local フラグ（sidePanelImagePending）依存は廃止（cross-instance で破れるため）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: message.markdownPath,
+                        displayUri: message.displayUri,
+                        dataUri: message.dataUri
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
             }
-            sidePanelImagePending = false;
+            // sidePanelFilePath 無し = 自分（この instance）宛 → 自分の editor に挿入
             // Insert image at cursor position
             const img = document.createElement('img');
             img.src = message.displayUri;
@@ -18794,7 +18949,19 @@ class EditorInstance {
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertFileLink') {
-            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            logger.log('insertFileLink received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): insertImageHtml と同じ宛先判定。sidepanel 宛は自分に挿入せず、
+            // 自分が該当 sidepanel を管理していれば中継（standalone editor の file 添付 sidepanel 中継はここが担う）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertFileLink',
+                        markdownPath: message.markdownPath,
+                        fileName: message.fileName
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
+            }
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
@@ -19061,6 +19228,10 @@ class EditorInstance {
     var sidePanelCustomWidth = null; // session-only resize width
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
+        // FR-C (cross-instance): notes の markdown pane は side-panel DOM を持たない（sidePanelIframeContainer=null）。
+        // sidepanel は outliner.js が管轄するので、editor.js md instance は浮遊 sidepanel instance / scope 汚染を作らず早期 return。
+        // standalone editor は side-panel DOM を持つので非 null → 従来どおり続行。
+        if (!sidePanelIframeContainer) return;
         // Close existing panel if open (panel switch, not full close — preserve nav history)
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
@@ -21968,6 +22139,13 @@ class EditorInstance {
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;
+        // subpage serialize 分岐の on/off（TC-SP-10 counterfactual: false で [[]] → [] 劣化を機械実証）
+        window.__testApi.__setSubpageSerialize = (v) => { _subpageSerializeEnabled = !!v; };
+        // finalizeAddPage を直接呼ぶ（TC-SP-15: action panel 経由 = 新規/既存で subpage 分岐を検証）
+        window.__testApi.__finalizeAddPage = (filePath, linkName, isExistingFile) => {
+            actionPanelState.isExistingFile = !!isExistingFile;
+            finalizeAddPage(filePath, linkName);
+        };
         window.__testApi.ready = true;
         
         // Table operation functions for testing

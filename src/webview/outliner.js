@@ -921,6 +921,7 @@ var Outliner = (function() {
         setupTextSearchReplace();
         initSidePanel();
         setupS3SyncButton();
+        setupResourceRootsFooter();
 
         // [K] iteration 29 / TASK-77: 初期 VIEW_MODE (mindmap で開いた場合) のヘッダー状態を反映。
         updateHeaderForViewMode();
@@ -7743,9 +7744,54 @@ var Outliner = (function() {
         btn.style.display = visible ? 'flex' : 'none';
     }
 
+    // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア（全 .fractal-resource-footer を更新）
+    // count/samplePath があれば data-rrf-template を textContent で動的表示（XSS 回避で innerHTML 不使用）。
+    function updateResourceAccessFooter(outOfRange, count, samplePath) {
+        var footers = document.querySelectorAll('.fractal-resource-footer');
+        for (var i = 0; i < footers.length; i++) {
+            var footer = footers[i];
+            if (outOfRange && count > 0) {
+                footer.style.display = '';
+                var msgEl = footer.querySelector('.rrf-msg');
+                var tmpl = footer.getAttribute('data-rrf-template');
+                if (msgEl && tmpl) {
+                    // 関数置換で samplePath の $&/$1 等の特殊置換パターンによる意図せぬ展開を防ぐ。
+                    msgEl.textContent = tmpl
+                        .replace('{count}', function() { return String(count); })
+                        .replace('{sample}', function() { return samplePath || ''; });
+                }
+            } else {
+                footer.style.display = 'none';
+            }
+        }
+    }
+
+    // FR-RR-06: フッター「設定を開く」ボタン → host.openResourceRootsSettings()。
+    // init が複数回呼ばれても listener を 1 回だけ登録する（_resourceRootsFooterWired）。
+    // さらに notes モードは editor.js と outliner.js を同一 document に両ロードするため、
+    // 共有グローバルフラグ window.__rrfClickWired で cross-script 二重登録も先勝ち 1 回に抑える。
+    var _resourceRootsFooterWired = false;
+    function setupResourceRootsFooter() {
+        if (_resourceRootsFooterWired) return;
+        if (window.__rrfClickWired) { _resourceRootsFooterWired = true; return; }
+        _resourceRootsFooterWired = true;
+        window.__rrfClickWired = true;
+        document.addEventListener('click', function(e) {
+            var btn = e.target && e.target.closest && e.target.closest('.rrf-open-settings');
+            if (btn && host && typeof host.openResourceRootsSettings === 'function') {
+                host.openResourceRootsSettings();
+            }
+        });
+    }
+
     function setupHostMessages() {
         host.onMessage(function(msg) {
             switch (msg.type) {
+                // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア
+                case 'resourceAccessStatus':
+                    updateResourceAccessFooter(!!msg.outOfRange, msg.count || 0, msg.samplePath);
+                    break;
+
                 // FR-OS3-08 / D-08: outliner-toolbar-s3-sync 経路
                 case 'sync-lock':
                     enterSyncLock();
@@ -8149,7 +8195,9 @@ var Outliner = (function() {
                     break;
 
                 case 'insertImageHtml':
-                    if (sidePanelInstance && sidePanelHostBridge) {
+                    // FR (cross-instance): sidepanel 宛（sidePanelFilePath あり）かつ管理中の sidepanel と filePath 一致のときだけ転送。
+                    // sidePanelFilePath 無し（メイン宛）は outliner は何もしない。stale broadcast も filePath 一致で弾く。
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
                         sidePanelHostBridge._sendMessage({
                             type: 'insertImageHtml',
                             markdownPath: msg.markdownPath,
@@ -8170,7 +8218,8 @@ var Outliner = (function() {
                     break;
 
                 case 'insertFileLink':
-                    if (sidePanelInstance && sidePanelHostBridge) {
+                    // FR (cross-instance): insertImageHtml と同じ宛先 + filePath 一致条件
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
                         sidePanelHostBridge._sendMessage({
                             type: 'insertFileLink',
                             markdownPath: msg.markdownPath,

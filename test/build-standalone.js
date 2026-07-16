@@ -223,7 +223,11 @@ const html = `<!DOCTYPE html>
         <input class="search-regex" id="searchRegex" type="checkbox">
     </div>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false"></div>
-    
+    <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+        <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+        <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+    </div>
+
     <script src="vendor/turndown.js"></script>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>

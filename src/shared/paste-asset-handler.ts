@@ -131,10 +131,14 @@ export function collectMdLinkClosure(
             try { body = fs.readFileSync(cur.mdAbs, 'utf8'); } catch { body = ''; }
         }
         const curDir = path.dirname(cur.mdAbs);
-        for (const ref of extractAllAssetRefs(body).mdLinks) {
-            const target = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(curDir, ref);
+        // ★subpage (`[[]]`) だけ follow して複製する（参照リンク `[]` は複製しない = ゲート反転・ADR-0009）。
+        //   mdLinkRefs で種別付き。参照リンクの URL 書換は rewriteMdLinksInBody が mdLinks（両種別）で別途行う。
+        for (const ref of extractAllAssetRefs(body).mdLinkRefs) {
+            if (!ref.isSubpage) { continue; } // 参照リンクは follow しない（複製しない）
+            const url = ref.url;
+            const target = path.isAbsolute(url) ? path.resolve(url) : path.resolve(curDir, url);
             if (!isUnderNoteDir(target, sourceMdDir) || !fs.existsSync(target)) {
-                external.add(target); // 自note外 or 解決不能 → 複製しない
+                external.add(target); // 自note外 subpage or 解決不能 → 複製しない（ADRL-0002）
                 continue;
             }
             if (visited.has(target)) { continue; } // ★循環検出
@@ -820,13 +824,19 @@ function stripWebviewUrlPrefixes(md: string): string {
  * extractImagePaths と違い **絶対パス・http(s) URL も結果に含める** (copyMdPasteAssets が後段でコピー判断)。
  * - images: `![](url)`
  * - files:  `[📎 ...](url)` (添付ファイル指定)
- * - mdLinks: `[text](url)` で url が `.md` で終わるもの (📎 でも image でもない通常リンク)
+ * - mdLinks: `[text](url)` で url が `.md` で終わるもの (📎 でも image でもない通常リンク)。両種別 (subpage `[[]]` + 参照 `[]`)
+ * - mdLinkRefs: mdLinks を種別付き ({ url, isSubpage }) で返す。複製ゲート (collectMdLinkClosure) が subpage だけ follow するのに使う
  */
-export function extractAllAssetRefs(md: string): { images: string[]; files: string[]; mdLinks: string[] } {
+export function extractAllAssetRefs(md: string): {
+    images: string[]; files: string[];
+    mdLinks: string[];
+    mdLinkRefs: { url: string; isSubpage: boolean }[];
+} {
     const images = new Set<string>();
     const files = new Set<string>();
     const mdLinks = new Set<string>();
-    if (!md) return { images: [], files: [], mdLinks: [] };
+    const mdLinkRefs: { url: string; isSubpage: boolean }[] = [];
+    if (!md) return { images: [], files: [], mdLinks: [], mdLinkRefs: [] };
     // images: ![alt](url)
     const imgRe = /!\[[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
     let m: RegExpExecArray | null;
@@ -844,18 +854,58 @@ export function extractAllAssetRefs(md: string): { images: string[]; files: stri
         if (/^(data:|https?:|file:)/i.test(url)) continue;
         files.add(url);
     }
-    // mdLinks: [text](url.md) - 画像 (`!` 始まり) と 📎 始まり以外
-    // (^|[^!]) で `!` 直前を排除、 \[(?!📎) で 📎 始まりを排除
-    const mdLinkRe = /(^|[^!])\[(?!📎)[^\]]+\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
-    while ((m = mdLinkRe.exec(md)) !== null) {
-        const url = (m[2] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+    // mdLinks / mdLinkRefs: parser.parseMarkdownLinks で subpage 判別を一元化 (`[[]]` も拾う)
+    // url 正規化: title strip (`[x](y.md "title")`) → クエリ/フラグメント除去
+    const normalizeMdUrl = (raw: string): string => {
+        let u = (raw || '').trim().replace(/^<|>$/g, '');
+        u = u.replace(/\s+["'][^"']*["']\s*$/, ''); // 末尾 title ("..." / '...') を除去
+        return u.split(/[?#]/)[0];
+    };
+    const seenRef = new Set<string>();
+    for (const tok of parser.parseMarkdownLinks(md) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean }>) {
+        if (tok.kind !== 'link') continue;
+        const altTrim = (tok.alt || '').trim();
+        if (altTrim.indexOf('📎') === 0) continue; // 📎 添付は files 側
+        const url = normalizeMdUrl(tok.url);
         if (!url) continue;
         if (/^(data:|https?:|file:|fractal:)/i.test(url)) continue;
         if (url.startsWith('#')) continue; // anchor link
-        if (!url.toLowerCase().endsWith('.md') && !url.toLowerCase().endsWith('.markdown')) continue;
+        const lower = url.toLowerCase();
+        if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
         mdLinks.add(url);
+        const key = url + '|' + (tok.isSubpage ? '1' : '0');
+        if (!seenRef.has(key)) { seenRef.add(key); mdLinkRefs.push({ url, isSubpage: !!tok.isSubpage }); }
     }
-    return { images: Array.from(images), files: Array.from(files), mdLinks: Array.from(mdLinks) };
+    return { images: Array.from(images), files: Array.from(files), mdLinks: Array.from(mdLinks), mdLinkRefs };
+}
+
+/**
+ * 本文中のプレーン md リンク `[label](x.md)` を subpage marker `[[label]](x.md)` に昇格する。
+ * - 既に `[[]]`（subpage）のものは触らない（冪等）。
+ * - 画像 `![]()`・📎 添付・http/data/file/fractal/anchor は対象外。
+ * - 参照/subpage の区別は付かない前提で「全 .md リンクを subpage 化」（migrate 決定2: 旧=全複製維持）。
+ * flat-migrate が旧フォルダ note の md 本文に適用する（applyLinkUrlRewrites は url span しか置換できず括弧を足せないため新規）。
+ */
+export function promoteMdLinksToSubpage(body: string): string {
+    if (!body) return body;
+    const toks = parser.parseMarkdownLinks(body) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }>;
+    // end 降順で置換（index ズレ回避・parseInline と同じパターン）
+    const targets = toks
+        .filter((t) => t.kind === 'link' && !t.isSubpage)
+        .filter((t) => {
+            // title strip してから .md 判定
+            const u = (t.url || '').replace(/\s+["'][^"']*["']\s*$/, '').split(/[?#]/)[0].toLowerCase();
+            return (u.endsWith('.md') || u.endsWith('.markdown'))
+                && !/^(https?:|data:|file:|fractal:)/i.test(t.url) && !t.url.startsWith('#');
+        })
+        .filter((t) => (t.alt || '').trim().indexOf('📎') !== 0) // 📎 添付は除外
+        .sort((a, b) => b.end - a.end);
+    let out = body;
+    for (const t of targets) {
+        const replacement = '[[' + t.alt + ']](' + t.url + ')';
+        out = out.slice(0, t.start) + replacement + out.slice(t.end);
+    }
+    return out;
 }
 
 export function copyMdPasteAssets(opts: {

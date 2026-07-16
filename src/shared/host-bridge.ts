@@ -40,6 +40,9 @@ export interface HostBridge {
     createPageAuto(): void;
     updatePageH1(relativePath: string, h1Text: string): void;
 
+    // リソースアクセス範囲設定 (FR-RR-06)
+    openResourceRootsSettings(): void;
+
     // ホストからのメッセージ受信
     onMessage(handler: (message: HostMessage) => void): void;
 }
@@ -50,18 +53,19 @@ export type HostMessage =
     | { type: 'performUndo' }
     | { type: 'performRedo' }
     | { type: 'toggleSourceMode' }
-    | { type: 'insertImageHtml'; markdownPath: string; displayUri: string }
+    | { type: 'insertImageHtml'; markdownPath: string; displayUri: string; sidePanelFilePath?: string }
     | { type: 'insertLinkHtml'; url: string; text: string }
     | { type: 'externalChangeDetected'; message: string }
     | { type: 'scrollToAnchor'; anchor: string; headingIndex?: number }
     | { type: 'imageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelImageDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
-    | { type: 'insertFileLink'; markdownPath: string; fileName: string }
+    | { type: 'insertFileLink'; markdownPath: string; fileName: string; sidePanelFilePath?: string }
     | { type: 'fileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'sidePanelFileDirStatus'; displayPath: string; source: 'file' | 'settings' | 'default' }
     | { type: 'openSidePanel'; content: string; filePath: string; fileName: string }
     | { type: 'fileSearchResults'; results: string[]; query: string }
-    | { type: 'pageCreatedAtPath'; relativePath: string };
+    | { type: 'pageCreatedAtPath'; relativePath: string }
+    | { type: 'resourceAccessStatus'; outOfRange: boolean; count: number; samplePath?: string };
 
 /** window にグローバルとして注入される */
 declare global {

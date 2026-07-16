@@ -125,6 +125,10 @@ function generateEditorBodyHtml(messages, platform, options) {
                 <div class="editor" id="editor" contenteditable="true" spellcheck="true"></div>
                 <textarea class="source-editor" id="sourceEditor" style="display: none;"></textarea>
             </div>
+            <div class="fractal-resource-footer" style="display:none" data-rrf-template="${m('resourceAccessOutOfRangeCount')}">
+                <span class="rrf-msg">${m('resourceAccessOutOfRange')}</span>
+                <button class="rrf-open-settings" data-action="openResourceRootsSettings">${m('resourceAccessOpenSettings')}</button>
+            </div>
             ${includeSidePanel ? generateSidePanelHtml(msg) : ''}
         </main>
     </div>`;

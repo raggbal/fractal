@@ -90,8 +90,11 @@ const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8'
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 
 // サイドパネルHTML生成
-const { generateSidePanelHtml } = require(editorBodyHtmlPath);
+const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtmlPath);
 const sidePanelHtml = generateSidePanelHtml({});
+// TC-RR-46: notes md ペイン（EditorInstance を構築して editor.js の click listener を document に登録させ、
+// cross-script 二重発火の load-bearing 条件を成立させるため）。production notesWebviewContent と同じ markdownPaneHtml。
+const markdownPaneHtml = generateEditorBodyHtml({}, process.platform, { includeSidePanel: false });
 
 // --- テスト用 HostBridge モック (notes-host-bridge.js 相当) ---
 const testNotesHostBridge = `
@@ -169,12 +172,17 @@ const testNotesHostBridge = `
             window.__testApi.messages.push({ type: 'showConfirm', id: id, message: message });
         },
         onMessage: function(handler) {
-            // updateData受信時にcurrentFileChangeIdを自動更新（本番のnotes-host-bridge.jsと同等）
+            // FR (cross-instance E2E): 本番は複数 instance（md pane + outliner/sidepanel）が各々 window message を
+            // 受信する（2 系統受信）。singleton だと後勝ちで 1 本しか残らず 2 系統受信を再現できない（tautology）。
+            // → 配列に push して全 handler へ配送する。後方互換: 既存 25+ spec が window.__hostMessageHandler(msg) を
+            // callable として直接呼ぶため、__hostMessageHandler は「全 handler へ配送する関数」として残す（undefined にしない）。
+            window.__hostMessageHandlers = window.__hostMessageHandlers || [];
+            window.__hostMessageHandlers.push(handler);
             window.__hostMessageHandler = function(msg) {
                 if (msg && msg.type === 'updateData' && msg.fileChangeId !== undefined) {
                     currentFileChangeId = msg.fileChangeId;
                 }
-                handler(msg);
+                window.__hostMessageHandlers.forEach(function(h) { h(msg); });
             };
         }
     });
@@ -310,6 +318,13 @@ const html = `<!DOCTYPE html>
                 </div>
                 <div class="outliner-breadcrumb"></div>
                 <div class="outliner-tree" role="tree"></div>
+                <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+                    <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+                    <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+                </div>
+            </div>
+            <div class="markdown-container" style="display:none">
+                ${markdownPaneHtml}
             </div>
         </div>
     </div>
@@ -411,6 +426,20 @@ const html = `<!DOCTYPE html>
             return JSON.parse(window.__testApi.lastSyncData);
         }
         return null;
+    };
+    // TC-RR-46: md ペインの EditorInstance を構築して editor.js の document click listener を
+    // 登録させる（production notes モードと同じ「outliner.js + editor.js を同一 document に両ロード」状態を
+    // 再現）。これで .rrf-open-settings の cross-script 二重発火の load-bearing 条件が成立する。
+    window.__testApi.loadMarkdownPane = function(text) {
+        var mc = document.querySelector('.markdown-container');
+        if (!mc || !window.EditorInstance) return;
+        mc.style.display = '';
+        new window.EditorInstance(mc, window.outlinerHostBridge, {
+            initialContent: text || '',
+            filePath: null,
+            documentBaseUri: '',
+            sidebarHidden: true,
+        });
     };
     // 空データで初期化
     window.__testApi.initOutliner();

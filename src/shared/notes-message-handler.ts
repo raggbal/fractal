@@ -24,6 +24,10 @@ export interface NotesSender {
 export interface NotesPlatformActions {
     /** 外部リンクをブラウザで開く */
     openExternalLink(href: string): void;
+    /** FR-RR-06: fractal.resourceRoots の settings を開く */
+    openResourceRootsSettings?(): void;
+    /** FR-RR-04: notes 本体 md open 時、その md の画像に許可範囲外があればフッター案内を送る */
+    sendResourceAccessStatus?(filePath: string, mdBody: string): void;
     /** .md ファイルをエディタで開く (Electron: createWindow, VSCode: vscode.openWith) */
     openFileInEditor(filePath: string): void;
     /** サイドパネルでページを開く (lineNumber指定時はスクロール) */
@@ -231,6 +235,10 @@ export async function handleNotesMessage(
 ): Promise<void> {
     switch (message.type) {
         // ── Core Data ──
+
+        case 'openResourceRootsSettings':
+            platform.openResourceRootsSettings?.();
+            break;
 
         case 'syncData':
             // stale sync（ファイル切替前のデータ）を無視
@@ -786,6 +794,7 @@ export async function handleNotesMessage(
                         outFileKey: fileManager.getCurrentFilePath(),
                     });
                     platform.sendMdDirStatus?.();
+                    platform.sendResourceAccessStatus?.(message.filePath, content);
                     platform.mdMainOpened?.(message.filePath);
                     // search hit からの open の場合、markdown pane が rebuild された後に
                     // ヒット箇所へジャンプ + 黄色ハイライト (scrollToText)。
@@ -850,6 +859,7 @@ export async function handleNotesMessage(
                     outFileKey: fileManager.getCurrentFilePath(),
                 });
                 platform.sendMdDirStatus?.();
+                platform.sendResourceAccessStatus?.(filePath, content);
                 platform.mdMainOpened?.(filePath);
             }
             break;
@@ -880,6 +890,7 @@ export async function handleNotesMessage(
                                 outFileKey: fileManager.getCurrentFilePath(),
                             });
                             platform.sendMdDirStatus?.();
+                            platform.sendResourceAccessStatus?.(fp, content);
                             platform.mdMainOpened?.(fp);
                         } else {
                             platform.mdMainClosed?.();

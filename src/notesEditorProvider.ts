@@ -6,6 +6,7 @@ import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { NotesMdMainManager } from './shared/notesMdMainManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig, checkAwsCli } from './notes-s3-sync';
 import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgress } from './outliner-s3-sync';
@@ -17,6 +18,7 @@ import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { resolveImagesDirForMd, resolveFilesDirForMd } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
@@ -80,6 +82,25 @@ export class NotesEditorProvider {
     private folderProvider?: { refresh(): void; getFolders(): string[] };
     public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {
         this.folderProvider = fp;
+    }
+
+    /**
+     * Notes webview の localResourceRoots を組む。
+     * media/vendor（拡張同梱）+ 自 note（folderPath）+ homeDir。
+     * 別 note の md を sidepanel で開いたときにその note の画像/添付がロードできるよう、
+     * homeDir（ホームディレクトリ丸ごと）を許可範囲に含める。standalone md（editorProvider）が
+     * 既に homeDir を許可している方針に揃える（note は任意パスに散らばりうるが通常はホーム配下）。
+     */
+    private buildLocalResourceRoots(folderPath: string): vscode.Uri[] {
+        // FR-RR-03: homeDir ハードコードを settings 由来の許可範囲に置換（空なら [homedir]）。
+        const cfg = vscode.workspace.getConfiguration('fractal');
+        const roots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+        return [
+            vscode.Uri.joinPath(this.context.extensionUri, 'media'),
+            vscode.Uri.joinPath(this.context.extensionUri, 'vendor'),
+            vscode.Uri.file(folderPath),
+            ...roots.map(p => vscode.Uri.file(p)), // settings 由来（空なら [homedir]＝後方互換）
+        ];
     }
 
     constructor(private context: vscode.ExtensionContext) {}
@@ -184,11 +205,7 @@ export class NotesEditorProvider {
             {
                 enableScripts: true,
                 retainContextWhenHidden: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-                    vscode.Uri.joinPath(this.context.extensionUri, 'vendor'),
-                    vscode.Uri.file(folderPath),
-                ],
+                localResourceRoots: this.buildLocalResourceRoots(folderPath),
             }
         );
 
@@ -386,6 +403,9 @@ export class NotesEditorProvider {
             openExternalLink: (href: string) => {
                 vscode.env.openExternal(vscode.Uri.parse(href));
             },
+            openResourceRootsSettings: () => {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+            },
             navigateInAppLink: (href: string) => {
                 vscode.commands.executeCommand('fractal.navigateInAppLink', href);
             },
@@ -458,8 +478,8 @@ export class NotesEditorProvider {
                 vscode.env.clipboard.writeText(paths.join('\n'));
             },
             requestInsertImage: async (sidePanelFilePath: string) => {
-                const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = fileManager.getOutlinerImageDirPath();
+                // FR: sidepanel で開いている md の場所を基準に保存（別 note / 非 note 対応）
+                const imagesDir = resolveImagesDirForMd(sidePanelFilePath);
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const options: vscode.OpenDialogOptions = {
                     canSelectMany: false,
@@ -478,6 +498,7 @@ export class NotesEditorProvider {
                         type: 'insertImageHtml',
                         markdownPath: relPath,
                         displayUri,
+                        sidePanelFilePath, // FR: 宛先=sidepanel
                     });
                 }
             },
@@ -758,8 +779,7 @@ export class NotesEditorProvider {
                 }
             },
             saveImageToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
-                const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = fileManager.getOutlinerImageDirPath();
+                const imagesDir = resolveImagesDirForMd(sidePanelFilePath);
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const parsed = parseDataUrl(dataUrl);
                 if (!parsed) return;
@@ -777,11 +797,11 @@ export class NotesEditorProvider {
                     markdownPath: relPath,
                     displayUri,
                     dataUri: dataUrl,
+                    sidePanelFilePath, // FR: 宛先=sidepanel（受信側が自分宛か判定）
                 });
             },
             readAndInsertImage: (filePath: string, sidePanelFilePath: string) => {
-                const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = fileManager.getOutlinerImageDirPath();
+                const imagesDir = resolveImagesDirForMd(sidePanelFilePath);
                 if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
                 const imgFileName = path.basename(filePath);
                 const destPath = path.join(imagesDir, imgFileName);
@@ -794,16 +814,15 @@ export class NotesEditorProvider {
                         type: 'insertImageHtml',
                         markdownPath: relPath,
                         displayUri,
+                        sidePanelFilePath, // FR: 宛先=sidepanel
                     });
                 } catch (e) {
                     console.error('[Notes] readAndInsertImage error:', e);
                 }
             },
             saveFileToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
-                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
-                const filesDir = outlinerId
-                    ? fileManager.getOutlinerFileDirPath()
-                    : path.join(fileManager.getMainFolderPath(), 'files');
+                // FR: sidepanel で開いている md の場所を基準に保存（別 note / 非 note 対応）
+                const filesDir = resolveFilesDirForMd(sidePanelFilePath);
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 // Generate unique filename preserving original
@@ -827,16 +846,14 @@ export class NotesEditorProvider {
                         type: 'insertFileLink',
                         markdownPath: relPath,
                         fileName: destFileName,
+                        sidePanelFilePath, // FR: 宛先=sidepanel
                     });
                 } catch (e) {
                     console.error('[Notes] saveFileToDir error:', e);
                 }
             },
             readAndInsertFile: (filePath: string, sidePanelFilePath: string) => {
-                const outlinerId = fileManager.getCurrentFilePath() ? path.basename(fileManager.getCurrentFilePath()!, '.out') : null;
-                const filesDir = outlinerId
-                    ? fileManager.getOutlinerFileDirPath()
-                    : path.join(fileManager.getMainFolderPath(), 'files');
+                const filesDir = resolveFilesDirForMd(sidePanelFilePath);
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 const originalName = path.basename(filePath);
@@ -859,6 +876,7 @@ export class NotesEditorProvider {
                         type: 'insertFileLink',
                         markdownPath: relPath,
                         fileName: destFileName,
+                        sidePanelFilePath, // FR: 宛先=sidepanel
                     });
                 } catch (e) {
                     console.error('[Notes] readAndInsertFile error:', e);
@@ -990,6 +1008,21 @@ export class NotesEditorProvider {
                 if (!filePath) return '';
                 const docDir = vscode.Uri.file(path.dirname(filePath));
                 return panel.webview.asWebviewUri(docDir).toString();
+            },
+            // FR-RR-04: Notes 本体 md open 時、その md の画像に許可範囲外があればフッター案内を送る
+            sendResourceAccessStatus: (filePath: string, mdBody: string): void => {
+                try {
+                    if (!filePath) return;
+                    const config = vscode.workspace.getConfiguration('fractal');
+                    const roots = resolveResourceRoots(config.get<string[]>('resourceRoots', []));
+                    const outOfRange = findOutOfRangeImages(mdBody, path.dirname(filePath), roots);
+                    panel.webview.postMessage({
+                        type: 'resourceAccessStatus',
+                        outOfRange: outOfRange.length > 0,
+                        count: outOfRange.length,
+                        samplePath: outOfRange[0],
+                    });
+                } catch { /* best-effort */ }
             },
             // v0.207.82: Notes 内 .md メインペイン用 — 画像/ファイル保存先をステータスバーに送出。
             // editorProvider の sendImageDirStatus / sendFileDirStatus と同じ shape で post。
@@ -1200,14 +1233,15 @@ export class NotesEditorProvider {
             },
             // MD-45/46/47: drawio (.drawio.svg / .drawio.png / .drawio (XML))
             saveDrawioToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
+                // BUG-FIX (iter2): 判定基準は「drawio 要求元が sidepanel か」= sidePanelFilePath の有無。
+                // SidePanelHostBridge（editor.js）は this.filePath(=sidepanel md) を渡すので sidepanel 由来なら non-empty。
+                // メインペイン自身の cmd+/ は空 → 従来経路（getMdFilesDirPath / dirname(cur)）。
+                // 旧: isMd（メインが md editor か）で分岐 → メインが md を開いた状態で sidepanel から drawio 挿入すると親に貼りついていた。
+                const fromSidePanel = !!sidePanelFilePath;
                 const cur = fileManager.getCurrentFilePath();
-                const isMd = !!cur && cur.endsWith('.md');
-                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
-                const filesDir = isMd
-                    ? fileManager.getMdFilesDirPath()
-                    : (outlinerId
-                        ? fileManager.getOutlinerFileDirPath()
-                        : path.join(fileManager.getMainFolderPath(), 'files'));
+                const filesDir = fromSidePanel
+                    ? resolveFilesDirForMd(sidePanelFilePath)
+                    : fileManager.getMdFilesDirPath();
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 const safeName = fileName || 'diagram.drawio.svg';
@@ -1217,7 +1251,7 @@ export class NotesEditorProvider {
                 try {
                     const base64 = dataUrl.replace(/^data:[^;]+;base64,/, '');
                     fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
-                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const baseDir = fromSidePanel ? path.dirname(sidePanelFilePath) : path.dirname(cur!);
                     const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
@@ -1225,20 +1259,19 @@ export class NotesEditorProvider {
                         markdownPath: relPath,
                         displayUri: displayUri,
                         dataUri: dataUrl,
+                        sidePanelFilePath: fromSidePanel ? sidePanelFilePath : undefined, // sidepanel 由来なら宛先を載せる（受信側が中継判定）
                     });
                 } catch (e) {
                     console.error('[Notes] saveDrawioToDir error:', e);
                 }
             },
             readAndInsertDrawio: (filePath: string, sidePanelFilePath: string) => {
+                // BUG-FIX (iter2): saveDrawioToDir と同じく sidePanelFilePath の有無で要求元を判定。
+                const fromSidePanel = !!sidePanelFilePath;
                 const cur = fileManager.getCurrentFilePath();
-                const isMd = !!cur && cur.endsWith('.md');
-                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
-                const filesDir = isMd
-                    ? fileManager.getMdFilesDirPath()
-                    : (outlinerId
-                        ? fileManager.getOutlinerFileDirPath()
-                        : path.join(fileManager.getMainFolderPath(), 'files'));
+                const filesDir = fromSidePanel
+                    ? resolveFilesDirForMd(sidePanelFilePath)
+                    : fileManager.getMdFilesDirPath();
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 if (!fs.existsSync(filePath)) {
@@ -1250,13 +1283,14 @@ export class NotesEditorProvider {
                 const destPath = path.join(filesDir, destFileName);
                 try {
                     fs.copyFileSync(filePath, destPath);
-                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const baseDir = fromSidePanel ? path.dirname(sidePanelFilePath) : path.dirname(cur!);
                     const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
                         type: 'insertImageHtml',
                         markdownPath: relPath,
                         displayUri: displayUri,
+                        sidePanelFilePath: fromSidePanel ? sidePanelFilePath : undefined, // sidepanel 由来なら宛先を載せる
                     });
                 } catch (e) {
                     console.error('[Notes] readAndInsertDrawio error:', e);
@@ -1277,27 +1311,26 @@ export class NotesEditorProvider {
             },
             requestCreateDrawio: async (sidePanelFilePath: string) => {
                 // v15+ で InputBox 廃止 → diagram.drawio.svg を自動命名で生成
+                // BUG-FIX (iter2): sidePanelFilePath の有無で要求元を判定（メイン自身の cmd+/ は空 → getMdFilesDirPath）。
+                const fromSidePanel = !!sidePanelFilePath;
                 const cur = fileManager.getCurrentFilePath();
-                const isMd = !!cur && cur.endsWith('.md');
-                const outlinerId = (!isMd && cur) ? path.basename(cur, '.out') : null;
-                const filesDir = isMd
-                    ? fileManager.getMdFilesDirPath()
-                    : (outlinerId
-                        ? fileManager.getOutlinerFileDirPath()
-                        : path.join(fileManager.getMainFolderPath(), 'files'));
+                const filesDir = fromSidePanel
+                    ? resolveFilesDirForMd(sidePanelFilePath)
+                    : fileManager.getMdFilesDirPath();
                 if (!fs.existsSync(filesDir)) fs.mkdirSync(filesDir, { recursive: true });
 
                 const destFileName = buildUniqueDrawioName('diagram.drawio.svg', (n) => fs.existsSync(path.join(filesDir, n)));
                 const destPath = path.join(filesDir, destFileName);
                 try {
                     fs.writeFileSync(destPath, buildPlaceholderDrawioSvg(), 'utf8');
-                    const baseDir = isMd ? path.dirname(cur!) : path.dirname(sidePanelFilePath);
+                    const baseDir = fromSidePanel ? path.dirname(sidePanelFilePath) : path.dirname(cur!);
                     const relPath = path.relative(baseDir, destPath).replace(/\\/g, '/');
                     const displayUri = panel.webview.asWebviewUri(vscode.Uri.file(destPath)).toString();
                     panel.webview.postMessage({
                         type: 'insertImageHtml',
                         markdownPath: relPath,
                         displayUri: displayUri,
+                        sidePanelFilePath: fromSidePanel ? sidePanelFilePath : undefined, // sidepanel 由来なら宛先を載せる
                     });
                 } catch (e) {
                     console.error('[Notes] requestCreateDrawio error:', e);
@@ -1310,9 +1343,10 @@ export class NotesEditorProvider {
                 await sidePanel.navigateForward(sidePanelFilePath || '');
             },
             createPageAutoForSidePanel: (sidePanelFilePath: string) => {
-                // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
+                // v15+: side panel cmd+/ Add Page — サイドパネルで開いている md と同じ場所に subpage を作る。
+                // FR: メイン document でなく開いている md（sidePanelFilePath）の dir 基準（別 note / 非 note 対応）。
                 if (!sidePanelFilePath) return;
-                const pagesDir = fileManager.getPagesDirPath();
+                const pagesDir = path.dirname(sidePanelFilePath);
                 if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
                 const ts = Date.now();
                 let fileName = `${ts}.md`;
@@ -1341,9 +1375,9 @@ export class NotesEditorProvider {
                 });
             },
             sendSidePanelImageDir: (sidePanelFilePath: string) => {
-                const pagesDir = fileManager.getPagesDirPath();
-                const imagesDir = fileManager.getOutlinerImageDirPath();
+                // FR: フッター表示・assetContext とも sidepanel で開いている md の場所を基準にする
                 const spDir = path.dirname(sidePanelFilePath);
+                const imagesDir = resolveImagesDirForMd(sidePanelFilePath);
                 const displayPath = path.relative(spDir, imagesDir).replace(/\\/g, '/') || '.';
                 panel.webview.postMessage({
                     type: 'sidePanelImageDirStatus',
@@ -1351,7 +1385,7 @@ export class NotesEditorProvider {
                     source: 'default',
                 });
                 // Also send file dir status
-                const fileDirPath = fileManager.getFileDirPath();
+                const fileDirPath = resolveFilesDirForMd(sidePanelFilePath);
                 const fileDirDisplay = path.relative(spDir, fileDirPath).replace(/\\/g, '/') || '.';
                 panel.webview.postMessage({
                     type: 'sidePanelFileDirStatus',
@@ -1363,7 +1397,7 @@ export class NotesEditorProvider {
                     type: 'sidePanelAssetContext',
                     imageDir: imagesDir,
                     fileDir: fileDirPath,
-                    mdDir: pagesDir
+                    mdDir: spDir
                 });
             },
             saveSidePanelFile: async (filePath: string, content: string) => {
@@ -1427,9 +1461,9 @@ export class NotesEditorProvider {
             },
             pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string) => {
                 // v9: MD paste with asset copy (cross-outliner/cross-note paste)
-                const pagesDir = fileManager.getPagesDirPath();
-                const destImageDir = fileManager.getOutlinerImageDirPath();
-                const destFileDir = fileManager.getFileDirPath();
+                // FR: 貼り付け先は sidepanel で開いている md の場所を基準にする
+                const destImageDir = resolveImagesDirForMd(sidePanelFilePath);
+                const destFileDir = resolveFilesDirForMd(sidePanelFilePath);
                 const destMdDir = path.dirname(sidePanelFilePath);
 
                 const result = copyMdPasteAssets({
@@ -1452,9 +1486,11 @@ export class NotesEditorProvider {
                 try {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
                     const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
-                    const pagesDir = fileManager.getPagesDirPath();
-                    const imageDir = fileManager.getOutlinerImageDirPath();
-                    const mdFileDir = sidePanelFilePath ? path.dirname(sidePanelFilePath) : pagesDir;
+                    // FR: sidepanel で開いている md の場所を基準に保存
+                    const imageDir = sidePanelFilePath
+                        ? resolveImagesDirForMd(sidePanelFilePath)
+                        : fileManager.getOutlinerImageDirPath();
+                    const mdFileDir = sidePanelFilePath ? path.dirname(sidePanelFilePath) : fileManager.getPagesDirPath();
                     const { newContent, savedCount } = processDataUrlsInContent(markdown, imageDir, mdFileDir);
                     panel.webview.postMessage({
                         type: 'extractDataUrlsInPastedMdResult',

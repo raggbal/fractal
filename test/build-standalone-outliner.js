@@ -253,6 +253,10 @@ const html = `<!DOCTYPE html>
         </div>
         <div class="outliner-breadcrumb"></div>
         <div class="outliner-tree" role="tree"></div>
+        <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+            <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+            <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+        </div>
     </div>
 
     ${sidePanelHtml}

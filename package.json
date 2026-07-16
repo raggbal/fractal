@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.209.17",
+  "version": "0.209.28",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -192,6 +192,14 @@
     "configuration": {
       "title": "Fractal",
       "properties": {
+        "fractal.resourceRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Directories the editor is allowed to load images/attachments from (webview `localResourceRoots`). Empty = allow the whole home directory (`~`). Add absolute paths or paths starting with `~` to restrict or extend the allowed range (e.g. `~/notes`, `/Volumes/ext/notes`). Relative paths are ignored. Changes take effect when you reopen the editor."
+        },
         "fractal.theme": {
           "type": "string",
           "enum": [

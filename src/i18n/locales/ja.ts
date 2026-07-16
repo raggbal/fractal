@@ -125,6 +125,10 @@ export const webviewMessages = {
   fileDirSourceFile: 'by ファイル個別設定',
   fileDirSourceSettings: 'by 設定',
   fileDirSourceDefault: 'by デフォルト',
+  // Resource access range (FR-RR-05)
+  resourceAccessOutOfRange: '許可フォルダ外の画像があり表示できません。',
+  resourceAccessOutOfRangeCount: '許可フォルダ外で表示できない画像が {count} 件あります（例: {sample}）。',
+  resourceAccessOpenSettings: '許可フォルダを変更',
   // Command palette
   commandPaletteFilter: '入力して絞り込み...',
   commandPalettePage: 'ページ',
@@ -134,9 +138,9 @@ export const webviewMessages = {
   commandPaletteBlocks: 'ブロック',
   commandPaletteInsert: '挿入',
   // Action Panel
-  addPage: 'ページ挿入 (Ctrl+N)',
-  addPageAuto: 'ページ追加',
-  addPageAtPath: 'パス指定でページ追加',
+  addPage: 'サブページ挿入 (Ctrl+N)',
+  addPageAuto: 'サブページ追加',
+  addPageAtPath: 'パス指定でサブページ追加',
   addPageAtPathTitle: 'パスを入力 (.md)',
   confirmLinkName: 'リンク名',
   actionPanelConfirm: '確定',

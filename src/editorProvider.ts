@@ -11,6 +11,7 @@ import {
     removeAllDirectives
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
@@ -432,16 +433,17 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // Get the document directory and workspace folder for local resource access
         const documentDir = vscode.Uri.joinPath(document.uri, '..');
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        
-        // Get user's home directory for accessing Downloads, etc.
-        const homeDir = require('os').homedir();
-        const homeDirUri = vscode.Uri.file(homeDir);
-        
+
+        // FR-RR-03: homeDir ハードコードを settings 由来の許可範囲に置換（空なら [homedir]＝後方互換）。
+        const cfg = vscode.workspace.getConfiguration('fractal');
+        const resourceRoots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+
         const localResourceRoots = [
             vscode.Uri.joinPath(this.context.extensionUri, 'media'),
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules'),
             documentDir,
-            homeDirUri // Allow access to home directory (Downloads, Pictures, etc.)
+            // Allow access to configured roots (default = home directory: Downloads, Pictures, etc.)
+            ...resourceRoots.map(p => vscode.Uri.file(p))
         ];
         if (workspaceFolder) {
             localResourceRoots.push(workspaceFolder.uri);
@@ -552,6 +554,21 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 </body>
 </html>`;
             }
+        };
+
+        // FR-RR-04: この md 内の画像で許可範囲外のものを検知し、フッター案内を webview に送る
+        const sendResourceAccessStatus = () => {
+            try {
+                const body = document.getText();
+                const mdDir = path.dirname(document.uri.fsPath);
+                const outOfRange = findOutOfRangeImages(body, mdDir, resourceRoots);
+                webviewPanel.webview.postMessage({
+                    type: 'resourceAccessStatus',
+                    outOfRange: outOfRange.length > 0,
+                    count: outOfRange.length,
+                    samplePath: outOfRange[0]
+                });
+            } catch { /* 検知は best-effort。失敗しても本体表示を妨げない */ }
         };
 
         // Send current image directory status to webview
@@ -760,6 +777,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // Send initial file dir status (queued for webview)
         sendFileDirStatus();
 
+        // FR-RR-04: この md の画像に許可範囲外があればフッター案内を送る
+        sendResourceAccessStatus();
+
         // Sync policy: when user is actively editing, external changes are queued in webview.
         // When user is idle (even with focus), external changes are applied with cursor preservation.
         let webviewHasFocus = false;
@@ -948,6 +968,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     await document.save();
                     break;
 
+                case 'openResourceRootsSettings':
+                    await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+                    break;
+
                 case 'editingStateChanged':
                     isActivelyEditing = message.editing;
                     break;
@@ -964,7 +988,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'insertImage': {
                     const imgDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const imgDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleImageInsert(imgDocUri, imgDocContent, webviewPanel.webview);
+                    await this.handleImageInsert(imgDocUri, imgDocContent, webviewPanel.webview, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -972,7 +996,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Save pasted/dropped image to file
                     const saveDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const saveDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveImage(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    // FR: sidepanel が実際にこの md を開いている（watchedPath 一致）ときだけ sidepanel 宛に載せる
+                    const saveImgSp = sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined;
+                    await this.handleSaveImage(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName, saveImgSp);
                     break;
                 }
 
@@ -980,7 +1006,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Read an existing image file and insert it
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertImage(readDocUri, readDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertImage(readDocUri, readDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -988,7 +1014,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Save pasted/dropped file
                     const saveDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const saveDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveFile(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    await this.handleSaveFile(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -996,7 +1022,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Read an existing file and insert it
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1004,7 +1030,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-45: drawio.svg / drawio.png D&D (Files 経路) — fileDir に dataUrl デコード保存
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    await this.handleSaveDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.dataUrl, message.fileName, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1012,7 +1038,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-45: drawio.svg / drawio.png D&D (URI 経路) — fileDir にコピー
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1040,7 +1066,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleRequestCreateDrawio(drawDocUri, drawDocContent, webviewPanel.webview);
+                    await this.handleRequestCreateDrawio(drawDocUri, drawDocContent, webviewPanel.webview, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1584,7 +1610,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         return document.getText();
     }
 
-    private async handleImageInsert(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview) {
+    private async handleImageInsert(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1635,7 +1661,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     type: 'insertImageHtml',
                     markdownPath: markdownPath,
                     displayUri: webviewUri,
-                    dataUri: dataUrl
+                    dataUri: dataUrl,
+                    sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
                 });
             } catch (error) {
                 console.error('Failed to copy image:', error);
@@ -1644,7 +1671,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleSaveImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string) {
+    private async handleSaveImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1683,7 +1710,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel（sidepanel が watchedPath 一致のときのみ dispatch が渡す）
             });
         } catch (error) {
             console.error('[DEBUG] Failed to save image:', error);
@@ -1697,7 +1725,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         return match ? mimeToExt(match[1]) : 'png';
     }
 
-    private async handleReadAndInsertImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string) {
+    private async handleReadAndInsertImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1741,7 +1769,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('Failed to read/copy image:', error);
@@ -1749,7 +1778,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleSaveFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string) {
+    private async handleSaveFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1782,7 +1811,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertFileLink',
                 markdownPath: markdownPath,
-                fileName: uniqueFileName
+                fileName: uniqueFileName,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('[DEBUG] Failed to save file:', error);
@@ -1790,7 +1820,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleReadAndInsertFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string) {
+    private async handleReadAndInsertFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1824,7 +1854,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertFileLink',
                 markdownPath: markdownPath,
-                fileName: uniqueFileName
+                fileName: uniqueFileName,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('Failed to read/copy file:', error);
@@ -1841,7 +1872,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         documentContent: string,
         webview: vscode.Webview,
         dataUrl: string,
-        fileName: string
+        fileName: string,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1867,7 +1899,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleSaveDrawio error:', err);
@@ -1883,7 +1916,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         documentUri: vscode.Uri,
         documentContent: string,
         webview: vscode.Webview,
-        filePath: string
+        filePath: string,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1908,7 +1942,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
-                displayUri: webviewUri
+                displayUri: webviewUri,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleReadAndInsertDrawio error:', err);
@@ -1923,7 +1958,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     private async handleRequestCreateDrawio(
         documentUri: vscode.Uri,
         documentContent: string,
-        webview: vscode.Webview
+        webview: vscode.Webview,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1944,7 +1980,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
-                displayUri: webviewUri
+                displayUri: webviewUri,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleRequestCreateDrawio error:', err);

@@ -10,6 +10,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { extractToc, TocItem } from './toc-utils';
+import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 
 /** Webview への通信インターフェース */
 export interface SidePanelHost {
@@ -261,6 +262,8 @@ export class SidePanelManager {
                 toc: SidePanelManager.extractToc(text),
                 documentBaseUri: spBaseUri
             });
+            // FR-RR-04: 開いた md の画像に許可範囲外があればフッター案内を送る
+            this.sendResourceAccessStatus(text, path.dirname(filePath));
             await this.setupFileWatcher(filePath);
             // 常に nav state を送信 → webview の back/forward ボタン状態を extension と同期
             // (handleOpenLink で push 後、ここで canGoBack=true が webview に届く)
@@ -268,6 +271,24 @@ export class SidePanelManager {
         } catch (e) {
             vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }
+    }
+
+    /**
+     * FR-RR-04: sidepanel で開いた md 内の画像で許可範囲外のものを検知し、
+     * フッター案内を webview に送る。範囲内のみなら outOfRange:false（帯クリア）。
+     */
+    private sendResourceAccessStatus(mdBody: string, mdDir: string): void {
+        try {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            const roots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+            const outOfRange = findOutOfRangeImages(mdBody, mdDir, roots);
+            this.host.postMessage({
+                type: 'resourceAccessStatus',
+                outOfRange: outOfRange.length > 0,
+                count: outOfRange.length,
+                samplePath: outOfRange[0]
+            });
+        } catch { /* best-effort。失敗しても本体表示を妨げない */ }
     }
 
     /**

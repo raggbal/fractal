@@ -4,6 +4,7 @@ import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
@@ -65,13 +66,21 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         // notes-flat-storage (2026-07-07): 共有 files/ も明示（画像 dir は documentDir 配下だが念のため）。
         const outlinerFileDir = vscode.Uri.file(this.getFileDirPath(document));
 
+        // FR-RR-03: homeDir ハードコードを settings 由来の許可範囲に置換（空なら [homedir]）。
+        const cfg = vscode.workspace.getConfiguration('fractal');
+        const resourceRoots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, 'media'),
                 documentDir,
                 outlinerImageDir,
-                outlinerFileDir
+                outlinerFileDir,
+                // standalone outliner の sidepanel md から別フォルダ md リンクを開いた際に
+                // その md の画像/添付を解決できるよう settings 由来の許可範囲を追加
+                // （editorProvider / notesEditorProvider と揃える。空なら [homedir]＝後方互換）
+                ...resourceRoots.map(p => vscode.Uri.file(p))
             ]
         };
 
@@ -138,8 +147,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         // 画像ディレクトリ状態送信 (MDファイルからの相対パスで表示 — toMarkdownPath と同じロジック)
         const sendSidePanelImageDirStatus = (spFilePath: string) => {
-            const pagesDir = this.getPagesDirPath(document);
-            const imagesDir = path.join(pagesDir, 'images');
+            // FR: sidepanel で開いている md の場所を基準にフッター表示
+            const imagesDir = flatLayout.resolveImagesDirForMd(spFilePath);
             const spDir = path.dirname(spFilePath);
             const displayPath = path.relative(spDir, imagesDir).replace(/\\/g, '/') || '.';
             webviewPanel.webview.postMessage({
@@ -149,10 +158,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             });
         };
 
-        // ファイルディレクトリ状態送信 ({pageDir}/files/ — 画像と同じパターン)
+        // ファイルディレクトリ状態送信 (開いている md の場所基準 — 画像と同じパターン)
         const sendSidePanelFileDirStatus = (spFilePath: string) => {
-            const pagesDir = this.getPagesDirPath(document);
-            const filesDir = path.join(pagesDir, 'files');
+            const filesDir = flatLayout.resolveFilesDirForMd(spFilePath);
             const spDir = path.dirname(spFilePath);
             const displayPath = path.relative(spDir, filesDir).replace(/\\/g, '/') || '.';
             webviewPanel.webview.postMessage({
@@ -210,6 +218,10 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
                     case 'save':
                         await document.save();
+                        break;
+
+                    case 'openResourceRootsSettings':
+                        await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
                         break;
 
                     case 'openInTextEditor':
@@ -693,13 +705,13 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
                             sendSidePanelFileDirStatus(message.sidePanelFilePath);
-                            // v9: Send absolute paths for MD paste asset copy
-                            const pagesDir = this.getPagesDirPath(document);
+                            // v9: Send absolute paths for MD paste asset copy（開いている md の場所基準）
+                            const spDir = path.dirname(message.sidePanelFilePath);
                             webviewPanel.webview.postMessage({
                                 type: 'sidePanelAssetContext',
-                                imageDir: path.join(pagesDir, 'images'),
-                                fileDir: path.join(pagesDir, 'files'),
-                                mdDir: pagesDir
+                                imageDir: flatLayout.resolveImagesDirForMd(message.sidePanelFilePath),
+                                fileDir: flatLayout.resolveFilesDirForMd(message.sidePanelFilePath),
+                                mdDir: spDir
                             });
                         }
                         break;
@@ -707,9 +719,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'pasteWithAssetCopy': {
                         // v9: MD paste with asset copy (cross-outliner/cross-note paste)
                         if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const destImageDir = path.join(pagesDir, 'images');
-                            const destFileDir = path.join(pagesDir, 'files');
+                            // FR: 貼り付け先は sidepanel で開いている md の場所を基準にする
+                            const destImageDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
+                            const destFileDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             const destMdDir = path.dirname(message.sidePanelFilePath);
 
                             const result = copyMdPasteAssets({
@@ -736,11 +748,13 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         try {
                             // eslint-disable-next-line @typescript-eslint/no-var-requires
                             const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imageDir = path.join(pagesDir, 'images');
+                            // FR: sidepanel で開いている md の場所を基準に保存
+                            const imageDir = message.sidePanelFilePath
+                                ? flatLayout.resolveImagesDirForMd(message.sidePanelFilePath)
+                                : path.join(this.getPagesDirPath(document), 'images');
                             const mdFileDir = message.sidePanelFilePath
                                 ? path.dirname(message.sidePanelFilePath)
-                                : pagesDir;
+                                : this.getPagesDirPath(document);
                             const { newContent, savedCount } = processDataUrlsInContent(message.markdown, imageDir, mdFileDir);
                             webviewPanel.webview.postMessage({
                                 type: 'extractDataUrlsInPastedMdResult',
@@ -759,10 +773,11 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'createPageAutoForSidePanel': {
-                        // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
+                        // v15+: side panel cmd+/ Add Page — サイドパネルで開いている md と同じ場所に subpage を作る。
+                        // FR: メイン document でなく開いている md（sidePanelFilePath）の dir 基準（別 note / 非 note 対応）。
                         const sidePanelFilePath: string = message.sidePanelFilePath || '';
                         if (!sidePanelFilePath) break;
-                        const pagesDir = this.getPagesDirPath(document);
+                        const pagesDir = path.dirname(sidePanelFilePath);
                         if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
                         // unique <timestamp>.md (衝突時 -0001 等)
                         const ts = Date.now();
@@ -789,10 +804,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'insertImage': {
-                        // 画像挿入 (サイドパネル用)
+                        // 画像挿入 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -812,7 +826,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertImageHtml',
                                     markdownPath: relPath,
-                                    displayUri: displayUri
+                                    displayUri: displayUri,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             }
                         }
@@ -820,10 +835,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'saveImageAndInsert': {
-                        // ペースト/ドロップ画像の保存 (サイドパネル用)
+                        // ペースト/ドロップ画像の保存 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath && message.dataUrl) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -843,17 +857,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 type: 'insertImageHtml',
                                 markdownPath: relPath,
                                 displayUri: displayUri,
-                                dataUri: message.dataUrl
+                                dataUri: message.dataUrl,
+                                sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                             });
                         }
                         break;
                     }
 
                     case 'readAndInsertImage': {
-                        // ドロップされたローカルファイル画像の読み取り+挿入
+                        // ドロップされたローカルファイル画像の読み取り+挿入 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath && message.filePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -868,7 +882,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertImageHtml',
                                     markdownPath: relPath,
-                                    displayUri: displayUri
+                                    displayUri: displayUri,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             } catch (e) {
                                 console.error('[Outliner] readAndInsertImage error:', e);
@@ -878,10 +893,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'saveFileAndInsert': {
-                        // ペースト/ドロップファイルの保存 (サイドパネル用: {pageDir}/files/ に保存)
+                        // ペースト/ドロップファイルの保存 (サイドパネル用: 開いている md の場所基準 files/ に保存)
                         if (message.sidePanelFilePath && message.dataUrl) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const filesDir = path.join(pagesDir, 'files');
+                            const filesDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(filesDir)) {
                                 fs.mkdirSync(filesDir, { recursive: true });
                             }
@@ -904,17 +918,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             webviewPanel.webview.postMessage({
                                 type: 'insertFileLink',
                                 markdownPath: relPath,
-                                fileName: destFileName
+                                fileName: destFileName,
+                                sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                             });
                         }
                         break;
                     }
 
                     case 'readAndInsertFile': {
-                        // ドロップされたローカルファイルの読み取り+挿入 (サイドパネル用: {pageDir}/files/)
+                        // ドロップされたローカルファイルの読み取り+挿入 (サイドパネル用: 開いている md の場所基準 files/)
                         if (message.sidePanelFilePath && message.filePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const filesDir = path.join(pagesDir, 'files');
+                            const filesDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(filesDir)) {
                                 fs.mkdirSync(filesDir, { recursive: true });
                             }
@@ -937,7 +951,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertFileLink',
                                     markdownPath: relPath,
-                                    fileName: destFileName
+                                    fileName: destFileName,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             } catch (e) {
                                 console.error('[Outliner] readAndInsertFile error:', e);

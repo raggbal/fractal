@@ -165,6 +165,10 @@ export function getOutlinerWebviewContent(
             <div class="outliner-breadcrumb"></div>
             <div class="outliner-tree" role="tree"></div>
         </div>
+        <div class="fractal-resource-footer" style="display:none" data-rrf-template="${msg.resourceAccessOutOfRangeCount || '{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).'}">
+            <span class="rrf-msg">${msg.resourceAccessOutOfRange || 'Some images are outside the allowed folders and cannot be shown.'}</span>
+            <button class="rrf-open-settings" data-action="openResourceRootsSettings">${msg.resourceAccessOpenSettings || 'Change allowed folders'}</button>
+        </div>
     </div>
 
     ${sidePanelHtml}

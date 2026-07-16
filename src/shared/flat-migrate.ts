@@ -24,7 +24,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { isFlatOut } from './flat-layout';
-import { applyLinkUrlRewrites, extractAllAssetRefs } from './paste-asset-handler';
+import { applyLinkUrlRewrites, extractAllAssetRefs, promoteMdLinksToSubpage } from './paste-asset-handler';
 
 export type MoveKind = 'page' | 'image' | 'file';
 export type ExecKind = 'copy' | 'rename';
@@ -451,17 +451,32 @@ export function executePlan(plan: MigrationPlan, opts: { injectFailAfter?: numbe
             j++;
         }
 
-        // (4) bodyRewrites を dst md に適用（renames が空ならスキップ = 後方互換）
+        // (4) 本文書換 + md リンク括弧化。
+        //   ★括弧化は renames 有無に依存しない（asset を持たず md リンクだけの page md も昇格対象）。
+        //   移動した全 page md（page md owner + _notes_md、いずれも kind:'page'）を走査する。
+        //   ① asset URL 書換（applyLinkUrlRewrites・bodyRewrites の renames があれば）
+        //   ② md リンク括弧化（promoteMdLinksToSubpage・FR-027・migrate 決定2）
+        const bodyRewriteMap = new Map<string, Map<string, string>>();
         for (const br of plan.bodyRewrites) {
-            if (!br.renames || br.renames.length === 0) continue;
-            if (!isFile(br.mdPath)) continue;
-            const originalText = fs.readFileSync(br.mdPath, 'utf8');
-            const renames = new Map<string, string>();
-            for (const rn of br.renames) renames.set(rn.oldRef, rn.newRef);
-            const rewritten = applyLinkUrlRewrites(originalText, renames);
+            if (br.renames && br.renames.length > 0) {
+                const m = new Map<string, string>();
+                for (const rn of br.renames) m.set(rn.oldRef, rn.newRef);
+                bodyRewriteMap.set(br.mdPath, m);
+            }
+        }
+        const promoteTargets = new Set<string>(
+            plan.moves.filter((mv) => mv.kind === 'page').map((mv) => mv.to),
+        );
+        for (const mdPath of promoteTargets) {
+            if (!isFile(mdPath)) continue;
+            const originalText = fs.readFileSync(mdPath, 'utf8');
+            let rewritten = originalText;
+            const renames = bodyRewriteMap.get(mdPath);
+            if (renames) rewritten = applyLinkUrlRewrites(rewritten, renames); // ① asset url
+            rewritten = promoteMdLinksToSubpage(rewritten);                    // ② md リンク括弧化
             if (rewritten !== originalText) {
-                fs.writeFileSync(br.mdPath, rewritten, 'utf8');
-                rewrittenMd.push({ mdPath: br.mdPath, originalText });
+                fs.writeFileSync(mdPath, rewritten, 'utf8');
+                rewrittenMd.push({ mdPath, originalText });
             }
         }
 

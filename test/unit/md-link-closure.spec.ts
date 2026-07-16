@@ -25,8 +25,8 @@ function wr(dir: string, name: string, body: string): string {
 
 test('TC-ML-01 単純チェーン A→B→C を再帰収集（起点除く）', () => {
     const d = mkTmp();
-    const a = wr(d, 'a.md', '[b](b.md)');
-    wr(d, 'b.md', '[c](c.md)');
+    const a = wr(d, 'a.md', '[[b]](b.md)');
+    wr(d, 'b.md', '[[c]](c.md)');
     wr(d, 'c.md', '# c');
     const { closure, external } = collectMdLinkClosure(a, d);
     const names = closure.map(p => path.basename(p)).sort();
@@ -37,8 +37,8 @@ test('TC-ML-01 単純チェーン A→B→C を再帰収集（起点除く）', 
 
 test('TC-ML-02 循環 A→B→A で無限ループしない（closure 有限・正確）', () => {
     const d = mkTmp();
-    const a = wr(d, 'a.md', '[b](b.md)');
-    wr(d, 'b.md', '[a](a.md)');
+    const a = wr(d, 'a.md', '[[b]](b.md)');
+    wr(d, 'b.md', '[[a]](a.md)');
     const res = collectMdLinkClosure(a, d);
     // load-bearing: visited なしなら無限ループ or 増殖。closure は b のみ、visited は a,b の 2 件で有限。
     expect(res.closure.map(p => path.basename(p))).toEqual(['b.md']);
@@ -49,7 +49,7 @@ test('TC-ML-02 循環 A→B→A で無限ループしない（closure 有限・�
 
 test('TC-ML-03 自己参照 A→A で複製されない', () => {
     const d = mkTmp();
-    const a = wr(d, 'a.md', 'self [a](a.md)');
+    const a = wr(d, 'a.md', 'self [[a]](a.md)');
     const { closure, external } = collectMdLinkClosure(a, d);
     expect(closure).toEqual([]); // 起点は visited 済み
     expect(external.size).toBe(0);
@@ -58,9 +58,9 @@ test('TC-ML-03 自己参照 A→A で複製されない', () => {
 
 test('TC-ML-04 ダイヤモンド A→B,C / B→D / C→D で D は 1 回だけ', () => {
     const d = mkTmp();
-    const a = wr(d, 'a.md', '[b](b.md) [c](c.md)');
-    wr(d, 'b.md', '[d](d.md)');
-    wr(d, 'c.md', '[d](d.md)');
+    const a = wr(d, 'a.md', '[[b]](b.md) [[c]](c.md)');
+    wr(d, 'b.md', '[[d]](d.md)');
+    wr(d, 'c.md', '[[d]](d.md)');
     wr(d, 'd.md', '# d');
     const { closure } = collectMdLinkClosure(a, d);
     const names = closure.map(p => path.basename(p)).sort();
@@ -74,7 +74,7 @@ test('TC-ML-10 自note内のみ closure、外部は external', () => {
     const other = path.join(root, 'otherNote');
     fs.mkdirSync(note1, { recursive: true });
     fs.mkdirSync(other, { recursive: true });
-    const a = wr(note1, 'a.md', '[in](b.md) [out](../otherNote/x.md)');
+    const a = wr(note1, 'a.md', '[[in]](b.md) [[out]](../otherNote/x.md)');
     wr(note1, 'b.md', '# b');
     wr(other, 'x.md', '# x');
     const { closure, external } = collectMdLinkClosure(a, note1);

@@ -12,6 +12,10 @@
  * TC-OUT-20 外部note リンクは移動せず相対書換・絶対禁止
  * TC-OUT-30 (load-bearing) 部分文字列リンク誤置換しない（.out 版）
  * TC-OUT-40 後方互換: md-link 無しの .out は従来どおり（TC-MV-01 と同結果）
+ * TC-OUT-50 (load-bearing ゲート反転) プレーンリンク `[ref](x.md)` は複製・移動されず src に残る
+ *
+ * ★subpage marker（ADR-0009 ゲート反転）: `[[label]](x.md)` = サブページ → 複製/移動される /
+ *   `[label](x.md)` = 参照 → 複製されない（URL 書換のみ）。移動対象の内部 md-link は `[[]]` で書く。
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -75,7 +79,7 @@ test('TC-OUT-01 (load-bearing) .out page md の md-link 先 B が再帰移動 + 
     const bId = makeMdItem(fm, 'B', '# b body');
     // .out + page node（pageId=p1）。page md p1.md が B を参照
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
 
     const newId = fm.moveFileItemToOtherNote(outId, dst);
     expect(newId).toBeTruthy();
@@ -88,9 +92,9 @@ test('TC-OUT-01 (load-bearing) .out page md の md-link 先 B が再帰移動 + 
     expect(fs.existsSync(path.join(src, 'p1.md'))).toBe(false);
     expect(fs.existsSync(path.join(src, `${bId}.md`))).toBe(false);
 
-    // ★load-bearing: dst の p1.md 本文の [b] リンクが dst 内で解決し中身が '# b body'
+    // ★load-bearing: dst の p1.md 本文の [[b]] subpage リンクが dst 内で解決し中身が '# b body'
     const p1Body = fs.readFileSync(path.join(dst, 'p1.md'), 'utf8');
-    const m = p1Body.match(/\[b\]\(([^)]+)\)/);
+    const m = p1Body.match(/\[\[b\]\]\(([^)]+)\)/);
     expect(m).toBeTruthy();
     // counterfactual: 再帰しない旧実装だと B は dst に来ず（.md 1 枚のみ）このリンクが切れる
     expect(fs.existsSync(path.resolve(dst, m![1]))).toBe(true);
@@ -102,9 +106,9 @@ test('TC-OUT-02 多段 .out page md → B → C 全移動', () => {
     const { src, dst, cleanup } = setupNotes();
     const fm = new NotesFileManager(src);
     const cId = makeMdItem(fm, 'C', '# c');
-    const bId = makeMdItem(fm, 'B', `[c](${cId}.md)`);
+    const bId = makeMdItem(fm, 'B', `[[c]](${cId}.md)`);
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
 
     fm.moveFileItemToOtherNote(outId, dst);
     // dst の .md が 3 枚（p1 + B + C）、src の .md が 0 枚
@@ -118,8 +122,8 @@ test('TC-OUT-03 循環 page md ↔ B で無限ループせず移動', () => {
     const fm = new NotesFileManager(src);
     const bId = makeMdItem(fm, 'B', 'placeholder');
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
-    fs.writeFileSync(path.join(src, `${bId}.md`), '[p](p1.md)', 'utf8');
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
+    fs.writeFileSync(path.join(src, `${bId}.md`), '[[p]](p1.md)', 'utf8');
 
     const newId = fm.moveFileItemToOtherNote(outId, dst);
     expect(newId).toBeTruthy();
@@ -132,10 +136,13 @@ test('TC-OUT-10 残留参照ありは copy-fallback（.out 版）', () => {
     const { src, dst, cleanup } = setupNotes();
     const fm = new NotesFileManager(src);
     const bId = makeMdItem(fm, 'B', '# b');
-    // 別 .md item C も B を参照（C は移動対象外で src に残る）
+    // 別 .md item C も B を参照（C は移動対象外で src に残る）。
+    // C→B は「プレーン参照」のまま = 複製・移動されない参照でも残留参照として copy-fallback を起こす
+    // ことを検証（プレーン参照でもデータロス防止が効く load-bearing 意味を保持）。
     const cId = makeMdItem(fm, 'C', `[b](${bId}.md)`);
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+    // ★p1→B は subpage（`[[]]`）= 移動対象。closure follow で B が dst へ複製される。
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
 
     fm.moveFileItemToOtherNote(outId, dst);
     // B は dst に複製される
@@ -154,7 +161,7 @@ test('TC-OUT-11 残留参照が .out 内 page md のみなら move', () => {
     const fm = new NotesFileManager(src);
     const bId = makeMdItem(fm, 'B', '# b');
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
 
     fm.moveFileItemToOtherNote(outId, dst);
     // B を参照するのは p1（移動対象）のみ → B は src から消える（move）
@@ -171,10 +178,11 @@ test('TC-OUT-14 (load-bearing データロス) copy-fallback md の共有 image 
     fs.mkdirSync(imgDir, { recursive: true });
     fs.writeFileSync(path.join(imgDir, 'bimg.png'), 'BIMG');
     const bId = makeMdItem(fm, 'B', '# b\n![](images/bimg.png)');
-    // 別 .md item C も B を参照 → B は copy-fallback（src 温存）
+    // 別 .md item C も B を参照 → B は copy-fallback（src 温存）。C→B はプレーン参照でも残留参照として効く。
     makeMdItem(fm, 'C', `[b](${bId}.md)`);
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+    // ★p1→B は subpage（移動対象）。closure follow で B と共有 image が dst へ複製される。
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md)`, 'utf8');
 
     fm.moveFileItemToOtherNote(outId, dst);
     // B は copy-fallback で src に残る
@@ -194,8 +202,8 @@ test('TC-OUT-15 (multi-root) 2 page md（P1→P2 md-link）で P2 が closure �
     // 同一 .out に 2 つの page node P1(pageId=p1) / P2(pageId=p2)。両方が root（page md）。
     const outId = makeOutWithPage(fm, src, 'p1');
     addPageToOut(fm, src, outId, 'p2');
-    // P1 の page md が P2 の page md を md-link 参照（同一 .out 内の root 間リンク）。
-    fs.writeFileSync(path.join(src, 'p1.md'), '[p2](p2.md)', 'utf8');
+    // P1 の page md が P2 の page md を subpage 参照（同一 .out 内の root 間リンク）。
+    fs.writeFileSync(path.join(src, 'p1.md'), '[[p2]](p2.md)', 'utf8');
     fs.writeFileSync(path.join(src, 'p2.md'), '# p2', 'utf8');
 
     const newId = fm.moveFileItemToOtherNote(outId, dst);
@@ -212,7 +220,7 @@ test('TC-OUT-15 (multi-root) 2 page md（P1→P2 md-link）で P2 が closure �
     // (b) P1 の [p2] リンクが dst の root P2（元 pageId 'p2' 維持）に解決し中身が '# p2'。
     // counterfactual: root 除外が無いと [p2] は closure 複製（renumber された別 id）を指し、root p2 ではなくなる。
     const p1Body = fs.readFileSync(path.join(dst, 'p1.md'), 'utf8');
-    const m = p1Body.match(/\[p2\]\(([^)]+)\)/);
+    const m = p1Body.match(/\[\[p2\]\]\(([^)]+)\)/);
     expect(m).toBeTruthy();
     expect(path.resolve(dst, m![1])).toBe(path.resolve(dst, 'p2.md'));
     expect(fs.existsSync(path.resolve(dst, m![1]))).toBe(true);
@@ -233,7 +241,8 @@ test('TC-OUT-20 外部note リンクは移動せず相対書換・絶対禁止',
     const fm = new NotesFileManager(src);
     const bId = makeMdItem(fm, 'B', '# b');
     const outId = makeOutWithPage(fm, src, 'p1');
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md) [x](../otherNote/X.md)`, 'utf8');
+    // [[b]] = 自note内 subpage（移動対象）、[x] = 外部note へのプレーン参照（移動されず相対書換のみ）。
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md) [x](../otherNote/X.md)`, 'utf8');
 
     const newId = fm.moveFileItemToOtherNote(outId, dst);
     expect(newId).toBeTruthy();
@@ -257,14 +266,14 @@ test('TC-OUT-30 (load-bearing) 部分文字列リンク誤置換しない（.out
     const bId = makeMdItem(fm, 'B', '# b body');
     const bbId = makeMdItem(fm, 'BB', '# bb body');
     const outId = makeOutWithPage(fm, src, 'p1');
-    // 2 リンク（[b] と [bb]）。whole-link-target 書換なら別々に解決する
-    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md) [bb](${bbId}.md)`, 'utf8');
+    // 2 リンク（[[b]] と [[bb]]）。whole-link-target 書換なら別々に解決する
+    fs.writeFileSync(path.join(src, 'p1.md'), `[[b]](${bId}.md) [[bb]](${bbId}.md)`, 'utf8');
 
     const newId = fm.moveFileItemToOtherNote(outId, dst);
     expect(newId).toBeTruthy();
     const p1Body = fs.readFileSync(path.join(dst, 'p1.md'), 'utf8');
-    const mb = p1Body.match(/\[b\]\(([^)]+)\)/);
-    const mbb = p1Body.match(/\[bb\]\(([^)]+)\)/);
+    const mb = p1Body.match(/\[\[b\]\]\(([^)]+)\)/);
+    const mbb = p1Body.match(/\[\[bb\]\]\(([^)]+)\)/);
     expect(mb).toBeTruthy();
     expect(mbb).toBeTruthy();
     // ★両リンクが別々の正しいファイルに解決（substring 誤置換なら片方が壊れる）
@@ -293,5 +302,36 @@ test('TC-OUT-40 後方互換: md-link 無しの .out は従来どおり（TC-MV-
     // dst 構造の先頭に移動分が入る
     const dst3 = new NotesFileManager(dst);
     expect(dst3.getStructure().rootIds[0]).toBe(newId);
+    cleanup();
+});
+
+test('TC-OUT-50 (load-bearing ゲート反転) プレーン参照 [ref](x.md) は複製・移動されず src に残る', () => {
+    const { src, dst, cleanup } = setupNotes();
+    const fm = new NotesFileManager(src);
+    // B は「プレーン参照」でのみ p1 から参照される（他に参照元なし）。
+    const bId = makeMdItem(fm, 'B', '# b body');
+    const outId = makeOutWithPage(fm, src, 'p1');
+    // ★プレーンリンク（`[]`）= 参照。subpage（`[[]]`）ではないので closure follow されない。
+    fs.writeFileSync(path.join(src, 'p1.md'), `[b](${bId}.md)`, 'utf8');
+
+    const newId = fm.moveFileItemToOtherNote(outId, dst);
+    expect(newId).toBeTruthy();
+
+    // ★ゲート反転の番人: プレーン参照先 B は複製・移動されない。
+    //   dst の .md は p1 のみ（1 枚）で B は来ない。
+    //   counterfactual: ゲート反転前（プレーンも follow して複製する旧挙動）なら B が dst に複製され .md が 2 枚になり、
+    //   さらに残留参照ゼロで B が src から move される（下の src 残存アサーションが fail）。
+    expect(fs.readdirSync(dst).filter(f => f.endsWith('.md')).length).toBe(1);
+    expect(fs.existsSync(path.join(dst, `${bId}.md`))).toBe(false);
+    // B は複製対象外なので src に残る（参照は複製しない = URL 書換のみ）。
+    expect(fs.existsSync(path.join(src, `${bId}.md`))).toBe(true);
+
+    // dst の p1.md のプレーン [b] リンクは src に残った B へ相対解決（絶対パス化しない）。
+    const p1Body = fs.readFileSync(path.join(dst, 'p1.md'), 'utf8');
+    expect(p1Body).not.toContain('/Users/');
+    const m = p1Body.match(/\[b\]\(([^)]+)\)/);
+    expect(m).toBeTruthy();
+    expect(path.resolve(dst, m![1])).toBe(path.resolve(src, `${bId}.md`));
+    expect(fs.readFileSync(path.resolve(dst, m![1]), 'utf8')).toBe('# b body');
     cleanup();
 });

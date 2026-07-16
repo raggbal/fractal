@@ -118,6 +118,39 @@ function resolveSharedSub(outFilePath: string | null, mainFolder: string | undef
     return flat; // 新 default（未作成でもパスは返す）
 }
 
+// ── md 絶対パス起点の共有 sub 解決（sprint 20260713-000000-sidepanel-paste-note-context） ──
+// sidepanel で開いた任意の md（別 note / 非 note どちらも）に対し、その md の画像/添付 dir を
+// 「開いている md の場所を basedir とみなして」解決する。note 構造に依存しない。
+// フラット規約: md は basedir 直下 → images/files は <basedir>/images|files（md 隣の共有サブ）。
+//
+// legacy 吸収の非対称（意図的・design §1）:
+//   - resolveSharedSub（outFilePath 起点）は stem を知れるので `<base>/<stem>/images` fallback を持つが、
+//     md 起点版は .out の stem を知り得ないため **stem legacy は非対応**（フラット化済み実データに非該当）。
+//   - `_notes_md` レイアウト（md = <note>/_notes_md/*.md）は md 隣 <note>/_notes_md/images が共有先なので
+//     新 default（dirname(md)/images）がそのまま正しい → 親遡上不要。
+//   - `pages/` レイアウト（md = <note>/pages/*.md）だけは共有 images が親 <note>/images にあるため親遡上が要る。
+function resolveSharedSubForMd(mdAbsPath: string, sub: string): string {
+    const base = path.dirname(mdAbsPath);      // フラット: note 直下 / legacy: pages・_notes_md 配下
+    const flat = path.join(base, sub);         // <base>/images|files（新 default）
+    if (existsDir(flat)) return flat;
+    // legacy 吸収: md が <note>/pages/*.md なら共有は親 <note>/images
+    if (path.basename(base) === 'pages') {
+        const legacyShared = path.join(path.dirname(base), sub);
+        if (existsDir(legacyShared)) return legacyShared;
+    }
+    return flat; // 新 default（未作成でもパスは返す。呼び出し側が mkdir）
+}
+
+/** md 絶対パス起点で画像 dir を解決（sidepanel で開いた md の隣の共有 images/）。 */
+export function resolveImagesDirForMd(mdAbsPath: string): string {
+    return resolveSharedSubForMd(mdAbsPath, 'images');
+}
+
+/** md 絶対パス起点で添付 dir を解決（sidepanel で開いた md の隣の共有 files/）。 */
+export function resolveFilesDirForMd(mdAbsPath: string): string {
+    return resolveSharedSubForMd(mdAbsPath, 'files');
+}
+
 /** 移行後 .out に書き込む正規ヘッダ（basedir 直下 md + 共有 images/files） */
 export const FLAT_OUT_HINTS: Required<OutDirHints> = {
     pageDir: '.',

@@ -157,8 +157,9 @@ test('TC-HPA-03 file リンク書換も whole-link (substring 関係)', () => {
 
 test('TC-HPA-10 (load-bearing) 多段 md-link A→B→C を全複製 + dst 内解決', () => {
     const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
-    writeSrc(srcPagesDir, 'A.md', '[b](B.md)');
-    writeSrc(srcPagesDir, 'B.md', '[c](C.md)');
+    // ★subpage marker `[[]]` のみ複製対象（ゲート反転・ADR-0009）。参照 `[]` は複製されない。
+    writeSrc(srcPagesDir, 'A.md', '[[b]](B.md)');
+    writeSrc(srcPagesDir, 'B.md', '[[c]](C.md)');
     writeSrc(srcPagesDir, 'C.md', '# c');
 
     handlePageAssets({
@@ -170,15 +171,15 @@ test('TC-HPA-10 (load-bearing) 多段 md-link A→B→C を全複製 + dst 内�
     const mdFiles = fs.readdirSync(destPagesDir).filter(f => f.endsWith('.md'));
     expect(mdFiles.length).toBeGreaterThanOrEqual(3);
 
-    // ★load-bearing: dstA 本文 [b] が dst 内 B を指す
+    // ★load-bearing: dstA 本文 subpage [[b]] が dst 内 B を指す（URL span のみ書換で marker 保持）
     const aBody = fs.readFileSync(path.join(destPagesDir, 'dstA.md'), 'utf8');
-    const mB = aBody.match(/\[b\]\(([^)]+)\)/);
+    const mB = aBody.match(/\[+b\]+\(([^)]+)\)/);
     expect(mB).toBeTruthy();
     const bAbs = path.resolve(destPagesDir, mB![1]);
     expect(fs.existsSync(bAbs)).toBe(true);
-    // その B 複製本文 [c] が dst 内 C を指す（全リンク dst 内解決）
+    // その B 複製本文 subpage [[c]] が dst 内 C を指す（全リンク dst 内解決）
     const bBody = fs.readFileSync(bAbs, 'utf8');
-    const mC = bBody.match(/\[c\]\(([^)]+)\)/);
+    const mC = bBody.match(/\[+c\]+\(([^)]+)\)/);
     expect(mC).toBeTruthy();
     const cAbs = path.resolve(path.dirname(bAbs), mC![1]);
     expect(fs.existsSync(cAbs)).toBe(true);
@@ -189,7 +190,8 @@ test('TC-HPA-10 (load-bearing) 多段 md-link A→B→C を全複製 + dst 内�
 
 test('TC-HPA-11 再帰複製 md の画像も複製先を指す', () => {
     const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
-    writeSrc(srcPagesDir, 'A.md', '[b](B.md)');
+    // ★subpage marker `[[]]` のみ複製対象。参照 `[]` は複製されない。
+    writeSrc(srcPagesDir, 'A.md', '[[b]](B.md)');
     writeSrc(srcPagesDir, 'B.md', '![](images/bp.png)');
     writeSrc(srcPagesDir, 'images/bp.png', 'BP-DATA');
 
@@ -199,7 +201,7 @@ test('TC-HPA-11 再帰複製 md の画像も複製先を指す', () => {
     });
 
     const aBody = fs.readFileSync(path.join(destPagesDir, 'dstA.md'), 'utf8');
-    const mB = aBody.match(/\[b\]\(([^)]+)\)/);
+    const mB = aBody.match(/\[+b\]+\(([^)]+)\)/);
     expect(mB).toBeTruthy();
     const bAbs = path.resolve(destPagesDir, mB![1]);
     expect(fs.existsSync(bAbs)).toBe(true);
@@ -216,8 +218,9 @@ test('TC-HPA-11 再帰複製 md の画像も複製先を指す', () => {
 
 test('TC-HPA-12 copy 経路なので src 温存', () => {
     const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
-    writeSrc(srcPagesDir, 'A.md', '[b](B.md)');
-    writeSrc(srcPagesDir, 'B.md', '[c](C.md)');
+    // ★subpage marker `[[]]` = 複製対象 closure（B/C も複製される）。copy 経路なので src も温存される。
+    writeSrc(srcPagesDir, 'A.md', '[[b]](B.md)');
+    writeSrc(srcPagesDir, 'B.md', '[[c]](C.md)');
     writeSrc(srcPagesDir, 'C.md', '# c');
 
     handlePageAssets({
@@ -232,11 +235,46 @@ test('TC-HPA-12 copy 経路なので src 温存', () => {
     fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('TC-HPA-13 (load-bearing) 参照リンク [ref](x.md) は複製されない（ゲート反転の番人）', () => {
+    const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
+    // A は R への「参照」リンク（プレーン `[]`）を持つ。R は自note内に実在するが subpage marker ではない。
+    // ゲート反転（ADR-0009）後: 参照リンクは複製ゲートを通らない = R は複製されない（URL 書換のみ）。
+    writeSrc(srcPagesDir, 'A.md', '[ref](R.md)');
+    writeSrc(srcPagesDir, 'R.md', '# r');
+
+    handlePageAssets({
+        srcOutDir, srcPagesDir, destOutDir, destPagesDir,
+        pageId: 'A', newPageId: 'dstA', nodeImages: [],
+    });
+
+    // ★load-bearing: R が dst に複製されない（dstA.md だけ = .md は 1 枚）。
+    //   ゲート反転前（= 全 md リンクを follow）だと R が複製され .md が 2 枚になり fail する。
+    const mdFiles = fs.readdirSync(destPagesDir).filter(f => f.endsWith('.md'));
+    expect(mdFiles).toEqual(['dstA.md']);
+    expect(fs.existsSync(path.join(destPagesDir, 'R.md'))).toBe(false);
+
+    // 参照リンクは URL 書換のみ（複製先でなく元 R への相対で解決・絶対パスにしない）。
+    const aBody = fs.readFileSync(path.join(destPagesDir, 'dstA.md'), 'utf8');
+    expect(aBody).not.toContain('/Users/');
+    expect(aBody).not.toContain(root);
+    const mRef = aBody.match(/\[ref\]\(([^)]+)\)/);
+    expect(mRef).toBeTruthy();
+    expect(path.isAbsolute(mRef![1])).toBe(false);
+    // 書換後 URL は元 R.md（複製されていない）に解決する。
+    const refAbs = path.resolve(destPagesDir, mRef![1]);
+    expect(fs.existsSync(refAbs)).toBe(true);
+    expect(fs.readFileSync(refAbs, 'utf8')).toBe('# r');
+    expect(path.resolve(refAbs)).toBe(path.resolve(srcPagesDir, 'R.md'));
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('TC-HPA-20 外部リンクは相対書換・絶対禁止', () => {
     const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
     // srcPagesDir 外の兄弟 md
     writeSrc(srcOutDir, '外部/X.md', '# x');
-    writeSrc(srcPagesDir, 'A.md', '[b](B.md) [x](../外部/X.md)');
+    // ★subpage [[b]] = 自note内複製対象。[x] は自note外 subpage でも参照でも複製されない（ADRL-0002）ので
+    //   external 相対書換のみ検証するため参照 `[]` のまま置く。
+    writeSrc(srcPagesDir, 'A.md', '[[b]](B.md) [x](../外部/X.md)');
     writeSrc(srcPagesDir, 'B.md', '# b');
 
     handlePageAssets({
@@ -259,18 +297,21 @@ test('TC-HPA-20 外部リンクは相対書換・絶対禁止', () => {
 });
 
 test('TC-HPA-30 後方互換: cut 経路は再帰しない + nodeImages 単純ケース不変', () => {
-    // (a) cut 経路は closure 再帰しない（B が複製されない or 名前維持）
+    // (a) cut 経路は closure 再帰しない（subpage marker があっても B が複製されず名前維持）
     {
         const { root, srcOutDir, srcPagesDir, destOutDir, destPagesDir } = setup();
-        writeSrc(srcPagesDir, 'A.md', '[b](B.md)');
+        // subpage marker でも cut 経路は再帰しない（!isCut ブロックを通らない）ことを検証。
+        writeSrc(srcPagesDir, 'A.md', '[[b]](B.md)');
         writeSrc(srcPagesDir, 'B.md', '# b');
         handlePageAssets({
             srcOutDir, srcPagesDir, destOutDir, destPagesDir,
             pageId: 'A', newPageId: null, nodeImages: [],
         });
         const aBody = fs.readFileSync(path.join(destPagesDir, 'A.md'), 'utf8');
-        // cut は名前維持（B.md リンクがそのまま）
+        // cut は名前維持（B.md リンクがそのまま・複製されない）
         expect(aBody).toContain('B.md');
+        // cut では B が dst に複製されない（closure 再帰しない）
+        expect(fs.readdirSync(destPagesDir).filter(f => f.endsWith('.md')).length).toBe(1);
         fs.rmSync(root, { recursive: true, force: true });
     }
     // (b) copy 単純ケースの nodeImages 出力形式が現行と同一（destOutDir 基準相対）

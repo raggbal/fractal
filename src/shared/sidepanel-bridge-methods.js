@@ -34,6 +34,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'webviewBlur' });
         },
 
+        // リソースアクセス範囲設定 (FR-RR-06)
+        openResourceRootsSettings: function() {
+            postFn({ type: 'openResourceRootsSettings' });
+        },
+
         // 検索
         searchFiles: function(query) {
             postFn({ type: 'searchFiles', query: query });

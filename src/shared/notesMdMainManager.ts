@@ -10,6 +10,7 @@
  */
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 
 export interface NotesMdMainHost {
     postMessage(message: any): Thenable<boolean>;
@@ -100,6 +101,8 @@ export class NotesMdMainManager {
                             ).toString(),
                             externalUpdate: true,
                         });
+                        // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
+                        this.sendResourceAccessStatus(newContent, filePath);
                     }
                 } catch (error) {
                     this._isApplyingEdit = false;
@@ -130,7 +133,28 @@ export class NotesMdMainManager {
                 ).toString(),
                 externalUpdate: true,
             });
+            // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
+            this.sendResourceAccessStatus(content, filePath);
         });
+    }
+
+    /**
+     * FR-RR-04: notes 本体 md の外部再レンダー時、その md の画像に許可範囲外があれば
+     * フッター案内を webview に送る（範囲内のみなら outOfRange:false でクリア）。
+     * 初回 open の検知（notesEditorProvider.sendResourceAccessStatus）と同じ純関数を再利用。
+     */
+    private sendResourceAccessStatus(mdBody: string, filePath: string): void {
+        try {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            const roots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+            const outOfRange = findOutOfRangeImages(mdBody, path.dirname(filePath), roots);
+            this.host.postMessage({
+                type: 'resourceAccessStatus',
+                outOfRange: outOfRange.length > 0,
+                count: outOfRange.length,
+                samplePath: outOfRange[0],
+            });
+        } catch { /* best-effort */ }
     }
 
     disposeFileWatcher(): void {

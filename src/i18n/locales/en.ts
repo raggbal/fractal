@@ -125,6 +125,10 @@ export const webviewMessages = {
   fileDirSourceFile: 'by file',
   fileDirSourceSettings: 'by settings',
   fileDirSourceDefault: 'by default',
+  // Resource access range (FR-RR-05)
+  resourceAccessOutOfRange: 'Some images are outside the allowed folders and cannot be shown.',
+  resourceAccessOutOfRangeCount: '{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).',
+  resourceAccessOpenSettings: 'Change allowed folders',
   // Command palette
   commandPaletteFilter: 'Type to filter...',
   commandPalettePage: 'Page',
@@ -134,9 +138,9 @@ export const webviewMessages = {
   commandPaletteBlocks: 'Blocks',
   commandPaletteInsert: 'Insert',
   // Action Panel
-  addPage: 'Add Page (Ctrl+N)',
-  addPageAuto: 'Add Page',
-  addPageAtPath: 'Add Page at Path',
+  addPage: 'Add SubPage (Ctrl+N)',
+  addPageAuto: 'Add SubPage',
+  addPageAtPath: 'Add SubPage at Path',
   addPageAtPathTitle: 'Enter path (.md)',
   confirmLinkName: 'Link name',
   actionPanelConfirm: 'Confirm',

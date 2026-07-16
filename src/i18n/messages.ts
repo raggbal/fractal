@@ -125,6 +125,10 @@ export interface WebviewMessages {
   fileDirSourceFile: string;
   fileDirSourceSettings: string;
   fileDirSourceDefault: string;
+  // Resource access range (FR-RR-05)
+  resourceAccessOutOfRange: string;
+  resourceAccessOutOfRangeCount: string;
+  resourceAccessOpenSettings: string;
   // Notes left panel
   notesTabNotes: string;
   notesTabSearch: string;
