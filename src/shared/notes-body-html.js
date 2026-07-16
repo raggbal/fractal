@@ -145,21 +145,28 @@ function generateNotesFilePanelHtml(options) {
         /* ── Folder ── */
         .file-panel-folder { }
         .file-panel-folder-header {
+            /* folder-icon を file-item の icon と同じ開始位置に揃えるため、file-item と同一の
+             * padding(11px) + gap(5px) にし、chevron は position:absolute でフローから外す。
+             * これで先頭のフロー要素 = folder-icon が file-icon と同じ x に来る（FR-FA-01）。*/
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
-            display: flex; align-items: center; gap: 4px;
+            display: flex; align-items: center; gap: 5px;
             font-weight: 500;
+            position: relative;
         }
         .file-panel-folder-header:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-folder-chevron {
-            flex-shrink: 0; width: 13px; height: 13px;
+            /* padding-left(11px) の内側に絶対配置。folder-icon(x=11) に被らないよう幅を詰める。*/
+            position: absolute; left: 0; top: 50%;
+            transform: translateY(-50%);
+            width: 11px; height: 13px;
             display: flex; align-items: center; justify-content: center;
             transition: transform 0.15s;
             opacity: 0.6;
         }
         .file-panel-folder.collapsed > .file-panel-folder-header > .file-panel-folder-chevron {
-            transform: rotate(-90deg);
+            transform: translateY(-50%) rotate(-90deg);
         }
         .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-folder-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
