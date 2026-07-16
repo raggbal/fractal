@@ -402,6 +402,17 @@
             });
         },
 
+        // node-move-to-other-outliner: outliner node（サブツリー）を別 .out に move。
+        // flushOutlinerSync で src .out の disk を最新化してから host に依頼（host は disk を権威に解決）。
+        notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
+            flushOutlinerSync();
+            api.postMessage({
+                type: 'notesMoveOutNodeSubtreeIntoOut',
+                payload: payload,
+                targetOutFilePath: targetOutFilePath,
+            });
+        },
+
         // Daily Notes
         openDailyNotes: function() {
             flushOutlinerSync();

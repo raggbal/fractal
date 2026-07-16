@@ -225,6 +225,16 @@ const testNotesHostBridge = `
         moveItem: function(itemId, targetParentId, index) {
             window.__testApi.notesMessages.push({ type: 'moveItem', itemId: itemId, targetParentId: targetParentId, index: index });
         },
+        // node-move-to-other-outliner: E2E 用モック（file-panel drop が呼ぶ）
+        notesImportOutPageNodeAsMd: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesImportOutPageNodeAsMd', payload: payload, parentId: parentId, index: index });
+        },
+        notesImportMdIntoOut: function(mdFileId, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+        notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
+            window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
+        },
         openDailyNotes: function() {
             window.__testApi.notesMessages.push({ type: 'openDailyNotes' });
         },

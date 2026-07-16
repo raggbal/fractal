@@ -201,6 +201,12 @@ export interface NotesPlatformActions {
         index: number,
         sender: NotesSender
     ): Promise<void> | void;
+    /** node-move-to-other-outliner: outliner node（サブツリー）を右パネルの別 .out に move（root 先頭挿入） */
+    notesMoveOutNodeSubtreeIntoOut?(
+        payload: { outFileKey: string; nodeId: string },
+        targetOutFilePath: string,
+        sender: NotesSender
+    ): Promise<void> | void;
 }
 
 /**
@@ -986,6 +992,18 @@ export async function handleNotesMessage(
                     message.payload,
                     message.parentId ?? null,
                     typeof message.index === 'number' ? message.index : 0,
+                    sender
+                );
+            }
+            break;
+        }
+
+        // node-move-to-other-outliner: outliner node（サブツリー）を別 .out に move
+        case 'notesMoveOutNodeSubtreeIntoOut': {
+            if (typeof platform.notesMoveOutNodeSubtreeIntoOut === 'function') {
+                await platform.notesMoveOutNodeSubtreeIntoOut(
+                    message.payload,
+                    message.targetOutFilePath,
                     sender
                 );
             }

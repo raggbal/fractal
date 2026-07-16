@@ -18,11 +18,12 @@ import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
-import { resolveImagesDirForMd, resolveFilesDirForMd } from './shared/flat-layout';
+import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
+import { moveSubtreeToOtherOut, OutDoc } from './shared/out-node-move';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import {
     imageDirectoryManager,
@@ -1797,6 +1798,82 @@ export class NotesEditorProvider {
                 } catch (e) {
                     console.error('[Notes] notesImportOutPageNodeAsMd error:', e);
                     vscode.window.showErrorMessage('Failed to import outliner page into notes');
+                }
+            },
+
+            // node-move-to-other-outliner: outliner node（サブツリー）を右パネルの別 .out に move（root 先頭挿入）
+            notesMoveOutNodeSubtreeIntoOut: async (
+                payload: { outFileKey: string; nodeId: string },
+                targetOutFilePath: string,
+                senderRef: NotesSender
+            ) => {
+                try {
+                    if (!payload || !payload.outFileKey || !payload.nodeId || !targetOutFilePath) return;
+                    const srcOutPath = payload.outFileKey;
+                    if (!srcOutPath.endsWith('.out') || !targetOutFilePath.endsWith('.out')) return;
+                    // 同一 .out への move は no-op（同一 outliner 内の並べ替えは webview 側の tree D&D が担う）
+                    if (srcOutPath === targetOutFilePath) return;
+                    if (!fs.existsSync(srcOutPath) || !fs.existsSync(targetOutFilePath)) return;
+
+                    // 1. src / target の .out json を読む（どちらも currentFile でなくても自前で読む）
+                    const srcData = JSON.parse(fs.readFileSync(srcOutPath, 'utf8')) as OutDoc;
+                    const targetData = JSON.parse(fs.readFileSync(targetOutFilePath, 'utf8')) as OutDoc;
+                    if (!srcData.nodes || !srcData.nodes[payload.nodeId]) return;
+
+                    // 1.5 HIGH-2 安全ガード: 参照引き継ぎ（物理移動なし）は「src と target が同じ pages/images/files dir を
+                    //     共有する」flat レイアウト前提でのみ成立する。legacy per-id .out 混在等で dir が異なると、
+                    //     参照だけ引き継いでも移動先で解決できず（broken ref）、src 削除で cleanup が物理削除するとデータロス。
+                    //     dir が食い違う場合は abort して警告（物理移動の実装は将来スコープ・データロスを防ぐ安全側）。
+                    const srcHints = { pageDir: srcData.pageDir as string | undefined, imageDir: srcData.imageDir as string | undefined, fileDir: srcData.fileDir as string | undefined };
+                    const tgtHints = { pageDir: targetData.pageDir as string | undefined, imageDir: targetData.imageDir as string | undefined, fileDir: targetData.fileDir as string | undefined };
+                    const dirsShared =
+                        resolvePagesDir(srcOutPath, undefined, srcHints) === resolvePagesDir(targetOutFilePath, undefined, tgtHints) &&
+                        resolveImagesDir(srcOutPath, undefined, srcHints) === resolveImagesDir(targetOutFilePath, undefined, tgtHints) &&
+                        resolveFilesDir(srcOutPath, undefined, srcHints) === resolveFilesDir(targetOutFilePath, undefined, tgtHints);
+                    if (!dirsShared) {
+                        vscode.window.showWarningMessage(
+                            'Cannot move node: the source and target outliners use different asset folders (legacy layout). This move is not supported yet.'
+                        );
+                        return;
+                    }
+
+                    // 2. 純関数でサブツリー転記（target root 先頭挿入 + src 削除）。
+                    //    dirsShared=true を確認済みなので、pageId/images/filePath の参照文字列を
+                    //    そのまま引き継ぐ（物理移動不要・1:1 所有の付替え）。src 削除でアセット物理ファイルは消さない。
+                    const idSeed = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                    const res = moveSubtreeToOtherOut(srcData, targetData, payload.nodeId, idSeed);
+                    if (!res) return;
+
+                    // 3. 両 .out を保存
+                    fs.writeFileSync(targetOutFilePath, JSON.stringify(targetData, null, 2), 'utf8');
+                    fs.writeFileSync(srcOutPath, JSON.stringify(srcData, null, 2), 'utf8');
+
+                    // 4. currentFile 側は webview に即時反映（bump fileChangeId + updateData）
+                    const currentPath = fileManager.getCurrentFilePath();
+                    if (currentPath === srcOutPath) {
+                        fileManager.openFile(srcOutPath);
+                        senderRef.postMessage({
+                            type: 'updateData', kind: 'out', data: srcData,
+                            fileChangeId: fileManager.getFileChangeId(), outFileKey: srcOutPath,
+                        });
+                    } else if (currentPath === targetOutFilePath) {
+                        fileManager.openFile(targetOutFilePath);
+                        senderRef.postMessage({
+                            type: 'updateData', kind: 'out', data: targetData,
+                            fileChangeId: fileManager.getFileChangeId(), outFileKey: targetOutFilePath,
+                        });
+                    }
+
+                    // 5. fileList/structure を broadcast（.out の内容変化 = ページ数等が変わりうる）
+                    senderRef.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructure(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                    });
+                } catch (e) {
+                    console.error('[Notes] notesMoveOutNodeSubtreeIntoOut error:', e);
+                    vscode.window.showErrorMessage('Failed to move node to another outliner');
                 }
             },
         };

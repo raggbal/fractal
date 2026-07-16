@@ -625,6 +625,26 @@ var notesFilePanel = (function() {
         }
     }
 
+    // node-move-to-other-outliner: outliner node（サブツリー）→ 別 .out への move 用 MIME。
+    // dragstart（outliner.js）で notes モードの全 node に載る（page 有無問わず）。payload {outFileKey, nodeId}。
+    var OUT_NODE_SUBTREE_MIME = 'application/x-fractal-out-node-subtree';
+
+    function isOutNodeSubtreeDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(OUT_NODE_SUBTREE_MIME) !== -1;
+    }
+
+    function readOutNodeSubtreePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(OUT_NODE_SUBTREE_MIME);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    }
+
     function setupDragSource(el) {
         el.addEventListener('dragstart', function(e) {
             var target = el.closest('[data-item-id]') || el;
@@ -655,7 +675,10 @@ var notesFilePanel = (function() {
         el.addEventListener('dragover', function(e) {
             // v0.207.77 (Feature B): outliner page-node からの drag を最優先で処理
             var fromOutliner = isOutNodePageDrag(e);
-            if (!dragItemId && !fromOutliner) return;
+            // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
+            // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
+            var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 
@@ -663,7 +686,18 @@ var notesFilePanel = (function() {
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (!fromOutliner && target.dataset.itemId === dragItemId) return;
+            if (!fromOutliner && !fromOutlinerSubtree && target.dataset.itemId === dragItemId) return;
+
+            // node-move-to-other-outliner: outliner node（サブツリー）を .out item にドロップ → 別 outliner へ move
+            // （page 付き node は Feature B の -out-node-page も持つが、.out item が drop 先のときは本経路を優先）
+            if (
+                fromOutlinerSubtree &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
 
             // Feature A: md ファイルを .out item にドロップ → import (中央のみ、黄色 highlight)
             if (
@@ -710,18 +744,32 @@ var notesFilePanel = (function() {
         el.addEventListener('drop', function(e) {
             // v0.207.77 (Feature B): outliner page-node からの drop を最優先処理
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+            // node-move-to-other-outliner: サブツリー move payload（notes 全 node に載る）
+            var subtreePayload = isOutNodeSubtreeDrag(e) ? readOutNodeSubtreePayload(e) : null;
             e.preventDefault();
-            if (!dragItemId && !outPayload) return;
+            if (!dragItemId && !outPayload && !subtreePayload) return;
 
             clearAllDragOver();
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (!outPayload && target.dataset.itemId === dragItemId) return;
+            if (!outPayload && !subtreePayload && target.dataset.itemId === dragItemId) return;
 
             var targetId = target.dataset.itemId;
             var targetType = target.dataset.itemType;
             var targetParentId = target.dataset.parentId || null;
+
+            // node-move-to-other-outliner: node（サブツリー）→ 別 .out item への move（最優先）。
+            // 移動先が .out file のときのみ本経路。それ以外（folder/md item）は下の Feature B（page-node→md 化）へ。
+            if (subtreePayload && targetType === 'file' && target.dataset.fileExt === 'out') {
+                var targetOutPath = target.dataset.filePath;
+                // 自分自身の .out への drop は no-op（同一 outliner 内は tree D&D が担う）
+                if (targetOutPath && subtreePayload.outFileKey !== targetOutPath
+                    && typeof bridge.notesMoveOutNodeSubtreeIntoOut === 'function') {
+                    bridge.notesMoveOutNodeSubtreeIntoOut(subtreePayload, targetOutPath);
+                }
+                return;
+            }
 
             // Feature B: outliner page-node → Notes panel
             if (outPayload) {

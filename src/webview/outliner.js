@@ -2970,6 +2970,17 @@ var Outliner = (function() {
                     e.dataTransfer.setData('application/x-fractal-out-node-page', payload);
                 } catch (err) { /* ignore */ }
             }
+            // node-move-to-other-outliner: notes モードなら全 node（page 有無問わず）で
+            // サブツリー移動用 MIME を載せる。実体は host が src .out（flush 済み disk）から解決（案B）。
+            if (isNotesMode()) {
+                try {
+                    var subtreePayload = JSON.stringify({
+                        outFileKey: currentOutFileKey,
+                        nodeId: node.id,
+                    });
+                    e.dataTransfer.setData('application/x-fractal-out-node-subtree', subtreePayload);
+                } catch (err) { /* ignore */ }
+            }
         });
         bulletEl.addEventListener('dragend', function() {
             if (dragState) {
