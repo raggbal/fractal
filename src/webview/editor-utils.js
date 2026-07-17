@@ -293,6 +293,28 @@
         return patterns;
     }
 
+    // ===== Paste 時のファイルパス判定（FR-PA-01） =====
+    // 貼り付け plain text が「拡張子付きファイルパス」なら {path, base, isImage} を返す。
+    // URL 貼り付けの autolink（editor.js の _insertPastedMarkdown）と同じ経路で、パスもリンク/画像化するための判定。
+    // 誤検知を抑えるため: 空白なし単一トークン / 拡張子必須 / Windows パス（C:\ / バックスラッシュ）は除外 / URL は別経路。
+    var PASTE_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+    function classifyPastedPath(text) {
+        var t = (text || '').trim();
+        if (!t || /\s/.test(t)) return null;                 // 空白含み（複数語）は除外
+        if (/^https?:\/\//i.test(t)) return null;            // URL は別経路（保険）
+        if (/^[a-zA-Z]:[\\/]/.test(t)) return null;          // Windows ドライブパス除外
+        if (t.indexOf('\\') >= 0) return null;               // バックスラッシュ除外（Windows/エスケープ回避）
+        // 絶対（/ or ~/）or 相対（./ ../ or seg/seg）
+        var isAbs = t.charAt(0) === '/' || t.slice(0, 2) === '~/';
+        var isRel = t.slice(0, 2) === './' || t.slice(0, 3) === '../' || /^[^/]+\/[^/]/.test(t);
+        if (!isAbs && !isRel) return null;
+        var m = t.match(/\.([A-Za-z0-9]+)$/);                // 末尾拡張子必須（誤検知回避の要）
+        if (!m) return null;
+        var ext = m[1].toLowerCase();
+        var base = t.slice(t.lastIndexOf('/') + 1);
+        return { path: t, base: base, isImage: PASTE_IMAGE_EXTS.indexOf(ext) >= 0 };
+    }
+
     // ===== Normalize multi-line table cells =====
     // Handles two cases of malformed table markdown:
     // 1. Flattened tables: entire table on one line with | <br> | as row separators
@@ -446,6 +468,7 @@
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
         normalizeMultiLineTableCells: normalizeMultiLineTableCells,
-        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown,
+        classifyPastedPath: classifyPastedPath
     };
 })();

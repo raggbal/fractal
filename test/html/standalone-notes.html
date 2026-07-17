@@ -2194,7 +2194,9 @@ body {
     top: 0;
     right: 0;
     width: 50%;
-    min-width: 288px;
+    /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
+       通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
+    min-width: min(288px, 95vw);
     max-width: 70%;
     height: 100%;
     background: var(--bg-color);
@@ -6372,6 +6374,28 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         return patterns;
     }
 
+    // ===== Paste 時のファイルパス判定（FR-PA-01） =====
+    // 貼り付け plain text が「拡張子付きファイルパス」なら {path, base, isImage} を返す。
+    // URL 貼り付けの autolink（editor.js の _insertPastedMarkdown）と同じ経路で、パスもリンク/画像化するための判定。
+    // 誤検知を抑えるため: 空白なし単一トークン / 拡張子必須 / Windows パス（C:\ / バックスラッシュ）は除外 / URL は別経路。
+    var PASTE_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+    function classifyPastedPath(text) {
+        var t = (text || '').trim();
+        if (!t || /\s/.test(t)) return null;                 // 空白含み（複数語）は除外
+        if (/^https?:\/\//i.test(t)) return null;            // URL は別経路（保険）
+        if (/^[a-zA-Z]:[\\/]/.test(t)) return null;          // Windows ドライブパス除外
+        if (t.indexOf('\\') >= 0) return null;               // バックスラッシュ除外（Windows/エスケープ回避）
+        // 絶対（/ or ~/）or 相対（./ ../ or seg/seg）
+        var isAbs = t.charAt(0) === '/' || t.slice(0, 2) === '~/';
+        var isRel = t.slice(0, 2) === './' || t.slice(0, 3) === '../' || /^[^/]+\/[^/]/.test(t);
+        if (!isAbs && !isRel) return null;
+        var m = t.match(/\.([A-Za-z0-9]+)$/);                // 末尾拡張子必須（誤検知回避の要）
+        if (!m) return null;
+        var ext = m[1].toLowerCase();
+        var base = t.slice(t.lastIndexOf('/') + 1);
+        return { path: t, base: base, isImage: PASTE_IMAGE_EXTS.indexOf(ext) >= 0 };
+    }
+
     // ===== Normalize multi-line table cells =====
     // Handles two cases of malformed table markdown:
     // 1. Flattened tables: entire table on one line with | <br> | as row separators
@@ -6525,7 +6549,8 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
         normalizeMultiLineTableCells: normalizeMultiLineTableCells,
-        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown,
+        classifyPastedPath: classifyPastedPath
     };
 })();
 
@@ -24230,6 +24255,56 @@ class EditorInstance {
                 }
                 // If selection spans multiple lines, fall through to normal paste
             }
+
+            // File path auto-link on paste (FR-PA-01/02/03)
+            // URL と同じ経路で、拡張子付きファイルパスを貼ったらリンク/画像化する。
+            // URL 判定を先に通しているので http(s) はここに来ない（classifyPastedPath も保険で除外）。
+            var pathInfo = (window.__editorUtils && window.__editorUtils.classifyPastedPath)
+                ? window.__editorUtils.classifyPastedPath(plainText) : null;
+            if (pathInfo && !plainText.trim().includes('\n')) {
+                const selText = range.toString();
+                if (selText && !selText.includes('\n')) {
+                    // 選択あり → [選択](path)（画像パスでも選択時はリンクラベル優先＝URL wrap と同じ）
+                    const a = document.createElement('a');
+                    a.href = pathInfo.path;
+                    a.textContent = selText;
+                    range.deleteContents();
+                    range.insertNode(a);
+                    const nr = document.createRange();
+                    nr.setStartAfter(a); nr.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(nr);
+                    syncMarkdown();
+                    return;
+                } else if (!selText || selText.trim() === '') {
+                    if (pathInfo.isImage) {
+                        // 画像 → ![base](path)。<img> を挿入（syncMarkdown が ![]() に変換）。
+                        const img = document.createElement('img');
+                        img.src = resolveImagePath(pathInfo.path);
+                        img.alt = pathInfo.base;
+                        img.setAttribute('data-markdown-path', pathInfo.path);
+                        img.style.maxWidth = '100%';
+                        range.deleteContents();
+                        range.insertNode(img);
+                        const nr = document.createRange();
+                        nr.setStartAfter(img); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    } else {
+                        // 非画像 → [base](path)
+                        const a = document.createElement('a');
+                        a.href = pathInfo.path;
+                        a.textContent = pathInfo.base;
+                        range.deleteContents();
+                        range.insertNode(a);
+                        const nr = document.createRange();
+                        nr.setStartAfter(a); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    }
+                }
+            }
         }
 
         // Detect triple-click selection pattern for paste
@@ -33626,8 +33701,7 @@ var Outliner = (function() {
                     sidePanelEl.classList.remove('expanded');
                     expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
-                        sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-                        sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
+                        applySidePanelWidthClamped(); // FR-WC-01: 表示領域内にクランプ
                     } else {
                         sidePanelEl.style.width = '';
                         sidePanelEl.style.maxWidth = '';
@@ -33802,6 +33876,33 @@ var Outliner = (function() {
                 syncToHostImmediate();
             }
         }
+    }
+
+    // FR-WC-01: 保存幅 sidePanelWidthSetting を表示領域内（親の 95%）にクランプして適用する。
+    // 無条件に保存幅を px 適用すると、表示領域より大きい保存幅で sidepanel がタブ領域を溢れる。
+    // resize（onMove）と同じ maxW=parentOffsetWidth*0.95 で頭打ちにする。
+    // 親の offsetWidth が未確定（show 前で 0）のときは保存幅そのまま（次描画/resize で是正）。
+    function applySidePanelWidthClamped() {
+        if (!sidePanelWidthSetting || !sidePanelEl) return;
+        var parentW = (sidePanelEl.parentElement || document.body).offsetWidth || 0;
+        var w = parentW > 0 ? Math.min(sidePanelWidthSetting, parentW * 0.95) : sidePanelWidthSetting;
+        sidePanelEl.style.width = w + 'px';
+        sidePanelEl.style.maxWidth = w + 'px';
+    }
+
+    // FR-WC-02: sidepanel を開いた後に表示領域（window）が縮むと、inline style(px) で固定された幅が
+    // 表示領域を超えて溢れる。window resize で visible かつ非 expanded の sidepanel を再クランプする。
+    // 1 回だけ登録（editor.js:427 の window resize 前例と同パターン）。
+    var _sidePanelResizeWired = false;
+    function ensureSidePanelWindowResizeHandler() {
+        if (_sidePanelResizeWired) return;
+        _sidePanelResizeWired = true;
+        window.addEventListener('resize', function() {
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();
+        });
     }
 
     // sidepanel TOC (sidebar) drag-resize
@@ -34128,11 +34229,10 @@ var Outliner = (function() {
         // Setup image dir display
         setupSidePanelImageDir();
 
-        // Apply saved width
-        if (sidePanelWidthSetting && sidePanelEl) {
-            sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-            sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
-        }
+        // Apply saved width（FR-WC-01: 表示領域内にクランプ）
+        applySidePanelWidthClamped();
+        // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
+        ensureSidePanelWindowResizeHandler();
 
         // Show panel with animation
         if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }

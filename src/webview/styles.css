@@ -1552,7 +1552,9 @@ body {
     top: 0;
     right: 0;
     width: 50%;
-    min-width: 288px;
+    /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
+       通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
+    min-width: min(288px, 95vw);
     max-width: 70%;
     height: 100%;
     background: var(--bg-color);

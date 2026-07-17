@@ -6659,8 +6659,7 @@ var Outliner = (function() {
                     sidePanelEl.classList.remove('expanded');
                     expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
-                        sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-                        sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
+                        applySidePanelWidthClamped(); // FR-WC-01: 表示領域内にクランプ
                     } else {
                         sidePanelEl.style.width = '';
                         sidePanelEl.style.maxWidth = '';
@@ -6835,6 +6834,33 @@ var Outliner = (function() {
                 syncToHostImmediate();
             }
         }
+    }
+
+    // FR-WC-01: 保存幅 sidePanelWidthSetting を表示領域内（親の 95%）にクランプして適用する。
+    // 無条件に保存幅を px 適用すると、表示領域より大きい保存幅で sidepanel がタブ領域を溢れる。
+    // resize（onMove）と同じ maxW=parentOffsetWidth*0.95 で頭打ちにする。
+    // 親の offsetWidth が未確定（show 前で 0）のときは保存幅そのまま（次描画/resize で是正）。
+    function applySidePanelWidthClamped() {
+        if (!sidePanelWidthSetting || !sidePanelEl) return;
+        var parentW = (sidePanelEl.parentElement || document.body).offsetWidth || 0;
+        var w = parentW > 0 ? Math.min(sidePanelWidthSetting, parentW * 0.95) : sidePanelWidthSetting;
+        sidePanelEl.style.width = w + 'px';
+        sidePanelEl.style.maxWidth = w + 'px';
+    }
+
+    // FR-WC-02: sidepanel を開いた後に表示領域（window）が縮むと、inline style(px) で固定された幅が
+    // 表示領域を超えて溢れる。window resize で visible かつ非 expanded の sidepanel を再クランプする。
+    // 1 回だけ登録（editor.js:427 の window resize 前例と同パターン）。
+    var _sidePanelResizeWired = false;
+    function ensureSidePanelWindowResizeHandler() {
+        if (_sidePanelResizeWired) return;
+        _sidePanelResizeWired = true;
+        window.addEventListener('resize', function() {
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();
+        });
     }
 
     // sidepanel TOC (sidebar) drag-resize
@@ -7161,11 +7187,10 @@ var Outliner = (function() {
         // Setup image dir display
         setupSidePanelImageDir();
 
-        // Apply saved width
-        if (sidePanelWidthSetting && sidePanelEl) {
-            sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-            sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
-        }
+        // Apply saved width（FR-WC-01: 表示領域内にクランプ）
+        applySidePanelWidthClamped();
+        // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
+        ensureSidePanelWindowResizeHandler();
 
         // Show panel with animation
         if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }

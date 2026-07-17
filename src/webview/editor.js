@@ -17697,6 +17697,56 @@ class EditorInstance {
                 }
                 // If selection spans multiple lines, fall through to normal paste
             }
+
+            // File path auto-link on paste (FR-PA-01/02/03)
+            // URL と同じ経路で、拡張子付きファイルパスを貼ったらリンク/画像化する。
+            // URL 判定を先に通しているので http(s) はここに来ない（classifyPastedPath も保険で除外）。
+            var pathInfo = (window.__editorUtils && window.__editorUtils.classifyPastedPath)
+                ? window.__editorUtils.classifyPastedPath(plainText) : null;
+            if (pathInfo && !plainText.trim().includes('\n')) {
+                const selText = range.toString();
+                if (selText && !selText.includes('\n')) {
+                    // 選択あり → [選択](path)（画像パスでも選択時はリンクラベル優先＝URL wrap と同じ）
+                    const a = document.createElement('a');
+                    a.href = pathInfo.path;
+                    a.textContent = selText;
+                    range.deleteContents();
+                    range.insertNode(a);
+                    const nr = document.createRange();
+                    nr.setStartAfter(a); nr.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(nr);
+                    syncMarkdown();
+                    return;
+                } else if (!selText || selText.trim() === '') {
+                    if (pathInfo.isImage) {
+                        // 画像 → ![base](path)。<img> を挿入（syncMarkdown が ![]() に変換）。
+                        const img = document.createElement('img');
+                        img.src = resolveImagePath(pathInfo.path);
+                        img.alt = pathInfo.base;
+                        img.setAttribute('data-markdown-path', pathInfo.path);
+                        img.style.maxWidth = '100%';
+                        range.deleteContents();
+                        range.insertNode(img);
+                        const nr = document.createRange();
+                        nr.setStartAfter(img); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    } else {
+                        // 非画像 → [base](path)
+                        const a = document.createElement('a');
+                        a.href = pathInfo.path;
+                        a.textContent = pathInfo.base;
+                        range.deleteContents();
+                        range.insertNode(a);
+                        const nr = document.createRange();
+                        nr.setStartAfter(a); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    }
+                }
+            }
         }
 
         // Detect triple-click selection pattern for paste
