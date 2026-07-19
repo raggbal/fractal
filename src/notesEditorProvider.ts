@@ -259,6 +259,9 @@ export class NotesEditorProvider {
                 fileChangeId: fileManager.getFileChangeId(),
                 s3BucketPathSet: !!(fileManager.getS3BucketPath() || '').trim(),
                 noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
+                history: fileManager.getHistory(),          // FR-HP: 最近開いたファイル履歴
+                historyPanelHeight: fileManager.getHistoryPanelHeight(),
+                historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
             }
         );
         sendTranslateLangFromConfig();
@@ -277,6 +280,20 @@ export class NotesEditorProvider {
         const mdMain = new NotesMdMainManager({
             postMessage: (msg: any) => panel.webview.postMessage(msg),
             asWebviewUri: (uri: vscode.Uri) => panel.webview.asWebviewUri(uri),
+        }, (filePath: string, content: string) => {
+            // FR-TH-02 (★MEDIUM-3): 外部編集で確定した md の先頭 H1 を tree title に反映。
+            // NotesMdMainManager は fileManager/sender を持たないため、fileManager/webview に
+            // 到達できるこの生成側で反映する（hybridWatcher / onDidChangeTextDocument 両 fire site から呼ばれる）。
+            if (fileManager.syncTitleFromH1(filePath, content)) {
+                panel.webview.postMessage({
+                    type: 'notesFileListChanged',
+                    fileList: fileManager.listFiles(),
+                    structure: fileManager.getStructure(),
+                    currentFile: fileManager.getCurrentFilePath(),
+                    noteFolderName: path.basename(folderPath),
+                });
+                this.folderProvider?.refresh();
+            }
         });
 
         // --- drawio watcher (MD-48 / Notes 経路): 既存 sidePanelManager とは完全分離 ---

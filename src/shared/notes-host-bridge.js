@@ -428,6 +428,17 @@
             api.postMessage({ type: 'notesSavePanelWidth', width: width });
         },
 
+        // FR-HP: 最近開いたファイル履歴パネル
+        openPageFromHistory: function(pageId) {
+            api.postMessage({ type: 'openPageFromHistory', pageId: pageId });
+        },
+        saveHistoryPanelCollapsed: function(collapsed) {
+            api.postMessage({ type: 'notesSaveHistoryPanelCollapsed', collapsed: !!collapsed });
+        },
+        saveHistoryPanelHeight: function(height) {
+            api.postMessage({ type: 'notesSaveHistoryPanelHeight', height: height });
+        },
+
         // 検索
         search: function(query, options) {
             flushOutlinerSync();

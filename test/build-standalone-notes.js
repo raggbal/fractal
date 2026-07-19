@@ -91,6 +91,8 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
+// FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
+const notesHistoryPanelScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-history-panel.js'), 'utf-8');
 
 // サイドパネルHTML生成
 const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtmlPath);
@@ -421,6 +423,9 @@ const html = `<!DOCTYPE html>
     __NOTES_MD_DISPATCHER_SCRIPT__
     </script>
     <script>
+    __NOTES_HISTORY_PANEL_SCRIPT__
+    </script>
+    <script>
     // テストAPI公開
     window.__testApi.ready = false;
     window.__testApi.initOutliner = function(data) {
@@ -482,6 +487,26 @@ const html = `<!DOCTYPE html>
         },
         deliverUpdate: function(msg) { window.__hostMessageHandler(msg); },
     });
+    // FR-HP: 最近開いたファイル履歴パネル（test bridge は messages 記録）。
+    // 履歴データは __testApi.loadHistory で注入可能。
+    window.__testApi.initHistoryPanel = function(history, height, collapsed) {
+        window.__notesHistoryPanel = window.__initNotesHistoryPanel({
+            panelEl: document.getElementById('sidePanelHistory'),
+            listEl: document.getElementById('sidePanelHistoryList'),
+            toggleEl: document.getElementById('sidePanelHistoryToggle'),
+            resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
+            bridge: {
+                openFile: function(id) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id }); },
+                openPageFromHistory: function(pageId) { window.__testApi.messages.push({ type: 'openPageFromHistory', pageId: pageId }); },
+                saveHistoryPanelCollapsed: function(c) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelCollapsed', collapsed: c }); },
+                saveHistoryPanelHeight: function(h) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelHeight', height: h }); },
+            },
+            initialHistory: history || [],
+            initialHeight: (typeof height === 'number' ? height : null),
+            initialCollapsed: !!collapsed,
+        });
+        return window.__notesHistoryPanel;
+    };
     // 空データで初期化
     window.__testApi.initOutliner();
     window.__testApi.initNotesPanel();
@@ -504,6 +529,7 @@ result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

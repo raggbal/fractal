@@ -145,6 +145,18 @@ var OutlinerModel = (function() {
         return this.nodes[nodeId] || null;
     };
 
+    // FR-TH-05/06: pageId に紐づく page node を返す（無ければ null）。
+    // sidepanel md の H1 編集 → 呼び出し元 node の text 反映で、
+    // 「今開いている md（basename=pageId）が現 .out の node 由来か」の構造逆引きに使う（ADRL-0001）。
+    Model.prototype.findNodeByPageId = function(pageId) {
+        if (!pageId) { return null; }
+        for (var id in this.nodes) {
+            var n = this.nodes[id];
+            if (n && n.isPage && n.pageId === pageId) { return n; }
+        }
+        return null;
+    };
+
     Model.prototype.addNode = function(parentId, afterId, text) {
         var id = generateNodeId();
         text = text || '';

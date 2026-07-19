@@ -117,6 +117,8 @@ export const webviewMessages = {
   redo: 'Redo (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: 'Image save directory:',
+  recentFilesLabel: 'Recent',
+  toggleRecent: 'Toggle recent files',
   imageDirSourceFile: 'by file',
   imageDirSourceSettings: 'by settings',
   imageDirSourceDefault: 'by default',

@@ -117,6 +117,8 @@ export interface WebviewMessages {
   redo: string;
   // Image directory source labels
   imageDirLabel: string;
+  recentFilesLabel: string;
+  toggleRecent: string;
   imageDirSourceFile: string;
   imageDirSourceSettings: string;
   imageDirSourceDefault: string;

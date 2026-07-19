@@ -31,9 +31,13 @@ export class NotesMdMainManager {
     private _isApplyingEdit = false;
 
     private readonly host: NotesMdMainHost;
+    // FR-TH-02 (★MEDIUM-3): 外部編集で確定した content を上位（fileManager/webview 到達層）へ渡す。
+    // このクラスは fileManager/sender を持たないため、tree title 反映は生成側のコールバックで行う。
+    private readonly onExternalContent?: (filePath: string, content: string) => void;
 
-    constructor(host: NotesMdMainHost) {
+    constructor(host: NotesMdMainHost, onExternalContent?: (filePath: string, content: string) => void) {
         this.host = host;
+        this.onExternalContent = onExternalContent;
     }
 
     get watchedPath(): string | undefined {
@@ -108,6 +112,8 @@ export class NotesMdMainManager {
                         });
                         // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
                         this.sendResourceAccessStatus(newContent, filePath);
+                        // FR-TH-02 (fire site 1: hybridWatcher): 外部編集の H1 を tree title に反映
+                        this.onExternalContent?.(filePath, newContent);
                     }
                 } catch (error) {
                     this._isApplyingEdit = false;
@@ -140,6 +146,8 @@ export class NotesMdMainManager {
             });
             // FR-RR-04: 外部再レンダーでも範囲外画像を検知してフッター案内を更新する
             this.sendResourceAccessStatus(content, filePath);
+            // FR-TH-02 (fire site 2: onDidChangeTextDocument): 外部編集の H1 を tree title に反映
+            this.onExternalContent?.(filePath, content);
         });
     }
 

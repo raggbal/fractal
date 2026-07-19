@@ -99,6 +99,8 @@ export const webviewMessages = {
   redo: '다시 실행 (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '이미지 저장 경로:',
+  recentFilesLabel: '최근 파일',
+  toggleRecent: '최근 파일 패널 토글',
   imageDirSourceFile: '파일별 설정',
   imageDirSourceSettings: '설정에 의해',
   imageDirSourceDefault: '기본값',

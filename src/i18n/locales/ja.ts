@@ -117,6 +117,8 @@ export const webviewMessages = {
   redo: 'やり直す (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '画像保存先:',
+  recentFilesLabel: '最近開いたファイル',
+  toggleRecent: '履歴パネルの開閉',
   imageDirSourceFile: 'by ファイル個別設定',
   imageDirSourceSettings: 'by 設定',
   imageDirSourceDefault: 'by デフォルト',

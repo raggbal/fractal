@@ -99,6 +99,8 @@ export const webviewMessages = {
   redo: '重做 (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '图片保存目录:',
+  recentFilesLabel: '最近打开',
+  toggleRecent: '切换最近文件',
   imageDirSourceFile: '按文件设置',
   imageDirSourceSettings: '按设置',
   imageDirSourceDefault: '按默认',

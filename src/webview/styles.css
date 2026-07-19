@@ -1825,6 +1825,76 @@ body {
     flex: 1;
     overflow: hidden;
 }
+/* FR-HP-08/09: 最近開いたファイル履歴パネル（左ファイルツリーパネル .notes-file-panel 下部・常時表示）。
+   セレクタは親非依存（ancestor を要求しない）ので DOM の親が変わっても効く。
+   .notes-file-panel は flex column、file-panel-content は flex:1 なので
+   history は flex-shrink:0 で下部に固定される。 */
+.side-panel-history {
+    flex-shrink: 0;
+    height: 33%;                 /* 開時: 左パネルの約 1/3。JS が保存値で上書き */
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-color);
+    position: relative;
+    overflow: hidden;
+}
+.side-panel-history.collapsed {
+    height: 28px !important;     /* 閉時: 最下部の小バー。JS の高さ上書きより優先 */
+    min-height: 28px;
+}
+.side-panel-history-resize-handle {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    margin-top: -3px;
+    cursor: ns-resize;
+    z-index: 2;
+}
+.side-panel-history.collapsed .side-panel-history-resize-handle { display: none; }
+.side-panel-history-header {
+    flex-shrink: 0;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #888);
+    user-select: none;
+}
+.side-panel-history-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    padding: 2px;
+    display: flex;
+    transition: transform 0.15s;
+}
+.side-panel-history.collapsed .side-panel-history-toggle { transform: rotate(180deg); }
+.side-panel-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+}
+.side-panel-history.collapsed .side-panel-history-list { display: none; }
+.side-panel-history-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.side-panel-history-item:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
+.side-panel-history-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
+.side-panel-history-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel-editor-root {
     display: flex;
     flex-direction: column;

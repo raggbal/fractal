@@ -15,6 +15,12 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'save' });
         },
 
+        // FR-TH-04: outliner の page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+        // 共通ファクトリに置くことで notes/standalone 両 outlinerHostBridge + standalone test bridge に伝播。
+        syncNodeTextToPageH1: function(pageId, text) {
+            postFn({ type: 'syncNodeTextToPageH1', pageId: pageId, text: text });
+        },
+
         // リンク
         openLink: function(href) {
             postFn({ type: 'openLink', href: href });

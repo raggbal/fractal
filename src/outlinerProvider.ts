@@ -10,6 +10,7 @@ import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
+import { setFirstH1, writeFileIfChanged } from './shared/md-h1-utils';
 import { safeResolveUnderDir } from './shared/path-safety';
 import * as flatLayout from './shared/flat-layout';
 import { handleExportMindmap } from './shared/mindmap-export-host';
@@ -471,6 +472,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'makePage':
                         await this.handleMakePage(document, webviewPanel, message);
                         break;
+
+                    // FR-TH-04: page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+                    // standalone は document 基準の getPageFilePath(document, pageId)（2引数）。
+                    case 'syncNodeTextToPageH1': {
+                        if (message.pageId && typeof message.text === 'string') {
+                            const pagePath = this.getPageFilePath(document, message.pageId);
+                            if (pagePath && fs.existsSync(pagePath)) {
+                                const body = fs.readFileSync(pagePath, 'utf8');
+                                writeFileIfChanged(pagePath, setFirstH1(body, message.text));
+                            }
+                        }
+                        break;
+                    }
 
                     case 'removePage':
                         await this.handleRemovePage(document, sidePanel, message);

@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.48] - 2026-07-19
+
+### Added
+- **タイトル ↔ H1 双方向同期**: (1) note md のファイルツリー名 ↔ md 先頭 H1、(2) outliner node の text ↔ 添付 page md の先頭 H1 を、編集確定時に双方向同期する。H1 が無ければ本文先頭に `# <title>` を挿入。冪等・byte-skip 書込・プログラム書換中フラグで無限ループを防止。
+- sidepanel md → node text の同期は「outliner node 由来で開いた md」のときだけ動作（origin=構造逆引き = sidePanelFilePath の basename=pageId が現 .out node に一致。ADRL-0001）。リンク/履歴/検索から開いた md は node を書き換えない。
+
+### Fixed
+- **H1 抽出の CommonMark 準拠**: 末尾 `#` を含むタイトル（`C#` / `F#` 等）が `C` / `F` に誤って切り詰められるデータ化けを修正。閉じ `#` 列は直前に空白がある時（`# Title #`）だけ剥がす。CRLF 改行を保持。host（md-h1-utils）と webview（outliner.js）で抽出ポリシーを統一。
+- **未編集 node の上書き防止**: page md を編集後、outliner で該当 node を編集せず Cmd+Enter しただけで md H1 が古い node text で上書きされる問題を修正（node text を実際に編集した時だけ H1 に同期）。
+- **outliner title の即時 tree 反映**: outliner の page title を変更しても note ファイルツリーにすぐ反映されず、別ファイルを開くまで遅延していた問題を修正（確定時に即 host 送信 + pending の .out 保存を flush して tree の表示元 disk title を更新）。
+
 ## [0.209.16] - 2026-07-09
 
 ### Fixed

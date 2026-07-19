@@ -8,6 +8,7 @@ import { safeResolveUnderDir } from './path-safety';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
+import { setFirstH1, writeFileIfChanged } from './md-h1-utils';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -254,6 +255,11 @@ export async function handleNotesMessage(
             }
             console.log('[NotesMessageHandler] syncData received from webview at', new Date().toISOString(), 'size=', (message.content || '').length, 'B fileChangeId=', message.fileChangeId);
             fileManager.saveCurrentFile(message.content);
+            // .out の title 変更を tree（items[id].title）へ即反映（md の syncTitleFromH1 と対称）。
+            // 変化時のみ再描画。tree の .out title は items[id].title を優先表示するため即時反映される。
+            if (fileManager.syncOutTitleToTree(message.content)) {
+                sendFileListWithStructure(fileManager, sender);
+            }
             break;
 
         // ADR-008: Notes メインペイン Markdown editor からの auto-save
@@ -271,6 +277,10 @@ export async function handleNotesMessage(
                 });
             } else {
                 fileManager.saveCurrentFile(message.content);
+            }
+            // FR-TH-02: 先頭 H1 を tree title に反映（変化時のみ再描画）
+            if (fileManager.syncTitleFromH1(cur, message.content)) {
+                sendFileListWithStructure(fileManager, sender);
             }
             break;
         }
@@ -561,13 +571,55 @@ export async function handleNotesMessage(
             const pagePath = fileManager.getPageFilePath(message.pageId);
             if (fs.existsSync(pagePath)) {
                 platform.openPageInSidePanel(pagePath);
+                // FR-HP-03: page md を履歴に記録。
+                fileManager.recordPageHistory(message.pageId);
+                sendFileListWithStructure(fileManager, sender);
             }
             break;
         }
 
+        // FR-HP-05: history の page-md クリック → pageId を現 note で解決して sidepanel で開く。
+        case 'openPageFromHistory': {
+            const pagePath = fileManager.getPageFilePath(message.pageId);
+            if (fs.existsSync(pagePath)) {
+                platform.openPageInSidePanel(pagePath);
+                // FR-HP-03: sidepanel md も history 最上位へ移動する（note md / .out と同じ挙動）。
+                fileManager.recordPageHistory(message.pageId);
+                sendFileListWithStructure(fileManager, sender);
+            }
+            break;
+        }
+
+        // FR-HP-06/07: history パネルの開閉状態・高さを永続化。
+        case 'notesSaveHistoryPanelCollapsed':
+            fileManager.saveHistoryPanelCollapsed(!!message.collapsed);
+            break;
+
+        case 'notesSaveHistoryPanelHeight':
+            if (typeof message.height === 'number') {
+                fileManager.saveHistoryPanelHeight(message.height);
+            }
+            break;
+
         case 'saveSidePanelFile':
             platform.saveSidePanelFile(message.filePath, message.content);
+            // FR-TH-02: sidepanel md（tree item の場合）の先頭 H1 を tree title に反映
+            if (fileManager.syncTitleFromH1(message.filePath, message.content)) {
+                sendFileListWithStructure(fileManager, sender);
+            }
             break;
+
+        // FR-TH-04: outliner の page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+        // notes モードは fileManager.getPageFilePath(pageId)（1引数）で解決。
+        case 'syncNodeTextToPageH1': {
+            if (!message.pageId || typeof message.text !== 'string') break;
+            const pagePath = fileManager.getPageFilePath(message.pageId);
+            if (pagePath && fs.existsSync(pagePath)) {
+                const body = fs.readFileSync(pagePath, 'utf8');
+                writeFileIfChanged(pagePath, setFirstH1(body, message.text)); // 冪等・byte skip
+            }
+            break;
+        }
 
         case 'sidePanelClosed':
             platform.handleSidePanelClosed();
@@ -788,6 +840,8 @@ export async function handleNotesMessage(
                 }
 
                 const isMd = message.filePath.endsWith('.md');
+                // FR-HP-03: 履歴に記録（sendFileListWithStructure が structure ごと送るので、その前に）。
+                fileManager.recordFileHistory(message.filePath);
                 if (isMd) {
                     sendFileListWithStructure(fileManager, sender, message.filePath);
                     sender.postMessage({
@@ -1050,6 +1104,7 @@ export async function handleNotesMessage(
             const dailyFilePath = fileManager.ensureDailyNotesFile();
             const dailyContent = fileManager.openFile(dailyFilePath);
             if (dailyContent === null) break;
+            fileManager.recordFileHistory(dailyFilePath); // FR-HP-03
 
             const dailyData = JSON.parse(dailyContent);
             const today = new Date();
@@ -1083,6 +1138,7 @@ export async function handleNotesMessage(
             const navDailyFilePath = fileManager.ensureDailyNotesFile();
             const navContent = fileManager.openFile(navDailyFilePath);
             if (navContent === null) break;
+            fileManager.recordFileHistory(navDailyFilePath); // FR-HP-03
 
             const navData = JSON.parse(navContent);
 
@@ -1125,6 +1181,7 @@ export async function handleNotesMessage(
             const navDateFilePath = fileManager.ensureDailyNotesFile();
             const navDateContent = fileManager.openFile(navDateFilePath);
             if (navDateContent === null) break;
+            fileManager.recordFileHistory(navDateFilePath); // FR-HP-03
 
             const navDateData = JSON.parse(navDateContent);
             const targetDate = new Date(message.targetDate);
@@ -1364,6 +1421,7 @@ export async function handleNotesMessage(
             const jumpFilePath = fileManager.getFilePathById(message.fileId);
             const jumpContent = fileManager.openFile(jumpFilePath);
             if (jumpContent !== null) {
+                fileManager.recordFileHistory(jumpFilePath); // FR-HP-03（検索から .out へジャンプ）
                 if (platform.saveLastOpenedFile) {
                     platform.saveLastOpenedFile(jumpFilePath);
                 }
@@ -1385,6 +1443,8 @@ export async function handleNotesMessage(
             const mdOutFilePath = fileManager.getFilePathById(message.outFileId);
             const mdOutContent = fileManager.openFile(mdOutFilePath);
             if (mdOutContent === null) break;
+            // FR-HP-03: 検索から md page を開く経路。ユーザーが見るのは page md（sidepanel）なので
+            // .out ではなく page md を履歴に記録する（下の openPageInSidePanel 箇所で recordPageHistory）。
 
             const mdOutData = JSON.parse(mdOutContent);
 
@@ -1416,6 +1476,7 @@ export async function handleNotesMessage(
                 const pagePath = fileManager.getPageFilePath(message.pageId);
                 if (platform.openPageInSidePanel) {
                     platform.openPageInSidePanel(pagePath, message.lineNumber, message.query, message.occurrence);
+                    fileManager.recordPageHistory(message.pageId); // FR-HP-03/MEDIUM-1（検索から page md を sidepanel で開く）
                 }
             }
             break;
@@ -1435,6 +1496,7 @@ export async function handleNotesMessage(
             if (!navFilePath) break;
             const navContent = fileManager.openFile(navFilePath);
             if (navContent === null) break;
+            fileManager.recordFileHistory(navFilePath); // FR-HP-03（アプリ内リンク）
 
             if (platform.saveLastOpenedFile) {
                 platform.saveLastOpenedFile(navFilePath);

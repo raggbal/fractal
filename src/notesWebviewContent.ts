@@ -30,6 +30,10 @@ interface NotesInitData {
     s3BucketPathSet?: boolean;
     /** FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示) */
     noteFolderName?: string;
+    /** FR-HP: 最近開いたファイル履歴 + パネル状態 */
+    history?: Array<{ kind: string; id: string; title: string; ts: number }>;
+    historyPanelHeight?: number;
+    historyPanelCollapsed?: boolean;
 }
 
 export function getNotesWebviewContent(
@@ -90,6 +94,9 @@ export function getNotesWebviewContent(
     // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place 対応）
     const notesMdDispatcherScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-md-dispatcher.js'), 'utf8');
+    // FR-HP: 最近開いたファイル履歴パネル
+    const notesHistoryPanelScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-history-panel.js'), 'utf8');
 
     // Load outliner scripts
     const outlinerCellScript = fs.readFileSync(
@@ -272,6 +279,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${notesColorPaletteScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">${notesMdDispatcherScript}</script>
+    <script nonce="${nonce}">${notesHistoryPanelScript}</script>
     <script nonce="${nonce}">
         try {
             var initialData = JSON.parse(decodeURIComponent(escape(atob('${base64Content}'))));
@@ -296,6 +304,30 @@ export function getNotesWebviewContent(
             outlinerContainer: document.querySelector('.outliner-container'),
             markdownContainer: document.querySelector('.markdown-container'),
             bridge: window.notesMarkdownHostBridge,
+        });
+
+        // ─── FR-HP: 最近開いたファイル履歴パネル ───
+        window.__notesHistoryPanel = window.__initNotesHistoryPanel({
+            panelEl: document.getElementById('sidePanelHistory'),
+            listEl: document.getElementById('sidePanelHistoryList'),
+            toggleEl: document.getElementById('sidePanelHistoryToggle'),
+            resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
+            bridge: {
+                openFile: function(id) { window.notesHostBridge.openFile(id); },
+                openPageFromHistory: function(pageId) { window.notesHostBridge.openPageFromHistory(pageId); },
+                saveHistoryPanelCollapsed: function(c) { window.notesHostBridge.saveHistoryPanelCollapsed(c); },
+                saveHistoryPanelHeight: function(h) { window.notesHostBridge.saveHistoryPanelHeight(h); },
+            },
+            initialHistory: ${JSON.stringify(initData.history || [])},
+            initialHeight: ${JSON.stringify(initData.historyPanelHeight ?? null)},
+            initialCollapsed: ${JSON.stringify(initData.historyPanelCollapsed ?? false)},
+        });
+        // structure 更新（notesFileListChanged）で history 再描画
+        window.addEventListener('message', function(e) {
+            var m = e.data;
+            if (m && m.type === 'notesFileListChanged' && m.structure && window.__notesHistoryPanel) {
+                window.__notesHistoryPanel.render(m.structure.history || []);
+            }
         });
     </script>
 </body>

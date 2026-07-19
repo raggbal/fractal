@@ -567,6 +567,16 @@ function generateNotesFilePanelHtml(options) {
                     </button>
                 </div>
             </div>
+            <div class="side-panel-history" id="sidePanelHistory">
+                <div class="side-panel-history-resize-handle" id="sidePanelHistoryResizeHandle" title="Drag to resize"></div>
+                <div class="side-panel-history-header">
+                    <span class="side-panel-history-title">${m('recentFilesLabel', 'Recent')}</span>
+                    <button class="side-panel-history-toggle" id="sidePanelHistoryToggle" title="${m('toggleRecent', 'Toggle recent files')}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                </div>
+                <div class="side-panel-history-list" id="sidePanelHistoryList"></div>
+            </div>
         </aside>
         <div class="notes-resize-handle" id="notesResizeHandle"></div>`;
 

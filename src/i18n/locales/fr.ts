@@ -99,6 +99,8 @@ export const webviewMessages = {
   redo: 'Rétablir (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: 'Répertoire d\'images :',
+  recentFilesLabel: 'Récents',
+  toggleRecent: 'Basculer les fichiers récents',
   imageDirSourceFile: 'par fichier',
   imageDirSourceSettings: 'par config.',
   imageDirSourceDefault: 'par défaut',

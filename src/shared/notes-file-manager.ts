@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
 import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs } from './paste-asset-handler';
+import { HistoryEntry, pushHistoryEntry } from './history-store';
+import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
 const mdLinkParser = require('./markdown-link-parser');
 
 export interface NotesFileEntry {
@@ -42,6 +44,9 @@ export interface NoteStructure {
     s3BucketPath?: string;                // S3バケットパス (例: "my-bucket/notes-backup")
     favorites?: string[];                 // v0.207.36: お気に入り outliner ID 配列 (NoteTreeFile.id を参照、順序維持)
     noteTitle?: string;                   // FR-NT-01: note フォルダ全体のタイトル。未設定=フォルダ名表示 (後方互換)
+    history?: HistoryEntry[];             // FR-HP-02: 最近開いたファイル履歴 (最新順・最大 HISTORY_MAX 件)
+    historyPanelHeight?: number;          // FR-HP-07: history パネルの高さ (px)
+    historyPanelCollapsed?: boolean;      // FR-HP-06: history パネルの開閉状態
 }
 
 // ── 検索関連 ──
@@ -488,6 +493,66 @@ export class NotesFileManager {
         return this.getStructure().sidePanelWidth;
     }
 
+    // ── FR-HP: 最近開いたファイル履歴（outline.note に永続化） ──
+    /** history に entry を push（重複先頭移動 + 20 件トリム）して保存。 */
+    pushHistory(entry: HistoryEntry): void {
+        const structure = this.getStructure();
+        structure.history = pushHistoryEntry(structure.history, entry);
+        this.saveStructure();
+    }
+    getHistory(): HistoryEntry[] {
+        return this.getStructure().history || [];
+    }
+    /**
+     * FR-HP-03: filePath（note の md/.out）を履歴に記録する共通ヘルパ。
+     * title は structure.items[id].title（human-readable）優先・無ければ basename。
+     * 全 open 経路（ツリークリック / 検索ジャンプ / Today / アプリ内リンク等）から呼ぶ。
+     */
+    recordFileHistory(filePath: string): void {
+        if (!filePath) return;
+        const isMd = /\.md$/i.test(filePath);
+        const isOut = /\.out$/i.test(filePath);
+        if (!isMd && !isOut) return;
+        const id = filePath.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
+        const item = this.getStructure().items?.[id] as { title?: string } | undefined;
+        this.pushHistory({
+            kind: isMd ? 'note-md' : 'out',
+            id: filePath,
+            title: (item && item.title) || id,
+            ts: Date.now(),
+        });
+    }
+    /** FR-HP-03: page md（pageId）を履歴に記録。title は md の H1 → 引数 fallback。 */
+    recordPageHistory(pageId: string, fallbackTitle?: string): void {
+        if (!pageId) return;
+        let title = '';
+        try {
+            const p = this.getPageFilePath(pageId);
+            if (fs.existsSync(p)) {
+                const body = fs.readFileSync(p, 'utf8');
+                const h1 = body.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m);
+                title = h1 ? h1[1].trim() : '';
+            }
+        } catch { /* ignore */ }
+        this.pushHistory({ kind: 'page-md', id: pageId, title: title || fallbackTitle || 'Untitled', ts: Date.now() });
+    }
+    saveHistoryPanelHeight(height: number): void {
+        const structure = this.getStructure();
+        structure.historyPanelHeight = height;
+        this.saveStructure();
+    }
+    getHistoryPanelHeight(): number | undefined {
+        return this.getStructure().historyPanelHeight;
+    }
+    saveHistoryPanelCollapsed(collapsed: boolean): void {
+        const structure = this.getStructure();
+        structure.historyPanelCollapsed = collapsed;
+        this.saveStructure();
+    }
+    getHistoryPanelCollapsed(): boolean {
+        return !!this.getStructure().historyPanelCollapsed;
+    }
+
     /**
      * ノート共通の sidepanel TOC 幅を outline.note に保存
      */
@@ -767,6 +832,39 @@ export class NotesFileManager {
             this.saveTimer = null;
             this._writeFile(jsonString);
         }, NotesFileManager.SAVE_DEBOUNCE_MS);
+    }
+
+    /**
+     * outliner (.out) の title 変更を tree（items[id].title）へ即反映する。
+     * syncData で受け取った .out JSON から data.title を抽出し、現在の tree title と
+     * 異なれば items[id].title を更新して true を返す（呼び出し側が sendFileList で再描画）。
+     * md の syncTitleFromH1 と対称の「.out title → tree」経路。反映なしなら false。
+     * 対象は現在開いている .out（currentFilePath）のみ。
+     */
+    syncOutTitleToTree(jsonString: string): boolean {
+        const cur = this.currentFilePath;
+        if (!cur || !cur.endsWith('.out')) { return false; }
+        let title: unknown;
+        try {
+            title = JSON.parse(jsonString).title;
+        } catch {
+            return false;
+        }
+        if (typeof title !== 'string') { return false; }
+        const id = path.basename(cur, '.out');
+        const structure = this.getStructure();
+        const item = structure.items[id];
+        if (!item || item.type !== 'file') { return false; }
+        if (item.title === title) { return false; } // 冪等
+        item.title = title;
+        this.saveStructure();
+        // ★1テンポ遅れバグの真因修正: file panel の main tree は fileList（listFiles() = .out の
+        // disk data.title を readFileSync で読む）から title を表示し、items[id].title は使わない。
+        // saveCurrentFile は 1000ms debounce のため、この時点で disk はまだ旧 title。
+        // pending 保存を即 flush して disk に新 title を書き、直後の listFiles() が新 title を読めるようにする。
+        // （別ファイル click で反映されていたのは、切替時の flush で disk が更新されていたため）
+        this.flushSave();
+        return true;
     }
 
     /**
@@ -1457,7 +1555,8 @@ export class NotesFileManager {
 
     /**
      * .out: JSON内 title を変更、.note構造の title も同期
-     * .md : ディスク上のファイルは触らず、.note構造の title のみ更新 (タイトルはメタデータ)
+     * .md : FR-TH-01 で先頭 H1 を newTitle に同期（本文保持・冪等・byte skip）、.note構造の title も更新
+     *       (tree title はメタデータ items[id].title が正だが、本文 H1 も追従させる)
      */
     renameTitle(filePath: string, newTitle: string): void {
         try {
@@ -1467,6 +1566,17 @@ export class NotesFileManager {
                 const data = JSON.parse(content);
                 data.title = newTitle;
                 fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+            } else {
+                // ★FR-TH-01: .md は先頭 H1 を newTitle に同期。
+                // _writeFile は private+currentFilePath 専用なので使えない → writeFileIfChanged。
+                try {
+                    if (fs.existsSync(filePath)) {
+                        const body = fs.readFileSync(filePath, 'utf8');
+                        writeFileIfChanged(filePath, setFirstH1(body, newTitle)); // 冪等
+                    }
+                } catch (e) {
+                    console.error('[NotesFileManager] renameTitle H1 sync error:', e);
+                }
             }
 
             // .note 構造のタイトルも同期
@@ -1480,6 +1590,27 @@ export class NotesFileManager {
         } catch (e) {
             console.error('[NotesFileManager] renameTitle error:', e);
         }
+    }
+
+    /**
+     * FR-TH-02: md content の先頭 H1 を tree title (items[id].title) に反映する。
+     * 反映したら true（呼び出し側は sendFileListWithStructure で再描画）。
+     * - 先頭 H1 が無い content は title を変更しない（H1 消失時は既存 title 維持）。
+     * - tree item でない md（subpage / pages 配下 = structure.items に無い）は対象外。
+     * - 冪等: title が既に H1 と同じなら false（再描画しない）。
+     */
+    syncTitleFromH1(filePath: string, content: string): boolean {
+        if (!filePath.endsWith('.md')) { return false; }
+        const h1 = extractFirstH1(content);
+        if (!h1) { return false; } // 先頭 H1 無し → title 変更しない
+        const id = path.basename(filePath, '.md');
+        const structure = this.getStructure();
+        const item = structure.items[id];
+        if (!item || item.type !== 'file') { return false; } // tree item でない md
+        if (item.title === h1) { return false; } // 冪等
+        item.title = h1;
+        this.saveStructure();
+        return true;
     }
 
     /**

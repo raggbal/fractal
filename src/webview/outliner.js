@@ -3044,7 +3044,12 @@ var Outliner = (function() {
         textEl.innerHTML = renderInlineText(node.text);
         textEl.dataset.nodeId = node.id;
 
+        // FR-TH-04（★手動テスト起因 code_fix）: この focus セッションで text が実編集されたか。
+        // Cmd+Enter/クリック等で「編集せず blur」した時に page md H1 を上書きしないためのガード。
+        var _textDirty = false;
+
         textEl.addEventListener('focus', function() {
+            _textDirty = false; // focus のたびにリセット（未編集で blur したら同期しない）
             clearImageSelection();
             setFocusedNode(node.id);
             // 編集モードに切替: マーカーを生テキストで表示 (フォーマットは非適用)
@@ -3059,6 +3064,12 @@ var Outliner = (function() {
         textEl.addEventListener('blur', function() {
             // 表示モードに切替: フルフォーマット適用
             textEl.innerHTML = renderInlineText(node.text || '');
+            // FR-TH-04: page node の text を「実編集した時だけ」確定として H1 に同期。
+            // 未編集の blur（Cmd+Enter で開く / クリックで外す等）では上書きしない。
+            if (_textDirty) {
+                _textDirty = false;
+                syncPageH1FromNodeText(node.id);
+            }
         });
 
         textEl.addEventListener('mousedown', function(e) {
@@ -3124,8 +3135,12 @@ var Outliner = (function() {
             textEl.innerHTML = renderEditingText(plainText);
             setCursorAtOffset(textEl, off);
             scheduleSyncToHost();
+            // FR-TH-04: IME 確定は実編集 → page node なら page md H1 に同期
+            _textDirty = true;
+            syncPageH1FromNodeText(node.id);
         });
         textEl.addEventListener('input', function() {
+            _textDirty = true; // 実編集フラグ（blur で H1 同期の可否を決める）
             var plainText = getPlainText(textEl);
             model.updateText(node.id, plainText);
             if (!isComposing) {
@@ -5197,21 +5212,35 @@ var Outliner = (function() {
         });
         pageTitleInput.addEventListener('compositionend', function() {
             isComposing = false;
-            model.title = pageTitleInput.value;
-            scheduleSyncToHost();
+            // ★1テンポ遅れバグ修正: 実ブラウザ（Chromium）では compositionend 発火時点で
+            // input.value に確定文字がまだ反映されていないことがある（compositionend→input の順で
+            // value が更新される）。ここで同期的に読むと「1つ前の確定値」を送ってしまい 1 テンポ遅れる。
+            // 次 tick（value 反映後）に読んで flush することで最新の確定値を即 tree へ反映する。
+            setTimeout(function() {
+                model.title = pageTitleInput.value;
+                syncToHostImmediate(); // pending debounce を clear して即送信
+            }, 0);
         });
         pageTitleInput.addEventListener('input', function() {
             if (!isComposing) {
                 model.title = pageTitleInput.value;
+                // 非 IME の通常入力は debounce（連続打鍵で送信を間引く）。確定は blur/Enter で flush。
                 scheduleSyncToHost();
             }
         });
-        // Enterでツリーにフォーカス移動
+        // blur（フォーカスを外す = 確定）で tree へ即反映
+        pageTitleInput.addEventListener('blur', function() {
+            model.title = pageTitleInput.value;
+            syncToHostImmediate();
+        });
+        // Enterでツリーにフォーカス移動（確定として即送信してから移動）
         pageTitleInput.addEventListener('keydown', function(e) {
             if (e.isComposing || e.keyCode === 229) { return; }
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
+                model.title = pageTitleInput.value;
+                syncToHostImmediate();
                 focusFirstVisibleNode();
             }
         });
@@ -6438,6 +6467,10 @@ var Outliner = (function() {
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
+    // FR-TH-07: md→node 反映中は node→md 送信をスキップ（双方向連鎖の belt-and-suspenders）。
+    var _applyingH1ToNode = false;
+    // FR-TH-05: sidepanel md の先頭 H1 の前回反映値（IME 中間文字での過剰反映を避け確定値のみ反映）。
+    var _lastSidePanelH1 = null;
     // v15+: side panel navigation history (back/forward) state
     var outerSidePanelNavBackBtn = null;
     var outerSidePanelNavForwardBtn = null;
@@ -7080,6 +7113,19 @@ var Outliner = (function() {
             closeSidePanelImmediate(true /* isSwitch */);
         }
         sidePanelFilePath = filePath;
+        // FR-TH-05: 別 md に切り替わったら H1 前回値をリセット（新 md の初回 H1 を stale 値で抑止しない）。
+        // 開いた時点では反映しない（FR: 編集時のみ）ため、現在の先頭 H1 で初期化して差分検知の基準にする。
+        _lastSidePanelH1 = (function() {
+            var lines = String(markdown || '').split('\n');
+            var inCode = false;
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith('```')) { inCode = !inCode; continue; }
+                if (inCode) { continue; }
+                var m = lines[i].match(/^#\s+(.+)$/);
+                if (m) { return m[1].trim(); }
+            }
+            return null;
+        })();
         if (sidePanelFilename) { sidePanelFilename.textContent = fileName; }
 
         // Create EditorInstance container and instance
@@ -7323,10 +7369,34 @@ var Outliner = (function() {
         });
     }
 
+    // FR-TH-04: page node \u306e text \u78ba\u5b9a \u2192 \u6dfb\u4ed8 page md \u306e\u5148\u982d H1 \u3092 text \u306b\u540c\u671f\u3002
+    // page node\uff08isPage + pageId\uff09\u306e\u3068\u304d\u3060\u3051 host \u3078\u9001\u308b\u3002\u51aa\u7b49: text \u672a\u5909\u5316\u306a\u3089\u9001\u3089\u306a\u3044\u3002
+    // md\u2192node \u53cd\u6620\u4e2d\uff08_applyingH1ToNode\uff09\u306f\u9001\u3089\u306a\u3044\uff08\u53cc\u65b9\u5411\u9023\u9396\u30ac\u30fc\u30c9, FR-TH-07\uff09\u3002
+    function syncPageH1FromNodeText(nodeId) {
+        if (_applyingH1ToNode) { return; }
+        var node = model.getNode(nodeId);
+        if (!node || !node.isPage || !node.pageId) { return; }
+        var text = (node.text || '').trim();
+        if (!text) { return; }
+        if (host && typeof host.syncNodeTextToPageH1 === 'function') {
+            host.syncNodeTextToPageH1(node.pageId, text);
+        }
+    }
+
+    // FR-TH-05 (\u2605review it.2): H1 \u30c6\u30ad\u30b9\u30c8\u62bd\u51fa\u3092 md-h1-utils.parseAtxH1Text \u3068\u540c\u4e00\u30dd\u30ea\u30b7\u30fc\u306b\u3059\u308b\u3002
+    // \u672b\u5c3e\u306e\u9589\u3058 `#` \u5217\u306f\u300c\u76f4\u524d\u306b\u7a7a\u767d\u304c\u3042\u308b\u6642\u3060\u3051\u300d\u5265\u304c\u3059\uff08`# C#`\u2192`C#` \u4fdd\u6301 / `# Title #`\u2192`Title` \u5265\u304c\u3057\uff09\u3002
+    // host\uff08md-h1-utils\uff09\u3068 webview \u3067\u540c\u4e00\u5165\u529b\u2192\u540c\u4e00\u7d50\u679c\u306b\u3057\u3001\u53cc\u65b9\u5411\u540c\u671f\u3067\u5024\u304c\u30d6\u30ec\u306a\u3044\u3088\u3046\u306b\u3059\u308b\u3002
+    function parseH1TextCommonMark(headingBody) {
+        var text = String(headingBody).replace(/\r$/, '').replace(/[ \t]+$/, '');
+        var closing = text.match(/^(.*?)[ \t]+#+$/);
+        if (closing) { text = closing[1]; }
+        return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
+    }
+
     function updateSidePanelTocFromMarkdown(markdown) {
-        if (!sidePanelTocEl) { return; }
-        var lines = markdown.split('\n');
         var toc = [];
+        var firstH1 = null;
+        var lines = markdown.split('\n');
         var inCodeBlock = false;
         for (var k = 0; k < lines.length; k++) {
             var line = lines[k];
@@ -7334,14 +7404,43 @@ var Outliner = (function() {
             if (inCodeBlock) { continue; }
             var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
+                // TOC \u8868\u793a\u306f\u5f93\u6765\u3069\u304a\u308a trim\uff08\u8868\u793a\u5c02\u7528\uff09\u3002firstH1\uff08node \u540c\u671f\u7528\uff09\u306f CommonMark \u30dd\u30ea\u30b7\u30fc\u3067\u62bd\u51fa\u3002
                 var text = match[2].trim();
+                if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
                     .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
         }
+        // FR-TH-05/06: sidepanel md\uff08outliner node \u7531\u6765\uff09\u306e\u5148\u982d H1 \u2192 \u547c\u3073\u51fa\u3057\u5143 node \u306e text \u306b\u53cd\u6620\u3002
+        // origin=\u69cb\u9020\u9006\u5f15\u304d\uff08ADRL-0001\uff09: \u4eca\u958b\u3044\u3066\u3044\u308b md \u306e basename=pageId \u304c\u73fe .out \u306e node \u306b\u4e00\u81f4\u3059\u308b\u6642\u3060\u3051\u3002
+        // \u30ea\u30f3\u30af/\u5c65\u6b74/\u691c\u7d22/\u5916\u90e8 md \u306f findNodeByPageId \u304c null \u3067\u81ea\u7136\u306b\u5f3e\u304b\u308c\u308b\uff08FR-TH-06\uff09\u3002
+        if (firstH1 !== null && sidePanelFilePath && firstH1 !== _lastSidePanelH1) {
+            _lastSidePanelH1 = firstH1;
+            var pageId = basenameNoExt(sidePanelFilePath);
+            var node = model.findNodeByPageId(pageId);
+            if (node && (node.text || '') !== firstH1) {
+                _applyingH1ToNode = true; // FR-TH-07: \u3053\u306e\u9593 node\u2192md \u9001\u4fe1\u3092\u30b9\u30ad\u30c3\u30d7
+                try {
+                    model.updateText(node.id, firstH1);
+                    renderTree();
+                    scheduleSyncToHost();
+                } finally {
+                    _applyingH1ToNode = false;
+                }
+            }
+        }
+        if (!sidePanelTocEl) { return; }
         renderSidePanelToc(toc);
+    }
+
+    // sidePanelFilePath \u306e basename \u304b\u3089\u62e1\u5f35\u5b50\u3092\u9664\u3044\u305f pageId \u3092\u8fd4\u3059\u3002
+    function basenameNoExt(filePath) {
+        if (!filePath) { return ''; }
+        var base = String(filePath).replace(/\\/g, '/').split('/').pop() || '';
+        var dot = base.lastIndexOf('.');
+        return dot > 0 ? base.slice(0, dot) : base;
     }
 
     function setupSidePanelImageDir() {
@@ -8977,5 +9076,15 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
+        // FR-TH-05 テスト用: 現在開いている sidepanel md の編集をシミュレートする。
+        // 実 editor が編集ごとに呼ぶ SidePanelHostBridge.syncContent と同じ経路
+        // （saveSidePanelFile + onTocUpdate=updateSidePanelTocFromMarkdown）を通す＝本番反映コードを実行する。
+        __editSidePanelMarkdownForTest: function(md) {
+            if (sidePanelHostBridge && typeof sidePanelHostBridge.syncContent === 'function') {
+                sidePanelHostBridge.syncContent(md);
+                return true;
+            }
+            return false;
+        },
     };
 })();

@@ -361,6 +361,10 @@ const html = `<!DOCTYPE html>
     };
     // Phase F: spec から Outliner.getModel() にアクセスするためのショートカット
     window.__testApi.getModel = function() { return Outliner.getModel(); };
+    // FR-TH-05: sidepanel md 編集シミュレート（本番 syncContent 経路を通す）
+    window.__testApi.editSidePanelMarkdown = function(md) {
+        return Outliner.__editSidePanelMarkdownForTest ? Outliner.__editSidePanelMarkdownForTest(md) : false;
+    };
     // 空データで初期化
     window.__testApi.initOutliner();
     </script>
