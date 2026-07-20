@@ -5,6 +5,14 @@
  * 各ホスト環境が HostBridge を実装し、editor.js の前に <script> で注入する。
  */
 
+/** md export bundle のオプション (FR-EX-02) */
+export interface ExportBundleOptions {
+    includeChildren: boolean;
+    recurseChildren: boolean;
+    includeLinks: boolean;
+    recurseLinks: boolean;
+}
+
 /** editor.js → ホスト (送信) */
 export interface HostBridge {
     // ドキュメント操作
@@ -42,6 +50,9 @@ export interface HostBridge {
 
     // リソースアクセス範囲設定 (FR-RR-06)
     openResourceRootsSettings(): void;
+
+    // md export bundle (FR-EX-01)
+    exportBundle(options: ExportBundleOptions, sidePanelFilePath?: string): void;
 
     // ホストからのメッセージ受信
     onMessage(handler: (message: HostMessage) => void): void;

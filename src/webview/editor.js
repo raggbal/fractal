@@ -112,6 +112,12 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
+    exportBundle(options) {
+        if (typeof this._mainHost.exportBundle === 'function') {
+            this._mainHost.exportBundle(options, this.filePath);
+        }
+    }
     extractDataUrlsInPastedMd(markdown) {
         this._mainHost.extractDataUrlsInPastedMd(markdown, this.filePath);
     }
@@ -829,6 +835,102 @@ class EditorInstance {
             titleText: i18n.confirmLinkName || 'Link name'
         });
     }
+
+    // md export bundle 設定ダイアログ (FR-EX-02)。4 トグル + 実行/キャンセル。
+    // onExecute(options) を呼ぶ（options = {includeChildren, recurseChildren, includeLinks, recurseLinks}）。
+    var exportDialogEl = null;
+    // notes モードでは sidepanel を outliner.js が所有するため、outliner.js からも同じダイアログを
+    // 使えるよう window に公開する（editor.js + outliner.js は同一 document ロード）。
+    function openExportDialog(onExecute) {
+        if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; }
+        var cs = getComputedStyle(document.documentElement);
+        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
+        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
+        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
+        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'md-export-dialog-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+
+        var modal = document.createElement('div');
+        modal.className = 'md-export-dialog';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:480px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+
+        var title = document.createElement('div');
+        title.style.cssText = 'margin-bottom:12px;font-weight:600;';
+        title.textContent = 'Export bundle';
+        modal.appendChild(title);
+
+        // 4 トグル行を作る。recurse は対応 include が off のとき disabled。
+        function checkRow(id, label, indent) {
+            var row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;' + (indent ? 'margin-left:22px;' : '');
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'md-export-opt';
+            cb.dataset.opt = id;
+            var span = document.createElement('span');
+            span.textContent = label;
+            row.appendChild(cb);
+            row.appendChild(span);
+            modal.appendChild(row);
+            return cb;
+        }
+        var cbChildren = checkRow('includeChildren', '子md を含む', false);
+        var cbRecChildren = checkRow('recurseChildren', '子を再帰的に取得（孫も）', true);
+        var cbLinks = checkRow('includeLinks', 'リンク先md を含む', false);
+        var cbRecLinks = checkRow('recurseLinks', 'リンク先を再帰的に取得', true);
+        // 既定値（requirement FR-EX-02）
+        cbChildren.checked = true; cbRecChildren.checked = true;
+        cbLinks.checked = false; cbRecLinks.checked = false;
+        function syncDisabled() {
+            cbRecChildren.disabled = !cbChildren.checked;
+            cbRecLinks.disabled = !cbLinks.checked;
+            cbRecChildren.parentNode.style.opacity = cbChildren.checked ? '1' : '0.5';
+            cbRecLinks.parentNode.style.opacity = cbLinks.checked ? '1' : '0.5';
+        }
+        cbChildren.addEventListener('change', syncDisabled);
+        cbLinks.addEventListener('change', syncDisabled);
+        syncDisabled();
+
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+        function btn(label, primary) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
+                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            return b;
+        }
+        var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
+        cancelBtn.className = 'md-export-cancel';
+        var execBtn = btn('Export', true);
+        execBtn.className = 'md-export-execute';
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(execBtn);
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        exportDialogEl = overlay;
+
+        function close() { if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; } }
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+        execBtn.addEventListener('click', function () {
+            var options = {
+                includeChildren: cbChildren.checked,
+                recurseChildren: cbChildren.checked && cbRecChildren.checked,
+                includeLinks: cbLinks.checked,
+                recurseLinks: cbLinks.checked && cbRecLinks.checked,
+            };
+            close();
+            if (typeof onExecute === 'function') onExecute(options);
+        });
+    }
+    // outliner.js（notes モードの sidepanel 所有者）から同じダイアログを使えるよう公開。
+    if (typeof window !== 'undefined') { window.openExportDialog = openExportDialog; }
     function showRenameLinkModal(currentText, onResult, opts) {
         hideRenameLinkModal();
         var cs = getComputedStyle(document.documentElement);
@@ -12311,6 +12413,11 @@ class EditorInstance {
                     host.openInNewTab();
                 }
                 break;
+            case 'exportBundle':
+                openExportDialog(function (options) {
+                    if (typeof host.exportBundle === 'function') host.exportBundle(options);
+                });
+                break;
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
                 break;
@@ -15609,7 +15716,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        if (exportBtn) exportBtn.addEventListener('click', function() {
+            openExportDialog(function (options) {
+                // sidepanel で開いている md を root にする（sidePanelFilePath 付き）
+                if (sidePanelFilePath && typeof host.exportBundle === 'function') {
+                    host.exportBundle(options, sidePanelFilePath);
+                }
+            });
+        });
 
         if (navBackBtn) navBackBtn.addEventListener('click', function() {
             if (sidePanelFilePath) host.sidePanelNavigateBack(sidePanelFilePath);

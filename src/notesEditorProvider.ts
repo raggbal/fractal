@@ -18,6 +18,7 @@ import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { runExportBundle } from './shared/export-bundle-host';
 import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
@@ -423,6 +424,9 @@ export class NotesEditorProvider {
             },
             openResourceRootsSettings: () => {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+            },
+            exportBundle: (rootMdAbs: string, options) => {
+                void runExportBundle(rootMdAbs, options);
             },
             navigateInAppLink: (href: string) => {
                 vscode.commands.executeCommand('fractal.navigateInAppLink', href);

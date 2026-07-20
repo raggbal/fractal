@@ -2294,6 +2294,40 @@ body {
     padding: 7px 14px;
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
+    gap: 4px;
+}
+/* 狭幅レスポンシブ: lead（outline + 戻る/進む）と close は固定、中央のみ横スクロール。
+   固定要素は縮まない（flex-shrink:0）。中央 wrapper だけが min-width:0 + overflow-x:auto で
+   幅不足時にスクロールする。 */
+.side-panel-header > .side-panel-outline-btn,
+.side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-close {
+    flex-shrink: 0;
+}
+.side-panel-header-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 狭幅時のみ横スクロール。細いスクロールバーで邪魔しない */
+    scrollbar-width: thin;
+}
+.side-panel-header-scroll::-webkit-scrollbar {
+    height: 4px;
+}
+.side-panel-header-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 2px;
+}
+/* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
+.side-panel-header-scroll > .side-panel-header-actions,
+.side-panel-header-scroll > .side-panel-copy-path,
+.side-panel-header-scroll > .side-panel-copy-inapp-link,
+.side-panel-header-scroll > .side-panel-open-tab {
+    flex-shrink: 0;
 }
 .side-panel-filename {
     font-size: 12px;
@@ -2302,8 +2336,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 auto;
+    min-width: 40px;
 }
 .side-panel-close {
     background: none;
@@ -5190,6 +5224,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateForward" title="Forward (Opt+Right)" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
+                    <!-- 狭幅レスポンシブ: lead（outline+nav）と close は固定、中央のみ横スクロール -->
+                    <div class="side-panel-header-scroll">
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
@@ -5200,6 +5236,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>
                     <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path">
@@ -5211,6 +5250,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
+                    </div>
                     <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
@@ -5848,6 +5888,12 @@ class SidePanelHostBridge {
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
+    // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
+    exportBundle(options) {
+        if (typeof this._mainHost.exportBundle === 'function') {
+            this._mainHost.exportBundle(options, this.filePath);
+        }
     }
     extractDataUrlsInPastedMd(markdown) {
         this._mainHost.extractDataUrlsInPastedMd(markdown, this.filePath);
@@ -6566,6 +6612,102 @@ class EditorInstance {
             titleText: i18n.confirmLinkName || 'Link name'
         });
     }
+
+    // md export bundle 設定ダイアログ (FR-EX-02)。4 トグル + 実行/キャンセル。
+    // onExecute(options) を呼ぶ（options = {includeChildren, recurseChildren, includeLinks, recurseLinks}）。
+    var exportDialogEl = null;
+    // notes モードでは sidepanel を outliner.js が所有するため、outliner.js からも同じダイアログを
+    // 使えるよう window に公開する（editor.js + outliner.js は同一 document ロード）。
+    function openExportDialog(onExecute) {
+        if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; }
+        var cs = getComputedStyle(document.documentElement);
+        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
+        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
+        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
+        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'md-export-dialog-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+
+        var modal = document.createElement('div');
+        modal.className = 'md-export-dialog';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:480px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+
+        var title = document.createElement('div');
+        title.style.cssText = 'margin-bottom:12px;font-weight:600;';
+        title.textContent = 'Export bundle';
+        modal.appendChild(title);
+
+        // 4 トグル行を作る。recurse は対応 include が off のとき disabled。
+        function checkRow(id, label, indent) {
+            var row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;' + (indent ? 'margin-left:22px;' : '');
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'md-export-opt';
+            cb.dataset.opt = id;
+            var span = document.createElement('span');
+            span.textContent = label;
+            row.appendChild(cb);
+            row.appendChild(span);
+            modal.appendChild(row);
+            return cb;
+        }
+        var cbChildren = checkRow('includeChildren', '子md を含む', false);
+        var cbRecChildren = checkRow('recurseChildren', '子を再帰的に取得（孫も）', true);
+        var cbLinks = checkRow('includeLinks', 'リンク先md を含む', false);
+        var cbRecLinks = checkRow('recurseLinks', 'リンク先を再帰的に取得', true);
+        // 既定値（requirement FR-EX-02）
+        cbChildren.checked = true; cbRecChildren.checked = true;
+        cbLinks.checked = false; cbRecLinks.checked = false;
+        function syncDisabled() {
+            cbRecChildren.disabled = !cbChildren.checked;
+            cbRecLinks.disabled = !cbLinks.checked;
+            cbRecChildren.parentNode.style.opacity = cbChildren.checked ? '1' : '0.5';
+            cbRecLinks.parentNode.style.opacity = cbLinks.checked ? '1' : '0.5';
+        }
+        cbChildren.addEventListener('change', syncDisabled);
+        cbLinks.addEventListener('change', syncDisabled);
+        syncDisabled();
+
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+        function btn(label, primary) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
+                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            return b;
+        }
+        var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
+        cancelBtn.className = 'md-export-cancel';
+        var execBtn = btn('Export', true);
+        execBtn.className = 'md-export-execute';
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(execBtn);
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        exportDialogEl = overlay;
+
+        function close() { if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; } }
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+        execBtn.addEventListener('click', function () {
+            var options = {
+                includeChildren: cbChildren.checked,
+                recurseChildren: cbChildren.checked && cbRecChildren.checked,
+                includeLinks: cbLinks.checked,
+                recurseLinks: cbLinks.checked && cbRecLinks.checked,
+            };
+            close();
+            if (typeof onExecute === 'function') onExecute(options);
+        });
+    }
+    // outliner.js（notes モードの sidepanel 所有者）から同じダイアログを使えるよう公開。
+    if (typeof window !== 'undefined') { window.openExportDialog = openExportDialog; }
     function showRenameLinkModal(currentText, onResult, opts) {
         hideRenameLinkModal();
         var cs = getComputedStyle(document.documentElement);
@@ -18048,6 +18190,11 @@ class EditorInstance {
                     host.openInNewTab();
                 }
                 break;
+            case 'exportBundle':
+                openExportDialog(function (options) {
+                    if (typeof host.exportBundle === 'function') host.exportBundle(options);
+                });
+                break;
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
                 break;
@@ -21346,7 +21493,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        if (exportBtn) exportBtn.addEventListener('click', function() {
+            openExportDialog(function (options) {
+                // sidepanel で開いている md を root にする（sidePanelFilePath 付き）
+                if (sidePanelFilePath && typeof host.exportBundle === 'function') {
+                    host.exportBundle(options, sidePanelFilePath);
+                }
+            });
+        });
 
         if (navBackBtn) navBackBtn.addEventListener('click', function() {
             if (sidePanelFilePath) host.sidePanelNavigateBack(sidePanelFilePath);
@@ -24572,6 +24729,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // リソースアクセス範囲設定 (FR-RR-06)
         openResourceRootsSettings: function() {
             postFn({ type: 'openResourceRootsSettings' });
+        },
+
+        // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
+        exportBundle: function(options, sidePanelFilePath) {
+            postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
         },
 
         // 検索
@@ -37611,6 +37773,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
@@ -37629,6 +37792,23 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
+                // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
+                if (exportBtn) {
+                    exportBtn.addEventListener('click', function() {
+                        if (!sidePanelFilePath || typeof host.exportBundle !== 'function') return;
+                        if (typeof window.openExportDialog === 'function') {
+                            window.openExportDialog(function(options) {
+                                host.exportBundle(options, sidePanelFilePath);
+                            });
+                        } else {
+                            // フォールバック（editor.js 未ロード時）: 既定オプションで実行
+                            host.exportBundle(
+                                { includeChildren: true, recurseChildren: true, includeLinks: false, recurseLinks: false },
+                                sidePanelFilePath);
+                        }
+                    });
+                }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
                 if (attachmentsBtn) {
                     attachmentsBtn.addEventListener('click', function() {

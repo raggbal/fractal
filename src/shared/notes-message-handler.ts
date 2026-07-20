@@ -9,6 +9,7 @@ import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
 import { setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { ExportOptions } from './md-export-core';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -27,6 +28,9 @@ export interface NotesPlatformActions {
     openExternalLink(href: string): void;
     /** FR-RR-06: fractal.resourceRoots の settings を開く */
     openResourceRootsSettings?(): void;
+
+    // FR-EX-01/03: md export bundle。フォルダ選択ダイアログ + fs 書き出し（VS Code 依存）。
+    exportBundle?(rootMdAbs: string, options: ExportOptions): void;
     /** FR-RR-04: notes 本体 md open 時、その md の画像に許可範囲外があればフッター案内を送る */
     sendResourceAccessStatus?(filePath: string, mdBody: string): void;
     /** .md ファイルをエディタで開く (Electron: createWindow, VSCode: vscode.openWith) */
@@ -248,6 +252,17 @@ export async function handleNotesMessage(
         case 'openResourceRootsSettings':
             platform.openResourceRootsSettings?.();
             break;
+
+        // FR-EX-01/03: md export bundle。root md 解決は
+        //   sidepanel から開いた md = message.sidePanelFilePath / メインペイン = 現在の md。
+        // dialog + fs 書き出しは VS Code 依存なので platform に委譲。
+        case 'exportBundle': {
+            const rootMd = (message.sidePanelFilePath as string) || fileManager.getCurrentFilePath();
+            if (rootMd && message.options) {
+                platform.exportBundle?.(rootMd, message.options as ExportOptions);
+            }
+            break;
+        }
 
         case 'syncData':
             // stale sync（ファイル切替前のデータ）を無視

@@ -1652,6 +1652,40 @@ body {
     padding: 7px 14px;
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
+    gap: 4px;
+}
+/* 狭幅レスポンシブ: lead（outline + 戻る/進む）と close は固定、中央のみ横スクロール。
+   固定要素は縮まない（flex-shrink:0）。中央 wrapper だけが min-width:0 + overflow-x:auto で
+   幅不足時にスクロールする。 */
+.side-panel-header > .side-panel-outline-btn,
+.side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-close {
+    flex-shrink: 0;
+}
+.side-panel-header-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 狭幅時のみ横スクロール。細いスクロールバーで邪魔しない */
+    scrollbar-width: thin;
+}
+.side-panel-header-scroll::-webkit-scrollbar {
+    height: 4px;
+}
+.side-panel-header-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 2px;
+}
+/* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
+.side-panel-header-scroll > .side-panel-header-actions,
+.side-panel-header-scroll > .side-panel-copy-path,
+.side-panel-header-scroll > .side-panel-copy-inapp-link,
+.side-panel-header-scroll > .side-panel-open-tab {
+    flex-shrink: 0;
 }
 .side-panel-filename {
     font-size: 12px;
@@ -1660,8 +1694,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 auto;
+    min-width: 40px;
 }
 .side-panel-close {
     background: none;

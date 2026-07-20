@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
+import { runExportBundle } from './shared/export-bundle-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots } from './shared/resource-roots';
@@ -224,6 +225,15 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'openResourceRootsSettings':
                         await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
                         break;
+
+                    // FR-EX-01/03: md export bundle。outliner では .out 自体でなく
+                    // sidepanel で開いている md（message.sidePanelFilePath）が root。
+                    case 'exportBundle': {
+                        if (message.sidePanelFilePath && message.options) {
+                            await runExportBundle(message.sidePanelFilePath, message.options);
+                        }
+                        break;
+                    }
 
                     case 'openInTextEditor':
                         await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');

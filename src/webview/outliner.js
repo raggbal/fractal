@@ -7173,6 +7173,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
@@ -7191,6 +7192,23 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
+                // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
+                if (exportBtn) {
+                    exportBtn.addEventListener('click', function() {
+                        if (!sidePanelFilePath || typeof host.exportBundle !== 'function') return;
+                        if (typeof window.openExportDialog === 'function') {
+                            window.openExportDialog(function(options) {
+                                host.exportBundle(options, sidePanelFilePath);
+                            });
+                        } else {
+                            // フォールバック（editor.js 未ロード時）: 既定オプションで実行
+                            host.exportBundle(
+                                { includeChildren: true, recurseChildren: true, includeLinks: false, recurseLinks: false },
+                                sidePanelFilePath);
+                        }
+                    });
+                }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
                 if (attachmentsBtn) {
                     attachmentsBtn.addEventListener('click', function() {

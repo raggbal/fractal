@@ -96,6 +96,7 @@ function generateEditorBodyHtml(messages, platform, options) {
                         <button data-action="attachments" title="${m('attachments') || 'Attachments'}"></button>
                         <button data-action="openInTextEditor" title="${m('openInTextEditor')} (${mod}+Shift+.)"></button>
                         <button data-action="source" title="${m('toggleSourceMode')} (${mod}+.)"></button>
+                        <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
                         ${openInNewTabBtn}
                     </div>
@@ -173,6 +174,8 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateForward" title="Forward (Opt+Right)" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
+                    <!-- 狭幅レスポンシブ: lead（outline+nav）と close は固定、中央のみ横スクロール -->
+                    <div class="side-panel-header-scroll">
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
@@ -183,6 +186,9 @@ function generateSidePanelHtml(messages) {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>
                     <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path">
@@ -194,6 +200,7 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
+                    </div>
                     <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>

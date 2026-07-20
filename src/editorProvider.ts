@@ -11,6 +11,7 @@ import {
     removeAllDirectives
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { runExportBundle } from './shared/export-bundle-host';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
@@ -971,6 +972,16 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'openResourceRootsSettings':
                     await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
                     break;
+
+                // FR-EX-01/03: md export bundle。standalone md は document.uri が root
+                // （sidepanel から開いた場合は message.sidePanelFilePath 優先）。
+                case 'exportBundle': {
+                    const rootMd = message.sidePanelFilePath || document.uri.fsPath;
+                    if (rootMd && message.options) {
+                        await runExportBundle(rootMd, message.options);
+                    }
+                    break;
+                }
 
                 case 'editingStateChanged':
                     isActivelyEditing = message.editing;

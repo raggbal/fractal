@@ -45,6 +45,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'openResourceRootsSettings' });
         },
 
+        // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
+        exportBundle: function(options, sidePanelFilePath) {
+            postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
+        },
+
         // 検索
         searchFiles: function(query) {
             postFn({ type: 'searchFiles', query: query });
