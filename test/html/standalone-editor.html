@@ -1827,7 +1827,9 @@ body {
 /* Mermaid / Math diagrams in fullscreen: scale to fit. */
 .block-fullscreen-mermaid-diagram,
 .block-fullscreen-math-display {
-    background: var(--bg-color);
+    /* 透明背景の図形/数式が暗い overlay 越しに見づらいのを防ぐため白背景で表示する
+       （lightbox の .outliner-image-large と挙動を揃える）。 */
+    background: #fff;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 24px;
@@ -1838,9 +1840,11 @@ body {
 }
 .block-fullscreen-mermaid-diagram {
     display: block;
-    padding: 0;
-    border: none;
-    background: transparent;
+    /* mermaid も白背景 + 余白で表示（旧: background:transparent/padding:0 で暗く見えていた）。
+       図形ぴったりでなく余白を付けて見やすくする。 */
+    padding: 24px;
+    border: 1px solid var(--border-color);
+    background: #fff;
 }
 .block-fullscreen-mermaid-diagram svg {
     /* Sizes are set inline by JS using the viewBox aspect ratio. */
@@ -2690,6 +2694,11 @@ body {
     max-width: 90vw;
     max-height: 90vh;
     object-fit: contain;
+    /* 透明背景の図形（drawio.svg / mermaid）が暗い overlay 越しに黒く見えるのを防ぐ。
+       白背景 + 余白で図形を明瞭にする。box-sizing:border-box で padding 込みでも 90vw/90vh を超えない。 */
+    background: #fff;
+    padding: 14px;
+    box-sizing: border-box;
     border-radius: 4px;
     box-shadow: 0 4px 22px rgba(0, 0, 0, 0.5);
     cursor: default;

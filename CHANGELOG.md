@@ -5,6 +5,13 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.209.52] - 2026-07-20
+
+### Fixed
+- **Recent 履歴パネルのタイトルが更新されない**: outliner の title / md の H1 / sidepanel の page md の H1 を変更しても Recent 一覧の表示名が古いままだった問題を修正。履歴を webview に送出する時点で各エントリの title を最新解決（note md=items.title / .out=disk data.title / page md=先頭 H1）するようにし、notesFileListChanged の全送出経路（9 経路）を単一ヘルパ getStructureForWebview に統一。sidepanel page md の編集は保存を await してから履歴を再送し、ファイル切替タイミングで最新 title が反映される。
+- **drawio.svg / mermaid / math / 画像プレビューの背景が暗くて見づらい**: lightbox 拡大表示（.outliner-image-large）と mermaid/math の fullscreen（.block-fullscreen-*）で、透明背景の図形が暗いオーバーレイ越しに黒っぽく見えていた問題を修正。白背景 + 余白（padding）を付けて明瞭に表示するようにした（box-sizing:border-box で表示領域を超えない）。
+- **outliner の title 変更が即時反映されない / タイトル↔H1 同期の 1テンポ遅れ・データ化け等**: タイトル↔H1 双方向同期まわりの複数の実装バグを修正（未編集 blur での H1 上書き防止、CommonMark ATX 準拠の H1 抽出で C#/F# を保持、CRLF 保持、確定時の即時 tree 反映）。
+
 ## [0.209.48] - 2026-07-19
 
 ### Added

@@ -503,6 +503,52 @@ export class NotesFileManager {
     getHistory(): HistoryEntry[] {
         return this.getStructure().history || [];
     }
+
+    /**
+     * 履歴 entry の title を「現在の値」で再解決して返す（保存値は変えない・非破壊）。
+     * entry.title は記録時点のスナップショットなので、その後 title/H1 を変えると stale になる。
+     * webview へ送出する時にこれを通すことで、ファイル切替（再描画）タイミングで最新 title が出る。
+     * 解決元（kind 別）: note-md → items[basename].title、out → .out disk data.title、
+     * page-md → page md 先頭 H1。解決不可（ファイル無し等）は stored title/id にフォールバック。
+     */
+    getHistoryWithFreshTitles(): HistoryEntry[] {
+        const history = this.getStructure().history || [];
+        return history.map((entry) => {
+            let fresh: string | null = null;
+            try {
+                if (entry.kind === 'page-md') {
+                    // page md の先頭 H1（記録時と同じ抽出）
+                    const p = this.getPageFilePath(entry.id);
+                    if (fs.existsSync(p)) {
+                        fresh = extractFirstH1(fs.readFileSync(p, 'utf8'));
+                    }
+                } else if (entry.kind === 'out') {
+                    // .out の disk data.title（listFiles と同じ）
+                    if (fs.existsSync(entry.id)) {
+                        const data = JSON.parse(fs.readFileSync(entry.id, 'utf8'));
+                        if (typeof data.title === 'string' && data.title) { fresh = data.title; }
+                    }
+                } else {
+                    // note-md: items[basename].title（tree title の正）
+                    const id = entry.id.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
+                    const item = this.getStructure().items?.[id] as { title?: string } | undefined;
+                    if (item && item.title) { fresh = item.title; }
+                }
+            } catch { /* 解決失敗はフォールバック */ }
+            // fresh が取れたらそれを、無ければ stored title（さらに無ければ id）
+            return { ...entry, title: fresh || entry.title || entry.id };
+        });
+    }
+
+    /**
+     * webview へ送る structure（history の title を最新解決した非破壊 clone）。
+     * notesFileListChanged を送る全経路（notes-message-handler / notesEditorProvider の 9 箇所）は
+     * getStructure()/loadStructure() の生 structure ではなくこれを送ることで、
+     * 履歴パネルが常に最新 title を描画する（保存値 getStructure().history は非破壊）。
+     */
+    getStructureForWebview(): NoteStructure {
+        return { ...this.getStructure(), history: this.getHistoryWithFreshTitles() };
+    }
     /**
      * FR-HP-03: filePath（note の md/.out）を履歴に記録する共通ヘルパ。
      * title は structure.items[id].title（human-readable）優先・無ければ basename。

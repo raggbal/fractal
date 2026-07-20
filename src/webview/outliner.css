@@ -1484,6 +1484,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     max-width: 90vw;
     max-height: 90vh;
     object-fit: contain;
+    /* 透明背景の図形（drawio.svg / mermaid）が暗い overlay 越しに黒く見えるのを防ぐ。
+       白背景 + 余白で図形を明瞭にする。box-sizing:border-box で padding 込みでも 90vw/90vh を超えない。
+       ★このファイルは standalone build で styles.css の後にロードされ .outliner-image-large を上書きするため、
+       styles.css と同じ background/padding を必ず持たせる（片方だけだと outliner/notes モードで効かない）。 */
+    background: #fff;
+    padding: 14px;
+    box-sizing: border-box;
     border-radius: 4px;
     box-shadow: 0 4px 22px rgba(0, 0, 0, 0.5);
     cursor: default;

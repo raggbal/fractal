@@ -219,7 +219,9 @@ function sendFileListWithStructure(
     currentFile?: string | null
 ): void {
     const fileList = fileManager.listFiles();
-    const structure = fileManager.getStructure();
+    // FR-HP: 履歴 title を送出時に最新解決（保存値は非破壊。stale title の 1テンポ遅れ解消）。
+    // 全 notesFileListChanged 送出経路で getStructureForWebview() に統一（送出経路の取りこぼし防止）。
+    const structure = fileManager.getStructureForWebview();
     sender.postMessage({
         type: 'notesFileListChanged',
         fileList,
@@ -601,13 +603,28 @@ export async function handleNotesMessage(
             }
             break;
 
-        case 'saveSidePanelFile':
-            platform.saveSidePanelFile(message.filePath, message.content);
-            // FR-TH-02: sidepanel md（tree item の場合）の先頭 H1 を tree title に反映
-            if (fileManager.syncTitleFromH1(message.filePath, message.content)) {
+        case 'saveSidePanelFile': {
+            // disk 書込を await してから履歴を再解決する（getHistoryWithFreshTitles は disk を読むため、
+            // await しないと page md の新 H1 が disk 反映前に読まれて stale になる = レース）。
+            await platform.saveSidePanelFile(message.filePath, message.content);
+            // FR-TH-02: sidepanel md（tree item = note md の場合）の先頭 H1 を tree title に反映。
+            let needFileListResend = fileManager.syncTitleFromH1(message.filePath, message.content);
+            // FR-HP（sidepanel page md の Recent title 反映）: sidepanel で開いた md が
+            // page md（basename=pageId が page-md 履歴に存在）なら、その H1 編集を Recent に反映するため
+            // history を再送する。syncTitleFromH1 は tree item（items）専用で page-md を拾わないため、
+            // これが無いと page md の H1 変更が Recent に永久に反映されない（別ファイルを開いても
+            // notesOpenFile を通らない sidepanel-only 操作では再送されない）。
+            if (!needFileListResend) {
+                const base = path.basename(message.filePath).replace(/\.md$/i, '');
+                const hasPageHistory = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'page-md' && e.id === base);
+                if (hasPageHistory) { needFileListResend = true; }
+            }
+            if (needFileListResend) {
                 sendFileListWithStructure(fileManager, sender);
             }
             break;
+        }
 
         // FR-TH-04: outliner の page node text 確定 → 添付 page md の先頭 H1 を text に同期。
         // notes モードは fileManager.getPageFilePath(pageId)（1引数）で解決。

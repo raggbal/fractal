@@ -139,7 +139,7 @@ export class NotesEditorProvider {
         sender.postMessage({
             type: 'notesFileListChanged',
             fileList: fm.listFiles(),
-            structure: fm.getStructure(),
+            structure: fm.getStructureForWebview(),
             currentFile: fm.getCurrentFilePath(),
             noteFolderName: path.basename(srcFolder),
         });
@@ -259,7 +259,7 @@ export class NotesEditorProvider {
                 fileChangeId: fileManager.getFileChangeId(),
                 s3BucketPathSet: !!(fileManager.getS3BucketPath() || '').trim(),
                 noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
-                history: fileManager.getHistory(),          // FR-HP: 最近開いたファイル履歴
+                history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
                 historyPanelHeight: fileManager.getHistoryPanelHeight(),
                 historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
             }
@@ -288,7 +288,7 @@ export class NotesEditorProvider {
                 panel.webview.postMessage({
                     type: 'notesFileListChanged',
                     fileList: fileManager.listFiles(),
-                    structure: fileManager.getStructure(),
+                    structure: fileManager.getStructureForWebview(),
                     currentFile: fileManager.getCurrentFilePath(),
                     noteFolderName: path.basename(folderPath),
                 });
@@ -1726,7 +1726,7 @@ export class NotesEditorProvider {
                     senderRef.postMessage({
                         type: 'notesFileListChanged',
                         fileList: fileManager.listFiles(),
-                        structure: fileManager.getStructure(),
+                        structure: fileManager.getStructureForWebview(),
                         currentFile: fileManager.getCurrentFilePath(),
                     });
                 } catch (e) {
@@ -1809,7 +1809,7 @@ export class NotesEditorProvider {
                     senderRef.postMessage({
                         type: 'notesFileListChanged',
                         fileList: fileManager.listFiles(),
-                        structure: fileManager.getStructure(),
+                        structure: fileManager.getStructureForWebview(),
                         currentFile: fileManager.getCurrentFilePath(),
                     });
                 } catch (e) {
@@ -1885,7 +1885,7 @@ export class NotesEditorProvider {
                     senderRef.postMessage({
                         type: 'notesFileListChanged',
                         fileList: fileManager.listFiles(),
-                        structure: fileManager.getStructure(),
+                        structure: fileManager.getStructureForWebview(),
                         currentFile: fileManager.getCurrentFilePath(),
                     });
                 } catch (e) {
@@ -1971,7 +1971,7 @@ export class NotesEditorProvider {
         const refreshFileListFromWatcher = () => {
             try {
                 fileManager.invalidateStructureCache();
-                const structure = fileManager.loadStructure();
+                const structure = fileManager.getStructureForWebview();
                 const wFileList = fileManager.listFiles();
                 const currentFile = fileManager.getCurrentFilePath();
                 panel.webview.postMessage({
@@ -2033,7 +2033,7 @@ export class NotesEditorProvider {
 
                     // 構造を再読み込みしてwebviewに送信
                     fileManager.invalidateStructureCache();
-                    const structure = fileManager.loadStructure();
+                    const structure = fileManager.getStructureForWebview();
                     const noteFileList = fileManager.listFiles();
                     const currentFile = fileManager.getCurrentFilePath();
                     panel.webview.postMessage({
@@ -2313,7 +2313,7 @@ export class NotesEditorProvider {
         // 構造 + 現在の outliner を再ロードして webview に送信
         try {
             fileManager.invalidateStructureCache();
-            const structure = fileManager.loadStructure();
+            const structure = fileManager.getStructureForWebview();
             const fileList = fileManager.listFiles();
             const currentFile = fileManager.getCurrentFilePath();
 
