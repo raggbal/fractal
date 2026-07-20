@@ -20,6 +20,7 @@ import {
     isTargetTextDoc,
     decideSyncDirection,
     parseBucketPath,
+    resolveIsFlatFromOut,
 } from './outliner-s3-sync-utils';
 import {
     getS3ObjectInfo,
@@ -29,7 +30,6 @@ import {
     SyncDirectoryProgress,
 } from './s3-per-file-sync';
 import { showSyncConflictDialog } from './sync-conflict-dialog';
-import { isFlatOut } from './shared/flat-layout';
 export {
     AwsCredentials,
     FileInfo,
@@ -102,11 +102,7 @@ async function doRun(opts: OutlinerS3SyncOptions): Promise<void> {
     const localOutFile = path.join(opts.localDir, `${opts.outlinerId}.out`);
     // notes-flat-storage (2026-07-07): .out の pageDir="." なら flat レイアウト。
     // flat は共有 root（<localDir>）を、legacy は per-<id>/ フォルダを sync する。
-    let isFlat = false;
-    try {
-        const outData = JSON.parse(fs.readFileSync(localOutFile, 'utf8'));
-        isFlat = isFlatOut(outData.pageDir);
-    } catch { /* 読めなければ legacy 扱い */ }
+    const isFlat = resolveIsFlatFromOut(localOutFile, (p) => fs.readFileSync(p, 'utf8'));
     const { s3FolderPrefix, localFolderPath } = computeSyncFolderPaths(opts.outlinerId, opts.localDir, prefix, isFlat);
 
     // Phase 1: webview lock

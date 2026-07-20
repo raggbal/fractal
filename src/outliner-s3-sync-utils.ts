@@ -4,6 +4,30 @@
  * outliner-s3-sync.ts から切り出して unit test 可能にする (Playwright Node.js 環境)。
  */
 import * as path from 'path';
+import * as fs from 'fs';
+import { isFlatOut } from './shared/flat-layout';
+
+/**
+ * .out から flat/legacy レイアウトを判定する（BUG-2 修正・vscode 非依存で unit 検証可能）。
+ * - pageDir が "."/"" → flat（共有 root）
+ * - pageDir が "<id>" 等 → legacy（per-<id>/ フォルダ）
+ * - **読み取り/parse 失敗 → flat 既定**（安全側）。
+ *   理由: 現行の全 note は flat。読めない .out で legacy per-<id>/ に落とすと、存在しない
+ *   <localDir>/<id>/ フォルダを sync 対象にして共有 root 直下の md・images/・files/ を
+ *   upload/download 双方で丸ごと取りこぼす。flat 既定なら最悪でも共有 root を sync 対象にする。
+ * readFile はテスト差し替え用（既定は fs.readFileSync）。
+ */
+export function resolveIsFlatFromOut(
+    localOutFile: string,
+    readFile: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
+): boolean {
+    try {
+        const outData = JSON.parse(readFile(localOutFile));
+        return isFlatOut(outData.pageDir);
+    } catch {
+        return true; // parse 失敗 → flat 既定（取りこぼし回避）
+    }
+}
 
 export interface AwsCredentials {
     accessKeyId: string;
