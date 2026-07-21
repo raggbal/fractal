@@ -5080,6 +5080,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     outline-offset: 2px;
 }
 
+/* mouse ベース D&D 中はカーソルを grabbing に + テキスト選択を抑止（SVG foreignObject は
+   HTML5 draggable が効かないため mouse イベントで自前ドラッグする。sprint 20260721-145658） */
+body.mm-dragging, body.mm-dragging * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
 .mindmap-context-menu {
     position: fixed;
     z-index: 1000;
@@ -28897,6 +28904,23 @@ var MindmapInteractions = (function() {
                 return;
             }
 
+            // Alt(option)+↑/↓ → 兄弟の上/下と位置入れ替え（一番上/下なら no-op）。
+            // outliner の Cmd+Shift+Arrow と同じ model.moveUp/moveDown を使う（mindmap は Alt が空き）。
+            // title 中心ノードは兄弟を持たないので対象外。
+            if (e.altKey && !mod && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                e.preventDefault();
+                if (isTitle) { return; }
+                pushUndo();
+                var moved = (e.key === 'ArrowUp') ? model.moveUp(nodeId) : model.moveDown(nodeId);
+                if (moved) {
+                    scheduleSync();
+                    rerender();
+                    focusNode(nodeId, false); // 編集開始せず選択のみ維持（swap 後も同ノードがアクティブ）
+                    ensureNodeVisible(nodeId);
+                }
+                return;
+            }
+
             switch (e.key) {
                 case ' ': // Space → カーソルを入れる (C3)
                     e.preventDefault();
@@ -29454,84 +29478,95 @@ var MindmapInteractions = (function() {
         });
 
         // --- D&D reparent (TASK-08) ---
-        // ノードを draggable にする (title 中心ノードは D&D 対象外)
-        var nodeEls = treeEl.querySelectorAll('.mindmap-node:not(.mindmap-title-node)');
-        for (var ni = 0; ni < nodeEls.length; ni++) {
-            (function(nodeEl) {
-                nodeEl.setAttribute('draggable', 'true');
-                on(nodeEl, 'dragstart', function(e) {
-                    _dragState = { nodeId: nodeEl.getAttribute('data-node-id') };
-                    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; }
-                });
-                on(nodeEl, 'dragover', function(e) {
-                    if (!_dragState) { return; }
-                    var targetId = nodeEl.getAttribute('data-node-id');
-                    // 循環防止: 自分自身 or 子孫へは不可
-                    if (targetId === _dragState.nodeId || model.isDescendant(targetId, _dragState.nodeId)) {
-                        if (e.dataTransfer) { e.dataTransfer.dropEffect = 'none'; }
-                        return;
-                    }
-                    e.preventDefault(); // drop 許可
-                    if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
-                    nodeEl.querySelector('.mindmap-node-box').classList.add('mm-drop-target');
-                });
-                on(nodeEl, 'dragleave', function() {
-                    var box = nodeEl.querySelector('.mindmap-node-box');
-                    if (box) { box.classList.remove('mm-drop-target'); }
-                });
-                on(nodeEl, 'drop', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    var box = nodeEl.querySelector('.mindmap-node-box');
-                    if (box) { box.classList.remove('mm-drop-target'); }
-                    if (!_dragState) { return; }
-                    var draggedId = _dragState.nodeId;
-                    var targetId = nodeEl.getAttribute('data-node-id');
-                    _dragState = null;
-                    if (draggedId === targetId || model.isDescendant(targetId, draggedId)) { return; }
-                    // ノードの上下 1/3 は兄弟順序、中央は子として reparent
-                    var rect = nodeEl.getBoundingClientRect();
-                    var frac = (e.clientY - rect.top) / (rect.height || 1);
-                    var targetNode = model.getNode(targetId);
-                    pushUndo();
-                    if (frac < 0.33 || frac > 0.67) {
-                        // 兄弟として (target の親の子に)
-                        var parentId = targetNode.parentId;
-                        var afterId = (frac > 0.67) ? targetId : prevSiblingId(model, targetId);
-                        model.moveNode(draggedId, parentId, afterId);
-                    } else {
-                        // 子として (中央)
-                        if (targetNode.collapsed) { targetNode.collapsed = false; }
-                        model.moveNode(draggedId, targetId, null);
-                    }
-                    scheduleSync();
-                    rerender();
-                    // reparent 移動の最小追従 (TASK-50): 移動ノードが画面外なら最小パン。
-                    ensureNodeVisible(draggedId);
-                });
-            })(nodeEls[ni]);
+        // ★ HTML5 Drag API（draggable 属性 + dragstart/drop）は SVG 要素（mindmap-node は
+        //   foreignObject = SVG 名前空間）では Chromium/Electron が draggable を honor せず native drag が
+        //   起動しない（実機で「ドラッグ自体できない」）。→ mouse(pointer) イベントで自前実装する。
+        //   mousedown で候補を記録 → 閾値超え mousemove でドラッグ開始 → mouseup で elementFromPoint により
+        //   drop 先を解決。frac(上下1/3=兄弟 / 中央=reparent)・moveNode・detachToFloating の判定ロジックは従来と同一。
+        var DRAG_THRESHOLD = 4; // px。これ未満の移動は click 扱い（drag しない）
+        var _mmDown = null;     // { nodeId, x, y, started }
+
+        function clearDropTargets() {
+            var ts = treeEl.querySelectorAll('.mindmap-node-box.mm-drop-target');
+            for (var i = 0; i < ts.length; i++) { ts[i].classList.remove('mm-drop-target'); }
+        }
+        // clientX/Y 直下の drop 対象 node（title 除く）を返す。無ければ null。
+        function dropTargetAt(clientX, clientY, draggedId) {
+            var elAt = document.elementFromPoint(clientX, clientY);
+            var nodeEl = elAt && elAt.closest ? elAt.closest('.mindmap-node') : null;
+            if (!nodeEl || nodeEl.classList.contains('mindmap-title-node')) { return null; }
+            var tid = nodeEl.getAttribute('data-node-id');
+            if (!tid || tid === draggedId || model.isDescendant(tid, draggedId)) { return null; }
+            return nodeEl;
         }
 
-        // 空白へ drop → Floating Topic 化 (TASK-08, J5)
-        on(treeEl, 'dragover', function(e) {
-            if (_dragState) { e.preventDefault(); }
+        on(treeEl, 'mousedown', function(e) {
+            if (e.button !== 0) { return; }
+            var nodeEl = e.target && e.target.closest ? e.target.closest('.mindmap-node') : null;
+            // title 中心ノードは D&D 対象外
+            if (!nodeEl || nodeEl.classList.contains('mindmap-title-node')) { return; }
+            // 編集中の text 選択（ドラッグ選択）を阻害しないよう、is-editing 中は D&D しない
+            var box = nodeEl.querySelector('.mindmap-node-text');
+            if (box && box.classList && box.classList.contains('is-editing')) { return; }
+            _mmDown = { nodeId: nodeEl.getAttribute('data-node-id'), x: e.clientX, y: e.clientY, started: false };
         });
-        on(treeEl, 'drop', function(e) {
-            if (!_dragState) { return; }
-            // ノード上の drop は上で stopPropagation 済み。ここに来たら空白 drop。
-            var draggedId = _dragState.nodeId;
+
+        on(document, 'mousemove', function(e) {
+            if (!_mmDown) { return; }
+            if (!_mmDown.started) {
+                if (Math.abs(e.clientX - _mmDown.x) < DRAG_THRESHOLD &&
+                    Math.abs(e.clientY - _mmDown.y) < DRAG_THRESHOLD) { return; }
+                _mmDown.started = true; // ドラッグ開始
+                _dragState = { nodeId: _mmDown.nodeId };
+                document.body.classList.add('mm-dragging');
+            }
+            // drop 先ハイライト
+            clearDropTargets();
+            var t = dropTargetAt(e.clientX, e.clientY, _mmDown.nodeId);
+            if (t) { var tb = t.querySelector('.mindmap-node-box'); if (tb) { tb.classList.add('mm-drop-target'); } }
+        });
+
+        on(document, 'mouseup', function(e) {
+            if (!_mmDown) { return; }
+            var down = _mmDown;
+            _mmDown = null;
+            if (!down.started) { return; } // 閾値未満 = click（D&D しない。click ハンドラに委ねる）
+            document.body.classList.remove('mm-dragging');
+            clearDropTargets();
+            var draggedId = down.nodeId;
             _dragState = null;
-            if (typeof MindmapModel === 'undefined' || !MindmapModel.detachToFloating) { return; }
-            // treeEl 座標系 → SVG 内部座標への簡易変換 (viewport 無視の近似)
-            var rect = treeEl.getBoundingClientRect();
-            var x = e.clientX - rect.left;
-            var y = e.clientY - rect.top;
-            pushUndo();
-            MindmapModel.detachToFloating(model, draggedId, x, y);
-            scheduleSync();
-            rerender();
-            // floating 移動の最小追従 (TASK-50): 移動ノードが画面外なら最小パン。
-            ensureNodeVisible(draggedId);
+            var targetEl = dropTargetAt(e.clientX, e.clientY, draggedId);
+            if (targetEl) {
+                // ノード上 drop: 上下 1/3 = 兄弟順序、中央 = 子として reparent
+                var targetId = targetEl.getAttribute('data-node-id');
+                var rect = targetEl.getBoundingClientRect();
+                var frac = (e.clientY - rect.top) / (rect.height || 1);
+                var targetNode = model.getNode(targetId);
+                if (!targetNode) { return; }
+                pushUndo();
+                if (frac < 0.33 || frac > 0.67) {
+                    var parentId = targetNode.parentId;
+                    var afterId = (frac > 0.67) ? targetId : prevSiblingId(model, targetId);
+                    model.moveNode(draggedId, parentId, afterId);
+                } else {
+                    if (targetNode.collapsed) { targetNode.collapsed = false; }
+                    model.moveNode(draggedId, targetId, null);
+                }
+                scheduleSync();
+                rerender();
+                ensureNodeVisible(draggedId);
+            } else {
+                // 空白へ drop → Floating Topic 化 (TASK-08, J5)
+                if (typeof MindmapModel === 'undefined' || !MindmapModel.detachToFloating) { return; }
+                var trect = treeEl.getBoundingClientRect();
+                var x = e.clientX - trect.left;
+                var y = e.clientY - trect.top;
+                pushUndo();
+                MindmapModel.detachToFloating(model, draggedId, x, y);
+                scheduleSync();
+                rerender();
+                ensureNodeVisible(draggedId);
+            }
         });
 
         // ================= Wave 4-5: toolbar / zoom-pan / context menu / export =================
@@ -37914,7 +37949,24 @@ var Outliner = (function() {
             sidePanelFilePath = null;
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
-                focusNode(sidePanelOriginNodeId);
+                if (VIEW_MODE === 'mindmap') {
+                    // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
+                    // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
+                    // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
+                    // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
+                    if (model && model.getNode && model.getNode(sidePanelOriginNodeId)) {
+                        focusedNodeId = sidePanelOriginNodeId;
+                        renderTree();
+                        var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + sidePanelOriginNodeId + '"]');
+                        if (mmText) {
+                            mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
+                            mmText.classList.remove('is-editing');
+                            try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
+                        }
+                    }
+                } else {
+                    focusNode(sidePanelOriginNodeId);
+                }
                 sidePanelOriginNodeId = null;
             }
         }

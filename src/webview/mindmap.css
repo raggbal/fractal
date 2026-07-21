@@ -348,6 +348,13 @@
     outline-offset: 2px;
 }
 
+/* mouse ベース D&D 中はカーソルを grabbing に + テキスト選択を抑止（SVG foreignObject は
+   HTML5 draggable が効かないため mouse イベントで自前ドラッグする。sprint 20260721-145658） */
+body.mm-dragging, body.mm-dragging * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+
 .mindmap-context-menu {
     position: fixed;
     z-index: 1000;

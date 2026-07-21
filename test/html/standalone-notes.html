@@ -34627,7 +34627,24 @@ var Outliner = (function() {
             sidePanelFilePath = null;
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
-                focusNode(sidePanelOriginNodeId);
+                if (VIEW_MODE === 'mindmap') {
+                    // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
+                    // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
+                    // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
+                    // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
+                    if (model && model.getNode && model.getNode(sidePanelOriginNodeId)) {
+                        focusedNodeId = sidePanelOriginNodeId;
+                        renderTree();
+                        var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + sidePanelOriginNodeId + '"]');
+                        if (mmText) {
+                            mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
+                            mmText.classList.remove('is-editing');
+                            try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
+                        }
+                    }
+                } else {
+                    focusNode(sidePanelOriginNodeId);
+                }
                 sidePanelOriginNodeId = null;
             }
         }
