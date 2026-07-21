@@ -1136,6 +1136,15 @@ var MindmapInteractions = (function() {
                 _mmDown.started = true; // ドラッグ開始
                 _dragState = { nodeId: _mmDown.nodeId };
                 document.body.classList.add('mm-dragging');
+                // FR-MM-DA: 掴んだ node を active（選択枠 is-selected）にする。単一選択に揃え、
+                //   rerender せず paintSelection でクラス付替のみ（drag 中の rerender は掴んだ
+                //   foreignObject を焼失させ drag を壊すため）。drop 後もこの選択が残る（active 維持）。
+                if (selected && selected.clear) {
+                    selected.clear();
+                    if (_mmDown.nodeId) { selected.add(_mmDown.nodeId); }
+                    if (setFocused) { setFocused(_mmDown.nodeId); }
+                    paintSelection();
+                }
             }
             // drop 先ハイライト: ゾーン別マーク（上辺線=兄 / 下辺線=弟 / 塗り=子）で
             // 「どこに落ちるか」を明示する。
@@ -1191,6 +1200,96 @@ var MindmapInteractions = (function() {
                 // だけでそれまで動かしていない → 「元に戻す」処理は不要。mm-dragging 解除 /
                 // clearDropTargets / _dragState=null は上の共通処理で済んでいるので、ここは何もしない。
                 // ※ MindmapModel.detachToFloating 自体は既存データ後方互換のため残す（呼ばないだけ）。
+            }
+        });
+
+        // --- FR-MM-FD: 外部 md/ファイル/画像の D&D → ノード追加（outliner パリティ, ADRL-0001）---
+        // treeEl（HTML div）に 1 本付け、elementFromPoint で対象 node を解決する
+        //   （foreignObject per-node に付けるより堅牢。既存 dropTargetAt と同手法）。
+        // ファイル読込〜host 呼び出し（FileReader/triage/サイズ制限/streaming）は outliner の
+        //   handleFilesDrop/handleVscodeUrisDrop を ctx フック経由で共有（重い drop ロジックを複製しない）。
+        // 外部 drop の position は provider が解釈する before/after/child（内部 D&D の above/below とは別語彙）。
+        function fileDropPositionAt(clientY, rect) {
+            var frac = (clientY - rect.top) / (rect.height || 1);
+            if (frac < 0.25) { return 'before'; }
+            if (frac > 0.75) { return 'after'; }
+            return 'child';
+        }
+        // 外部 file drag 中の対象 node を返す（title 除く。dragged 自身の除外は不要＝外部ファイル）。
+        function fileDropTargetAt(clientX, clientY) {
+            var elAt = document.elementFromPoint(clientX, clientY);
+            var nodeEl = elAt && elAt.closest ? elAt.closest('.mindmap-node') : null;
+            if (!nodeEl || nodeEl.classList.contains('mindmap-title-node')) { return null; }
+            return nodeEl;
+        }
+        function clearFileDropMarks() {
+            var ts = treeEl.querySelectorAll('.mm-drop-before, .mm-drop-after, .mm-drop-child, .mm-drop-above, .mm-drop-below');
+            for (var i = 0; i < ts.length; i++) {
+                ts[i].classList.remove('mm-drop-before', 'mm-drop-after', 'mm-drop-child', 'mm-drop-above', 'mm-drop-below');
+            }
+        }
+        var isAnyFilesDrag = ctx.isAnyFilesDragEvent || function() { return false; };
+        var isFinderDrag = ctx.isFilesDragEvent || function() { return false; };
+        var isVscodeDrag = ctx.isVscodeUriDragEvent || function() { return false; };
+
+        on(treeEl, 'dragover', function(e) {
+            if (!isAnyFilesDrag(e)) { return; } // 外部ファイル drag のみ（内部 node D&D は mouse ベース）
+            e.preventDefault();
+            if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
+            clearFileDropMarks();
+            var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
+            if (nodeEl) {
+                var tb = nodeEl.querySelector('.mindmap-node-box');
+                if (tb) {
+                    var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
+                    // before/after は上辺/下辺線、child は塗り（既存 mm-drop-above/below/child の見た目を流用）
+                    tb.classList.add(pos === 'before' ? 'mm-drop-above' : pos === 'after' ? 'mm-drop-below' : 'mm-drop-child');
+                }
+            }
+        });
+        on(treeEl, 'dragleave', function(e) {
+            if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
+        });
+        on(treeEl, 'drop', function(e) {
+            if (!isAnyFilesDrag(e)) { return; }
+            e.preventDefault();
+            clearFileDropMarks();
+            var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
+            if (!nodeEl) { return; } // 空白への外部 drop は何もしない（node ターゲット必須）
+            var targetId = nodeEl.getAttribute('data-node-id');
+            var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
+            // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
+            if (isFinderDrag(e) && ctx.handleFilesDrop) {
+                ctx.handleFilesDrop(e, targetId, pos);
+            } else if (isVscodeDrag(e) && ctx.handleVscodeUrisDrop) {
+                ctx.handleVscodeUrisDrop(e, targetId, pos);
+            }
+        });
+
+        // --- FR-MM-IP: 画像 cmd+v → node.images（outliner パリティ）---
+        // active node（getFocused）に対し clipboardData の image を横取りして host.saveOutlinerImage 経路へ。
+        // contenteditable への native 画像 paste（巨大 img が本文に入る/テキスト上に来る不安定）を preventDefault で抑止。
+        // テキスト paste は preventDefault しない（既存の text paste 挙動を維持）。
+        on(treeEl, 'paste', function(e) {
+            var nid = getFocused ? getFocused() : null;
+            if (!nid) { return; }
+            var items = (e.clipboardData && e.clipboardData.items) || [];
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                if (it.kind === 'file' && it.type && it.type.indexOf('image/') === 0) {
+                    e.preventDefault(); // ★ native 画像挿入を止め host 経路に一本化
+                    var f = it.getAsFile();
+                    if (!f) { continue; }
+                    (function(nodeId) {
+                        var reader = new FileReader();
+                        reader.onload = function(ev) {
+                            if (host && host.saveOutlinerImage) {
+                                host.saveOutlinerImage(nodeId, ev.target.result, null);
+                            }
+                        };
+                        reader.readAsDataURL(f);
+                    })(nid);
+                }
             }
         });
 

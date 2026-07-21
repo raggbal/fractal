@@ -180,6 +180,14 @@ const testOutlinerHostBridge = `
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        // FR-MM-FD: mindmap 外部ファイル D&D の E2E 用。本番 provider の代わりに messages に記録するだけ
+        //   （targetNodeId + position の検証。これが無いと mindmap の drop リスナーが呼んでも undefined で hard error）。
+        dropFilesImport: function(imports, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropFilesImport', imports: imports, targetNodeId: targetNodeId, position: position });
+        },
+        dropVscodeUrisImport: function(uris, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropVscodeUrisImport', uris: uris, targetNodeId: targetNodeId, position: position });
+        },
         importFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },

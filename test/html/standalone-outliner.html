@@ -24953,6 +24953,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        // FR-MM-FD: mindmap 外部ファイル D&D の E2E 用。本番 provider の代わりに messages に記録するだけ
+        //   （targetNodeId + position の検証。これが無いと mindmap の drop リスナーが呼んでも undefined で hard error）。
+        dropFilesImport: function(imports, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropFilesImport', imports: imports, targetNodeId: targetNodeId, position: position });
+        },
+        dropVscodeUrisImport: function(uris, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropVscodeUrisImport', uris: uris, targetNodeId: targetNodeId, position: position });
+        },
         importFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },
@@ -27302,6 +27310,18 @@ var MindmapRender = (function() {
         return e;
     }
 
+    // 画像がある node は画像を横に並べられる最小幅を返す（text と同様に node を広げる。max 280）。
+    // text 無し node で画像が縦積みになる問題の対策 — node 幅を text 依存から解放する。
+    // .mindmap-node-images img は max-width:60px + コンテナ gap:4px（mindmap.css:171-183）。
+    function imageMinWidth(node) {
+        if (!node || !node.images || !node.images.length) { return 0; }
+        var IMG_W = 60, IMG_GAP = 4;
+        // 280(=maxW) 内に何枚横並びできるか。超過分は 280 で折り返す（= text の 280 クランプと同じ挙動）。
+        var maxPerRow = Math.max(1, Math.floor((280 - PAD_H - BORDER_W + IMG_GAP) / (IMG_W + IMG_GAP))); // = 3
+        var k = Math.min(node.images.length, maxPerRow);
+        return k * IMG_W + (k - 1) * IMG_GAP + PAD_H + BORDER_W;
+    }
+
     // --- ノード実寸の概算 (#M4: 1 パス目。実寸は 2 パス目 getBoundingClientRect で補正) ---
     function estimateMeasure(node, fontSize) {
         var fs = fontSize || 14;
@@ -27322,7 +27342,8 @@ var MindmapRender = (function() {
         // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)。padding(PAD_H) + border(BORDER_W)。
         // SAFETY はアイコン付きの iconPad にのみ含める (アイコン無しは iter30 の BORDER_W だけで #10 維持)。
         var naturalW = longest * charW + PAD_H + BORDER_W + iconPad;
-        var w = Math.max(80, Math.min(maxW, naturalW));
+        // 画像がある node は text 幅 と 画像最小幅 の大きい方を採る（text 無しでも横に広がる）。max 280 は据え置き。
+        var w = Math.max(80, Math.min(maxW, Math.max(naturalW, imageMinWidth(node))));
         var wrapCount = 0;
         for (var j = 0; j < explicitLines.length; j++) {
             wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - PAD_H - BORDER_W - iconPad || 1)));
@@ -27335,7 +27356,13 @@ var MindmapRender = (function() {
         // w は既に上で Math.max(80, Math.min(maxW, naturalW)) で確定済み。
         // 高さ (lines) は明示改行 + 折り返しで計算するので縦は従来どおり変わらない。
         var h = lines * (fs + 6) + 12;
-        if (node && node.images && node.images.length) { h += 60; }
+        // FR-MM-IP: 複数画像は .mindmap-node-images（flex-wrap, img max 60x48, gap4）で折り返して並ぶ。
+        //   枚数に応じて行数分の高さを確保する（従来の固定 +60 は複数行ではみ出すため動的化）。
+        if (node && node.images && node.images.length) {
+            var perRow = Math.max(1, Math.floor((w - 20) / 64)); // box padding/gap を考慮した 1 行あたり枚数（img64px）
+            var imgRows = Math.ceil(node.images.length / perRow);
+            h += imgRows * 52 + 8; // 1 行 = img48 + gap4 相当
+        }
         if (node && (node.tags && node.tags.length)) { h += 4; }
         return { width: w, height: h };
     }
@@ -27403,7 +27430,9 @@ var MindmapRender = (function() {
         }
         // PAD_H(padding) + BORDER_W(border + 1 文字分の余裕) + iconPad で content 領域を確保。
         var needInner = maxScreen / scale + PAD_H + BORDER_W + iconPad;
-        return Math.max(80, Math.min(280, needInner));
+        // pass-1 と同様、画像がある node は text 実測幅 と 画像最小幅 の大きい方を採る
+        // （★両パス修正 = これが無いと pass-2 が幅を text 幅へ縮め戻し縦積みが再発する）。
+        return Math.max(80, Math.min(280, Math.max(needInner, imageMinWidth(node))));
     }
 
     // --- 2 パス目の確定高さを「補正後の幅 (realW)」で実測 (iteration 15, TASK-47) ---
@@ -27585,6 +27614,14 @@ var MindmapRender = (function() {
                     : node.images[ii];
                 img.setAttribute('src', src);
                 img.setAttribute('data-img-index', ii);
+                // FR-MM-IP: 画像 dblclick で lightbox プレビュー（outliner パリティ、既存 overlay を再利用）。
+                //   stopPropagation で node の dblclick（focusNode/openPage）に伝播させない。
+                img.addEventListener('dblclick', function(ev) {
+                    ev.stopPropagation();
+                    if (typeof OutlinerCell !== 'undefined' && OutlinerCell.showImageOverlay) {
+                        OutlinerCell.showImageOverlay(this.src);
+                    }
+                });
                 imgWrap.appendChild(img);
             }
             box.appendChild(imgWrap);
@@ -29545,6 +29582,15 @@ var MindmapInteractions = (function() {
                 _mmDown.started = true; // ドラッグ開始
                 _dragState = { nodeId: _mmDown.nodeId };
                 document.body.classList.add('mm-dragging');
+                // FR-MM-DA: 掴んだ node を active（選択枠 is-selected）にする。単一選択に揃え、
+                //   rerender せず paintSelection でクラス付替のみ（drag 中の rerender は掴んだ
+                //   foreignObject を焼失させ drag を壊すため）。drop 後もこの選択が残る（active 維持）。
+                if (selected && selected.clear) {
+                    selected.clear();
+                    if (_mmDown.nodeId) { selected.add(_mmDown.nodeId); }
+                    if (setFocused) { setFocused(_mmDown.nodeId); }
+                    paintSelection();
+                }
             }
             // drop 先ハイライト: ゾーン別マーク（上辺線=兄 / 下辺線=弟 / 塗り=子）で
             // 「どこに落ちるか」を明示する。
@@ -29600,6 +29646,96 @@ var MindmapInteractions = (function() {
                 // だけでそれまで動かしていない → 「元に戻す」処理は不要。mm-dragging 解除 /
                 // clearDropTargets / _dragState=null は上の共通処理で済んでいるので、ここは何もしない。
                 // ※ MindmapModel.detachToFloating 自体は既存データ後方互換のため残す（呼ばないだけ）。
+            }
+        });
+
+        // --- FR-MM-FD: 外部 md/ファイル/画像の D&D → ノード追加（outliner パリティ, ADRL-0001）---
+        // treeEl（HTML div）に 1 本付け、elementFromPoint で対象 node を解決する
+        //   （foreignObject per-node に付けるより堅牢。既存 dropTargetAt と同手法）。
+        // ファイル読込〜host 呼び出し（FileReader/triage/サイズ制限/streaming）は outliner の
+        //   handleFilesDrop/handleVscodeUrisDrop を ctx フック経由で共有（重い drop ロジックを複製しない）。
+        // 外部 drop の position は provider が解釈する before/after/child（内部 D&D の above/below とは別語彙）。
+        function fileDropPositionAt(clientY, rect) {
+            var frac = (clientY - rect.top) / (rect.height || 1);
+            if (frac < 0.25) { return 'before'; }
+            if (frac > 0.75) { return 'after'; }
+            return 'child';
+        }
+        // 外部 file drag 中の対象 node を返す（title 除く。dragged 自身の除外は不要＝外部ファイル）。
+        function fileDropTargetAt(clientX, clientY) {
+            var elAt = document.elementFromPoint(clientX, clientY);
+            var nodeEl = elAt && elAt.closest ? elAt.closest('.mindmap-node') : null;
+            if (!nodeEl || nodeEl.classList.contains('mindmap-title-node')) { return null; }
+            return nodeEl;
+        }
+        function clearFileDropMarks() {
+            var ts = treeEl.querySelectorAll('.mm-drop-before, .mm-drop-after, .mm-drop-child, .mm-drop-above, .mm-drop-below');
+            for (var i = 0; i < ts.length; i++) {
+                ts[i].classList.remove('mm-drop-before', 'mm-drop-after', 'mm-drop-child', 'mm-drop-above', 'mm-drop-below');
+            }
+        }
+        var isAnyFilesDrag = ctx.isAnyFilesDragEvent || function() { return false; };
+        var isFinderDrag = ctx.isFilesDragEvent || function() { return false; };
+        var isVscodeDrag = ctx.isVscodeUriDragEvent || function() { return false; };
+
+        on(treeEl, 'dragover', function(e) {
+            if (!isAnyFilesDrag(e)) { return; } // 外部ファイル drag のみ（内部 node D&D は mouse ベース）
+            e.preventDefault();
+            if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
+            clearFileDropMarks();
+            var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
+            if (nodeEl) {
+                var tb = nodeEl.querySelector('.mindmap-node-box');
+                if (tb) {
+                    var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
+                    // before/after は上辺/下辺線、child は塗り（既存 mm-drop-above/below/child の見た目を流用）
+                    tb.classList.add(pos === 'before' ? 'mm-drop-above' : pos === 'after' ? 'mm-drop-below' : 'mm-drop-child');
+                }
+            }
+        });
+        on(treeEl, 'dragleave', function(e) {
+            if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
+        });
+        on(treeEl, 'drop', function(e) {
+            if (!isAnyFilesDrag(e)) { return; }
+            e.preventDefault();
+            clearFileDropMarks();
+            var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
+            if (!nodeEl) { return; } // 空白への外部 drop は何もしない（node ターゲット必須）
+            var targetId = nodeEl.getAttribute('data-node-id');
+            var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
+            // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
+            if (isFinderDrag(e) && ctx.handleFilesDrop) {
+                ctx.handleFilesDrop(e, targetId, pos);
+            } else if (isVscodeDrag(e) && ctx.handleVscodeUrisDrop) {
+                ctx.handleVscodeUrisDrop(e, targetId, pos);
+            }
+        });
+
+        // --- FR-MM-IP: 画像 cmd+v → node.images（outliner パリティ）---
+        // active node（getFocused）に対し clipboardData の image を横取りして host.saveOutlinerImage 経路へ。
+        // contenteditable への native 画像 paste（巨大 img が本文に入る/テキスト上に来る不安定）を preventDefault で抑止。
+        // テキスト paste は preventDefault しない（既存の text paste 挙動を維持）。
+        on(treeEl, 'paste', function(e) {
+            var nid = getFocused ? getFocused() : null;
+            if (!nid) { return; }
+            var items = (e.clipboardData && e.clipboardData.items) || [];
+            for (var i = 0; i < items.length; i++) {
+                var it = items[i];
+                if (it.kind === 'file' && it.type && it.type.indexOf('image/') === 0) {
+                    e.preventDefault(); // ★ native 画像挿入を止め host 経路に一本化
+                    var f = it.getAsFile();
+                    if (!f) { continue; }
+                    (function(nodeId) {
+                        var reader = new FileReader();
+                        reader.onload = function(ev) {
+                            if (host && host.saveOutlinerImage) {
+                                host.saveOutlinerImage(nodeId, ev.target.result, null);
+                            }
+                        };
+                        reader.readAsDataURL(f);
+                    })(nid);
+                }
             }
         });
 
@@ -31567,6 +31703,10 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
+            //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
+            //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -31578,6 +31718,8 @@ var Outliner = (function() {
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // FR-MM-FD: mindmap では mindmap-interactions の drop リスナーが扱う（上記 dragover と同理由）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
                 // Finder path
@@ -32007,6 +32149,14 @@ var Outliner = (function() {
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
                     // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
                     makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
+                    // FR-MM-FD: mindmap の外部ファイル D&D は outliner の drop 機構を ctx フックで共有する
+                    //   （ADRL-0001: 重い drop ロジック= FileReader/triage/サイズ制限/streaming を複製しない）。
+                    //   これらは Outliner IIFE 内 module-local なので、closure を ctx 経由で mindmap に渡す。
+                    isFilesDragEvent: function (e) { return isFilesDragEvent(e); },
+                    isVscodeUriDragEvent: function (e) { return isVscodeUriDragEvent(e); },
+                    isAnyFilesDragEvent: function (e) { return isAnyFilesDragEvent(e); },
+                    handleFilesDrop: function (e, targetNodeId, position) { return handleFilesDrop(e, targetNodeId, position); },
+                    handleVscodeUrisDrop: function (e, targetNodeId, position) { return handleVscodeUrisDrop(e, targetNodeId, position); },
                     // FR-021-A4: 空状態の "+ Add" から最初の root を作成
                     addRootAndEdit: function () {
                         try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
@@ -38878,9 +39028,17 @@ var Outliner = (function() {
                     if (msg.nodeId && msg.imagePath) {
                         saveSnapshot();
                         model.addImage(msg.nodeId, msg.imagePath);
-                        var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
-                        if (imgContainer) {
-                            renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                        // FR-MM-IP: mindmap モードには .outliner-images コンテナが無い（別描画）。
+                        //   incremental 更新（renderNodeImages）は outliner モード専用なので、
+                        //   mindmap では renderTree() にフォールバックして画像を反映する
+                        //   （これが無いと paste 画像が model に入っても mindmap に描画されない = silent drop）。
+                        if (model.viewMode === 'mindmap') {
+                            renderTree();
+                        } else {
+                            var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
+                            if (imgContainer) {
+                                renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                            }
                         }
                         scheduleSyncToHost();
                     }

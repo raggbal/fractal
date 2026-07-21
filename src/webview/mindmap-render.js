@@ -70,6 +70,18 @@ var MindmapRender = (function() {
         return e;
     }
 
+    // 画像がある node は画像を横に並べられる最小幅を返す（text と同様に node を広げる。max 280）。
+    // text 無し node で画像が縦積みになる問題の対策 — node 幅を text 依存から解放する。
+    // .mindmap-node-images img は max-width:60px + コンテナ gap:4px（mindmap.css:171-183）。
+    function imageMinWidth(node) {
+        if (!node || !node.images || !node.images.length) { return 0; }
+        var IMG_W = 60, IMG_GAP = 4;
+        // 280(=maxW) 内に何枚横並びできるか。超過分は 280 で折り返す（= text の 280 クランプと同じ挙動）。
+        var maxPerRow = Math.max(1, Math.floor((280 - PAD_H - BORDER_W + IMG_GAP) / (IMG_W + IMG_GAP))); // = 3
+        var k = Math.min(node.images.length, maxPerRow);
+        return k * IMG_W + (k - 1) * IMG_GAP + PAD_H + BORDER_W;
+    }
+
     // --- ノード実寸の概算 (#M4: 1 パス目。実寸は 2 パス目 getBoundingClientRect で補正) ---
     function estimateMeasure(node, fontSize) {
         var fs = fontSize || 14;
@@ -90,7 +102,8 @@ var MindmapRender = (function() {
         // 自然幅 (折り返し前にテキストを 1 行で収めるのに必要な幅)。padding(PAD_H) + border(BORDER_W)。
         // SAFETY はアイコン付きの iconPad にのみ含める (アイコン無しは iter30 の BORDER_W だけで #10 維持)。
         var naturalW = longest * charW + PAD_H + BORDER_W + iconPad;
-        var w = Math.max(80, Math.min(maxW, naturalW));
+        // 画像がある node は text 幅 と 画像最小幅 の大きい方を採る（text 無しでも横に広がる）。max 280 は据え置き。
+        var w = Math.max(80, Math.min(maxW, Math.max(naturalW, imageMinWidth(node))));
         var wrapCount = 0;
         for (var j = 0; j < explicitLines.length; j++) {
             wrapCount += Math.max(1, Math.ceil((explicitLines[j].length * charW) / (w - PAD_H - BORDER_W - iconPad || 1)));
@@ -103,7 +116,13 @@ var MindmapRender = (function() {
         // w は既に上で Math.max(80, Math.min(maxW, naturalW)) で確定済み。
         // 高さ (lines) は明示改行 + 折り返しで計算するので縦は従来どおり変わらない。
         var h = lines * (fs + 6) + 12;
-        if (node && node.images && node.images.length) { h += 60; }
+        // FR-MM-IP: 複数画像は .mindmap-node-images（flex-wrap, img max 60x48, gap4）で折り返して並ぶ。
+        //   枚数に応じて行数分の高さを確保する（従来の固定 +60 は複数行ではみ出すため動的化）。
+        if (node && node.images && node.images.length) {
+            var perRow = Math.max(1, Math.floor((w - 20) / 64)); // box padding/gap を考慮した 1 行あたり枚数（img64px）
+            var imgRows = Math.ceil(node.images.length / perRow);
+            h += imgRows * 52 + 8; // 1 行 = img48 + gap4 相当
+        }
         if (node && (node.tags && node.tags.length)) { h += 4; }
         return { width: w, height: h };
     }
@@ -171,7 +190,9 @@ var MindmapRender = (function() {
         }
         // PAD_H(padding) + BORDER_W(border + 1 文字分の余裕) + iconPad で content 領域を確保。
         var needInner = maxScreen / scale + PAD_H + BORDER_W + iconPad;
-        return Math.max(80, Math.min(280, needInner));
+        // pass-1 と同様、画像がある node は text 実測幅 と 画像最小幅 の大きい方を採る
+        // （★両パス修正 = これが無いと pass-2 が幅を text 幅へ縮め戻し縦積みが再発する）。
+        return Math.max(80, Math.min(280, Math.max(needInner, imageMinWidth(node))));
     }
 
     // --- 2 パス目の確定高さを「補正後の幅 (realW)」で実測 (iteration 15, TASK-47) ---
@@ -353,6 +374,14 @@ var MindmapRender = (function() {
                     : node.images[ii];
                 img.setAttribute('src', src);
                 img.setAttribute('data-img-index', ii);
+                // FR-MM-IP: 画像 dblclick で lightbox プレビュー（outliner パリティ、既存 overlay を再利用）。
+                //   stopPropagation で node の dblclick（focusNode/openPage）に伝播させない。
+                img.addEventListener('dblclick', function(ev) {
+                    ev.stopPropagation();
+                    if (typeof OutlinerCell !== 'undefined' && OutlinerCell.showImageOverlay) {
+                        OutlinerCell.showImageOverlay(this.src);
+                    }
+                });
                 imgWrap.appendChild(img);
             }
             box.appendChild(imgWrap);

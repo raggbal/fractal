@@ -928,6 +928,10 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
+            //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
+            //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -939,6 +943,8 @@ var Outliner = (function() {
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // FR-MM-FD: mindmap では mindmap-interactions の drop リスナーが扱う（上記 dragover と同理由）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
                 // Finder path
@@ -1368,6 +1374,14 @@ var Outliner = (function() {
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
                     // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
                     makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
+                    // FR-MM-FD: mindmap の外部ファイル D&D は outliner の drop 機構を ctx フックで共有する
+                    //   （ADRL-0001: 重い drop ロジック= FileReader/triage/サイズ制限/streaming を複製しない）。
+                    //   これらは Outliner IIFE 内 module-local なので、closure を ctx 経由で mindmap に渡す。
+                    isFilesDragEvent: function (e) { return isFilesDragEvent(e); },
+                    isVscodeUriDragEvent: function (e) { return isVscodeUriDragEvent(e); },
+                    isAnyFilesDragEvent: function (e) { return isAnyFilesDragEvent(e); },
+                    handleFilesDrop: function (e, targetNodeId, position) { return handleFilesDrop(e, targetNodeId, position); },
+                    handleVscodeUrisDrop: function (e, targetNodeId, position) { return handleVscodeUrisDrop(e, targetNodeId, position); },
                     // FR-021-A4: 空状態の "+ Add" から最初の root を作成
                     addRootAndEdit: function () {
                         try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
@@ -8239,9 +8253,17 @@ var Outliner = (function() {
                     if (msg.nodeId && msg.imagePath) {
                         saveSnapshot();
                         model.addImage(msg.nodeId, msg.imagePath);
-                        var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
-                        if (imgContainer) {
-                            renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                        // FR-MM-IP: mindmap モードには .outliner-images コンテナが無い（別描画）。
+                        //   incremental 更新（renderNodeImages）は outliner モード専用なので、
+                        //   mindmap では renderTree() にフォールバックして画像を反映する
+                        //   （これが無いと paste 画像が model に入っても mindmap に描画されない = silent drop）。
+                        if (model.viewMode === 'mindmap') {
+                            renderTree();
+                        } else {
+                            var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
+                            if (imgContainer) {
+                                renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                            }
                         }
                         scheduleSyncToHost();
                     }
