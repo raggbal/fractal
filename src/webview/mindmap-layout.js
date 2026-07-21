@@ -153,9 +153,13 @@ var MindmapLayout = (function() {
         if (d3 && hasTitle && rootIds.length) {
             // title 中心ノードでも settings.layout を尊重 (#3)。両側固定を廃止。
             var wrapModel = makeTitleWrapModel(model, rootIds, titleText);
-            emitBalanced(d3, wrapModel, TITLE_ID, settings, function(id) {
-                return id === TITLE_ID ? measureTitle(titleText, measure) : measure(id);
-            }, positions, links, 0, 0, sideMode);
+            // ★接続線の隙間バグ修正 (sprint 20260721-134546): title の measure は render 側が使う
+            // measure(TITLE_ID) をそのまま使う。従来は独自ヒューリスティック measureTitle
+            // (width=max(100,...)) を使っていたため、実描画の title box 幅（measure(TITLE_ID)）と
+            // 食い違い、link 始点 (sx = cx ± 幅/2) が box エッジからズレて中央 title だけ線が離れた。
+            // render 側 buildTitleNodeEl も measure(TITLE_ID) で box を描くので、両者を揃えれば一致する。
+            emitBalanced(d3, wrapModel, TITLE_ID, settings, measure,
+                positions, links, 0, 0, sideMode);
             // Floating Topic を追加してリターン
             addFloatingTopics(model, rootIds, positions);
             return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
@@ -197,12 +201,6 @@ var MindmapLayout = (function() {
                 positions[id] = { x: n.mindmap.x, y: n.mindmap.y };
             }
         }
-    }
-
-    /** title 中心ノードの measure (概算。実寸は render の 2 パス目で補正) */
-    function measureTitle(titleText, measure) {
-        var t = String(titleText || '');
-        return { width: Math.max(100, Math.min(320, t.length * 9 + 32)), height: 40 };
     }
 
     /**

@@ -26947,9 +26947,13 @@ var MindmapLayout = (function() {
         if (d3 && hasTitle && rootIds.length) {
             // title 中心ノードでも settings.layout を尊重 (#3)。両側固定を廃止。
             var wrapModel = makeTitleWrapModel(model, rootIds, titleText);
-            emitBalanced(d3, wrapModel, TITLE_ID, settings, function(id) {
-                return id === TITLE_ID ? measureTitle(titleText, measure) : measure(id);
-            }, positions, links, 0, 0, sideMode);
+            // ★接続線の隙間バグ修正 (sprint 20260721-134546): title の measure は render 側が使う
+            // measure(TITLE_ID) をそのまま使う。従来は独自ヒューリスティック measureTitle
+            // (width=max(100,...)) を使っていたため、実描画の title box 幅（measure(TITLE_ID)）と
+            // 食い違い、link 始点 (sx = cx ± 幅/2) が box エッジからズレて中央 title だけ線が離れた。
+            // render 側 buildTitleNodeEl も measure(TITLE_ID) で box を描くので、両者を揃えれば一致する。
+            emitBalanced(d3, wrapModel, TITLE_ID, settings, measure,
+                positions, links, 0, 0, sideMode);
             // Floating Topic を追加してリターン
             addFloatingTopics(model, rootIds, positions);
             return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
@@ -26991,12 +26995,6 @@ var MindmapLayout = (function() {
                 positions[id] = { x: n.mindmap.x, y: n.mindmap.y };
             }
         }
-    }
-
-    /** title 中心ノードの measure (概算。実寸は render の 2 パス目で補正) */
-    function measureTitle(titleText, measure) {
-        var t = String(titleText || '');
-        return { width: Math.max(100, Math.min(320, t.length * 9 + 32)), height: 40 };
     }
 
     /**
@@ -28866,6 +28864,14 @@ var MindmapInteractions = (function() {
                 e.preventDefault();
                 if (node && node.isPage && ctx.openPage) { ctx.openPage(nodeId); }
                 else if (node && node.filePath && host && typeof host.openAttachedFile === 'function') { host.openAttachedFile(nodeId); }
+                else if (node && ctx.makePage && ctx.openPage) {
+                    // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く
+                    // (outliner と同挙動, sprint 20260721-134546)。画像だけの node でも md 化する。
+                    // ctx.makePage は outliner.js の makePage（model 同期更新 + host.makePage で md 同期作成
+                    // + renderTree）。host メッセージ FIFO で直後の openPage(openPageInSidePanel)は md 作成後に届く。
+                    ctx.makePage(nodeId);
+                    ctx.openPage(nodeId);
+                }
                 return;
             }
             // Cmd+A 全選択
@@ -31930,6 +31936,8 @@ var Outliner = (function() {
                     setFocusedNodeId: function (id) { focusedNodeId = id; },
                     getFocusedNodeId: function () { return focusedNodeId; },
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
+                    // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
+                    makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
                     // FR-021-A4: 空状態の "+ Add" から最初の root を作成
                     addRootAndEdit: function () {
                         try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
@@ -34800,8 +34808,15 @@ var Outliner = (function() {
                     } else if (pageNode.filePath) {
                         // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
                         host.openAttachedFile(nodeId);
+                    } else {
+                        // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く。
+                        // 画像だけの node でも md 化する（images は node に残る）。
+                        // makePage は model を同期更新(isPage=true,pageId) + host.makePage で md を同期作成し
+                        // renderTree/scheduleSyncToHost まで行う。host メッセージは FIFO なので直後の
+                        // openPage(host.openPageInSidePanel) は md 作成後に届く（レースなし）。
+                        makePage(nodeId);
+                        openPage(nodeId);
                     }
-                    // 添付なし: preventDefault のみ、新規動作なし (既存挙動維持)
                     return;
                 }
                 e.preventDefault();

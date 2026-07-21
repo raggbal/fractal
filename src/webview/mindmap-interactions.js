@@ -476,6 +476,14 @@ var MindmapInteractions = (function() {
                 e.preventDefault();
                 if (node && node.isPage && ctx.openPage) { ctx.openPage(nodeId); }
                 else if (node && node.filePath && host && typeof host.openAttachedFile === 'function') { host.openAttachedFile(nodeId); }
+                else if (node && ctx.makePage && ctx.openPage) {
+                    // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く
+                    // (outliner と同挙動, sprint 20260721-134546)。画像だけの node でも md 化する。
+                    // ctx.makePage は outliner.js の makePage（model 同期更新 + host.makePage で md 同期作成
+                    // + renderTree）。host メッセージ FIFO で直後の openPage(openPageInSidePanel)は md 作成後に届く。
+                    ctx.makePage(nodeId);
+                    ctx.openPage(nodeId);
+                }
                 return;
             }
             // Cmd+A 全選択

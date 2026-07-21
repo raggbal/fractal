@@ -1366,6 +1366,8 @@ var Outliner = (function() {
                     setFocusedNodeId: function (id) { focusedNodeId = id; },
                     getFocusedNodeId: function () { return focusedNodeId; },
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
+                    // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
+                    makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
                     // FR-021-A4: 空状態の "+ Add" から最初の root を作成
                     addRootAndEdit: function () {
                         try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
@@ -4236,8 +4238,15 @@ var Outliner = (function() {
                     } else if (pageNode.filePath) {
                         // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
                         host.openAttachedFile(nodeId);
+                    } else {
+                        // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く。
+                        // 画像だけの node でも md 化する（images は node に残る）。
+                        // makePage は model を同期更新(isPage=true,pageId) + host.makePage で md を同期作成し
+                        // renderTree/scheduleSyncToHost まで行う。host メッセージは FIFO なので直後の
+                        // openPage(host.openPageInSidePanel) は md 作成後に届く（レースなし）。
+                        makePage(nodeId);
+                        openPage(nodeId);
                     }
-                    // 添付なし: preventDefault のみ、新規動作なし (既存挙動維持)
                     return;
                 }
                 e.preventDefault();
