@@ -2836,47 +2836,11 @@ body {
     box-sizing: border-box;
 }
 
-/* --- outliner-toolbar-s3-sync (FR-OS3-01 / FR-OS3-08 / FR-OS3-12) --- */
-.outliner-s3-sync-btn {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: var(--outliner-search-fg);
-    cursor: pointer;
-    padding: 4px 5px;
-    margin-right: 4px;
-    line-height: 1;
-    opacity: 0.5;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-}
-.outliner-s3-sync-btn:hover {
-    opacity: 1;
-    background: var(--outliner-hover-bg);
-}
-.outliner-s3-sync-btn[data-state="syncing"] {
-    opacity: 0.7;
-    cursor: wait;
-    animation: outliner-s3-sync-spin 1s linear infinite;
-}
-.outliner-s3-sync-btn[data-state="syncing"]:hover {
-    background: transparent;
-}
-.outliner-s3-sync-btn[data-state="success"] {
-    color: var(--outliner-success-color, #4caf50);
-    opacity: 1;
-}
-.outliner-s3-sync-btn[data-state="error"] {
-    color: var(--outliner-error-color, #f44336);
-    opacity: 1;
-}
+/* --- 左サイドパネル S3 sync（notes 全体 sync）中のロック表示 overlay --- */
 @keyframes outliner-s3-sync-spin {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
 }
-
-/* sync 中のロック表示 (FR-OS3-08 Layer F) */
 body.outliner-sync-locked {
     user-select: none;
 }
@@ -30704,7 +30668,6 @@ var Outliner = (function() {
     function updateHeaderForViewMode() {
         var isMindmap = (VIEW_MODE === 'mindmap');
         // 「mindmap で使わない」ボタン群 → mindmap 時 disabled、それ以外は解除。
-        var s3SyncBtn = document.querySelector('.outliner-s3-sync-btn');
         var disableInMindmap = [
             taskModeToggleBtn, taskFilterToggleBtn, archiveBtn, menuBtn,
             navBackBtn, navForwardBtn, searchModeToggleBtn
@@ -30726,9 +30689,8 @@ var Outliner = (function() {
         if (!isMindmap && typeof updateNavButtons === 'function') {
             try { updateNavButtons(); } catch (e) { /* noop */ }
         }
-        // 使うボタン (search / undo / redo / view-toggle / s3) は触らない
-        // (それぞれの状態管理に委ねる)。s3SyncBtn は mindmap でも活かす。
-        void s3SyncBtn;
+        // 使うボタン (search / undo / redo / view-toggle) は触らない
+        // (それぞれの状態管理に委ねる)。
     }
 
 
@@ -31520,7 +31482,6 @@ var Outliner = (function() {
         setupHostMessages();
         setupTextSearchReplace();
         initSidePanel();
-        setupS3SyncButton();
         setupResourceRootsFooter();
 
         // [K] iteration 29 / TASK-77: 初期 VIEW_MODE (mindmap で開いた場合) のヘッダー状態を反映。
@@ -38405,33 +38366,12 @@ var Outliner = (function() {
     }
 
     // FR-OS3-01 / D-08 / D-09: outliner-toolbar-s3-sync 関連
-    function setupS3SyncButton() {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.addEventListener('click', function() {
-            if (btn.dataset.state !== 'idle') return;
-            var id = extractOutlinerIdFromKey(currentOutFileKey);
-            if (!id) {
-                console.warn('[outliner-s3-sync] outlinerId 抽出失敗', currentOutFileKey);
-                return;
-            }
-            // bridge 経由で host にメッセージ送信
-            if (host && typeof host.outlinerS3SyncRequest === 'function') {
-                host.outlinerS3SyncRequest(id);
-            } else {
-                console.error('[outliner-s3-sync] host.outlinerS3SyncRequest が定義されていない');
-            }
-        });
-    }
-
-    function extractOutlinerIdFromKey(key) {
-        if (!key) return null;
-        var m = String(key).match(/([^/\\]+)\.out$/);
-        return m ? m[1] : null;
-    }
-
+    // 左サイドパネル S3 sync（notes 全体 sync）中のロック/再描画。
+    // ※ outliner ヘッダーの per-outliner sync ボタンは廃止したが、これらの受信ハンドラは
+    //   左サイドパネル sync（runS3Operation / revertAndReinitNotePanel）が送出する
+    //   sync-lock / sync-progress / sync-applied を処理するため残す。
     function enterSyncLock() {
-        // 編集中フラグ強制 false + timer clear (D-08)
+        // 編集中フラグ強制 false + timer clear
         isActivelyEditing = false;
         if (editingIdleTimer) { clearTimeout(editingIdleTimer); editingIdleTimer = null; }
         if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
@@ -38448,8 +38388,7 @@ var Outliner = (function() {
     }
 
     function applySyncedData(newData) {
-        // D-09 / H1 修正: Notes ファイル切替 path と同等処理
-        // listener teardown せず、Outliner.init は再呼び出ししない
+        // Notes ファイル切替 path と同等処理（listener teardown せず init 再呼び出ししない）
         if (newData) {
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
@@ -38465,36 +38404,12 @@ var Outliner = (function() {
             updateBreadcrumb();
             renderTree();
             saveBaseline();
-            updateScopeSearchIndicator();
-            // v0.207.40: S3 sync 後 model = disk と一致したので flushSync baseline 更新
+            // sync 後 model = disk と一致したので flushSync baseline 更新
             lastSentJson = serializeForSave();
         }
         try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
         document.body.classList.remove('outliner-sync-locked');
         isActivelyEditing = false;
-    }
-
-    function updateSyncButtonState(state, tooltip) {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.dataset.state = state;
-        if (tooltip) btn.title = tooltip;
-        if (state === 'success') {
-            setTimeout(function() {
-                btn.dataset.state = 'idle';
-                btn.title = 'Sync to/from S3';
-            }, 2000);
-        } else if (state === 'syncing') {
-            btn.title = 'Syncing…';
-        } else if (state === 'idle') {
-            btn.title = 'Sync to/from S3';
-        }
-    }
-
-    function updateSyncButtonVisibility(visible) {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.style.display = visible ? 'flex' : 'none';
     }
 
     // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア（全 .fractal-resource-footer を更新）
@@ -38545,21 +38460,15 @@ var Outliner = (function() {
                     updateResourceAccessFooter(!!msg.outOfRange, msg.count || 0, msg.samplePath);
                     break;
 
-                // FR-OS3-08 / D-08: outliner-toolbar-s3-sync 経路
+                // 左サイドパネル S3 sync（notes 全体 sync）経路の webview lock / 再描画
                 case 'sync-lock':
                     enterSyncLock();
                     break;
-                case 'sync-applied':
-                    applySyncedData(msg.data);
-                    break;
-                case 'sync-button-state':
-                    updateSyncButtonState(msg.state, msg.tooltip);
-                    break;
-                case 'sync-button-visibility':
-                    updateSyncButtonVisibility(msg.visible);
-                    break;
                 case 'sync-progress':
                     updateSyncOverlayPhase(msg.message || '');
+                    break;
+                case 'sync-applied':
+                    applySyncedData(msg.data);
                     break;
 
                 case 'updateNodeImages': {
@@ -39507,7 +39416,7 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
-        // FR-OS3-08 Layer F: sync 中は全キー入力を swallow
+        // 左サイドパネル S3 sync 中は全キー入力を swallow（sync-lock 中の編集を防ぐ）
         document.addEventListener('keydown', function(e) {
             if (document.body.classList.contains('outliner-sync-locked')) {
                 e.preventDefault();

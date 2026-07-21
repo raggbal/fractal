@@ -1,33 +1,9 @@
 /**
  * outliner-s3-sync-utils.ts — vscode 不依存の pure 関数群
  *
- * outliner-s3-sync.ts から切り出して unit test 可能にする (Playwright Node.js 環境)。
+ * 左サイドパネル sync (notes-s3-sync.ts / s3-per-file-sync.ts) が使う pure 関数群。
+ * Playwright Node.js 環境で unit test 可能。
  */
-import * as path from 'path';
-import * as fs from 'fs';
-import { isFlatOut } from './shared/flat-layout';
-
-/**
- * .out から flat/legacy レイアウトを判定する（BUG-2 修正・vscode 非依存で unit 検証可能）。
- * - pageDir が "."/"" → flat（共有 root）
- * - pageDir が "<id>" 等 → legacy（per-<id>/ フォルダ）
- * - **読み取り/parse 失敗 → flat 既定**（安全側）。
- *   理由: 現行の全 note は flat。読めない .out で legacy per-<id>/ に落とすと、存在しない
- *   <localDir>/<id>/ フォルダを sync 対象にして共有 root 直下の md・images/・files/ を
- *   upload/download 双方で丸ごと取りこぼす。flat 既定なら最悪でも共有 root を sync 対象にする。
- * readFile はテスト差し替え用（既定は fs.readFileSync）。
- */
-export function resolveIsFlatFromOut(
-    localOutFile: string,
-    readFile: (p: string) => string = (p) => fs.readFileSync(p, 'utf8'),
-): boolean {
-    try {
-        const outData = JSON.parse(readFile(localOutFile));
-        return isFlatOut(outData.pageDir);
-    } catch {
-        return true; // parse 失敗 → flat 既定（取りこぼし回避）
-    }
-}
 
 export interface AwsCredentials {
     accessKeyId: string;
@@ -45,120 +21,6 @@ export function getAwsEnv(creds: AwsCredentials): NodeJS.ProcessEnv {
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
         AWS_DEFAULT_REGION: creds.region,
     };
-}
-
-export interface TargetPaths {
-    outFilePath: string;
-    folderPath: string;  // <localDir>/<id>/ (末尾 sep 強制)
-}
-
-export interface TargetTextDocPaths {
-    outFilePath: string;
-    pagesDir: string;            // legacy: <localDir>/<id>/pages/ (末尾 sep 強制)
-    // notes-flat-storage (2026-07-07): flat レイアウトでは md=<localDir>/ 直下。
-    // dirty flush 判定が新レイアウトの page md を取りこぼさないよう root dir も保持する。
-    flatMdDir: string;           // <localDir>/ (末尾 sep 強制)
-}
-
-/**
- * sync 範囲のローカル path 集合 (TC-U-02)
- */
-export function computeTargetPaths(outlinerId: string, localDir: string): TargetPaths {
-    const outFilePath = path.join(localDir, `${outlinerId}.out`);
-    const folderPath = path.join(localDir, outlinerId) + path.sep;
-    return { outFilePath, folderPath };
-}
-
-/**
- * TextDocument flush 対象のテキスト系 path 集合 (TC-U-02 / M15)
- */
-export function computeTargetTextDocPaths(outlinerId: string, localDir: string): TargetTextDocPaths {
-    const outFilePath = path.join(localDir, `${outlinerId}.out`);
-    const pagesDir = path.join(localDir, outlinerId, 'pages') + path.sep;
-    const flatMdDir = (localDir.endsWith(path.sep) ? localDir : localDir + path.sep);
-    return { outFilePath, pagesDir, flatMdDir };
-}
-
-/**
- * notes-flat-storage (2026-07-07): toolbar sync のフォルダ範囲を決める。
- * - legacy（per-<id>/）: S3 `<prefix><id>/` ↔ local `<localDir>/<id>`
- * - flat（pageDir="."）: 共有レイアウトのため S3 `<prefix>` ↔ local `<localDir>`（root 全体）
- *   → md=root 直下 <pageId>.md + 共有 images/ files/ が sync 対象になる。
- *     .out 本体は s3OutKey で別途扱う。共有 dir を全 .out で共有するため他 .out の資産も含む（設計 §4 で許容）。
- */
-export function computeSyncFolderPaths(
-    outlinerId: string, localDir: string, s3Prefix: string, isFlat: boolean
-): { s3FolderPrefix: string; localFolderPath: string } {
-    if (isFlat) {
-        return { s3FolderPrefix: s3Prefix, localFolderPath: localDir };
-    }
-    return {
-        s3FolderPrefix: `${s3Prefix}${outlinerId}/`,
-        localFolderPath: path.join(localDir, outlinerId),
-    };
-}
-
-/**
- * S3 URI の正規化 (M3、末尾 slash 強制)
- */
-export function normalizeBucketUri(bucketPath: string, outlinerId: string): { folderUri: string; parentUri: string } {
-    const trimmed = bucketPath.trim().replace(/^s3:\/\//, '').replace(/\/+$/, '');
-    return {
-        folderUri: `s3://${trimmed}/${outlinerId}/`,
-        parentUri: `s3://${trimmed}/`,
-    };
-}
-
-/**
- * Local URI の正規化 (末尾 sep 強制)
- */
-export function normalizeLocalUri(localDir: string, outlinerId: string): { folderPath: string; parentPath: string } {
-    const folderPath = path.join(localDir, outlinerId) + path.sep;
-    const parentPath = localDir.endsWith(path.sep) ? localDir : localDir + path.sep;
-    return { folderPath, parentPath };
-}
-
-/**
- * 指定 path が target text-document の範囲か判定 (M7 / M15)
- */
-export function isTargetTextDoc(filePath: string, targets: TargetTextDocPaths): boolean {
-    if (filePath === targets.outFilePath) return true;
-    if (filePath.startsWith(targets.pagesDir) && filePath.endsWith('.md')) return true; // legacy <id>/pages/
-    // notes-flat-storage (2026-07-07): flat md=<localDir>/ 直下。<localDir>/<pageId>.md を flush 対象に。
-    // ただし .out / .note / サブディレクトリの md は除外（root 直下の *.md のみ）。
-    if (targets.flatMdDir && filePath.endsWith('.md') && filePath.startsWith(targets.flatMdDir)) {
-        const rest = filePath.slice(targets.flatMdDir.length);
-        if (!rest.includes(path.sep)) return true; // root 直下（サブディレクトリを含まない）
-    }
-    return false;
-}
-
-/**
- * (deprecated) `aws s3 sync` の引数構築。`aws s3 sync` は size 差分が転送発火条件に
- * 含まれるため真の mtime newer-wins 判定はできず、別マシン編集時に古いローカルが
- * S3 を上書きしてしまうバグの温床。
- *
- * 現在の実装は per-file mtime 比較 + aws s3 cp 経路を使っており、本関数はもう
- * 呼ばれていないが、unit test の互換性のため残置。
- */
-export function buildSyncCommandArgs(p: {
-    outlinerId: string;
-    s3Folder: string;
-    s3Parent: string;
-    localFolder: string;
-    localParent: string;
-}): { downloadArgs: string[][]; uploadArgs: string[][] } {
-    const downloadArgs: string[][] = [
-        ['s3', 'sync', p.s3Folder, p.localFolder],
-        ['s3', 'sync', p.s3Parent, p.localParent,
-            '--exclude', '*', '--include', `${p.outlinerId}.out`],
-    ];
-    const uploadArgs: string[][] = [
-        ['s3', 'sync', p.localFolder, p.s3Folder],
-        ['s3', 'sync', p.localParent, p.s3Parent,
-            '--exclude', '*', '--include', `${p.outlinerId}.out`],
-    ];
-    return { downloadArgs, uploadArgs };
 }
 
 /**
@@ -225,29 +87,4 @@ export function parseBucketPath(bucketPath: string): { bucket: string; prefix: s
         bucket: cleaned.substring(0, slashIdx),
         prefix: cleaned.substring(slashIdx + 1) + '/',
     };
-}
-
-/**
- * outline.note.s3BucketPath 判定 (TC-U-01)
- */
-export function isS3BucketPathSet(value: string | null | undefined): boolean {
-    if (!value) return false;
-    return value.trim().length > 0;
-}
-
-/**
- * sync-in-progress flag 用の path 帰属判定 (M10)
- */
-export function pathBelongsToSyncingOutliner(
-    filePath: string,
-    folderPath: string,
-    syncingIds: Iterable<string>,
-): boolean {
-    for (const id of syncingIds) {
-        const outFile = path.join(folderPath, `${id}.out`);
-        const idFolder = path.join(folderPath, id) + path.sep;
-        if (filePath === outFile) return true;
-        if (filePath.startsWith(idFolder)) return true;
-    }
-    return false;
 }

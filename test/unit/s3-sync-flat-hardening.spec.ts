@@ -12,7 +12,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { s3Uri } from '../../src/notes-s3-sync';
 import { walkLocalDir } from '../../src/s3-per-file-sync';
-import { resolveIsFlatFromOut } from '../../src/outliner-s3-sync-utils';
 
 const cfg = (bucketPath: string) => ({
     bucketPath, localPath: '/x', accessKeyId: '', secretAccessKey: '', region: 'us-east-1',
@@ -54,16 +53,4 @@ test('TC-SF-03 walkLocalDir の relPath が先頭欠落しない', () => {
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }
-});
-
-// TC-SF-04 (BUG-2): .out parse 失敗時の isFlat フォールバックが flat（安全側）
-test('TC-SF-04 resolveIsFlatFromOut: 正常判定 + parse 失敗は flat 既定', () => {
-    // (a) 正常 flat .out（pageDir='.'）→ true
-    expect(resolveIsFlatFromOut('/x.out', () => JSON.stringify({ pageDir: '.' }))).toBe(true);
-    // (b) 正常 legacy .out（pageDir='<id>'）→ false
-    expect(resolveIsFlatFromOut('/x.out', () => JSON.stringify({ pageDir: 'work123' }))).toBe(false);
-    // (c) parse 失敗（不正 JSON）→ flat 既定 true（取りこぼし回避）
-    expect(resolveIsFlatFromOut('/x.out', () => '{ this is not json')).toBe(true);
-    // (d) 読み取り失敗（throw）→ flat 既定 true
-    expect(resolveIsFlatFromOut('/x.out', () => { throw new Error('ENOENT'); })).toBe(true);
 });

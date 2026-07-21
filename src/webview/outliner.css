@@ -100,47 +100,11 @@ body {
     box-sizing: border-box;
 }
 
-/* --- outliner-toolbar-s3-sync (FR-OS3-01 / FR-OS3-08 / FR-OS3-12) --- */
-.outliner-s3-sync-btn {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: var(--outliner-search-fg);
-    cursor: pointer;
-    padding: 4px 5px;
-    margin-right: 4px;
-    line-height: 1;
-    opacity: 0.5;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-}
-.outliner-s3-sync-btn:hover {
-    opacity: 1;
-    background: var(--outliner-hover-bg);
-}
-.outliner-s3-sync-btn[data-state="syncing"] {
-    opacity: 0.7;
-    cursor: wait;
-    animation: outliner-s3-sync-spin 1s linear infinite;
-}
-.outliner-s3-sync-btn[data-state="syncing"]:hover {
-    background: transparent;
-}
-.outliner-s3-sync-btn[data-state="success"] {
-    color: var(--outliner-success-color, #4caf50);
-    opacity: 1;
-}
-.outliner-s3-sync-btn[data-state="error"] {
-    color: var(--outliner-error-color, #f44336);
-    opacity: 1;
-}
+/* --- 左サイドパネル S3 sync（notes 全体 sync）中のロック表示 overlay --- */
 @keyframes outliner-s3-sync-spin {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
 }
-
-/* sync 中のロック表示 (FR-OS3-08 Layer F) */
 body.outliner-sync-locked {
     user-select: none;
 }

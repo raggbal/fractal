@@ -168,12 +168,6 @@
             api.postMessage({ type: 'notesSetSidePanelOutlineWidth', width: width });
         },
 
-        // outliner-toolbar-s3-sync (FR-OS3-03)
-        outlinerS3SyncRequest: function(outlinerId) {
-            flushOutlinerSync();
-            api.postMessage({ type: 'outlinerS3SyncRequest', outlinerId: outlinerId });
-        },
-
         // タスクモード: 完了タスクを Daily Notes へ archive (今日の date node 配下に追加)
         archiveTasks: function(subtrees) {
             flushOutlinerSync();

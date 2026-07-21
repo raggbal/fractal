@@ -9,7 +9,6 @@ import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { NotesMdMainManager } from './shared/notesMdMainManager';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig, checkAwsCli } from './notes-s3-sync';
-import { OutlinerS3SyncCoordinator, OutlinerS3SyncProvider, OutlinerS3SyncProgress } from './outliner-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
@@ -47,28 +46,6 @@ export class NotesEditorProvider {
         fileManager: NotesFileManager;
         openPage?: (filePath: string) => Promise<void>;
     }>();
-
-    // outliner-toolbar-s3-sync (FR-OS3-16, D-08): sync 中の outliner-id を track
-    private syncInProgressIds = new Set<string>();
-
-    public setSyncInProgress(outlinerId: string, value: boolean): void {
-        if (value) this.syncInProgressIds.add(outlinerId);
-        else this.syncInProgressIds.delete(outlinerId);
-    }
-
-    public isSyncInProgress(outlinerId: string): boolean {
-        return this.syncInProgressIds.has(outlinerId);
-    }
-
-    public pathBelongsToSyncingOutliner(filePath: string, folderPath: string): boolean {
-        for (const id of this.syncInProgressIds) {
-            const outFile = path.join(folderPath, `${id}.out`);
-            const idFolder = path.join(folderPath, id) + path.sep;
-            if (filePath === outFile) return true;
-            if (filePath.startsWith(idFolder)) return true;
-        }
-        return false;
-    }
 
     /** v0.207.34: Cmd+\ で右パネル toggle — active な notes panel に message 送信 */
     public sendToggleSidebar(): void {
@@ -258,7 +235,6 @@ export class NotesEditorProvider {
                 noteSidePanelWidth: fileManager.getSidePanelWidth(),
                 noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
                 fileChangeId: fileManager.getFileChangeId(),
-                s3BucketPathSet: !!(fileManager.getS3BucketPath() || '').trim(),
                 noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
                 history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
                 historyPanelHeight: fileManager.getHistoryPanelHeight(),
@@ -1469,10 +1445,6 @@ export class NotesEditorProvider {
                     region: fractalConfig.get<string>('s3Region', 'us-east-1'),
                 });
             },
-            outlinerS3Sync: async (outlinerId: string) => {
-                // FR-OS3-03: outliner editor toolbar の同期ボタン押下処理
-                await this.handleOutlinerS3Sync(panel, outlinerId, fileManager, folderPath);
-            },
             cleanupUnusedFilesAllNotes: async () => {
                 // FR-7: 手動クリーンアップコマンド (全 note 一気モード)
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInNote');
@@ -1994,9 +1966,6 @@ export class NotesEditorProvider {
 
         // 現在開いている.outファイルの外部変更検知
         disposables.push(folderWatcher.onDidChange((uri) => {
-            // FR-OS3-16 / D-08: outliner-s3-sync 中は通常 reload 経路を skip
-            if (this.pathBelongsToSyncingOutliner(uri.fsPath, folderPath)) return;
-
             const currentFile = fileManager.getCurrentFilePath();
             if (!currentFile) return;
             if (uri.fsPath !== currentFile) return;
@@ -2080,84 +2049,6 @@ export class NotesEditorProvider {
             return null;
         }
         return { accessKeyId, secretAccessKey, region, bucketPath, localPath: folderPath };
-    }
-
-    /**
-     * FR-OS3-03 / FR-OS3-08 / FR-OS3-12 / FR-OS3-14: outliner toolbar 同期ボタンの処理
-     */
-    private async handleOutlinerS3Sync(
-        panel: vscode.WebviewPanel,
-        outlinerId: string,
-        fileManager: NotesFileManager,
-        folderPath: string,
-    ): Promise<void> {
-        // BUG FIX: webview の未保存編集を debounce 待たず即 disk に書く
-        // (saveCurrentFile は 1s debounce、sync 開始時点で disk に未反映の可能性がある)
-        // v0.207.40: webview 側の Outliner.flushSync() が「実編集の有無を比較」してから送るので
-        // 編集なしなら syncData が来ず、ここの flushSave は no-op になる (= mtime 保護)。
-        fileManager.flushSave();
-
-        const bucketPath = (fileManager.getS3BucketPath() || '').trim();
-        if (!bucketPath) {
-            // ボタン非表示時の保険、silent return
-            return;
-        }
-
-        const fractalConfig = vscode.workspace.getConfiguration('fractal');
-        const accessKeyId = fractalConfig.get<string>('s3AccessKeyId', '');
-        const secretAccessKey = fractalConfig.get<string>('s3SecretAccessKey', '');
-        const region = fractalConfig.get<string>('s3Region', 'us-east-1');
-
-        if (!accessKeyId || !secretAccessKey) {
-            vscode.window.showErrorMessage(
-                'S3 credentials not configured. Please set fractal.s3AccessKeyId, fractal.s3SecretAccessKey, fractal.s3Region in settings.'
-            );
-            panel.webview.postMessage({ type: 'sync-button-state', state: 'error' });
-            return;
-        }
-
-        if (!await checkAwsCli()) {
-            vscode.window.showErrorMessage(
-                'AWS CLI is not installed. Please install from https://aws.amazon.com/cli/'
-            );
-            panel.webview.postMessage({ type: 'sync-button-state', state: 'error' });
-            return;
-        }
-
-        const syncProvider: OutlinerS3SyncProvider = {
-            setSyncInProgress: (id, value) => this.setSyncInProgress(id, value),
-            isSyncInProgress: (id) => this.isSyncInProgress(id),
-        };
-
-        // v0.207.41: sync mode 設定 ('auto' = mtime newer-wins、'confirm' = size 違いで dialog)
-        const syncMode = fractalConfig.get<string>('outlinerS3SyncMode', 'auto');
-        const conflictMode: 'auto' | 'confirm' = syncMode === 'confirm' ? 'confirm' : 'auto';
-
-        try {
-            panel.webview.postMessage({ type: 'sync-button-state', state: 'syncing' });
-
-            await OutlinerS3SyncCoordinator.run({
-                outlinerId,
-                localDir: folderPath,
-                bucketPath,
-                panel,
-                provider: syncProvider,
-                s3Config: { accessKeyId, secretAccessKey, region },
-                conflictMode,
-                onProgress: (p: OutlinerS3SyncProgress) => {
-                    // status bar (VSCode 下端、目立たない bot 確認用)
-                    vscode.window.setStatusBarMessage(`Outliner S3 Sync: ${p.message}`, 3000);
-                    // webview overlay (画面中央、user に確実に見える)
-                    panel.webview.postMessage({ type: 'sync-progress', phase: p.phase, message: p.message });
-                },
-            });
-
-            panel.webview.postMessage({ type: 'sync-button-state', state: 'success' });
-        } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : String(e);
-            panel.webview.postMessage({ type: 'sync-button-state', state: 'error', tooltip: message });
-            vscode.window.showErrorMessage(`Sync failed: ${message}`);
-        }
     }
 
     private async runS3Operation(

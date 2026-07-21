@@ -26,8 +26,6 @@ interface NotesInitData {
     noteSidePanelWidth?: number;
     noteSidePanelOutlineWidth?: number;
     fileChangeId?: number;
-    /** FR-OS3-02: outliner toolbar の S3 sync ボタン初期表示判定 */
-    s3BucketPathSet?: boolean;
     /** FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示) */
     noteFolderName?: string;
     /** FR-HP: 最近開いたファイル履歴 + パネル状態 */
@@ -183,10 +181,10 @@ export function getNotesWebviewContent(
     <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
 </head>
 <body>
-    <!-- FR-OS3-08 / FR-OS3-12: outliner-toolbar-s3-sync 進捗 overlay -->
+    <!-- 左サイドパネル S3 sync（notes 全体 sync）中の進捗 overlay -->
     <div class="outliner-s3-sync-overlay" role="status" aria-live="polite">
         <div class="outliner-s3-sync-overlay-spinner"></div>
-        <p class="outliner-s3-sync-overlay-title">Syncing outliner with S3…</p>
+        <p class="outliner-s3-sync-overlay-title">Syncing with S3…</p>
         <p class="outliner-s3-sync-overlay-phase">Preparing…</p>
         <p class="outliner-s3-sync-overlay-hint">Editor is locked during sync. Please wait.</p>
     </div>
@@ -223,9 +221,6 @@ export function getNotesWebviewContent(
                         <button class="outliner-undo-btn" title="Undo (Cmd+Z)" disabled></button>
                         <button class="outliner-redo-btn" title="Redo (Cmd+Shift+Z)" disabled></button>
                         <button class="outliner-view-toggle-btn" title="Switch view (Outline / Table)"></button>
-                        <button class="outliner-s3-sync-btn" title="Sync to/from S3" data-state="idle" style="display:${initData.s3BucketPathSet ? 'flex' : 'none'}">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8"/><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="m8 17 4-4 4 4"/></svg>
-                        </button>
                         <button class="outliner-task-mode-toggle-btn" title="Task Mode"></button>
                         <button class="outliner-task-filter-toggle-btn" title="Filter: Active / All"></button>
                         <button class="outliner-archive-btn" title="Archive completed tasks"></button>
