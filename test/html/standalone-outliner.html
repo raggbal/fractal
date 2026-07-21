@@ -5075,9 +5075,23 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     border-color: var(--fr-color-primary, #7dc4df);
 }
 
-.mm-drop-target {
+/* D&D drop 位置フィードバック（sprint 20260721-170755）:
+   上辺線=兄になる / 下辺線=弟になる / 塗り=子になる。マウス位置で切替（mindmap-interactions.js）。
+   線は box-shadow で描き layout に影響させない（box は box-sizing:border-box）。 */
+.mm-drop-target {   /* 後方互換（現状未使用だが残置）: 全体点線 */
     outline: 2px dashed var(--fr-color-primary, #7dc4df);
     outline-offset: 2px;
+}
+.mm-drop-above {
+    box-shadow: 0 -3px 0 0 var(--fr-color-primary, #7dc4df);
+}
+.mm-drop-below {
+    box-shadow: 0 3px 0 0 var(--fr-color-primary, #7dc4df);
+}
+.mm-drop-child {
+    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.28)) !important;
+    outline: 2px solid var(--fr-color-primary, #7dc4df);
+    outline-offset: 1px;
 }
 
 /* mouse ベース D&D 中はカーソルを grabbing に + テキスト選択を抑止（SVG foreignObject は
@@ -29482,13 +29496,17 @@ var MindmapInteractions = (function() {
         //   foreignObject = SVG 名前空間）では Chromium/Electron が draggable を honor せず native drag が
         //   起動しない（実機で「ドラッグ自体できない」）。→ mouse(pointer) イベントで自前実装する。
         //   mousedown で候補を記録 → 閾値超え mousemove でドラッグ開始 → mouseup で elementFromPoint により
-        //   drop 先を解決。frac(上下1/3=兄弟 / 中央=reparent)・moveNode・detachToFloating の判定ロジックは従来と同一。
+        //   drop 先を解決。frac(上下1/3=兄弟 / 中央=reparent) の判定ロジックは従来と同一。
+        //   空白（node 以外）への drop は無効化（キャンセル）— 以前の Floating Topic 化は廃止。
         var DRAG_THRESHOLD = 4; // px。これ未満の移動は click 扱い（drag しない）
         var _mmDown = null;     // { nodeId, x, y, started }
 
         function clearDropTargets() {
-            var ts = treeEl.querySelectorAll('.mindmap-node-box.mm-drop-target');
-            for (var i = 0; i < ts.length; i++) { ts[i].classList.remove('mm-drop-target'); }
+            // 旧 mm-drop-target + 3 状態マーク（above/below/child）を全クリア
+            var ts = treeEl.querySelectorAll('.mm-drop-target, .mm-drop-above, .mm-drop-below, .mm-drop-child');
+            for (var i = 0; i < ts.length; i++) {
+                ts[i].classList.remove('mm-drop-target', 'mm-drop-above', 'mm-drop-below', 'mm-drop-child');
+            }
         }
         // clientX/Y 直下の drop 対象 node（title 除く）を返す。無ければ null。
         function dropTargetAt(clientX, clientY, draggedId) {
@@ -29498,6 +29516,14 @@ var MindmapInteractions = (function() {
             var tid = nodeEl.getAttribute('data-node-id');
             if (!tid || tid === draggedId || model.isDescendant(tid, draggedId)) { return null; }
             return nodeEl;
+        }
+        // 対象ノード box の縦位置(clientY)から drop ゾーンを返す。マーク表示と drop 判定で共有し
+        // 「線が出た位置＝実際の落下先」を保証する（frac 上端1/3=above=兄 / 下端1/3=below=弟 / 中央=child=子）。
+        function dropZoneAt(clientY, rect) {
+            var frac = (clientY - rect.top) / (rect.height || 1);
+            if (frac < 0.33) { return 'above'; }
+            if (frac > 0.67) { return 'below'; }
+            return 'child';
         }
 
         on(treeEl, 'mousedown', function(e) {
@@ -29520,10 +29546,17 @@ var MindmapInteractions = (function() {
                 _dragState = { nodeId: _mmDown.nodeId };
                 document.body.classList.add('mm-dragging');
             }
-            // drop 先ハイライト
+            // drop 先ハイライト: ゾーン別マーク（上辺線=兄 / 下辺線=弟 / 塗り=子）で
+            // 「どこに落ちるか」を明示する。
             clearDropTargets();
             var t = dropTargetAt(e.clientX, e.clientY, _mmDown.nodeId);
-            if (t) { var tb = t.querySelector('.mindmap-node-box'); if (tb) { tb.classList.add('mm-drop-target'); } }
+            if (t) {
+                var tb = t.querySelector('.mindmap-node-box');
+                if (tb) {
+                    var zone = dropZoneAt(e.clientY, t.getBoundingClientRect());
+                    tb.classList.add(zone === 'above' ? 'mm-drop-above' : zone === 'below' ? 'mm-drop-below' : 'mm-drop-child');
+                }
+            }
         });
 
         on(document, 'mouseup', function(e) {
@@ -29539,33 +29572,34 @@ var MindmapInteractions = (function() {
             if (targetEl) {
                 // ノード上 drop: 上下 1/3 = 兄弟順序、中央 = 子として reparent
                 var targetId = targetEl.getAttribute('data-node-id');
-                var rect = targetEl.getBoundingClientRect();
-                var frac = (e.clientY - rect.top) / (rect.height || 1);
+                var zone = dropZoneAt(e.clientY, targetEl.getBoundingClientRect()); // マーク表示と同一判定
                 var targetNode = model.getNode(targetId);
                 if (!targetNode) { return; }
                 pushUndo();
-                if (frac < 0.33 || frac > 0.67) {
+                // attachFromFloating = moveNode + mindmap.x/y クリア + normalize。
+                // 通常ノードは x/y が元々 null なので moveNode と同挙動（既存挙動不変）。
+                // 既存の Floating Topic（迷子ノード）を node へ drag し戻したときは stale 座標が
+                // 消えて構造ノードに正しく復帰する（ユーザーが迷子ノードを回収する経路）。
+                // afterId のセマンティクスは moveNode と同一（attachFromFloating が素通し）。
+                if (zone === 'above' || zone === 'below') {
                     var parentId = targetNode.parentId;
-                    var afterId = (frac > 0.67) ? targetId : prevSiblingId(model, targetId);
-                    model.moveNode(draggedId, parentId, afterId);
+                    var afterId = (zone === 'below') ? targetId : prevSiblingId(model, targetId);
+                    MindmapModel.attachFromFloating(model, draggedId, parentId, afterId);
                 } else {
                     if (targetNode.collapsed) { targetNode.collapsed = false; }
-                    model.moveNode(draggedId, targetId, null);
+                    MindmapModel.attachFromFloating(model, draggedId, targetId, null);
                 }
                 scheduleSync();
                 rerender();
                 ensureNodeVisible(draggedId);
             } else {
-                // 空白へ drop → Floating Topic 化 (TASK-08, J5)
-                if (typeof MindmapModel === 'undefined' || !MindmapModel.detachToFloating) { return; }
-                var trect = treeEl.getBoundingClientRect();
-                var x = e.clientX - trect.left;
-                var y = e.clientY - trect.top;
-                pushUndo();
-                MindmapModel.detachToFloating(model, draggedId, x, y);
-                scheduleSync();
-                rerender();
-                ensureNodeVisible(draggedId);
+                // 空白（node 以外）へ drop → 無効化（キャンセル）。元の親/順序のまま。
+                // 以前は Floating Topic 化していたが（parentId=null + rootIds 外 + mindmap.x/y）、
+                // outliner モードは rootIds 起点でツリーを描くため floating topic が表示されず
+                // 「消えた」ように見える（ユーザー報告 2026-07-21）。node は drop 時に moveNode する
+                // だけでそれまで動かしていない → 「元に戻す」処理は不要。mm-dragging 解除 /
+                // clearDropTargets / _dragState=null は上の共通処理で済んでいるので、ここは何もしない。
+                // ※ MindmapModel.detachToFloating 自体は既存データ後方互換のため残す（呼ばないだけ）。
             }
         });
 

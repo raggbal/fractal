@@ -343,9 +343,23 @@
     border-color: var(--fr-color-primary, #7dc4df);
 }
 
-.mm-drop-target {
+/* D&D drop 位置フィードバック（sprint 20260721-170755）:
+   上辺線=兄になる / 下辺線=弟になる / 塗り=子になる。マウス位置で切替（mindmap-interactions.js）。
+   線は box-shadow で描き layout に影響させない（box は box-sizing:border-box）。 */
+.mm-drop-target {   /* 後方互換（現状未使用だが残置）: 全体点線 */
     outline: 2px dashed var(--fr-color-primary, #7dc4df);
     outline-offset: 2px;
+}
+.mm-drop-above {
+    box-shadow: 0 -3px 0 0 var(--fr-color-primary, #7dc4df);
+}
+.mm-drop-below {
+    box-shadow: 0 3px 0 0 var(--fr-color-primary, #7dc4df);
+}
+.mm-drop-child {
+    background: var(--fr-bg-selection, rgba(125, 196, 223, 0.28)) !important;
+    outline: 2px solid var(--fr-color-primary, #7dc4df);
+    outline-offset: 1px;
 }
 
 /* mouse ベース D&D 中はカーソルを grabbing に + テキスト選択を抑止（SVG foreignObject は
