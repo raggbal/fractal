@@ -309,7 +309,6 @@ export function getNotesWebviewContent(
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
             bridge: {
                 openFile: function(id) { window.notesHostBridge.openFile(id); },
-                openPageFromHistory: function(pageId) { window.notesHostBridge.openPageFromHistory(pageId); },
                 saveHistoryPanelCollapsed: function(c) { window.notesHostBridge.saveHistoryPanelCollapsed(c); },
                 saveHistoryPanelHeight: function(h) { window.notesHostBridge.saveHistoryPanelHeight(h); },
             },

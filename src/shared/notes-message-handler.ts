@@ -592,25 +592,17 @@ export async function handleNotesMessage(
         case 'openPageInSidePanel': {
             const pagePath = fileManager.getPageFilePath(message.pageId);
             if (fs.existsSync(pagePath)) {
+                // FR-HP-08: 履歴記録は sidePanelManager.onFileOpened（sidepanel open の単一記録点）が担う。
+                //   platform.openPageInSidePanel → sidePanel.openFile → onFileOpened で recordFileHistory される。
+                //   ここで記録すると二重記録になるため呼ばない。
                 platform.openPageInSidePanel(pagePath);
-                // FR-HP-03: page md を履歴に記録。
-                fileManager.recordPageHistory(message.pageId);
                 sendFileListWithStructure(fileManager, sender);
             }
             break;
         }
 
-        // FR-HP-05: history の page-md クリック → pageId を現 note で解決して sidepanel で開く。
-        case 'openPageFromHistory': {
-            const pagePath = fileManager.getPageFilePath(message.pageId);
-            if (fs.existsSync(pagePath)) {
-                platform.openPageInSidePanel(pagePath);
-                // FR-HP-03: sidepanel md も history 最上位へ移動する（note md / .out と同じ挙動）。
-                fileManager.recordPageHistory(message.pageId);
-                sendFileListWithStructure(fileManager, sender);
-            }
-            break;
-        }
+        // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
+        //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
 
         // FR-HP-06/07: history パネルの開閉状態・高さを永続化。
         case 'notesSaveHistoryPanelCollapsed':
@@ -629,16 +621,18 @@ export async function handleNotesMessage(
             await platform.saveSidePanelFile(message.filePath, message.content);
             // FR-TH-02: sidepanel md（tree item = note md の場合）の先頭 H1 を tree title に反映。
             let needFileListResend = fileManager.syncTitleFromH1(message.filePath, message.content);
-            // FR-HP（sidepanel page md の Recent title 反映）: sidepanel で開いた md が
-            // page md（basename=pageId が page-md 履歴に存在）なら、その H1 編集を Recent に反映するため
-            // history を再送する。syncTitleFromH1 は tree item（items）専用で page-md を拾わないため、
-            // これが無いと page md の H1 変更が Recent に永久に反映されない（別ファイルを開いても
+            // FR-HP（sidepanel で開いた md の Recent title 反映）: sidepanel で開いた md が
+            // Recent 履歴に note-md（絶対パス）として存在するなら、その H1 編集を Recent に反映するため
+            // history を再送する。syncTitleFromH1 は tree item（items）専用で items 外 md（page md / 他 note md）を
+            // 拾わないため、これが無いと items 外 md の H1 変更が Recent に永久に反映されない（別ファイルを開いても
             // notesOpenFile を通らない sidepanel-only 操作では再送されない）。
+            // ★reopen 2026-07-23: page-md kind 廃止に伴い、旧「basename=pageId が page-md 履歴」判定を
+            //   「絶対パス一致の note-md 履歴」判定に置換（統一後 page md も note-md・絶対パスで記録される）。
             if (!needFileListResend) {
-                const base = path.basename(message.filePath).replace(/\.md$/i, '');
-                const hasPageHistory = (fileManager.getHistory() || []).some(
-                    (e) => e.kind === 'page-md' && e.id === base);
-                if (hasPageHistory) { needFileListResend = true; }
+                const fp = path.resolve(message.filePath);
+                const hasHistory = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+                if (hasHistory) { needFileListResend = true; }
             }
             if (needFileListResend) {
                 sendFileListWithStructure(fileManager, sender);
@@ -1472,7 +1466,7 @@ export async function handleNotesMessage(
             const mdOutContent = fileManager.openFile(mdOutFilePath);
             if (mdOutContent === null) break;
             // FR-HP-03: 検索から md page を開く経路。ユーザーが見るのは page md（sidepanel）なので
-            // .out ではなく page md を履歴に記録する（下の openPageInSidePanel 箇所で recordPageHistory）。
+            // .out ではなく page md を履歴に記録する（下の openPageInSidePanel 箇所で recordFileHistory・note-md 絶対パス）。
 
             const mdOutData = JSON.parse(mdOutContent);
 
@@ -1504,7 +1498,7 @@ export async function handleNotesMessage(
                 const pagePath = fileManager.getPageFilePath(message.pageId);
                 if (platform.openPageInSidePanel) {
                     platform.openPageInSidePanel(pagePath, message.lineNumber, message.query, message.occurrence);
-                    fileManager.recordPageHistory(message.pageId); // FR-HP-03/MEDIUM-1（検索から page md を sidepanel で開く）
+                    fileManager.recordFileHistory(pagePath); // ★reopen 2026-07-23: page md も note-md（絶対パス）で統一記録
                 }
             }
             break;

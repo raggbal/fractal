@@ -6,10 +6,11 @@
  */
 import { test, expect, Page } from '@playwright/test';
 
+// ★reopen 2026-07-23: page-md kind 廃止。page md も note-md（絶対パス）で記録・クリックは全 openFile（メインペイン）。
 const HISTORY = [
     { kind: 'out', id: '/note/diagram.out', title: 'diagram', ts: 3 },
     { kind: 'note-md', id: '/note/memo.md', title: 'memo', ts: 2 },
-    { kind: 'page-md', id: 'p1', title: 'ページ1', ts: 1 },
+    { kind: 'note-md', id: '/note/pages/p1.md', title: 'ページ1', ts: 1 }, // 旧 page md 相当（絶対パス note-md）
 ];
 
 async function setup(page: Page, history = HISTORY, height: number | null = null, collapsed = false) {
@@ -64,7 +65,7 @@ test.describe('sidepanel recent history (FR-HP)', () => {
             }));
         });
         expect(items.length).toBe(3);
-        expect(items.map((x) => x.id)).toEqual(['/note/diagram.out', '/note/memo.md', 'p1']); // 配列先頭=最新
+        expect(items.map((x) => x.id)).toEqual(['/note/diagram.out', '/note/memo.md', '/note/pages/p1.md']); // 配列先頭=最新
         expect(items[0].kind).toBe('out');
         expect(items[2].title).toBe('ページ1');
     });
@@ -85,21 +86,22 @@ test.describe('sidepanel recent history (FR-HP)', () => {
         expect(await page.locator('#sidePanelHistoryList').isVisible()).toBe(false);
     });
 
-    test('TC-HP-13: クリック開き分け（load-bearing）', async ({ page }) => {
+    // ★reopen 2026-07-23: 全 kind が openFile（メインペイン）に流れる。openPageFromHistory は廃止（送信ゼロ）。
+    test('TC-HP-13: クリックは全て openFile（メインペイン統一・load-bearing）', async ({ page }) => {
         await setup(page);
         // note-md クリック → notesOpenFile
         await page.evaluate(() => { (window as any).__testApi.messages = []; });
-        await page.locator('#sidePanelHistoryList .side-panel-history-item[data-kind="note-md"]').click();
+        await page.locator('#sidePanelHistoryList .side-panel-history-item[data-kind="note-md"]').first().click();
         let msgs = await page.evaluate(() => (window as any).__testApi.messages);
         expect(msgs.filter((m: any) => m.type === 'notesOpenFile' && m.filePath === '/note/memo.md').length, 'note-md → openFile').toBe(1);
-        expect(msgs.filter((m: any) => m.type === 'openPageFromHistory').length, 'note-md は page 経路に流れない').toBe(0);
 
-        // page-md クリック → openPageFromHistory（counterfactual: kind 判定が効いている）
+        // 旧 page md 相当（note-md・絶対パス）クリック → openFile（メインペイン。openPageFromHistory には流れない）
         await page.evaluate(() => { (window as any).__testApi.messages = []; });
-        await page.locator('#sidePanelHistoryList .side-panel-history-item[data-kind="page-md"]').click();
+        await page.locator('#sidePanelHistoryList .side-panel-history-item[data-id="/note/pages/p1.md"]').click();
         msgs = await page.evaluate(() => (window as any).__testApi.messages);
-        expect(msgs.filter((m: any) => m.type === 'openPageFromHistory' && m.pageId === 'p1').length, 'page-md → openPageFromHistory').toBe(1);
-        expect(msgs.filter((m: any) => m.type === 'notesOpenFile').length, 'page-md は openFile に流れない').toBe(0);
+        expect(msgs.filter((m: any) => m.type === 'notesOpenFile' && m.filePath === '/note/pages/p1.md').length, '旧 page md も openFile（メインペイン）').toBe(1);
+        // ★ counterfactual: 統一で openPageFromHistory は一切送られない（sidepanel 専用経路の廃止を担保）
+        expect(msgs.filter((m: any) => m.type === 'openPageFromHistory').length, 'openPageFromHistory は廃止').toBe(0);
 
         // out クリック → notesOpenFile（メイン）
         await page.evaluate(() => { (window as any).__testApi.messages = []; });

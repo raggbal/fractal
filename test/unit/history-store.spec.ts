@@ -45,10 +45,11 @@ test.describe('pushHistoryEntry (FR-HP-02/03)', () => {
     });
 
     test('TC-HP-04: 同一 id でも kind 違いは別 entry', () => {
+        // ★reopen 2026-07-23: page-md kind 廃止 → note-md / out の 2 種で dedup キー (kind,id) を検証。
         let l = pushHistoryEntry([], e('note-md', 'X', 1));
-        l = pushHistoryEntry(l, e('page-md', 'X', 2)); // 同 id・別 kind
+        l = pushHistoryEntry(l, e('out', 'X', 2)); // 同 id・別 kind
         expect(l.length).toBe(2);
-        expect(l.map((x) => x.kind)).toEqual(['page-md', 'note-md']);
+        expect(l.map((x) => x.kind)).toEqual(['out', 'note-md']);
     });
 
     test('undefined 入力でも安全', () => {

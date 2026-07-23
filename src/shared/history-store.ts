@@ -5,11 +5,13 @@
  * 副作用（outline.note 保存）は NotesFileManager が持ち、本モジュールは配列操作のみ = test/unit で単体検証。
  */
 
-export type HistoryKind = 'note-md' | 'out' | 'page-md';
+// ★reopen 2026-07-23: page-md kind を廃止（page md も note-md・絶対パスで記録し全メインペイン openFile に統一）。
+// 旧 page-md entry（legacy データ）は後方互換で読めるが型からは除外（描画は icon フォールバック、click は openFile で silent no-op）。
+export type HistoryKind = 'note-md' | 'out';
 
 export interface HistoryEntry {
     kind: HistoryKind;
-    /** note-md/out: filePath（絶対）。page-md: pageId。 */
+    /** note-md/out: filePath（絶対）。page md も note-md・絶対パスで記録する（pageId は使わない）。 */
     id: string;
     title: string;
     /** open 時刻（host が Date.now() で付与）。 */

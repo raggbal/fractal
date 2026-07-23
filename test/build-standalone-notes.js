@@ -497,7 +497,6 @@ const html = `<!DOCTYPE html>
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
             bridge: {
                 openFile: function(id) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id }); },
-                openPageFromHistory: function(pageId) { window.__testApi.messages.push({ type: 'openPageFromHistory', pageId: pageId }); },
                 saveHistoryPanelCollapsed: function(c) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelCollapsed', collapsed: c }); },
                 saveHistoryPanelHeight: function(h) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelHeight', height: h }); },
             },

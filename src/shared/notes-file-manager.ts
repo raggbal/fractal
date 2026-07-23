@@ -508,31 +508,32 @@ export class NotesFileManager {
      * 履歴 entry の title を「現在の値」で再解決して返す（保存値は変えない・非破壊）。
      * entry.title は記録時点のスナップショットなので、その後 title/H1 を変えると stale になる。
      * webview へ送出する時にこれを通すことで、ファイル切替（再描画）タイミングで最新 title が出る。
-     * 解決元（kind 別）: note-md → items[basename].title、out → .out disk data.title、
-     * page-md → page md 先頭 H1。解決不可（ファイル無し等）は stored title/id にフォールバック。
+     * 解決元（kind 別）: note-md → items[basename].title（items 外の絶対パス md は先頭 H1）、out → .out disk data.title。
+     * 解決不可（ファイル無し等）は stored title/id にフォールバック。
      */
     getHistoryWithFreshTitles(): HistoryEntry[] {
         const history = this.getStructure().history || [];
         return history.map((entry) => {
             let fresh: string | null = null;
             try {
-                if (entry.kind === 'page-md') {
-                    // page md の先頭 H1（記録時と同じ抽出）
-                    const p = this.getPageFilePath(entry.id);
-                    if (fs.existsSync(p)) {
-                        fresh = extractFirstH1(fs.readFileSync(p, 'utf8'));
-                    }
-                } else if (entry.kind === 'out') {
+                if (entry.kind === 'out') {
                     // .out の disk data.title（listFiles と同じ）
                     if (fs.existsSync(entry.id)) {
                         const data = JSON.parse(fs.readFileSync(entry.id, 'utf8'));
                         if (typeof data.title === 'string' && data.title) { fresh = data.title; }
                     }
                 } else {
-                    // note-md: items[basename].title（tree title の正）
+                    // note-md: items[basename].title（tree title の正）優先。
+                    // ★reopen 2026-07-23: items に無い絶対パス md（page md / 他 note / note 外）は先頭 H1 を再解決
+                    //   （page-md kind 廃止で統一。旧 page-md 分岐が持っていた live H1 解決を維持する）。
+                    //   items ヒットは file 非読込（安い）。items 外のみ readFileSync。保存値 history は非破壊。
                     const id = entry.id.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
                     const item = this.getStructure().items?.[id] as { title?: string } | undefined;
-                    if (item && item.title) { fresh = item.title; }
+                    if (item && item.title) {
+                        fresh = item.title;
+                    } else if (/\.md$/i.test(entry.id) && fs.existsSync(entry.id)) {
+                        fresh = extractFirstH1(fs.readFileSync(entry.id, 'utf8'));
+                    }
                 }
             } catch { /* 解決失敗はフォールバック */ }
             // fresh が取れたらそれを、無ければ stored title（さらに無ければ id）
@@ -561,27 +562,20 @@ export class NotesFileManager {
         if (!isMd && !isOut) return;
         const id = filePath.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
         const item = this.getStructure().items?.[id] as { title?: string } | undefined;
+        // FR-HP-09: title 解決は「items 優先 → H1 → basename」。他 note / note 外の md は items に無いため、
+        //   開いた md の先頭 H1（extractFirstH1・CommonMark ATX 準拠で C#/F# を壊さない）→ basename でフォールバック。
+        let title = (item && item.title) || '';
+        if (!title && isMd) {
+            try { title = extractFirstH1(fs.readFileSync(filePath, 'utf8')) || ''; } catch { /* ignore */ }
+        }
         this.pushHistory({
             kind: isMd ? 'note-md' : 'out',
             id: filePath,
-            title: (item && item.title) || id,
+            title: title || id,
             ts: Date.now(),
         });
     }
-    /** FR-HP-03: page md（pageId）を履歴に記録。title は md の H1 → 引数 fallback。 */
-    recordPageHistory(pageId: string, fallbackTitle?: string): void {
-        if (!pageId) return;
-        let title = '';
-        try {
-            const p = this.getPageFilePath(pageId);
-            if (fs.existsSync(p)) {
-                const body = fs.readFileSync(p, 'utf8');
-                const h1 = body.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m);
-                title = h1 ? h1[1].trim() : '';
-            }
-        } catch { /* ignore */ }
-        this.pushHistory({ kind: 'page-md', id: pageId, title: title || fallbackTitle || 'Untitled', ts: Date.now() });
-    }
+    // ★reopen 2026-07-23: recordPageHistory は廃止（page md も recordFileHistory で note-md・絶対パス記録に統一）。
     saveHistoryPanelHeight(height: number): void {
         const structure = this.getStructure();
         structure.historyPanelHeight = height;

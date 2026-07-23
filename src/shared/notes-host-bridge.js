@@ -422,10 +422,7 @@
             api.postMessage({ type: 'notesSavePanelWidth', width: width });
         },
 
-        // FR-HP: 最近開いたファイル履歴パネル
-        openPageFromHistory: function(pageId) {
-            api.postMessage({ type: 'openPageFromHistory', pageId: pageId });
-        },
+        // FR-HP: 最近開いたファイル履歴パネル（★reopen 2026-07-23: openPageFromHistory 廃止・クリックは openFile に統一）
         saveHistoryPanelCollapsed: function(collapsed) {
             api.postMessage({ type: 'notesSaveHistoryPanelCollapsed', collapsed: !!collapsed });
         },

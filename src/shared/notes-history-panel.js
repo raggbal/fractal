@@ -9,7 +9,7 @@
     var ICON = {
         'note-md': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>',
         'out': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
-        'page-md': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+        // ★reopen 2026-07-23: page-md kind 廃止（page md も note-md で記録）。legacy page-md entry は note-md icon にフォールバック。
     };
 
     function escapeHtml(s) {
@@ -19,7 +19,7 @@
     /**
      * @param deps {
      *   panelEl, listEl, toggleEl, resizeHandleEl,  // DOM 要素
-     *   bridge,                                     // { openFile(id), openPageFromHistory(pageId),
+     *   bridge,                                     // { openFile(id),
      *                                               //   saveHistoryPanelCollapsed(bool), saveHistoryPanelHeight(px) }
      *   initialHistory, initialHeight, initialCollapsed,
      * }
@@ -54,12 +54,11 @@
                         + '<span class="side-panel-history-item-title">' + escapeHtml(entry.title || entry.id) + '</span>';
                     el.title = entry.id;
                     el.addEventListener('click', function() {
-                        // FR-HP-05: kind で開き分け
-                        if (entry.kind === 'page-md') {
-                            if (typeof bridge.openPageFromHistory === 'function') bridge.openPageFromHistory(entry.id);
-                        } else {
-                            if (typeof bridge.openFile === 'function') bridge.openFile(entry.id);
-                        }
+                        // ★reopen 2026-07-23: FR-HP-05 全メインペイン統一。kind によらず openFile（絶対パス）で
+                        //   メインペインに開く（page md も note-md・絶対パスで記録される）。
+                        //   legacy page-md entry（id=pageId・絶対パス absPath 持ち or 無し）は absPath 優先で開く
+                        //   （absPath 無し legacy は openFile(pageId) が host 側で silent no-op・HISTORY_MAX で流れる）。
+                        if (typeof bridge.openFile === 'function') bridge.openFile(entry.absPath || entry.id);
                     });
                     listEl.appendChild(el);
                 })(items[i]);

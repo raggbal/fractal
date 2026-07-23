@@ -282,7 +282,26 @@ export class NotesEditorProvider {
                 postMessage: (msg: any) => panel.webview.postMessage(msg),
                 asWebviewUri: (uri: vscode.Uri) => panel.webview.asWebviewUri(uri),
             },
-            { logPrefix: '[Notes]' }
+            {
+                logPrefix: '[Notes]',
+                // FR-HP-08/09: sidepanel で開いた md（リンク/subpage 遷移・他 note / note 外を含む）を Recent に記録。
+                // sidePanelManager.openFile が sidepanel open の単一 choke point なので、ここ 1 箇所で全経路を捕捉する。
+                onFileOpened: (fp: string) => {
+                    if (!fp) return;
+                    // ★reopen 2026-07-23: page md も含め全て note-md（絶対パス）で記録する（page-md kind 廃止）。
+                    //   Recent クリックは kind によらず bridge.openFile(絶対パス) でメインペインに開くため、
+                    //   記録も 1 種（note-md・絶対パス）に統一する。cross-note でも id が絶対パスなので自己完結。
+                    fileManager.recordFileHistory(fp);
+                    // 履歴パネル再描画（provider 既存の notesFileListChanged パターン）
+                    panel.webview.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructureForWebview(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                        noteFolderName: path.basename(folderPath),
+                    });
+                },
+            }
         );
 
         // v0.207.82: Notes 内 .md メインペイン管理 (sidepanel と同じ

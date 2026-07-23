@@ -23,6 +23,12 @@ export interface SidePanelHost {
 export interface SidePanelManagerConfig {
     /** ログ出力のプレフィックス (例: '[Fractal]', '[Outliner]') */
     logPrefix: string;
+    /**
+     * FR-HP-08: sidepanel で md を実際に開けた後に呼ばれる（任意）。
+     * notes provider が Recent 履歴記録に使う。openFile 成功時のみ 1 回発火（存在しない/開けない場合は呼ばない）。
+     * 未指定の provider（editor/outliner）には無影響。
+     */
+    onFileOpened?: (filePath: string) => void;
 }
 
 // Re-export TocItem for backward compatibility
@@ -274,6 +280,9 @@ export class SidePanelManager {
             // 常に nav state を送信 → webview の back/forward ボタン状態を extension と同期
             // (handleOpenLink で push 後、ここで canGoBack=true が webview に届く)
             this.sendNavStateUpdate();
+            // FR-HP-08: 実際に開けた後にだけ通知（リンク/subpage 遷移・他 note / note 外を含む sidepanel open を
+            // 単一 choke point で Recent 記録に載せる。read 失敗時は catch に落ちるのでここには来ない）。
+            this.config.onFileOpened?.(filePath);
         } catch (e) {
             vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }
