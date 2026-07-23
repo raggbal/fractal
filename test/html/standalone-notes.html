@@ -702,7 +702,8 @@ body {
     border-bottom: 1px solid var(--sidebar-bg);
 }
 .sidebar-header h3 { font-size: 13px; font-weight: 600; }
-.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); }
+.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.6; }
+.sidebar-toggle:hover { opacity: 1; }
 .outline { flex: 1; overflow-y: auto; padding: 7px 0; }
 .outline-item {
     display: block;
@@ -4958,7 +4959,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             outline: none;
             box-shadow: none;
         }
-        .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
+        /* file panel 閉のとき toggle を出す。全 3 個（① outliner pane / ② md toolbar / ③ md Outline ヘッダ）を
+           それぞれ個別ルールで制御（旧ブランケットルールは全マッチで ②③ 二重表示になるため分割）。 */
+        /* ① outliner pane（#notesPanelToggleBtn）: file panel 閉なら Outline 開閉に関わらず常に表示（従来挙動・回帰防止） */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #notesPanelToggleBtn { display: flex; }
+        /* ② md toolbar 左端: Outline 閉（#sidebar.hidden）のときだけ表示 */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-panel-toggle-btn--toolbar { display: flex; }
+        /* ③ md Outline ヘッダ左: Outline 開（#sidebar が .hidden でない）のときだけ表示（②と排他 = 単一ボタン） */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-panel-toggle-btn--outline { display: flex; }
         .file-panel-rename-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
             border: 1px solid var(--fr-color-primary, var(--outliner-active, #4a9eff));
@@ -5362,8 +5370,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 <div class="container">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
+                
                 <h3>Outline</h3>
-                <button class="sidebar-toggle" id="closeSidebar" title=" (Cmd+\)">&#9776;</button>
+                <button class="sidebar-toggle" id="closeSidebar" title=" (Cmd+\)">&times;</button>
             </div>
             <nav class="outline" id="outline"></nav>
             <div class="sidebar-footer">
@@ -5474,7 +5483,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             <aside class="side-panel-sidebar" id="sidePanelSidebar">
                 <div class="sidebar-header">
                     <h3>Outline</h3>
-                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline (Cmd+\)">&#9776;</button>
+                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline (Cmd+\)">&times;</button>
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
@@ -28211,6 +28220,10 @@ var Outliner = (function() {
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
+            //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
+            //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -28222,6 +28235,8 @@ var Outliner = (function() {
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // FR-MM-FD: mindmap では mindmap-interactions の drop リスナーが扱う（上記 dragover と同理由）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
                 // Finder path
@@ -28651,6 +28666,14 @@ var Outliner = (function() {
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
                     // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
                     makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
+                    // FR-MM-FD: mindmap の外部ファイル D&D は outliner の drop 機構を ctx フックで共有する
+                    //   （ADRL-0001: 重い drop ロジック= FileReader/triage/サイズ制限/streaming を複製しない）。
+                    //   これらは Outliner IIFE 内 module-local なので、closure を ctx 経由で mindmap に渡す。
+                    isFilesDragEvent: function (e) { return isFilesDragEvent(e); },
+                    isVscodeUriDragEvent: function (e) { return isVscodeUriDragEvent(e); },
+                    isAnyFilesDragEvent: function (e) { return isAnyFilesDragEvent(e); },
+                    handleFilesDrop: function (e, targetNodeId, position) { return handleFilesDrop(e, targetNodeId, position); },
+                    handleVscodeUrisDrop: function (e, targetNodeId, position) { return handleVscodeUrisDrop(e, targetNodeId, position); },
                     // FR-021-A4: 空状態の "+ Add" から最初の root を作成
                     addRootAndEdit: function () {
                         try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
@@ -35522,9 +35545,17 @@ var Outliner = (function() {
                     if (msg.nodeId && msg.imagePath) {
                         saveSnapshot();
                         model.addImage(msg.nodeId, msg.imagePath);
-                        var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
-                        if (imgContainer) {
-                            renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                        // FR-MM-IP: mindmap モードには .outliner-images コンテナが無い（別描画）。
+                        //   incremental 更新（renderNodeImages）は outliner モード専用なので、
+                        //   mindmap では renderTree() にフォールバックして画像を反映する
+                        //   （これが無いと paste 画像が model に入っても mindmap に描画されない = silent drop）。
+                        if (model.viewMode === 'mindmap') {
+                            renderTree();
+                        } else {
+                            var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
+                            if (imgContainer) {
+                                renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                            }
                         }
                         scheduleSyncToHost();
                     }
@@ -38413,7 +38444,7 @@ if (typeof module !== 'undefined' && module.exports) {
     var ICON = {
         'note-md': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>',
         'out': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
-        'page-md': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+        // ★reopen 2026-07-23: page-md kind 廃止（page md も note-md で記録）。legacy page-md entry は note-md icon にフォールバック。
     };
 
     function escapeHtml(s) {
@@ -38423,7 +38454,7 @@ if (typeof module !== 'undefined' && module.exports) {
     /**
      * @param deps {
      *   panelEl, listEl, toggleEl, resizeHandleEl,  // DOM 要素
-     *   bridge,                                     // { openFile(id), openPageFromHistory(pageId),
+     *   bridge,                                     // { openFile(id),
      *                                               //   saveHistoryPanelCollapsed(bool), saveHistoryPanelHeight(px) }
      *   initialHistory, initialHeight, initialCollapsed,
      * }
@@ -38458,12 +38489,11 @@ if (typeof module !== 'undefined' && module.exports) {
                         + '<span class="side-panel-history-item-title">' + escapeHtml(entry.title || entry.id) + '</span>';
                     el.title = entry.id;
                     el.addEventListener('click', function() {
-                        // FR-HP-05: kind で開き分け
-                        if (entry.kind === 'page-md') {
-                            if (typeof bridge.openPageFromHistory === 'function') bridge.openPageFromHistory(entry.id);
-                        } else {
-                            if (typeof bridge.openFile === 'function') bridge.openFile(entry.id);
-                        }
+                        // ★reopen 2026-07-23: FR-HP-05 全メインペイン統一。kind によらず openFile（絶対パス）で
+                        //   メインペインに開く（page md も note-md・絶対パスで記録される）。
+                        //   legacy page-md entry（id=pageId・絶対パス absPath 持ち or 無し）は absPath 優先で開く
+                        //   （absPath 無し legacy は openFile(pageId) が host 側で silent no-op・HISTORY_MAX で流れる）。
+                        if (typeof bridge.openFile === 'function') bridge.openFile(entry.absPath || entry.id);
                     });
                     listEl.appendChild(el);
                 })(items[i]);
@@ -38599,7 +38629,6 @@ if (typeof module !== 'undefined' && module.exports) {
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
             bridge: {
                 openFile: function(id) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id }); },
-                openPageFromHistory: function(pageId) { window.__testApi.messages.push({ type: 'openPageFromHistory', pageId: pageId }); },
                 saveHistoryPanelCollapsed: function(c) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelCollapsed', collapsed: c }); },
                 saveHistoryPanelHeight: function(h) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelHeight', height: h }); },
             },
