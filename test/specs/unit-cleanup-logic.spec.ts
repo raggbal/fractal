@@ -67,7 +67,7 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
     });
 
     test('DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)', () => {
-        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' | grep -v 'notes-asset-mover.ts' | grep -v 'drop-stream.ts' | grep -v 'notes-file-manager.ts' || true`;
+        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' | grep -v 'notes-asset-mover.ts' | grep -v 'drop-stream.ts' | grep -v 'notes-file-manager.ts' | grep -v 'flat-migrate.ts' || true`;
         const output = execSync(cmd, { encoding: 'utf-8' }).trim();
 
         // 例外 (DOD-24 除外リスト):
@@ -81,6 +81,12 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
         //     (b) copy-error 時に「作成した dst コピー」のみ rollback rmSync (src ユーザーデータは消さない)。
         //     いずれもユーザーデータの unrecoverable 削除ではない。cross-note move の src 削除は
         //     notes-asset-mover.cleanupMovedAssets に集約済み (残留参照ガード + move semantics)。
+        // - flat-migrate.ts: (a) executePlan rollback 時の逆順 rmSync (自分で作った dst コピーのみ復元用),
+        //     (b) FR-MG-08 cleanupOldDirs: 移行成功後の旧 per-outliner サブフォルダ削除。呼び出し側が
+        //     backup 成功 (FR-MG-07, note フォルダ全体を外部コピー) を確認した後にのみ実行 = recoverable。
+        //     4 ガード (isFlatOut / !==noteDir / startsWith(noteDir+sep) / isDir) で noteDir 自身・外・親を
+        //     絶対に消さない (全消し事故防止)。unrecoverable なユーザーデータ損失ではない
+        //     (sprint 20260721-215959, ADRL-0002)。
         expect(output).toBe('');
     });
 });

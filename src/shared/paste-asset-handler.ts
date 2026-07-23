@@ -880,13 +880,27 @@ export function extractAllAssetRefs(md: string): {
 }
 
 /**
+ * md リンク url の正規化キー候補を返す（trim → `<>`strip → 末尾 title strip → `?#` 除去 + decode 両候補）。
+ * flat-migrate の subpage 昇格 allowlist 構築側と、promoteMdLinksToSubpage の body 照合側が **同一実装**を通すことで
+ * `![](images/a%20b.png)`（decode で一致・raw で不一致）や title 付き `[x](y.md "t")` の表現差を吸収する（M1-a）。
+ */
+export function normalizeMdLinkKeys(url: string): string[] {
+    let u = (url || '').trim().replace(/^<|>$/g, '').replace(/\s+["'][^"']*["']\s*$/, '').split(/[?#]/)[0];
+    const keys = [u];
+    try { const d = decodeURIComponent(u); if (d !== u) keys.push(d); } catch { /* 不正 encode は raw のみ */ }
+    return keys;
+}
+
+/**
  * 本文中のプレーン md リンク `[label](x.md)` を subpage marker `[[label]](x.md)` に昇格する。
  * - 既に `[[]]`（subpage）のものは触らない（冪等）。
  * - 画像 `![]()`・📎 添付・http/data/file/fractal/anchor は対象外。
- * - 参照/subpage の区別は付かない前提で「全 .md リンクを subpage 化」（migrate 決定2: 旧=全複製維持）。
+ * - `onlyUrls` 指定時: normalizeMdLinkKeys(t.url) のいずれかが onlyUrls に含まれるリンクだけ昇格
+ *   （FR-MG-13 = 条件付き昇格。同 stem・node/note 未参照の subpage だけを flat-migrate 側が allowlist で渡す）。
+ * - `onlyUrls` 省略時: 全 .md リンクを昇格（後方互換。src では未使用だが他 caller・既存 TC 温存のため残す）。
  * flat-migrate が旧フォルダ note の md 本文に適用する（applyLinkUrlRewrites は url span しか置換できず括弧を足せないため新規）。
  */
-export function promoteMdLinksToSubpage(body: string): string {
+export function promoteMdLinksToSubpage(body: string, onlyUrls?: Set<string>): string {
     if (!body) return body;
     const toks = parser.parseMarkdownLinks(body) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }>;
     // end 降順で置換（index ズレ回避・parseInline と同じパターン）
@@ -899,6 +913,8 @@ export function promoteMdLinksToSubpage(body: string): string {
                 && !/^(https?:|data:|file:|fractal:)/i.test(t.url) && !t.url.startsWith('#');
         })
         .filter((t) => (t.alt || '').trim().indexOf('📎') !== 0) // 📎 添付は除外
+        // ★FR-MG-13: onlyUrls 指定時は allowlist に一致する url だけ昇格（正規化キーで照合）
+        .filter((t) => !onlyUrls || normalizeMdLinkKeys(t.url).some((k) => onlyUrls.has(k)))
         .sort((a, b) => b.end - a.end);
     let out = body;
     for (const t of targets) {

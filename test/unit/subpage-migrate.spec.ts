@@ -20,10 +20,18 @@ function mkTmp(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), 'subpage-mig-'));
 }
 
-test('TC-SP-30: promoteMdLinksToSubpage プレーンだけ昇格・既存 [[]] 冪等', () => {
+test('TC-SP-30（改訂・reopen④）: promoteMdLinksToSubpage は onlyUrls 指定時だけ該当リンクを昇格', () => {
+    // 後方互換（onlyUrls 省略）: 全プレーン .md リンクを昇格・既存 [[]] 冪等
     const out = promoteMdLinksToSubpage('[a](x.md) と [[b]](y.md)');
     expect(out).toBe('[[a]](x.md) と [[b]](y.md)');
     expect(promoteMdLinksToSubpage(out)).toBe(out); // 冪等
+    // ★FR-MG-13: onlyUrls 指定時は allowlist に一致する url だけ昇格（x.md だけ・y.md はプレーン維持）
+    const cond = promoteMdLinksToSubpage('[a](x.md) と [c](y.md)', new Set(['x.md']));
+    expect(cond).toBe('[[a]](x.md) と [c](y.md)');
+    // 空 allowlist → 昇格ゼロ
+    expect(promoteMdLinksToSubpage('[a](x.md)', new Set<string>())).toBe('[a](x.md)');
+    // decode 差の吸収（allowlist を decode 名で持っても encode url にヒット・逆も）
+    expect(promoteMdLinksToSubpage('[a](a%20b.md)', new Set(['a b.md']))).toBe('[[a]](a%20b.md)');
 });
 
 test('TC-SP-31: promoteMdLinksToSubpage が Wikipedia/画像/📎/外部/anchor を昇格しない', () => {
@@ -34,32 +42,40 @@ test('TC-SP-31: promoteMdLinksToSubpage が Wikipedia/画像/📎/外部/anchor 
     expect(promoteMdLinksToSubpage('[anchor](#x)')).toBe('[anchor](#x)');
 });
 
-/** 旧フォルダ note を作る。page md 本文に md→md リンクを含める（asset の有無を分ける）。 */
+/** 旧フォルダ note を作る。page md 本文に md→md リンクを含める（リンク先が node かどうかで昇格可否が分かれる）。 */
 function makeOldNoteWithMdLinks(dir: string): void {
     const stem = 'work';
     const pdir = path.join(dir, stem);
     fs.mkdirSync(pdir, { recursive: true });
     const nodes: Record<string, unknown> = {};
-    // p1: asset なし・md リンクだけ（★HIGH-2 の対象：renames 空でも昇格すべき）
+    // p1: 本文が (a) node ページ p2 へのリンク（node 参照 → プレーン維持）(b) node 未参照 sub へのリンク（subpage 昇格）
     nodes['n1'] = { id: 'n1', text: 'p1', childIds: [], isPage: true, pageId: `${stem}p1` };
-    fs.writeFileSync(path.join(pdir, `${stem}p1.md`), `# p1\n[child](${stem}p2.md)`);
-    // p2: リンク先（asset なし）
+    fs.writeFileSync(path.join(pdir, `${stem}p1.md`), `# p1\n[child](${stem}p2.md)\n[sub](${stem}sub.md)`);
+    // p2: node ページ（= referencedPageIds に入る）
     nodes['n2'] = { id: 'n2', text: 'p2', childIds: [], isPage: true, pageId: `${stem}p2` };
     fs.writeFileSync(path.join(pdir, `${stem}p2.md`), `# p2`);
+    // sub: どの node/note からも未参照・同 stem・p1 本文からのみ到達（= subpage）
+    fs.writeFileSync(path.join(pdir, `${stem}sub.md`), `# sub`);
     fs.writeFileSync(path.join(dir, `${stem}.out`), JSON.stringify({
         title: stem, pageDir: `./${stem}`, rootIds: ['n1', 'n2'], nodes,
     }, null, 2));
 }
 
-test('TC-SP-32: flat-migrate で page md 本文リンクが昇格（★asset なし md も）', () => {
+test('TC-SP-32（改訂・reopen④）: node 参照リンクはプレーン維持・node 未参照 subpage だけ昇格', () => {
     const dir = mkTmp();
     makeOldNoteWithMdLinks(dir);
     const plan = planMig(dir);
     execMig(plan);
-    // 移行後 flat の workp1.md 本文がプレーン → [[]] 昇格（renames 空でも括弧化される = HIGH-2）
     const body = fs.readFileSync(path.join(dir, 'workp1.md'), 'utf8');
-    expect(body).toContain('[[child]](workp2.md)');
-    expect(body).not.toMatch(/[^[]\[child\]\(workp2\.md\)/); // プレーンが残っていない
+    // ★新ルール: workp2 は node ページ（referencedPageIds に入る）→ 昇格せずプレーン維持
+    expect(body).toContain('[child](workp2.md)');
+    expect(body).not.toContain('[[child]](workp2.md)');
+    // ★worksub は node/note 未参照・同 stem・本文リンクのみ到達 → subpage 昇格
+    expect(body).toContain('[[sub]](worksub.md)');
+    // subpage 実体は flat に移行されている（損失なし・FR-MG-14）
+    expect(fs.existsSync(path.join(dir, 'worksub.md'))).toBe(true);
+    // node ページ p2 も従来どおり flat に移行
+    expect(fs.existsSync(path.join(dir, 'workp2.md'))).toBe(true);
 });
 
 test('TC-SP-33: _notes_md も昇格 / flat 済み note は昇格しない', () => {

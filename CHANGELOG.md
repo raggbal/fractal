@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.210.0] - 2026-07-23
+
+### Added
+- **起動時フラットレイアウト移行ゲート**（FR-MG-01〜17）: 旧レイアウトの note フォルダ（per-`<stem>/` / `_notes_md/` / `<note>/pages/`）を開くと、本体を表示する前に移行ゲート画面を出し、共有フラットレイアウト（md=note 直下、画像/添付=共有 `images`/`files`、`.out` は pageDir="."）へ移行する。移行後は layout 状態自体がマーカーとなり再表示されない（永続フラグ不要）。移行は `loadStructure()`（ディスク書換）を呼ぶ前に検出し、gate 経路で loadStructure に到達する watcher / config-refresh も塞ぐ（開いただけでフォルダを崩さない）。
+- **executePlan 前の自動バックアップ**（FR-MG-07）: 破壊的移行の前に note フォルダ全体を noteDir の外へコピー。backup 失敗時は移行を中止。backup 名は `.` 開始にしない（mac 可視）。移行完了後は backup 場所と復旧手順を通知。
+- **cross-outliner 参照解決**（FR-MG-10/12）: node.pageId の md・画像・添付を「自 stem → 他 outliner stem → `_notes_md` → `<note>/pages/`」の横断で探索し、既存の連番リネーム + move + リンク書換に通す（1:1 所有維持）。
+- **md リンクの subpage 判定と到達可能 md の移行**（FR-MG-13/14）: 本文プレーン md リンク `[label](x.md)` の `[[]]` 昇格を「同 outliner フォルダ内・node/note 未参照・本文リンクからのみ到達」の条件付きに。移行対象から本文 md リンクで到達可能な note 内 md を種別問わず全て flat へ移行（推移閉包）。「移行するか」と「昇格するか」は独立判定。
+
+### Fixed
+- **移行時のデータ損失を根絶**（複数の data-loss 修正）: (1) cross-outliner 参照（別 outliner フォルダの md/画像/添付）の移行漏れ、(2) 生きたページの本文 md リンクからのみ到達する md が昇格だけされ未移行で削除される問題、(3) `<note>/pages/` 旧レイアウト（pageDir 未指定 .out がページを分散）の探索・掃除漏れ、を修正。破壊的削除の前に「node/note/本文リンクで到達可能な全 md・画像・添付が flat へ移行済み」を不変条件とし、実 note 3 件（tepco2 / pace2 / aws2）で検証。到達不能な参照（真の「元々壊れ」）のみ unresolved として通知し、旧フォルダは掃除する。
+
 ## [0.209.52] - 2026-07-20
 
 ### Fixed

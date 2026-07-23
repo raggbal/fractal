@@ -28,6 +28,8 @@ export interface NotesPlatformActions {
     openExternalLink(href: string): void;
     /** FR-RR-06: fractal.resourceRoots の settings を開く */
     openResourceRootsSettings?(): void;
+    /** FR-MG-03/05/07: 起動時移行ゲートで移行を実行（backup→validate→execute→成功で reopen / 失敗で通知） */
+    runFlatMigration?(): void;
 
     // FR-EX-01/03: md export bundle。フォルダ選択ダイアログ + fs 書き出し（VS Code 依存）。
     exportBundle?(rootMdAbs: string, options: ExportOptions): void;
@@ -249,6 +251,11 @@ export async function handleNotesMessage(
 
         case 'openResourceRootsSettings':
             platform.openResourceRootsSettings?.();
+            break;
+
+        // FR-MG-03: 起動時移行ゲートの「移行する」ボタン。backup→validate→execute→成功で reopen。
+        case 'runFlatMigration':
+            platform.runFlatMigration?.();
             break;
 
         // FR-EX-01/03: md export bundle。root md 解決は

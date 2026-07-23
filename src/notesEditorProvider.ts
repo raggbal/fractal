@@ -4,6 +4,7 @@ import * as path from 'path';
 import { NotesFileManager } from './shared/notes-file-manager';
 import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
+import { getNotesMigrationGateContent } from './notesMigrationGate';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
@@ -142,32 +143,52 @@ export class NotesEditorProvider {
         // --- パネル固有の状態（全てローカル変数） ---
         const fileManager = new NotesFileManager(folderPath);
 
-        // .note構造をロード（自動マイグレーション含む）
-        const noteStructure = fileManager.loadStructure();
-
-        // ファイル一覧取得（空フォルダなら default outliner を自動作成）
-        let fileList = fileManager.listFiles();
-        if (fileList.length === 0) {
-            fileManager.createFile('default');
-            fileList = fileManager.listFiles();
+        // FR-MG-01: 起動時フラット移行ゲート。★ loadStructure より前に old layout を判定する。
+        //   loadStructure() は読むだけでなく開いた瞬間に .note→outline.note rename / 旧 md renameSync /
+        //   saveStructure 上書き（notes-file-manager.ts:201-282）でディスクを書き換えるため、old layout の
+        //   note でこれを先に走らせると flat-migrate が扱う前にフォルダが変わってしまう。
+        //   planMigration は read-only（fs 書き込みゼロ）なので、判定だけでは何も書き換えない。
+        const flatMigrate = await import('./shared/flat-migrate');
+        let migrationSummary: { pages: number; images: number; files: number; total: number; conflicts: number; copies: number } | null = null;
+        try {
+            migrationSummary = flatMigrate.summarizePlan(flatMigrate.planMigration(folderPath));
+        } catch {
+            migrationSummary = null; // 判定に失敗しても通常経路で開く（安全側）
         }
+        const needsMigration = !!migrationSummary && migrationSummary.total > 0;
+
+        // 本体ロード（loadStructure / listFiles / createFile / openFile）は old layout では skip する。
+        // ★ early-return せず、この if で本体ロードだけを条件 skip する（下流の onDidReceiveMessage 配線には
+        //   線形に到達させる = Migrate ボタンを無反応にしないため）。
+        let fileList: ReturnType<typeof fileManager.listFiles> = [];
         let currentFilePath: string | null = null;
         let jsonContent = '{"version":1,"rootIds":[],"nodes":{}}';
+        if (!needsMigration) {
+            // .note構造をロード（自動マイグレーション含む）
+            fileManager.loadStructure();
 
-        // 構造のツリー順で最初のファイルを開く
-        const firstFileId = fileManager.findFirstFileId();
-        if (firstFileId) {
-            const fp = fileManager.getFilePathById(firstFileId);
-            const content = fileManager.openFile(fp);
-            if (content !== null) {
-                currentFilePath = fp;
-                jsonContent = content;
+            // ファイル一覧取得（空フォルダなら default outliner を自動作成）
+            fileList = fileManager.listFiles();
+            if (fileList.length === 0) {
+                fileManager.createFile('default');
+                fileList = fileManager.listFiles();
             }
-        } else if (fileList.length > 0) {
-            const content = fileManager.openFile(fileList[0].filePath);
-            if (content !== null) {
-                currentFilePath = fileList[0].filePath;
-                jsonContent = content;
+
+            // 構造のツリー順で最初のファイルを開く
+            const firstFileId = fileManager.findFirstFileId();
+            if (firstFileId) {
+                const fp = fileManager.getFilePathById(firstFileId);
+                const content = fileManager.openFile(fp);
+                if (content !== null) {
+                    currentFilePath = fp;
+                    jsonContent = content;
+                }
+            } else if (fileList.length > 0) {
+                const content = fileManager.openFile(fileList[0].filePath);
+                if (content !== null) {
+                    currentFilePath = fileList[0].filePath;
+                    jsonContent = content;
+                }
             }
         }
 
@@ -210,37 +231,49 @@ export class NotesEditorProvider {
         // HTML 生成
         const config = vscode.workspace.getConfiguration('fractal');
         const folderBaseUri = panel.webview.asWebviewUri(vscode.Uri.file(folderPath)).toString();
-        panel.webview.html = getNotesWebviewContent(
-            panel.webview,
-            this.context.extensionUri,
-            {
-                theme: getCurrentTheme(this.context),
-                fontSize: config.get<number>('fontSize', 12),
-                toolbarMode: config.get<string>('toolbarMode', 'simple'),
-                webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
-                enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
-                outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
-                showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
-                imageMaxWidth: config.get<number>('imageMaxWidth', 400),
-                documentBaseUri: folderBaseUri,
-                folderName: path.basename(folderPath),
-            },
-            {
-                jsonContent,
-                fileList,
-                currentFilePath,
-                panelCollapsed,
-                structure: fileManager.getStructure(),
-                panelWidth: fileManager.getPanelWidth(),
-                noteSidePanelWidth: fileManager.getSidePanelWidth(),
-                noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
-                fileChangeId: fileManager.getFileChangeId(),
-                noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
-                history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
-                historyPanelHeight: fileManager.getHistoryPanelHeight(),
-                historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
-            }
-        );
+        if (needsMigration && migrationSummary) {
+            // FR-MG-02: old layout → 本体でなく移行ゲート画面を出す。
+            //   ★ getNotesWebviewContent は initData で fileManager.getStructure()（loadStructure に
+            //   フォールバックしてディスク書換する）を呼ぶため、gate 経路では**呼ばない**。
+            panel.webview.html = getNotesMigrationGateContent(
+                panel.webview,
+                this.context.extensionUri,
+                { pages: migrationSummary.pages, images: migrationSummary.images, files: migrationSummary.files, total: migrationSummary.total },
+                path.basename(folderPath)
+            );
+        } else {
+            panel.webview.html = getNotesWebviewContent(
+                panel.webview,
+                this.context.extensionUri,
+                {
+                    theme: getCurrentTheme(this.context),
+                    fontSize: config.get<number>('fontSize', 12),
+                    toolbarMode: config.get<string>('toolbarMode', 'simple'),
+                    webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
+                    enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
+                    outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
+                    showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                    imageMaxWidth: config.get<number>('imageMaxWidth', 400),
+                    documentBaseUri: folderBaseUri,
+                    folderName: path.basename(folderPath),
+                },
+                {
+                    jsonContent,
+                    fileList,
+                    currentFilePath,
+                    panelCollapsed,
+                    structure: fileManager.getStructure(),
+                    panelWidth: fileManager.getPanelWidth(),
+                    noteSidePanelWidth: fileManager.getSidePanelWidth(),
+                    noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
+                    fileChangeId: fileManager.getFileChangeId(),
+                    noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
+                    history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
+                    historyPanelHeight: fileManager.getHistoryPanelHeight(),
+                    historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
+                }
+            );
+        }
         sendTranslateLangFromConfig();
 
         // サイドパネル管理
@@ -400,6 +433,67 @@ export class NotesEditorProvider {
             },
             openResourceRootsSettings: () => {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+            },
+            // FR-MG-03/05/07: 起動時移行ゲートの「移行する」→ backup → validate → execute → 成功で reopen。
+            runFlatMigration: async () => {
+                const flatMigrate = await import('./shared/flat-migrate');
+                try {
+                    const plan = flatMigrate.planMigration(folderPath); // 再計算（再試行対応）
+                    const v = flatMigrate.validatePlan(plan);
+                    if (!v.ok) {
+                        sender.postMessage({ type: 'migrationFailed', reasons: v.reasons.slice(0, 5) });
+                        return;
+                    }
+                    // ★ FR-MG-07: executePlan（実ファイル rename/copy/rmdir）の前に note フォルダを丸ごと backup。
+                    //   backup 先は noteDir の「外」（planMigration/executePlan の走査対象外・自己参照回避）。
+                    let backupPath: string;
+                    try {
+                        backupPath = this.backupNoteFolder(folderPath);
+                    } catch (e) {
+                        // backup に失敗したら破壊的操作を走らせない（保険が無い状態で executePlan しない）。
+                        sender.postMessage({ type: 'migrationFailed', reasons: ['バックアップに失敗したため移行を中止しました: ' + String((e as Error).message || e)] });
+                        return;
+                    }
+                    const res = flatMigrate.executePlan(plan);
+                    if (res.rolledBack) {
+                        // FR-MG-09: 移行中エラー → executePlan が自動で旧レイアウトに巻き戻し済み。復旧場所も明示。
+                        sender.postMessage({ type: 'migrationFailed', reasons: [
+                            '移行中にエラーが発生したため、旧レイアウトに自動復元しました: ' + (res.error ?? ''),
+                            'バックアップ（移行前の完全な状態）: ' + backupPath,
+                        ] });
+                        return;
+                    }
+                    // ★ FR-MG-08/11/12: 成功（backup 済み + rolledBack=false）→ 旧 outliner サブフォルダを削除して
+                    //   note 直下をクリーンに。実削除は flat-migrate.cleanupOldDirs に閉じ込め（DOD-24 allowlist）。
+                    //   ★ FR-MG-12 で画像/添付も cross-outliner 横断探索するため、plan.unresolved に残るのは
+                    //   「全候補を探しても実体がどこにも無い」= 真の元々壊れリンクだけ → 削除してよい（失うもの無し）。
+                    //   掃除失敗は非致命（backup に原本あり）→ log のみ、移行は成功扱い。
+                    try {
+                        const cleaned = flatMigrate.cleanupOldDirs(plan);
+                        if (cleaned.errors.length > 0) {
+                            console.warn('[NotesMigration] cleanup errors (non-fatal, backup exists):', cleaned.errors);
+                        }
+                    } catch (e) {
+                        console.warn('[NotesMigration] cleanupOldDirs failed (non-fatal):', e);
+                    }
+                    // 成功 → 開き直し（flat になったので次の open は本体が出る = FR-MG-04。backup は残す）。
+                    await this.disposeAndReopenNotePanel(folderPath);
+                    // FR-MG-09/11: backup 場所 + 復旧手順を明示。元々壊れリンク（unresolved）があれば併せて通知。
+                    const broken = (plan.unresolved || []);
+                    if (broken.length > 0) {
+                        vscode.window.showWarningMessage(
+                            `フラットレイアウトへの移行が完了しました。ただし参照先が見つからなかった項目があります（実体が存在せず、旧フォルダは削除しました）: ${broken.slice(0, 5).join(' / ')}${broken.length > 5 ? ` ほか${broken.length - 5}件` : ''}。` +
+                            `移行前の状態は「${backupPath}」にバックアップされています。`
+                        );
+                    } else {
+                        vscode.window.showInformationMessage(
+                            `フラットレイアウトへの移行が完了しました。移行前の状態は「${backupPath}」にバックアップされています。` +
+                            `問題があれば、このノートフォルダを削除し、バックアップフォルダを元の場所に戻してください。`
+                        );
+                    }
+                } catch (e) {
+                    sender.postMessage({ type: 'migrationFailed', reasons: [String((e as Error).message || e)] });
+                }
             },
             exportBundle: (rootMdAbs: string, options) => {
                 void runExportBundle(rootMdAbs, options);
@@ -1888,11 +1982,14 @@ export class NotesEditorProvider {
                     const langConfig = vscode.workspace.getConfiguration('fractal');
                     initLocale(langConfig.get<string>('language', 'default'), vscode.env.language);
                 }
-                if (e.affectsConfiguration('fractal.theme') ||
+                // ★ FR-MG-01（SAFETY）: gate 経路では refresh を走らせない。listFiles()/getStructure() が
+                //   loadStructure に到達して old layout フォルダを書き換え、かつ gate HTML を本体 HTML に
+                //   差し替えて（移行前に）本体表示してしまう。gate 中の設定変更は無視でよい（移行後に再描画される）。
+                if (!needsMigration && (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
                     e.affectsConfiguration('fractal.outlinerPageTitle') ||
                     e.affectsConfiguration('fractal.showTranslateButtons') ||
-                    e.affectsConfiguration('fractal.language')) {
+                    e.affectsConfiguration('fractal.language'))) {
                     // refreshPanel inline (ローカル変数を使用)
                     const refreshConfig = vscode.workspace.getConfiguration('fractal');
                     const refreshFileList = fileManager.listFiles();
@@ -1941,6 +2038,13 @@ export class NotesEditorProvider {
         );
 
         // --- パネル固有のフォルダ監視 ---
+        // ★ FR-MG-01（SAFETY）: gate 経路（needsMigration）では watcher を一切張らない。
+        //   watcher callback は getStructure()→loadStructure() に到達し、old layout フォルダで
+        //   .note→outline.note rename / saveStructure 上書きを起こす。特に `*.out` watcher は Migrate ボタン→
+        //   executePlan が .out を rename/copy する最中に発火し executePlan と loadStructure がフォルダを奪い合う
+        //   （rollback も壊れうる）。gate は静的画面で watcher は不要。移行成功後 disposeAndReopenNotePanel が
+        //   新 panel を作り直し、そこで（flat になった状態で）watcher が張られる。
+        if (!needsMigration) {
         const watcherPattern = new vscode.RelativePattern(vscode.Uri.file(folderPath), '*.out');
         const folderWatcher = vscode.workspace.createFileSystemWatcher(watcherPattern);
 
@@ -2023,6 +2127,7 @@ export class NotesEditorProvider {
         }));
 
         disposables.push(noteFileWatcher);
+        } // end if (!needsMigration) — gate 経路では folderWatcher / noteFileWatcher を張らない
 
         // パネル破棄時のクリーンアップ
         panel.onDidDispose(() => {
@@ -2168,6 +2273,27 @@ export class NotesEditorProvider {
     /**
      * note panel を dispose して再生成 (Local Delete & Download 後の cache 完全リセット用)
      */
+    /**
+     * FR-MG-07: note フォルダを丸ごとバックアップして backup パスを返す（executePlan の前の安全網）。
+     * backup 先は noteDir の「外」（親ディレクトリ直下）に置く。noteDir 内に置くと
+     * planMigration/executePlan の走査対象に入って二重コピー・自己参照を起こすため。コピーのみ（削除しない）。
+     * ★ FR-MG-07 改訂: backup 名を `.` 開始にしない（`.` 開始は Finder/一部 mac ユーザーで不可視になり
+     *   「バックアップ場所を明示」の意図が損なわれるため。可視名にする）。noteDir 外に置く点は不変
+     *   （名前の `.` 有無は planMigration の走査対象性に無関係 = 走査は noteDir 内のみ）。
+     * ★ timestamp は Date.now()（extension host = Node。webview 制約とは無関係）。
+     */
+    private backupNoteFolder(noteDir: string): string {
+        const parent = path.dirname(noteDir);
+        const base = path.basename(noteDir);
+        const backupPath = path.join(parent, `${base}-backup-${Date.now()}`);
+        if (fs.existsSync(backupPath)) {
+            throw new Error(`backup path already exists: ${backupPath}`);
+        }
+        // fs.cpSync(recursive): 既存前例 notes-file-manager.ts:1196 と同パターン。削除 API を使わない（DOD-24 無関係）。
+        fs.cpSync(noteDir, backupPath, { recursive: true });
+        return backupPath;
+    }
+
     private async disposeAndReopenNotePanel(folderPath: string): Promise<void> {
         const entry = this.openPanels.get(folderPath);
         if (entry) {
