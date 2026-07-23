@@ -83,6 +83,39 @@ export class NotesEditorProvider {
         ];
     }
 
+    // sprint 20260723-233506: fractal:// ページリンクを絶対 md パスに解決（node リンク＝pageId 無しは null）。
+    private resolveFractalPageToAbsPath(href: string): string | null {
+        const m = href.match(/^fractal:\/\/note\/([^/]+)\/([^/]+)\/page\/([^/?]+)$/);
+        if (!m) return null;
+        const folderName = decodeURIComponent(m[1]);
+        const outFileId = decodeURIComponent(m[2]);
+        const pageId = decodeURIComponent(m[3]);
+        const folders = this.folderProvider?.getFolders() || [];
+        const folderPath = folders.find(f => path.basename(f) === folderName);
+        if (!folderPath) return null;
+        return this.resolvePagePath(folderPath, outFileId, pageId);
+    }
+
+    // sprint 20260723-233506: 他 note / note 外 md をタブで開く時、その dir を localResourceRoots に union
+    //   （Webview.options は writable。FR-TAB-08）。既に含まれていれば no-op。
+    private ensureResourceRootForFile(panel: vscode.WebviewPanel, filePath: string): void {
+        try {
+            const dir = path.dirname(filePath);
+            const current = panel.webview.options.localResourceRoots || [];
+            const already = current.some(u => {
+                const r = u.fsPath;
+                return dir === r || dir.startsWith(r + path.sep);
+            });
+            if (already) return;
+            panel.webview.options = {
+                ...panel.webview.options,
+                localResourceRoots: [...current, vscode.Uri.file(dir)],
+            };
+        } catch (e) {
+            console.error('[Notes] ensureResourceRootForFile failed:', e);
+        }
+    }
+
     constructor(private context: vscode.ExtensionContext) {}
 
     /**
@@ -1296,8 +1329,15 @@ export class NotesEditorProvider {
             // v0.207.86: Notes 内 .md からのリンククリック (cmd/ctrl+click) — 新タブ standalone editor で開く
             notesMdOpenLinkInTab: async (currentMdFilePath: string, href: string) => {
                 if (!href) return;
+                // sprint 20260723-233506: fractal:// ページリンクは絶対 md に解決して webview 内タブで開く（vscode.openWith を使わない）
                 if (href.startsWith('fractal://')) {
-                    vscode.commands.executeCommand('fractal.navigateInAppLink', href);
+                    const abs = this.resolveFractalPageToAbsPath(href);
+                    if (abs && fs.existsSync(abs)) {
+                        panel.webview.postMessage({ type: 'openInWebviewTab', filePath: abs, kind: 'md' });
+                    } else {
+                        // node リンク等（pageId 無し）は従来どおり navigate（タブ化しない）
+                        vscode.commands.executeCommand('fractal.navigateInAppLink', href);
+                    }
                     return;
                 }
                 if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
@@ -1322,25 +1362,22 @@ export class NotesEditorProvider {
                         vscode.window.showWarningMessage(`File not found: ${resolvedUri.fsPath}`);
                         return;
                     }
-                    // 新タブで standalone customEditor として開く
-                    await vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
+                    // sprint 20260723-233506: webview 内タブで開く（Electron 前方互換。vscode.openWith を使わない）
+                    this.ensureResourceRootForFile(panel, resolvedUri.fsPath);
+                    panel.webview.postMessage({ type: 'openInWebviewTab', filePath: resolvedUri.fsPath, kind: 'md' });
                 } else {
                     vscode.env.openExternal(resolvedUri);
                 }
             },
-            // v0.207.88: notes md メインペインヘッダーの「新タブで開く」ボタン
-            // 現在開いている .md ファイルを standalone customEditor で開き直す
+            // v0.207.88 → sprint 20260723-233506: 「新タブで開く」= webview 内タブで現在の .md を開く（VS Code 別タブでない）
             notesMdOpenSelfInNewTab: async (currentMdFilePath: string) => {
                 if (!currentMdFilePath) return;
                 if (!fs.existsSync(currentMdFilePath)) {
                     vscode.window.showWarningMessage(`File not found: ${currentMdFilePath}`);
                     return;
                 }
-                await vscode.commands.executeCommand(
-                    'vscode.openWith',
-                    vscode.Uri.file(currentMdFilePath),
-                    'fractal.editor'
-                );
+                this.ensureResourceRootForFile(panel, currentMdFilePath);
+                panel.webview.postMessage({ type: 'openInWebviewTab', filePath: currentMdFilePath, kind: 'md' });
             },
             // MD-45/46/47: drawio (.drawio.svg / .drawio.png / .drawio (XML))
             saveDrawioToDir: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
@@ -1525,6 +1562,23 @@ export class NotesEditorProvider {
             },
             handleSidePanelClosed: () => {
                 sidePanel.handleClose();
+            },
+            // sprint 20260723-233506: webview 内マルチタブの host 協調（NFR-TAB-03 / FR-TAB-06）
+            flushActiveForTab: () => {
+                fileManager.flushSave();
+            },
+            restoreSidePanelForTab: (filePath: string) => {
+                // freshOpen=false（nav history 非汚染）+ restoreForTab=true（webview で scroll 復元 + auto-focus skip）
+                void sidePanel.openFile(filePath, false, true);
+            },
+            openFileInWebviewTab: (filePath: string) => {
+                // サイドパネル「Open in tab」等 → VS Code 別タブでなく webview 内タブ（FR-TAB-02・NFR-TAB-04）
+                if (!filePath || !fs.existsSync(filePath)) {
+                    vscode.window.showWarningMessage(`File not found: ${filePath}`);
+                    return;
+                }
+                this.ensureResourceRootForFile(panel, filePath);
+                panel.webview.postMessage({ type: 'openInWebviewTab', filePath, kind: 'md' });
             },
             sendToChatFromSidePanel: async (sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string) => {
                 try {

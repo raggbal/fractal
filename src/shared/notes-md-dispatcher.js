@@ -80,6 +80,12 @@
                     sidebarHidden: true,
                 }
             );
+            // sprint 20260723-233506: タブ復帰の main scroll 復元（§3b・ADRL-TABS-SCROLL）。
+            // EditorInstance は innerHTML を同期設定するので、この末尾（同一同期タスク）で scrollTop を
+            // 代入すれば paint 前に確定＝チラつき無し。
+            if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingMainRestore === 'function') {
+                window.__notesTabManager.consumePendingMainRestore();
+            }
         }
 
         subscribe(function(msg) {

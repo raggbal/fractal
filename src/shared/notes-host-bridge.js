@@ -326,6 +326,16 @@
                 searchOccurrence: typeof searchOccurrence === 'number' ? searchOccurrence : null,
             });
         },
+        // sprint 20260723-233506: webview 内マルチタブの host 協調（named bridge・NFR-TAB-04）
+        flushActive: function() {
+            api.postMessage({ type: 'notesFlushActive' });
+        },
+        restoreSidePanel: function(filePath) {
+            api.postMessage({ type: 'notesRestoreSidePanel', filePath: filePath });
+        },
+        closeSidePanelForTab: function() {
+            api.postMessage({ type: 'sidePanelClosed' });
+        },
         createFile: function(title, parentId, afterId) {
             api.postMessage({ type: 'notesCreateFile', title: title, parentId: parentId || null, afterId: afterId || null });
         },

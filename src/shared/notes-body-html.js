@@ -199,6 +199,89 @@ function generateNotesFilePanelHtml(options) {
             padding: 14px 11px; color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999)); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
+        /* sprint 20260723-233506: tab bar 追加で .notes-main-wrapper が [tab-bar | container] の
+           2 段 flex column になった。container 側は height:100vh（outliner.css）だと tab bar 分溢れて
+           下端がクリップされ、内側スクロールで tab bar が押し出されて隠れる。→ wrapper 直下の
+           container を flex:1 + min-height:0 で「残り高さ」に収め、内側（.editor-wrapper /
+           .outliner-scroll-content）だけがスクロールするようにする（tab bar は flex:0 0 auto で常時上端固定）。 */
+        .notes-main-wrapper > .outliner-container,
+        .notes-main-wrapper > .markdown-container {
+            flex: 1 1 auto;
+            min-height: 0;
+            height: auto;   /* outliner.css の height:100vh を上書き。flex で「残り高さ」に収める */
+        }
+        /* md pane の内側 .container は height:100vh（styles.css:26）なので、flex で正しくサイズされた
+           .markdown-container にフィットさせる（100vh のままだと tab bar 分溢れて下端クリップ）。 */
+        .notes-main-wrapper > .markdown-container > .container { height: 100%; }
+        /* sprint 20260723-233506: webview 内マルチタブ tab bar（tabs>=2 で Tab Manager が display:flex に）。
+           tab 領域だけ左右スクロール（FR-TAB-05）。1 タブ時は display:none（初期 inline style）。 */
+        .notes-tab-bar {
+            display: none;
+            align-items: center;
+            flex: 0 0 auto;
+            min-height: 30px;
+            border-bottom: 1px solid var(--border-color, rgba(128,128,128,0.25));
+            background: var(--sidebar-bg, rgba(128,128,128,0.06));
+            overflow: hidden;
+        }
+        .notes-tab-bar .notes-tab-bar-scroll {
+            display: flex;
+            align-items: stretch;
+            flex: 1 1 auto;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+        }
+        .notes-tab-bar .notes-tab-bar-scroll::-webkit-scrollbar { height: 4px; }
+        .notes-tab-bar .notes-tab {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex: 0 0 auto;
+            min-width: 90px;
+            max-width: 200px;
+            padding: 4px 8px;
+            font-size: 12px;
+            border-right: 1px solid var(--border-color, rgba(128,128,128,0.2));
+            cursor: pointer;
+            opacity: 0.65;
+            white-space: nowrap;
+            user-select: none;
+        }
+        .notes-tab-bar .notes-tab:hover { opacity: 0.85; }
+        .notes-tab-bar .notes-tab[data-active="true"] {
+            opacity: 1;
+            background: var(--editor-bg, rgba(128,128,128,0.12));
+            border-bottom: 2px solid var(--fr-color-primary, #4a9eff);
+        }
+        .notes-tab-bar .notes-tab-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .notes-tab-bar .notes-tab-close {
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0 2px;
+            opacity: 0.5;
+            color: inherit;
+        }
+        .notes-tab-bar .notes-tab-close:hover { opacity: 1; }
+        .notes-tab-bar .notes-tab-add {
+            flex: 0 0 auto;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 0 8px;
+            opacity: 0.6;
+            color: inherit;
+        }
+        .notes-tab-bar .notes-tab-add:hover { opacity: 1; }
         /* v0.207.88: notes md メインペインの toolbar アイコンを sidepanel md / outliner header
            の色味と揃える。standalone editor の color: var(--text-color) は #1A1B1F の真っ黒で
            outliner-search-bar/side-panel-header-btn の opacity: 0.5-0.6 軽減と乖離するため、

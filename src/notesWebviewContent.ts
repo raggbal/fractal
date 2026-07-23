@@ -95,6 +95,9 @@ export function getNotesWebviewContent(
     // FR-HP: 最近開いたファイル履歴パネル
     const notesHistoryPanelScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-history-panel.js'), 'utf8');
+    // sprint 20260723-233506: webview 内マルチタブ Tab Manager
+    const notesTabManagerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-tab-manager.js'), 'utf8');
 
     // Load outliner scripts
     const outlinerCellScript = fs.readFileSync(
@@ -191,6 +194,8 @@ export function getNotesWebviewContent(
     <div class="notes-layout" data-note-folder-name="${config.folderName || ''}">
         ${notesHtml}
         <div class="notes-main-wrapper">
+            <!-- sprint 20260723-233506: webview 内タブ bar（tabs>=2 で表示・FR-TAB-01）。Tab Manager が描画 -->
+            <div class="notes-tab-bar" id="notesTabBar" style="display:none;"></div>
             <div class="outliner-container">
                 <div class="outliner-scroll-content">
                     <div class="outliner-page-title" style="${config.outlinerPageTitle ? '' : 'display:none;'}">
@@ -275,6 +280,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">${notesMdDispatcherScript}</script>
     <script nonce="${nonce}">${notesHistoryPanelScript}</script>
+    <script nonce="${nonce}">${notesTabManagerScript}</script>
     <script nonce="${nonce}">
         try {
             var initialData = JSON.parse(decodeURIComponent(escape(atob('${base64Content}'))));
@@ -295,11 +301,72 @@ export function getNotesWebviewContent(
 
         // ─── ADR-008: Notes 内 .md ファイル用のメインペイン dispatcher ───
         // 実装は shared/notes-md-dispatcher.js（FR-LR-03: externalUpdate は in-place 更新）。
-        window.__initNotesMdDispatcher({
+        window.__notesMdDispatcher = window.__initNotesMdDispatcher({
             outlinerContainer: document.querySelector('.outliner-container'),
             markdownContainer: document.querySelector('.markdown-container'),
             bridge: window.notesMarkdownHostBridge,
         });
+
+        // ─── sprint 20260723-233506: webview 内マルチタブ Tab Manager（FR-TAB-*） ───
+        (function() {
+            function activeKind() {
+                var oc = document.querySelector('.outliner-container');
+                return (oc && oc.style.display !== 'none') ? 'out' : 'md';
+            }
+            window.__notesTabManager = window.__initNotesTabManager({
+                tabBarEl: document.getElementById('notesTabBar'),
+                getActiveMainScrollEl: function() {
+                    return activeKind() === 'out'
+                        ? document.querySelector('.outliner-scroll-content')
+                        : document.querySelector('.markdown-container .editor-wrapper');
+                },
+                bridge: {
+                    openFile: function(fp) { window.notesHostBridge.openFile(fp); },
+                    flushActive: function() { if (window.notesHostBridge.flushActive) window.notesHostBridge.flushActive(); },
+                    restoreSidePanel: function(fp) { window.notesHostBridge.restoreSidePanel(fp); },
+                    closeSidePanel: function() { if (window.notesHostBridge.closeSidePanelForTab) window.notesHostBridge.closeSidePanelForTab(); },
+                },
+                // ★ flush 二段（NFR-TAB-03）: webview 側の debounce 未送信を destroy 前に即送信
+                flushActiveWebview: function() {
+                    if (activeKind() === 'out') {
+                        if (window.Outliner && window.Outliner.flushSync) window.Outliner.flushSync();
+                    } else {
+                        var inst = window.__notesMdDispatcher && window.__notesMdDispatcher.getMdInstance
+                            ? window.__notesMdDispatcher.getMdInstance() : null;
+                        if (inst && typeof inst.flushPendingSync === 'function') inst.flushPendingSync();
+                    }
+                },
+                captureOutlinerView: function() {
+                    return (window.Outliner && window.Outliner.captureView) ? window.Outliner.captureView() : null;
+                },
+                applyOutlinerView: function(v) {
+                    if (window.Outliner && window.Outliner.applyView) window.Outliner.applyView(v);
+                },
+                captureSidePanel: function() {
+                    return (window.Outliner && window.Outliner.captureSidePanelState)
+                        ? window.Outliner.captureSidePanelState() : { open: false, filePath: null, scrollTop: 0 };
+                },
+                getSidePanelScrollEl: function() { return document.querySelector('.side-panel .editor-wrapper'); },
+            });
+            // 初期タブ（開いているファイル = .out）を登録
+            window.__notesTabManager.initFirstTab(${JSON.stringify(initData.currentFilePath)}, 'out');
+            // host からの「webview 内タブで開く」指示（open new tab 置換・リンク cmd+click・FR-TAB-02）
+            window.addEventListener('message', function(e) {
+                var m = e.data;
+                if (!m || !window.__notesTabManager) return;
+                if (m.type === 'openInWebviewTab' && m.filePath) {
+                    window.__notesTabManager.openInNewTab(m.filePath, m.kind || 'md');
+                }
+                // TASK-12（バグ修正）: メインペインの実ファイル切替（左ファイルパネル click / 検索ジャンプ等
+                //   → notesOpenFile → updateData）をアクティブタブの filePath に同期。fileChangeId!==undefined
+                //   は「実ファイル切替」（外部 in-place update を除外）。これが無いと tab.filePath が stale になり
+                //   タブ再アクティブ化で「1つ前のページ」に戻る。
+                if (m.type === 'updateData' && m.fileChangeId !== undefined) {
+                    var fp = m.kind === 'md' ? m.filePath : m.outFileKey;
+                    if (fp) window.__notesTabManager.syncActiveFile(fp, m.kind === 'md' ? 'md' : 'out');
+                }
+            });
+        })();
 
         // ─── FR-HP: 最近開いたファイル履歴パネル ───
         window.__notesHistoryPanel = window.__initNotesHistoryPanel({
@@ -308,7 +375,15 @@ export function getNotesWebviewContent(
             toggleEl: document.getElementById('sidePanelHistoryToggle'),
             resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
             bridge: {
-                openFile: function(id) { window.notesHostBridge.openFile(id); },
+                // FR-TAB-07: Recent クリックは新タブを増やさず現アクティブタブで開く（openInActiveTab 経由）。
+                openFile: function(id) {
+                    if (window.__notesTabManager && typeof window.__notesTabManager.openInActiveTab === 'function') {
+                        var kind = /\\.out$/i.test(id) ? 'out' : 'md';
+                        window.__notesTabManager.openInActiveTab(id, kind);
+                    } else {
+                        window.notesHostBridge.openFile(id);
+                    }
+                },
                 saveHistoryPanelCollapsed: function(c) { window.notesHostBridge.saveHistoryPanelCollapsed(c); },
                 saveHistoryPanelHeight: function(h) { window.notesHostBridge.saveHistoryPanelHeight(h); },
             },

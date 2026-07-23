@@ -22,6 +22,9 @@ var Outliner = (function() {
 
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
+    // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
+    // focus 要素へのブラウザ自動スクロールが復元 scrollTop を上書きするのを防ぐ。
+    var _suppressFocusScroll = false;
     var currentSearchResult = null;  // Set<string> or null
     var searchFocusMode = false;     // true: マッチノード頂点+子のみ, false: ルートまで表示
     var pageDir = null;              // outファイル個別のpageDir設定
@@ -4121,7 +4124,9 @@ var Outliner = (function() {
         var textEl = nodeEl.querySelector('.outliner-text');
         if (textEl) {
             setFocusedNode(nodeId);
-            textEl.focus();
+            // sprint 20260723-233506: タブ復帰の scroll 復元中は preventScroll で自動スクロールを抑止
+            if (_suppressFocusScroll) { try { textEl.focus({ preventScroll: true }); } catch (e) { textEl.focus(); } }
+            else { textEl.focus(); }
             setCursorToEnd(textEl);
             var aeAfter = document.activeElement;
             console.log('[Fractal:focusNode] AFTER focus: activeEl=', aeAfter && aeAfter.tagName, aeAfter && aeAfter.className, 'data-node-id=', aeAfter && aeAfter.dataset && aeAfter.dataset.nodeId, 'isHidden=', getComputedStyle(textEl).display === 'none');
@@ -6487,6 +6492,9 @@ var Outliner = (function() {
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
+    // sprint 20260723-233506: タブ復帰でサイドパネルを開く時、400ms auto-focus の自動スクロールを抑止し
+    // 保存 scrollTop を復元する（ADRL-TABS-SIDEPANEL-PER-TAB）。通常の openPageInSidePanel では false。
+    var _sidePanelRestorePending = false;
     // FR-TH-07: md→node 反映中は node→md 送信をスキップ（双方向連鎖の belt-and-suspenders）。
     var _applyingH1ToNode = false;
     // FR-TH-05: sidepanel md の先頭 H1 の前回反映値（IME 中間文字での過剰反映を避け確定値のみ反映）。
@@ -7284,6 +7292,17 @@ var Outliner = (function() {
             if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
         });
 
+        // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
+        // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
+        // scroll 復元の同期アンカー（§5・ADRL-TABS-SCROLL）。復元中は下の 400ms auto-focus を skip。
+        if (_sidePanelRestorePending) {
+            _sidePanelRestorePending = false;
+            if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingSidePanelRestore === 'function') {
+                window.__notesTabManager.consumePendingSidePanelRestore();
+            }
+            return; // 復元経路では auto-focus しない（focus 自動スクロールが復元 scrollTop を上書きするため）
+        }
+
         // アニメーション完了後にエディタに自動フォーカス
         setTimeout(function() {
             requestAnimationFrame(function() {
@@ -8053,6 +8072,15 @@ var Outliner = (function() {
                         updateScopeSearchIndicator();
                         // v0.207.40: ファイル切替後 model = disk と一致 → flushSync baseline 更新
                         lastSentJson = serializeForSave();
+                        // sprint 20260723-233506: タブ復帰の main scroll 復元（§3b・ADRL-TABS-SCROLL）。
+                        // DOM 構築（renderTree/focusNode）が同期完了したこの末尾で、同一同期タスク内に
+                        // scrollTop を代入する（paint 前確定＝チラつき無し）。focusNode の後に置くことで
+                        // focus 自動スクロールとの競合を回避（focusNode は _suppressFocusScroll で preventScroll 済み）。
+                        if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingMainRestore === 'function') {
+                            _suppressFocusScroll = true;
+                            try { window.__notesTabManager.consumePendingMainRestore(); }
+                            finally { _suppressFocusScroll = false; }
+                        }
                         break;
                     }
 
@@ -8297,6 +8325,9 @@ var Outliner = (function() {
 
                 // --- サイドパネル関連メッセージ ---
                 case 'openSidePanel':
+                    // sprint 20260723-233506: msg.restoreScrollTop 付きはタブ復帰の復元経路
+                    // （openSidePanel 末尾で scroll 同期復元 + auto-focus skip）。
+                    if (msg.restoreForTab) { _sidePanelRestorePending = true; }
                     openSidePanel(msg.markdown, msg.filePath, msg.fileName, msg.toc, msg.documentBaseUri);
                     break;
 
@@ -9087,6 +9118,35 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
+        // sprint 20260723-233506: Tab Manager 用の画面状態 capture/apply（focus/scope の best-effort 復元）。
+        captureView: function() {
+            return { focusedNodeId: focusedNodeId, currentScope: currentScope };
+        },
+        applyView: function(view) {
+            if (!view) return;
+            // scope を復元（document/subtree）。best-effort（node が消えていれば document）。
+            if (view.currentScope && view.currentScope.type === 'subtree' && view.currentScope.rootId
+                && model && model.getNode(view.currentScope.rootId)) {
+                currentScope = view.currentScope;
+            } else {
+                currentScope = { type: 'document' };
+            }
+            if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
+            // focus を復元（preventScroll は呼び出し側 _suppressFocusScroll で担保）。
+            if (view.focusedNodeId && model && model.getNode(view.focusedNodeId)) {
+                focusNode(view.focusedNodeId);
+            }
+        },
+        // サイドパネルの現在状態（open/filePath/scrollTop）を返す（タブ切替 capture 用）。
+        captureSidePanelState: function() {
+            var open = !!(sidePanelEl && sidePanelEl.classList.contains('open'));
+            var scrollTop = 0;
+            if (open && sidePanelInstance && sidePanelInstance.container) {
+                var wrap = sidePanelInstance.container.querySelector('.editor-wrapper');
+                if (wrap) scrollTop = wrap.scrollTop;
+            }
+            return { open: open, filePath: open ? sidePanelFilePath : null, scrollTop: scrollTop };
+        },
         // FR-TH-05 テスト用: 現在開いている sidepanel md の編集をシミュレートする。
         // 実 editor が編集ごとに呼ぶ SidePanelHostBridge.syncContent と同じ経路
         // （saveSidePanelFile + onTocUpdate=updateSidePanelTocFromMarkdown）を通す＝本番反映コードを実行する。

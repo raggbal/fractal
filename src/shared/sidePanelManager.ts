@@ -253,7 +253,7 @@ export class SidePanelManager {
      * @param freshOpen  true: navigation history を clear (= 新規 open)。default false (= navigation 経由)。
      *                    新規 open 時は webview の back/forward state を初期化するため必ず true で呼ぶ。
      */
-    async openFile(filePath: string, freshOpen: boolean = false): Promise<void> {
+    async openFile(filePath: string, freshOpen: boolean = false, restoreForTab: boolean = false): Promise<void> {
         if (freshOpen) {
             // 新規 open (outliner click 等) では history を clear → webview の back ボタン無効化
             this.clearNavigationHistory();
@@ -272,7 +272,9 @@ export class SidePanelManager {
                 filePath: filePath,
                 fileName: fileName,
                 toc: SidePanelManager.extractToc(text),
-                documentBaseUri: spBaseUri
+                documentBaseUri: spBaseUri,
+                // sprint 20260723-233506: タブ復帰の復元経路（webview 側で scroll 同期復元 + auto-focus skip）
+                restoreForTab: restoreForTab || undefined,
             });
             // FR-RR-04: 開いた md の画像に許可範囲外があればフッター案内を送る
             this.sendResourceAccessStatus(text, path.dirname(filePath));

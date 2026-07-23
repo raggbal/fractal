@@ -93,6 +93,8 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
 // FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
 const notesHistoryPanelScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-history-panel.js'), 'utf-8');
+// sprint 20260723-233506: webview 内マルチタブ Tab Manager（本番 notesWebviewContent と同じ実体を inline）
+const notesTabManagerScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-tab-manager.js'), 'utf-8');
 
 // サイドパネルHTML生成
 const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtmlPath);
@@ -293,46 +295,51 @@ const html = `<!DOCTYPE html>
     <div class="notes-layout">
         ${notesHtml}
         <div class="notes-main-wrapper">
+            <!-- sprint 20260723-233506: webview 内タブ bar（本番 notesWebviewContent.ts:193 と同位置。tabs>=2 で表示） -->
+            <div class="notes-tab-bar" id="notesTabBar" style="display:none;"></div>
             <div class="outliner-container">
-                <div class="outliner-page-title" style="display:none;">
-                    <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
-                </div>
-                <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
-                <div class="outliner-search-bar">
-                    <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
-                    <button class="outliner-nav-back-btn" title="Back" disabled></button>
-                    <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
-                    <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
-                    <div class="outliner-search-input-wrapper">
-                        <input type="text" class="outliner-search-input" placeholder="Search..." />
-                        <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
+                <!-- ★本番と同じ 3 段（container > scroll-content > tree）。scroll owner = .outliner-scroll-content -->
+                <div class="outliner-scroll-content">
+                    <div class="outliner-page-title" style="display:none;">
+                        <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
                     </div>
-                    <button class="outliner-undo-btn" title="Undo" disabled></button>
-                    <button class="outliner-redo-btn" title="Redo" disabled></button>
-                    <button class="outliner-menu-btn" title="Menu"></button>
-                </div>
-                <div class="outliner-pinned-nav-bar">
-                    <div class="outliner-daily-nav-area" style="display:none">
-                        <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavNext">&gt;</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavCalendar"></button>
-                        <div class="outliner-daily-picker" id="dailyNavPicker" style="display:none">
-                            <div class="outliner-daily-picker-header">
-                                <button class="outliner-daily-picker-nav" id="dailyPickerPrevMonth">&lt;</button>
-                                <span class="outliner-daily-picker-title" id="dailyPickerTitle"></span>
-                                <button class="outliner-daily-picker-nav" id="dailyPickerNextMonth">&gt;</button>
-                            </div>
-                            <div class="outliner-daily-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
-                            <div class="outliner-daily-picker-grid" id="dailyPickerGrid"></div>
+                    <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
+                    <div class="outliner-search-bar">
+                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
+                        <button class="outliner-nav-back-btn" title="Back" disabled></button>
+                        <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
+                        <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
+                        <div class="outliner-search-input-wrapper">
+                            <input type="text" class="outliner-search-input" placeholder="Search..." />
+                            <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
                         </div>
+                        <button class="outliner-undo-btn" title="Undo" disabled></button>
+                        <button class="outliner-redo-btn" title="Redo" disabled></button>
+                        <button class="outliner-menu-btn" title="Menu"></button>
                     </div>
-                    <div class="outliner-pinned-tags-area"></div>
-                    <div class="outliner-pinned-nav-spacer"></div>
-                    <button class="outliner-pinned-settings-btn" title="Pinned tag settings"></button>
+                    <div class="outliner-pinned-nav-bar">
+                        <div class="outliner-daily-nav-area" style="display:none">
+                            <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavNext">&gt;</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavCalendar"></button>
+                            <div class="outliner-daily-picker" id="dailyNavPicker" style="display:none">
+                                <div class="outliner-daily-picker-header">
+                                    <button class="outliner-daily-picker-nav" id="dailyPickerPrevMonth">&lt;</button>
+                                    <span class="outliner-daily-picker-title" id="dailyPickerTitle"></span>
+                                    <button class="outliner-daily-picker-nav" id="dailyPickerNextMonth">&gt;</button>
+                                </div>
+                                <div class="outliner-daily-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+                                <div class="outliner-daily-picker-grid" id="dailyPickerGrid"></div>
+                            </div>
+                        </div>
+                        <div class="outliner-pinned-tags-area"></div>
+                        <div class="outliner-pinned-nav-spacer"></div>
+                        <button class="outliner-pinned-settings-btn" title="Pinned tag settings"></button>
+                    </div>
+                    <div class="outliner-breadcrumb"></div>
+                    <div class="outliner-tree" role="tree"></div>
                 </div>
-                <div class="outliner-breadcrumb"></div>
-                <div class="outliner-tree" role="tree"></div>
                 <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
                     <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
                     <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
@@ -426,6 +433,9 @@ const html = `<!DOCTYPE html>
     __NOTES_HISTORY_PANEL_SCRIPT__
     </script>
     <script>
+    __NOTES_TAB_MANAGER_SCRIPT__
+    </script>
+    <script>
     // テストAPI公開
     window.__testApi.ready = false;
     window.__testApi.initOutliner = function(data) {
@@ -506,6 +516,40 @@ const html = `<!DOCTYPE html>
         });
         return window.__notesHistoryPanel;
     };
+    // sprint 20260723-233506: Tab Manager（webview 内マルチタブ）。E2E から driveできるよう __testApi に露出。
+    // scroll owner は本番同様 kind で .outliner-scroll-content / .editor-wrapper を返す。
+    window.__testApi.initTabManager = function() {
+        function activeKind() {
+            var oc = document.querySelector('.outliner-container');
+            return (oc && oc.style.display !== 'none') ? 'out' : 'md';
+        }
+        window.__testApi.tabManager = window.__initNotesTabManager({
+            tabBarEl: document.getElementById('notesTabBar'),
+            getActiveMainScrollEl: function() {
+                return activeKind() === 'out'
+                    ? document.querySelector('.outliner-scroll-content')
+                    : document.querySelector('.markdown-container .editor-wrapper');
+            },
+            bridge: {
+                openFile: function(fp) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: fp }); },
+                flushActive: function() { window.__testApi.messages.push({ type: 'notesFlushActive' }); },
+                restoreSidePanel: function(fp) { window.__testApi.messages.push({ type: 'notesRestoreSidePanel', filePath: fp }); },
+                closeSidePanel: function() { window.__testApi.messages.push({ type: 'sidePanelClosed' }); },
+            },
+            flushActiveWebview: function() { window.__testApi.messages.push({ type: 'flushActiveWebview' }); },
+            captureOutlinerView: function() {
+                return (window.Outliner && window.Outliner.captureView) ? window.Outliner.captureView() : null;
+            },
+            applyOutlinerView: function(v) {
+                if (window.Outliner && window.Outliner.applyView) window.Outliner.applyView(v);
+            },
+            captureSidePanel: function() {
+                return window.__testApi.sidePanelState || { open: false, filePath: null, scrollTop: 0 };
+            },
+            getSidePanelScrollEl: function() { return document.querySelector('.side-panel .editor-wrapper'); },
+        });
+        return window.__testApi.tabManager;
+    };
     // 空データで初期化
     window.__testApi.initOutliner();
     window.__testApi.initNotesPanel();
@@ -529,6 +573,7 @@ result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPalette
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
+result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

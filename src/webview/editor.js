@@ -1240,31 +1240,40 @@ class EditorInstance {
         element.focus();
     }
     
-    // Helper: scroll cursor position into view (for code block / mermaid block navigation)
+    // Helper: scroll cursor position into view.
+    // ★ TASK-11（バグ修正 2026-07-24）: 旧実装は可視判定に window.innerHeight を使い、
+    //   scrollIntoView({block:'nearest'}) をカーソル親要素に対して呼んでいた。だが Notes/sidepanel の
+    //   縦スクロール owner は祖先 .editor-wrapper で、ネイティブ caret スクロール（nearest）は祖先コンテナに
+    //   対して非対称（下方向は追従・上方向は非追従）→ ↑でカーソルを見失うバグ。
+    //   → 実スクロール owner（.editor-wrapper || editor 自身）の rect 基準で owner.scrollTop を
+    //     up/down 対称に直接調整する（standalone は editor 自身が owner でも同ロジックで動く）。
+    var CARET_SCROLL_MARGIN = 8;
+    // 純関数は __editorUtils.computeCaretScrollDelta に集約（単一の真実・unit テスト対象）。
     function scrollCursorIntoView() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
 
         try {
             const range = sel.getRangeAt(0);
-            // Try to get cursor position from range rect (no DOM modification needed)
             const rects = range.getClientRects();
-            const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
-
-            if (rect && (rect.height > 0 || rect.width > 0)) {
-                // Use the rect to check if cursor is visible
-                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-                if (rect.top < 0 || rect.bottom > viewportHeight) {
-                    // Scroll the cursor's parent element into view
-                    let el = range.startContainer;
-                    if (el.nodeType === 3) el = el.parentElement;
-                    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-                }
-            } else {
-                // Collapsed range with zero-size rect: scroll parent element
+            let caretRect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+            // zero-size collapsed range: 親要素の rect で代用
+            if (!caretRect || (caretRect.height === 0 && caretRect.width === 0)) {
                 let el = range.startContainer;
                 if (el.nodeType === 3) el = el.parentElement;
-                if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                if (el && el.getBoundingClientRect) caretRect = el.getBoundingClientRect();
+            }
+            if (!caretRect) return;
+
+            // 実スクロール owner: Notes/sidepanel = .editor-wrapper、standalone も .editor-wrapper あり。
+            // 無ければ editor 自身（フォールバック）。
+            const owner = (editor && editor.closest && editor.closest('.editor-wrapper')) || editor;
+            if (!owner) return;
+            const ownerRect = owner.getBoundingClientRect();
+            const _delta = window.__editorUtils && window.__editorUtils.computeCaretScrollDelta;
+            const delta = _delta ? _delta(caretRect, ownerRect, CARET_SCROLL_MARGIN) : 0;
+            if (delta !== 0) {
+                owner.scrollTop += delta;   // 同期・instant（チラつかせない）。up/down 対称。
             }
         } catch (e) {
             logger.log('scrollCursorIntoView failed:', e);
@@ -9708,6 +9717,7 @@ class EditorInstance {
                     if (prev) {
                         e.preventDefault();
                         navigateToAdjacentElement(prev, 'up', false);
+                        scrollCursorIntoView(); // TASK-11: ↑追従（owner-rect ベース・祖先 .editor-wrapper に対称）
                         return;
                     }
                 } else if (e.key === 'ArrowDown') {
@@ -9723,6 +9733,7 @@ class EditorInstance {
                     if (next) {
                         e.preventDefault();
                         navigateToAdjacentElement(next, 'down', false);
+                        scrollCursorIntoView(); // TASK-11: ↓追従
                         return;
                     }
                 }
@@ -18645,6 +18656,12 @@ class EditorInstance {
         syncTimeout = null;
         editingIdleTimer = null;
         pendingSync = false;
+    };
+    // sprint 20260723-233506: タブ切替/unload の前に debounce 未送信編集を即 host へ送る（NFR-TAB-03・flush 二段）。
+    // destroy（_cancelPendingSync で timer 破棄）より前に呼ぶこと。_destroyed 前提。
+    self.flushPendingSync = function() {
+        if (self._destroyed) return;
+        try { notifyChangeImmediate(); } catch (e) { console.error('[flushPendingSync]', e); }
     };
     } // end _legacyInit()
 } // end class EditorInstance

@@ -106,6 +106,12 @@ export interface NotesPlatformActions {
     handleSidePanelOpenInTextEditor?(sidePanelFilePath: string): void;
     /** サイドパネルが閉じられた */
     handleSidePanelClosed(): void;
+    /** sprint 20260723-233506: タブ切替の flush（fileManager.flushSave）。NFR-TAB-03 */
+    flushActiveForTab?(): void;
+    /** sprint 20260723-233506: タブ復帰でサイドパネルを復元（sidePanel.openFile(fp,false,true)）。FR-TAB-06 */
+    restoreSidePanelForTab?(filePath: string): void;
+    /** sprint 20260723-233506: サイドパネル「Open in tab」等から .md を webview 内タブで開く（FR-TAB-02）。 */
+    openFileInWebviewTab?(filePath: string): void;
     /** サイドパネルの sendToChat を処理（テキストエディタで開いて行選択） */
     sendToChatFromSidePanel?(sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string): Promise<void>;
     /** .outファイルをテキストエディタで開く */
@@ -601,6 +607,16 @@ export async function handleNotesMessage(
             break;
         }
 
+        // sprint 20260723-233506: webview 内マルチタブの host 協調
+        case 'notesFlushActive':
+            platform.flushActiveForTab?.();
+            break;
+        case 'notesRestoreSidePanel':
+            if (typeof message.filePath === 'string' && message.filePath) {
+                platform.restoreSidePanelForTab?.(message.filePath);
+            }
+            break;
+
         // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
         //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
 
@@ -843,8 +859,16 @@ export async function handleNotesMessage(
             break;
 
         case 'openLinkInTab':
+            // sprint 20260723-233506: Notes サイドパネル「Open in tab」（outliner.js の side-panel-open-tab）は
+            // ここに落ちる（host=outlinerHostBridge → shared openLinkInTab → type:'openLinkInTab'）。
+            // .md は VS Code 別タブでなく webview 内タブで開く（FR-TAB-02 / NFR-TAB-04）。
             if (message.href) {
-                platform.openFileInEditor(message.href);
+                const lower = String(message.href).toLowerCase();
+                if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && platform.openFileInWebviewTab) {
+                    platform.openFileInWebviewTab(message.href);
+                } else {
+                    platform.openFileInEditor(message.href);
+                }
             }
             break;
 

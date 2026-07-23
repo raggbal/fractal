@@ -454,8 +454,26 @@
             .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
     }
 
+    // ===== Caret scroll-follow (TASK-11 bug fix 2026-07-24) =====
+    // Pure: caret rect と scroll owner rect から owner.scrollTop の増減量を返す。
+    // caret が owner 上端より上 → 負（上へ）、下端より下 → 正（下へ）、可視域内 → 0。
+    // owner-rect ベースにすることで祖先スクロールコンテナ（.editor-wrapper）でも up/down 対称に追従する
+    // （旧実装は window.innerHeight 基準 + scrollIntoView nearest で ↑非対称だった）。
+    function computeCaretScrollDelta(caretRect, ownerRect, margin) {
+        margin = margin || 0;
+        if (!caretRect || !ownerRect) return 0;
+        if (caretRect.top < ownerRect.top) {
+            return caretRect.top - ownerRect.top - margin;
+        }
+        if (caretRect.bottom > ownerRect.bottom) {
+            return caretRect.bottom - ownerRect.bottom + margin;
+        }
+        return 0;
+    }
+
     // ===== Export =====
     window.__editorUtils = {
+        computeCaretScrollDelta: computeCaretScrollDelta,
         LUCIDE_ICONS: LUCIDE_ICONS,
         SUPPORTED_LANGUAGES: SUPPORTED_LANGUAGES,
         LANGUAGE_ALIASES: LANGUAGE_ALIASES,
