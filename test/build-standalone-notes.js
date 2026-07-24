@@ -348,10 +348,10 @@ const html = `<!DOCTYPE html>
             <div class="markdown-container" style="display:none">
                 ${markdownPaneHtml}
             </div>
+            <!-- sprint 20260724-042927 (FR-SPC-01): サイドパネルを .notes-main-wrapper 内に配置（本番と同位置） -->
+            ${sidePanelHtml}
         </div>
     </div>
-
-    ${sidePanelHtml}
 
     <!-- editor.js のサイドパネル用に必要な隠しDOM要素 -->
     <div class="sidebar" id="sidebar" style="display:none;"><div class="outline" id="outline"></div></div>
@@ -535,6 +535,7 @@ const html = `<!DOCTYPE html>
                 flushActive: function() { window.__testApi.messages.push({ type: 'notesFlushActive' }); },
                 restoreSidePanel: function(fp) { window.__testApi.messages.push({ type: 'notesRestoreSidePanel', filePath: fp }); },
                 closeSidePanel: function() { window.__testApi.messages.push({ type: 'sidePanelClosed' }); },
+                openInVscodeTab: function(fp) { window.__testApi.messages.push({ type: 'notesOpenInVscodeTab', filePath: fp }); },
             },
             flushActiveWebview: function() { window.__testApi.messages.push({ type: 'flushActiveWebview' }); },
             captureOutlinerView: function() {
@@ -547,6 +548,7 @@ const html = `<!DOCTYPE html>
                 return window.__testApi.sidePanelState || { open: false, filePath: null, scrollTop: 0 };
             },
             getSidePanelScrollEl: function() { return document.querySelector('.side-panel .editor-wrapper'); },
+            closeSidePanelInWebview: function() { window.__testApi.messages.push({ type: 'closeSidePanelInWebview' }); },
         });
         return window.__testApi.tabManager;
     };

@@ -39,6 +39,49 @@ function shouldResendHistoryOnSidePanelSave(fm: NotesFileManager, filePath: stri
     return (fm.getHistory() || []).some((e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
 }
 
+// ★再オープン③: notesSaveCurrentMd（メインペイン note md auto-save）の再送判定をミラー
+// （notes-message-handler.ts case 'notesSaveCurrentMd' :309-315 と同一ロジック）。
+// syncTitleFromH1（tree item 専用）が false でも、現 md が絶対パス一致の note-md 履歴に在れば再送要。
+// tree item（items[id] あり）なら syncTitleFromH1 が true を返すのでこの判定に依らず再送される。
+function shouldResendHistoryOnMainMdSave(fm: NotesFileManager, cur: string, content: string): boolean {
+    if (fm.syncTitleFromH1(cur, content)) return true;   // tree item は従来どおり
+    const fp = path.resolve(cur);
+    return (fm.getHistory() || []).some((e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+}
+
+// ★再オープン③ fix2: notesSaveCurrentMd の「save→再送」の順序をミラー（notes-message-handler.ts:300-323）。
+// mdMainSave は async disk 書込。awaitSave=true なら書込を待ってから fresh title を再解決する（本番の fix）。
+// awaitSave=false は fix 前の fire-and-forget（disk 反映前に読む＝stale）を再現する counterfactual。
+// 返り値 = 再送 history の該当 md の title（getHistoryWithFreshTitles は tree 外 md を disk から読む）。
+async function mainMdSaveThenResolveTitle(
+    fm: NotesFileManager, cur: string, content: string,
+    mdMainSave: (fp: string, c: string) => Promise<void>, awaitSave: boolean,
+): Promise<string | null> {
+    if (awaitSave) {
+        await mdMainSave(cur, content);          // fix: disk 書込を待つ
+    } else {
+        void mdMainSave(cur, content);           // fix 前: await しない（fire-and-forget）
+    }
+    if (!shouldResendHistoryOnMainMdSave(fm, cur, content)) return null;  // 再送しない
+    const fresh = fm.getHistoryWithFreshTitles().find((e) => path.resolve(e.id) === path.resolve(cur));
+    return fresh ? (fresh.title ?? null) : null;
+}
+
+// ★再オープン③: webview tab live-update の title 解決をミラー（notesWebviewContent.ts :410-428 と同一ロジック）。
+// items[id].title 優先 → 無ければ fresh history（getHistoryWithFreshTitles）から絶対パス一致 note-md の title。
+// 返り値は updateActiveTabTitle に渡す title（解決不能なら null＝basename のまま）。
+function resolveTabLiveTitle(fm: NotesFileManager, activeFilePath: string): string | null {
+    const structure = { ...fm.getStructure(), history: fm.getHistoryWithFreshTitles() };
+    const id = activeFilePath.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
+    const item = structure.items?.[id] as { title?: string } | undefined;
+    if (item && item.title) return item.title;
+    const norm = (p: string) => String(p).replace(/\\/g, '/');
+    for (const he of (structure.history || [])) {
+        if (he && he.kind === 'note-md' && norm(he.id) === norm(activeFilePath) && he.title) return he.title;
+    }
+    return null;
+}
+
 test.describe('FR-HP-08/09 — link/subpage 遷移の Recent 記録', () => {
     let tempDir: string;   // 現 note フォルダ（getPagesDirPath はここに解決される = flat レイアウト）
     let otherDir: string;  // 他 note / note 外に相当する別フォルダ（現 note pages dir 配下でない）
@@ -239,5 +282,102 @@ test.describe('FR-HP-08/09 — link/subpage 遷移の Recent 記録', () => {
         fs.mkdirSync(path.dirname(otherMd), { recursive: true });
         fs.writeFileSync(otherMd, '# Other', 'utf8');
         expect(shouldResendHistoryOnSidePanelSave(fm, otherMd), '履歴に無い md は再送不要').toBe(false);
+    });
+
+    // TC-TP-07（★load-bearing・counterfactual・再オープン③）:
+    // tree 外 md（open-new-tab でメインペインに開いた page md 相当）をメインペイン note md editor で H1 編集 →
+    // notesSaveCurrentMd が「絶対パス一致の note-md 履歴あり」で再送要と判定し、fresh history が新 H1 を反映する。
+    test('TC-TP-07 メインペインで tree 外 md の H1 を編集 → 再送要 + fresh history が新 title', () => {
+        const fm = new NotesFileManager(tempDir);
+        const outPath = fm.createFile('Host');
+        fm.openFile(outPath);
+        const pagePath = fm.getPageFilePath('pMain');   // items に無い絶対パス md（page md 相当）
+        fs.mkdirSync(path.dirname(pagePath), { recursive: true });
+        fs.writeFileSync(pagePath, '# Old Title', 'utf8');
+        dispatchOnFileOpened(fm, pagePath);              // Recent に note-md（絶対パス）で記録
+
+        // 編集後 content（新 H1）。実際の保存は disk に書いてから再解決される（getHistoryWithFreshTitles は disk 読み）。
+        const newContent = '# New Title\n\nbody';
+        fs.writeFileSync(pagePath, newContent, 'utf8');  // mdMainSave 相当（disk 反映）
+        // ★ 再送要と判定される（tree 外 md でも history フォールバックで拾う）
+        expect(shouldResendHistoryOnMainMdSave(fm, pagePath, newContent), 'tree 外 md でも再送要').toBe(true);
+        // fresh history が新 H1 を反映（Recent に伝播する値）
+        const fresh = fm.getHistoryWithFreshTitles().find((e) => path.resolve(e.id) === path.resolve(pagePath));
+        expect(fresh?.title, 'fresh history が新 H1').toBe('New Title');
+
+        // ★ counterfactual: history フォールバックを外す（syncTitleFromH1 のみ）と tree 外 md は再送されない
+        expect(fm.syncTitleFromH1(pagePath, newContent), 'syncTitleFromH1 単体は tree 外 md で false').toBe(false);
+    });
+
+    // TC-TP-08（tab live-update の fresh history フォールバック・再オープン③）:
+    // active tab が tree 外 md（items 無し）で fresh history に絶対パス一致 note-md があれば、その title を返す。
+    test('TC-TP-08 tab live-update が tree 外 md を fresh history から解決 / 無ければ null', () => {
+        const fm = new NotesFileManager(tempDir);
+        const outPath = fm.createFile('Host');
+        fm.openFile(outPath);
+        const pagePath = fm.getPageFilePath('pTab');
+        fs.mkdirSync(path.dirname(pagePath), { recursive: true });
+        fs.writeFileSync(pagePath, '# Tab Title', 'utf8');
+        dispatchOnFileOpened(fm, pagePath);              // note-md（絶対パス）記録
+
+        // items に無い tree 外 md → fresh history の H1 で解決
+        expect(resolveTabLiveTitle(fm, pagePath), 'fresh history から title 解決').toBe('Tab Title');
+        // ★ counterfactual: 履歴にも items にも無い md → null（basename のまま）
+        const orphan = path.join(otherDir, 'orphan.md');
+        fs.mkdirSync(path.dirname(orphan), { recursive: true });
+        fs.writeFileSync(orphan, '# Orphan', 'utf8');
+        expect(resolveTabLiveTitle(fm, orphan), '履歴/items に無い md は null').toBeNull();
+    });
+
+    // TC-TP-09（★load-bearing・counterfactual・再オープン③ 兄弟経路）:
+    // 外部プロセスが tree 外 md（open-new-tab で開いた page md 相当）の H1 を書換 → notesEditorProvider の
+    // onExternalContent（:346-360）が「絶対パス一致 note-md 履歴あり」で再送要と判定する。
+    // 判定述語は notesSaveCurrentMd と同一（shouldResendHistoryOnMainMdSave を再利用）。
+    test('TC-TP-09 外部編集 relay も tree 外 md を history フォールバックで再送要（syncTitleFromH1 単体では届かない）', () => {
+        const fm = new NotesFileManager(tempDir);
+        const outPath = fm.createFile('Host');
+        fm.openFile(outPath);
+        const pagePath = fm.getPageFilePath('pExt');   // items に無い絶対パス md（page md 相当）
+        fs.mkdirSync(path.dirname(pagePath), { recursive: true });
+        fs.writeFileSync(pagePath, '# Ext Old', 'utf8');
+        dispatchOnFileOpened(fm, pagePath);             // Recent に note-md（絶対パス）で記録
+
+        // 外部編集相当（disk に新 H1）
+        const extContent = '# Ext New\n\nbody';
+        fs.writeFileSync(pagePath, extContent, 'utf8');
+        // onExternalContent の再送判定（notesSaveCurrentMd と同一述語）→ tree 外 md でも再送要
+        expect(shouldResendHistoryOnMainMdSave(fm, pagePath, extContent), '外部編集でも tree 外 md は再送要').toBe(true);
+        const fresh = fm.getHistoryWithFreshTitles().find((e) => path.resolve(e.id) === path.resolve(pagePath));
+        expect(fresh?.title, 'fresh history が外部編集後の新 H1').toBe('Ext New');
+        // ★ counterfactual: history フォールバック無し（syncTitleFromH1 単体）だと tree 外 md は再送されない
+        expect(fm.syncTitleFromH1(pagePath, extContent), 'syncTitleFromH1 単体は tree 外 md で false').toBe(false);
+    });
+
+    // TC-TP-10（★load-bearing・race guard・再オープン③ fix2）:
+    // tree 外 md の H1 編集 → notesSaveCurrentMd は mdMainSave（async disk 書込）を await してから title 再解決。
+    // await していれば再送 history に新 H1、await しない（fire-and-forget）と disk 反映前に読んで stale（旧 H1）。
+    test('TC-TP-10 mdMainSave を await → 再送 history に新 H1 / await しないと stale（旧 H1）', async () => {
+        const fm = new NotesFileManager(tempDir);
+        const outPath = fm.createFile('Host');
+        fm.openFile(outPath);
+        const pagePath = fm.getPageFilePath('pRace');
+        fs.mkdirSync(path.dirname(pagePath), { recursive: true });
+        fs.writeFileSync(pagePath, '# Old H1', 'utf8');
+        dispatchOnFileOpened(fm, pagePath);       // Recent に note-md（絶対パス）記録
+        fm.openFile(pagePath);                    // currentFilePath = tree 外 md
+
+        const newContent = '# New H1\n\nbody';
+        // async disk 書込（マイクロタスク跨ぎ）。await 忘れを検出させる。
+        const mdMainSave = async (fp: string, c: string) => { await Promise.resolve(); fs.writeFileSync(fp, c, 'utf8'); };
+
+        // ★ fix（await あり）: disk が新 H1 → fresh title も新 H1
+        const titleAwaited = await mainMdSaveThenResolveTitle(fm, pagePath, newContent, mdMainSave, true);
+        expect(titleAwaited, 'await すれば新 H1 が Recent/tab に乗る').toBe('New H1');
+
+        // ★ counterfactual（await 無し）: disk 反映前に読むので stale（旧 H1）。← fix 前の症状（別 Click まで反映されない）
+        fs.writeFileSync(pagePath, '# Old H1', 'utf8');   // disk を旧に戻す
+        const newContent2 = '# Newer H1\n\nbody';
+        const titleNotAwaited = await mainMdSaveThenResolveTitle(fm, pagePath, newContent2, mdMainSave, false);
+        expect(titleNotAwaited, 'await しないと disk 未反映で stale（旧 H1）').toBe('Old H1');
     });
 });

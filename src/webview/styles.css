@@ -1554,14 +1554,20 @@ body {
 /* Side Panel (Notion-style peek overlay) */
 .side-panel {
     position: absolute;
-    top: 0;
+    /* sprint 20260724-042927 (FR-SPC-01・ADRL-SPC-CONTAINING-BLOCK): タブ内領域に収める。
+       Notes モードでは .notes-main-wrapper（position:relative）が containing block になり、
+       top=タブバー下端（--notes-tab-bar-height、Tab Manager が renderTabBar で set・非表示時 0px）、
+       bottom=0 で下端まで。tab1（タブバー非表示）は 0px = 全高。.out/.md single は
+       containing block が従来どおり（--notes-tab-bar-height 未定義 → 0px）で全高。 */
+    top: var(--notes-tab-bar-height, 0px);
     right: 0;
+    bottom: 0;
     width: 50%;
     /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
        通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
     min-width: min(288px, 95vw);
     max-width: 70%;
-    height: 100%;
+    /* height は top+bottom で確定（旧 height:100% を置換）。 */
     background: var(--bg-color);
     border-left: 1px solid var(--border-color);
     box-shadow: -4px 0 14px rgba(0, 0, 0, 0.15);
@@ -1574,6 +1580,11 @@ body {
 .side-panel.open {
     display: flex;
     transform: translateX(0);
+}
+/* sprint 20260724-063158 (FR-TP-02): タブ復帰でサイドパネルを復元する時はスライドアニメを再生しない。
+   .side-panel(0,1,0) より高特異度(0,2,0)で transition:none が勝つ。復元経路で一時付与し次フレームで除去。 */
+.side-panel.no-transition {
+    transition: none;
 }
 .side-panel.expanded {
     width: 95%;
@@ -1940,20 +1951,7 @@ body {
     height: 100%;
     position: relative;
 }
-/* Overlay behind side panel to darken main editor */
-.side-panel-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.2);
-    z-index: 99;
-    display: none;
-}
-.side-panel-overlay.open {
-    display: block;
-}
+/* sprint 20260724-042927: .side-panel-overlay（シャドー背景）は全モードで廃止した。 */
 
 ::selection { background: var(--selection-bg); }
 

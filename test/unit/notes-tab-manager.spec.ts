@@ -35,6 +35,7 @@ async function setupTabManager(page: import('@playwright/test').Page) {
             flushActive: () => calls.push({ m: 'flushActive' }),
             restoreSidePanel: (fp: string) => calls.push({ m: 'restoreSidePanel', fp }),
             closeSidePanel: () => calls.push({ m: 'closeSidePanel' }),
+            openInVscodeTab: (fp: string) => calls.push({ m: 'openInVscodeTab', fp }),
         };
         (window as any).__tm = (window as any).__initNotesTabManager({
             tabBarEl: bar,
@@ -48,6 +49,7 @@ async function setupTabManager(page: import('@playwright/test').Page) {
             applyOutlinerView: (v: any) => calls.push({ m: 'applyOutlinerView', v }),
             captureSidePanel: () => (window as any).__sidePanelState || { open: false, filePath: null, scrollTop: 0 },
             getSidePanelScrollEl: () => (window as any).__mockSidePanelScrollEl,
+            closeSidePanelInWebview: () => calls.push({ m: 'closeSidePanelInWebview' }),
         });
     });
 }
@@ -237,5 +239,118 @@ test.describe('FR-TAB — Notes Tab Manager 純ロジック', () => {
         expect(r.bClosed).toBe(true);                       // B（閉）へは closeSidePanel
         expect(r.aRestored).toBe(1);                        // A（開）へ戻ると restoreSidePanel
         expect(r.aRestoreFp).toBe('/note/pages/p.md');
+    });
+
+    // ===== sprint 20260724-042927: サイドパネル×タブ共存 =====
+
+    // TC-SPC-07: updateActiveSidePanel でアクティブタブの sidePanel 状態が追随
+    test('TC-SPC-07 updateActiveSidePanel が activeTab.sidePanel を更新する', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            tm.updateActiveSidePanel({ open: true, filePath: '/note/pages/p.md', scrollTop: 40 });
+            const active = tm.getTabs().find((t: any) => t.id === tm.getActiveId());
+            return { open: active.sidePanel.open, fp: active.sidePanel.filePath, st: active.sidePanel.scrollTop };
+        });
+        expect(r.open).toBe(true);
+        expect(r.fp).toBe('/note/pages/p.md');
+        expect(r.st).toBe(40);
+    });
+
+    // TC-SPC-09（★load-bearing・#3d・counterfactual）: サイドパネル無しタブへ切替で webview 内 close が呼ばれる
+    test('TC-SPC-09 サイドパネル無しタブへ切替 → closeSidePanelInWebview が呼ばれる（host 往復だけでない）', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            const idA = tm.initFirstTab('/note/a.out', 'out');
+            const idB = tm.openInNewTab('/note/b.md', 'md');
+            // A をアクティブにし、A のサイドパネルを open に（capture で退避される）
+            tm.activateTab(idA);
+            (window as any).__sidePanelState = { open: true, filePath: '/note/pages/p.md', scrollTop: 0 };
+            (window as any).__calls.length = 0;
+            // B（サイドパネル無し）へ切替 → loadTab の close 分岐が closeSidePanelInWebview を呼ぶ
+            tm.activateTab(idB);
+            const calls = (window as any).__calls.map((c: any) => c.m);
+            return {
+                closeInWebview: calls.filter((m: string) => m === 'closeSidePanelInWebview').length,
+                closeBridge: calls.filter((m: string) => m === 'closeSidePanel').length,
+            };
+        });
+        expect(r.closeInWebview).toBe(1);   // ★ webview 内で直接閉じる（.side-panel.open を外す）
+        expect(r.closeBridge).toBe(1);       // host 往復（watcher dispose）も呼ぶ
+        // counterfactual: closeSidePanelInWebview が無い（host bridge のみ）と .side-panel.open が残り前タブのパネルが見えたまま
+    });
+
+    // ===== sprint 20260724-063158: タブ/サイドパネル追加改修 =====
+
+    // TC-TP-04a（tab 名 title 優先・early-return 是正・FR-TP-04）★load-bearing
+    test('TC-TP-04a syncActiveFile が title を優先・filePath 同一でも title 更新', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/pages/p.md', 'md');
+            // title 提供 → basename でなく title
+            tm.syncActiveFile('/note/pages/p.md', 'md', 'My Title');
+            const t1 = tm.getTabs()[0].title;
+            // ★ filePath 同一でも title 更新（early-return が title をバイパスしない）
+            tm.syncActiveFile('/note/pages/p.md', 'md', 'Renamed Title');
+            const t2 = tm.getTabs()[0].title;
+            // title 未提供の別ファイル → basename フォールバック
+            tm.syncActiveFile('/note/pages/q.md', 'md');
+            const t3 = tm.getTabs()[0].title;
+            return { t1, t2, t3 };
+        });
+        expect(r.t1).toBe('My Title');
+        expect(r.t2).toBe('Renamed Title');   // ★ 同一 filePath でも title 更新
+        expect(r.t3).toBe('q');                // title 無し → basename
+    });
+
+    // TC-TP-04b（updateActiveTabTitle 即時反映・FR-TP-04）
+    test('TC-TP-04b updateActiveTabTitle が active タブ title を更新', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out', 'Old Title');
+            tm.updateActiveTabTitle('New Title');
+            return tm.getTabs()[0].title;
+        });
+        expect(r).toBe('New Title');
+    });
+
+    // TC-TP-06（右クリック→openInVscodeTab・md のみ・FR-TP-06）★load-bearing・counterfactual
+    test('TC-TP-06 md タブ右クリックで Open in VS Code Tab → openInVscodeTab / out タブはメニュー無し', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            const idOut = tm.initFirstTab('/note/a.out', 'out');
+            const idMd = tm.openInNewTab('/note/b.md', 'md');   // 2 タブで tab bar 表示
+            const bar = document.getElementById('notesTabBar')!;
+            function tabEl(id: string) {
+                var els = bar.querySelectorAll('.notes-tab');
+                for (var i = 0; i < els.length; i++) { if ((els[i] as HTMLElement).dataset.tabId === id) return els[i] as HTMLElement; }
+                return null;
+            }
+            // out タブに contextmenu → メニュー出ない
+            (window as any).__calls.length = 0;
+            tabEl(idOut)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+            const outMenu = document.querySelector('.file-panel-context-menu');
+            // md タブに contextmenu → メニュー出る → 項目 click → openInVscodeTab
+            tabEl(idMd)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }));
+            const mdMenu = document.querySelector('.file-panel-context-menu');
+            const item = mdMenu ? mdMenu.querySelector('.file-panel-context-item') as HTMLElement : null;
+            if (item) item.click();
+            const calls = (window as any).__calls.map((c: any) => c.m + ':' + (c.fp || ''));
+            return {
+                outMenuShown: !!outMenu,
+                mdMenuShown: !!mdMenu,
+                itemLabel: item ? item.textContent : null,
+                openInVscodeTabCalled: calls.filter((s: string) => s === 'openInVscodeTab:/note/b.md').length,
+            };
+        });
+        expect(r.outMenuShown).toBe(false);   // ★ out タブはメニュー出ない
+        expect(r.mdMenuShown).toBe(true);      // md タブはメニュー出る
+        expect(r.itemLabel).toBe('Open in VS Code Tab');
+        expect(r.openInVscodeTabCalled).toBe(1);  // ★ 項目 click で openInVscodeTab(filePath)
     });
 });

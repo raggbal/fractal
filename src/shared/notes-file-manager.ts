@@ -561,19 +561,40 @@ export class NotesFileManager {
         const isOut = /\.out$/i.test(filePath);
         if (!isMd && !isOut) return;
         const id = filePath.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
-        const item = this.getStructure().items?.[id] as { title?: string } | undefined;
-        // FR-HP-09: title 解決は「items 優先 → H1 → basename」。他 note / note 外の md は items に無いため、
-        //   開いた md の先頭 H1（extractFirstH1・CommonMark ATX 準拠で C#/F# を壊さない）→ basename でフォールバック。
-        let title = (item && item.title) || '';
-        if (!title && isMd) {
-            try { title = extractFirstH1(fs.readFileSync(filePath, 'utf8')) || ''; } catch { /* ignore */ }
-        }
         this.pushHistory({
             kind: isMd ? 'note-md' : 'out',
             id: filePath,
-            title: title || id,
+            title: this.resolveTitleForPath(filePath) || id,
             ts: Date.now(),
         });
+    }
+    /**
+     * sprint 20260724-063158 (FR-TP-04): filePath の表示 title を解決する（tab 名 / Recent 共通）。
+     * 「items[basename].title 優先 → md は先頭 H1（extractFirstH1・CommonMark ATX 準拠で C#/F# を壊さない）
+     *  → out は .out data.title → basename」。content を渡せば md の H1 抽出にそれを使う（disk 再読込を避ける）。
+     * items 外の md（他 note / note 外）は H1、out は data.title で解決。
+     */
+    resolveTitleForPath(filePath: string, content?: string): string {
+        if (!filePath) return '';
+        const isMd = /\.md$/i.test(filePath);
+        const isOut = /\.out$/i.test(filePath);
+        const id = filePath.replace(/^.*[/\\]/, '').replace(/\.(md|out)$/i, '');
+        const item = this.getStructure().items?.[id] as { title?: string } | undefined;
+        let title = (item && item.title) || '';
+        if (!title && isMd) {
+            try {
+                const md = typeof content === 'string' ? content : fs.readFileSync(filePath, 'utf8');
+                title = extractFirstH1(md) || '';
+            } catch { /* ignore */ }
+        }
+        if (!title && isOut) {
+            try {
+                const raw = typeof content === 'string' ? content : fs.readFileSync(filePath, 'utf8');
+                const data = JSON.parse(raw);
+                if (typeof data.title === 'string' && data.title) { title = data.title; }
+            } catch { /* ignore */ }
+        }
+        return title || id;
     }
     // ★reopen 2026-07-23: recordPageHistory は廃止（page md も recordFileHistory で note-md・絶対パス記録に統一）。
     saveHistoryPanelHeight(height: number): void {

@@ -814,7 +814,8 @@ body {
     border-bottom: 1px solid var(--sidebar-bg);
 }
 .sidebar-header h3 { font-size: 13px; font-weight: 600; }
-.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); }
+.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.6; }
+.sidebar-toggle:hover { opacity: 1; }
 .outline { flex: 1; overflow-y: auto; padding: 7px 0; }
 .outline-item {
     display: block;
@@ -2307,14 +2308,20 @@ body {
 /* Side Panel (Notion-style peek overlay) */
 .side-panel {
     position: absolute;
-    top: 0;
+    /* sprint 20260724-042927 (FR-SPC-01・ADRL-SPC-CONTAINING-BLOCK): タブ内領域に収める。
+       Notes モードでは .notes-main-wrapper（position:relative）が containing block になり、
+       top=タブバー下端（--notes-tab-bar-height、Tab Manager が renderTabBar で set・非表示時 0px）、
+       bottom=0 で下端まで。tab1（タブバー非表示）は 0px = 全高。.out/.md single は
+       containing block が従来どおり（--notes-tab-bar-height 未定義 → 0px）で全高。 */
+    top: var(--notes-tab-bar-height, 0px);
     right: 0;
+    bottom: 0;
     width: 50%;
     /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
        通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
     min-width: min(288px, 95vw);
     max-width: 70%;
-    height: 100%;
+    /* height は top+bottom で確定（旧 height:100% を置換）。 */
     background: var(--bg-color);
     border-left: 1px solid var(--border-color);
     box-shadow: -4px 0 14px rgba(0, 0, 0, 0.15);
@@ -2693,20 +2700,7 @@ body {
     height: 100%;
     position: relative;
 }
-/* Overlay behind side panel to darken main editor */
-.side-panel-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.2);
-    z-index: 99;
-    display: none;
-}
-.side-panel-overlay.open {
-    display: block;
-}
+/* sprint 20260724-042927: .side-panel-overlay（シャドー背景）は全モードで廃止した。 */
 
 ::selection { background: var(--selection-bg); }
 
@@ -3853,8 +3847,26 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
     }
 
+    // ===== Caret scroll-follow (TASK-11 bug fix 2026-07-24) =====
+    // Pure: caret rect と scroll owner rect から owner.scrollTop の増減量を返す。
+    // caret が owner 上端より上 → 負（上へ）、下端より下 → 正（下へ）、可視域内 → 0。
+    // owner-rect ベースにすることで祖先スクロールコンテナ（.editor-wrapper）でも up/down 対称に追従する
+    // （旧実装は window.innerHeight 基準 + scrollIntoView nearest で ↑非対称だった）。
+    function computeCaretScrollDelta(caretRect, ownerRect, margin) {
+        margin = margin || 0;
+        if (!caretRect || !ownerRect) return 0;
+        if (caretRect.top < ownerRect.top) {
+            return caretRect.top - ownerRect.top - margin;
+        }
+        if (caretRect.bottom > ownerRect.bottom) {
+            return caretRect.bottom - ownerRect.bottom + margin;
+        }
+        return 0;
+    }
+
     // ===== Export =====
     window.__editorUtils = {
+        computeCaretScrollDelta: computeCaretScrollDelta,
         LUCIDE_ICONS: LUCIDE_ICONS,
         SUPPORTED_LANGUAGES: SUPPORTED_LANGUAGES,
         LANGUAGE_ALIASES: LANGUAGE_ALIASES,
@@ -5116,31 +5128,40 @@ class EditorInstance {
         element.focus();
     }
     
-    // Helper: scroll cursor position into view (for code block / mermaid block navigation)
+    // Helper: scroll cursor position into view.
+    // ★ TASK-11（バグ修正 2026-07-24）: 旧実装は可視判定に window.innerHeight を使い、
+    //   scrollIntoView({block:'nearest'}) をカーソル親要素に対して呼んでいた。だが Notes/sidepanel の
+    //   縦スクロール owner は祖先 .editor-wrapper で、ネイティブ caret スクロール（nearest）は祖先コンテナに
+    //   対して非対称（下方向は追従・上方向は非追従）→ ↑でカーソルを見失うバグ。
+    //   → 実スクロール owner（.editor-wrapper || editor 自身）の rect 基準で owner.scrollTop を
+    //     up/down 対称に直接調整する（standalone は editor 自身が owner でも同ロジックで動く）。
+    var CARET_SCROLL_MARGIN = 8;
+    // 純関数は __editorUtils.computeCaretScrollDelta に集約（単一の真実・unit テスト対象）。
     function scrollCursorIntoView() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
 
         try {
             const range = sel.getRangeAt(0);
-            // Try to get cursor position from range rect (no DOM modification needed)
             const rects = range.getClientRects();
-            const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
-
-            if (rect && (rect.height > 0 || rect.width > 0)) {
-                // Use the rect to check if cursor is visible
-                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-                if (rect.top < 0 || rect.bottom > viewportHeight) {
-                    // Scroll the cursor's parent element into view
-                    let el = range.startContainer;
-                    if (el.nodeType === 3) el = el.parentElement;
-                    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-                }
-            } else {
-                // Collapsed range with zero-size rect: scroll parent element
+            let caretRect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+            // zero-size collapsed range: 親要素の rect で代用
+            if (!caretRect || (caretRect.height === 0 && caretRect.width === 0)) {
                 let el = range.startContainer;
                 if (el.nodeType === 3) el = el.parentElement;
-                if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                if (el && el.getBoundingClientRect) caretRect = el.getBoundingClientRect();
+            }
+            if (!caretRect) return;
+
+            // 実スクロール owner: Notes/sidepanel = .editor-wrapper、standalone も .editor-wrapper あり。
+            // 無ければ editor 自身（フォールバック）。
+            const owner = (editor && editor.closest && editor.closest('.editor-wrapper')) || editor;
+            if (!owner) return;
+            const ownerRect = owner.getBoundingClientRect();
+            const _delta = window.__editorUtils && window.__editorUtils.computeCaretScrollDelta;
+            const delta = _delta ? _delta(caretRect, ownerRect, CARET_SCROLL_MARGIN) : 0;
+            if (delta !== 0) {
+                owner.scrollTop += delta;   // 同期・instant（チラつかせない）。up/down 対称。
             }
         } catch (e) {
             logger.log('scrollCursorIntoView failed:', e);
@@ -13584,6 +13605,7 @@ class EditorInstance {
                     if (prev) {
                         e.preventDefault();
                         navigateToAdjacentElement(prev, 'up', false);
+                        scrollCursorIntoView(); // TASK-11: ↑追従（owner-rect ベース・祖先 .editor-wrapper に対称）
                         return;
                     }
                 } else if (e.key === 'ArrowDown') {
@@ -13599,6 +13621,7 @@ class EditorInstance {
                     if (next) {
                         e.preventDefault();
                         navigateToAdjacentElement(next, 'down', false);
+                        scrollCursorIntoView(); // TASK-11: ↓追従
                         return;
                     }
                 }
@@ -19464,7 +19487,7 @@ class EditorInstance {
     var sidePanel = container.querySelector('.side-panel');
     var sidePanelFilename = container.querySelector('.side-panel-filename');
     var sidePanelClose = container.querySelector('.side-panel-close');
-    var sidePanelOverlay = container.querySelector('.side-panel-overlay');
+    // sprint 20260724-042927: sidePanelOverlay 廃止（全モード）。
     var sidePanelIframeContainer = container.querySelector('.side-panel-iframe-container');
     var sidePanelSidebar = container.querySelector('.side-panel-sidebar');
     var sidePanelToc = container.querySelector('.side-panel-toc');
@@ -19528,12 +19551,10 @@ class EditorInstance {
         // Setup image dir display in side panel body
         setupSidePanelImageDir();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanel) sidePanel.style.display = 'flex';
-        if (sidePanelOverlay) sidePanelOverlay.style.display = 'block';
         requestAnimationFrame(function() {
             if (sidePanel) sidePanel.classList.add('open');
-            if (sidePanelOverlay) sidePanelOverlay.classList.add('open');
         });
 
         // アニメーション完了後にエディタに自動フォーカス
@@ -19759,7 +19780,7 @@ class EditorInstance {
 
     function closeSidePanel() {
         sidePanel.classList.remove('open');
-        sidePanelOverlay.classList.remove('open');
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要・旧: null 無ガードで .out/.md single クラッシュ源）。
         setTimeout(function() {
             closeSidePanelImmediate();
         }, 200);
@@ -19773,7 +19794,7 @@ class EditorInstance {
         //   isSwitch=false (=ユーザー明示 close / 拡張 destroy) の時のみ notify する。
         if (!isSwitch) {
             if (sidePanel) sidePanel.style.display = 'none';
-            if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         // Reset expanded state
         if (sidePanelExpanded) {
@@ -19934,9 +19955,7 @@ class EditorInstance {
     if (sidePanelClose) {
         sidePanelClose.addEventListener('click', closeSidePanel);
     }
-    if (sidePanelOverlay) {
-        sidePanelOverlay.addEventListener('click', closeSidePanel);
-    }
+    // sprint 20260724-042927 (FR-SPC-03): overlay click → close を廃止（外側クリックで閉じない）。Esc は下で残す。
     if (isMainInstance) document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
@@ -22521,6 +22540,12 @@ class EditorInstance {
         syncTimeout = null;
         editingIdleTimer = null;
         pendingSync = false;
+    };
+    // sprint 20260723-233506: タブ切替/unload の前に debounce 未送信編集を即 host へ送る（NFR-TAB-03・flush 二段）。
+    // destroy（_cancelPendingSync で timer 破棄）より前に呼ぶこと。_destroyed 前提。
+    self.flushPendingSync = function() {
+        if (self._destroyed) return;
+        try { notifyChangeImmediate(); } catch (e) { console.error('[flushPendingSync]', e); }
     };
     } // end _legacyInit()
 } // end class EditorInstance

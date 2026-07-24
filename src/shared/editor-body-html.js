@@ -206,8 +206,8 @@ function generateSidePanelHtml(messages) {
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
             </div>
-        </div>
-        <div class="side-panel-overlay" id="sidePanelOverlay"></div>`;
+        </div>`;
 }
+// sprint 20260724-042927: .side-panel-overlay（シャドー）を全モードで廃止（外側クリック close も廃止）。
 
 module.exports = { generateEditorBodyHtml, generateSidePanelHtml };

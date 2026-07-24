@@ -15599,7 +15599,7 @@ class EditorInstance {
     var sidePanel = container.querySelector('.side-panel');
     var sidePanelFilename = container.querySelector('.side-panel-filename');
     var sidePanelClose = container.querySelector('.side-panel-close');
-    var sidePanelOverlay = container.querySelector('.side-panel-overlay');
+    // sprint 20260724-042927: sidePanelOverlay 廃止（全モード）。
     var sidePanelIframeContainer = container.querySelector('.side-panel-iframe-container');
     var sidePanelSidebar = container.querySelector('.side-panel-sidebar');
     var sidePanelToc = container.querySelector('.side-panel-toc');
@@ -15663,12 +15663,10 @@ class EditorInstance {
         // Setup image dir display in side panel body
         setupSidePanelImageDir();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanel) sidePanel.style.display = 'flex';
-        if (sidePanelOverlay) sidePanelOverlay.style.display = 'block';
         requestAnimationFrame(function() {
             if (sidePanel) sidePanel.classList.add('open');
-            if (sidePanelOverlay) sidePanelOverlay.classList.add('open');
         });
 
         // アニメーション完了後にエディタに自動フォーカス
@@ -15894,7 +15892,7 @@ class EditorInstance {
 
     function closeSidePanel() {
         sidePanel.classList.remove('open');
-        sidePanelOverlay.classList.remove('open');
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要・旧: null 無ガードで .out/.md single クラッシュ源）。
         setTimeout(function() {
             closeSidePanelImmediate();
         }, 200);
@@ -15908,7 +15906,7 @@ class EditorInstance {
         //   isSwitch=false (=ユーザー明示 close / 拡張 destroy) の時のみ notify する。
         if (!isSwitch) {
             if (sidePanel) sidePanel.style.display = 'none';
-            if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         // Reset expanded state
         if (sidePanelExpanded) {
@@ -16069,9 +16067,7 @@ class EditorInstance {
     if (sidePanelClose) {
         sidePanelClose.addEventListener('click', closeSidePanel);
     }
-    if (sidePanelOverlay) {
-        sidePanelOverlay.addEventListener('click', closeSidePanel);
-    }
+    // sprint 20260724-042927 (FR-SPC-03): overlay click → close を廃止（外側クリックで閉じない）。Esc は下で残す。
     if (isMainInstance) document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC

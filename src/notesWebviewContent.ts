@@ -28,6 +28,8 @@ interface NotesInitData {
     fileChangeId?: number;
     /** FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示) */
     noteFolderName?: string;
+    /** FR-TP-04: 初期タブ名用の現ファイル title（Outliner title / md H1・host 解決） */
+    currentFileTitle?: string;
     /** FR-HP: 最近開いたファイル履歴 + パネル状態 */
     history?: Array<{ kind: string; id: string; title: string; ts: number }>;
     historyPanelHeight?: number;
@@ -242,10 +244,11 @@ export function getNotesWebviewContent(
             <div class="markdown-container" style="display:none">
                 ${markdownPaneHtml}
             </div>
+            <!-- sprint 20260724-042927 (FR-SPC-01): サイドパネルを .notes-main-wrapper 内に配置し、
+                 タブ内領域（top=--notes-tab-bar-height, bottom=0）に収める。body 直下から移動。 -->
+            ${sidePanelHtml}
         </div>
     </div>
-
-    ${sidePanelHtml}
 
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}" nonce="${nonce}"></script>
@@ -325,6 +328,7 @@ export function getNotesWebviewContent(
                     flushActive: function() { if (window.notesHostBridge.flushActive) window.notesHostBridge.flushActive(); },
                     restoreSidePanel: function(fp) { window.notesHostBridge.restoreSidePanel(fp); },
                     closeSidePanel: function() { if (window.notesHostBridge.closeSidePanelForTab) window.notesHostBridge.closeSidePanelForTab(); },
+                    openInVscodeTab: function(fp) { if (window.notesHostBridge.openInVscodeTab) window.notesHostBridge.openInVscodeTab(fp); },
                 },
                 // ★ flush 二段（NFR-TAB-03）: webview 側の debounce 未送信を destroy 前に即送信
                 flushActiveWebview: function() {
@@ -347,9 +351,12 @@ export function getNotesWebviewContent(
                         ? window.Outliner.captureSidePanelState() : { open: false, filePath: null, scrollTop: 0 };
                 },
                 getSidePanelScrollEl: function() { return document.querySelector('.side-panel .editor-wrapper'); },
+                closeSidePanelInWebview: function() {
+                    if (window.Outliner && window.Outliner.closeSidePanelForTab) window.Outliner.closeSidePanelForTab();
+                },
             });
-            // 初期タブ（開いているファイル = .out）を登録
-            window.__notesTabManager.initFirstTab(${JSON.stringify(initData.currentFilePath)}, 'out');
+            // 初期タブ（開いているファイル = .out）を登録（FR-TP-04: title は host 解決の currentFileTitle）
+            window.__notesTabManager.initFirstTab(${JSON.stringify(initData.currentFilePath)}, 'out', ${JSON.stringify(initData.currentFileTitle || '')} || undefined);
             // host からの「webview 内タブで開く」指示（open new tab 置換・リンク cmd+click・FR-TAB-02）
             window.addEventListener('message', function(e) {
                 var m = e.data;
@@ -361,9 +368,10 @@ export function getNotesWebviewContent(
                 //   → notesOpenFile → updateData）をアクティブタブの filePath に同期。fileChangeId!==undefined
                 //   は「実ファイル切替」（外部 in-place update を除外）。これが無いと tab.filePath が stale になり
                 //   タブ再アクティブ化で「1つ前のページ」に戻る。
+                //   FR-TP-04: m.title（host 解決の Outliner title / md H1）を渡し tab 名を実 title に。
                 if (m.type === 'updateData' && m.fileChangeId !== undefined) {
                     var fp = m.kind === 'md' ? m.filePath : m.outFileKey;
-                    if (fp) window.__notesTabManager.syncActiveFile(fp, m.kind === 'md' ? 'md' : 'out');
+                    if (fp) window.__notesTabManager.syncActiveFile(fp, m.kind === 'md' ? 'md' : 'out', m.title || undefined);
                 }
             });
         })();
@@ -396,6 +404,36 @@ export function getNotesWebviewContent(
             var m = e.data;
             if (m && m.type === 'notesFileListChanged' && m.structure && window.__notesHistoryPanel) {
                 window.__notesHistoryPanel.render(m.structure.history || []);
+            }
+            // FR-TP-04（即時反映）: Outliner title / md H1 変更で notesFileListChanged が broadcast される。
+            //   アクティブタブの filePath に対応する title を structure.items から再解決して tab 名を更新。
+            if (m && m.type === 'notesFileListChanged' && m.structure && window.__notesTabManager
+                && typeof window.__notesTabManager.updateActiveTabTitle === 'function') {
+                try {
+                    var tabs = window.__notesTabManager.getTabs();
+                    var activeId = window.__notesTabManager.getActiveId();
+                    var active = tabs.filter(function(t) { return t.id === activeId; })[0];
+                    if (active && active.filePath) {
+                        var id = active.filePath.replace(/^.*[\\/\\\\]/, '').replace(/\\.(md|out)$/i, '');
+                        var item = m.structure.items && m.structure.items[id];
+                        if (item && item.title) {
+                            window.__notesTabManager.updateActiveTabTitle(item.title);
+                        } else {
+                            // FR-TP-04（再オープン③）: tree 外 md（open-new-tab の page md 等）は items に無い。
+                            //   fresh history（getHistoryWithFreshTitles が tree 外 md も H1 解決済み）から
+                            //   絶対パス一致の note-md エントリの title を fallback に使う（tab 名 即反映）。
+                            var norm = function(p) { return String(p).replace(/\\\\/g, '/'); };
+                            var hist = (m.structure.history || []);
+                            for (var hi = 0; hi < hist.length; hi++) {
+                                var he = hist[hi];
+                                if (he && he.kind === 'note-md' && norm(he.id) === norm(active.filePath) && he.title) {
+                                    window.__notesTabManager.updateActiveTabTitle(he.title);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (err) { /* ignore */ }
             }
         });
     </script>

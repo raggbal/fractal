@@ -217,12 +217,15 @@ function generateNotesFilePanelHtml(options) {
            tab 領域だけ左右スクロール（FR-TAB-05）。1 タブ時は display:none（初期 inline style）。 */
         .notes-tab-bar {
             display: none;
-            align-items: center;
+            /* tab を全高まで伸ばして下の境界線に接地させる（center だと tab と線の間に隙間が出る） */
+            align-items: stretch;
             flex: 0 0 auto;
             min-height: 30px;
-            border-bottom: 1px solid var(--border-color, rgba(128,128,128,0.25));
+            /* 下境界線は border ではなく inset box-shadow で bar の内側最下行に描く（全幅・tab の無い右側も含む）。
+               active tab の背景（子・bar 内側の最下行まで届く）が後から描画されてこの線を覆う＝active 下だけ線が消える。
+               border-bottom（padding box の外に描画）だと子が margin で覆えず overflow でクリップされる問題を回避。 */
+            box-shadow: inset 0 -1px 0 var(--border-color, rgba(128,128,128,0.25));
             background: var(--sidebar-bg, rgba(128,128,128,0.06));
-            overflow: hidden;
         }
         .notes-tab-bar .notes-tab-bar-scroll {
             display: flex;
@@ -247,12 +250,16 @@ function generateNotesFilePanelHtml(options) {
             opacity: 0.65;
             white-space: nowrap;
             user-select: none;
+            /* sprint 20260724-063158 (FR-TP-05): 非選択タブ = 灰オーバーレイ（地色に灰を重ねて沈ませる。
+               --sidebar-bg と --bg-color が同色のテーマでも確実にコントラストが出るよう rgba 灰を明示）。 */
+            background: rgba(128,128,128,0.14);
         }
         .notes-tab-bar .notes-tab:hover { opacity: 0.85; }
         .notes-tab-bar .notes-tab[data-active="true"] {
             opacity: 1;
-            background: var(--editor-bg, rgba(128,128,128,0.12));
-            border-bottom: 2px solid var(--fr-color-primary, #4a9eff);
+            /* sprint 20260724-063158 (FR-TP-05): 選択タブ = 明るい地色（コンテンツ地続き＝目立つ・灰を重ねない）。
+               背景が bar 内側の最下行まで届き、bar の inset 下線をこの部分だけ覆う＝active 下の線が消え editor と地続き。 */
+            background: var(--bg-color, #ffffff);
         }
         .notes-tab-bar .notes-tab-title {
             overflow: hidden;

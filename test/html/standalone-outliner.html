@@ -702,7 +702,8 @@ body {
     border-bottom: 1px solid var(--sidebar-bg);
 }
 .sidebar-header h3 { font-size: 13px; font-weight: 600; }
-.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); }
+.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.6; }
+.sidebar-toggle:hover { opacity: 1; }
 .outline { flex: 1; overflow-y: auto; padding: 7px 0; }
 .outline-item {
     display: block;
@@ -2195,14 +2196,20 @@ body {
 /* Side Panel (Notion-style peek overlay) */
 .side-panel {
     position: absolute;
-    top: 0;
+    /* sprint 20260724-042927 (FR-SPC-01・ADRL-SPC-CONTAINING-BLOCK): タブ内領域に収める。
+       Notes モードでは .notes-main-wrapper（position:relative）が containing block になり、
+       top=タブバー下端（--notes-tab-bar-height、Tab Manager が renderTabBar で set・非表示時 0px）、
+       bottom=0 で下端まで。tab1（タブバー非表示）は 0px = 全高。.out/.md single は
+       containing block が従来どおり（--notes-tab-bar-height 未定義 → 0px）で全高。 */
+    top: var(--notes-tab-bar-height, 0px);
     right: 0;
+    bottom: 0;
     width: 50%;
     /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
        通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
     min-width: min(288px, 95vw);
     max-width: 70%;
-    height: 100%;
+    /* height は top+bottom で確定（旧 height:100% を置換）。 */
     background: var(--bg-color);
     border-left: 1px solid var(--border-color);
     box-shadow: -4px 0 14px rgba(0, 0, 0, 0.15);
@@ -2581,20 +2588,7 @@ body {
     height: 100%;
     position: relative;
 }
-/* Overlay behind side panel to darken main editor */
-.side-panel-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.2);
-    z-index: 99;
-    display: none;
-}
-.side-panel-overlay.open {
-    display: block;
-}
+/* sprint 20260724-042927: .side-panel-overlay（シャドー背景）は全モードで廃止した。 */
 
 ::selection { background: var(--selection-bg); }
 
@@ -5184,7 +5178,7 @@ body.mm-dragging, body.mm-dragging * {
             <aside class="side-panel-sidebar" id="sidePanelSidebar">
                 <div class="sidebar-header">
                     <h3>Outline</h3>
-                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline (Cmd+\)">&#9776;</button>
+                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="Close Outline (Cmd+\)">&times;</button>
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
@@ -5241,7 +5235,6 @@ body.mm-dragging, body.mm-dragging * {
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
             </div>
         </div>
-        <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
     <!-- editor.js のサイドパネル用に必要な隠しDOM要素 -->
     <div class="sidebar" id="sidebar" style="display:none;"><div class="outline" id="outline"></div></div>
@@ -5739,8 +5732,26 @@ body.mm-dragging, body.mm-dragging * {
             .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
     }
 
+    // ===== Caret scroll-follow (TASK-11 bug fix 2026-07-24) =====
+    // Pure: caret rect と scroll owner rect から owner.scrollTop の増減量を返す。
+    // caret が owner 上端より上 → 負（上へ）、下端より下 → 正（下へ）、可視域内 → 0。
+    // owner-rect ベースにすることで祖先スクロールコンテナ（.editor-wrapper）でも up/down 対称に追従する
+    // （旧実装は window.innerHeight 基準 + scrollIntoView nearest で ↑非対称だった）。
+    function computeCaretScrollDelta(caretRect, ownerRect, margin) {
+        margin = margin || 0;
+        if (!caretRect || !ownerRect) return 0;
+        if (caretRect.top < ownerRect.top) {
+            return caretRect.top - ownerRect.top - margin;
+        }
+        if (caretRect.bottom > ownerRect.bottom) {
+            return caretRect.bottom - ownerRect.bottom + margin;
+        }
+        return 0;
+    }
+
     // ===== Export =====
     window.__editorUtils = {
+        computeCaretScrollDelta: computeCaretScrollDelta,
         LUCIDE_ICONS: LUCIDE_ICONS,
         SUPPORTED_LANGUAGES: SUPPORTED_LANGUAGES,
         LANGUAGE_ALIASES: LANGUAGE_ALIASES,
@@ -7002,31 +7013,40 @@ class EditorInstance {
         element.focus();
     }
     
-    // Helper: scroll cursor position into view (for code block / mermaid block navigation)
+    // Helper: scroll cursor position into view.
+    // ★ TASK-11（バグ修正 2026-07-24）: 旧実装は可視判定に window.innerHeight を使い、
+    //   scrollIntoView({block:'nearest'}) をカーソル親要素に対して呼んでいた。だが Notes/sidepanel の
+    //   縦スクロール owner は祖先 .editor-wrapper で、ネイティブ caret スクロール（nearest）は祖先コンテナに
+    //   対して非対称（下方向は追従・上方向は非追従）→ ↑でカーソルを見失うバグ。
+    //   → 実スクロール owner（.editor-wrapper || editor 自身）の rect 基準で owner.scrollTop を
+    //     up/down 対称に直接調整する（standalone は editor 自身が owner でも同ロジックで動く）。
+    var CARET_SCROLL_MARGIN = 8;
+    // 純関数は __editorUtils.computeCaretScrollDelta に集約（単一の真実・unit テスト対象）。
     function scrollCursorIntoView() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
 
         try {
             const range = sel.getRangeAt(0);
-            // Try to get cursor position from range rect (no DOM modification needed)
             const rects = range.getClientRects();
-            const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
-
-            if (rect && (rect.height > 0 || rect.width > 0)) {
-                // Use the rect to check if cursor is visible
-                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-                if (rect.top < 0 || rect.bottom > viewportHeight) {
-                    // Scroll the cursor's parent element into view
-                    let el = range.startContainer;
-                    if (el.nodeType === 3) el = el.parentElement;
-                    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-                }
-            } else {
-                // Collapsed range with zero-size rect: scroll parent element
+            let caretRect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+            // zero-size collapsed range: 親要素の rect で代用
+            if (!caretRect || (caretRect.height === 0 && caretRect.width === 0)) {
                 let el = range.startContainer;
                 if (el.nodeType === 3) el = el.parentElement;
-                if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                if (el && el.getBoundingClientRect) caretRect = el.getBoundingClientRect();
+            }
+            if (!caretRect) return;
+
+            // 実スクロール owner: Notes/sidepanel = .editor-wrapper、standalone も .editor-wrapper あり。
+            // 無ければ editor 自身（フォールバック）。
+            const owner = (editor && editor.closest && editor.closest('.editor-wrapper')) || editor;
+            if (!owner) return;
+            const ownerRect = owner.getBoundingClientRect();
+            const _delta = window.__editorUtils && window.__editorUtils.computeCaretScrollDelta;
+            const delta = _delta ? _delta(caretRect, ownerRect, CARET_SCROLL_MARGIN) : 0;
+            if (delta !== 0) {
+                owner.scrollTop += delta;   // 同期・instant（チラつかせない）。up/down 対称。
             }
         } catch (e) {
             logger.log('scrollCursorIntoView failed:', e);
@@ -15470,6 +15490,7 @@ class EditorInstance {
                     if (prev) {
                         e.preventDefault();
                         navigateToAdjacentElement(prev, 'up', false);
+                        scrollCursorIntoView(); // TASK-11: ↑追従（owner-rect ベース・祖先 .editor-wrapper に対称）
                         return;
                     }
                 } else if (e.key === 'ArrowDown') {
@@ -15485,6 +15506,7 @@ class EditorInstance {
                     if (next) {
                         e.preventDefault();
                         navigateToAdjacentElement(next, 'down', false);
+                        scrollCursorIntoView(); // TASK-11: ↓追従
                         return;
                     }
                 }
@@ -21350,7 +21372,7 @@ class EditorInstance {
     var sidePanel = container.querySelector('.side-panel');
     var sidePanelFilename = container.querySelector('.side-panel-filename');
     var sidePanelClose = container.querySelector('.side-panel-close');
-    var sidePanelOverlay = container.querySelector('.side-panel-overlay');
+    // sprint 20260724-042927: sidePanelOverlay 廃止（全モード）。
     var sidePanelIframeContainer = container.querySelector('.side-panel-iframe-container');
     var sidePanelSidebar = container.querySelector('.side-panel-sidebar');
     var sidePanelToc = container.querySelector('.side-panel-toc');
@@ -21414,12 +21436,10 @@ class EditorInstance {
         // Setup image dir display in side panel body
         setupSidePanelImageDir();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanel) sidePanel.style.display = 'flex';
-        if (sidePanelOverlay) sidePanelOverlay.style.display = 'block';
         requestAnimationFrame(function() {
             if (sidePanel) sidePanel.classList.add('open');
-            if (sidePanelOverlay) sidePanelOverlay.classList.add('open');
         });
 
         // アニメーション完了後にエディタに自動フォーカス
@@ -21645,7 +21665,7 @@ class EditorInstance {
 
     function closeSidePanel() {
         sidePanel.classList.remove('open');
-        sidePanelOverlay.classList.remove('open');
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要・旧: null 無ガードで .out/.md single クラッシュ源）。
         setTimeout(function() {
             closeSidePanelImmediate();
         }, 200);
@@ -21659,7 +21679,7 @@ class EditorInstance {
         //   isSwitch=false (=ユーザー明示 close / 拡張 destroy) の時のみ notify する。
         if (!isSwitch) {
             if (sidePanel) sidePanel.style.display = 'none';
-            if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         // Reset expanded state
         if (sidePanelExpanded) {
@@ -21820,9 +21840,7 @@ class EditorInstance {
     if (sidePanelClose) {
         sidePanelClose.addEventListener('click', closeSidePanel);
     }
-    if (sidePanelOverlay) {
-        sidePanelOverlay.addEventListener('click', closeSidePanel);
-    }
+    // sprint 20260724-042927 (FR-SPC-03): overlay click → close を廃止（外側クリックで閉じない）。Esc は下で残す。
     if (isMainInstance) document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
@@ -24407,6 +24425,12 @@ class EditorInstance {
         syncTimeout = null;
         editingIdleTimer = null;
         pendingSync = false;
+    };
+    // sprint 20260723-233506: タブ切替/unload の前に debounce 未送信編集を即 host へ送る（NFR-TAB-03・flush 二段）。
+    // destroy（_cancelPendingSync で timer 破棄）より前に呼ぶこと。_destroyed 前提。
+    self.flushPendingSync = function() {
+        if (self._destroyed) return;
+        try { notifyChangeImmediate(); } catch (e) { console.error('[flushPendingSync]', e); }
     };
     } // end _legacyInit()
 } // end class EditorInstance
@@ -30797,6 +30821,9 @@ var Outliner = (function() {
 
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
+    // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
+    // focus 要素へのブラウザ自動スクロールが復元 scrollTop を上書きするのを防ぐ。
+    var _suppressFocusScroll = false;
     var currentSearchResult = null;  // Set<string> or null
     var searchFocusMode = false;     // true: マッチノード頂点+子のみ, false: ルートまで表示
     var pageDir = null;              // outファイル個別のpageDir設定
@@ -34896,7 +34923,9 @@ var Outliner = (function() {
         var textEl = nodeEl.querySelector('.outliner-text');
         if (textEl) {
             setFocusedNode(nodeId);
-            textEl.focus();
+            // sprint 20260723-233506: タブ復帰の scroll 復元中は preventScroll で自動スクロールを抑止
+            if (_suppressFocusScroll) { try { textEl.focus({ preventScroll: true }); } catch (e) { textEl.focus(); } }
+            else { textEl.focus(); }
             setCursorToEnd(textEl);
             var aeAfter = document.activeElement;
             console.log('[Fractal:focusNode] AFTER focus: activeEl=', aeAfter && aeAfter.tagName, aeAfter && aeAfter.className, 'data-node-id=', aeAfter && aeAfter.dataset && aeAfter.dataset.nodeId, 'isHidden=', getComputedStyle(textEl).display === 'none');
@@ -37245,7 +37274,7 @@ var Outliner = (function() {
     var sidePanelEl = null;
     var sidePanelFilename = null;
     var sidePanelClose = null;
-    var sidePanelOverlay = null;
+    // sprint 20260724-042927: sidePanelOverlay 廃止（シャドー + 外側クリック close を全廃）。
     var sidePanelIframeContainer = null;
     var sidePanelSidebar = null;
     var sidePanelTocEl = null;
@@ -37262,6 +37291,9 @@ var Outliner = (function() {
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
+    // sprint 20260723-233506: タブ復帰でサイドパネルを開く時、400ms auto-focus の自動スクロールを抑止し
+    // 保存 scrollTop を復元する（ADRL-TABS-SIDEPANEL-PER-TAB）。通常の openPageInSidePanel では false。
+    var _sidePanelRestorePending = false;
     // FR-TH-07: md→node 反映中は node→md 送信をスキップ（双方向連鎖の belt-and-suspenders）。
     var _applyingH1ToNode = false;
     // FR-TH-05: sidepanel md の先頭 H1 の前回反映値（IME 中間文字での過剰反映を避け確定値のみ反映）。
@@ -37449,7 +37481,6 @@ var Outliner = (function() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
         sidePanelClose = document.querySelector('.side-panel-close');
-        sidePanelOverlay = document.querySelector('.side-panel-overlay');
         sidePanelIframeContainer = document.querySelector('.side-panel-iframe-container');
         sidePanelSidebar = document.querySelector('.side-panel-sidebar');
         sidePanelTocEl = document.querySelector('.side-panel-toc');
@@ -37467,9 +37498,8 @@ var Outliner = (function() {
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.addEventListener('click', closeSidePanel);
-        }
+        // sprint 20260724-042927 (FR-SPC-03): 外側クリックで閉じる listener（overlay click）を廃止。
+        // 閉じるは ✗（.side-panel-close）+ Esc（keydown listener）のみ。
 
         // Expand toggle — delegated on sidePanelEl so it survives
         // .side-panel-header-actions innerHTML rebuilds from the translate flow.
@@ -37897,9 +37927,24 @@ var Outliner = (function() {
             sidePanelEl.style.display = 'flex';
             requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.style.display = 'block';
-            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        // sprint 20260724-042927: overlay 廃止（表示操作なし）。
+    }
+
+    // sprint 20260724-042927: サイドパネルの現在状態 {open, filePath, scrollTop}（Tab Manager per-tab 追随用）。
+    // return object の captureSidePanelState と同一実体（内部関数化して openSidePanel/close からも呼べるように）。
+    function _captureSidePanelState() {
+        var open = !!(sidePanelEl && sidePanelEl.classList.contains('open'));
+        var scrollTop = 0;
+        if (open && sidePanelInstance && sidePanelInstance.container) {
+            var wrap = sidePanelInstance.container.querySelector('.editor-wrapper');
+            if (wrap) scrollTop = wrap.scrollTop;
+        }
+        return { open: open, filePath: open ? sidePanelFilePath : null, scrollTop: scrollTop };
+    }
+    // アクティブタブの sidePanel 状態を追随させる（開閉の瞬間に呼ぶ・FR-SPC-05）。
+    function _syncActiveTabSidePanel(state) {
+        if (window.__notesTabManager && typeof window.__notesTabManager.updateActiveSidePanel === 'function') {
+            window.__notesTabManager.updateActiveSidePanel(state);
         }
     }
 
@@ -38051,13 +38096,26 @@ var Outliner = (function() {
         // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
         ensureSidePanelWindowResizeHandler();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }
-        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
         requestAnimationFrame(function() {
             if (sidePanelEl) { sidePanelEl.classList.add('open'); }
-            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
         });
+
+        // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
+        // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
+        // scroll 復元の同期アンカー（§5・ADRL-TABS-SCROLL）。復元中は下の 400ms auto-focus を skip。
+        if (_sidePanelRestorePending) {
+            _sidePanelRestorePending = false;
+            if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingSidePanelRestore === 'function') {
+                window.__notesTabManager.consumePendingSidePanelRestore();
+            }
+            return; // 復元経路では auto-focus しない（focus 自動スクロールが復元 scrollTop を上書きするため）
+        }
+
+        // sprint 20260724-042927 (FR-SPC-05): fresh-open の瞬間にアクティブタブの sidePanel 状態を追随
+        //   （restore 経路は上の return で通らない・capture 契機に依存せず確実に復元できるようにする）。
+        _syncActiveTabSidePanel(_captureSidePanelState());
 
         // アニメーション完了後にエディタに自動フォーカス
         setTimeout(function() {
@@ -38088,7 +38146,7 @@ var Outliner = (function() {
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
-        if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要）。
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
@@ -38115,7 +38173,7 @@ var Outliner = (function() {
         sidePanelPreTranslationState = null;
         if (!isSwitch) {
             if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
-            if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         if (sidePanelExpanded) {
             if (sidePanelEl) { sidePanelEl.classList.remove('expanded'); }
@@ -38131,6 +38189,9 @@ var Outliner = (function() {
         if (sidePanelIframeContainer) { sidePanelIframeContainer.innerHTML = ''; }
         if (!isSwitch) {
             sidePanelFilePath = null;
+            // sprint 20260724-042927 (FR-SPC-05): 実 close の瞬間にアクティブタブの sidePanel 状態を閉に追随。
+            //   isSwitch=true（別 md 切替）は実 close でないので呼ばない（#3c）。
+            _syncActiveTabSidePanel({ open: false, filePath: null, scrollTop: 0 });
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
                 if (VIEW_MODE === 'mindmap') {
@@ -38828,6 +38889,15 @@ var Outliner = (function() {
                         updateScopeSearchIndicator();
                         // v0.207.40: ファイル切替後 model = disk と一致 → flushSync baseline 更新
                         lastSentJson = serializeForSave();
+                        // sprint 20260723-233506: タブ復帰の main scroll 復元（§3b・ADRL-TABS-SCROLL）。
+                        // DOM 構築（renderTree/focusNode）が同期完了したこの末尾で、同一同期タスク内に
+                        // scrollTop を代入する（paint 前確定＝チラつき無し）。focusNode の後に置くことで
+                        // focus 自動スクロールとの競合を回避（focusNode は _suppressFocusScroll で preventScroll 済み）。
+                        if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingMainRestore === 'function') {
+                            _suppressFocusScroll = true;
+                            try { window.__notesTabManager.consumePendingMainRestore(); }
+                            finally { _suppressFocusScroll = false; }
+                        }
                         break;
                     }
 
@@ -39072,6 +39142,9 @@ var Outliner = (function() {
 
                 // --- サイドパネル関連メッセージ ---
                 case 'openSidePanel':
+                    // sprint 20260723-233506: msg.restoreScrollTop 付きはタブ復帰の復元経路
+                    // （openSidePanel 末尾で scroll 同期復元 + auto-focus skip）。
+                    if (msg.restoreForTab) { _sidePanelRestorePending = true; }
                     openSidePanel(msg.markdown, msg.filePath, msg.fileName, msg.toc, msg.documentBaseUri);
                     break;
 
@@ -39862,6 +39935,37 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
+        // sprint 20260723-233506: Tab Manager 用の画面状態 capture/apply（focus/scope の best-effort 復元）。
+        captureView: function() {
+            return { focusedNodeId: focusedNodeId, currentScope: currentScope };
+        },
+        applyView: function(view) {
+            if (!view) return;
+            // scope を復元（document/subtree）。best-effort（node が消えていれば document）。
+            if (view.currentScope && view.currentScope.type === 'subtree' && view.currentScope.rootId
+                && model && model.getNode(view.currentScope.rootId)) {
+                currentScope = view.currentScope;
+            } else {
+                currentScope = { type: 'document' };
+            }
+            if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
+            // focus を復元（preventScroll は呼び出し側 _suppressFocusScroll で担保）。
+            if (view.focusedNodeId && model && model.getNode(view.focusedNodeId)) {
+                focusNode(view.focusedNodeId);
+            }
+        },
+        // サイドパネルの現在状態（open/filePath/scrollTop）を返す（タブ切替 capture 用）。
+        captureSidePanelState: function() { return _captureSidePanelState(); },
+        // sprint 20260724-042927 (#3d): タブ切替で「サイドパネル無しタブ」へ移る時、webview 内で直接閉じる
+        //   （host 往復の handleClose は watcher dispose のみで .side-panel.open を閉じない）。isSwitch=true で
+        //   notifySidePanelClosed/refocus を出さず静かに閉じる。
+        closeSidePanelForTab: function() {
+            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
+                closeSidePanelImmediate(true /* isSwitch */);
+                sidePanelEl.classList.remove('open');
+                sidePanelEl.style.display = 'none';
+            }
+        },
         // FR-TH-05 テスト用: 現在開いている sidepanel md の編集をシミュレートする。
         // 実 editor が編集ごとに呼ぶ SidePanelHostBridge.syncContent と同じ経路
         // （saveSidePanelFile + onTocUpdate=updateSidePanelTocFromMarkdown）を通す＝本番反映コードを実行する。

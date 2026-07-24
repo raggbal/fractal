@@ -37,6 +37,8 @@
         var applyOutlinerView = deps.applyOutlinerView || function() {};
         var captureSidePanel = deps.captureSidePanel || function() { return { open: false, filePath: null, scrollTop: 0 }; };
         var getSidePanelScrollEl = deps.getSidePanelScrollEl || function() { return null; };
+        // sprint 20260724-042927 (#3d): 「サイドパネル無しタブ」へ切替時に webview 内で直接閉じる。
+        var closeSidePanelInWebview = deps.closeSidePanelInWebview || function() {};
 
         var tabs = [];              // TabState[]（順序 = タブバー並び）
         var activeId = null;
@@ -97,9 +99,49 @@
                 if (typeof bridge.restoreSidePanel === 'function') bridge.restoreSidePanel(tab.sidePanel.filePath);
             } else {
                 pendingSidePanelRestore = null;
-                if (typeof bridge.closeSidePanel === 'function') bridge.closeSidePanel();
+                // sprint 20260724-042927 (#3d): webview 内で直接サイドパネルを閉じる（host 往復の handleClose は
+                //   watcher dispose のみで .side-panel.open を閉じないため、これが無いと切替で前タブのパネルが残る）。
+                if (typeof closeSidePanelInWebview === 'function') closeSidePanelInWebview();
+                if (typeof bridge.closeSidePanel === 'function') bridge.closeSidePanel(); // host: watcher dispose 用に残す
             }
             if (typeof bridge.openFile === 'function') bridge.openFile(tab.filePath);
+        }
+
+        // ── sprint 20260724-063158 (FR-TP-06): タブ右クリックメニュー「Open in VS Code Tab」（md のみ） ──
+        //   notes-file-panel.js の showFileContextMenu は IIFE-private で import 不可 → 自前で最小メニュー DOM を
+        //   組む（.file-panel-context-menu / .file-panel-context-item CSS は document-global で流用可）。
+        var _tabContextMenuEl = null;
+        function closeTabContextMenu() {
+            if (_tabContextMenuEl && _tabContextMenuEl.parentNode) {
+                _tabContextMenuEl.parentNode.removeChild(_tabContextMenuEl);
+            }
+            _tabContextMenuEl = null;
+            document.removeEventListener('mousedown', _tabMenuOutside, true);
+        }
+        function _tabMenuOutside(ev) {
+            if (_tabContextMenuEl && !_tabContextMenuEl.contains(ev.target)) closeTabContextMenu();
+        }
+        function showTabContextMenu(ev, tab) {
+            closeTabContextMenu();
+            var menu = document.createElement('div');
+            menu.className = 'file-panel-context-menu';
+            menu.style.position = 'fixed';
+            menu.style.left = ev.clientX + 'px';
+            menu.style.top = ev.clientY + 'px';
+            var item = document.createElement('div');
+            item.className = 'file-panel-context-item';
+            item.textContent = 'Open in VS Code Tab';
+            item.addEventListener('click', function() {
+                if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
+                closeTabContextMenu();
+            });
+            menu.appendChild(item);
+            document.body.appendChild(menu);
+            _tabContextMenuEl = menu;
+            // 次フレームで outside click 監視（この contextmenu イベント自身で閉じないように）
+            requestAnimationFrame(function() {
+                document.addEventListener('mousedown', _tabMenuOutside, true);
+            });
         }
 
         // ── tab bar 描画（tabs>=2 で表示・FR-TAB-01/05） ──
@@ -107,6 +149,13 @@
             if (!tabBarEl) return;
             var show = tabs.length >= 2;
             tabBarEl.style.display = show ? 'flex' : 'none';
+            // sprint 20260724-042927 (FR-SPC-01): サイドパネルの上端をタブバー下端に合わせるため、
+            //   .notes-main-wrapper に --notes-tab-bar-height を set（非表示時 0px）。★early-return より前に置く
+            //   （hide 経路でも 0px を確実に set する）。mainWrapper は tabBarEl.parentElement で導出（新 dep 不要）。
+            var mw = tabBarEl.parentElement;
+            if (mw && mw.style) {
+                mw.style.setProperty('--notes-tab-bar-height', show ? (tabBarEl.offsetHeight + 'px') : '0px');
+            }
             if (!show) { return; }
             var scrollEl = tabBarEl.querySelector('.notes-tab-bar-scroll');
             if (!scrollEl) {
@@ -142,6 +191,13 @@
                         ev.stopPropagation();
                         closeTab(tab.id);
                     });
+                    // sprint 20260724-063158 (FR-TP-06): md タブのみ右クリックで「Open in VS Code Tab」
+                    if (tab.kind === 'md') {
+                        el.addEventListener('contextmenu', function(ev) {
+                            ev.preventDefault();
+                            showTabContextMenu(ev, tab);
+                        });
+                    }
                     scrollEl.appendChild(el);
                 })(tabs[i]);
             }
@@ -265,15 +321,28 @@
         //   filePath/kind/title を実ファイルと同期する。これが無いと tab.filePath が stale のままになり、
         //   タブ再アクティブ化で loadTab→bridge.openFile(stale) が「1つ前のページ」を再オープンする。
         //   ★ bridge.openFile は呼ばない（re-entrancy 回避）。同一 filePath は no-op（scroll/view 温存）。
-        function syncActiveFile(filePath, kind) {
+        //   sprint 20260724-063158 (FR-TP-04): 第3引数 title を受け、tab 名を実 title（Outliner title / md H1）にする。
+        //   ★ title 更新は early-return より前に必ず行う（openInNewTab/openInActiveTab は cur.filePath を先に
+        //     同期設定するので、後続 updateData→syncActiveFile が early-return しても title は反映される）。
+        function syncActiveFile(filePath, kind, title) {
             var cur = getActive();
             if (!cur || !filePath) return;
+            if (title) { cur.title = title; renderTabBar(); }   // ★ filePath 同一でも title は更新（early-return より前）
             if (cur.filePath === filePath) return;   // 同一ファイルの再 render → scroll/outlinerView を温存
             cur.filePath = filePath;
             cur.kind = kind || (/\.out$/i.test(filePath) ? 'out' : 'md');
-            cur.title = basenameNoExt(filePath);
+            if (!title) { cur.title = basenameNoExt(filePath); }  // title 未提供時のみ basename フォールバック
             cur.mainScrollTop = 0;                    // 別ファイルに変わった → scroll は先頭
             cur.outlinerView = null;
+            renderTabBar();
+        }
+
+        // sprint 20260724-063158 (FR-TP-04): title/H1 変更の即時反映用。アクティブタブの title を更新。
+        function updateActiveTabTitle(title) {
+            var cur = getActive();
+            if (!cur || !title) return;
+            if (cur.title === title) return;
+            cur.title = title;
             renderTabBar();
         }
 
@@ -300,6 +369,7 @@
             consumePendingSidePanelRestore: consumePendingSidePanelRestore,
             updateActiveSidePanel: updateActiveSidePanel,
             syncActiveFile: syncActiveFile,
+            updateActiveTabTitle: updateActiveTabTitle,
         };
         window.__notesTabManager = api;
         return api;

@@ -299,15 +299,32 @@ export async function handleNotesMessage(
             if (!cur || !cur.endsWith('.md')) break;
             // v0.207.82: sidepanel と同じく TextDocument バッファ経由で保存。
             // mdMainSave が無い場合は従来の fileManager.saveCurrentFile (debounced fs.writeFile) に fallback。
+            // ★再オープン③ fix2: disk 書込を await してから title 再解決する（getHistoryWithFreshTitles は
+            //   tree 外 md の title を disk から読むため、await しないと新 H1 が disk 反映前に読まれて stale
+            //   になる = レース）。saveSidePanelFile:643 と同じ理由で await する。
             if (platform.mdMainSave) {
-                Promise.resolve(platform.mdMainSave(cur, message.content)).catch(e => {
+                try {
+                    await platform.mdMainSave(cur, message.content);
+                } catch (e) {
                     console.error('[NotesMessageHandler] mdMainSave error:', e);
-                });
+                }
             } else {
                 fileManager.saveCurrentFile(message.content);
             }
             // FR-TH-02: 先頭 H1 を tree title に反映（変化時のみ再描画）
-            if (fileManager.syncTitleFromH1(cur, message.content)) {
+            let mdNeedResend = fileManager.syncTitleFromH1(cur, message.content);
+            // FR-TP-04（再オープン③）: tree 外 md（open-new-tab で開いた page md 等、items に無い md）は
+            //   syncTitleFromH1 が false を返す（tree item 専用）。この場合でも現 md が Recent history に
+            //   note-md（絶対パス）で存在するなら、H1 編集を Recent/tab に即反映するため再送する
+            //   （saveSidePanelFile の history フォールバックと対称。これが無いと tree 外 md の H1 変更が
+            //    別 md に移動するまで反映されない）。
+            if (!mdNeedResend) {
+                const fp = path.resolve(cur);
+                const hasHistory = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+                if (hasHistory) { mdNeedResend = true; }
+            }
+            if (mdNeedResend) {
                 sendFileListWithStructure(fileManager, sender);
             }
             break;
@@ -616,6 +633,12 @@ export async function handleNotesMessage(
                 platform.restoreSidePanelForTab?.(message.filePath);
             }
             break;
+        // sprint 20260724-063158 (FR-TP-06): タブ右クリック → standalone（VS Code 別タブ）で開く。
+        case 'notesOpenInVscodeTab':
+            if (typeof message.filePath === 'string' && message.filePath) {
+                platform.openFileInEditor(message.filePath);  // 既存: vscode.openWith 'fractal.editor'
+            }
+            break;
 
         // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
         //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
@@ -907,6 +930,8 @@ export async function handleNotesMessage(
                         documentBaseUri: platform.getMdDocumentBaseUri?.(message.filePath) || '',
                         fileChangeId: fileManager.getFileChangeId(),
                         outFileKey: fileManager.getCurrentFilePath(),
+                        // FR-TP-04: tab 名用 title（items 優先 → 先頭 H1 → basename）
+                        title: fileManager.resolveTitleForPath(message.filePath, content),
                     });
                     platform.sendMdDirStatus?.();
                     platform.sendResourceAccessStatus?.(message.filePath, content);
@@ -931,7 +956,7 @@ export async function handleNotesMessage(
                     const data = JSON.parse(content);
                     sendFileListWithStructure(fileManager, sender, message.filePath);
                     const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
-                    sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes });
+                    sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes, title: (typeof data.title === 'string' && data.title) ? data.title : fileManager.resolveTitleForPath(message.filePath, content) });
                 }
             } else {
                 // ファイル読み込み失敗: 元のファイルリストを再送信してUI状態を復元

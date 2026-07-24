@@ -326,6 +326,10 @@
                 searchOccurrence: typeof searchOccurrence === 'number' ? searchOccurrence : null,
             });
         },
+        // sprint 20260724-063158 (FR-TP-06): タブ右クリック「Open in VS Code Tab」→ standalone で開く
+        openInVscodeTab: function(filePath) {
+            api.postMessage({ type: 'notesOpenInVscodeTab', filePath: filePath });
+        },
         // sprint 20260723-233506: webview 内マルチタブの host 協調（named bridge・NFR-TAB-04）
         flushActive: function() {
             api.postMessage({ type: 'notesFlushActive' });

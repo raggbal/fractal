@@ -301,6 +301,7 @@ export class NotesEditorProvider {
                     noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(),
                     fileChangeId: fileManager.getFileChangeId(),
                     noteFolderName: path.basename(folderPath),  // FR-NT-01: noteTitle 未設定時の既定表示
+                    currentFileTitle: currentFilePath ? fileManager.resolveTitleForPath(currentFilePath) : '',  // FR-TP-04: 初期タブ名
                     history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
                     historyPanelHeight: fileManager.getHistoryPanelHeight(),
                     historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
@@ -346,7 +347,17 @@ export class NotesEditorProvider {
             // FR-TH-02 (★MEDIUM-3): 外部編集で確定した md の先頭 H1 を tree title に反映。
             // NotesMdMainManager は fileManager/sender を持たないため、fileManager/webview に
             // 到達できるこの生成側で反映する（hybridWatcher / onDidChangeTextDocument 両 fire site から呼ばれる）。
-            if (fileManager.syncTitleFromH1(filePath, content)) {
+            let needResend = fileManager.syncTitleFromH1(filePath, content);
+            // FR-TP-04（再オープン③・兄弟経路）: syncTitleFromH1 は tree item 専用。open-new-tab で開いた
+            //   tree 外 md（page md 等）を外部プロセスが H1 書換した場合も、Recent history に note-md（絶対パス）で
+            //   在れば再送する（notesSaveCurrentMd / saveSidePanelFile と対称。これが無いと tree 外 md の外部編集が
+            //   Recent/tab に反映されない）。
+            if (!needResend) {
+                const fp = path.resolve(filePath);
+                needResend = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+            }
+            if (needResend) {
                 panel.webview.postMessage({
                     type: 'notesFileListChanged',
                     fileList: fileManager.listFiles(),

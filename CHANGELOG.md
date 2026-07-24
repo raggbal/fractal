@@ -5,6 +5,27 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.210.18] - 2026-07-24
+
+### Added
+- **Notes webview 内マルチタブ**（FR-TAB-01〜08）: Notes モードのメインペインで複数ファイル（`.out`/md）をタブで開ける。タブが 2 つ以上で `.notes-main-wrapper` 先頭に Tab Bar を表示（1 つなら非表示）。openInNewTab ボタン / 本文 `.md`・`fractal://` リンクの cmd+click / ＋ボタンの 3 契機で新タブ。切替は unload/load 方式（アクティブタブのみ実 DOM・非アクティブは軽量 Tab State）で ~20 タブでもメモリ安全。切替/閉じる前に flush（データ損失なし）。Tab Bar 横スクロール。他 note / note 外の md もタブで開ける。（ADRL-0008/0009/0010）
+- **タブ右クリック「Open in VS Code Tab」**（FR-TP-06）: md タブを右クリック → 対象 md を standalone（`fractal.editor`）で開く（outliner タブは対象外）。
+- **md Outline 閉じるボタンの ✗ 化 + file panel トグル移設**（FR-OU-01/02）: md Outline パネルの閉じるボタンを ☰ → ×。note md で file panel 閉 + Outline 開のとき、file panel 開トグルを Outline ヘッダ左に表示（editor 左端の ☰ は非表示・同機能ボタンが 1 箇所だけ）。
+- **Recent 履歴の記録拡張**（FR-HP-08/09）: アプリ内リンク（`fractal://`）/ subpage・md リンクで開いた md、他 note / note 外の md も Recent に記録（`kind:'note-md'`・絶対パス・先頭 H1 で title 解決）。
+
+### Changed
+- **サイドパネルをタブと共存**（FR-SPC-01〜05・ADRL-0011）: サイドパネルの表示領域をタブ内領域（タブバー下端〜画面下端・ファイルパネル除く右側）に収める。開いたままタブ切替でき、タブごとにサイドパネル状態（開閉・md・スクロール）を復元。
+- **overlay（シャドー背景）を全モード廃止**（FR-SPC-02/03）: サイドパネルのシャドー背景を DOM・CSS・JS から完全除去（Notes / .out single / .md single 全モード）。外側クリックで閉じない（Esc + ヘッダー ✗ で閉じる）。
+- **タブ名を title/H1 に**（FR-TP-04）: タブ名を basename でなく Outliner title / md 先頭 H1 に。title/H1 変更で即時反映（tree 外 md も含め 3 保存経路すべてで反映・disk 書込を await してから解決）。
+- **タブ選択/非選択の背景色を反転**（FR-TP-05）: 選択タブが明るい地色（editor と地続き・下境界線を消す）・非選択が灰。
+- **Recent クリックは全メインペインで開く**（FR-HP-05）: page md も含め Recent の md は kind によらずメインペインで開く（`HistoryKind` から `page-md` を廃止し note-md・絶対パスに統一）。
+- 「open new tab」の挙動を VS Code 別エディタタブ → webview 内タブに変更。
+
+### Fixed
+- **サイドパネル幅の追従**（FR-TP-01）: 左ファイルパネル開閉等で `.notes-main-wrapper` 幅が変わってもサイドパネル幅が editor 領域を超えないよう ResizeObserver で再クランプ。
+- **タブ復帰時のチラつき/アニメ**（FR-TP-02/03・NFR-TAB-02）: タブ復帰のサイドパネルはスライドインアニメを再生しない。スクロール復元は単一同期タスクで完結しチラつかせない。outliner ヘッダーの検索状態（Search テキスト + Tree/Focus モード）を全モード（outliner/table/mindmap）で復元。view mode residual バグ是正。
+- **タブ名の即時反映漏れ**（FR-TP-04）: open-new-tab で開いた tree 外 md（page md 等）の H1 編集が Recent/タブ名に即反映されなかった問題を修正（`notesSaveCurrentMd` が disk 書込を await してから title 再解決 + 3 保存経路の history フォールバック統一）。
+
 ## [0.210.0] - 2026-07-23
 
 ### Added

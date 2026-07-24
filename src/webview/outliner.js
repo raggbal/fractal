@@ -6475,7 +6475,7 @@ var Outliner = (function() {
     var sidePanelEl = null;
     var sidePanelFilename = null;
     var sidePanelClose = null;
-    var sidePanelOverlay = null;
+    // sprint 20260724-042927: sidePanelOverlay 廃止（シャドー + 外側クリック close を全廃）。
     var sidePanelIframeContainer = null;
     var sidePanelSidebar = null;
     var sidePanelTocEl = null;
@@ -6682,7 +6682,6 @@ var Outliner = (function() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
         sidePanelClose = document.querySelector('.side-panel-close');
-        sidePanelOverlay = document.querySelector('.side-panel-overlay');
         sidePanelIframeContainer = document.querySelector('.side-panel-iframe-container');
         sidePanelSidebar = document.querySelector('.side-panel-sidebar');
         sidePanelTocEl = document.querySelector('.side-panel-toc');
@@ -6700,9 +6699,8 @@ var Outliner = (function() {
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.addEventListener('click', closeSidePanel);
-        }
+        // sprint 20260724-042927 (FR-SPC-03): 外側クリックで閉じる listener（overlay click）を廃止。
+        // 閉じるは ✗（.side-panel-close）+ Esc（keydown listener）のみ。
 
         // Expand toggle — delegated on sidePanelEl so it survives
         // .side-panel-header-actions innerHTML rebuilds from the translate flow.
@@ -6924,6 +6922,30 @@ var Outliner = (function() {
         });
     }
 
+    // sprint 20260724-063158 (FR-TP-01): サイドパネルの containing block（.notes-main-wrapper）の幅が
+    // 左ファイルパネル開閉等で変わっても px 固定幅が追従せず editor 領域を超えるバグ。ResizeObserver で
+    // 幅変化を検知し、visible かつ非 expanded 時に再クランプする（window resize 経路を包含）。
+    // ★ .side-panel は position:absolute（flow 外）なので、幅を触っても観測対象 wrapper のサイズに
+    //   フィードバックせず無限ループしない。1 回だけ登録。
+    var _sidePanelResizeObserverWired = false;
+    var _sidePanelResizeObserverDisabled = false;                      // TC-TP-01 counterfactual 用（テストのみ）
+    function ensureSidePanelResizeObserver() {
+        if (_sidePanelResizeObserverWired) return;
+        if (typeof ResizeObserver === 'undefined') return;             // 念のためガード（webview は native 対応）
+        if (!sidePanelEl) return;
+        var container = sidePanelEl.parentElement;                     // = .notes-main-wrapper
+        if (!container) return;
+        _sidePanelResizeObserverWired = true;
+        var ro = new ResizeObserver(function() {
+            if (_sidePanelResizeObserverDisabled) return;              // counterfactual: 無効化すると px 据え置き
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();                              // .side-panel 幅のみ触る（wrapper は不変）
+        });
+        ro.observe(container);
+    }
+
     // sidepanel TOC (sidebar) drag-resize
     function setupSidePanelSidebarResize() {
         var sidebar = document.querySelector('.side-panel-sidebar');
@@ -7130,9 +7152,24 @@ var Outliner = (function() {
             sidePanelEl.style.display = 'flex';
             requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.style.display = 'block';
-            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        // sprint 20260724-042927: overlay 廃止（表示操作なし）。
+    }
+
+    // sprint 20260724-042927: サイドパネルの現在状態 {open, filePath, scrollTop}（Tab Manager per-tab 追随用）。
+    // return object の captureSidePanelState と同一実体（内部関数化して openSidePanel/close からも呼べるように）。
+    function _captureSidePanelState() {
+        var open = !!(sidePanelEl && sidePanelEl.classList.contains('open'));
+        var scrollTop = 0;
+        if (open && sidePanelInstance && sidePanelInstance.container) {
+            var wrap = sidePanelInstance.container.querySelector('.editor-wrapper');
+            if (wrap) scrollTop = wrap.scrollTop;
+        }
+        return { open: open, filePath: open ? sidePanelFilePath : null, scrollTop: scrollTop };
+    }
+    // アクティブタブの sidePanel 状態を追随させる（開閉の瞬間に呼ぶ・FR-SPC-05）。
+    function _syncActiveTabSidePanel(state) {
+        if (window.__notesTabManager && typeof window.__notesTabManager.updateActiveSidePanel === 'function') {
+            window.__notesTabManager.updateActiveSidePanel(state);
         }
     }
 
@@ -7283,14 +7320,26 @@ var Outliner = (function() {
         applySidePanelWidthClamped();
         // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
         ensureSidePanelWindowResizeHandler();
+        // FR-TP-01: .notes-main-wrapper 幅変化（左ファイルパネル開閉等）にも追従して再クランプ
+        ensureSidePanelResizeObserver();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }
-        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
-        requestAnimationFrame(function() {
-            if (sidePanelEl) { sidePanelEl.classList.add('open'); }
-            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
-        });
+        // sprint 20260724-063158 (FR-TP-02): タブ復帰（_sidePanelRestorePending）はスライドアニメを再生せず即 open。
+        //   ★ フラグはここで読むだけ（clear は下の consume :7340 付近に任せる）。else は通常 open（現行同一・回帰なし）。
+        if (_sidePanelRestorePending && sidePanelEl) {
+            sidePanelEl.classList.add('no-transition');
+            sidePanelEl.classList.add('open');                 // 同期付与＝transition:none で即 translateX(0)（スライドなし）
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    if (sidePanelEl) { sidePanelEl.classList.remove('no-transition'); } // 以降の開閉アニメは復活
+                });
+            });
+        } else {
+            requestAnimationFrame(function() {
+                if (sidePanelEl) { sidePanelEl.classList.add('open'); }
+            });
+        }
 
         // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
         // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
@@ -7302,6 +7351,12 @@ var Outliner = (function() {
             }
             return; // 復元経路では auto-focus しない（focus 自動スクロールが復元 scrollTop を上書きするため）
         }
+
+        // sprint 20260724-042927 (FR-SPC-05・TASK-05): fresh-open の瞬間にアクティブタブの sidePanel 状態を追随。
+        //   ★ `.side-panel.open` は上の rAF（次フレーム）で付与されるため、この同期時点では未付与。
+        //   よって _captureSidePanelState() を呼ばず、fresh-open は定義上 open=true・filePath は上で同期設定済み
+        //   （sidePanelFilePath）なので明示構築する（rAF 待ちの誤 open:false を避ける）。
+        _syncActiveTabSidePanel({ open: true, filePath: sidePanelFilePath, scrollTop: 0 });
 
         // アニメーション完了後にエディタに自動フォーカス
         setTimeout(function() {
@@ -7332,7 +7387,7 @@ var Outliner = (function() {
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
-        if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要）。
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
@@ -7359,7 +7414,7 @@ var Outliner = (function() {
         sidePanelPreTranslationState = null;
         if (!isSwitch) {
             if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
-            if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         if (sidePanelExpanded) {
             if (sidePanelEl) { sidePanelEl.classList.remove('expanded'); }
@@ -7375,6 +7430,9 @@ var Outliner = (function() {
         if (sidePanelIframeContainer) { sidePanelIframeContainer.innerHTML = ''; }
         if (!isSwitch) {
             sidePanelFilePath = null;
+            // sprint 20260724-042927 (FR-SPC-05): 実 close の瞬間にアクティブタブの sidePanel 状態を閉に追随。
+            //   isSwitch=true（別 md 切替）は実 close でないので呼ばない（#3c）。
+            _syncActiveTabSidePanel({ open: false, filePath: null, scrollTop: 0 });
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
                 if (VIEW_MODE === 'mindmap') {
@@ -8007,6 +8065,11 @@ var Outliner = (function() {
 
                         var savedFocus = focusedNodeId;
                         model = new OutlinerModel(msg.data);
+                        // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
+                        //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
+                        //   view mode が残っていた）。renderTree より前に設定。init(:814) と同ロジック。
+                        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
+                            ? model.viewMode : 'outliner';
                         searchEngine = new OutlinerSearch.SearchEngine(model);
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
@@ -9118,12 +9181,24 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
-        // sprint 20260723-233506: Tab Manager 用の画面状態 capture/apply（focus/scope の best-effort 復元）。
+        // sprint 20260723-233506 + 20260724-063158 (FR-TP-03): Tab Manager 用の画面状態 capture/apply。
+        //   focus/scope に加え、検索状態（テキスト + Tree/Focus モード）と view mode を per-tab 復元する
+        //   （outliner/table/mindmap 全モード。updateData でリセットされる module singleton を復元）。
         captureView: function() {
-            return { focusedNodeId: focusedNodeId, currentScope: currentScope };
+            return {
+                focusedNodeId: focusedNodeId,
+                currentScope: currentScope,
+                searchQuery: (searchInput ? searchInput.value : ''),
+                searchFocusMode: searchFocusMode,
+                viewMode: VIEW_MODE,
+            };
         },
         applyView: function(view) {
             if (!view) return;
+            // view mode を復元（per-tab。VIEW_MODE と異なれば切替。setViewMode は同一なら :57 ガードで no-op）。
+            if (view.viewMode && view.viewMode !== VIEW_MODE && typeof setViewMode === 'function') {
+                setViewMode(view.viewMode);
+            }
             // scope を復元（document/subtree）。best-effort（node が消えていれば document）。
             if (view.currentScope && view.currentScope.type === 'subtree' && view.currentScope.rootId
                 && model && model.getNode(view.currentScope.rootId)) {
@@ -9132,20 +9207,28 @@ var Outliner = (function() {
                 currentScope = { type: 'document' };
             }
             if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
+            // FR-TP-03: 検索状態を復元（テキスト + モード）。updateData がクリアした後に走るので上書きになる。
+            searchFocusMode = !!view.searchFocusMode;
+            if (searchInput) { searchInput.value = view.searchQuery || ''; }
+            if (typeof updateSearchModeButton === 'function') updateSearchModeButton();
+            if (typeof executeSearch === 'function') executeSearch();          // currentSearchResult 再計算（空なら clear 相当・全モード分岐）
+            if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
             // focus を復元（preventScroll は呼び出し側 _suppressFocusScroll で担保）。
             if (view.focusedNodeId && model && model.getNode(view.focusedNodeId)) {
                 focusNode(view.focusedNodeId);
             }
         },
         // サイドパネルの現在状態（open/filePath/scrollTop）を返す（タブ切替 capture 用）。
-        captureSidePanelState: function() {
-            var open = !!(sidePanelEl && sidePanelEl.classList.contains('open'));
-            var scrollTop = 0;
-            if (open && sidePanelInstance && sidePanelInstance.container) {
-                var wrap = sidePanelInstance.container.querySelector('.editor-wrapper');
-                if (wrap) scrollTop = wrap.scrollTop;
+        captureSidePanelState: function() { return _captureSidePanelState(); },
+        // sprint 20260724-042927 (#3d): タブ切替で「サイドパネル無しタブ」へ移る時、webview 内で直接閉じる
+        //   （host 往復の handleClose は watcher dispose のみで .side-panel.open を閉じない）。isSwitch=true で
+        //   notifySidePanelClosed/refocus を出さず静かに閉じる。
+        closeSidePanelForTab: function() {
+            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
+                closeSidePanelImmediate(true /* isSwitch */);
+                sidePanelEl.classList.remove('open');
+                sidePanelEl.style.display = 'none';
             }
-            return { open: open, filePath: open ? sidePanelFilePath : null, scrollTop: scrollTop };
         },
         // FR-TH-05 テスト用: 現在開いている sidepanel md の編集をシミュレートする。
         // 実 editor が編集ごとに呼ぶ SidePanelHostBridge.syncContent と同じ経路
@@ -9157,5 +9240,12 @@ var Outliner = (function() {
             }
             return false;
         },
+        // TC-TP-01（FR-TP-01）テスト用フック。保存幅 px を注入 + ResizeObserver を張り + クランプを同期発火。
+        //   RO は非同期発火なので、テストの決定性のため clamp を直接叩ける口も出す。
+        __setSidePanelWidthForTest: function(px) { sidePanelWidthSetting = px; },
+        __wireSidePanelResizeObserverForTest: function() { ensureSidePanelResizeObserver(); },
+        __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
+        // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
+        __setSidePanelResizeObserverDisabledForTest: function(v) { _sidePanelResizeObserverDisabled = !!v; },
     };
 })();
