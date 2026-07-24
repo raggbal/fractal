@@ -58,6 +58,8 @@ export const webviewMessages = {
   taskList: '任务列表 (Ctrl+Shift+X)',
   blockquote: '引用 (Ctrl+Shift+Q)',
   inlineCode: '行内代码 (Ctrl+`)',
+  textColor: '文字颜色',
+  textColorNone: '无',
   codeBlock: '代码块 (Ctrl+Shift+K)',
   insertLink: '插入链接 (Ctrl+K)',
   insertImage: '插入图片 (Ctrl+Shift+I)',

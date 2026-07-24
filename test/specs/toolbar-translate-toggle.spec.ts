@@ -49,14 +49,17 @@ test.describe('FR-TRTOG-2: standalone toolbar に translate group が含まれ�
         expect(translateIdx).toBeLessThan(inlineIdx);
     });
 
-    test('TC-TRTOG-1b: translate group 内に translateLang と translate ボタンの両方がある', async () => {
+    // sprint 20260724-160000 TASK-11/12: dead な translateLang ボタン（v0.207.24 で handler 撤廃・
+    // translate と同一アイコンで2つ並び左が無反応だった）を削除。translate group には translate 1個のみ。
+    test('TC-TRTOG-1b: translate group 内に translate ボタンのみ（dead translateLang は削除済み）', async () => {
         const html = generateEditorBodyHtml({}, 'darwin');
         // 該当 group ブロックを抽出
         const groupMatch = html.match(/<div class="toolbar-group" data-group="translate">([\s\S]*?)<\/div>/);
         expect(groupMatch).not.toBeNull();
         const groupBody = groupMatch![1];
-        expect(groupBody).toContain('data-action="translateLang"');
         expect(groupBody).toContain('data-action="translate"');
+        // ★ 撤廃済みの translateLang ボタンは削除された（翻訳ボタン重複・無反応ボタンの解消）
+        expect(groupBody).not.toContain('data-action="translateLang"');
     });
 
     test('TC-TRTOG-1c: side panel header の translate ボタンは既存通り維持される (regression)', async () => {

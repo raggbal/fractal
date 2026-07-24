@@ -60,7 +60,6 @@ function generateEditorBodyHtml(messages, platform, options) {
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--left hidden" id="toolbarScrollLeft">&#x276E;</button>
                 <div class="toolbar-inner" id="toolbarInner">
                     <div class="toolbar-group" data-group="translate">
-                        <button data-action="translateLang" title="Translation language">ja → en</button>
                         <button data-action="translate" title="Translate"></button>
                     </div>
                     <div class="toolbar-group" data-group="inline">
@@ -68,6 +67,7 @@ function generateEditorBodyHtml(messages, platform, options) {
                         <button data-action="italic" title="${m('italic')}"></button>
                         <button data-action="strikethrough" title="${m('strikethrough')}"></button>
                         <button data-action="code" title="${m('inlineCode')}"></button>
+                        <button data-action="textColor" title="${m('textColor')}">A</button>
                     </div>
                     <div class="toolbar-group" data-group="block">
                         <button data-action="heading1" title="${m('heading1')}"></button>

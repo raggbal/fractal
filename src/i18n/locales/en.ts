@@ -75,6 +75,8 @@ export const webviewMessages = {
   taskList: 'Task List (Ctrl+Shift+X)',
   blockquote: 'Blockquote (Ctrl+Shift+Q)',
   inlineCode: 'Inline Code (Ctrl+`)',
+  textColor: 'Text Color',
+  textColorNone: 'None',
   codeBlock: 'Code Block (Ctrl+Shift+K)',
   insertLink: 'Insert Link (Ctrl+K)',
   insertImage: 'Insert Image (Ctrl+Shift+I)',

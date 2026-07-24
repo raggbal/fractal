@@ -73,6 +73,11 @@ export function getNotesWebviewContent(
     // Load Notes color palette (must load before notes-file-panel.js)
     const notesColorPaletteScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+    // sprint 20260724-160000: インライン文字色 共有 core + ピッカー（editor.js/outliner.js より前）
+    const inlineColorScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color.js'), 'utf8');
+    const inlineColorPickerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
 
     // Load Notes file panel JS
     const notesFilePanelScript = fs.readFileSync(
@@ -268,6 +273,9 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${sidePanelBridgeScript}</script>
     <script nonce="${nonce}">${notesHostBridgeScript}</script>
     <script nonce="${nonce}">${editorUtilsScript}</script>
+    <script nonce="${nonce}">${notesColorPaletteScript}</script>
+    <script nonce="${nonce}">${inlineColorScript}</script>
+    <script nonce="${nonce}">${inlineColorPickerScript}</script>
     <script nonce="${nonce}">${editorScript}</script>
     <script nonce="${nonce}">${outlinerCellScript}</script>
     <script nonce="${nonce}">${outlinerModelScript}</script>
@@ -279,7 +287,6 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${outlinerSearchScript}</script>
     <script nonce="${nonce}">${clipSelectScript}</script>
     <script nonce="${nonce}">${outlinerScript}</script>
-    <script nonce="${nonce}">${notesColorPaletteScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">${notesMdDispatcherScript}</script>
     <script nonce="${nonce}">${notesHistoryPanelScript}</script>

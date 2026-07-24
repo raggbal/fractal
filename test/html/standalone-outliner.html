@@ -2223,6 +2223,11 @@ body {
     display: flex;
     transform: translateX(0);
 }
+/* sprint 20260724-063158 (FR-TP-02): タブ復帰でサイドパネルを復元する時はスライドアニメを再生しない。
+   .side-panel(0,1,0) より高特異度(0,2,0)で transition:none が勝つ。復元経路で一時付与し次フレームで除去。 */
+.side-panel.no-transition {
+    transition: none;
+}
 .side-panel.expanded {
     width: 95%;
     max-width: 95%;
@@ -2727,6 +2732,37 @@ body {
     font-family: inherit;
     padding: 0;
 }
+
+/* sprint 20260724-160000: インライン文字色ピッカー（md toolbar/palette + outliner 右クリック共通） */
+.inline-color-popover {
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
+    border-radius: var(--fr-radius-sm, 6px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 4px 0;
+    min-width: 0;
+}
+.inline-color-popover .file-panel-color-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 18px);
+    gap: 4px;
+    padding: 7px 11px;
+}
+.inline-color-popover .file-panel-color-swatch {
+    width: 18px; height: 18px;
+    border-radius: var(--fr-radius-xs, 4px);
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s, border-color 0.1s;
+}
+.inline-color-popover .file-panel-color-swatch:hover { transform: scale(1.15); }
+.inline-color-popover .file-panel-color-none {
+    font-size: 11px;
+    opacity: 0.75;
+    padding: 4px 11px;
+    cursor: pointer;
+}
+.inline-color-popover .file-panel-color-none:hover { opacity: 1; }
 </style>
     <style>/* =============================================
  * Outliner Styles
@@ -5291,6 +5327,7 @@ body.mm-dragging, body.mm-dragging * {
         'italic': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg>',
         'strikethrough': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" x2="20" y1="12" y2="12"/></svg>',
         'code': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>',
+        'textColor': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12 6 12"/><path d="M8 12h8"/></svg>',
         'heading1': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="m17 12 3-2v8"/></svg>',
         'heading2': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1"/></svg>',
         'heading3': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2"/><path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2"/></svg>',
@@ -5771,6 +5808,272 @@ body.mm-dragging, body.mm-dragging * {
 
     </script>
     <script>
+    'use strict';
+
+/**
+ * Notes ツリーアイテム用 固定 20 色パレット（Tailwind 500 レベル）
+ * Notes 左パネルの file/folder アイコン stroke 着色に使用
+ *
+ * 参照元:
+ *   - notes-file-panel.js: パレット UI 描画 + 色→CSS class マッピング
+ *   - notes-body-html.js: CSS 生成（stroke 色 + opacity）
+ *
+ * 色名は英語のみ（i18n 対象外、tooltip として表示）
+ *
+ * 注意: この配列の順序と hex 値は変更禁止 — 既存 outline.note に保存された
+ *       色名が不整合を起こす
+ */
+
+var NOTES_COLOR_PALETTE = [
+    { name: 'red',      hex: '#ef4444' },
+    { name: 'orange',   hex: '#f97316' },
+    { name: 'amber',    hex: '#f59e0b' },
+    { name: 'yellow',   hex: '#eab308' },
+    { name: 'lime',     hex: '#84cc16' },
+    { name: 'green',    hex: '#22c55e' },
+    { name: 'emerald',  hex: '#10b981' },
+    { name: 'teal',     hex: '#14b8a6' },
+    { name: 'cyan',     hex: '#06b6d4' },
+    { name: 'sky',      hex: '#0ea5e9' },
+    { name: 'blue',     hex: '#3b82f6' },
+    { name: 'indigo',   hex: '#6366f1' },
+    { name: 'violet',   hex: '#8b5cf6' },
+    { name: 'purple',   hex: '#a855f7' },
+    { name: 'fuchsia',  hex: '#d946ef' },
+    { name: 'pink',     hex: '#ec4899' },
+    { name: 'rose',     hex: '#f43f5e' },
+    { name: 'slate',    hex: '#64748b' },
+    { name: 'gray',     hex: '#6b7280' },
+    { name: 'zinc',     hex: '#71717a' },
+];
+
+// CommonJS + global 両対応（webview では window.NOTES_COLOR_PALETTE として使用）
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { NOTES_COLOR_PALETTE: NOTES_COLOR_PALETTE };
+}
+if (typeof window !== 'undefined') {
+    window.NOTES_COLOR_PALETTE = NOTES_COLOR_PALETTE;
+}
+
+    </script>
+    <script>
+    'use strict';
+
+/**
+ * inline-color.js — インライン文字色の共有 core（sprint 20260724-160000-inline-text-color）
+ *
+ * md editor（editor.js parseInline / collectCharStyles）と outliner（outliner-cell.js
+ * renderInlineText）の 2 パーサが**同一の**色構文定義とサニタイズ検証を使うための共有モジュール。
+ * 2 パーサでエンコードを割らない（ADRL-OUTLINER-COLOR-ENCODING-UNIFY）ため、色 span の
+ * 認識・生成・検証をここ 1 箇所に集約する。
+ *
+ * 保存エンコード: `<span style="color:#hex">text</span>`（ADRL-INLINE-COLOR-ENCODING）。
+ * サニタイズ: color の hex 値のみ許可する閉じた allowlist（ADRL-INLINE-HTML-SANITIZE）。
+ *   名前色 / rgb() / 複合 style / 他属性 は通さない（保存は hex 直値のみのため不要 + XSS 面を最小化）。
+ *
+ * 参照元:
+ *   - editor.js: parseInline（protect/restore）+ collectCharStyles（extractColorFromStyle）+ applyInlineStyles（wrapColorSpan）
+ *   - outliner-cell.js: renderInlineText（protect/restore）
+ *   - notes-file-panel.js / picker: パレット hex
+ */
+
+// 安全な色値 = #RGB / #RRGGBB の hex のみ（閉じた allowlist）。
+// 名前色・rgb()・hsl() は保存しないので通さない。大文字は許可（内部で小文字化して判定）。
+function isSafeColorValue(v) {
+    if (typeof v !== 'string') { return false; }
+    var s = v.trim().toLowerCase();
+    return /^#([0-9a-f]{3}|[0-9a-f]{6})$/.test(s);
+}
+
+// 色 span の認識正規表現（color:#hex のみ・他プロパティを許さない）。
+// `<span style="color:#ef4444">x</span>` にマッチ。`color:#ef4444;background:...` のような
+// 複合 style は `">` の直前に他プロパティが挟まるためマッチしない（＝ passthrough されずエスケープ）。
+// style 属性値のクォートは " のみ（生成側も " で出す）。空白は color: の前後で許容。
+// キャプチャ: [1]=hex, [2]=inner。inner は非貪欲で最初の </span> まで（ネストした span は非対応=単純運用）。
+function makeColorSpanRe() {
+    return /<span style="color:\s*(#[0-9a-fA-F]{3,6})\s*;?\s*">([\s\S]*?)<\/span>/g;
+}
+// 使い捨てでない共有インスタンスは lastIndex 状態を持つので、呼び出し側は都度 makeColorSpanRe() を使うこと。
+
+// rgb(r,g,b) / rgba(r,g,b,a) を #rrggbb に変換（a は無視）。範囲外は null。
+function rgbToHex(rgbStr) {
+    var m = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*[\d.]+\s*)?\)$/.exec(rgbStr.trim());
+    if (!m) { return null; }
+    var parts = [m[1], m[2], m[3]].map(function (n) { return parseInt(n, 10); });
+    for (var i = 0; i < 3; i++) { if (parts[i] < 0 || parts[i] > 255) { return null; } }
+    return '#' + parts.map(function (n) {
+        var h = n.toString(16);
+        return h.length === 1 ? '0' + h : h;
+    }).join('');
+}
+
+// style 属性文字列（DOM の element.style.cssText 等）から安全な hex color を抽出（無ければ null）。
+// 単一 color プロパティのみを認める（複合 style は null = 着色しない）。
+// ブラウザは execCommand('foreColor') で `color: rgb(...)` に正規化するため rgb() も受けて hex 化する
+// （保存は常に #hex 直値。DOM 読み取り時の正規化差を吸収）。
+function extractColorFromStyle(styleStr) {
+    if (typeof styleStr !== 'string') { return null; }
+    var s = styleStr.trim();
+    // 末尾セミコロンを除去して 1 プロパティか判定
+    var body = s.replace(/;\s*$/, '');
+    var m = /^color:\s*(.+)$/.exec(body);
+    if (!m) { return null; }
+    var val = m[1].trim();
+    // hex そのまま
+    if (isSafeColorValue(val)) { return val.toLowerCase(); }
+    // rgb()/rgba() → hex
+    if (/^rgba?\(/.test(val)) {
+        var hex = rgbToHex(val);
+        return (hex && isSafeColorValue(hex)) ? hex : null;
+    }
+    return null; // 名前色・複合・危険値は着色しない
+}
+
+// text を色 span で包む（hex が安全でなければ text をそのまま返す = 無着色）。
+function wrapColorSpan(text, hex) {
+    if (!isSafeColorValue(hex)) { return text; }
+    return '<span style="color:' + hex.trim().toLowerCase() + '">' + text + '</span>';
+}
+
+// html 文字列中の色 span を外して inner だけにする（1 段のみ）。
+function stripColorSpan(html) {
+    if (typeof html !== 'string') { return html; }
+    return html.replace(makeColorSpanRe(), '$2');
+}
+
+var _api = {
+    isSafeColorValue: isSafeColorValue,
+    makeColorSpanRe: makeColorSpanRe,
+    extractColorFromStyle: extractColorFromStyle,
+    wrapColorSpan: wrapColorSpan,
+    stripColorSpan: stripColorSpan,
+};
+
+// CommonJS + global 両対応（webview では window.InlineColor として使用）
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = _api;
+}
+if (typeof window !== 'undefined') {
+    window.InlineColor = _api;
+}
+
+    </script>
+    <script>
+    'use strict';
+
+/**
+ * inline-color-picker.js — インライン文字色の共通 swatch ピッカー（sprint 20260724-160000）
+ *
+ * md editor（toolbar / command palette）と outliner（右クリックメニュー）で共用する
+ * 20色 swatch + None のポップオーバー。NOTES_COLOR_PALETTE の hex を使い、onPick に **hex**
+ * （None は null）を渡す。file/folder アイコンの色ピッカー（notes-file-panel.js）は color **name**
+ * を返すが、本機能は hex 直値を保存するため別関数として持つ（FR-IC-05）。
+ *
+ * showInlineColorPicker({ x, y, onPick }) → document.body に .inline-color-popover を出す。
+ * onPick(hex|null) を呼んだら閉じる。外側クリック / Esc でも閉じる（キャンセル）。
+ */
+
+function _getPalette() {
+    if (typeof NOTES_COLOR_PALETTE !== 'undefined') { return NOTES_COLOR_PALETTE; }
+    if (typeof window !== 'undefined' && window.NOTES_COLOR_PALETTE) { return window.NOTES_COLOR_PALETTE; }
+    return [];
+}
+
+var _openPopover = null;
+
+function closeInlineColorPicker() {
+    if (_openPopover) {
+        if (_openPopover._cleanup) { _openPopover._cleanup(); }
+        if (_openPopover.parentNode) { _openPopover.parentNode.removeChild(_openPopover); }
+        _openPopover = null;
+    }
+}
+
+function showInlineColorPicker(opts) {
+    opts = opts || {};
+    var onPick = typeof opts.onPick === 'function' ? opts.onPick : function () {};
+    closeInlineColorPicker();
+
+    var pop = document.createElement('div');
+    pop.className = 'inline-color-popover file-panel-context-menu';
+    pop.style.position = 'fixed';
+    pop.style.zIndex = '99999';
+    if (typeof opts.x === 'number') { pop.style.left = opts.x + 'px'; }
+    if (typeof opts.y === 'number') { pop.style.top = opts.y + 'px'; }
+
+    var grid = document.createElement('div');
+    grid.className = 'file-panel-color-grid';
+    _getPalette().forEach(function (c) {
+        var sw = document.createElement('div');
+        sw.className = 'file-panel-color-swatch';
+        sw.style.backgroundColor = c.hex;
+        sw.dataset.hex = c.hex;
+        sw.title = c.name;
+        sw.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var hex = c.hex;
+            closeInlineColorPicker();
+            onPick(hex);
+        });
+        grid.appendChild(sw);
+    });
+    pop.appendChild(grid);
+
+    var noneBtn = document.createElement('div');
+    noneBtn.className = 'file-panel-color-none';
+    noneBtn.textContent = (typeof opts.noneLabel === 'string') ? opts.noneLabel : 'None';
+    noneBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closeInlineColorPicker();
+        onPick(null);
+    });
+    pop.appendChild(noneBtn);
+
+    document.body.appendChild(pop);
+    _openPopover = pop;
+
+    // 外側クリック / Esc で閉じる（次 tick で登録して自身の click を拾わない）
+    var outside = function (e) {
+        if (_openPopover && !_openPopover.contains(e.target)) { closeInlineColorPicker(); }
+    };
+    var onKey = function (e) {
+        if (e.key === 'Escape') { closeInlineColorPicker(); }
+    };
+    setTimeout(function () {
+        document.addEventListener('mousedown', outside, true);
+        document.addEventListener('keydown', onKey, true);
+    }, 0);
+    pop._cleanup = function () {
+        document.removeEventListener('mousedown', outside, true);
+        document.removeEventListener('keydown', onKey, true);
+    };
+
+    // viewport はみ出し補正（右/下端）
+    var rect = pop.getBoundingClientRect();
+    if (typeof opts.x === 'number' && rect.right > window.innerWidth) {
+        pop.style.left = Math.max(0, window.innerWidth - rect.width - 4) + 'px';
+    }
+    if (typeof opts.y === 'number' && rect.bottom > window.innerHeight) {
+        pop.style.top = Math.max(0, window.innerHeight - rect.height - 4) + 'px';
+    }
+    return pop;
+}
+
+var _pickerApi = {
+    showInlineColorPicker: showInlineColorPicker,
+    closeInlineColorPicker: closeInlineColorPicker,
+};
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = _pickerApi;
+}
+if (typeof window !== 'undefined') {
+    window.showInlineColorPicker = showInlineColorPicker;
+    window.closeInlineColorPicker = closeInlineColorPicker;
+}
+
+    </script>
+    <script>
     // SidePanelHostBridge — delegates side panel editor's host calls to the main host bridge
 class SidePanelHostBridge {
     constructor(mainHost, filePath, callbacks) {
@@ -6040,6 +6343,7 @@ class EditorInstance {
                         <button data-action="italic"></button>
                         <button data-action="strikethrough"></button>
                         <button data-action="code"></button>
+                        <button data-action="textColor" title="Text Color">A</button>
                     </div>
                     <div class="toolbar-group" data-group="block">
                         <button data-action="heading1"></button>
@@ -6165,7 +6469,7 @@ class EditorInstance {
     // Set toolbar button titles from i18n (needed for side panel whose HTML lacks titles)
     var toolbarTitleMap = {
         undo: i18n.undo, redo: i18n.redo, bold: i18n.bold, italic: i18n.italic,
-        strikethrough: i18n.strikethrough, code: i18n.inlineCode,
+        strikethrough: i18n.strikethrough, code: i18n.inlineCode, textColor: i18n.textColor,
         heading1: i18n.heading1, heading2: i18n.heading2, heading3: i18n.heading3,
         heading4: i18n.heading4, heading5: i18n.heading5, heading6: i18n.heading6,
         ul: i18n.unorderedList, ol: i18n.orderedList, task: i18n.taskList,
@@ -7823,16 +8127,43 @@ class EditorInstance {
 
     function parseInline(text) {
         if (!text) return '';
-        
-        let html = escapeHtml(text);
-        
-        // Restore <br> tags that were escaped (used in table cells for line breaks)
-        html = html.replace(/&lt;br&gt;/gi, '<br>');
-        
+
         // Use placeholders to protect content from further processing
         const placeholders = [];
         let placeholderIndex = 0;
-        
+
+        // sprint 20260724-160000 (TASK-07 fix): インライン文字色。色 span は raw text 中に
+        // `<span style="color:#hex">…</span>` として存在するため、escapeHtml で `<` が壊れる前に protect する。
+        // ★ 順序が肝（reviewer iter1 で判明した自己 round-trip 破損の修正）:
+        //   (1) inline code 領域を raw から一時退避 → code 内の色 span は color 正規表現に拾われず、
+        //       code 内容がリテラル保存される（NFR-IC-04。outliner renderInlineText と同方式）。
+        //   (2) 色 span を protect（code 退避済み）。inner は plaintext（color 最内 canonical）なので escape。
+        //   (3) code 領域を戻し、後段の parseInlineCode に委ねる。
+        //   (4) 色 placeholder の復元は escape/code/link/bold の**後に global 一括**で行う（下部）。
+        //       これで link/img の中にネストした色 token も link 復元後に解決される（色+link の round-trip）。
+        // 危険な span（複合 style / 危険属性）は makeColorSpanRe が拾わず、escapeHtml でリテラル化（NFR-IC-03）。
+        const colorPlaceholders = [];
+        if (typeof InlineColor !== 'undefined') {
+            const rawCode = [];
+            let t = text.replace(/`[^`]+`/g, function (m) {
+                rawCode.push(m);
+                return '\x00RAWCODE' + (rawCode.length - 1) + '\x00';
+            });
+            t = t.replace(InlineColor.makeColorSpanRe(), function (_m, hex, inner) {
+                if (!InlineColor.isSafeColorValue(hex)) { return _m; } // 危険色はそのまま（後で escape）
+                var ph = '\x00COLOR' + (colorPlaceholders.length) + '\x00';
+                colorPlaceholders.push('<span style="color:' + hex.trim().toLowerCase() + '">' + escapeHtml(inner) + '</span>');
+                return ph;
+            });
+            t = t.replace(/\x00RAWCODE(\d+)\x00/g, function (_, i) { return rawCode[parseInt(i, 10)]; });
+            text = t;
+        }
+
+        let html = escapeHtml(text);
+
+        // Restore <br> tags that were escaped (used in table cells for line breaks)
+        html = html.replace(/&lt;br&gt;/gi, '<br>');
+
         // IMPORTANT: Process inline code FIRST to protect code content from other formatting
         // Code spans should not have their contents processed as markdown
         html = parseInlineCode(html, placeholders, () => placeholderIndex++);
@@ -7889,10 +8220,20 @@ class EditorInstance {
         for (const { placeholder, html: replacement } of placeholders) {
             html = html.replace(placeholder, replacement);
         }
-        
+
+        // sprint 20260724-160000 (TASK-07): 色 placeholder を最後に global 一括復元する。
+        // code/link/img/bold の復元後に行うことで、link/img HTML の中にネストした色 token も解決される
+        // （\x00COLOR<idx>\x00 は escape/regex で変化しないので安全に一括 replace できる）。
+        if (colorPlaceholders.length) {
+            html = html.replace(/\x00COLOR(\d+)\x00/g, function (_, i) {
+                var rep = colorPlaceholders[parseInt(i, 10)];
+                return rep !== undefined ? rep : '';
+            });
+        }
+
         return html;
     }
-    
+
     function renderFromMarkdown() {
         logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
         const html = markdownToHtmlFragment(markdown);
@@ -12117,9 +12458,51 @@ class EditorInstance {
         
         // Insert the processed content
         range.insertNode(result);
-        
+
         // Collapse selection to end
         sel.collapseToEnd();
+    }
+
+    // sprint 20260724-160000: インライン文字色。選択範囲を color の span でラップ / 解除する。
+    // execCommand('foreColor') は styleWithCSS=true で `<span style="color:...">` を生成する
+    // （partial/multi-node 選択もブラウザが処理）。serialize（collectCharStyles）は style.color を
+    // 読むので、ブラウザがどう wrap しても hex を拾える。code 内選択は着色しない。
+    function _selectionInCode() {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return false;
+        const n = sel.getRangeAt(0).startContainer;
+        const el = n.nodeType === 3 ? n.parentElement : n;
+        return !!(el && el.closest && el.closest('code, pre'));
+    }
+
+    function applyTextColor(hex) {
+        if (typeof InlineColor === 'undefined' || !InlineColor.isSafeColorValue(hex)) return;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed) return;
+        if (_selectionInCode()) return; // code 内は着色しない（NFR-IC-04）
+        try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) { /* ignore */ }
+        document.execCommand('foreColor', false, hex.trim().toLowerCase());
+        // ★ sprint 20260724-160000 fix: 適用後にカーソルを選択末尾へ畳み、typing 色を既定に戻す。
+        //   これをしないと「色付き文字の直後で入力すると色が継続する」（execCommand foreColor が
+        //   caret の sticky typing style を残すため）。collapse 後の foreColor は既存テキストを変えず
+        //   typing state だけリセットする。
+        try {
+            sel.collapseToEnd();
+            document.execCommand('foreColor', false, 'inherit');
+        } catch (e) { /* ignore */ }
+        syncMarkdown();
+    }
+
+    function removeTextColor() {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed) return;
+        if (_selectionInCode()) return;
+        // foreColor を継承色(inherit)にして色を外す。partial 選択でも execCommand が span を分割する。
+        try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) { /* ignore */ }
+        // 'currentColor' 相当: テキスト既定色に戻す。空文字だと no-op なので inherit を使う。
+        document.execCommand('foreColor', false, 'inherit');
+        // inherit は collectCharStyles の extractColorFromStyle が hex でないため色なし扱い → span が消える方向。
+        syncMarkdown();
     }
 
     // ========== HTML TO MARKDOWN ==========
@@ -12446,9 +12829,9 @@ class EditorInstance {
      * @param {Set} currentStyles - Currently active styles from parent nodes
      * @returns {Array<{char: string, styles: Set<string>, isLink: boolean, href: string, isImage: boolean, src: string, alt: string, isCode: boolean}>}
      */
-    function collectCharStyles(node, currentStyles = new Set()) {
+    function collectCharStyles(node, currentStyles = new Set(), currentColor = null) {
         const result = [];
-        
+
         if (node.nodeType === 3) {
             // Text node - each character inherits current styles
             const text = node.textContent || '';
@@ -12456,6 +12839,7 @@ class EditorInstance {
                 result.push({
                     char: char,
                     styles: new Set(currentStyles),
+                    color: currentColor,   // sprint 20260724-160000: 文字色（styles Set とは別フィールド）
                     isLink: false,
                     href: '',
                     isImage: false,
@@ -12488,6 +12872,7 @@ class EditorInstance {
                 result.push({
                     char: '',
                     styles: new Set(currentStyles),
+                    color: currentColor,
                     isLink: false,
                     href: '',
                     isImage: false,
@@ -12504,7 +12889,7 @@ class EditorInstance {
             // Regular link - collect content with link info
             const linkStyles = new Set(currentStyles);
             for (const child of node.childNodes) {
-                const childChars = collectCharStyles(child, linkStyles);
+                const childChars = collectCharStyles(child, linkStyles, currentColor);
                 for (const c of childChars) {
                     c.isLink = true;
                     c.href = href;
@@ -12514,7 +12899,7 @@ class EditorInstance {
             }
             return result;
         }
-        
+
         if (tag === 'img') {
             // Image - return as single special entry
             // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
@@ -12523,6 +12908,7 @@ class EditorInstance {
             result.push({
                 char: '',
                 styles: new Set(currentStyles),
+                color: currentColor,
                 isLink: false,
                 href: '',
                 isImage: true,
@@ -12532,11 +12918,11 @@ class EditorInstance {
             });
             return result;
         }
-        
+
         if (tag === 'code' && node.parentNode.tagName.toLowerCase() !== 'pre') {
-            // Inline code - collect content with code flag
+            // Inline code - collect content with code flag（code は着色しない=color を伝播しない）
             for (const child of node.childNodes) {
-                const childChars = collectCharStyles(child, currentStyles);
+                const childChars = collectCharStyles(child, currentStyles, null);
                 for (const c of childChars) {
                     c.isCode = true;
                     result.push(c);
@@ -12569,13 +12955,21 @@ class EditorInstance {
         } else if (tag === 'del' || tag === 's' || tag === 'strike') {
             newStyles.add('strikethrough');
         }
-        
+
+        // sprint 20260724-160000: span[style*=color] は文字色を子 char に伝播（styles Set でなく color フィールド）。
+        // ネスト時は内側優先。安全な hex のみ（extractColorFromStyle が allowlist 検証）。
+        let newColor = currentColor;
+        if (tag === 'span' && typeof InlineColor !== 'undefined') {
+            const c = InlineColor.extractColorFromStyle(node.getAttribute('style') || '');
+            if (c) { newColor = c; }
+        }
+
         // Process children with updated styles
         for (const child of node.childNodes) {
-            const childChars = collectCharStyles(child, newStyles);
+            const childChars = collectCharStyles(child, newStyles, newColor);
             result.push(...childChars);
         }
-        
+
         return result;
     }
 
@@ -12597,6 +12991,7 @@ class EditorInstance {
                 !c.isFileLink && !currentGroup.isFileLink &&
                 !c.isLink && !currentGroup.isLink &&
                 !c.isCode && !currentGroup.isCode &&
+                (c.color || null) === (currentGroup.color || null) &&   // sprint 20260724-160000: 色境界で分割
                 sameStyleSet(c.styles, currentGroup.styles);
 
             if (canMerge) {
@@ -12609,6 +13004,7 @@ class EditorInstance {
                 currentGroup = {
                     text: (c.isImage || c.isFileLink) ? '' : c.char,
                     styles: c.styles,
+                    color: c.color || null,   // sprint 20260724-160000: 文字色を group に運ぶ
                     isLink: c.isLink,
                     href: c.href,
                     isSubpage: c.isSubpage,   // subpage フラグを group に運ぶ
@@ -12634,9 +13030,11 @@ class EditorInstance {
             if (prev && prev.isLink && g.isLink &&
                 prev.href === g.href &&
                 prev.isSubpage === g.isSubpage &&
+                (prev.color || null) === (g.color || null) &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else if (prev && prev.isCode && g.isCode &&
+                (prev.color || null) === (g.color || null) &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else {
@@ -12677,26 +13075,26 @@ class EditorInstance {
         if (group.isLink) {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
-            text = applyInlineStyles(text, group.styles);
+            text = applyInlineStyles(text, group.styles, group.color);
             // subpage marker はラウンドトリップで [[]] を保持（劣化防止・INV-1）
             if (group.isSubpage && _subpageSerializeEnabled) {
                 return '[[' + text + ']](' + group.href + ')';
             }
             return '[' + text + '](' + group.href + ')';
         }
-        
+
         if (group.isCode) {
-            // Code doesn't get other formatting
+            // Code doesn't get other formatting（色も付けない）
             // Use appropriate number of backticks based on content
             return wrapInlineCode(group.text);
         }
-        
+
         // Skip empty text (from empty formatting tags)
         if (!group.text) {
             return '';
         }
-        
-        return applyInlineStyles(group.text, group.styles);
+
+        return applyInlineStyles(group.text, group.styles, group.color);
     }
 
     /**
@@ -12706,12 +13104,20 @@ class EditorInstance {
      * @param {Set<string>} styles - Set of style names
      * @returns {string} - Formatted text
      */
-    function applyInlineStyles(text, styles) {
+    function applyInlineStyles(text, styles, color) {
         if (!text) return '';
-        
+
         let result = text;
-        
-        // Apply in order: italic (innermost), bold, strikethrough (outermost)
+
+        // sprint 20260724-160000: 文字色は【最内】（span はプレーンテキストのみを包む）。
+        // parse が色 span 全体を 1 placeholder で protect するため、span 内に md marker（**）を入れると
+        // リテラル化する（<strong> にならない）。span を最内にして marker を外側に出すと、reload 時に
+        // `**` が bold として正常 parse される（ADRL-INLINE-COLOR-ENCODING / design R-1）。
+        if (color && typeof InlineColor !== 'undefined' && InlineColor.isSafeColorValue(color)) {
+            result = InlineColor.wrapColorSpan(result, color);
+        }
+
+        // Apply in order: italic (innermost of markers), bold, strikethrough (outermost)
         if (styles.has('italic')) {
             result = '*' + result + '*';
         }
@@ -12721,7 +13127,7 @@ class EditorInstance {
         if (styles.has('strikethrough')) {
             result = '~~' + result + '~~';
         }
-        
+
         return result;
     }
 
@@ -18210,12 +18616,51 @@ class EditorInstance {
                 openTranslatePopup(e.target.closest('[data-action="translate"]'));
                 break;
             }
+            case 'textColor': {
+                // sprint 20260724-160000: 色ボタン → swatch picker（ボタン下にアンカー）
+                openTextColorPicker(e.target.closest('[data-action="textColor"]'));
+                break;
+            }
             default:
                 // Shared actions (toolbar + command palette)
                 dispatchToolbarAction(action);
                 break;
         }
     });
+
+    // sprint 20260724-160000: 色 picker を開く（選択 range を保存 → pick で復元して適用）。
+    // toolbar ボタンからも command palette（saved range）からも使う。
+    function openTextColorPicker(anchorEl) {
+        const sel = window.getSelection();
+        // 現在の選択 range を保存（picker を開くと選択が失われるため）
+        let savedRange = null;
+        if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
+            savedRange = sel.getRangeAt(0).cloneRange();
+        } else if (commandPaletteSavedRange) {
+            savedRange = commandPaletteSavedRange.cloneRange();
+        }
+        if (!savedRange) return; // 選択なしは no-op
+        let px = 0, py = 0;
+        if (anchorEl && anchorEl.getBoundingClientRect) {
+            const r = anchorEl.getBoundingClientRect();
+            px = r.left; py = r.bottom + 2;
+        } else {
+            const rr = savedRange.getBoundingClientRect();
+            px = rr.left; py = rr.bottom + 2;
+        }
+        if (typeof window.showInlineColorPicker !== 'function') return;
+        window.showInlineColorPicker({
+            x: px, y: py,
+            noneLabel: (typeof i18n !== 'undefined' && i18n.textColorNone) || 'None',
+            onPick: function (hex) {
+                // 保存 range を復元してから適用
+                const s = window.getSelection();
+                s.removeAllRanges();
+                s.addRange(savedRange);
+                if (hex) { applyTextColor(hex); } else { removeTextColor(); }
+            },
+        });
+    }
 
     // Shared action dispatcher used by both toolbar and command palette
     function dispatchToolbarAction(action) {
@@ -18238,6 +18683,11 @@ class EditorInstance {
                     document.execCommand('insertHTML', false, '<code>' + codeSel.toString() + '</code>');
                     syncMarkdown();
                 }
+                break;
+            case 'textColor':
+                // sprint 20260724-160000: command palette 経由（palette が savedRange を selection に復元済み）。
+                // toolbar からは click switch の case 'textColor' が anchor 付きで呼ぶ（そちらが優先）。
+                openTextColorPicker(null);
                 break;
             case 'heading1':
             case 'heading2':
@@ -18507,6 +18957,7 @@ class EditorInstance {
         { group: 'inline', action: 'italic',        i18nKey: 'italic',        icon: 'italic' },
         { group: 'inline', action: 'strikethrough', i18nKey: 'strikethrough', icon: 'strikethrough' },
         { group: 'inline', action: 'code',          i18nKey: 'inlineCode',    icon: 'code' },
+        { group: 'inline', action: 'textColor',     i18nKey: 'textColor',     icon: 'palette' },
         // Group: Headings
         { group: 'headings', action: 'heading1', i18nKey: 'heading1', icon: 'heading1' },
         { group: 'headings', action: 'heading2', i18nKey: 'heading2', icon: 'heading2' },
@@ -24359,6 +24810,11 @@ class EditorInstance {
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;
+        // sprint 20260724-160000: インライン文字色。toolbar/palette が最終的に呼ぶ apply/remove を直接叩く
+        //（standalone-editor は #toolbar が空 DOM で live ボタンが無いため、選択に対し関数を直接検証する）。
+        window.__testApi.applyTextColor = (hex) => applyTextColor(hex);
+        window.__testApi.removeTextColor = () => removeTextColor();
+        window.__testApi.openTextColorPicker = (anchor) => openTextColorPicker(anchor || null);
         // subpage serialize 分岐の on/off（TC-SP-10 counterfactual: false で [[]] → [] 劣化を機械実証）
         window.__testApi.__setSubpageSerialize = (v) => { _subpageSerializeEnabled = !!v; };
         // finalizeAddPage を直接呼ぶ（TC-SP-15: action panel 経由 = 新規/既存で subpage 分岐を検証）
@@ -25085,14 +25541,41 @@ window.__createSidePanelBridgeMethods = function(postFn) {
     function renderInlineText(text) {
         if (!text) { return ''; }
 
+        // sprint 20260724-160000: インライン文字色。
+        // ★ inline code を先に placeholder 退避（code 内の色記法を着色しないため・NFR-IC-04）→
+        //   その後で color span を protect（code に隠れた span は見えない）→ escape → 末尾で復元。
+        var codePlaceholders = [];
+        text = text.replace(/`([^`]+)`/g, function (_m, inner) {
+            codePlaceholders.push(inner);
+            return '\x00CODE' + (codePlaceholders.length - 1) + '\x00';
+        });
+        // color span を escape 前に protect（安全な hex のみ・危険 span はそのまま escape でテキスト化・NFR-IC-03）
+        var colorPlaceholders = [];
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        if (IC) {
+            text = text.replace(IC.makeColorSpanRe(), function (_m, hex, inner) {
+                if (!IC.isSafeColorValue(hex)) { return _m; }
+                colorPlaceholders.push({ hex: hex.trim().toLowerCase(), inner: inner });
+                return '\x00COLOR' + (colorPlaceholders.length - 1) + '\x00';
+            });
+        }
+
         // エスケープ
         var html = text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
-        // インラインコード (先に処理してコード内を保護)
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // inline code placeholder を <code> に復元（inner は escape。code 内の色記法はテキストのまま）
+        html = html.replace(/\x00CODE(\d+)\x00/g, function (_, idx) {
+            var innerRaw = codePlaceholders[parseInt(idx, 10)];
+            var innerEsc = innerRaw
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<code>' + innerEsc + '</code>';
+        });
 
         // 太字
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -25149,6 +25632,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
         html = html.replace(/\x00LINK(\d+)\x00/g, function(_, idx) {
             return linkPlaceholders[parseInt(idx, 10)];
+        });
+
+        // sprint 20260724-160000: color span placeholder を実 HTML に復元（inner は escape）。
+        html = html.replace(/\x00COLOR(\d+)\x00/g, function (_, idx) {
+            var ph = colorPlaceholders[parseInt(idx, 10)];
+            if (!ph) { return ''; }
+            var innerEsc = ph.inner
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<span style="color:' + ph.hex + '">' + innerEsc + '</span>';
         });
 
         // 末尾スペースをNBSPに変換 (contenteditableで末尾空白が描画されない問題を回避)
@@ -25750,6 +26244,74 @@ window.__createSidePanelBridgeMethods = function(postFn) {
     }
 
     /**
+     * sprint 20260724-160000: node text の選択範囲に文字色を適用 / 除去する。
+     * marker 対称でない（open != close）ため applyInlineFormat と別関数。
+     * node.text 内に <span style="color:#hex">…</span> を保存（md と同一エンコード）。
+     * hex=null で選択を覆う色 span を除去（partial は span split）。
+     * Args: { nodeId, textEl, hex, model, host, wholeText }
+     *   - wholeText=true: 選択に依らず node text 全体を対象にする（右クリック・選択なし経路）。
+     *     display mode（renderInlineText）では rendered!=source で offset がずれるため、全体対象は
+     *     source を直接扱う（offset 計算を経由しない）。
+     */
+    function applyTextColor(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var textEl = args.textEl;
+        var hex = args.hex;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !textEl) { return; }
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var text = node.text || '';
+        var sel = window.getSelection();
+
+        var before, selected, after;
+
+        // node text 全体を対象（選択なし右クリック経路・display mode でも offset を使わず source 直接）
+        if (args.wholeText || !sel || sel.isCollapsed) {
+            if (!text) { return; }
+            before = '';
+            selected = text;
+            after = '';
+        } else {
+            var range = sel.getRangeAt(0);
+            var preRange = range.cloneRange();
+            preRange.selectNodeContents(textEl);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            var startOff = preRange.toString().length;
+            var endOff = startOff + range.toString().length;
+
+            // ★ 編集モードは renderEditingText（色 span は生タグ可視 = source そのもの）なので、
+            //    offset は source 文字列基準で一致する（R-2 fallback）。
+            before = text.slice(0, startOff);
+            selected = text.slice(startOff, endOff);
+            after = text.slice(endOff);
+        }
+        var newText;
+        var newCursor;
+
+        if (hex && IC && IC.isSafeColorValue(hex)) {
+            // 適用: 選択を色 span で包む（既存の色 span があれば一旦剥がしてから）
+            var innerPlain = IC.stripColorSpan(selected);
+            var span = IC.wrapColorSpan(innerPlain, hex.trim().toLowerCase());
+            newText = before + span + after;
+            newCursor = (before + span).length;
+        } else {
+            // 除去: 選択内の色 span を外す（partial は選択部分だけ plain 化）
+            var stripped = IC ? IC.stripColorSpan(selected) : selected;
+            newText = before + stripped + after;
+            newCursor = (before + stripped).length;
+        }
+        model.updateText(nodeId, newText);
+        textEl.innerHTML = renderEditingText(newText);
+        setCursorAtOffset(textEl, newCursor);
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+    }
+
+    /**
      * Open subtext for editing.
      * Args: { nodeId, treeEl, model } — host: not needed (read-only DOM ops + model.getNode)
      */
@@ -25889,6 +26451,7 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         renderNodeImages: renderNodeImages,
         // Phase 5 — applyInlineFormat / subtext open/close (model + host inject)
         applyInlineFormat: applyInlineFormat,
+        applyTextColor: applyTextColor,
         openSubtext: openSubtext,
         closeSubtext: closeSubtext,
         handleSubtextKeydown: handleSubtextKeydown
@@ -31093,6 +31656,10 @@ var Outliner = (function() {
     var taskFilterToggleBtn = null;  // 全て / 処理中 切替 (タスクモード ON 時のみ表示)
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
     var contextMenuEl = null;
+    // sprint 20260724-160000: 右クリック文字色メニュー用の選択保存
+    var _contextTextEl = null;
+    var _contextSavedRange = null;
+    var _contextHasSelection = false;
 
     var syncDebounceTimer = null;
     /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
@@ -34303,6 +34870,19 @@ var Outliner = (function() {
         });
     }
 
+    // sprint 20260724-160000: node text の選択に文字色を適用 / 除去（hex=null で除去）。
+    // wholeText=true で node text 全体を対象（選択なし右クリック経路）。
+    function applyTextColor(nodeId, textEl, hex, wholeText) {
+        return OutlinerCell.applyTextColor({
+            nodeId: nodeId,
+            textEl: textEl,
+            hex: hex,
+            wholeText: !!wholeText,
+            model: model,
+            host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
+        });
+    }
+
     // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
 
     function setCursorToEnd(el) {
@@ -36920,6 +37500,13 @@ var Outliner = (function() {
             // The tag literal text becomes a candidate for the pinned-tag menu item.
             var tagEl = e.target.closest && e.target.closest('.outliner-tag');
             var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
+            // sprint 20260724-160000: 文字色メニュー用に、右クリック時の選択（.outliner-text 内）を保存。
+            // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられるよう）。
+            _contextTextEl = nodeEl.querySelector('.outliner-text');
+            var csel = window.getSelection();
+            _contextHasSelection = !!(csel && !csel.isCollapsed && _contextTextEl &&
+                _contextTextEl.contains(csel.anchorNode) && _contextTextEl.contains(csel.focusNode));
+            _contextSavedRange = _contextHasSelection ? csel.getRangeAt(0).cloneRange() : null;
             e.preventDefault();
             showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
@@ -36975,6 +37562,37 @@ var Outliner = (function() {
                 syncToHostImmediate();
                 hideContextMenu();
             }, null, alreadyPinned);
+            addMenuSeparator(contextMenuEl);
+        }
+
+        // --- sprint 20260724-160000: 文字色（node text があれば常に表示） ---
+        // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられる）。
+        if (_contextTextEl && node.text && typeof window.showInlineColorPicker === 'function') {
+            var colorTextEl = _contextTextEl;
+            var colorRange = _contextHasSelection ? _contextSavedRange : null;
+            addMenuItem(contextMenuEl, i18n.textColor || 'Text Color', function(ev) {
+                // picker を開く（menu は閉じるが保存 range で適用）
+                var px = ev && ev.clientX ? ev.clientX : x;
+                var py = ev && ev.clientY ? ev.clientY : y;
+                window.showInlineColorPicker({
+                    x: px, y: py,
+                    noneLabel: i18n.textColorNone || 'None',
+                    onPick: function(hex) {
+                        if (colorRange) {
+                            // 選択があった: 保存 range を復元して部分適用（edit mode・offset 一致）
+                            colorTextEl.focus();
+                            var s = window.getSelection();
+                            s.removeAllRanges();
+                            s.addRange(colorRange);
+                            applyTextColor(nodeId, colorTextEl, hex, false);
+                        } else {
+                            // 選択なし: node text 全体を対象（display mode でも source 直接処理）
+                            applyTextColor(nodeId, colorTextEl, hex, true);
+                        }
+                    }
+                });
+                hideContextMenu();
+            });
             addMenuSeparator(contextMenuEl);
         }
 
@@ -37721,6 +38339,30 @@ var Outliner = (function() {
         });
     }
 
+    // sprint 20260724-063158 (FR-TP-01): サイドパネルの containing block（.notes-main-wrapper）の幅が
+    // 左ファイルパネル開閉等で変わっても px 固定幅が追従せず editor 領域を超えるバグ。ResizeObserver で
+    // 幅変化を検知し、visible かつ非 expanded 時に再クランプする（window resize 経路を包含）。
+    // ★ .side-panel は position:absolute（flow 外）なので、幅を触っても観測対象 wrapper のサイズに
+    //   フィードバックせず無限ループしない。1 回だけ登録。
+    var _sidePanelResizeObserverWired = false;
+    var _sidePanelResizeObserverDisabled = false;                      // TC-TP-01 counterfactual 用（テストのみ）
+    function ensureSidePanelResizeObserver() {
+        if (_sidePanelResizeObserverWired) return;
+        if (typeof ResizeObserver === 'undefined') return;             // 念のためガード（webview は native 対応）
+        if (!sidePanelEl) return;
+        var container = sidePanelEl.parentElement;                     // = .notes-main-wrapper
+        if (!container) return;
+        _sidePanelResizeObserverWired = true;
+        var ro = new ResizeObserver(function() {
+            if (_sidePanelResizeObserverDisabled) return;              // counterfactual: 無効化すると px 据え置き
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();                              // .side-panel 幅のみ触る（wrapper は不変）
+        });
+        ro.observe(container);
+    }
+
     // sidepanel TOC (sidebar) drag-resize
     function setupSidePanelSidebarResize() {
         var sidebar = document.querySelector('.side-panel-sidebar');
@@ -38095,12 +38737,26 @@ var Outliner = (function() {
         applySidePanelWidthClamped();
         // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
         ensureSidePanelWindowResizeHandler();
+        // FR-TP-01: .notes-main-wrapper 幅変化（左ファイルパネル開閉等）にも追従して再クランプ
+        ensureSidePanelResizeObserver();
 
         // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }
-        requestAnimationFrame(function() {
-            if (sidePanelEl) { sidePanelEl.classList.add('open'); }
-        });
+        // sprint 20260724-063158 (FR-TP-02): タブ復帰（_sidePanelRestorePending）はスライドアニメを再生せず即 open。
+        //   ★ フラグはここで読むだけ（clear は下の consume :7340 付近に任せる）。else は通常 open（現行同一・回帰なし）。
+        if (_sidePanelRestorePending && sidePanelEl) {
+            sidePanelEl.classList.add('no-transition');
+            sidePanelEl.classList.add('open');                 // 同期付与＝transition:none で即 translateX(0)（スライドなし）
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    if (sidePanelEl) { sidePanelEl.classList.remove('no-transition'); } // 以降の開閉アニメは復活
+                });
+            });
+        } else {
+            requestAnimationFrame(function() {
+                if (sidePanelEl) { sidePanelEl.classList.add('open'); }
+            });
+        }
 
         // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
         // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
@@ -38113,9 +38769,11 @@ var Outliner = (function() {
             return; // 復元経路では auto-focus しない（focus 自動スクロールが復元 scrollTop を上書きするため）
         }
 
-        // sprint 20260724-042927 (FR-SPC-05): fresh-open の瞬間にアクティブタブの sidePanel 状態を追随
-        //   （restore 経路は上の return で通らない・capture 契機に依存せず確実に復元できるようにする）。
-        _syncActiveTabSidePanel(_captureSidePanelState());
+        // sprint 20260724-042927 (FR-SPC-05・TASK-05): fresh-open の瞬間にアクティブタブの sidePanel 状態を追随。
+        //   ★ `.side-panel.open` は上の rAF（次フレーム）で付与されるため、この同期時点では未付与。
+        //   よって _captureSidePanelState() を呼ばず、fresh-open は定義上 open=true・filePath は上で同期設定済み
+        //   （sidePanelFilePath）なので明示構築する（rAF 待ちの誤 open:false を避ける）。
+        _syncActiveTabSidePanel({ open: true, filePath: sidePanelFilePath, scrollTop: 0 });
 
         // アニメーション完了後にエディタに自動フォーカス
         setTimeout(function() {
@@ -38824,6 +39482,11 @@ var Outliner = (function() {
 
                         var savedFocus = focusedNodeId;
                         model = new OutlinerModel(msg.data);
+                        // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
+                        //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
+                        //   view mode が残っていた）。renderTree より前に設定。init(:814) と同ロジック。
+                        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
+                            ? model.viewMode : 'outliner';
                         searchEngine = new OutlinerSearch.SearchEngine(model);
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
@@ -39935,12 +40598,24 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
-        // sprint 20260723-233506: Tab Manager 用の画面状態 capture/apply（focus/scope の best-effort 復元）。
+        // sprint 20260723-233506 + 20260724-063158 (FR-TP-03): Tab Manager 用の画面状態 capture/apply。
+        //   focus/scope に加え、検索状態（テキスト + Tree/Focus モード）と view mode を per-tab 復元する
+        //   （outliner/table/mindmap 全モード。updateData でリセットされる module singleton を復元）。
         captureView: function() {
-            return { focusedNodeId: focusedNodeId, currentScope: currentScope };
+            return {
+                focusedNodeId: focusedNodeId,
+                currentScope: currentScope,
+                searchQuery: (searchInput ? searchInput.value : ''),
+                searchFocusMode: searchFocusMode,
+                viewMode: VIEW_MODE,
+            };
         },
         applyView: function(view) {
             if (!view) return;
+            // view mode を復元（per-tab。VIEW_MODE と異なれば切替。setViewMode は同一なら :57 ガードで no-op）。
+            if (view.viewMode && view.viewMode !== VIEW_MODE && typeof setViewMode === 'function') {
+                setViewMode(view.viewMode);
+            }
             // scope を復元（document/subtree）。best-effort（node が消えていれば document）。
             if (view.currentScope && view.currentScope.type === 'subtree' && view.currentScope.rootId
                 && model && model.getNode(view.currentScope.rootId)) {
@@ -39949,6 +40624,12 @@ var Outliner = (function() {
                 currentScope = { type: 'document' };
             }
             if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
+            // FR-TP-03: 検索状態を復元（テキスト + モード）。updateData がクリアした後に走るので上書きになる。
+            searchFocusMode = !!view.searchFocusMode;
+            if (searchInput) { searchInput.value = view.searchQuery || ''; }
+            if (typeof updateSearchModeButton === 'function') updateSearchModeButton();
+            if (typeof executeSearch === 'function') executeSearch();          // currentSearchResult 再計算（空なら clear 相当・全モード分岐）
+            if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
             // focus を復元（preventScroll は呼び出し側 _suppressFocusScroll で担保）。
             if (view.focusedNodeId && model && model.getNode(view.focusedNodeId)) {
                 focusNode(view.focusedNodeId);
@@ -39976,6 +40657,13 @@ var Outliner = (function() {
             }
             return false;
         },
+        // TC-TP-01（FR-TP-01）テスト用フック。保存幅 px を注入 + ResizeObserver を張り + クランプを同期発火。
+        //   RO は非同期発火なので、テストの決定性のため clamp を直接叩ける口も出す。
+        __setSidePanelWidthForTest: function(px) { sidePanelWidthSetting = px; },
+        __wireSidePanelResizeObserverForTest: function() { ensureSidePanelResizeObserver(); },
+        __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
+        // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
+        __setSidePanelResizeObserverDisabledForTest: function(v) { _sidePanelResizeObserverDisabled = !!v; },
     };
 })();
 

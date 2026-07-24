@@ -87,6 +87,9 @@ const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
 const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8');
+// sprint 20260724-160000: インライン文字色 共有 core + ピッカー
+const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
+const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
@@ -403,6 +406,15 @@ const html = `<!DOCTYPE html>
     __EDITOR_UTILS_SCRIPT__
     </script>
     <script>
+    __NOTES_COLOR_PALETTE_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_PICKER_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -419,9 +431,6 @@ const html = `<!DOCTYPE html>
     </script>
     <script>
     __OUTLINER_SCRIPT__
-    </script>
-    <script>
-    __NOTES_COLOR_PALETTE_SCRIPT__
     </script>
     <script>
     __NOTES_FILE_PANEL_SCRIPT__
@@ -572,6 +581,8 @@ result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript)
 result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
+result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
+result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);

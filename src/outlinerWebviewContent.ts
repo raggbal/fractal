@@ -71,6 +71,13 @@ export function getOutlinerWebviewContent(
     // Load editor scripts (for side panel EditorInstance)
     const editorUtilsScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor-utils.js'), 'utf8');
+    // sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー（editor.js/outliner.js より前）
+    const inlineColorScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color.js'), 'utf8');
+    const colorPaletteScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+    const inlineColorPickerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
 
     const editorScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor.js'), 'utf8')
@@ -186,6 +193,15 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${editorUtilsScript}
+    </script>
+    <script nonce="${nonce}">
+        ${colorPaletteScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorPickerScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

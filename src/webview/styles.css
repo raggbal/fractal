@@ -2090,3 +2090,34 @@ body {
     font-family: inherit;
     padding: 0;
 }
+
+/* sprint 20260724-160000: インライン文字色ピッカー（md toolbar/palette + outliner 右クリック共通） */
+.inline-color-popover {
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
+    border-radius: var(--fr-radius-sm, 6px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 4px 0;
+    min-width: 0;
+}
+.inline-color-popover .file-panel-color-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 18px);
+    gap: 4px;
+    padding: 7px 11px;
+}
+.inline-color-popover .file-panel-color-swatch {
+    width: 18px; height: 18px;
+    border-radius: var(--fr-radius-xs, 4px);
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s, border-color 0.1s;
+}
+.inline-color-popover .file-panel-color-swatch:hover { transform: scale(1.15); }
+.inline-color-popover .file-panel-color-none {
+    font-size: 11px;
+    opacity: 0.75;
+    padding: 4px 11px;
+    cursor: pointer;
+}
+.inline-color-popover .file-panel-color-none:hover { opacity: 1; }

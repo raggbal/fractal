@@ -58,6 +58,8 @@ export const webviewMessages = {
   taskList: '작업 목록 (Ctrl+Shift+X)',
   blockquote: '인용 (Ctrl+Shift+Q)',
   inlineCode: '인라인 코드 (Ctrl+`)',
+  textColor: '글자 색',
+  textColorNone: '없음',
   codeBlock: '코드 블록 (Ctrl+Shift+K)',
   insertLink: '링크 삽입 (Ctrl+K)',
   insertImage: '이미지 삽입 (Ctrl+Shift+I)',

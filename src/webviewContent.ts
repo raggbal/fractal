@@ -102,6 +102,14 @@ export function getWebviewContent(
 
     const editorUtilsScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor-utils.js'), 'utf8');
+    // sprint 20260724-160000: インライン文字色の共有 core + 20色パレット + ピッカー
+    //（editor.js より前に window.InlineColor / NOTES_COLOR_PALETTE / showInlineColorPicker を用意）
+    const inlineColorScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color.js'), 'utf8');
+    const colorPaletteScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+    const inlineColorPickerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
 
     // Vendor library URIs (local instead of CDN)
     const vendorDir = path.join(__dirname, '..', 'vendor');
@@ -159,6 +167,15 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${editorUtilsScript}
+    </script>
+    <script nonce="${nonce}">
+        ${colorPaletteScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorPickerScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

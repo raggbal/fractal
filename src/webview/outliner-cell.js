@@ -67,14 +67,41 @@
     function renderInlineText(text) {
         if (!text) { return ''; }
 
+        // sprint 20260724-160000: インライン文字色。
+        // ★ inline code を先に placeholder 退避（code 内の色記法を着色しないため・NFR-IC-04）→
+        //   その後で color span を protect（code に隠れた span は見えない）→ escape → 末尾で復元。
+        var codePlaceholders = [];
+        text = text.replace(/`([^`]+)`/g, function (_m, inner) {
+            codePlaceholders.push(inner);
+            return '\x00CODE' + (codePlaceholders.length - 1) + '\x00';
+        });
+        // color span を escape 前に protect（安全な hex のみ・危険 span はそのまま escape でテキスト化・NFR-IC-03）
+        var colorPlaceholders = [];
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        if (IC) {
+            text = text.replace(IC.makeColorSpanRe(), function (_m, hex, inner) {
+                if (!IC.isSafeColorValue(hex)) { return _m; }
+                colorPlaceholders.push({ hex: hex.trim().toLowerCase(), inner: inner });
+                return '\x00COLOR' + (colorPlaceholders.length - 1) + '\x00';
+            });
+        }
+
         // エスケープ
         var html = text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
-        // インラインコード (先に処理してコード内を保護)
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // inline code placeholder を <code> に復元（inner は escape。code 内の色記法はテキストのまま）
+        html = html.replace(/\x00CODE(\d+)\x00/g, function (_, idx) {
+            var innerRaw = codePlaceholders[parseInt(idx, 10)];
+            var innerEsc = innerRaw
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<code>' + innerEsc + '</code>';
+        });
 
         // 太字
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -131,6 +158,17 @@
         html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
         html = html.replace(/\x00LINK(\d+)\x00/g, function(_, idx) {
             return linkPlaceholders[parseInt(idx, 10)];
+        });
+
+        // sprint 20260724-160000: color span placeholder を実 HTML に復元（inner は escape）。
+        html = html.replace(/\x00COLOR(\d+)\x00/g, function (_, idx) {
+            var ph = colorPlaceholders[parseInt(idx, 10)];
+            if (!ph) { return ''; }
+            var innerEsc = ph.inner
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<span style="color:' + ph.hex + '">' + innerEsc + '</span>';
         });
 
         // 末尾スペースをNBSPに変換 (contenteditableで末尾空白が描画されない問題を回避)
@@ -732,6 +770,74 @@
     }
 
     /**
+     * sprint 20260724-160000: node text の選択範囲に文字色を適用 / 除去する。
+     * marker 対称でない（open != close）ため applyInlineFormat と別関数。
+     * node.text 内に <span style="color:#hex">…</span> を保存（md と同一エンコード）。
+     * hex=null で選択を覆う色 span を除去（partial は span split）。
+     * Args: { nodeId, textEl, hex, model, host, wholeText }
+     *   - wholeText=true: 選択に依らず node text 全体を対象にする（右クリック・選択なし経路）。
+     *     display mode（renderInlineText）では rendered!=source で offset がずれるため、全体対象は
+     *     source を直接扱う（offset 計算を経由しない）。
+     */
+    function applyTextColor(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var textEl = args.textEl;
+        var hex = args.hex;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !textEl) { return; }
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var text = node.text || '';
+        var sel = window.getSelection();
+
+        var before, selected, after;
+
+        // node text 全体を対象（選択なし右クリック経路・display mode でも offset を使わず source 直接）
+        if (args.wholeText || !sel || sel.isCollapsed) {
+            if (!text) { return; }
+            before = '';
+            selected = text;
+            after = '';
+        } else {
+            var range = sel.getRangeAt(0);
+            var preRange = range.cloneRange();
+            preRange.selectNodeContents(textEl);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            var startOff = preRange.toString().length;
+            var endOff = startOff + range.toString().length;
+
+            // ★ 編集モードは renderEditingText（色 span は生タグ可視 = source そのもの）なので、
+            //    offset は source 文字列基準で一致する（R-2 fallback）。
+            before = text.slice(0, startOff);
+            selected = text.slice(startOff, endOff);
+            after = text.slice(endOff);
+        }
+        var newText;
+        var newCursor;
+
+        if (hex && IC && IC.isSafeColorValue(hex)) {
+            // 適用: 選択を色 span で包む（既存の色 span があれば一旦剥がしてから）
+            var innerPlain = IC.stripColorSpan(selected);
+            var span = IC.wrapColorSpan(innerPlain, hex.trim().toLowerCase());
+            newText = before + span + after;
+            newCursor = (before + span).length;
+        } else {
+            // 除去: 選択内の色 span を外す（partial は選択部分だけ plain 化）
+            var stripped = IC ? IC.stripColorSpan(selected) : selected;
+            newText = before + stripped + after;
+            newCursor = (before + stripped).length;
+        }
+        model.updateText(nodeId, newText);
+        textEl.innerHTML = renderEditingText(newText);
+        setCursorAtOffset(textEl, newCursor);
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+    }
+
+    /**
      * Open subtext for editing.
      * Args: { nodeId, treeEl, model } — host: not needed (read-only DOM ops + model.getNode)
      */
@@ -871,6 +977,7 @@
         renderNodeImages: renderNodeImages,
         // Phase 5 — applyInlineFormat / subtext open/close (model + host inject)
         applyInlineFormat: applyInlineFormat,
+        applyTextColor: applyTextColor,
         openSubtext: openSubtext,
         closeSubtext: closeSubtext,
         handleSubtextKeydown: handleSubtextKeydown

@@ -78,6 +78,8 @@ export interface WebviewMessages {
   taskList: string;
   blockquote: string;
   inlineCode: string;
+  textColor: string;
+  textColorNone: string;
   codeBlock: string;
   insertLink: string;
   insertImage: string;

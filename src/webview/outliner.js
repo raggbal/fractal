@@ -294,6 +294,10 @@ var Outliner = (function() {
     var taskFilterToggleBtn = null;  // 全て / 処理中 切替 (タスクモード ON 時のみ表示)
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
     var contextMenuEl = null;
+    // sprint 20260724-160000: 右クリック文字色メニュー用の選択保存
+    var _contextTextEl = null;
+    var _contextSavedRange = null;
+    var _contextHasSelection = false;
 
     var syncDebounceTimer = null;
     /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
@@ -3504,6 +3508,19 @@ var Outliner = (function() {
         });
     }
 
+    // sprint 20260724-160000: node text の選択に文字色を適用 / 除去（hex=null で除去）。
+    // wholeText=true で node text 全体を対象（選択なし右クリック経路）。
+    function applyTextColor(nodeId, textEl, hex, wholeText) {
+        return OutlinerCell.applyTextColor({
+            nodeId: nodeId,
+            textEl: textEl,
+            hex: hex,
+            wholeText: !!wholeText,
+            model: model,
+            host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
+        });
+    }
+
     // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
 
     function setCursorToEnd(el) {
@@ -6121,6 +6138,13 @@ var Outliner = (function() {
             // The tag literal text becomes a candidate for the pinned-tag menu item.
             var tagEl = e.target.closest && e.target.closest('.outliner-tag');
             var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
+            // sprint 20260724-160000: 文字色メニュー用に、右クリック時の選択（.outliner-text 内）を保存。
+            // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられるよう）。
+            _contextTextEl = nodeEl.querySelector('.outliner-text');
+            var csel = window.getSelection();
+            _contextHasSelection = !!(csel && !csel.isCollapsed && _contextTextEl &&
+                _contextTextEl.contains(csel.anchorNode) && _contextTextEl.contains(csel.focusNode));
+            _contextSavedRange = _contextHasSelection ? csel.getRangeAt(0).cloneRange() : null;
             e.preventDefault();
             showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
@@ -6176,6 +6200,37 @@ var Outliner = (function() {
                 syncToHostImmediate();
                 hideContextMenu();
             }, null, alreadyPinned);
+            addMenuSeparator(contextMenuEl);
+        }
+
+        // --- sprint 20260724-160000: 文字色（node text があれば常に表示） ---
+        // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられる）。
+        if (_contextTextEl && node.text && typeof window.showInlineColorPicker === 'function') {
+            var colorTextEl = _contextTextEl;
+            var colorRange = _contextHasSelection ? _contextSavedRange : null;
+            addMenuItem(contextMenuEl, i18n.textColor || 'Text Color', function(ev) {
+                // picker を開く（menu は閉じるが保存 range で適用）
+                var px = ev && ev.clientX ? ev.clientX : x;
+                var py = ev && ev.clientY ? ev.clientY : y;
+                window.showInlineColorPicker({
+                    x: px, y: py,
+                    noneLabel: i18n.textColorNone || 'None',
+                    onPick: function(hex) {
+                        if (colorRange) {
+                            // 選択があった: 保存 range を復元して部分適用（edit mode・offset 一致）
+                            colorTextEl.focus();
+                            var s = window.getSelection();
+                            s.removeAllRanges();
+                            s.addRange(colorRange);
+                            applyTextColor(nodeId, colorTextEl, hex, false);
+                        } else {
+                            // 選択なし: node text 全体を対象（display mode でも source 直接処理）
+                            applyTextColor(nodeId, colorTextEl, hex, true);
+                        }
+                    }
+                });
+                hideContextMenu();
+            });
             addMenuSeparator(contextMenuEl);
         }
 

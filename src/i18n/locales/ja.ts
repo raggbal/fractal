@@ -75,6 +75,8 @@ export const webviewMessages = {
   taskList: 'タスクリスト (Ctrl+Shift+X)',
   blockquote: '引用 (Ctrl+Shift+Q)',
   inlineCode: 'インラインコード (Ctrl+`)',
+  textColor: '文字色',
+  textColorNone: 'なし',
   codeBlock: 'コードブロック (Ctrl+Shift+K)',
   insertLink: 'リンク挿入 (Ctrl+K)',
   insertImage: '画像挿入 (Ctrl+Shift+I)',
