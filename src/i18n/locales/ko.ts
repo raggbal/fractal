@@ -101,6 +101,8 @@ export const webviewMessages = {
   redo: '다시 실행 (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '이미지 저장 경로:',
+  saveDirChoose: '폴더 선택…',
+  saveDirReset: '기본값으로 초기화（images/ · files/）',
   recentFilesLabel: '최근 파일',
   toggleRecent: '최근 파일 패널 토글',
   imageDirSourceFile: '파일별 설정',
@@ -156,6 +158,7 @@ export const webviewMessages = {
   notesTabNotes: '노트',
   notesTabSearch: '검색',
   notesNewFolder: '새 폴더',
+  notesOpenInNewTab: '새 탭에서 열기',
   notesNewOutline: '새 아웃라인',
   notesToday: '오늘',
   notesCollapsePanel: '패널 접기',

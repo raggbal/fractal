@@ -101,6 +101,8 @@ export const webviewMessages = {
   redo: 'Rehacer (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: 'Directorio de imágenes:',
+  saveDirChoose: 'Elegir carpeta…',
+  saveDirReset: 'Restablecer (images/ · files/)',
   recentFilesLabel: 'Recientes',
   toggleRecent: 'Alternar archivos recientes',
   imageDirSourceFile: 'por archivo',
@@ -156,6 +158,7 @@ export const webviewMessages = {
   notesTabNotes: 'Notas',
   notesTabSearch: 'Buscar',
   notesNewFolder: 'Nueva carpeta',
+  notesOpenInNewTab: 'Abrir en una nueva pestaña',
   notesNewOutline: 'Nuevo esquema',
   notesToday: 'Hoy',
   notesCollapsePanel: 'Contraer panel',

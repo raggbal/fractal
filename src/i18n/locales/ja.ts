@@ -119,6 +119,8 @@ export const webviewMessages = {
   redo: 'やり直す (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '画像保存先:',
+  saveDirChoose: 'フォルダを選ぶ…',
+  saveDirReset: 'デフォルトに戻す（images/ · files/）',
   recentFilesLabel: '最近開いたファイル',
   toggleRecent: '履歴パネルの開閉',
   imageDirSourceFile: 'by ファイル個別設定',
@@ -201,6 +203,7 @@ export const webviewMessages = {
   notesTabSearch: '検索',
   notesTabTools: 'ツール',
   notesNewFolder: '新規フォルダ',
+  notesOpenInNewTab: '新しいタブで開く',
   notesNewOutline: '新規アウトライン',
   notesToday: '今日',
   notesCollapsePanel: 'パネルを折りたたむ',

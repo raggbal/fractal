@@ -45,6 +45,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'openResourceRootsSettings' });
         },
 
+        // 保存先変更 (FR-MD-03, standalone md 限定)。kind='image'|'file'
+        setSaveDir: function(kind) {
+            postFn({ type: 'setSaveDir', kind: kind });
+        },
+
         // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
         exportBundle: function(options, sidePanelFilePath) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });

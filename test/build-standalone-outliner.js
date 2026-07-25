@@ -238,7 +238,7 @@ const html = `<!DOCTYPE html>
 </head>
 <body>
     <div class="outliner-container">
-        <div class="outliner-page-title" style="display:none">
+        <div class="outliner-page-title">
             <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
         </div>
         <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>

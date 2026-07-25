@@ -767,6 +767,17 @@ body {
     user-select: none;
     cursor: not-allowed;
 }
+/* FR-MD-02: standalone md 限定 — 保存先表示をクリックで変更可能に */
+.sidebar-status-imagedir.is-editable,
+.sidebar-status-filedir.is-editable {
+    cursor: pointer;
+    opacity: 0.85;
+}
+.sidebar-status-imagedir.is-editable:hover,
+.sidebar-status-filedir.is-editable:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
 .sidebar-status-imagedir.is-locked .imagedir-path,
 .sidebar-status-filedir.is-locked .filedir-path,
 .side-panel-imagedir.is-locked .imagedir-path,
@@ -2313,6 +2324,7 @@ body {
    幅不足時にスクロールする。 */
 .side-panel-header > .side-panel-outline-btn,
 .side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-open-tab,
 .side-panel-header > .side-panel-close {
     flex-shrink: 0;
 }
@@ -2337,8 +2349,7 @@ body {
 /* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
 .side-panel-header-scroll > .side-panel-header-actions,
 .side-panel-header-scroll > .side-panel-copy-path,
-.side-panel-header-scroll > .side-panel-copy-inapp-link,
-.side-panel-header-scroll > .side-panel-open-tab {
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
 .side-panel-filename {
@@ -5445,7 +5456,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             <div class="outliner-container">
                 <!-- ★本番と同じ 3 段（container > scroll-content > tree）。scroll owner = .outliner-scroll-content -->
                 <div class="outliner-scroll-content">
-                    <div class="outliner-page-title" style="display:none;">
+                    <div class="outliner-page-title">
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
@@ -5653,10 +5664,11 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <button class="side-panel-copy-inapp-link" id="sidePanelCopyInAppLink" title="Copy In-App Link" style="display:none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                     </button>
+                    </div>
+                    <!-- sprint 20260725: open-in-tab は close と同様に scroll 外＝固定表示（狭幅でも隠れない） -->
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
-                    </div>
                     <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
@@ -5997,6 +6009,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'openResourceRootsSettings' });
         },
 
+        // 保存先変更 (FR-MD-03, standalone md 限定)。kind='image'|'file'
+        setSaveDir: function(kind) {
+            postFn({ type: 'setSaveDir', kind: kind });
+        },
+
         // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
         exportBundle: function(options, sidePanelFilePath) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
@@ -6246,6 +6263,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 window.Outliner.flushSync();
             }
             window.__testApi.notesMessages.push({ type: 'openFile', filePath: filePath });
+        },
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」用モック
+        openFileInTab: function(filePath) {
+            window.__testApi.notesMessages.push({ type: 'openFileInTab', filePath: filePath });
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
@@ -7450,6 +7471,21 @@ class EditorInstance {
     const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
+    // FR-MD-02/03: standalone md（is-editable のとき）だけ保存先表示クリックで変更 UI を出す。
+    if (statusImageDir) {
+        statusImageDir.addEventListener('click', function() {
+            if (statusImageDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('image');
+            }
+        });
+    }
+    if (statusFileDir) {
+        statusFileDir.addEventListener('click', function() {
+            if (statusFileDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('file');
+            }
+        });
+    }
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -7584,11 +7620,13 @@ class EditorInstance {
     let hasUserEdited = false; // Flag to track if user has made any edits
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
-    let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirSource = null; // 'file' | 'default'
     let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let imageDirEditable = false; // FR-MD-01: true only for standalone md (not under fractal note)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
-    let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirSource = null; // 'file' | 'default'
     let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let fileDirEditable = false; // FR-MD-01: true only for standalone md
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -21339,6 +21377,7 @@ class EditorInstance {
                     : imageDirDisplayPath;
             }
             statusImageDir.classList.toggle('is-locked', imageDirLocked);
+            statusImageDir.classList.toggle('is-editable', imageDirEditable);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
@@ -21349,6 +21388,7 @@ class EditorInstance {
                     : fileDirDisplayPath;
             }
             statusFileDir.classList.toggle('is-locked', fileDirLocked);
+            statusFileDir.classList.toggle('is-editable', fileDirEditable);
         }
     }
 
@@ -22500,11 +22540,13 @@ class EditorInstance {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             imageDirLocked = !!message.locked;
+            imageDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
             fileDirLocked = !!message.locked;
+            fileDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);
@@ -36230,7 +36272,15 @@ var Outliner = (function() {
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
                         pageDir = msg.data.pageDir || null;
-                        sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        // sprint 20260725-120000: Notes モードはサイドパネル幅を note 単位（outline.note =
+                        //   window.__noteSidePanelWidth）に保存する。updateData（ファイル/outliner 切替・note 再オープン）で
+                        //   .out 個別値のみ読むと note 値を null 上書きしデフォルト幅に戻る（init :844-847 と同じ
+                        //   notes-mode 優先分岐に揃える）。Standalone は従来どおり .out の data 値。
+                        if (isNotesMode() && typeof window.__noteSidePanelWidth === 'number' && window.__noteSidePanelWidth > 0) {
+                            sidePanelWidthSetting = window.__noteSidePanelWidth;
+                        } else {
+                            sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        }
                         pinnedTags = msg.data.pinnedTags || [];
                         isDailyNotes = !!msg.isDailyNotes;
                         updatePinnedTagBar();
@@ -37399,6 +37449,7 @@ var Outliner = (function() {
         // TC-TP-01（FR-TP-01）テスト用フック。保存幅 px を注入 + ResizeObserver を張り + クランプを同期発火。
         //   RO は非同期発火なので、テストの決定性のため clamp を直接叩ける口も出す。
         __setSidePanelWidthForTest: function(px) { sidePanelWidthSetting = px; },
+        __getSidePanelWidthSettingForTest: function() { return sidePanelWidthSetting; },  // sprint 20260725-120000: note 復元検証用
         __wireSidePanelResizeObserverForTest: function() { ensureSidePanelResizeObserver(); },
         __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
         // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
@@ -37836,6 +37887,11 @@ var notesFilePanel = (function() {
         var fileItemEl = clickedItem || (listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null);
         var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
 
+        // sprint 20260725: md/.out を webview 内の新しいタブで開く（file-tree 右クリック）
+        addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+            closeContextMenu();
+            if (bridge && bridge.openFileInTab) { bridge.openFileInTab(file.filePath); }
+        });
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
             promptNewFile(fileParentId, fileId);

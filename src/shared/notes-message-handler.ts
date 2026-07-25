@@ -640,6 +640,13 @@ export async function handleNotesMessage(
             }
             break;
 
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」→ webview 内タブ（md/.out 両対応・kind は host が拡張子で決定）
+        case 'notesOpenFileInTab':
+            if (typeof message.filePath === 'string' && message.filePath && platform.openFileInWebviewTab) {
+                platform.openFileInWebviewTab(message.filePath);
+            }
+            break;
+
         // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
         //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
 

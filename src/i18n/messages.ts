@@ -119,6 +119,9 @@ export interface WebviewMessages {
   redo: string;
   // Image directory source labels
   imageDirLabel: string;
+  // Save directory picker (standalone md 限定 per-file 保存先)
+  saveDirChoose: string;
+  saveDirReset: string;
   recentFilesLabel: string;
   toggleRecent: string;
   imageDirSourceFile: string;
@@ -137,6 +140,7 @@ export interface WebviewMessages {
   notesTabNotes: string;
   notesTabSearch: string;
   notesNewFolder: string;
+  notesOpenInNewTab: string;
   notesNewOutline: string;
   notesToday: string;
   notesCollapsePanel: string;

@@ -198,10 +198,11 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-copy-inapp-link" id="sidePanelCopyInAppLink" title="${msg.copyInAppLink || 'Copy In-App Link'}" style="display:none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                     </button>
+                    </div>
+                    <!-- sprint 20260725: open-in-tab は close と同様に scroll 外＝固定表示（狭幅でも隠れない） -->
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
-                    </div>
                     <button class="side-panel-close" id="sidePanelClose" title="Close (Cmd+\\)">&times;</button>
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>

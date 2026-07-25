@@ -205,6 +205,10 @@ const testNotesHostBridge = `
             }
             window.__testApi.notesMessages.push({ type: 'openFile', filePath: filePath });
         },
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」用モック
+        openFileInTab: function(filePath) {
+            window.__testApi.notesMessages.push({ type: 'openFileInTab', filePath: filePath });
+        },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
         },
@@ -303,7 +307,7 @@ const html = `<!DOCTYPE html>
             <div class="outliner-container">
                 <!-- ★本番と同じ 3 段（container > scroll-content > tree）。scroll owner = .outliner-scroll-content -->
                 <div class="outliner-scroll-content">
-                    <div class="outliner-page-title" style="display:none;">
+                    <div class="outliner-page-title">
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>

@@ -18,8 +18,6 @@ export interface EditorSettings {
     fontSize: number;
     toolbarMode: 'full' | 'simple';
     language: 'default' | 'en' | 'ja' | 'zh-TW' | 'zh-CN' | 'ko' | 'es' | 'fr';
-    imageDefaultDir: string;
-    forceRelativeImagePath: boolean;
     enableDebugLogging: boolean;
 }
 
@@ -28,8 +26,6 @@ export const DEFAULT_SETTINGS: EditorSettings = {
     fontSize: 14,
     toolbarMode: 'simple',
     language: 'default',
-    imageDefaultDir: '',
-    forceRelativeImagePath: false,
     enableDebugLogging: false,
 };
 

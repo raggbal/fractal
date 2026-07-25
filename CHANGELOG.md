@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.212.0] - 2026-07-25
+
+### Added
+- **standalone md の画像/添付保存先を指定できる**（FR-MD-01〜07）: fractal note 配下でない `.md` を単体で開いたとき、アウトラインパネル最下部の「画像保存先 / ファイル保存先」表示をクリックして保存先フォルダを選べる。保存先は md と同じフォルダの隠し JSON `.fractal.json`（`{imageDir,fileDir}`）に記録され、**そのフォルダの全 md が共有**する。**md 本文は一切変更しない**ので、Typora や GitHub など他エディタ・プレビューに設定が漏れない（ADRL-0016）。「デフォルトに戻す」で `<md と同じフォルダ>/images,files` に戻る。Notes / .out / outliner page md では従来どおり固定。
+- **ノート左ファイルツリーの右クリック「Open in new tab」**: md も outliner（.out）も、左ツリーの右クリックメニューから webview 内の新しいタブで開ける。
+
+### Changed
+- **standalone md のデフォルト画像/添付保存先**: 従来は md と同じフォルダ直下だったが、`<md と同じフォルダ>/images/`・`/files/` サブフォルダに変更（Notes / outliner と揃えた）。
+- **サイドパネル幅の永続化**: Notes を開き直したときにサイドパネル幅がデフォルトに戻る問題、および VS Code ウィンドウ幅を変えるとサイドパネルがエディタ領域をはみ出す問題を修正（note 単位の幅を updateData で正しく復元）。
+- **サイドパネル md の「新しいタブで開く」ボタンを固定表示**（閉じるボタンと同様）。サイドパネル幅が狭くても隠れない。
+
+### Removed
+- 設定 `fractal.outlinerPageTitle` を削除（Outliner のページタイトル入力は常に表示）。
+- 設定 `fractal.imageDefaultDir` / `fractal.fileDefaultDir` / `fractal.forceRelativeImagePath` / `fractal.forceRelativeFilePath` を削除（保存先は上記のとおり standalone md はサイドカー、他モードは固定に一本化）。既に settings.json にこれらのキーがある場合は無視される（挙動に影響なし）。
+
 ## [0.211.3] - 2026-07-25
 
 ### Added

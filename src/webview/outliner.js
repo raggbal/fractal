@@ -8149,7 +8149,15 @@ var Outliner = (function() {
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
                         pageDir = msg.data.pageDir || null;
-                        sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        // sprint 20260725-120000: Notes モードはサイドパネル幅を note 単位（outline.note =
+                        //   window.__noteSidePanelWidth）に保存する。updateData（ファイル/outliner 切替・note 再オープン）で
+                        //   .out 個別値のみ読むと note 値を null 上書きしデフォルト幅に戻る（init :844-847 と同じ
+                        //   notes-mode 優先分岐に揃える）。Standalone は従来どおり .out の data 値。
+                        if (isNotesMode() && typeof window.__noteSidePanelWidth === 'number' && window.__noteSidePanelWidth > 0) {
+                            sidePanelWidthSetting = window.__noteSidePanelWidth;
+                        } else {
+                            sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        }
                         pinnedTags = msg.data.pinnedTags || [];
                         isDailyNotes = !!msg.isDailyNotes;
                         updatePinnedTagBar();
@@ -9318,6 +9326,7 @@ var Outliner = (function() {
         // TC-TP-01（FR-TP-01）テスト用フック。保存幅 px を注入 + ResizeObserver を張り + クランプを同期発火。
         //   RO は非同期発火なので、テストの決定性のため clamp を直接叩ける口も出す。
         __setSidePanelWidthForTest: function(px) { sidePanelWidthSetting = px; },
+        __getSidePanelWidthSettingForTest: function() { return sidePanelWidthSetting; },  // sprint 20260725-120000: note 復元検証用
         __wireSidePanelResizeObserverForTest: function() { ensureSidePanelResizeObserver(); },
         __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
         // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。

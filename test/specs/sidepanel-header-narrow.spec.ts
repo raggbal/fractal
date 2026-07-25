@@ -33,6 +33,8 @@ function headerMetrics(page: Page) {
         const nav = Array.from(document.querySelectorAll('.side-panel-header .side-panel-nav-leading')) as HTMLElement[];
         const close = document.querySelector('.side-panel-header .side-panel-close') as HTMLElement;
         if (!header || !scroll || !close) return null;
+        // sprint 20260725: open-in-tab も close と同様に scroll 外＝固定表示
+        const openTab = document.querySelector('.side-panel-header > .side-panel-open-tab') as HTMLElement | null;
         const hRect = header.getBoundingClientRect();
         const scRect = scroll.getBoundingClientRect();
         const closeRect = close.getBoundingClientRect();
@@ -45,9 +47,14 @@ function headerMetrics(page: Page) {
             closeRight: closeRect.right,
             headerRight: hRect.right,
             scrollLeft: scRect.left,
+            scrollRight: scRect.right,
             overflowX: cs.overflowX,
             scrollW: scroll.scrollWidth,
             clientW: scroll.clientWidth,
+            // open-tab は .side-panel-header の直接の子（scroll 外）で可視かつ scroll 領域の右外側
+            openTabIsDirectChild: !!openTab,
+            openTabVisible: openTab ? openTab.offsetWidth > 0 : false,
+            openTabLeft: openTab ? openTab.getBoundingClientRect().left : -1,
         };
     });
 }
@@ -97,5 +104,17 @@ test.describe('sidepanel header 狭幅レスポンシブ (standalone-notes)', ()
         expect(m!.closeVisible).toBe(true);
         // 広幅では中央がはみ出さない（scrollWidth <= clientWidth + 誤差）
         expect(m!.scrollW).toBeLessThanOrEqual(m!.clientW + 2);
+    });
+
+    // TC-HN-05: 狭幅で open-in-tab が close と同様に固定表示（scroll 外・可視・右側）★sprint 20260725
+    test('TC-HN-05 狭幅で open-in-tab が固定表示（隠れない）', async ({ page }) => {
+        await openAndSize(page, 220);
+        const m = await headerMetrics(page);
+        // .side-panel-header の直接の子（= scroll 外＝固定）で可視
+        expect(m!.openTabIsDirectChild, 'open-tab は header 直下（scroll 外）').toBe(true);
+        expect(m!.openTabVisible, 'open-tab が狭幅でも可視（潰れない）').toBe(true);
+        // 中央スクロール領域の右端より右側（固定 trailing・close 隣）で、header 右端に収まる
+        expect(m!.openTabLeft).toBeGreaterThanOrEqual(m!.scrollRight - 1);
+        expect(m!.openTabLeft).toBeLessThanOrEqual(m!.headerRight + 1);
     });
 });

@@ -879,6 +879,17 @@ body {
     user-select: none;
     cursor: not-allowed;
 }
+/* FR-MD-02: standalone md 限定 — 保存先表示をクリックで変更可能に */
+.sidebar-status-imagedir.is-editable,
+.sidebar-status-filedir.is-editable {
+    cursor: pointer;
+    opacity: 0.85;
+}
+.sidebar-status-imagedir.is-editable:hover,
+.sidebar-status-filedir.is-editable:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
 .sidebar-status-imagedir.is-locked .imagedir-path,
 .sidebar-status-filedir.is-locked .filedir-path,
 .side-panel-imagedir.is-locked .imagedir-path,
@@ -2425,6 +2436,7 @@ body {
    幅不足時にスクロールする。 */
 .side-panel-header > .side-panel-outline-btn,
 .side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-open-tab,
 .side-panel-header > .side-panel-close {
     flex-shrink: 0;
 }
@@ -2449,8 +2461,7 @@ body {
 /* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
 .side-panel-header-scroll > .side-panel-header-actions,
 .side-panel-header-scroll > .side-panel-copy-path,
-.side-panel-header-scroll > .side-panel-copy-inapp-link,
-.side-panel-header-scroll > .side-panel-open-tab {
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
 .side-panel-filename {
@@ -2883,8 +2894,14 @@ body {
     <div class="sidebar-resizer" id="sidebarResizer" style="display:none;"></div>
     <div class="toolbar" id="toolbar" style="display:none;"></div>
     <div id="statusLeft" style="display:none;"></div>
-    <div class="sidebar-status-imagedir" id="statusImageDir" style="display:none;"></div>
-    <div class="sidebar-status-filedir" id="statusFileDir" style="display:none;"></div>
+    <!-- 保存先表示は本番 editor-body-html と同 DOM（.imagedir-path/.filedir-path 子 + 可視）。
+         standalone md の保存先クリック UI (FR-MD-02) の E2E を成立させるため。 -->
+    <div class="sidebar-status-imagedir" id="statusImageDir">
+        <span class="imagedir-label">Image save directory:</span> <span class="imagedir-path" id="imageDirPath"></span>
+    </div>
+    <div class="sidebar-status-filedir" id="statusFileDir">
+        <span class="filedir-label">File save directory:</span> <span class="filedir-path" id="fileDirPath"></span>
+    </div>
     <div class="word-count" id="wordCount" style="display:none;"></div>
     <div class="source-editor" id="sourceEditor" style="display:none;"></div>
     <button class="sidebar-toggle" id="closeSidebar" style="display:none;"></button>
@@ -3208,6 +3225,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // リソースアクセス範囲設定 (FR-RR-06)
         openResourceRootsSettings: function() {
             postFn({ type: 'openResourceRootsSettings' });
+        },
+
+        // 保存先変更 (FR-MD-03, standalone md 限定)。kind='image'|'file'
+        setSaveDir: function(kind) {
+            postFn({ type: 'setSaveDir', kind: kind });
         },
 
         // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
@@ -4554,6 +4576,21 @@ class EditorInstance {
     const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
+    // FR-MD-02/03: standalone md（is-editable のとき）だけ保存先表示クリックで変更 UI を出す。
+    if (statusImageDir) {
+        statusImageDir.addEventListener('click', function() {
+            if (statusImageDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('image');
+            }
+        });
+    }
+    if (statusFileDir) {
+        statusFileDir.addEventListener('click', function() {
+            if (statusFileDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('file');
+            }
+        });
+    }
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -4688,11 +4725,13 @@ class EditorInstance {
     let hasUserEdited = false; // Flag to track if user has made any edits
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
-    let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirSource = null; // 'file' | 'default'
     let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let imageDirEditable = false; // FR-MD-01: true only for standalone md (not under fractal note)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
-    let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirSource = null; // 'file' | 'default'
     let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let fileDirEditable = false; // FR-MD-01: true only for standalone md
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -18443,6 +18482,7 @@ class EditorInstance {
                     : imageDirDisplayPath;
             }
             statusImageDir.classList.toggle('is-locked', imageDirLocked);
+            statusImageDir.classList.toggle('is-editable', imageDirEditable);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
@@ -18453,6 +18493,7 @@ class EditorInstance {
                     : fileDirDisplayPath;
             }
             statusFileDir.classList.toggle('is-locked', fileDirLocked);
+            statusFileDir.classList.toggle('is-editable', fileDirEditable);
         }
     }
 
@@ -19604,11 +19645,13 @@ class EditorInstance {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             imageDirLocked = !!message.locked;
+            imageDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
             fileDirLocked = !!message.locked;
+            fileDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);

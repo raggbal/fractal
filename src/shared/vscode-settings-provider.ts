@@ -68,8 +68,6 @@ export class VSCodeSettingsProvider implements SettingsProvider {
             fontSize: this.get('fontSize'),
             toolbarMode: this.get('toolbarMode'),
             language: this.get('language'),
-            imageDefaultDir: this.get('imageDefaultDir'),
-            forceRelativeImagePath: this.get('forceRelativeImagePath'),
             enableDebugLogging: this.get('enableDebugLogging'),
         };
     }

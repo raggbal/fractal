@@ -363,6 +363,21 @@ class EditorInstance {
     const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
+    // FR-MD-02/03: standalone md（is-editable のとき）だけ保存先表示クリックで変更 UI を出す。
+    if (statusImageDir) {
+        statusImageDir.addEventListener('click', function() {
+            if (statusImageDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('image');
+            }
+        });
+    }
+    if (statusFileDir) {
+        statusFileDir.addEventListener('click', function() {
+            if (statusFileDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('file');
+            }
+        });
+    }
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -497,11 +512,13 @@ class EditorInstance {
     let hasUserEdited = false; // Flag to track if user has made any edits
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
-    let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirSource = null; // 'file' | 'default'
     let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let imageDirEditable = false; // FR-MD-01: true only for standalone md (not under fractal note)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
-    let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirSource = null; // 'file' | 'default'
     let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let fileDirEditable = false; // FR-MD-01: true only for standalone md
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -14252,6 +14269,7 @@ class EditorInstance {
                     : imageDirDisplayPath;
             }
             statusImageDir.classList.toggle('is-locked', imageDirLocked);
+            statusImageDir.classList.toggle('is-editable', imageDirEditable);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
@@ -14262,6 +14280,7 @@ class EditorInstance {
                     : fileDirDisplayPath;
             }
             statusFileDir.classList.toggle('is-locked', fileDirLocked);
+            statusFileDir.classList.toggle('is-editable', fileDirEditable);
         }
     }
 
@@ -15413,11 +15432,13 @@ class EditorInstance {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             imageDirLocked = !!message.locked;
+            imageDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
             fileDirLocked = !!message.locked;
+            fileDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);

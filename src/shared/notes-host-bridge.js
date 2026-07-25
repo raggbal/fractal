@@ -326,6 +326,10 @@
                 searchOccurrence: typeof searchOccurrence === 'number' ? searchOccurrence : null,
             });
         },
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」→ webview 内タブで開く（md/.out 両対応）
+        openFileInTab: function(filePath) {
+            api.postMessage({ type: 'notesOpenFileInTab', filePath: filePath });
+        },
         // sprint 20260724-063158 (FR-TP-06): タブ右クリック「Open in VS Code Tab」→ standalone で開く
         openInVscodeTab: function(filePath) {
             api.postMessage({ type: 'notesOpenInVscodeTab', filePath: filePath });

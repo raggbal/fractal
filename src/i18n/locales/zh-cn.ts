@@ -101,6 +101,8 @@ export const webviewMessages = {
   redo: '重做 (Ctrl+Shift+Z)',
   // Image directory source labels
   imageDirLabel: '图片保存目录:',
+  saveDirChoose: '选择文件夹…',
+  saveDirReset: '重置为默认（images/ · files/）',
   recentFilesLabel: '最近打开',
   toggleRecent: '切换最近文件',
   imageDirSourceFile: '按文件设置',
@@ -156,6 +158,7 @@ export const webviewMessages = {
   notesTabNotes: '笔记',
   notesTabSearch: '搜索',
   notesNewFolder: '新建文件夹',
+  notesOpenInNewTab: '在新标签页打开',
   notesNewOutline: '新建大纲',
   notesToday: '今天',
   notesCollapsePanel: '折叠面板',

@@ -125,6 +125,17 @@ body {
     user-select: none;
     cursor: not-allowed;
 }
+/* FR-MD-02: standalone md 限定 — 保存先表示をクリックで変更可能に */
+.sidebar-status-imagedir.is-editable,
+.sidebar-status-filedir.is-editable {
+    cursor: pointer;
+    opacity: 0.85;
+}
+.sidebar-status-imagedir.is-editable:hover,
+.sidebar-status-filedir.is-editable:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
 .sidebar-status-imagedir.is-locked .imagedir-path,
 .sidebar-status-filedir.is-locked .filedir-path,
 .side-panel-imagedir.is-locked .imagedir-path,
@@ -1671,6 +1682,7 @@ body {
    幅不足時にスクロールする。 */
 .side-panel-header > .side-panel-outline-btn,
 .side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-open-tab,
 .side-panel-header > .side-panel-close {
     flex-shrink: 0;
 }
@@ -1695,8 +1707,7 @@ body {
 /* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
 .side-panel-header-scroll > .side-panel-header-actions,
 .side-panel-header-scroll > .side-panel-copy-path,
-.side-panel-header-scroll > .side-panel-copy-inapp-link,
-.side-panel-header-scroll > .side-panel-open-tab {
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
 .side-panel-filename {

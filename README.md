@@ -473,44 +473,20 @@ No separate `.drawio` source file is needed; the SVG itself contains the editabl
 
 ---
 
-## 🖼️ Image & File Path Configuration
+## 🖼️ Image & File Save Location
 
-Images and file attachments can be saved to custom directories when pasting or drag-and-dropping. The same path resolution rules apply to both.
+By default, pasted / dropped images go to an `images/` subfolder and file attachments to a `files/` subfolder next to the current file. Markdown links are inserted as relative paths.
 
-### Configuration Levels
+### Changing the save location (standalone `.md` only)
 
-| Level | Setting File | Description |
-| --- | --- | --- |
-| **Global** | `~/Library/Application Support/Code/User/settings.json` (macOS)<br>`%APPDATA%\Code\User\settings.json` (Windows)<br>`~/.config/Code/User/settings.json` (Linux) | VS Code user settings |
-| **Project** | `.vscode/settings.json` | Project-level override |
+For a `.md` opened standalone (not inside a fractal note), you can change where images/attachments are saved:
 
-### VS Code settings.json Setting
+1. Click the **"Image save directory" / "File save directory"** indicator at the bottom of the outline panel.
+2. Choose **"Choose folder…"** and pick a folder.
 
-```json
-{
-  "fractal.imageDefaultDir": "./images",
-  "fractal.forceRelativeImagePath": true,
-  "fractal.fileDefaultDir": "./files",
-  "fractal.forceRelativeFilePath": true
-}
-```
+The chosen folder is stored in a hidden `.fractal.json` file **next to the markdown file** (`{"imageDir": "...", "fileDir": "..."}`). All `.md` files in that folder share the same save location. **The markdown body is never modified**, so the setting is invisible in other editors (Typora, GitHub, previews). Choose **"Reset to default"** to go back to `images/` · `files/`.
 
-### Path Behavior Matrix
-
-The `forceRelative` settings (`forceRelativeImagePath` / `forceRelativeFilePath`) allow you to separate the **save location** from the **path written in Markdown**.
-
-**Use case**: When you want to save files to a specific absolute path but reference them using relative paths from the Markdown file, set this to `true`.
-
-> **Note**: `forceRelative` only takes effect when the directory setting is an absolute path. When using relative paths, the setting is ignored as paths are always relative.
-
-The same rules apply to both images and file attachments:
-
-| Directory Setting | forceRelative | Save Location | Path in Markdown |
-| --- | --- | --- | --- |
-| Absolute (e.g., `/Users/shared/images`) | `false` (default) | Specified absolute path | Absolute path |
-| Absolute (e.g., `/Users/shared/images`) | `true` | Specified absolute path | Relative path from Markdown file |
-| Relative (e.g., `./images`) | `false` | Relative to Markdown file | Relative path |
-| Relative (e.g., `./images`) | `true` | Relative to Markdown file | Relative path (setting ignored) |
+> Notes / `.out` outliner files / outliner page markdown always use their fixed `images/` · `files/` layout and do not show this option.
 
 ---
 
@@ -520,19 +496,11 @@ The same rules apply to both images and file attachments:
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `fractal.theme` | Editor theme (`github`, `sepia`, `night`, `dark`, `minimal`, `perplexity`, `things`) | `things` |
-| `fractal.fontSize` | Base font size (px) | `16` |
-| `fractal.imageDefaultDir` | Default directory for saved images | `""` (same as markdown file) |
-| `fractal.forceRelativeImagePath` | Force relative paths for images | `false` |
+| `fractal.theme` | Editor theme (`light`, `dark`, `auto`) | `auto` |
+| `fractal.fontSize` | Base font size (px) | `12` |
 | `fractal.imageMaxWidth` | Max width (px) for images and `.drawio.svg` thumbnails in the editor / side panel / outliner page side panel. Toolbar / lucide / command-palette icons are excluded. Min `100` | `400` |
 | `fractal.language` | UI language (`default`, `en`, `ja`, `zh-cn`, `zh-tw`, `ko`, `es`, `fr`) | `default` |
 | `fractal.toolbarMode` | Toolbar display mode (`full`, `simple`) | `simple` |
-| `fractal.outlinerPageDir` | Default page directory for outliner | `./pages` |
-| `fractal.outlinerPageTitle` | Show page title input in outliner | `false` |
-| `fractal.outlinerImageDefaultDir` | Default image directory for outliner nodes | `./images` |
-| `fractal.outlinerFileDir` | Default file attachment directory for outliner nodes | `./files` |
-| `fractal.fileDefaultDir` | Default directory for file attachments in markdown | `""` (same as markdown file) |
-| `fractal.forceRelativeFilePath` | Force relative paths for file attachments | `false` |
 | `fractal.enableDebugLogging` | Enable debug logging in browser console | `false` |
 | `fractal.showTranslateButtons` | Show translate buttons in standalone toolbar (leftmost) and side panel header. When off, translation can still be triggered via the `fractal.translate` command (Cmd+/) | `false` |
 

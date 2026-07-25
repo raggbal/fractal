@@ -27,8 +27,6 @@ import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { moveSubtreeToOtherOut, OutDoc } from './shared/out-node-move';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import {
-    imageDirectoryManager,
-    fileDirectoryManager,
     toMarkdownPath,
     ensureDirectoryExists,
     generateUniqueFileName,
@@ -284,7 +282,6 @@ export class NotesEditorProvider {
                     toolbarMode: config.get<string>('toolbarMode', 'simple'),
                     webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                     enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
-                    outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                     showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
                     imageMaxWidth: config.get<number>('imageMaxWidth', 400),
                     documentBaseUri: folderBaseUri,
@@ -1039,26 +1036,19 @@ export class NotesEditorProvider {
             },
 
             // ── ADR-008: Notes 内 .md メインペイン editor 用 ──
-            // sidepanel パターンに合わせ、imageDirectoryManager / fileDirectoryManager 経由で
-            // 保存先 (settings の imageDefaultDir / fileDefaultDir または _notes_md/{images,files}/) を解決。
-            // v0.207.82: md ファイルは _notes_md/<id>.md (フラット) にあるため、
-            // 相対パス基準は _notes_md/。imageDirectoryManager のデフォルトは ドキュメントの dir
-            // (= _notes_md/) になり、images/<fileName> という相対 path を生成できる。
+            // 保存先は常に <note>/images,files 固定・相対挿入（設定による上書きは廃止）。
+            // md ファイルは <note>/<id>.md (フラット) にあり、getMdImagesDirPath() が
+            // <note>/images/ を返すので images/<fileName> という相対 path を生成できる。
             saveMdImageToDir: (dataUrl: string, fileName: string) => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
-                const docUri = vscode.Uri.file(cur);
-                const docContent = '';
                 const parsed = parseDataUrl(dataUrl);
                 if (!parsed) return;
-                // settings の imageDefaultDir があればそちら、なければ _notes_md/images/。
-                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('imageDefaultDir', '');
-                const imagesDir = settingsDir
-                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
-                    : fileManager.getMdImagesDirPath();
+                // Notes モードは常に <note>/images/ 固定・相対挿入。
+                const imagesDir = fileManager.getMdImagesDirPath();
                 ensureDirectoryExists(imagesDir);
-                const useAbsolute = settingsDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
-                const forceRelative = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
+                const useAbsolute = false;
+                const forceRelative = false;
                 const ext = parsed.ext || mimeToExt(parsed.ext) || 'png';
                 const destFileName = fileName
                     ? generateUniqueFileNamePreserving(imagesDir, fileName)
@@ -1081,15 +1071,11 @@ export class NotesEditorProvider {
             readAndInsertMdImage: (filePath: string) => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
-                const docUri = vscode.Uri.file(cur);
-                const docContent = '';
-                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('imageDefaultDir', '');
-                const imagesDir = settingsDir
-                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
-                    : fileManager.getMdImagesDirPath();
+                // Notes モードは常に <note>/images/ 固定・相対挿入。
+                const imagesDir = fileManager.getMdImagesDirPath();
                 ensureDirectoryExists(imagesDir);
-                const useAbsolute = settingsDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
-                const forceRelative = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
+                const useAbsolute = false;
+                const forceRelative = false;
                 const destFileName = generateUniqueFileNamePreserving(imagesDir, path.basename(filePath));
                 const destPath = path.join(imagesDir, destFileName);
                 try {
@@ -1108,15 +1094,11 @@ export class NotesEditorProvider {
             saveMdFileToDir: (dataUrl: string, fileName: string) => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
-                const docUri = vscode.Uri.file(cur);
-                const docContent = '';
-                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('fileDefaultDir', '');
-                const filesDir = settingsDir
-                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
-                    : fileManager.getMdFilesDirPath();
+                // Notes モードは常に <note>/files/ 固定・相対挿入。
+                const filesDir = fileManager.getMdFilesDirPath();
                 ensureDirectoryExists(filesDir);
-                const useAbsolute = settingsDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
-                const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
+                const useAbsolute = false;
+                const forceRelative = false;
                 const destFileName = generateUniqueFileNamePreserving(filesDir, fileName || `file_${Date.now()}`);
                 const destPath = path.join(filesDir, destFileName);
                 try {
@@ -1135,15 +1117,11 @@ export class NotesEditorProvider {
             readAndInsertMdFile: (filePath: string) => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
-                const docUri = vscode.Uri.file(cur);
-                const docContent = '';
-                const settingsDir = vscode.workspace.getConfiguration('fractal').get<string>('fileDefaultDir', '');
-                const filesDir = settingsDir
-                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
-                    : fileManager.getMdFilesDirPath();
+                // Notes モードは常に <note>/files/ 固定・相対挿入。
+                const filesDir = fileManager.getMdFilesDirPath();
                 ensureDirectoryExists(filesDir);
-                const useAbsolute = settingsDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
-                const forceRelative = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
+                const useAbsolute = false;
+                const forceRelative = false;
                 const destFileName = generateUniqueFileNamePreserving(filesDir, path.basename(filePath));
                 const destPath = path.join(filesDir, destFileName);
                 try {
@@ -1184,49 +1162,25 @@ export class NotesEditorProvider {
             sendMdDirStatus: () => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
-                const docUri = vscode.Uri.file(cur);
-                const docContent = '';
                 const docDir = path.dirname(cur);
-                const config = vscode.workspace.getConfiguration('fractal');
 
-                // ── image dir status ──
-                const settingsImgDir = config.get<string>('imageDefaultDir', '');
-                const absImgDir = settingsImgDir
-                    ? imageDirectoryManager.getImageDirectory(docUri, docContent)
-                    : fileManager.getMdImagesDirPath();
-                const useAbsoluteImg = settingsImgDir ? imageDirectoryManager.shouldUseAbsolutePath(docUri) : false;
-                const forceRelImg = imageDirectoryManager.shouldForceRelativePath(docUri, docContent);
-                let imgDisplay: string;
-                if (forceRelImg || !useAbsoluteImg) {
-                    imgDisplay = path.relative(docDir, absImgDir).replace(/\\/g, '/') || '.';
-                } else {
-                    imgDisplay = absImgDir;
-                }
+                // Notes モードは常に <note>/images,files 固定・相対表示。editable=false（保存先変更 UI は standalone md 限定）。
+                const imgDisplay = path.relative(docDir, fileManager.getMdImagesDirPath()).replace(/\\/g, '/') || '.';
                 panel.webview.postMessage({
                     type: 'imageDirStatus',
                     displayPath: imgDisplay,
-                    source: settingsImgDir ? 'settings' : 'default',
+                    source: 'default',
                     locked: false,
+                    editable: false,
                 });
 
-                // ── file dir status ──
-                const settingsFileDir = config.get<string>('fileDefaultDir', '');
-                const absFileDir = settingsFileDir
-                    ? fileDirectoryManager.getFileDirectory(docUri, docContent)
-                    : fileManager.getMdFilesDirPath();
-                const useAbsoluteFile = settingsFileDir ? fileDirectoryManager.shouldUseAbsoluteFilePath(docUri) : false;
-                const forceRelFile = fileDirectoryManager.shouldForceRelativeFilePath(docUri, docContent);
-                let fileDisplay: string;
-                if (forceRelFile || !useAbsoluteFile) {
-                    fileDisplay = path.relative(docDir, absFileDir).replace(/\\/g, '/') || '.';
-                } else {
-                    fileDisplay = absFileDir;
-                }
+                const fileDisplay = path.relative(docDir, fileManager.getMdFilesDirPath()).replace(/\\/g, '/') || '.';
                 panel.webview.postMessage({
                     type: 'fileDirStatus',
                     displayPath: fileDisplay,
-                    source: settingsFileDir ? 'settings' : 'default',
+                    source: 'default',
                     locked: false,
+                    editable: false,
                 });
             },
             // v0.207.82: Notes 内 .md メインペインが開いた時 — TextDocument open +
@@ -1583,13 +1537,15 @@ export class NotesEditorProvider {
                 void sidePanel.openFile(filePath, false, true);
             },
             openFileInWebviewTab: (filePath: string) => {
-                // サイドパネル「Open in tab」等 → VS Code 別タブでなく webview 内タブ（FR-TAB-02・NFR-TAB-04）
+                // サイドパネル「Open in tab」/ 左ツリー右クリック「Open in new tab」→ webview 内タブ（FR-TAB-02・NFR-TAB-04）。
+                // sprint 20260725: md/.out 両対応。拡張子で kind を決める（.out=outliner / それ以外=md）。
                 if (!filePath || !fs.existsSync(filePath)) {
                     vscode.window.showWarningMessage(`File not found: ${filePath}`);
                     return;
                 }
                 this.ensureResourceRootForFile(panel, filePath);
-                panel.webview.postMessage({ type: 'openInWebviewTab', filePath, kind: 'md' });
+                const kind = /\.out$/i.test(filePath) ? 'out' : 'md';
+                panel.webview.postMessage({ type: 'openInWebviewTab', filePath, kind });
             },
             sendToChatFromSidePanel: async (sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string) => {
                 try {
@@ -2071,7 +2027,6 @@ export class NotesEditorProvider {
                 //   差し替えて（移行前に）本体表示してしまう。gate 中の設定変更は無視でよい（移行後に再描画される）。
                 if (!needsMigration && (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
-                    e.affectsConfiguration('fractal.outlinerPageTitle') ||
                     e.affectsConfiguration('fractal.showTranslateButtons') ||
                     e.affectsConfiguration('fractal.language'))) {
                     // refreshPanel inline (ローカル変数を使用)
@@ -2094,7 +2049,6 @@ export class NotesEditorProvider {
                             fontSize: refreshConfig.get<number>('fontSize', 12),
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
-                            outlinerPageTitle: refreshConfig.get<boolean>('outlinerPageTitle', true),
                             showTranslateButtons: refreshConfig.get<boolean>('showTranslateButtons', false),
                             imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 400),
                             folderName: path.basename(folderPath),
@@ -2108,15 +2062,6 @@ export class NotesEditorProvider {
                     e.affectsConfiguration('fractal.translateTargetLang')
                 ) {
                     sendTranslateLangFromConfig();
-                }
-                // v0.207.82: imageDefaultDir / fileDefaultDir 変更時はステータスバー再送信
-                if (
-                    e.affectsConfiguration('fractal.imageDefaultDir') ||
-                    e.affectsConfiguration('fractal.fileDefaultDir') ||
-                    e.affectsConfiguration('fractal.forceRelativeImagePath') ||
-                    e.affectsConfiguration('fractal.forceRelativeFilePath')
-                ) {
-                    platform.sendMdDirStatus?.();
                 }
             })
         );

@@ -9,7 +9,6 @@ interface NotesConfig {
     toolbarMode?: string;
     webviewMessages?: Record<string, string>;
     enableDebugLogging?: boolean;
-    outlinerPageTitle?: boolean;
     documentBaseUri?: string;
     folderName?: string;
     showTranslateButtons?: boolean;
@@ -205,7 +204,7 @@ export function getNotesWebviewContent(
             <div class="notes-tab-bar" id="notesTabBar" style="display:none;"></div>
             <div class="outliner-container">
                 <div class="outliner-scroll-content">
-                    <div class="outliner-page-title" style="${config.outlinerPageTitle ? '' : 'display:none;'}">
+                    <div class="outliner-page-title">
                         <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
                     </div>
                     <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>

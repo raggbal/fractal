@@ -113,7 +113,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
-                        outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                         imageMaxWidth: config.get<number>('imageMaxWidth', 400),
                         documentBaseUri: docBaseUri
                     },
@@ -1318,7 +1317,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 }
                 if (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
-                    e.affectsConfiguration('fractal.outlinerPageTitle') ||
                     e.affectsConfiguration('fractal.language')) {
                     updateWebview();
                 }

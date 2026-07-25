@@ -203,8 +203,14 @@ const html = `<!DOCTYPE html>
     <div class="sidebar-resizer" id="sidebarResizer" style="display:none;"></div>
     <div class="toolbar" id="toolbar" style="display:none;"></div>
     <div id="statusLeft" style="display:none;"></div>
-    <div class="sidebar-status-imagedir" id="statusImageDir" style="display:none;"></div>
-    <div class="sidebar-status-filedir" id="statusFileDir" style="display:none;"></div>
+    <!-- 保存先表示は本番 editor-body-html と同 DOM（.imagedir-path/.filedir-path 子 + 可視）。
+         standalone md の保存先クリック UI (FR-MD-02) の E2E を成立させるため。 -->
+    <div class="sidebar-status-imagedir" id="statusImageDir">
+        <span class="imagedir-label">Image save directory:</span> <span class="imagedir-path" id="imageDirPath"></span>
+    </div>
+    <div class="sidebar-status-filedir" id="statusFileDir">
+        <span class="filedir-label">File save directory:</span> <span class="filedir-path" id="fileDirPath"></span>
+    </div>
     <div class="word-count" id="wordCount" style="display:none;"></div>
     <div class="source-editor" id="sourceEditor" style="display:none;"></div>
     <button class="sidebar-toggle" id="closeSidebar" style="display:none;"></button>

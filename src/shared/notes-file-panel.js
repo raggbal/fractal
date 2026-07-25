@@ -426,6 +426,11 @@ var notesFilePanel = (function() {
         var fileItemEl = clickedItem || (listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null);
         var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
 
+        // sprint 20260725: md/.out を webview 内の新しいタブで開く（file-tree 右クリック）
+        addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+            closeContextMenu();
+            if (bridge && bridge.openFileInTab) { bridge.openFileInTab(file.filePath); }
+        });
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
             promptNewFile(fileParentId, fileId);

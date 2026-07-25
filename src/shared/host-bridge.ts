@@ -51,6 +51,9 @@ export interface HostBridge {
     // リソースアクセス範囲設定 (FR-RR-06)
     openResourceRootsSettings(): void;
 
+    // 保存先変更 (FR-MD-03, standalone md 限定)
+    setSaveDir(kind: 'image' | 'file'): void;
+
     // md export bundle (FR-EX-01)
     exportBundle(options: ExportBundleOptions, sidePanelFilePath?: string): void;
 
