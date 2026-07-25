@@ -262,11 +262,15 @@ function generateNotesFilePanelHtml(options) {
             background: var(--bg-color, #ffffff);
         }
         .notes-tab-bar .notes-tab-title {
+            /* title が min-width より短くても余白を埋めて伸び、close ボタンをタブ右端へ押し出す */
+            flex: 1 1 auto;
+            min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
         .notes-tab-bar .notes-tab-close {
+            flex: 0 0 auto;
             border: none;
             background: transparent;
             cursor: pointer;

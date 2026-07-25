@@ -32,6 +32,31 @@ async function setup(page: Page) {
 }
 
 test.describe('notes webview tabs (FR-TAB)', () => {
+    // TC-TAB-CLOSE-RIGHT: 短いタイトルでも close ボタンがタブ右端に固定（中央に来ない）
+    test('TC-TAB-CLOSE-RIGHT 短いタイトルでも閉じるボタンがタブ右端に寄る', async ({ page }) => {
+        await setup(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__notesTabManager;
+            tm.initFirstTab('/note/a.out', 'out');
+            tm.openInNewTab('/note/d.md', 'md'); // 短いタイトル
+            const tabs = Array.from(document.querySelectorAll('.notes-tab')) as HTMLElement[];
+            const tab = tabs[tabs.length - 1];
+            const close = tab.querySelector('.notes-tab-close') as HTMLElement;
+            const tabRect = tab.getBoundingClientRect();
+            const closeRect = close.getBoundingClientRect();
+            return {
+                titleShort: (tab.querySelector('.notes-tab-title') as HTMLElement).textContent,
+                gapFromRight: tabRect.right - closeRect.right, // 右端との距離（padding 込みで小さいはず）
+                tabWidth: tabRect.width,
+                closeCenterX: closeRect.left + closeRect.width / 2 - tabRect.left,
+            };
+        });
+        // close ボタンは padding(8px) + わずかな余白の範囲でタブ右端に寄る（中央ではない）
+        expect(r.gapFromRight).toBeLessThan(16);
+        // close ボタン中心がタブ幅の後半（>50%）にある = 中央より右
+        expect(r.closeCenterX).toBeGreaterThan(r.tabWidth * 0.5);
+    });
+
     // TC-TAB-10: tab bar 表示・横スクロール
     test('TC-TAB-10 tabs>=2 で tab bar 可視・多数タブで横スクロール可', async ({ page }) => {
         await setup(page);
