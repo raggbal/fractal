@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.211.3] - 2026-07-25
+
+### Added
+- **インライン文字色**（FR-IC-01〜06）: markdown editor（header / 段落 / リスト / blockquote、**code 除外**）と outliner の node text で、選択テキストに文字色を付けられる。md は toolbar の色ボタン + cmd+/ コマンドパレット、outliner は右クリックメニューから 20 色 swatch + None を選ぶ。保存は `<span style="color:#hex">`（他 markdown エディタでも色が出て、未対応でもプレーンテキストに degrade。ADRL-0012）。色構文とサニタイズ（hex allowlist・ADRL-0013）を `src/shared/inline-color.js` に集約し md/outliner の 2 パーサで共有。outliner は md と同一エンコード（node.text 内に span 保存・編集モードは生タグ可視。ADRL-0014）。
+- **リストへの複数行ペースト**（FR-PML-01）: リスト項目にカーソルがある状態で複数行テキストをペーストすると、各行が兄弟のリスト項目になる（従来はリスト全体の後ろに段落として貼られていた）。表・見出し・コード・ネストリストは従来どおり。
+
+### Fixed
+- **inline 要素の書式引きずり**（bold / italic / strike / code）: inline 要素を当てたテキストの直後にカーソルを置いて入力しても、前の書式を引きずらない。toolbar / コマンドパレットの bold・italic は execCommand の sticky typing style を apply-time でリセット、リロード後は beforeinput 境界ハンドラで要素外に出す（IME 変換中は横取りしないので日本語入力を壊さない）。
+- **色の継続入力**: 色を付けたテキストの直後に打った文字は既定色になる（色を変えた範囲だけで完結）。
+- **outliner の部分選択着色**: node text を部分選択して右クリック → Text Color で、選択範囲だけに色が付く（node 全体が着色されない。数値 source-offset 捕捉で picker の focus 再レンダーに影響されない）。
+- **複数行ペーストの二重挿入**: Notes モードで複数行ペーストが 2 重に入る問題を修正（paste ハンドラの同一 tick coalesce）。
+- **翻訳ボタンの重複**: note md / standalone md ツールバーで撤廃済みの translateLang ボタンが 2 つ並んで左が無反応だった問題を解消。
+
 ## [0.210.18] - 2026-07-24
 
 ### Added

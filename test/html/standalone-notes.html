@@ -13357,6 +13357,22 @@ class EditorInstance {
         syncMarkdown();
     }
 
+    // sprint 20260724-160000 再オープン③(TASK-18): execCommand('bold'/'italic') は caret に sticky typing
+    // style を残す（queryCommandState===true）。適用後にこれをリセットしないと、選択解除後に打った文字が
+    // 前の書式を引きずる（実 webview の toolbar/palette/shortcut 経路）。境界 handler は DOM 位置は直すが
+    // sticky state は消せない → apply-time で確実に消す（色 TASK-10 と同型・caret 非依存で実 webview に強い）。
+    // 選択済みテキストは既に <b>/<i> で包まれているので、collapse 後の二重トグルは typing state のみ off にする。
+    function _resetInlineTypingStyleAfterApply(cmd) {
+        if (cmd !== 'bold' && cmd !== 'italic') { return; }  // strikeThrough は execCommand でも sticky 問題が出にくいが、bold/italic を確実に
+        try {
+            var sel = window.getSelection();
+            if (sel && sel.rangeCount) { sel.collapseToEnd(); }
+            if (document.queryCommandState && document.queryCommandState(cmd)) {
+                document.execCommand(cmd);  // collapsed caret の typing state だけ off（包み済みテキストは不変）
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     // Apply inline formatting (bold, italic, strikethrough) with proper handling
     // for blockquotes and table cells where line breaks should be preserved
     function applyInlineFormat(tagName) {
@@ -13390,26 +13406,30 @@ class EditorInstance {
         
         // If not in blockquote or table cell, use standard execCommand
         if (!blockquote && !tableCell) {
-            document.execCommand(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough');
+            var _cmd = tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough';
+            document.execCommand(_cmd);
+            _resetInlineTypingStyleAfterApply(_cmd);
             return;
         }
-        
+
         // Get the selected content
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
-        
+
         // Check if selection contains line breaks (newlines in text or <br> elements)
-        const hasLineBreaks = tempDiv.innerHTML.includes('<br>') || 
+        const hasLineBreaks = tempDiv.innerHTML.includes('<br>') ||
                               tempDiv.textContent.includes('\n') ||
                               tempDiv.querySelectorAll('br').length > 0;
-        
+
         if (!hasLineBreaks) {
             // Single line - use standard execCommand
-            document.execCommand(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough');
+            var _cmd2 = tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough';
+            document.execCommand(_cmd2);
+            _resetInlineTypingStyleAfterApply(_cmd2);
             return;
         }
-        
+
         // Multiple lines - need to apply formatting to each line separately
         // Strategy: Split by line breaks, wrap each non-empty segment, rejoin
         
@@ -18999,14 +19019,78 @@ class EditorInstance {
     });
 
     // BeforeInput handler - handle triple-click selection replacement
+    // sprint 20260724-160000 再オープン②(TASK-14): inline 要素（strong/em/del/code）の末尾境界に
+    // collapsed caret がある状態で printable 文字を入力すると、contenteditable が要素内に文字を挿入し
+    // 前の inline 書式を引きずる。作成直後・reload 後・全経路（palette/toolbar/直接マーキング）で発生する。
+    // → 入力の直前に caret を要素の外（後続 plain text node）へ出してから入力させる（direct-marking の
+    //   ZWSP 外出しと同発想を全要素・全経路に拡張。DOM に ZWSP sentinel が無い reload 後もこれで直る）。
+    // 既存の end-marker+space 脱出（checkInlineEscapeBeforeSpace）とは別経路（あちらは keydown space）。
+    function _exitInlineBoundaryBeforeInput(e) {
+        if (isSourceMode) return;
+        // ★ TASK-15(BLOCKER fix): insertText のみ対象。insertCompositionText（IME 変換中）は
+        //   beforeinput が cancelable:false なので preventDefault が no-op → 手動挿入がブラウザの
+        //   composition 挿入に二重に積まれ「ああい」等の IME データ破損になる。composition は横取りしない。
+        //   （IME 確定は insertText / insertFromComposition ではなく、確定後の通常入力で境界脱出が効く。
+        //    変換中に境界脱出しないのは許容 = 確定文字が inline 内に入っても、次の通常入力から外に出る）。
+        var it = e.inputType || '';
+        if (it !== 'insertText') return;
+        if (e.cancelable === false) return;   // 念のため: キャンセル不可なら手動挿入しない（二重挿入防止）
+        var sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) return;
+        var node = range.startContainer;
+        // caret が text node の末尾にあること
+        if (node.nodeType !== 3) return;
+        if (range.startOffset !== (node.textContent || '').length) return;
+        // その text node が inline 要素の（最後の子孫の）末尾で、次に兄弟が無い＝要素の末尾境界
+        var inlineTags = { strong: 1, b: 1, em: 1, i: 1, del: 1, s: 1, strike: 1, code: 1 };
+        // text node から上がって、末尾境界を成す最も外側の inline 要素を見つける
+        var cur = node;
+        var inlineEl = null;
+        while (cur && cur !== editor) {
+            if (cur.nextSibling) break;                     // 末尾境界でない（後ろに兄弟がある）
+            var p = cur.parentNode;
+            if (p && p.nodeType === 1 && inlineTags[p.tagName.toLowerCase()]) {
+                if (!p.closest || !p.closest('pre')) { inlineEl = p; }  // code block 内は除外
+                cur = p;
+                continue;
+            }
+            break;
+        }
+        if (!inlineEl) return;
+        // caret を inlineEl の直後の plain text node に移す（無ければ作る）。ここに入力させる。
+        e.preventDefault();
+        var parent = inlineEl.parentNode;
+        var afterNode = inlineEl.nextSibling;
+        if (!(afterNode && afterNode.nodeType === 3)) {
+            afterNode = document.createTextNode('');
+            if (inlineEl.nextSibling) { parent.insertBefore(afterNode, inlineEl.nextSibling); }
+            else { parent.appendChild(afterNode); }
+        }
+        // 入力しようとした文字を afterNode 先頭に挿入し、caret をその後ろへ
+        var data = e.data != null ? e.data : '';
+        afterNode.textContent = data + afterNode.textContent;
+        var nr = document.createRange();
+        nr.setStart(afterNode, data.length);
+        nr.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(nr);
+        if (typeof syncMarkdown === 'function') syncMarkdown();
+    }
+
     editor.addEventListener('beforeinput', function(e) {
         if (isSourceMode) return;
-        
+
+        // sprint 20260724-160000 TASK-14: inline 要素末尾境界での入力を要素外へ（引きずり防止・全経路/reload）
+        _exitInlineBoundaryBeforeInput(e);
+        if (e.defaultPrevented) return;
+
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
         const range = sel.getRangeAt(0);
-        
+
         // Only handle when there's a selection (not collapsed)
         if (range.collapsed) return;
         
@@ -24525,6 +24609,14 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // sprint 20260724-160000 再オープン③(TASK-19): notes モードでは EditorInstance 再生成で
+        // 同一 .editor に paste リスナーが累積し、1 回の Ctrl+V で複数リスナーが発火 → 複数行 paste が
+        // 二重挿入される（2 行→4 行）。1 物理 paste = 1 挿入に coalesce する（同 tick ガード・全 instance 共有）。
+        // これは native paste 抑止（preventDefault）とは別: 二重の正体は JS+JS の複数リスナーなので JS 側で束ねる。
+        if (window.__fractalPasteInFlight) { e.preventDefault(); return; }
+        window.__fractalPasteInFlight = true;
+        setTimeout(function() { window.__fractalPasteInFlight = false; }, 0);
+
         // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
         // here so text/HTML paste still works when clipboard has no image.
         const kiroSkipImage = self._kiroImagePasteHandled === true;
@@ -25300,6 +25392,26 @@ class EditorInstance {
                     
                     logger.log('Block paste - inserted pasted list items after current li');
                 }
+            } else if (listItemElement && parentListElement &&
+                       newElements.length > 0 && newElements.every(el => el.tagName === 'P')) {
+                // sprint 20260725: リスト項目にカーソルがある状態で「プレーンな複数行テキスト」を paste した場合、
+                // 各行を兄弟 <li> として現在の項目の後ろに挿入する（従来はリスト全体の後ろに <p> が漏れていた）。
+                // markdownToHtmlFragment がプレーン複数行を <p>×N に変換する → 全要素が P のときだけこの分岐。
+                // table(TABLE)/heading(H1..)/code(PRE)/nested-list(UL/OL) は P 以外を含むので該当せず従来経路（standard else）。
+                let insertAfterLi = listItemElement;
+                const parentList = listItemElement.parentNode;
+                newElements.forEach(pEl => {
+                    const li = document.createElement('li');
+                    li.innerHTML = pEl.innerHTML || '<br>';
+                    if (insertAfterLi.nextSibling) {
+                        parentList.insertBefore(li, insertAfterLi.nextSibling);
+                    } else {
+                        parentList.appendChild(li);
+                    }
+                    insertAfterLi = li;
+                    lastInsertedElement = li;
+                });
+                logger.log('Block paste - inserted multiline plain text as sibling <li>s');
             } else {
                 // Standard block paste behavior (non-list or pasting into non-list)
                 // Find the current block element
@@ -25826,6 +25938,8 @@ class EditorInstance {
         window.__testApi.applyTextColor = (hex) => applyTextColor(hex);
         window.__testApi.removeTextColor = () => removeTextColor();
         window.__testApi.openTextColorPicker = (anchor) => openTextColorPicker(anchor || null);
+        // sprint 20260724-160000 再オープン③(TASK-18): toolbar/palette 相当の実 applyInlineFormat を検証する
+        window.__testApi.applyInlineFormat = (tagName) => applyInlineFormat(tagName);
         // subpage serialize 分岐の on/off（TC-SP-10 counterfactual: false で [[]] → [] 劣化を機械実証）
         window.__testApi.__setSubpageSerialize = (v) => { _subpageSerializeEnabled = !!v; };
         // finalizeAddPage を直接呼ぶ（TC-SP-15: action panel 経由 = 新規/既存で subpage 分岐を検証）
@@ -26689,10 +26803,10 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
      * marker 対称でない（open != close）ため applyInlineFormat と別関数。
      * node.text 内に <span style="color:#hex">…</span> を保存（md と同一エンコード）。
      * hex=null で選択を覆う色 span を除去（partial は span split）。
-     * Args: { nodeId, textEl, hex, model, host, wholeText }
-     *   - wholeText=true: 選択に依らず node text 全体を対象にする（右クリック・選択なし経路）。
-     *     display mode（renderInlineText）では rendered!=source で offset がずれるため、全体対象は
-     *     source を直接扱う（offset 計算を経由しない）。
+     * Args: { nodeId, textEl, hex, model, host, offsets }
+     *   - offsets = { start, end }（source offset）が渡されればその範囲を対象（右クリック時に数値捕捉済み・
+     *     ★再オープン②TASK-13: focus 再レンダーで Range が detached になり全体着色に化ける問題を回避）。
+     *   - offsets が null なら node text 全体を対象（選択なし右クリック経路）。
      */
     function applyTextColor(args) {
         if (!args) { return; }
@@ -26707,29 +26821,23 @@ if (!window.__SKIP_EDITOR_AUTO_INIT__) {
         var node = model.getNode(nodeId);
         if (!node) { return; }
         var text = node.text || '';
-        var sel = window.getSelection();
 
         var before, selected, after;
 
-        // node text 全体を対象（選択なし右クリック経路・display mode でも offset を使わず source 直接）
-        if (args.wholeText || !sel || sel.isCollapsed) {
+        if (args.offsets && typeof args.offsets.start === 'number' &&
+            typeof args.offsets.end === 'number' && args.offsets.end > args.offsets.start) {
+            // ★ 数値 source-offset で部分適用（DOM 再構築に強い・contextmenu 時に捕捉済み）
+            var s = Math.max(0, args.offsets.start);
+            var en = Math.min(text.length, args.offsets.end);
+            before = text.slice(0, s);
+            selected = text.slice(s, en);
+            after = text.slice(en);
+        } else {
+            // offset 無し = node text 全体（選択なし右クリック経路・source 直接）
             if (!text) { return; }
             before = '';
             selected = text;
             after = '';
-        } else {
-            var range = sel.getRangeAt(0);
-            var preRange = range.cloneRange();
-            preRange.selectNodeContents(textEl);
-            preRange.setEnd(range.startContainer, range.startOffset);
-            var startOff = preRange.toString().length;
-            var endOff = startOff + range.toString().length;
-
-            // ★ 編集モードは renderEditingText（色 span は生タグ可視 = source そのもの）なので、
-            //    offset は source 文字列基準で一致する（R-2 fallback）。
-            before = text.slice(0, startOff);
-            selected = text.slice(startOff, endOff);
-            after = text.slice(endOff);
         }
         var newText;
         var newCursor;
@@ -28268,9 +28376,9 @@ var Outliner = (function() {
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
     var contextMenuEl = null;
     // sprint 20260724-160000: 右クリック文字色メニュー用の選択保存
+    // 再オープン②(TASK-13): Range でなく source-offset 数値で保持（focus 再レンダーに強い）
     var _contextTextEl = null;
-    var _contextSavedRange = null;
-    var _contextHasSelection = false;
+    var _contextColorOffsets = null;   // { start, end } source offsets, or null (=node 全体)
 
     var syncDebounceTimer = null;
     /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
@@ -31482,13 +31590,14 @@ var Outliner = (function() {
     }
 
     // sprint 20260724-160000: node text の選択に文字色を適用 / 除去（hex=null で除去）。
-    // wholeText=true で node text 全体を対象（選択なし右クリック経路）。
-    function applyTextColor(nodeId, textEl, hex, wholeText) {
+    // 再オープン②(TASK-13): offsets = { start, end }（source offset）が渡されればその範囲だけ着色、
+    // null なら node text 全体（選択なし右クリック経路）。
+    function applyTextColor(nodeId, textEl, hex, offsets) {
         return OutlinerCell.applyTextColor({
             nodeId: nodeId,
             textEl: textEl,
             hex: hex,
-            wholeText: !!wholeText,
+            offsets: (offsets && typeof offsets.start === 'number') ? offsets : null,
             model: model,
             host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
         });
@@ -34112,12 +34221,40 @@ var Outliner = (function() {
             var tagEl = e.target.closest && e.target.closest('.outliner-tag');
             var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
             // sprint 20260724-160000: 文字色メニュー用に、右クリック時の選択（.outliner-text 内）を保存。
-            // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられるよう）。
+            // ★ 再オープン②(TASK-13): Range clone は onPick の focus() 再レンダーで detached になり
+            //   選択が collapse → 全体着色に化ける。DOM 再構築に強い **source-offset の数値**で捕捉する。
+            //   選択があればその source 範囲 {start,end}、無ければ null（＝node 全体対象）。
             _contextTextEl = nodeEl.querySelector('.outliner-text');
+            _contextColorOffsets = null;
             var csel = window.getSelection();
-            _contextHasSelection = !!(csel && !csel.isCollapsed && _contextTextEl &&
+            var hasSel = !!(csel && !csel.isCollapsed && _contextTextEl &&
                 _contextTextEl.contains(csel.anchorNode) && _contextTextEl.contains(csel.focusNode));
-            _contextSavedRange = _contextHasSelection ? csel.getRangeAt(0).cloneRange() : null;
+            if (hasSel) {
+                try {
+                    var cnode = model.getNode(nodeEl.dataset.id);
+                    var srcText = cnode ? (cnode.text || '') : '';
+                    var rng = csel.getRangeAt(0);
+                    var preRange = rng.cloneRange();
+                    preRange.selectNodeContents(_contextTextEl);
+                    preRange.setEnd(rng.startContainer, rng.startOffset);
+                    var startDom = preRange.toString().length;
+                    var endDom = startDom + rng.toString().length;
+                    // ★ TASK-16 fix: edit mode（focus 済み）は renderEditingText で textContent===source
+                    //   （marker が literal 表示）なので DOM offset は既に source offset。renderedOffsetToSource に
+                    //   通すと marker 長だけ前方シフトする（**hi** world で "world" 選択→"d" だけ着色）。
+                    //   edit mode は raw offset を使う。display mode（未 focus・renderInlineText で marker 圧縮）
+                    //   のみ rendered→source 変換する。
+                    var isEditMode = (document.activeElement === _contextTextEl);
+                    var startSrc, endSrc;
+                    if (isEditMode) {
+                        startSrc = startDom; endSrc = endDom;
+                    } else {
+                        startSrc = renderedOffsetToSource(srcText, startDom);
+                        endSrc = renderedOffsetToSource(srcText, endDom);
+                    }
+                    if (endSrc > startSrc) { _contextColorOffsets = { start: startSrc, end: endSrc }; }
+                } catch (err) { _contextColorOffsets = null; }
+            }
             e.preventDefault();
             showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
@@ -34177,29 +34314,20 @@ var Outliner = (function() {
         }
 
         // --- sprint 20260724-160000: 文字色（node text があれば常に表示） ---
-        // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられる）。
+        // 再オープン②(TASK-13): 部分選択は source-offset {start,end} で適用（focus 再レンダーに強い）、
+        // 選択なしは node text 全体。offset があれば wholeText 昇格しない（部分着色を保証）。
         if (_contextTextEl && node.text && typeof window.showInlineColorPicker === 'function') {
             var colorTextEl = _contextTextEl;
-            var colorRange = _contextHasSelection ? _contextSavedRange : null;
+            var colorOffsets = _contextColorOffsets;   // 数値 offset（DOM 再構築で失われない）
             addMenuItem(contextMenuEl, i18n.textColor || 'Text Color', function(ev) {
-                // picker を開く（menu は閉じるが保存 range で適用）
                 var px = ev && ev.clientX ? ev.clientX : x;
                 var py = ev && ev.clientY ? ev.clientY : y;
                 window.showInlineColorPicker({
                     x: px, y: py,
                     noneLabel: i18n.textColorNone || 'None',
                     onPick: function(hex) {
-                        if (colorRange) {
-                            // 選択があった: 保存 range を復元して部分適用（edit mode・offset 一致）
-                            colorTextEl.focus();
-                            var s = window.getSelection();
-                            s.removeAllRanges();
-                            s.addRange(colorRange);
-                            applyTextColor(nodeId, colorTextEl, hex, false);
-                        } else {
-                            // 選択なし: node text 全体を対象（display mode でも source 直接処理）
-                            applyTextColor(nodeId, colorTextEl, hex, true);
-                        }
+                        // 数値 offset を直接渡す（focus/選択復元に依存しない）。
+                        applyTextColor(nodeId, colorTextEl, hex, colorOffsets);
                     }
                 });
                 hideContextMenu();

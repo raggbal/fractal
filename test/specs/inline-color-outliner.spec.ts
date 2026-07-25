@@ -145,4 +145,93 @@ test.describe('outliner インライン文字色 (FR-IC-03/04/06)', () => {
         expect(r.found).toBe(true);   // ★ 選択なしでも Text Color 項目が出る
         expect(r.text).toBe('<span style="color:#ef4444">whole node</span>');  // node 全体着色
     });
+
+    // TC-IC-19: 部分選択の右クリック着色は選択部分だけ（node 全体にしない）★load-bearing・counterfactual
+    // ★再オープン②(TASK-13): 数値 source-offset 捕捉により、picker→onPick の focus 再レンダーを跨いでも
+    //   選択範囲が失われず部分着色される（旧: Range が detached → collapse → wholeText 昇格で全体着色=RED）。
+    test('TC-IC-19 部分選択右クリックは選択部分だけ着色（全体にしない）', async ({ page }) => {
+        await boot(page);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1, rootIds: ['n1'],
+                nodes: { n1: { id: 'n1', parentId: null, children: [], text: 'hello world', tags: [] } }
+            });
+        });
+        const textEl = page.locator('.outliner-text').first();
+        await textEl.click();   // edit mode に入れる（textContent===source）
+        await page.waitForTimeout(50);
+        // "world"（offset 6-11）を選択
+        await page.evaluate(() => {
+            const el = document.querySelector('.outliner-text') as HTMLElement;
+            const tn = el.firstChild!;
+            const idx = (tn.textContent || '').indexOf('world');
+            const range = document.createRange();
+            range.setStart(tn, idx); range.setEnd(tn, idx + 5);
+            const s = window.getSelection()!; s.removeAllRanges(); s.addRange(range);
+        });
+        // 実経路: contextmenu（offset 数値捕捉）→ Text Color → picker swatch。
+        // picker 表示で focus が動いても数値 offset なので選択部分が保たれる。
+        const text = await page.evaluate(() => {
+            const el = document.querySelector('.outliner-text') as HTMLElement;
+            el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 25, clientY: 25 }));
+            const items = Array.from(document.querySelectorAll('.outliner-context-menu-item'));
+            const tc = items.find(i => (i.textContent || '').includes('Text Color') || (i.textContent || '').includes('文字色')) as HTMLElement;
+            tc.click();
+            const sw = document.querySelector('.inline-color-popover .file-panel-color-swatch') as HTMLElement;
+            sw.click();
+            return (window as any).Outliner.getModel().getNode('n1').text;
+        });
+        // ★ "world" だけ着色・"hello " は無色（全体着色でない）
+        expect(text).toBe('hello <span style="color:#ef4444">world</span>');
+        expect(text).not.toBe('<span style="color:#ef4444">hello world</span>');  // counterfactual: 全体着色は NG
+    });
+
+    // TC-IC-19b: marker を含む node text の部分選択でも offset がずれない（TASK-16 の番人）★load-bearing
+    // ★ edit mode は textContent===source なので DOM offset=source offset。renderedOffsetToSource に通すと
+    //   marker 長ぶん前方シフトして "world"→"d" だけ着色になっていた（reviewer 発見）。
+    test('TC-IC-19b marker 付き node text の部分選択で正しい範囲を着色（offset シフトなし）', async ({ page }) => {
+        await boot(page);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1, rootIds: ['n1'],
+                nodes: { n1: { id: 'n1', parentId: null, children: [], text: '**hi** world', tags: [] } }
+            });
+        });
+        const textEl = page.locator('.outliner-text').first();
+        await textEl.click();   // edit mode（renderEditingText で `**hi**` が literal 表示・textContent===source）
+        await page.waitForTimeout(50);
+        // source "**hi** world" の中の "world"（source offset 7-12）を選択。
+        // edit mode では textContent === source なので DOM offset も 7-12。
+        await page.evaluate(() => {
+            const el = document.querySelector('.outliner-text') as HTMLElement;
+            // textContent 全体から "world" の位置を探して range を張る（複数 text node の可能性に配慮）
+            const full = el.textContent || '';
+            const idx = full.indexOf('world');
+            // 単純化: el 内の最初の text node が全 source を保持している前提（renderEditingText はタグのみ span 化）
+            // TreeWalker で idx をカバーする text node/offset を求める
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            let acc = 0; let sNode: Node | null = null; let sOff = 0; let eNode: Node | null = null; let eOff = 0; let n: Node | null;
+            while ((n = walker.nextNode())) {
+                const len = (n.textContent || '').length;
+                if (sNode === null && acc + len >= idx) { sNode = n; sOff = idx - acc; }
+                if (acc + len >= idx + 5) { eNode = n; eOff = idx + 5 - acc; break; }
+                acc += len;
+            }
+            const range = document.createRange();
+            range.setStart(sNode!, sOff); range.setEnd(eNode!, eOff);
+            const s = window.getSelection()!; s.removeAllRanges(); s.addRange(range);
+        });
+        const text = await page.evaluate(() => {
+            const el = document.querySelector('.outliner-text') as HTMLElement;
+            el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 25, clientY: 25 }));
+            const items = Array.from(document.querySelectorAll('.outliner-context-menu-item'));
+            const tc = items.find(i => (i.textContent || '').includes('Text Color') || (i.textContent || '').includes('文字色')) as HTMLElement;
+            tc.click();
+            const sw = document.querySelector('.inline-color-popover .file-panel-color-swatch') as HTMLElement;
+            sw.click();
+            return (window as any).Outliner.getModel().getNode('n1').text;
+        });
+        // ★ marker を保ったまま "world" だけ着色（"d" だけ等のシフトがない）
+        expect(text).toBe('**hi** <span style="color:#ef4444">world</span>');
+    });
 });

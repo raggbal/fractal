@@ -295,9 +295,9 @@ var Outliner = (function() {
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
     var contextMenuEl = null;
     // sprint 20260724-160000: 右クリック文字色メニュー用の選択保存
+    // 再オープン②(TASK-13): Range でなく source-offset 数値で保持（focus 再レンダーに強い）
     var _contextTextEl = null;
-    var _contextSavedRange = null;
-    var _contextHasSelection = false;
+    var _contextColorOffsets = null;   // { start, end } source offsets, or null (=node 全体)
 
     var syncDebounceTimer = null;
     /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
@@ -3509,13 +3509,14 @@ var Outliner = (function() {
     }
 
     // sprint 20260724-160000: node text の選択に文字色を適用 / 除去（hex=null で除去）。
-    // wholeText=true で node text 全体を対象（選択なし右クリック経路）。
-    function applyTextColor(nodeId, textEl, hex, wholeText) {
+    // 再オープン②(TASK-13): offsets = { start, end }（source offset）が渡されればその範囲だけ着色、
+    // null なら node text 全体（選択なし右クリック経路）。
+    function applyTextColor(nodeId, textEl, hex, offsets) {
         return OutlinerCell.applyTextColor({
             nodeId: nodeId,
             textEl: textEl,
             hex: hex,
-            wholeText: !!wholeText,
+            offsets: (offsets && typeof offsets.start === 'number') ? offsets : null,
             model: model,
             host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
         });
@@ -6139,12 +6140,40 @@ var Outliner = (function() {
             var tagEl = e.target.closest && e.target.closest('.outliner-tag');
             var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
             // sprint 20260724-160000: 文字色メニュー用に、右クリック時の選択（.outliner-text 内）を保存。
-            // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられるよう）。
+            // ★ 再オープン②(TASK-13): Range clone は onPick の focus() 再レンダーで detached になり
+            //   選択が collapse → 全体着色に化ける。DOM 再構築に強い **source-offset の数値**で捕捉する。
+            //   選択があればその source 範囲 {start,end}、無ければ null（＝node 全体対象）。
             _contextTextEl = nodeEl.querySelector('.outliner-text');
+            _contextColorOffsets = null;
             var csel = window.getSelection();
-            _contextHasSelection = !!(csel && !csel.isCollapsed && _contextTextEl &&
+            var hasSel = !!(csel && !csel.isCollapsed && _contextTextEl &&
                 _contextTextEl.contains(csel.anchorNode) && _contextTextEl.contains(csel.focusNode));
-            _contextSavedRange = _contextHasSelection ? csel.getRangeAt(0).cloneRange() : null;
+            if (hasSel) {
+                try {
+                    var cnode = model.getNode(nodeEl.dataset.id);
+                    var srcText = cnode ? (cnode.text || '') : '';
+                    var rng = csel.getRangeAt(0);
+                    var preRange = rng.cloneRange();
+                    preRange.selectNodeContents(_contextTextEl);
+                    preRange.setEnd(rng.startContainer, rng.startOffset);
+                    var startDom = preRange.toString().length;
+                    var endDom = startDom + rng.toString().length;
+                    // ★ TASK-16 fix: edit mode（focus 済み）は renderEditingText で textContent===source
+                    //   （marker が literal 表示）なので DOM offset は既に source offset。renderedOffsetToSource に
+                    //   通すと marker 長だけ前方シフトする（**hi** world で "world" 選択→"d" だけ着色）。
+                    //   edit mode は raw offset を使う。display mode（未 focus・renderInlineText で marker 圧縮）
+                    //   のみ rendered→source 変換する。
+                    var isEditMode = (document.activeElement === _contextTextEl);
+                    var startSrc, endSrc;
+                    if (isEditMode) {
+                        startSrc = startDom; endSrc = endDom;
+                    } else {
+                        startSrc = renderedOffsetToSource(srcText, startDom);
+                        endSrc = renderedOffsetToSource(srcText, endDom);
+                    }
+                    if (endSrc > startSrc) { _contextColorOffsets = { start: startSrc, end: endSrc }; }
+                } catch (err) { _contextColorOffsets = null; }
+            }
             e.preventDefault();
             showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
@@ -6204,29 +6233,20 @@ var Outliner = (function() {
         }
 
         // --- sprint 20260724-160000: 文字色（node text があれば常に表示） ---
-        // 選択があればその範囲、無ければ node text 全体を対象にする（右クリックだけで色を付けられる）。
+        // 再オープン②(TASK-13): 部分選択は source-offset {start,end} で適用（focus 再レンダーに強い）、
+        // 選択なしは node text 全体。offset があれば wholeText 昇格しない（部分着色を保証）。
         if (_contextTextEl && node.text && typeof window.showInlineColorPicker === 'function') {
             var colorTextEl = _contextTextEl;
-            var colorRange = _contextHasSelection ? _contextSavedRange : null;
+            var colorOffsets = _contextColorOffsets;   // 数値 offset（DOM 再構築で失われない）
             addMenuItem(contextMenuEl, i18n.textColor || 'Text Color', function(ev) {
-                // picker を開く（menu は閉じるが保存 range で適用）
                 var px = ev && ev.clientX ? ev.clientX : x;
                 var py = ev && ev.clientY ? ev.clientY : y;
                 window.showInlineColorPicker({
                     x: px, y: py,
                     noneLabel: i18n.textColorNone || 'None',
                     onPick: function(hex) {
-                        if (colorRange) {
-                            // 選択があった: 保存 range を復元して部分適用（edit mode・offset 一致）
-                            colorTextEl.focus();
-                            var s = window.getSelection();
-                            s.removeAllRanges();
-                            s.addRange(colorRange);
-                            applyTextColor(nodeId, colorTextEl, hex, false);
-                        } else {
-                            // 選択なし: node text 全体を対象（display mode でも source 直接処理）
-                            applyTextColor(nodeId, colorTextEl, hex, true);
-                        }
+                        // 数値 offset を直接渡す（focus/選択復元に依存しない）。
+                        applyTextColor(nodeId, colorTextEl, hex, colorOffsets);
                     }
                 });
                 hideContextMenu();

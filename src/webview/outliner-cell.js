@@ -774,10 +774,10 @@
      * marker 対称でない（open != close）ため applyInlineFormat と別関数。
      * node.text 内に <span style="color:#hex">…</span> を保存（md と同一エンコード）。
      * hex=null で選択を覆う色 span を除去（partial は span split）。
-     * Args: { nodeId, textEl, hex, model, host, wholeText }
-     *   - wholeText=true: 選択に依らず node text 全体を対象にする（右クリック・選択なし経路）。
-     *     display mode（renderInlineText）では rendered!=source で offset がずれるため、全体対象は
-     *     source を直接扱う（offset 計算を経由しない）。
+     * Args: { nodeId, textEl, hex, model, host, offsets }
+     *   - offsets = { start, end }（source offset）が渡されればその範囲を対象（右クリック時に数値捕捉済み・
+     *     ★再オープン②TASK-13: focus 再レンダーで Range が detached になり全体着色に化ける問題を回避）。
+     *   - offsets が null なら node text 全体を対象（選択なし右クリック経路）。
      */
     function applyTextColor(args) {
         if (!args) { return; }
@@ -792,29 +792,23 @@
         var node = model.getNode(nodeId);
         if (!node) { return; }
         var text = node.text || '';
-        var sel = window.getSelection();
 
         var before, selected, after;
 
-        // node text 全体を対象（選択なし右クリック経路・display mode でも offset を使わず source 直接）
-        if (args.wholeText || !sel || sel.isCollapsed) {
+        if (args.offsets && typeof args.offsets.start === 'number' &&
+            typeof args.offsets.end === 'number' && args.offsets.end > args.offsets.start) {
+            // ★ 数値 source-offset で部分適用（DOM 再構築に強い・contextmenu 時に捕捉済み）
+            var s = Math.max(0, args.offsets.start);
+            var en = Math.min(text.length, args.offsets.end);
+            before = text.slice(0, s);
+            selected = text.slice(s, en);
+            after = text.slice(en);
+        } else {
+            // offset 無し = node text 全体（選択なし右クリック経路・source 直接）
             if (!text) { return; }
             before = '';
             selected = text;
             after = '';
-        } else {
-            var range = sel.getRangeAt(0);
-            var preRange = range.cloneRange();
-            preRange.selectNodeContents(textEl);
-            preRange.setEnd(range.startContainer, range.startOffset);
-            var startOff = preRange.toString().length;
-            var endOff = startOff + range.toString().length;
-
-            // ★ 編集モードは renderEditingText（色 span は生タグ可視 = source そのもの）なので、
-            //    offset は source 文字列基準で一致する（R-2 fallback）。
-            before = text.slice(0, startOff);
-            selected = text.slice(startOff, endOff);
-            after = text.slice(endOff);
         }
         var newText;
         var newCursor;
