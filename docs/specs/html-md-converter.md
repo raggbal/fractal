@@ -4,7 +4,7 @@ Component: [odk:component:webview/html-md-converter]
 
 ## Responsibilities
 
-- Convert external HTML to Markdown (clipboard paste, Chrome Extension, claude-skills).
+- Convert external HTML to Markdown (clipboard paste, Chrome Extension, ai-skills).
 - SVG pre-processing (inline computed styles → `<img>`).
 - GFM tables, strikethrough, task lists.
 - Fractal-specific custom rules.

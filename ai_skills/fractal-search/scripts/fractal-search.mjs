@@ -11,8 +11,88 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
-const CACHE_VERSION = 2;  // bump on schema change to invalidate old caches
+// ── フラットレイアウトの pageDir 解決（新フラットレイアウト前提・legacy fallback なし = ユーザー決定 2026-07-26）──
+// フラット規約: page md = <folder>/<pageId>.md（直下）。hint（isFlatOut / 相対 / 絶対）尊重・無ければ直下。
+export function isFlatOut(pageDir) {
+    if (typeof pageDir !== 'string') return false;
+    const norm = pageDir.replace(/^\.\//, '').replace(/\/+$/, '');
+    return norm === '' || norm === '.';
+}
+export function resolvePagesDirForSearch(folder, outFile, pageDirHint) {
+    void outFile; // 署名互換（旧 <basename>/ default は廃止）
+    if (isFlatOut(pageDirHint)) return folder;
+    if (pageDirHint) return path.isAbsolute(pageDirHint) ? pageDirHint : path.resolve(folder, pageDirHint);
+    return folder; // 新デフォルト = note 直下
+}
+
+const CACHE_VERSION = 3;  // bump on schema change to invalidate old caches (v3: nodes に tags/checked 追加)
+
+// ─────────────── Tag / checked フィルタ（FR-SRF-01/02） ───────────────
+
+/** タグ抽出（正典: src/webview/outliner-model.js:64 parseTags の 1:1 ミラー） */
+export function parseTagsFromText(text) {
+    const tags = [];
+    let cleaned = String(text || '').replace(/`[^`]*`/g, '');       // inline code 内は除外
+    cleaned = cleaned.replace(/https?:\/\/\S+/g, '');               // URL 内 @user 等は除外
+    const regex = /(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
+    let m;
+    while ((m = regex.exec(cleaned)) !== null) tags.push(m[1]);
+    return tags;
+}
+
+/** --tag フィルタ: filterTags（プレフィックス省略可・複数 OR）。filter なしは常に true */
+export function matchesTagFilter(nodeTags, filterTags) {
+    if (!filterTags || filterTags.length === 0) return true;
+    const tags = nodeTags || [];
+    return filterTags.some((f) => {
+        if (f.startsWith('#') || f.startsWith('@')) return tags.includes(f);
+        return tags.includes('#' + f) || tags.includes('@' + f);
+    });
+}
+
+/** note 表示名（正典: notesFolderProvider.resolveNoteLabel = outline.note の noteTitle → フォルダ名 fallback） */
+export function resolveNoteLabelFromDisk(folder) {
+    try {
+        const s = JSON.parse(fs.readFileSync(path.join(folder, 'outline.note'), 'utf-8'));
+        if (s && typeof s.noteTitle === 'string' && s.noteTitle.trim()) return s.noteTitle.trim();
+    } catch { /* outline.note 無し/壊れはフォルダ名 */ }
+    return path.basename(folder);
+}
+
+/** --note-name / --exclude-note の名前一致（noteTitle or フォルダ名・大小無視・部分一致・複数 OR） */
+export function matchesNoteName(label, baseName, names) {
+    const l = String(label || '').toLowerCase();
+    const b = String(baseName || '').toLowerCase();
+    return names.some((n) => {
+        const t = String(n).toLowerCase();
+        return l.includes(t) || b.includes(t);
+    });
+}
+
+/** folder entries を --note-name（include・空なら全通し）/ --exclude-note で絞る */
+export function filterFoldersByNoteName(entries, noteNames, excludeNotes, labelOf = resolveNoteLabelFromDisk) {
+    return entries.filter((e) => {
+        const label = labelOf(e.path);
+        const base = path.basename(e.path);
+        if (excludeNotes.length > 0 && matchesNoteName(label, base, excludeNotes)) return false;
+        if (noteNames.length > 0 && !matchesNoteName(label, base, noteNames)) return false;
+        return true;
+    });
+}
+
+/** --checked フィルタ: true|false|none|any。filter なし（null）は常に true */
+export function matchesCheckedFilter(checked, mode) {
+    if (!mode) return true;
+    switch (mode) {
+        case 'true': return checked === true;
+        case 'false': return checked === false;
+        case 'none': return checked !== true && checked !== false; // チェックボックスなし
+        case 'any': return checked === true || checked === false;  // タスクノード全部
+        default: return true;
+    }
+}
 
 // ─────────────── Arg parse ───────────────
 
@@ -30,6 +110,10 @@ function parseArgs(argv) {
         maxPerFile: 5,
         maxResults: 100,
         scope: null,         // Set<'outline'|'node'|'page'|'md'> | null=all
+        tags: [],            // --tag（複数 OR・#/@ プレフィックス省略可）
+        checked: null,       // --checked true|false|none|any
+        noteNames: [],       // --note-name（noteTitle/フォルダ名の部分一致で対象 note を絞る・複数 OR）
+        excludeNotes: [],    // --exclude-note（同上の一致で除外）
         json: false,
         summary: false,
         noCache: false,
@@ -52,18 +136,39 @@ function parseArgs(argv) {
             case '--max-per-file': a.maxPerFile = Number(v()); break;
             case '--max-results': a.maxResults = Number(v()); break;
             case '--scope': a.scope = new Set(v().split(',').map(s => s.trim()).filter(Boolean)); break;
+            case '--tag': a.tags.push(v()); break;
+            case '--note-name': a.noteNames.push(v()); break;
+            case '--exclude-note': a.excludeNotes.push(v()); break;
+            case '--checked':
+                a.checked = v();
+                if (!['true', 'false', 'none', 'any'].includes(a.checked)) {
+                    console.error(`Error: --checked must be true|false|none|any, got "${a.checked}"`);
+                    process.exit(1);
+                }
+                break;
             case '--json': a.json = true; break;
             case '--summary': a.summary = true; break;
             case '--no-cache': a.noCache = true; break;
             case '--clear-cache': a.clearCache = true; break;
             case '--cache-dir': a.cacheDir = v(); break;
+            case '-h': case '--help':
+                console.log('Usage: fractal-search.mjs --query <str> (--folder <path>... | --auto) [options]');
+                console.log('Modes:   --list-folders | --list-notes | --find-outline <kw> | --clear-cache');
+                console.log('Filters: --tag <t>... --checked true|false|none|any --note-name <n>... --exclude-note <n>...');
+                console.log('         （--tag / --checked 指定時は --query 省略可）');
+                console.log('Options: --regex --case-sensitive --whole-word --scope outline,node,page,md');
+                console.log('         --max-per-file N --max-results N --json --summary --no-cache --cache-dir <p>');
+                process.exit(0);
+                break;
             default:
                 console.error(`Unknown option: ${k}`);
                 process.exit(1);
         }
     }
-    if (!a.listFolders && !a.listNotes && !a.findOutline && !a.clearCache && !a.query) {
-        console.error('Error: --query is required (or use --list-folders / --list-notes / --find-outline / --clear-cache)');
+    // --tag / --checked があれば --query 省略可（フィルタのみで列挙・FR-SRF-03）
+    const hasFilter = a.tags.length > 0 || a.checked !== null;
+    if (!a.listFolders && !a.listNotes && !a.findOutline && !a.clearCache && !a.query && !hasFilter) {
+        console.error('Error: --query is required (or use --tag / --checked / --list-folders / --list-notes / --find-outline / --clear-cache)');
         process.exit(1);
     }
     return a;
@@ -314,6 +419,9 @@ function parseOutForSearch(absPath) {
                 subtext: n.subtext ? String(n.subtext).substring(0, 500) : '',
                 isPage: !!n.isPage,
                 pageId: n.pageId || null,
+                // v3: --tag / --checked フィルタ用（tags は text から正典ミラーで再計算 = 外部編集にも追従）
+                tags: parseTagsFromText(n.text || ''),
+                checked: (n.checked === true || n.checked === false) ? n.checked : null,
             });
         }
         return {
@@ -380,16 +488,24 @@ function searchFolder(folder, regex, args, state, cache) {
             let perFile = 0;
             for (const node of data.nodes) {
                 if (perFile >= args.maxPerFile && args.maxPerFile > 0) break;
+                // --tag / --checked フィルタ（FR-SRF-01/02。query と AND）
+                if (!matchesTagFilter(node.tags, args.tags)) continue;
+                if (!matchesCheckedFilter(node.checked, args.checked)) continue;
                 const matches = [];
-                if (node.text) {
-                    for (const m of findMatches(node.text, regex)) {
-                        matches.push({ field: 'text', line: node.text, ...m });
+                if (regex) {
+                    if (node.text) {
+                        for (const m of findMatches(node.text, regex)) {
+                            matches.push({ field: 'text', line: node.text, ...m });
+                        }
                     }
-                }
-                if (node.subtext) {
-                    for (const m of findMatches(node.subtext, regex)) {
-                        matches.push({ field: 'subtext', line: node.subtext.split('\n')[0], ...m });
+                    if (node.subtext) {
+                        for (const m of findMatches(node.subtext, regex)) {
+                            matches.push({ field: 'subtext', line: node.subtext.split('\n')[0], ...m });
+                        }
                     }
+                } else {
+                    // --query 省略（フィルタのみ列挙・FR-SRF-03）: フィルタ通過 = ヒット
+                    matches.push({ field: 'text', line: node.text, start: 0, end: 0 });
                 }
                 if (matches.length > 0) {
                     summary[outlineId].nodeHits++;
@@ -400,6 +516,7 @@ function searchFolder(folder, regex, args, state, cache) {
                             outlineId, outlineTitle: title, outlineFile: filePath, folderChain,
                             nodeId: node.id, nodeText: node.text,
                             isPage: node.isPage, pageId: node.pageId,
+                            tags: node.tags, checked: node.checked,
                             matches,
                         });
                         perFile++;
@@ -410,14 +527,10 @@ function searchFolder(folder, regex, args, state, cache) {
         }
 
         // --- pages (only nodes with pageId) ---
-        // pageDir 解決: .out 内 pageDir > <outDir>/<basename>/ (新 default) > legacy ./pages 互換
-        if (!args.scope || args.scope.has('page')) {
-            const basename = path.basename(outFile, '.out');
-            const newDefault = path.join(folder, basename);
-            const legacyDefault = path.join(folder, 'pages');
-            const pageDirAbs = data.pageDir
-                ? (path.isAbsolute(data.pageDir) ? data.pageDir : path.resolve(folder, data.pageDir))
-                : (fs.existsSync(newDefault) || !fs.existsSync(legacyDefault) ? newDefault : legacyDefault);
+        // pageDir 解決: フラット規約（hint 優先 → flat 直下 → legacy <basename>/ → legacy pages/。ADRL-0018 ミラー）
+        // --query 省略時（フィルタのみ）は本文検索の対象がないので skip
+        if (regex && (!args.scope || args.scope.has('page'))) {
+            const pageDirAbs = resolvePagesDirForSearch(folder, outFile, data.pageDir);
             if (fs.existsSync(pageDirAbs)) {
                 let perFile = 0;
                 for (const node of data.nodes) {
@@ -450,7 +563,8 @@ function searchFolder(folder, regex, args, state, cache) {
     }
 
     // --- root-level .md (not tied to any outline) ---
-    if (!args.scope || args.scope.has('md')) {
+    // --query 省略時（フィルタのみ）は node 属性フィルタなので md は対象外
+    if (regex && (!args.scope || args.scope.has('md'))) {
         for (const md of rootMds) {
             if (state.results.length >= args.maxResults) break;
             const mdHit = getCachedOrParse(cache, folder, md, parseMdForSearch, { noCache: args.noCache });
@@ -787,8 +901,11 @@ function main() {
     const explicitEntries = args.folders.map(f => ({ path: path.resolve(f), sources: [] }));
 
     // auto-discovery triggered by --auto / --list-folders / --list-notes / --find-outline
+    // （--note-name / --exclude-note も、--folder 明示が無ければ自動検出を起動）
     let discoveredEntries = [];
-    if (args.auto || args.listFolders || args.listNotes || args.findOutline) {
+    const nameFilterActive = args.noteNames.length > 0 || args.excludeNotes.length > 0;
+    if (args.auto || args.listFolders || args.listNotes || args.findOutline
+        || (nameFilterActive && explicitEntries.length === 0)) {
         discoveredEntries = discoverFolders();
     }
 
@@ -804,7 +921,16 @@ function main() {
             folderMap.set(e.path, { ...e });
         }
     }
-    const folderEntries = [...folderMap.values()];
+    let folderEntries = [...folderMap.values()];
+    // --note-name / --exclude-note: noteTitle（outline.note）or フォルダ名で対象 note を絞る
+    if (nameFilterActive) {
+        const before = folderEntries.length;
+        folderEntries = filterFoldersByNoteName(folderEntries, args.noteNames, args.excludeNotes);
+        if (folderEntries.length === 0 && before > 0) {
+            console.error(`Error: no note matched --note-name/--exclude-note (candidates: ${before})`);
+            process.exit(1);
+        }
+    }
     const folders = folderEntries.map(e => e.path);
 
     // --list-folders: print discovered folders and exit
@@ -870,7 +996,7 @@ function main() {
         process.exit(1);
     }
 
-    const regex = buildRegex(args.query, args);
+    const regex = args.query ? buildRegex(args.query, args) : null; // null = フィルタのみ列挙（FR-SRF-03）
     const state = {
         results: [],
         outlineSummaries: [],
@@ -909,4 +1035,7 @@ function main() {
     }
 }
 
-main();
+// CLI 直接実行時のみ main（unit import 時に暴発しない・design §B5）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main();
+}

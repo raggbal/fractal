@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — Fractal claude_skills を各 AI IDE の user-level skill 領域に配置
+# install.sh — Fractal ai_skills を各 AI IDE の user-level skill 領域に配置
 #
 # 配置方式は IDE ごとに自動選択:
 #   - symlink: claude / cursor / antigravity  (source 直リンク・更新即反映)
@@ -24,7 +24,7 @@ set -eu
 
 # ─── 設定 ─────────────────────────────────────────────
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS="fractal-structure fractal-search fractal-edit collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
+SKILLS="fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary collect web-crawler-md youtube-md doc-md pptx-pages-md arxiv-md aws-doc-maker"
 IDE_LIST="claude cursor kiro antigravity"
 
 ide_parent() {
@@ -206,7 +206,7 @@ do_uninstall_one() {
 
 # ─── メイン ────────────────────────────────────────
 echo ""
-echo "Fractal claude_skills installer"
+echo "Fractal ai_skills installer"
 echo "  source: $SOURCE_DIR"
 echo "  skills: $SKILLS"
 _mode=$([ "$UNINSTALL" -eq 1 ] && echo uninstall || echo install)

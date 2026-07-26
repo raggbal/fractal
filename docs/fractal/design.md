@@ -120,7 +120,7 @@ Fractal — VS Code 拡張機能。Dynalist ライクなアウトライナーと
 **下流（出力消費先）:**
 - IDE AI（Cmd+L で .md を AI に渡す）
 - S3（バックアップ）
-- claude-skills（fractal-search / fractal-edit で読み書き）
+- ai-skills（fractal-search / fractal-edit で読み書き）
 - llms.txt エクスポート（クリップボード経由で AI ツールへ）
 
 **Ownership:** 全データはユーザーのローカルファイルシステム。Fractal はエディタであり、データを所有しない。
@@ -420,7 +420,7 @@ fractal/
 ├── docs/                       # Design docs, ADRs
 ├── patterns/                   # Implementation patterns
 ├── chrome-extension/           # (separate product)
-├── claude_skills/              # (separate product)
+├── ai_skills/              # (separate product)
 └── electron/                   # (inactive)
 ```
 
@@ -829,7 +829,7 @@ interface NoteTreeFolder {
 ### §6.6 HtmlMdConverter
 
 **§6.6.1 Responsibilities:**
-- 外部 HTML → Markdown 変換（clipboard paste, Chrome Extension, claude-skills）
+- 外部 HTML → Markdown 変換（clipboard paste, Chrome Extension, ai-skills）
 - SVG 前処理（computed style inline 化 → `<img>` 化）
 - GFM テーブル / strikethrough / task list 対応
 - Fractal 固有カスタムルール

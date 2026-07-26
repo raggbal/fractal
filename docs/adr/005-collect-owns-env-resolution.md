@@ -1,6 +1,6 @@
 ---
 status: accepted
-scope: claude-skills
+scope: ai-skills
 date: 2026-06-02
 ---
 

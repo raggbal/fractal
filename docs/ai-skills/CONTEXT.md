@@ -3,7 +3,7 @@
 ## Language
 
 ### Skill
-A Claude Code extension (installed via `install.sh`) that provides a slash command (`/skill-name`) with a `SKILL.md` definition and optional `scripts/` directory. Each skill is self-contained in `claude_skills/<name>/`.
+A Claude Code extension (installed via `install.sh`) that provides a slash command (`/skill-name`) with a `SKILL.md` definition and optional `scripts/` directory. Each skill is self-contained in `ai_skills/<name>/`.
 
 ### collect
 The top-level routing skill. Classifies input (URL pattern or file extension) and delegates to the appropriate sub-skill. Sole owner of `FRACTAL_DEFAULT_OUT` env resolution — sub-skills never read env directly. Ensures Fractal registration target is resolved *before* any conversion begins (PRE-FLIGHT CHECK).
@@ -60,7 +60,7 @@ The node structure created when a collected item is registered in an Outliner:
 
 ### Skill Installation
 `install.sh` places skills into each AI IDE's user-level skill directory:
-- **Symlink** (Claude Code, Cursor, Antigravity): `~/.{ide}/skills/<name>` → `claude_skills/<name>/`. Source-linked, updates reflect immediately.
+- **Symlink** (Claude Code, Cursor, Antigravity): `~/.{ide}/skills/<name>` → `ai_skills/<name>/`. Source-linked, updates reflect immediately.
 - **Copy** (Kiro): Full directory copy (Kiro cannot follow symlinks for skill discovery).
 
 Supports `--dry-run`, `--uninstall`, `--force`, `--only <ide>`.

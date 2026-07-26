@@ -13,13 +13,17 @@
  *   node fractal-attach.mjs --note <.out> --image <path> --target X --append
  *   # 既存ノードに filePath 上書き
  *   node fractal-attach.mjs --note <.out> --file <path> --target X --append
+ *   # md に画像/ファイルを添付（md 末尾にリンク追記。--note でなく --target-md）
+ *   node fractal-attach.mjs --target-md <path.md> --image <path>
+ *   node fractal-attach.mjs --target-md <path.md> --file <path>
  *
  * 画像は <imageDir>/image_<ts>_<rand>.<ext> にコピー、ファイルは <fileDir>/<basename> にコピー。
- * 相対パスは .out ディレクトリ基準で格納（本体仕様と同じ）。
+ * 相対パスは .out ディレクトリ基準（--target-md では md の場所基準）で格納（本体仕様と同じ）。
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // ─────────────── ID ───────────────
 
@@ -35,6 +39,7 @@ function generateNodeId() {
 function parseArgs(argv) {
     const a = {
         note: null,
+        targetMd: null,
         images: [],
         files: [],
         parent: null,
@@ -50,6 +55,7 @@ function parseArgs(argv) {
         const v = () => argv[++i];
         switch (k) {
             case '--note': a.note = v(); break;
+            case '--target-md': a.targetMd = v(); break;
             case '--image': a.images.push(v()); break;
             case '--file': a.files.push(v()); break;
             case '--parent': a.parent = v(); break;
@@ -65,12 +71,19 @@ function parseArgs(argv) {
             case '--text': a.text = v(); break;
             case '--image-dir': a.imageDir = v(); break;
             case '--file-dir': a.fileDir = v(); break;
+            case '-h': case '--help':
+                console.log('Usage: fractal-attach.mjs --note <path.out> (--image <p>... | --file <p>...) [--parent <id|text>] [--position child|after] [--text T]');
+                console.log('       fractal-attach.mjs --note <path.out> (--image <p> | --file <p>) --target <id|text> --append   # 既存ノードへ後付け');
+                console.log('       fractal-attach.mjs --target-md <path.md> (--image <p>... | --file <p>...)                     # md 末尾にリンク追記');
+                process.exit(0);
+                break;
             default:
                 console.error(`Unknown option: ${k}`);
                 process.exit(1);
         }
     }
-    if (!a.note) { console.error('Error: --note is required'); process.exit(1); }
+    if (!a.note && !a.targetMd) { console.error('Error: --note or --target-md is required'); process.exit(1); }
+    if (a.note && a.targetMd) { console.error('Error: --note and --target-md are mutually exclusive'); process.exit(1); }
     if (a.images.length === 0 && a.files.length === 0) {
         console.error('Error: --image or --file is required');
         process.exit(1);
@@ -83,25 +96,27 @@ function parseArgs(argv) {
         console.error('Error: --append requires --target');
         process.exit(1);
     }
+    if (a.targetMd && (a.append || a.target || a.parent)) {
+        console.error('Error: --target-md does not support --append/--target/--parent (md 末尾追記のみ)');
+        process.exit(1);
+    }
     return a;
 }
 
 // ─────────────── Path helpers ───────────────
 
 /**
- * Outliner asset dir 解決 (固定: <outDir>/<basename>/<subdir>):
+ * Outliner asset dir 解決（新フラットレイアウト前提: 共有 <outDir>/<subdir>。legacy fallback なし）:
  * - 明示指定 (引数 or .out 内 imageDir/fileDir) があればそれを使う (絶対 or .out dir 基準の相対)
- * - 未指定なら <outDir>/<basename>/<subdir> 固定
+ * - 未指定なら共有 <outDir>/<subdir>
  */
-function resolveOutlinerAssetDir(outFilePath, explicitDir, subdir) {
+export function resolveOutlinerAssetDir(outFilePath, explicitDir, subdir) {
     if (explicitDir) {
         return path.isAbsolute(explicitDir)
             ? explicitDir
             : path.resolve(path.dirname(outFilePath), explicitDir);
     }
-    const outDir = path.dirname(outFilePath);
-    const basename = path.basename(outFilePath, '.out');
-    return path.resolve(outDir, basename, subdir);
+    return path.resolve(path.dirname(outFilePath), subdir); // 共有 default
 }
 
 function uniqueFileName(dir, name) {
@@ -137,6 +152,41 @@ function copyFileAttachment(srcAbs, fileDir, outDir) {
     const dest = path.join(fileDir, name);
     fs.copyFileSync(srcAbs, dest);
     return { relPath: path.relative(outDir, dest).replace(/\\/g, '/'), title: safeName };
+}
+
+// ─────────────── md への添付（--target-md） ───────────────
+
+/**
+ * 既存 md の末尾に画像/ファイルリンクを追記する。
+ * 実体は md 隣の images/ files/ にコピー（本体 resolveImagesDirForMd と同じ「md の場所基準」規約 =
+ * flat-layout.ts:132。リンクも md からの相対）。
+ * kind: 'image' → `![](images/image_<ts>_<rand>.<ext>)` / 'file' → `[<name>](files/<name>)`
+ */
+export function attachToMd(targetMdPath, srcPaths, kind) {
+    const targetAbs = path.resolve(targetMdPath);
+    if (!fs.existsSync(targetAbs) || !fs.statSync(targetAbs).isFile()) {
+        throw new Error(`target md not found: ${targetAbs}`);
+    }
+    const mdDir = path.dirname(targetAbs);
+    const assetDir = path.join(mdDir, kind === 'image' ? 'images' : 'files');
+
+    const links = [];
+    const copied = [];
+    for (const src of srcPaths) {
+        if (kind === 'image') {
+            const rel = copyImage(path.resolve(src), assetDir, mdDir);
+            links.push(`![](${rel})`);
+            copied.push(rel);
+        } else {
+            const { relPath, title } = copyFileAttachment(path.resolve(src), assetDir, mdDir);
+            links.push(`[${title}](${relPath})`);
+            copied.push(relPath);
+        }
+    }
+
+    const base = fs.readFileSync(targetAbs, 'utf-8').replace(/\s+$/, '');
+    fs.writeFileSync(targetAbs, (base ? base + '\n\n' : '') + links.join('\n\n') + '\n', 'utf-8');
+    return { targetMdPath: targetAbs, copied, links };
 }
 
 // ─────────────── Parent/target resolve ───────────────
@@ -213,6 +263,16 @@ function insertNode(data, node, targetNodeId, position, childPosition = 'top') {
 
 function main() {
     const args = parseArgs(process.argv);
+
+    // === md への添付モード（--target-md） ===
+    if (args.targetMd) {
+        const kind = args.images.length > 0 ? 'image' : 'file';
+        const srcs = kind === 'image' ? args.images : args.files;
+        const r = attachToMd(args.targetMd, srcs, kind);
+        console.log(`✅ attached ${srcs.length} ${kind}(s) to ${r.targetMdPath}`);
+        for (const l of r.links) console.log(`   → ${l}`);
+        return;
+    }
 
     // .out 解決
     let notePath = args.note;
@@ -323,9 +383,12 @@ function main() {
     fs.writeFileSync(notePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-try {
-    main();
-} catch (err) {
-    console.error(`Error: ${err.message}`);
-    process.exit(1);
+// CLI 直接実行時のみ main（unit import 時に暴発しない・design §B5）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    try {
+        main();
+    } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+    }
 }

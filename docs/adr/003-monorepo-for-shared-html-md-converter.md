@@ -11,7 +11,7 @@ date: 2026-06-02
 Three products exist:
 1. **fractal** — VS Code extension (main product)
 2. **fractal-chrome-extensions** — Chrome extension (web clip → MD → Note)
-3. **fractal-claude-skills** — Claude Code skills (`collect`, `web-crawler-md`, etc.)
+3. **fractal-ai-skills** — Claude Code skills (`collect`, `web-crawler-md`, etc.)
 
 All three consume `html-md-converter/`, a sub-package that converts HTML to Markdown with Fractal-specific rules (turndown + GFM + custom).
 
@@ -26,9 +26,9 @@ Keep all three products in a single repository (monorepo). The shared `html-md-c
 
 ## Consequences
 
-- Product boundaries do not match repository boundaries. Each product has its own directory (`src/` + `electron/` for fractal, `chrome-extension/` for chrome-extensions, `claude_skills/` for claude-skills).
+- Product boundaries do not match repository boundaries. Each product has its own directory (`src/` + `electron/` for fractal, `chrome-extension/` for chrome-extensions, `ai_skills/` for ai-skills).
 - Changes to `html-md-converter/` must run `scripts/update-*.sh` to propagate the built artifact to all consumers.
-- `package.json` at root is for the VS Code extension (fractal); chrome-extension and claude-skills have no npm package of their own.
+- `package.json` at root is for the VS Code extension (fractal); chrome-extension and ai-skills have no npm package of their own.
 
 ## Rejected Alternatives
 

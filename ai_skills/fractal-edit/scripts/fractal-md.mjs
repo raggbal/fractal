@@ -26,6 +26,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+
+// ── フラットレイアウト解決（正典: fractal/src/shared/flat-layout.ts のミラー・ADRL-0018）──
+// フラット規約（sprint 20260707-124018 以降）: page md = <noteDir>/<pageId>.md（直下）、
+// 画像/添付 = <noteDir>/images・<noteDir>/files（共有）。FLAT_OUT_HINTS = { pageDir:'.', imageDir:'./images', fileDir:'./files' }。
+
+/** flat-layout.ts:56 isFlatOut のミラー */
+export function isFlatOut(pageDir) {
+    if (typeof pageDir !== 'string') return false;
+    const norm = pageDir.replace(/^\.\//, '').replace(/\/+$/, '');
+    return norm === '' || norm === '.';
+}
+
+/** page md の置き場（新フラットレイアウト前提: hint 尊重・無ければ noteDir 直下。legacy fallback なし = ユーザー決定 2026-07-26） */
+export function resolvePagesDirMjs(noteDir, basename, hints) {
+    void basename; // 署名互換（旧 <basename>/ default は廃止）
+    const pd = hints && typeof hints.pageDir === 'string' ? hints.pageDir : undefined;
+    if (isFlatOut(pd)) return noteDir;
+    if (pd) return path.isAbsolute(pd) ? pd : path.resolve(noteDir, pd);
+    return noteDir; // 新デフォルト = note 直下
+}
+
+/** 画像/添付 dir（新フラットレイアウト前提: hint 尊重・無ければ共有 <noteDir>/<sub>） */
+export function resolveSharedSubMjs(noteDir, basename, sub, hint) {
+    void basename;
+    if (hint) return path.isAbsolute(hint) ? hint : path.resolve(noteDir, hint);
+    return path.join(noteDir, sub); // 共有 default（未作成でもパスは返す。呼び出し側が mkdir）
+}
 
 // --- ID生成 ---
 
@@ -291,6 +319,8 @@ function parseArgs(argv) {
         text: null,
         position: 'child', // 'child' or 'after'
         createOutliner: null,
+        createMd: null,
+        targetMd: null,
         notesDir: null,
     };
 
@@ -320,6 +350,12 @@ function parseArgs(argv) {
             case '--create-outliner':
                 args.createOutliner = argv[++i];
                 break;
+            case '--create-md':
+                args.createMd = argv[++i];
+                break;
+            case '--target-md':
+                args.targetMd = argv[++i];
+                break;
             case '--notes-dir':
                 args.notesDir = argv[++i];
                 break;
@@ -330,6 +366,13 @@ function parseArgs(argv) {
                     process.exit(1);
                 }
                 break;
+            case '-h': case '--help':
+                console.log('Usage: fractal-md.mjs --note <path.out> (--text <str> | --md <files...>) [--parent <id|text>] [--position child|after] [--group-name <str>]');
+                console.log('       fractal-md.mjs --create-outliner "Title" --notes-dir <path>   # 新規 .out（フラット）+ outline.note 登録');
+                console.log('       fractal-md.mjs --create-md "Title" --notes-dir <path>         # 新規 独立 md item + outline.note 登録');
+                console.log('       fractal-md.mjs --target-md <path.md> (--md <source.md> | --text "Title")  # md に subpage 追加');
+                process.exit(0);
+                break;
             default:
                 console.error(`Unknown option: ${argv[i]}`);
                 process.exit(1);
@@ -337,8 +380,17 @@ function parseArgs(argv) {
         i++;
     }
 
-    // --create-outliner モードは --note 不要
-    if (args.createOutliner !== null) {
+    // --create-outliner / --create-md モードは --note 不要
+    if (args.createOutliner !== null || args.createMd !== null) {
+        return args;
+    }
+
+    // --target-md モード（md への subpage 追加）: --note 不要、--md or --text が必要
+    if (args.targetMd !== null) {
+        if (args.mdPatterns.length === 0 && !args.text) {
+            console.error('Error: --target-md requires --md <source.md> or --text <title>');
+            process.exit(1);
+        }
         return args;
     }
 
@@ -519,14 +571,16 @@ function createOutliner(title, notesDir) {
 
     const id = generateOutlineId();
     const filePath = path.join(mainFolder, `${id}.out`);
-    const pageDirRel = `./${id}`;
-    const pageDirAbs = path.join(mainFolder, id);
 
     const firstNodeId = generateNodeId();
+    // フラット規約（正典: src/shared/flat-layout.ts FLAT_OUT_HINTS / notes-file-manager.ts:1073）:
+    // page md は note 直下・images/files は共有。per-outliner サブフォルダは作らない
     const data = {
         version: 1,
         title: title || 'Untitled',
-        pageDir: pageDirRel,
+        pageDir: '.',
+        imageDir: './images',
+        fileDir: './files',
         rootIds: [firstNodeId],
         nodes: {
             [firstNodeId]: {
@@ -547,7 +601,6 @@ function createOutliner(title, notesDir) {
     };
 
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-    fs.mkdirSync(pageDirAbs, { recursive: true });
 
     // outline.note 構造を更新（あれば）
     const notePath = path.join(mainFolder, 'outline.note');
@@ -572,8 +625,94 @@ function createOutliner(title, notesDir) {
 
     console.log(`\u2705 Outliner created: "${title}"`);
     console.log(`   File:     ${filePath}`);
-    console.log(`   Pages:    ${pageDirAbs}`);
+    console.log(`   Layout:   flat (pageDir ".", shared images/ files/)`);
     console.log(`   Registered in ${notePath}`);
+}
+
+// --- md \u3078\u306e subpage \u8ffd\u52a0\uff08--target-md\uff09 ---
+
+/**
+ * subpage \u30ea\u30f3\u30af\u306e\u30e9\u30d9\u30eb\u30b5\u30cb\u30bf\u30a4\u30ba\uff08\u6b63\u5178: chrome-extension/lib/clipper-core.js sanitizeSubpageTitle \u306e 1:1 \u30df\u30e9\u30fc\uff09\u3002
+ * \u672c\u4f53\u30d1\u30fc\u30b5 markdown-link-parser.js:74 \u306f\u30e9\u30d9\u30eb\u5185\u306e `]` \u3067 label \u304c\u5207\u308c\u308b\u305f\u3081\u3001`]`/`[` \u3092\u5168\u6570\u5168\u89d2\u5316\u3059\u308b\u3002
+ */
+export function sanitizeSubpageTitle(title) {
+    const t = String(title || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!t) return '(untitled)';
+    return t.replace(/\]/g, '\uff3d').replace(/\[/g, '\uff3b');
+}
+
+/**
+ * \u65e2\u5b58 md \u306e subpage \u3068\u3057\u3066 source md \u3092\u53d6\u308a\u8fbc\u3080\uff08clipper clipToMd \u306e skill \u30df\u30e9\u30fc\uff09:
+ *   1. source md \u3092\u6b63\u898f\u5316\u30fb\u753b\u50cf/\u30d5\u30a1\u30a4\u30eb\u53c2\u7167\u3092 targetMd \u96a3\u306e images/ files/ \u306b\u30b3\u30d4\u30fc\u3057\u3066\u66f8\u63db
+ *   2. <targetMdDir>/<uuid>.md \u3068\u3057\u3066\u4fdd\u5b58
+ *   3. targetMd \u672b\u5c3e\u306b `[[title]](<uuid>.md)` \u3092\u8ffd\u8a18\uff08\u76f8\u5bfe\u30ea\u30f3\u30af\u306f dirname(targetMd) \u57fa\u6e96 = notesEditorProvider.ts:1278\uff09
+ * text \u3092\u6e21\u3059\u3068 source md \u306a\u3057\u3067\u30ea\u30f3\u30af\u5148\u306e\u7a7a md\uff08`# text\n`\uff09\u3092\u4f5c\u308b\u3002
+ */
+export function addSubpageToMd(targetMdPath, { sourceMdPath = null, text = null } = {}) {
+    const targetAbs = path.resolve(targetMdPath);
+    if (!fs.existsSync(targetAbs) || !fs.statSync(targetAbs).isFile()) {
+        throw new Error(`target md not found: ${targetAbs}`);
+    }
+    const targetDir = path.dirname(targetAbs);
+    const imageDir = path.join(targetDir, 'images');
+    const fileDir = path.join(targetDir, 'files');
+
+    let title;
+    let content;
+    if (sourceMdPath) {
+        const raw = fs.readFileSync(path.resolve(sourceMdPath), 'utf-8');
+        title = extractH1(raw) || path.basename(sourceMdPath, '.md');
+        content = normalizeMultiLineTableCells(raw);
+        const sourceDir = path.dirname(path.resolve(sourceMdPath));
+        content = processImages(content, sourceDir, imageDir, targetDir);
+        content = processFileLinks(content, sourceDir, fileDir, targetDir);
+    } else {
+        title = text || 'Untitled';
+        content = `# ${title}\n`;
+    }
+
+    const uuid = generatePageId();
+    const newMdName = `${uuid}.md`;
+    fs.writeFileSync(path.join(targetDir, newMdName), content, 'utf-8');
+
+    // \u672b\u5c3e\u306b subpage \u30ea\u30f3\u30af\u8ffd\u8a18\uff08clipper buildMdClipResult \u3068\u540c\u5f62\u5f0f\uff09
+    const base = fs.readFileSync(targetAbs, 'utf-8').replace(/\s+$/, '');
+    const link = `[[${sanitizeSubpageTitle(title)}]](${newMdName})`;
+    fs.writeFileSync(targetAbs, (base ? base + '\n\n' : '') + link + '\n', 'utf-8');
+
+    return { title, uuid, newMdPath: path.join(targetDir, newMdName), targetMdPath: targetAbs };
+}
+
+/**
+ * \u65b0\u898f standalone md item \u3092\u4f5c\u6210\u3057\u3066 outline.note \u306b\u767b\u9332\u3059\u308b\uff08FR-CMD-01/02\uff09\u3002
+ * \u6b63\u5178: src/shared/notes-file-manager.ts createMarkdownFile(:1469) \u306e\u30d5\u30e9\u30c3\u30c8\u30df\u30e9\u30fc \u2014
+ *   <notesDir>/<id>.md \u3092 `# Title\n` \u3067\u4f5c\u6210\u3057\u3001items \u306b { type:'file', id, title, ext:'md' }\u3001
+ *   rootIds \u5148\u982d\u306b\u633f\u5165\u3002id \u63a1\u756a\u3082\u540c\u898f\u7d04\uff08Date36 + rand4 = generateOutlineId\uff09\u3002
+ * pure-ish\uff08fs read/write \u306e\u307f\u30fbunit \u5bfe\u8c61\uff09\u3002
+ */
+export function createMdItem(notesDir, title) {
+    const mainFolder = path.resolve(notesDir || process.cwd());
+    if (!fs.existsSync(mainFolder) || !fs.statSync(mainFolder).isDirectory()) {
+        throw new Error(`notes directory not found: ${mainFolder}`);
+    }
+    const id = generateOutlineId();
+    const filePath = path.join(mainFolder, `${id}.md`);
+    fs.writeFileSync(filePath, `# ${title || 'Untitled'}\n`, 'utf-8');
+
+    const notePath = path.join(mainFolder, 'outline.note');
+    let structure = null;
+    if (fs.existsSync(notePath)) {
+        try { structure = JSON.parse(fs.readFileSync(notePath, 'utf-8')); } catch { structure = null; }
+    }
+    if (!structure || typeof structure !== 'object') {
+        structure = { version: 1, rootIds: [], items: {} };
+    }
+    structure.items = structure.items || {};
+    structure.rootIds = structure.rootIds || [];
+    structure.items[id] = { type: 'file', id, title: title || 'Untitled', ext: 'md' };
+    if (!structure.rootIds.includes(id)) structure.rootIds.unshift(id);
+    fs.writeFileSync(notePath, JSON.stringify(structure, null, 2), 'utf-8');
+    return { id, filePath, notePath };
 }
 
 async function main() {
@@ -582,6 +721,30 @@ async function main() {
     // === 新規アウトライナー作成モード ===
     if (args.createOutliner !== null) {
         createOutliner(args.createOutliner, args.notesDir);
+        return;
+    }
+
+    // === 新規 standalone md item 作成モード（FR-CMD-01） ===
+    if (args.createMd !== null) {
+        const { id, filePath, notePath } = createMdItem(args.notesDir, args.createMd);
+        console.log(`✅ Markdown item created: "${args.createMd}"`);
+        console.log(`   File: ${filePath} (id: ${id})`);
+        console.log(`   Registered in ${notePath} (ext: 'md')`);
+        return;
+    }
+
+    // === md への subpage 追加モード（--target-md） ===
+    if (args.targetMd !== null) {
+        const sources = args.mdPatterns.length > 0 ? expandMdFiles(args.mdPatterns) : [null];
+        if (args.mdPatterns.length > 0 && sources.length === 0) {
+            console.error('Error: no markdown files found');
+            process.exit(1);
+        }
+        for (const src of sources) {
+            const r = addSubpageToMd(args.targetMd, { sourceMdPath: src, text: args.text });
+            console.log(`📄 Subpage added: "${r.title}" → ${path.basename(r.newMdPath)}`);
+        }
+        console.log(`\n✅ ${sources.length} subpage(s) linked at end of ${path.resolve(args.targetMd)}`);
         return;
     }
 
@@ -600,18 +763,14 @@ async function main() {
     // .out 読み込み
     const data = JSON.parse(fs.readFileSync(notePath, 'utf-8'));
 
-    // pages ディレクトリ特定（固定: <outDir>/<basename>/）
+    // pages ディレクトリ特定（フラット規約: <noteDir> 直下。hint 優先 → legacy fallback。ADRL-0018 ミラー）
     const noteDir = path.dirname(notePath);
     const basename = path.basename(notePath, '.out');
-    const pageDir = data.pageDir
-        ? (path.isAbsolute(data.pageDir) ? data.pageDir : path.resolve(noteDir, data.pageDir))
-        : path.resolve(noteDir, basename);
+    const pageDir = resolvePagesDirMjs(noteDir, basename, data);
 
-    // imageDir / fileDir は <outDir>/<basename>/{images,files} 固定 (data.imageDir/fileDir 上書き可)
-    const imageDir = path.join(pageDir, 'images');
-    const fileDir = data.fileDir
-        ? (path.isAbsolute(data.fileDir) ? data.fileDir : path.resolve(noteDir, data.fileDir))
-        : path.resolve(noteDir, basename, 'files');
+    // imageDir / fileDir は共有 <noteDir>/{images,files}（hint 優先 → legacy <basename>/ fallback）
+    const imageDir = resolveSharedSubMjs(noteDir, basename, 'images', data.imageDir);
+    const fileDir = resolveSharedSubMjs(noteDir, basename, 'files', data.fileDir);
 
     // ディレクトリ作成
     fs.mkdirSync(pageDir, { recursive: true });
@@ -708,7 +867,10 @@ async function main() {
     console.log(`   Pages dir: ${pageDir}`);
 }
 
-main().catch(err => {
-    console.error(err);
-    process.exit(1);
-});
+// CLI 直接実行時のみ main を走らせる（unit が import した時に暴発しない・design §B5）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch(err => {
+        console.error(err);
+        process.exit(1);
+    });
+}

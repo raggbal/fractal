@@ -4,7 +4,7 @@
 # consumer:
 #   - src/webview/html-md-converter.js                            (VS Code extension paste handler)
 #   - chrome-extension/lib/html-md-converter.js                   (Chrome 拡張)
-#   - claude_skills/web-crawler-md/scripts/html-md-converter.js   (web-crawler-md skill)
+#   - ai_skills/web-crawler-md/scripts/html-md-converter.js   (web-crawler-md skill)
 #
 # 使い方:
 #   npm run build && ./scripts/update-consumers.sh
@@ -25,7 +25,7 @@ fi
 TARGETS=(
     "src/webview/html-md-converter.js"
     "chrome-extension/lib/html-md-converter.js"
-    "claude_skills/web-crawler-md/scripts/html-md-converter.js"
+    "ai_skills/web-crawler-md/scripts/html-md-converter.js"
 )
 
 SIZE=$(wc -c <"$SRC" | tr -d ' ')

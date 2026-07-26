@@ -53,4 +53,4 @@ Cooperation with IDE AI is via two paths:
 - **External Change Sync** — Fractal watches the host file; when the IDE-native AI edits the `.md` / `.out` externally, Fractal computes a block-level DOM diff and patches the webview without losing user state.
 - **`Cmd+L` bridge** — opens the underlying `.md` in the native VS Code text editor with the line selection so the user can hand it to Cursor / Copilot directly.
 
-The Chrome Extension and `claude-skills` are separate products in this repository (`chrome-extension/`, `claude_skills/`). The `electron/` directory is inactive. Only `src/` and `html-md-converter/` are part of the Fractal extension itself.
+The Chrome Extension and `ai-skills` are separate products in this repository (`chrome-extension/`, `ai_skills/`). The `electron/` directory is inactive. Only `src/` and `html-md-converter/` are part of the Fractal extension itself.

@@ -2,7 +2,7 @@
 
 ## Status: Accepted
 
-Scope: fractal-claude-skills
+Scope: fractal-ai-skills
 
 ## Context
 

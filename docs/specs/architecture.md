@@ -162,7 +162,7 @@ fractal/
 ├── docs/                       # Design docs, ADRs
 ├── patterns/                   # Implementation patterns
 ├── chrome-extension/           # (separate product)
-├── claude_skills/              # (separate product)
+├── ai_skills/              # (separate product)
 └── electron/                   # (inactive)
 ```
 

@@ -1,11 +1,11 @@
 ---
 name: fractal-search
-description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/VSCodium/Antigravity/Code Insiders/Electron）、outline 一覧、outline タイトル絞込（--find-outline）、outline ノード／page MD／ルート MD の全文検索に対応
+description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/VSCodium/Antigravity/Code Insiders/Electron）、outline 一覧、outline タイトル絞込（--find-outline）、note 名絞込（--note-name/--exclude-note）、タグ・タスク状態フィルタ（--tag/--checked）、outline ノード／page MD／ルート MD の全文検索に対応
 ---
 
 # fractal-search — Fractal 全文検索
 
-> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / `<basename>/` (pageDir) / `<basename>/images/` / `<basename>/files/` / ノードの 4 種類 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った検索スコープ・誤った pageDir 解決を防ぎます。
+> **🔴 先に読むこと**: Fractal のデータ構造（`.out` / `outline.note` / フラットレイアウト（note 直下 md・共有 images/files） / ノードの 4 種類 / Notes フォルダの場所）を把握していない場合、最初に **`fractal-structure` スキルを呼んでください**（`Skill` ツールで `fractal-structure` を invoke）。誤った検索スコープ・誤った pageDir 解決を防ぎます。
 
 1 つ以上の Notes フォルダを横断して、キーワードにマッチする情報を探す。検索の粒度は:
 
@@ -43,7 +43,11 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --find-outline AWS
 
 | オプション | 説明 |
 |-----------|------|
-| `--query <str>` | 検索語（`--list-folders` 以外で必須） |
+| `--query <str>` | 検索語（`--list-folders` / `--tag` / `--checked` 使用時以外は必須） |
+| `--tag <tag>` | ノードのタグ絞り込み（`#`/`@` プレフィックス省略可。複数指定 OR）。`--query` と AND 併用可、単独なら該当ノードを列挙 |
+| `--checked true\|false\|none\|any` | チェックボックス状態で絞り込み（true=済 / false=未 / none=チェックなし / any=タスクノード全部）。`--tag` 同様 `--query` 省略可 |
+| `--note-name <name>` | **対象 note を名前で絞る**（`outline.note` の `noteTitle`、無ければフォルダ名。部分一致・大小無視・複数指定 OR）。`--folder` 未指定なら自動検出を起動するので `--auto` 不要 |
+| `--exclude-note <name>` | 名前が一致する note を**除外**（`--note-name` と同じ一致規則。include より優先） |
 | `--folder <path>` | 検索対象 Notes フォルダ（複数指定可、先頭に複数並べるか `--folder <p1> --folder <p2>`） |
 | `--auto` | Electron `config.json` と VSCode/Code-Insiders/Cursor/Kiro/VSCodium/Antigravity の `state.vscdb` から登録済み Notes フォルダを自動検出 |
 | `--list-folders` | 検索はせず、自動検出された Notes フォルダ一覧を出力（複数エディタに登録されている場合は sources を集約して表示） |
@@ -102,7 +106,7 @@ Outline タイトルには `outline.note` のフォルダ階層がパンくず�
       "kind": "page",
       "outlineId": "mn5tqf9ft4nd",
       "pageId": "a1b2c3d4-...",
-      "pagePath": "/Users/you/Desktop/notes/mn5tqf9ft4nd/a1b2c3d4-....md",
+      "pagePath": "/Users/you/Desktop/notes/a1b2c3d4-....md",
       "parentNodeId": "nmn6vngyvsfvd8q",
       "parentNodeText": "Setup guide",
       "matches": [ { "field": "content", "lineNumber": 12, "line": "...", "start": 0, "end": 8 } ]
@@ -133,7 +137,7 @@ MD 検索時は、DOM レンダ後テキストと一致させるため以下で�
 - `[text](url)` を `text` のみに短縮
 - 各行 200 文字まで
 
-`pageDir` 解決は `.out` 内 `pageDir` フィールド > なければ `<outDir>/<basename>/` (legacy: `./pages` が物理的に残っていればそちら)。
+`pageDir` 解決は新フラットレイアウト前提: `.out` 内 `pageDir` フィールド（`"."` = note 直下）を尊重、なければ note 直下。（legacy fallback なし。未移行 note は本体でフラット化してから）
 
 ---
 
@@ -160,6 +164,21 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "ingest pipeline" --
 
 # 中身を見たい outline に絞って詳細
 node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "ingest pipeline" --folder /Users/you/Desktop/notes --scope page,node
+
+# タグで絞る（#work タグ付きノードを列挙。--query 不要）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --tag work --folder /Users/you/Desktop/notes
+
+# 未完タスク一覧（checked=false のノード）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --checked false --folder /Users/you/Desktop/notes
+
+# タグ + 検索語の AND
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --tag review --auto
+
+# note 名で対象を絞って横断検索（noteTitle「仕事ノート」を含む note だけ。--auto 不要）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --note-name 仕事
+
+# 特定 note を除外して全 note 横断
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --auto --exclude-note アーカイブ
 ```
 
 `--json` を通せばパイプラインに流せるので、「ヒットした page の MD ファイルを順番に `Read` する」といった Claude Code 操作もしやすい。

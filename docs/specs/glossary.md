@@ -84,7 +84,7 @@ DO NOT USE: "AI sync", "real-time collaboration" (it's not multi-cursor collabor
 In-repo sub-package (`html-md-converter/`) that converts HTML to Markdown. Built on turndown + GFM plugin with Fractal-specific custom rules. Shared across all three products:
 - **fractal** (VS Code extension): paste handler converts clipboard HTML to Markdown on `Cmd+V`.
 - **fractal-chrome-extensions**: converts clipped web pages to `.md` files.
-- **fractal-claude-skills**: `collect` / `web-crawler-md` skills convert fetched HTML to `.md`.
+- **fractal-ai-skills**: `collect` / `web-crawler-md` skills convert fetched HTML to `.md`.
 
 Includes SVG pre-processing (`inlineSvgComputedStyles` + `preSerializeSvgsToImages`) that bakes computed styles into SVG elements and converts `<svg>` to self-contained `<img>` before Readability strips attributes. Used by all three products.
 

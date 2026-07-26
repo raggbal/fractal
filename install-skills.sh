@@ -23,7 +23,7 @@ LINK_MODE="link"            # link | copy
 INSTALL_RULES="yes"
 DRY_RUN="no"
 
-SKILLS=(fractal-structure fractal-search fractal-edit)
+SKILLS=(fractal-structure fractal-search fractal-edit fractal-doctor fractal-summary)
 # Legacy skill names that were merged into fractal-edit (cleanup only — never installed)
 LEGACY_SKILLS=(fractal-md)
 RULE_FILE="fractal-skills.md"
@@ -67,7 +67,7 @@ done
 
 # ─── paths ───
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-SRC_SKILLS_DIR="$REPO_DIR/claude_skills"
+SRC_SKILLS_DIR="$REPO_DIR/ai_skills"
 SRC_RULES_FILE="$REPO_DIR/rules/$RULE_FILE"
 
 if [[ "$TARGET_MODE" == "user" ]]; then

@@ -6,7 +6,7 @@ HTML → Markdown 変換ライブラリ。**turndown + turndown-plugin-gfm + Fra
 > consumer は以下 3 箇所:
 > - `fractal/src/webview/` (VS Code extension の paste handler)
 > - `fractal/chrome-extension/lib/` (Chrome 拡張)
-> - `fractal/claude_skills/web-crawler-md/scripts/` (crawl.py から Playwright 経由で注入)
+> - `fractal/ai_skills/web-crawler-md/scripts/` (crawl.py から Playwright 経由で注入)
 
 ## 使い方 (browser / Playwright eval)
 
@@ -67,7 +67,7 @@ npm run build
 配布先:
 - `fractal/src/webview/html-md-converter.js`
 - `fractal/chrome-extension/lib/html-md-converter.js`
-- `fractal/claude_skills/web-crawler-md/scripts/html-md-converter.js`
+- `fractal/ai_skills/web-crawler-md/scripts/html-md-converter.js`
 
 いずれも **自リポジトリ内の相対 cp** だけを行う (GitHub fetch は廃止)。
 
@@ -75,7 +75,7 @@ consumer 側:
 
 - `src/webview/editor.js` の paste handler は `HtmlMdConverter.htmlToMarkdown(html)` を呼ぶ
 - `chrome-extension/lib/` に取り込んだ場合、既存の `turndown.js` / `turndown-plugin-gfm.js` / `fractal-md.js` は bundle に同梱されるため削除可
-- `claude_skills/web-crawler-md/scripts/crawl.py` は `page.add_script_tag(path=...)` で注入
+- `ai_skills/web-crawler-md/scripts/crawl.py` は `page.add_script_tag(path=...)` で注入
 
 ## ライセンス
 

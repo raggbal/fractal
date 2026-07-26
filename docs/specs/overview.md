@@ -88,7 +88,7 @@ Combines outliner-style structured thinking with WYSIWYG Markdown long-form writ
 **Downstream (consumers):**
 - IDE AI (`Cmd+L` hands the `.md` to the IDE AI)
 - S3 (backup)
-- claude-skills (`fractal-search` / `fractal-edit` reading and writing)
+- ai-skills (`fractal-search` / `fractal-edit` reading and writing)
 - llms.txt export (clipboard handoff to AI tools)
 
 **Ownership:** All data is on the user's local file system. Fractal is an editor; it does not own the data.
