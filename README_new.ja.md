@@ -58,6 +58,7 @@ Notion スタイルの WYSIWYG エディタ。見えているものがそのま�
 ![assets/images/1785071877602.png](assets/images/1785071877602.png)
 ![assets/images/1785072859352.png](assets/images/1785072859352.png)
 
+
 ### 編集
 - **シームレスなライブプレビュー** — マークダウンを書くと即座にレンダリング。いつでも **ソースモード** に切り替え可能（`Cmd+.`）
 - **見出し、リスト、タスクリスト、引用、水平線** — 標準的なマークダウンをすべてキーボードファーストで
@@ -74,7 +75,18 @@ Notion スタイルの WYSIWYG エディタ。見えているものがそのま�
 ### 図と数式
 - **Mermaid** — インラインでレンダリング、クリックでソース編集
 - **KaTeX 数式** — ディスプレイモードの数式をライブ再レンダリング
-- **draw.io** — VS Code を離れずに図の作成・編集。`.drawio.svg`（GitHub でも表示でき、任意の draw.io クライアントで再編集できる本物の SVG）として保存され、通常の画像として埋め込まれます。draw.io Desktop や drawio VS Code 拡張から保存すると、開いているドキュメントに自動で再レンダリング
+
+### draw.io 埋め込み
+
+VS Code を離れずに draw.io の図を作成・編集できます。
+
+- **作成** — `Cmd+/` → **Insert Drawio Diagram** で空の図を生成し、カーソル位置に画像として挿入。既存の `.drawio.svg` / `.drawio.png` のドラッグ&ドロップにも対応
+- **ファイル形式** — 保存されるのは `.drawio.svg`（本物の SVG に draw.io の編集データを内蔵した形式）。GitHub でもそのまま画像表示でき、任意の draw.io クライアントで再編集できます。ドキュメントには通常の `![]()` 画像として埋め込まれるので、他のマークダウンエディタとの互換性も保たれます
+- **編集** — 図にホバーすると 3 つのボタンが表示されます:
+  - **Open in VS Code** — VS Code のタブで開く。[Draw.io Integration 拡張](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio)（hediet.vscode-drawio）をインストールしていれば、タブ内でそのまま draw.io エディタが開きます（おすすめ）
+  - **Open in External** — 外部アプリで開く。draw.io Desktop がインストールされていればそれを優先起動、無ければ OS のデフォルトアプリで開きます
+  - **Copy Path** — 絶対パスをクリップボードへ
+- **自動再レンダリング** — どの方法で編集しても、保存した瞬間に開いているドキュメント内の図が自動で再描画されます。エディタを往復するだけのシームレスな編集ループ
 
 ### サブページ
 - `Cmd+/`** → Add Page**（または `Cmd+N`） — 子マークダウンページを作成してカーソル位置にリンクを挿入
@@ -193,6 +205,18 @@ ai_skills/install.sh         # 検出した AI IDE すべてに配置（Claude C
 - 同時クリップはキューで直列化され、書き込み競合を防止
 
 詳細は `chrome-extension/README.md` を参照してください。
+
+---
+
+## 💻 対応 OS
+
+| OS | 状態 |
+| --- | --- |
+| **macOS** | ✅ 動作確認済み（開発・検証は macOS で行っています） |
+| **Windows** | ⚠️ 実装済み・動作未保証 |
+| **Linux** | ⚠️ 実装済み・動作未保証 |
+
+Windows / Linux 向けの実装（パス処理、クリップボード、外部アプリ起動など）は入っていますが、日常的な動作確認は macOS でのみ行っているため、**動作は保証できません**。不具合を見つけたら [GitHub Issues](https://github.com/raggbal/fractal/issues) でリクエストしてください — 時間のあるときに対応します。再現手順と OS / VS Code のバージョンを添えてもらえると助かります。
 
 ---
 
