@@ -1,0 +1,48 @@
+$schema: odk:schema:component
+id: odk:component:host/outliner-provider
+description: |
+  VS Code `CustomTextEditorProvider` for `.out` files (JSON outliner
+  documents). Owns the Outliner webview lifecycle, dispatches Page /
+  Image / File node side-effects (page MD writes, image saves, file
+  copies), and bridges Side Panel + drawio watch + Outliner-level S3
+  sync. See docs/specs/outliner-provider.md.
+type: layout
+framework: agnostic
+props:
+  document:
+    type: "vscode.TextDocument"
+    required: true
+    description: "The .out TextDocument (JSON)"
+  webviewPanel:
+    type: "vscode.WebviewPanel"
+    required: true
+    description: "The webview panel hosting the Outliner UI"
+  config:
+    type: "FractalConfig"
+    required: true
+    description: "fractal.* settings"
+emits:
+  # Initial / external sync
+  - "host→webview postMessage: updateData"
+  # Drop / import results (split by asset type)
+  - "host→webview postMessage: importMdFilesResult, importFilesResult, updateNodeImages, updateNodeFilePath"
+  # Insert results (host wrote a file and tells the webview to insert HTML)
+  - "host→webview postMessage: insertImageHtml, insertFileLink, insertLinkHtml"
+  # Image / file dir status + change notifications
+  - "host→webview postMessage: outlinerImageDirStatus, outlinerImageDirChanged, outlinerFileDirChanged, outlinerImageSaved, sidePanelImageDirStatus, sidePanelFileDirStatus"
+  # Page lifecycle
+  - "host→webview postMessage: pageCreated, pageDirChanged"
+  # Side Panel relay (wraps inner messages from the side panel webview)
+  - "host→webview postMessage: sidePanelAssetContext, sidePanelMessage"
+  # Paste asset extraction results
+  - "host→webview postMessage: pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult"
+  # Translate results / errors / save status
+  - "host→webview postMessage: translateLangSelected, translateResult, translateError, translateSaveOk, translateSaveError"
+  # Outliner command bridge
+  - "host→webview postMessage: scopeIn, scopeOut, toggleSidebar"
+  # Document mutations
+  - "TextDocument WorkspaceEdit (debounced JSON write — applied through workspace.applyEdit)"
+  # File-system writes
+  - "Page MD writes (Page node body), image / file writes under fractal.outlinerImageDir / fractal.outlinerFileDir"
+  # Cloud
+  - "S3 sync trigger via outliner-s3-sync"

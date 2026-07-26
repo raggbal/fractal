@@ -1,10 +1,14 @@
 'use strict';
 
-/** v0.2.0:
- *  icon click → popup.html (manifest default_popup) で folder + outliner 選択 → Bookmark 実行
- *  keyboard shortcut (Alt+Shift+F) → 直前選択 (lastSelection) で quick clip
+/** v0.3.0:
+ *  icon click → popup.html (manifest default_popup) で preset / folder + target 選択 → Bookmark 実行
+ *  keyboard shortcut (Alt+Shift+F) → default preset（無ければ lastSelection）で quick clip（out/md 両対応）
  *  service worker (this file) は keyboard shortcut のみ処理。
+ *  保存先はフラットレイアウト（ADRL-0018: lib/flat-layout-mirror.js = 本体 flat-layout.ts のミラー）。
  */
+
+// MV3 service worker: 共有 lib を importScripts で読み込む（global = self）
+importScripts('lib/flat-layout-mirror.js', 'lib/clipper-core.js', 'lib/data-url-image-extractor.js');
 
 console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
 
@@ -132,45 +136,13 @@ async function writeTextFile(handle, text) {
     await w.close();
 }
 
-function generateNodeId() {
-    return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-function generatePageId() {
-    return crypto.randomUUID();
-}
-function parseTags(text) {
-    const tags = [];
-    const cleaned = (text || '').replace(/`[^`]*`/g, '').replace(/https?:\/\/\S+/g, '');
-    const regex = /(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu;
-    let m;
-    while ((m = regex.exec(cleaned)) !== null) tags.push(m[1]);
-    return tags;
-}
-function prependClipNode(outData, opts) {
-    const data = outData || {};
-    if (!data.version) data.version = 1;
-    if (!data.rootIds) data.rootIds = [];
-    if (!data.nodes) data.nodes = {};
-    const nodeId = generateNodeId();
-    const pageId = generatePageId();
-    const text = opts.title || '(untitled)';
-    data.nodes[nodeId] = {
-        id: nodeId, parentId: null, children: [], text: text, tags: parseTags(text),
-        subtext: '', images: [], collapsed: false,
-        isPage: true, pageId: pageId, checked: null
-    };
-    data.rootIds = [nodeId, ...data.rootIds];
-    return { outData: data, pageId, nodeId };
-}
-function buildPageMd(opts) {
-    const lines = [];
-    if (opts.title) lines.push('# ' + opts.title);
-    if (opts.url) lines.push('元ページ: [' + opts.url + '](' + opts.url + ')');
-    if (opts.byline) lines.push('著者: ' + opts.byline);
-    if (opts.siteName) lines.push('サイト: ' + opts.siteName);
-    lines.push('');
-    lines.push(opts.markdown || '');
-    return lines.join('\n\n');
+// prependClipNode / buildPageMd / buildMdClipResult は importScripts した lib/clipper-core.js
+// （self.FractalClipperCore）を使う（popup と同一ロジック・重複実装を廃止）。
+
+// md item の実ファイル handle（新フラットレイアウト前提: <folder>/<id>.md 固定・popup.js と同一）
+async function resolveMdTarget(folderHandle, mdId) {
+    const fh = await folderHandle.getFileHandle(mdId + '.md');
+    return { fileHandle: fh, dirHandle: folderHandle };
 }
 
 async function quickClip(tab) {
@@ -178,9 +150,8 @@ async function quickClip(tab) {
     setBadge('…', '#0969da');
     if (tab && tab.id) showBanner(tab.id, '📥 Clip 処理中…\n' + (tab.title || ''), 'progress');
 
-    // 新 schema: notesFolders[] + lastSelection
+    // 保存先: default preset 優先 → lastSelection fallback（FR-CL-06）。旧 lastSelection {outId} も正規化。
     const folders = (await idbGet('notesFolders')) || [];
-    const lastSel = await idbGet('lastSelection');
     if (!Array.isArray(folders) || folders.length === 0) {
         setBadge('!', '#cc3333');
         notify('未設定', 'Options で Notes フォルダを登録してください', true);
@@ -188,13 +159,30 @@ async function quickClip(tab) {
         chrome.runtime.openOptionsPage();
         return;
     }
-    if (!lastSel || !lastSel.folderId || !lastSel.outId) {
+    let sel = null; // { folderId, targetId, targetKind }
+    const defaultPresetId = await idbGet('defaultPresetId');
+    if (defaultPresetId) {
+        const presets = (await idbGet('presets')) || [];
+        const p = presets.find((x) => x.id === defaultPresetId);
+        if (p) sel = { folderId: p.folderId, targetId: p.targetId, targetKind: p.targetKind === 'md' ? 'md' : 'out' };
+    }
+    if (!sel) {
+        const lastSel = await idbGet('lastSelection');
+        if (lastSel && lastSel.folderId && (lastSel.targetId || lastSel.outId)) {
+            sel = {
+                folderId: lastSel.folderId,
+                targetId: lastSel.targetId || lastSel.outId,
+                targetKind: lastSel.targetKind === 'md' ? 'md' : 'out'
+            };
+        }
+    }
+    if (!sel) {
         setBadge('!', '#cc3333');
-        notify('未選択', 'icon click で popup を開いて outliner を選んでください (初回のみ)', true);
-        if (tab && tab.id) showBanner(tab.id, '❌ 直前選択なし\nicon click で folder + outliner を選択してください', 'err');
+        notify('未選択', 'icon click で popup を開いて保存先を選んでください (初回のみ)', true);
+        if (tab && tab.id) showBanner(tab.id, '❌ 保存先なし\nicon click で保存先を選択するか、Options で default preset を設定', 'err');
         return;
     }
-    const folder = folders.find((f) => f.id === lastSel.folderId);
+    const folder = folders.find((f) => f.id === sel.folderId);
     if (!folder) {
         setBadge('!', '#cc3333');
         notify('Folder not found', 'icon click で再選択してください', true);
@@ -260,32 +248,54 @@ async function quickClip(tab) {
     if (!result || !result.ok) throw new Error(result?.error || 'Conversion failed');
 
     const title = result.title || '(untitled)';
-    const pageMd = buildPageMd({
+    const pageMd = FractalClipperCore.buildPageMd({
         title, url: result.url, byline: result.byline, siteName: result.siteName, markdown: result.markdown
     });
 
-    // .out: <folder>/<outId>.out
-    const outRelPath = lastSel.outId + '.out';
-    const outFileHandle = await getNestedFileHandle(folder.handle, outRelPath);
-    const outData = await readJsonFile(outFileHandle);
-    const nodeResult = prependClipNode(outData, { title });
+    let destLabel;
+    if (sel.targetKind === 'md') {
+        // md への clip（FR-CL-05: 新規 <uuid>.md を対象 md と同じ dir に + 末尾に subpage リンク追記）
+        const { fileHandle: targetMdHandle, dirHandle: targetDirHandle } = await resolveMdTarget(folder.handle, sel.targetId);
+        const targetText = await (await targetMdHandle.getFile()).text();
+        const clip = FractalClipperCore.buildMdClipResult({ targetMdText: targetText, title });
+        let finalMd = pageMd;
+        try {
+            const { newMd } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, targetDirHandle);
+            finalMd = newMd;
+        } catch (e) { console.warn('[clipper] data URL extract failed', e); }
+        const newMdHandle = await targetDirHandle.getFileHandle(clip.newMdName, { create: true });
+        await writeTextFile(newMdHandle, finalMd);
+        await writeTextFile(targetMdHandle, clip.appendedTargetText);
+        destLabel = sel.targetId + '.md';
+    } else {
+        // outliner への clip（フラット規約: 本体 resolvePagesDir と同一軸・ADRL-0018）
+        const outFileHandle = await getNestedFileHandle(folder.handle, sel.targetId + '.out');
+        const outData = await readJsonFile(outFileHandle);
+        const nodeResult = FractalClipperCore.prependClipNode(outData, { title });
 
-    // pageDir: outData.pageDir 明示 or <outId>
-    const explicitPageDir = nodeResult.outData && typeof nodeResult.outData.pageDir === 'string'
-        ? nodeResult.outData.pageDir.replace(/^\.\//, '').replace(/\/$/, '')
-        : '';
-    const pageDirRel = explicitPageDir || lastSel.outId;
-    const pageDirHandle = await getNestedDirHandle(folder.handle, pageDirRel);
-    const pageMdHandle = await pageDirHandle.getFileHandle(nodeResult.pageId + '.md', { create: true });
-    await writeTextFile(pageMdHandle, pageMd);
-    await writeJsonFile(outFileHandle, nodeResult.outData);
+        // 新フラットレイアウト前提（hint 尊重・無ければ note 直下）
+        const hints = { pageDir: outData.pageDir, imageDir: outData.imageDir, fileDir: outData.fileDir };
+        const writeDirRel = FractalFlatLayout.chooseWriteDirRel(hints, sel.targetId);
+        const pageDirHandle = writeDirRel ? await getNestedDirHandle(folder.handle, writeDirRel) : folder.handle;
+
+        const imagesSubdir = FractalFlatLayout.resolveImagesDirRel(hints);
+        let finalMd = pageMd;
+        try {
+            const { newMd } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, pageDirHandle, imagesSubdir);
+            finalMd = newMd;
+        } catch (e) { console.warn('[clipper] data URL extract failed', e); }
+        const pageMdHandle = await pageDirHandle.getFileHandle(nodeResult.pageId + '.md', { create: true });
+        await writeTextFile(pageMdHandle, finalMd);
+        await writeJsonFile(outFileHandle, nodeResult.outData);
+        destLabel = sel.targetId + '.out';
+    }
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     setBadge('✓', '#2da44e');
     setTimeout(() => setBadge('', ''), 5000);
-    notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + folder.name + '/' + lastSel.outId + '.out');
+    notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + folder.name + '/' + destLabel);
     if (tab && tab.id) {
-        showBanner(tab.id, '✅ Clip 完了 (' + elapsed + 's)\n→ ' + folder.name + '/' + lastSel.outId + '\n' + title, 'ok');
+        showBanner(tab.id, '✅ Clip 完了 (' + elapsed + 's)\n→ ' + folder.name + '/' + destLabel + '\n' + title, 'ok');
     }
 }
 

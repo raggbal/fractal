@@ -9,9 +9,9 @@ interface OutlinerConfig {
     toolbarMode?: string;
     webviewMessages?: Record<string, string>;
     enableDebugLogging?: boolean;
-    outlinerPageTitle?: boolean;
     documentBaseUri?: string;
     imageMaxWidth?: number;
+    showOpenInTextEditor?: boolean;
 }
 
 export function getOutlinerWebviewContent(
@@ -48,6 +48,10 @@ export function getOutlinerWebviewContent(
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
 
+    // Load clip-source selector (paste 時のクリップボード源判定, outliner.js の前に注入)
+    const clipSelectScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'outliner-clip-select.js'), 'utf8');
+
     // Load HostBridge
     const sidePanelBridgeScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'sidepanel-bridge-methods.js'), 'utf8');
@@ -67,6 +71,13 @@ export function getOutlinerWebviewContent(
     // Load editor scripts (for side panel EditorInstance)
     const editorUtilsScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor-utils.js'), 'utf8');
+    // sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー（editor.js/outliner.js より前）
+    const inlineColorScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color.js'), 'utf8');
+    const colorPaletteScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+    const inlineColorPickerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
 
     const editorScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor.js'), 'utf8')
@@ -87,6 +98,23 @@ export function getOutlinerWebviewContent(
     const mermaidUri = vendorUri('mermaid.min.js');
     const katexJsUri = vendorUri('katex.min.js');
     const katexCssUri = vendorUri('katex.min.css');
+    // Mindmap Mode (sprint 20260701-122355): d3 layout engine (UMD, window.d3)
+    const d3HierarchyUri = vendorUri('d3-hierarchy.min.js');
+    const d3FlextreeUri = vendorUri('d3-flextree.min.js');
+
+    // Mindmap Mode: webview scripts + css (flat under src/webview/)
+    const mindmapModelScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-model.js'), 'utf8');
+    const mindmapLayoutScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-layout.js'), 'utf8');
+    const mindmapRenderScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-render.js'), 'utf8');
+    const mindmapExportScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-export.js'), 'utf8');
+    const mindmapInteractionsScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'mindmap-interactions.js'), 'utf8');
+    const mindmapCssPath = path.join(__dirname, 'webview', 'mindmap.css');
+    const mindmapCss = fs.existsSync(mindmapCssPath) ? fs.readFileSync(mindmapCssPath, 'utf8') : '';
 
     // Base64 encode JSON content to prevent XSS
     const jsonToEncode = jsonContent || '{"version":1,"rootIds":[],"nodes":{}}';
@@ -97,7 +125,7 @@ export function getOutlinerWebviewContent(
     const sidePanelHtml = generateSidePanelHtml(msg);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}">
+<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-open-in-text-editor="${String(config.showOpenInTextEditor ?? true)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -115,13 +143,16 @@ export function getOutlinerWebviewContent(
     <style>
         ${outlinerCss}
     </style>
+    <style>
+        ${mindmapCss}
+    </style>
     <link rel="stylesheet" href="${katexCssUri}">
     <style>:root { --image-max-width: ${typeof (config as any).imageMaxWidth === 'number' && (config as any).imageMaxWidth >= 100 ? (config as any).imageMaxWidth : 600}px; }</style>
 </head>
 <body>
     <div class="outliner-container">
         <div class="outliner-scroll-content">
-            <div class="outliner-page-title" style="${config.outlinerPageTitle ? '' : 'display:none'}">
+            <div class="outliner-page-title">
                 <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
             </div>
             <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
@@ -141,6 +172,10 @@ export function getOutlinerWebviewContent(
             <div class="outliner-breadcrumb"></div>
             <div class="outliner-tree" role="tree"></div>
         </div>
+        <div class="fractal-resource-footer" style="display:none" data-rrf-template="${msg.resourceAccessOutOfRangeCount || '{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).'}">
+            <span class="rrf-msg">${msg.resourceAccessOutOfRange || 'Some images are outside the allowed folders and cannot be shown.'}</span>
+            <button class="rrf-open-settings" data-action="openResourceRootsSettings">${msg.resourceAccessOpenSettings || 'Change allowed folders'}</button>
+        </div>
     </div>
 
     ${sidePanelHtml}
@@ -148,6 +183,8 @@ export function getOutlinerWebviewContent(
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}"></script>
     <script src="${katexJsUri}"></script>
+    <script src="${d3HierarchyUri}"></script>
+    <script src="${d3FlextreeUri}"></script>
 
     <script nonce="${nonce}">
         window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -156,6 +193,15 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${editorUtilsScript}
+    </script>
+    <script nonce="${nonce}">
+        ${colorPaletteScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorPickerScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}
@@ -176,7 +222,25 @@ export function getOutlinerWebviewContent(
         ${outlinerModelScript}
     </script>
     <script nonce="${nonce}">
+        ${mindmapModelScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapLayoutScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapRenderScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapExportScript}
+    </script>
+    <script nonce="${nonce}">
+        ${mindmapInteractionsScript}
+    </script>
+    <script nonce="${nonce}">
         ${outlinerSearchScript}
+    </script>
+    <script nonce="${nonce}">
+        ${clipSelectScript}
     </script>
     <script nonce="${nonce}">
         ${outlinerScript}

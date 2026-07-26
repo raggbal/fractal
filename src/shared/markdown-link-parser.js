@@ -62,12 +62,39 @@
                 i++;
                 continue;
             }
-            // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
-            // outer `[...]` is literal text, inner `[text](url)` is the link.
-            // Detect: next char is `[`, and there's a complete inner link whose end is
-            // immediately followed by `]`. In that case skip the outer `[` so the inner
-            // one parses as the link.
-            if (!isImage && text.charAt(bracketOpen + 1) === '[') {
+            // 二重ブラケット判定:
+            //   `[[label]](url)`  = `[[` + label + `]]` + `(url)`  → subpage marker (isSubpage=true)
+            //   `[[label](url)]`  = 外側 `[` literal + 内側 `[label](url)` + `]`  → Wikipedia 引用 (従来通り)
+            // 直前が `!` の場合は画像 (`![[alt]](url)`) なので subpage 判定に入らない
+            // (i を進めて再走査したとき、消費済み `!` の直後の `[` を subpage と誤検出しないため)
+            var precededByBang = (bracketOpen > 0 && text.charAt(bracketOpen - 1) === '!');
+            var isSubpage = false;
+            if (!isImage && !precededByBang && text.charAt(bracketOpen + 1) === '[') {
+                // 内側の label 終わり `]` を探す (label に `]` は含まない前提 = 現行 indexOf と同じ制約)
+                var lblClose = text.indexOf(']', bracketOpen + 2);
+                if (lblClose !== -1 && text.charAt(lblClose + 1) === ']' && text.charAt(lblClose + 2) === '(') {
+                    // `[[label]](` パターン = subpage。label = bracketOpen+2 .. lblClose、url = (lblClose+2 の '(' から)
+                    var spCloseParen = findBalancedClose(text, lblClose + 2);
+                    if (spCloseParen !== -1) {
+                        var spAlt = text.slice(bracketOpen + 2, lblClose);
+                        var spUrl = text.slice(lblClose + 3, spCloseParen);
+                        result.push({
+                            kind: 'link',
+                            alt: spAlt,
+                            url: spUrl,
+                            isSubpage: true,
+                            start: tokenStart,        // 外側 `[[` の先頭
+                            end: spCloseParen + 1     // 末尾 `)` の次
+                        });
+                        i = spCloseParen + 1;
+                        continue;
+                    }
+                }
+                // Handle `[[text](url)]` wrapper pattern (e.g. Wikipedia citation `[40]`):
+                // outer `[...]` is literal text, inner `[text](url)` is the link.
+                // Detect: next char is `[`, and there's a complete inner link whose end is
+                // immediately followed by `]`. In that case skip the outer `[` so the inner
+                // one parses as the link.
                 var innerCloseBr = text.indexOf(']', bracketOpen + 2);
                 if (innerCloseBr !== -1 && text.charAt(innerCloseBr + 1) === '(') {
                     var innerCloseParen = findBalancedClose(text, innerCloseBr + 1);
@@ -94,6 +121,7 @@
                 kind: isImage ? 'image' : 'link',
                 alt: alt,
                 url: url,
+                isSubpage: false,        // 参照リンク・画像は false
                 start: tokenStart,
                 end: closeParen + 1
             });

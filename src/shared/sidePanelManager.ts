@@ -9,7 +9,10 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { extractToc, TocItem } from './toc-utils';
+import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
+import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
 
 /** Webview への通信インターフェース */
 export interface SidePanelHost {
@@ -20,6 +23,12 @@ export interface SidePanelHost {
 export interface SidePanelManagerConfig {
     /** ログ出力のプレフィックス (例: '[Fractal]', '[Outliner]') */
     logPrefix: string;
+    /**
+     * FR-HP-08: sidepanel で md を実際に開けた後に呼ばれる（任意）。
+     * notes provider が Recent 履歴記録に使う。openFile 成功時のみ 1 回発火（存在しない/開けない場合は呼ばない）。
+     * 未指定の provider（editor/outliner）には無影響。
+     */
+    onFileOpened?: (filePath: string) => void;
 }
 
 // Re-export TocItem for backward compatibility
@@ -28,8 +37,11 @@ export type { TocItem } from './toc-utils';
 export class SidePanelManager {
     // --- 内部状態 ---
     private _document: vscode.TextDocument | undefined;
-    private _fileWatcher: vscode.FileSystemWatcher | undefined;
-    private _fileChangeSubscription: vscode.Disposable | undefined;
+    // FR-LR-01: FSW + fs.watchFile(polling) ハイブリッド。
+    // sidepanel の TextDocument はタブなしバッファのため VS Code ネイティブの外部変更検知が効かず、
+    // FSW 単独では workspace フォルダ外のファイルに fire しない（editorProvider.ts:792 / MD-48 と同じ既知制約）。
+    private _hybridWatcher: DrawioFileWatcher | undefined;
+    private _fileChangeSubscription: { dispose: () => void } | undefined;
     private _docChangeSubscription: vscode.Disposable | undefined;
     private _watchedPath: string | undefined;
     private _isApplyingEdit = false;
@@ -79,38 +91,52 @@ export class SidePanelManager {
         this._document = await vscode.workspace.openTextDocument(fileUri);
 
         // Watch for external file changes → sync TextDocument
-        this._fileWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.Uri.joinPath(fileUri, '..'), path.basename(filePath))
-        );
-        this._fileChangeSubscription = this._fileWatcher.onDidChange(async (uri) => {
-            if (uri.fsPath !== filePath) return;
+        // FR-LR-01: FSW 単独から createHybridFileWatcher（FSW + fs.watchFile 1s polling）に変更。
+        // workspace 外の note でも外部編集（AI CLI 等）を検知してライブ反映する。
+        // ポーリングが自己保存の後に発火しても下の newContent !== currentContent 差分チェックで no-op（NFR-LR-02）。
+        this._hybridWatcher = createHybridFileWatcher(filePath, vscode, fs);
+        this._fileChangeSubscription = this._hybridWatcher.onDidChange(() => {
             if (this._isApplyingEdit) return;
             setTimeout(async () => {
                 try {
-                    if (!this._document) return;
-                    if (this._document.isClosed) {
-                        this._document = await vscode.workspace.openTextDocument(uri);
+                    // Race guard: navigation may have switched _document/_watchedPath
+                    // between the disk event and this setTimeout firing. Apply only
+                    // if we are still watching the same file the event is for.
+                    if (this._watchedPath !== filePath) return;
+                    const targetDoc = this._document;
+                    if (!targetDoc) return;
+                    if (targetDoc.uri.fsPath !== filePath) return;
+                    const liveDoc = targetDoc.isClosed
+                        ? await vscode.workspace.openTextDocument(fileUri)
+                        : targetDoc;
+                    // Re-check after await: navigation may have happened during openTextDocument
+                    if (this._watchedPath !== filePath) return;
+                    if (this._document !== liveDoc) {
+                        // Update the cached document only if we are still watching this file
+                        this._document = liveDoc;
                     }
-                    const fileContent = await vscode.workspace.fs.readFile(uri);
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                    if (this._watchedPath !== filePath) return;
                     const newContent = new TextDecoder().decode(fileContent);
-                    const currentContent = this._document.getText();
+                    const currentContent = liveDoc.getText();
                     if (newContent !== currentContent) {
                         this._isApplyingEdit = true;
                         const fullRange = new vscode.Range(
-                            this._document.positionAt(0),
-                            this._document.positionAt(currentContent.length)
+                            liveDoc.positionAt(0),
+                            liveDoc.positionAt(currentContent.length)
                         );
                         const edit = new vscode.WorkspaceEdit();
-                        edit.replace(this._document.uri, fullRange, newContent);
+                        edit.replace(liveDoc.uri, fullRange, newContent);
                         await vscode.workspace.applyEdit(edit);
                         this._isApplyingEdit = false;
-                        if (this._document.isClosed) {
-                            this._document = await vscode.workspace.openTextDocument(uri);
-                        }
-                        await this._document.save();
+                        // Final guard before save: confirm no navigation happened
+                        if (this._watchedPath !== filePath) return;
+                        if (liveDoc.isClosed) return;
+                        await liveDoc.save();
+                        if (this._watchedPath !== filePath) return;
                         this.host.postMessage({
                             type: 'sidePanelMessage',
-                            data: { type: 'update', content: newContent }
+                            data: { type: 'update', content: newContent, filePath }
                         });
                     }
                 } catch (error) {
@@ -123,13 +149,15 @@ export class SidePanelManager {
         // Watch TextDocument changes → relay to iframe
         this._docChangeSubscription = vscode.workspace.onDidChangeTextDocument(e => {
             if (!this._document) return;
+            if (this._watchedPath !== filePath) return;
             if (e.document.uri.toString() !== this._document.uri.toString()) return;
+            if (e.document.uri.fsPath !== filePath) return;
             if (e.contentChanges.length === 0) return;
             if (this._isApplyingEdit) return;
             const content = e.document.getText();
             this.host.postMessage({
                 type: 'sidePanelMessage',
-                data: { type: 'update', content: content }
+                data: { type: 'update', content, filePath }
             });
         });
     }
@@ -142,8 +170,9 @@ export class SidePanelManager {
         this._docChangeSubscription = undefined;
         this._fileChangeSubscription?.dispose();
         this._fileChangeSubscription = undefined;
-        this._fileWatcher?.dispose();
-        this._fileWatcher = undefined;
+        // FR-LR-01: hybrid watcher の dispose（内部で fs.unwatchFile + FSW dispose）
+        this._hybridWatcher?.dispose();
+        this._hybridWatcher = undefined;
         this._document = undefined;
         this._watchedPath = undefined;
     }
@@ -157,30 +186,47 @@ export class SidePanelManager {
     async handleSave(filePath: string, content: string): Promise<void> {
         const prefix = this.config.logPrefix;
         try {
-            if (this._document && this._document.uri.fsPath === filePath) {
-                if (this._document.isClosed) {
-                    this._document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+            // Pin the target by URI once. Never trust this._document mid-save —
+            // navigation can swap it during await applyEdit, which previously
+            // could redirect _document.save() at a different file.
+            const targetUri = vscode.Uri.file(filePath);
+            const cached = this._document;
+            const useBuffer = !!cached && cached.uri.fsPath === filePath;
+            if (useBuffer) {
+                let targetDoc = cached!.isClosed
+                    ? await vscode.workspace.openTextDocument(targetUri)
+                    : cached!;
+                // Sanity-check we still target the same file
+                if (targetDoc.uri.fsPath !== filePath) {
+                    // Fall back to direct write — buffer no longer matches
+                    await vscode.workspace.fs.writeFile(
+                        targetUri,
+                        Buffer.from(content, 'utf8')
+                    );
+                    return;
                 }
                 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
-                if (normalize(content) === normalize(this._document.getText())) return;
+                if (normalize(content) === normalize(targetDoc.getText())) return;
 
                 this._isApplyingEdit = true;
                 const spEdit = new vscode.WorkspaceEdit();
                 spEdit.replace(
-                    this._document.uri,
-                    new vscode.Range(0, 0, this._document.lineCount, 0),
+                    targetDoc.uri,
+                    new vscode.Range(0, 0, targetDoc.lineCount, 0),
                     content
                 );
                 await vscode.workspace.applyEdit(spEdit);
                 this._isApplyingEdit = false;
-                if (this._document.isClosed) {
-                    this._document = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+                if (targetDoc.isClosed) {
+                    targetDoc = await vscode.workspace.openTextDocument(targetUri);
                 }
-                await this._document.save();
+                if (targetDoc.uri.fsPath !== filePath) return;
+                await targetDoc.save();
             } else {
-                const spUri = vscode.Uri.file(filePath);
-                const spContent = Buffer.from(content, 'utf8');
-                await vscode.workspace.fs.writeFile(spUri, spContent);
+                await vscode.workspace.fs.writeFile(
+                    targetUri,
+                    Buffer.from(content, 'utf8')
+                );
             }
         } catch (e) {
             this._isApplyingEdit = false;
@@ -207,7 +253,7 @@ export class SidePanelManager {
      * @param freshOpen  true: navigation history を clear (= 新規 open)。default false (= navigation 経由)。
      *                    新規 open 時は webview の back/forward state を初期化するため必ず true で呼ぶ。
      */
-    async openFile(filePath: string, freshOpen: boolean = false): Promise<void> {
+    async openFile(filePath: string, freshOpen: boolean = false, restoreForTab: boolean = false): Promise<void> {
         if (freshOpen) {
             // 新規 open (outliner click 等) では history を clear → webview の back ボタン無効化
             this.clearNavigationHistory();
@@ -226,15 +272,40 @@ export class SidePanelManager {
                 filePath: filePath,
                 fileName: fileName,
                 toc: SidePanelManager.extractToc(text),
-                documentBaseUri: spBaseUri
+                documentBaseUri: spBaseUri,
+                // sprint 20260723-233506: タブ復帰の復元経路（webview 側で scroll 同期復元 + auto-focus skip）
+                restoreForTab: restoreForTab || undefined,
             });
+            // FR-RR-04: 開いた md の画像に許可範囲外があればフッター案内を送る
+            this.sendResourceAccessStatus(text, path.dirname(filePath));
             await this.setupFileWatcher(filePath);
             // 常に nav state を送信 → webview の back/forward ボタン状態を extension と同期
             // (handleOpenLink で push 後、ここで canGoBack=true が webview に届く)
             this.sendNavStateUpdate();
+            // FR-HP-08: 実際に開けた後にだけ通知（リンク/subpage 遷移・他 note / note 外を含む sidepanel open を
+            // 単一 choke point で Recent 記録に載せる。read 失敗時は catch に落ちるのでここには来ない）。
+            this.config.onFileOpened?.(filePath);
         } catch (e) {
             vscode.window.showErrorMessage(`Cannot open file: ${filePath}`);
         }
+    }
+
+    /**
+     * FR-RR-04: sidepanel で開いた md 内の画像で許可範囲外のものを検知し、
+     * フッター案内を webview に送る。範囲内のみなら outOfRange:false（帯クリア）。
+     */
+    private sendResourceAccessStatus(mdBody: string, mdDir: string): void {
+        try {
+            const cfg = vscode.workspace.getConfiguration('fractal');
+            const roots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+            const outOfRange = findOutOfRangeImages(mdBody, mdDir, roots);
+            this.host.postMessage({
+                type: 'resourceAccessStatus',
+                outOfRange: outOfRange.length > 0,
+                count: outOfRange.length,
+                samplePath: outOfRange[0]
+            });
+        } catch { /* best-effort。失敗しても本体表示を妨げない */ }
     }
 
     /**
@@ -253,7 +324,7 @@ export class SidePanelManager {
             });
         } else {
             const spBaseUri = vscode.Uri.file(sidePanelFilePath);
-            const resolvedUri = href.startsWith('/')
+            const resolvedUri = path.isAbsolute(href)
                 ? vscode.Uri.file(href)
                 : vscode.Uri.joinPath(spBaseUri, '..', href);
             const resolvedPath = resolvedUri.fsPath.toLowerCase();

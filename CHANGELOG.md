@@ -5,6 +5,209 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-26
+
+最初のメジャーリリース 🎉 — Markdown・Outliner・Database・Mindmap を Notion のようにひとつの場所で管理する、というコアコンセプトが一通り揃ったため 1.0.0 としました。
+
+### Added
+- **設定 `fractal.showOpenInTextEditor`**（default: true）: Open in Text Editor ボタン（md toolbar / sidepanel header / outliner 右クリックメニュー）の表示を切替（Electron 化準備）。
+- **drawio 画像の Open ボタンを 2 つに分離**: **Open in VS Code**（VS Code タブで開く。Draw.io Integration 拡張があればタブ内で draw.io エディタが開く）と **Open in External**（draw.io Desktop を優先起動 — mac は `open -a`、Windows は標準インストール先探索、Linux は PATH の `drawio`。無ければ OS デフォルトにフォールバック）。
+- **Chrome 拡張 v0.3.0**: フラットレイアウト対応、保存先を「Note + Outliner/Markdown」で選択、**保存先プリセット**（複数登録 + ★default。popup は default 選択済みで即クリップ可、quick clip も default を使用）、**md への取込**（新規 `<uuid>.md` + 対象 md 末尾に subpage リンク追記）、Note 表示名は outline.note の noteTitle / md タイトルは本文 H1。
+- **AI スキル拡張**（`claude_skills/` → `ai_skills/` にリネーム。Claude Code / Cursor / Kiro / Antigravity 対応）:
+  - 新規 `fractal-doctor`（note 整合性チェック: 参照切れ・孤児・レイアウト検査。read-only）
+  - 新規 `fractal-summary`（outliner / md を subpage 再帰込みで 1 本の markdown に集約）
+  - `fractal-edit` に変更系 `fractal-modify.mjs`（text 書換 / check / 削除 / 移動）、`--create-md`（独立 md item 作成）、`--target-md`（md への subpage / 画像 / ファイル追加）
+  - `fractal-search` に `--tag` / `--checked` / `--note-name` / `--exclude-note` フィルタ
+- README を全面更新（4 モード別ショートカット表・draw.io 節・対応 OS 節）。
+
+### Fixed
+- **note を開いたとき、ツリー先頭が md だと空の outliner が表示される**バグを修正（md ペインで初期表示 + 初期タブ kind / 外部変更 watcher / テーマ変更リフレッシュ経路も対応）。
+- **タブの閉じるボタン**が短いタイトルでタブ中央に来る問題を修正（右端固定）。
+- **Windows パス互換**: 生ファイルドロップの `file:///C:/...` URI・`C:\` 絶対パスのリンク/画像解決を是正（macOS の挙動は不変）。
+
+### Notes
+- 動作確認は macOS のみ。Windows / Linux は実装済みだが未検証（Issues でのリクエスト歓迎）。
+
+## [0.212.0] - 2026-07-25
+
+### Added
+- **standalone md の画像/添付保存先を指定できる**（FR-MD-01〜07）: fractal note 配下でない `.md` を単体で開いたとき、アウトラインパネル最下部の「画像保存先 / ファイル保存先」表示をクリックして保存先フォルダを選べる。保存先は md と同じフォルダの隠し JSON `.fractal.json`（`{imageDir,fileDir}`）に記録され、**そのフォルダの全 md が共有**する。**md 本文は一切変更しない**ので、Typora や GitHub など他エディタ・プレビューに設定が漏れない（ADRL-0016）。「デフォルトに戻す」で `<md と同じフォルダ>/images,files` に戻る。Notes / .out / outliner page md では従来どおり固定。
+- **ノート左ファイルツリーの右クリック「Open in new tab」**: md も outliner（.out）も、左ツリーの右クリックメニューから webview 内の新しいタブで開ける。
+
+### Changed
+- **standalone md のデフォルト画像/添付保存先**: 従来は md と同じフォルダ直下だったが、`<md と同じフォルダ>/images/`・`/files/` サブフォルダに変更（Notes / outliner と揃えた）。
+- **サイドパネル幅の永続化**: Notes を開き直したときにサイドパネル幅がデフォルトに戻る問題、および VS Code ウィンドウ幅を変えるとサイドパネルがエディタ領域をはみ出す問題を修正（note 単位の幅を updateData で正しく復元）。
+- **サイドパネル md の「新しいタブで開く」ボタンを固定表示**（閉じるボタンと同様）。サイドパネル幅が狭くても隠れない。
+
+### Removed
+- 設定 `fractal.outlinerPageTitle` を削除（Outliner のページタイトル入力は常に表示）。
+- 設定 `fractal.imageDefaultDir` / `fractal.fileDefaultDir` / `fractal.forceRelativeImagePath` / `fractal.forceRelativeFilePath` を削除（保存先は上記のとおり standalone md はサイドカー、他モードは固定に一本化）。既に settings.json にこれらのキーがある場合は無視される（挙動に影響なし）。
+
+## [0.211.3] - 2026-07-25
+
+### Added
+- **インライン文字色**（FR-IC-01〜06）: markdown editor（header / 段落 / リスト / blockquote、**code 除外**）と outliner の node text で、選択テキストに文字色を付けられる。md は toolbar の色ボタン + cmd+/ コマンドパレット、outliner は右クリックメニューから 20 色 swatch + None を選ぶ。保存は `<span style="color:#hex">`（他 markdown エディタでも色が出て、未対応でもプレーンテキストに degrade。ADRL-0012）。色構文とサニタイズ（hex allowlist・ADRL-0013）を `src/shared/inline-color.js` に集約し md/outliner の 2 パーサで共有。outliner は md と同一エンコード（node.text 内に span 保存・編集モードは生タグ可視。ADRL-0014）。
+- **リストへの複数行ペースト**（FR-PML-01）: リスト項目にカーソルがある状態で複数行テキストをペーストすると、各行が兄弟のリスト項目になる（従来はリスト全体の後ろに段落として貼られていた）。表・見出し・コード・ネストリストは従来どおり。
+
+### Fixed
+- **inline 要素の書式引きずり**（bold / italic / strike / code）: inline 要素を当てたテキストの直後にカーソルを置いて入力しても、前の書式を引きずらない。toolbar / コマンドパレットの bold・italic は execCommand の sticky typing style を apply-time でリセット、リロード後は beforeinput 境界ハンドラで要素外に出す（IME 変換中は横取りしないので日本語入力を壊さない）。
+- **色の継続入力**: 色を付けたテキストの直後に打った文字は既定色になる（色を変えた範囲だけで完結）。
+- **outliner の部分選択着色**: node text を部分選択して右クリック → Text Color で、選択範囲だけに色が付く（node 全体が着色されない。数値 source-offset 捕捉で picker の focus 再レンダーに影響されない）。
+- **複数行ペーストの二重挿入**: Notes モードで複数行ペーストが 2 重に入る問題を修正（paste ハンドラの同一 tick coalesce）。
+- **翻訳ボタンの重複**: note md / standalone md ツールバーで撤廃済みの translateLang ボタンが 2 つ並んで左が無反応だった問題を解消。
+
+## [0.210.18] - 2026-07-24
+
+### Added
+- **Notes webview 内マルチタブ**（FR-TAB-01〜08）: Notes モードのメインペインで複数ファイル（`.out`/md）をタブで開ける。タブが 2 つ以上で `.notes-main-wrapper` 先頭に Tab Bar を表示（1 つなら非表示）。openInNewTab ボタン / 本文 `.md`・`fractal://` リンクの cmd+click / ＋ボタンの 3 契機で新タブ。切替は unload/load 方式（アクティブタブのみ実 DOM・非アクティブは軽量 Tab State）で ~20 タブでもメモリ安全。切替/閉じる前に flush（データ損失なし）。Tab Bar 横スクロール。他 note / note 外の md もタブで開ける。（ADRL-0008/0009/0010）
+- **タブ右クリック「Open in VS Code Tab」**（FR-TP-06）: md タブを右クリック → 対象 md を standalone（`fractal.editor`）で開く（outliner タブは対象外）。
+- **md Outline 閉じるボタンの ✗ 化 + file panel トグル移設**（FR-OU-01/02）: md Outline パネルの閉じるボタンを ☰ → ×。note md で file panel 閉 + Outline 開のとき、file panel 開トグルを Outline ヘッダ左に表示（editor 左端の ☰ は非表示・同機能ボタンが 1 箇所だけ）。
+- **Recent 履歴の記録拡張**（FR-HP-08/09）: アプリ内リンク（`fractal://`）/ subpage・md リンクで開いた md、他 note / note 外の md も Recent に記録（`kind:'note-md'`・絶対パス・先頭 H1 で title 解決）。
+
+### Changed
+- **サイドパネルをタブと共存**（FR-SPC-01〜05・ADRL-0011）: サイドパネルの表示領域をタブ内領域（タブバー下端〜画面下端・ファイルパネル除く右側）に収める。開いたままタブ切替でき、タブごとにサイドパネル状態（開閉・md・スクロール）を復元。
+- **overlay（シャドー背景）を全モード廃止**（FR-SPC-02/03）: サイドパネルのシャドー背景を DOM・CSS・JS から完全除去（Notes / .out single / .md single 全モード）。外側クリックで閉じない（Esc + ヘッダー ✗ で閉じる）。
+- **タブ名を title/H1 に**（FR-TP-04）: タブ名を basename でなく Outliner title / md 先頭 H1 に。title/H1 変更で即時反映（tree 外 md も含め 3 保存経路すべてで反映・disk 書込を await してから解決）。
+- **タブ選択/非選択の背景色を反転**（FR-TP-05）: 選択タブが明るい地色（editor と地続き・下境界線を消す）・非選択が灰。
+- **Recent クリックは全メインペインで開く**（FR-HP-05）: page md も含め Recent の md は kind によらずメインペインで開く（`HistoryKind` から `page-md` を廃止し note-md・絶対パスに統一）。
+- 「open new tab」の挙動を VS Code 別エディタタブ → webview 内タブに変更。
+
+### Fixed
+- **サイドパネル幅の追従**（FR-TP-01）: 左ファイルパネル開閉等で `.notes-main-wrapper` 幅が変わってもサイドパネル幅が editor 領域を超えないよう ResizeObserver で再クランプ。
+- **タブ復帰時のチラつき/アニメ**（FR-TP-02/03・NFR-TAB-02）: タブ復帰のサイドパネルはスライドインアニメを再生しない。スクロール復元は単一同期タスクで完結しチラつかせない。outliner ヘッダーの検索状態（Search テキスト + Tree/Focus モード）を全モード（outliner/table/mindmap）で復元。view mode residual バグ是正。
+- **タブ名の即時反映漏れ**（FR-TP-04）: open-new-tab で開いた tree 外 md（page md 等）の H1 編集が Recent/タブ名に即反映されなかった問題を修正（`notesSaveCurrentMd` が disk 書込を await してから title 再解決 + 3 保存経路の history フォールバック統一）。
+
+## [0.210.0] - 2026-07-23
+
+### Added
+- **起動時フラットレイアウト移行ゲート**（FR-MG-01〜17）: 旧レイアウトの note フォルダ（per-`<stem>/` / `_notes_md/` / `<note>/pages/`）を開くと、本体を表示する前に移行ゲート画面を出し、共有フラットレイアウト（md=note 直下、画像/添付=共有 `images`/`files`、`.out` は pageDir="."）へ移行する。移行後は layout 状態自体がマーカーとなり再表示されない（永続フラグ不要）。移行は `loadStructure()`（ディスク書換）を呼ぶ前に検出し、gate 経路で loadStructure に到達する watcher / config-refresh も塞ぐ（開いただけでフォルダを崩さない）。
+- **executePlan 前の自動バックアップ**（FR-MG-07）: 破壊的移行の前に note フォルダ全体を noteDir の外へコピー。backup 失敗時は移行を中止。backup 名は `.` 開始にしない（mac 可視）。移行完了後は backup 場所と復旧手順を通知。
+- **cross-outliner 参照解決**（FR-MG-10/12）: node.pageId の md・画像・添付を「自 stem → 他 outliner stem → `_notes_md` → `<note>/pages/`」の横断で探索し、既存の連番リネーム + move + リンク書換に通す（1:1 所有維持）。
+- **md リンクの subpage 判定と到達可能 md の移行**（FR-MG-13/14）: 本文プレーン md リンク `[label](x.md)` の `[[]]` 昇格を「同 outliner フォルダ内・node/note 未参照・本文リンクからのみ到達」の条件付きに。移行対象から本文 md リンクで到達可能な note 内 md を種別問わず全て flat へ移行（推移閉包）。「移行するか」と「昇格するか」は独立判定。
+
+### Fixed
+- **移行時のデータ損失を根絶**（複数の data-loss 修正）: (1) cross-outliner 参照（別 outliner フォルダの md/画像/添付）の移行漏れ、(2) 生きたページの本文 md リンクからのみ到達する md が昇格だけされ未移行で削除される問題、(3) `<note>/pages/` 旧レイアウト（pageDir 未指定 .out がページを分散）の探索・掃除漏れ、を修正。破壊的削除の前に「node/note/本文リンクで到達可能な全 md・画像・添付が flat へ移行済み」を不変条件とし、実 note 3 件（tepco2 / pace2 / aws2）で検証。到達不能な参照（真の「元々壊れ」）のみ unresolved として通知し、旧フォルダは掃除する。
+
+## [0.209.52] - 2026-07-20
+
+### Fixed
+- **Recent 履歴パネルのタイトルが更新されない**: outliner の title / md の H1 / sidepanel の page md の H1 を変更しても Recent 一覧の表示名が古いままだった問題を修正。履歴を webview に送出する時点で各エントリの title を最新解決（note md=items.title / .out=disk data.title / page md=先頭 H1）するようにし、notesFileListChanged の全送出経路（9 経路）を単一ヘルパ getStructureForWebview に統一。sidepanel page md の編集は保存を await してから履歴を再送し、ファイル切替タイミングで最新 title が反映される。
+- **drawio.svg / mermaid / math / 画像プレビューの背景が暗くて見づらい**: lightbox 拡大表示（.outliner-image-large）と mermaid/math の fullscreen（.block-fullscreen-*）で、透明背景の図形が暗いオーバーレイ越しに黒っぽく見えていた問題を修正。白背景 + 余白（padding）を付けて明瞭に表示するようにした（box-sizing:border-box で表示領域を超えない）。
+- **outliner の title 変更が即時反映されない / タイトル↔H1 同期の 1テンポ遅れ・データ化け等**: タイトル↔H1 双方向同期まわりの複数の実装バグを修正（未編集 blur での H1 上書き防止、CommonMark ATX 準拠の H1 抽出で C#/F# を保持、CRLF 保持、確定時の即時 tree 反映）。
+
+## [0.209.48] - 2026-07-19
+
+### Added
+- **タイトル ↔ H1 双方向同期**: (1) note md のファイルツリー名 ↔ md 先頭 H1、(2) outliner node の text ↔ 添付 page md の先頭 H1 を、編集確定時に双方向同期する。H1 が無ければ本文先頭に `# <title>` を挿入。冪等・byte-skip 書込・プログラム書換中フラグで無限ループを防止。
+- sidepanel md → node text の同期は「outliner node 由来で開いた md」のときだけ動作（origin=構造逆引き = sidePanelFilePath の basename=pageId が現 .out node に一致。ADRL-0001）。リンク/履歴/検索から開いた md は node を書き換えない。
+
+### Fixed
+- **H1 抽出の CommonMark 準拠**: 末尾 `#` を含むタイトル（`C#` / `F#` 等）が `C` / `F` に誤って切り詰められるデータ化けを修正。閉じ `#` 列は直前に空白がある時（`# Title #`）だけ剥がす。CRLF 改行を保持。host（md-h1-utils）と webview（outliner.js）で抽出ポリシーを統一。
+- **未編集 node の上書き防止**: page md を編集後、outliner で該当 node を編集せず Cmd+Enter しただけで md H1 が古い node text で上書きされる問題を修正（node text を実際に編集した時だけ H1 に同期）。
+- **outliner title の即時 tree 反映**: outliner の page title を変更しても note ファイルツリーにすぐ反映されず、別ファイルを開くまで遅延していた問題を修正（確定時に即 host 送信 + pending の .out 保存を flush して tree の表示元 disk title を更新）。
+
+## [0.209.16] - 2026-07-09
+
+### Fixed
+- **Notes の cmd+c / cmd+v ラウンドトリップで page md が作られないバグ**: Note A の node を別 Note B に貼り付け、さらに B で複製した node を A に貼り戻すと、新しい pageId は振られるのに page md ファイルが作られない（node から md が開けない）問題を修正。原因は webview の内部クリップボードが貼り付け先ごとに保持され、テキスト一致だけで最優先されて古い pageId を送っていたこと。コピー操作ごとに一意 ID（copyId nonce）を刻み、OS クリップボードと照合して最新のコピー元を選ぶようにした。あわせて、コピー元 md が存在しない場合に空ファイルを書かない防御を追加。外部アプリからのプレーンテキスト貼り付け（行分割）も従来どおり動作する。
+
+## [0.209.15] - 2026-07-08
+
+### Changed
+- **md 移動 / 複製経路の md-to-md リンク扱いを統一**: md（またはそれを含む Outliner ノード）を移動・複製する各経路で、md 内の別 md へのリンクの扱いがバラバラだったのを共通の再帰機構に統一した。
+  - **Move Other Note（.out ページ）**: ページ md が参照する自 Note 内の md も再帰的に一緒に移動し、移動後もリンクが切れないようにした（残留参照があれば移動せずコピー、循環検出あり）。
+  - **Outliner → Outliner のノード貼り付け**: 直接リンク先だけでなく多段（A→B→C）の md リンク先も再帰的に複製し、リンクを複製先に書き換えるようにした（md エディタへの貼り付けと同じ挙動に統一）。
+
+### Fixed
+- **貼り付け時のファイル名の部分文字列誤置換**: 画像名 `a.png` の改名が本文中の `banana.png` を巻き込んで壊す不具合、および同名（別フォルダ）画像が衝突して片方が失われる不具合を修正（リンク URL 全体を単位に書き換え）。
+
+## [0.209.14] - 2026-07-07
+
+### Added
+- **Outliner 間コピーでリンク先 md も再帰複製**: md 付きノードを別 Outliner に cmd+c / cmd+v したとき、その md が参照する自 Note 内の別 md（およびその md 内の画像・添付）も再帰的に複製するようにした。外部 Note の md へのリンクは複製せず相対パスに書き換えて維持する（循環リンク検出あり）。
+
+## [0.209.13] - 2026-07-07
+
+### Fixed
+- **standalone md の Add Page がフラット化に追従**: standalone md エディタで Add Page したとき `pages/` サブフォルダを作らず、md と同じ階層にフラットに作成するよう修正。
+
+## [0.209.12] - 2026-07-07
+
+### Changed
+- **Notes のオンディスク構成をフラット化**: 従来 Outliner ごとに `<outId>/` フォルダを作り page md / 画像 / 添付を隔離していたのを、Note フォルダ直下の md ＋ 共有 `images/`・`files/` に統合した。既存レイアウトは後方互換で読み込め、手動マイグレーションコマンド（`Fractal: Migrate to Flat Layout`）で移行できる。
+
+### Fixed
+- **共有アセットの誤削除防止**: フラット化で画像 / 添付を Note 内で共有するようになったため、item 移動時に「他の item がまだ参照しているアセットは削除しない」データロスガードを追加。
+
+## [0.209.11] - 2026-07-07
+
+### Added
+- **Note タイトルの編集**: Notes モードのファイルパネル見出し（従来「Outlines」固定）が編集可能な note タイトルになった。クリックして変更すると `outline.note` の `noteTitle` に保存され、Activity Bar の FRACTAL NOTES ツリーにも反映される（未設定時はフォルダ名にフォールバック＝後方互換）。
+- **Reveal in Finder**: Outliner の file 添付ノード / md ページノードの右クリックメニューから、実体ファイルを OS ファイラ（Finder 等）で選択状態表示できる。
+- **Move Other Note（別 Note へ移動）**: ページ / 添付を別の Note へ移動できる。移動先へ関連アセット（画像・添付・同一 Note 内から参照される md）を再帰的に複製し、ID 衝突時は上書き確認する。
+
+### Fixed
+- **Mindmap Mode のノード横幅（iteration 30–32、FR-021 の挙動修正・仕様変更なし）**: 短いテキスト（英数・ひらがな）やファイルアイコン付きノードが実機で必ず 1 文字分だけ折り返してしまう問題を修正。ノード幅の算出に border + 1 文字分の余裕（`BORDER_W=18`）を全ノードへ加算し、編集中幅と確定後幅を一致させた（上限 280px クランプは維持）。
+
+## [0.209.7] - 2026-07-06
+
+### Added
+- **Mindmap Mode の検索**: 検索ボックスに入力すると、該当テキストを含むノードをハイライトし、最初の一致を画面中央へパンする。Enter で次の一致へ順に巡回して中央化（Outliner の絞り込みと異なり、ノードは全表示のまま「発見」する）。
+
+### Changed
+- **Mindmap Mode で形状（layout）を変更したとき、title 中央ノードを画面中心に再配置**（Cmd+Shift+L / ツールバーの layout 選択の両方）。開いた直後と同じ見え方になる。
+- **Mindmap Mode でヘッダーの使わないボタンをグレーアウト（無効化）**。有効: undo / redo / ビュー切替 / S3 sync / 検索ボックス。無効: タスクモード / タスクフィルタ / アーカイブ / メニュー / 戻る・進む / 検索モード切替（Outliner に戻すと復帰）。
+
+### Fixed
+- **Mindmap Mode で file 添付ノードの Cmd+Enter が外部アプリでファイルを開くように**（Outliner と同じ挙動）。md（ページ）添付ノードの Cmd+Enter は従来どおり side panel の md エディタで開く。
+
+### Removed
+- **Mindmap Mode ツールバーの PNG / SVG / OPML / Markdown エクスポートボタンを削除**（現時点で不要のため。将来復活可能な形で内部ハンドラは残置）。
+
+## [0.209.6] - 2026-07-06
+
+### Fixed
+- **Mindmap Mode の実機バグ修正（iteration 24–28、FR-021 の挙動修正・仕様変更なし）**
+  - **ズーム時に active node を画面中心へ**: ツールバーの +/− ボタンでもトラックパッド（Ctrl/Cmd+wheel）でも、選択中ノードを画面中心に寄せながらズームする。
+  - **複数選択の視認性強化**: shift+click で複数選択したとき、選択ノードがはっきりした枠（背景＋リング）で表示される（従来は選択解除に見えた）。
+  - **active 太枠の一貫性**: 矢印/Enter/Tab で active が別ノードへ移ると、クリックで付いた太枠は消え、移動先のみが太枠になる（複数選択は shift 操作でのみ維持）。
+  - **Group 作成で画面が動かない**: ズーム状態（scale≠1）で Create Group しても固定ノードの画面位置が保たれる。
+  - **Delete 後の active 移動**: ノード削除後、active が「上の兄 → 下の弟 → 親」の順で残存ノードへ移り、連続操作が可能。
+  - **Delete で画面（pan/zoom）を動かさない**: 削除時に viewport の translate/scale を保持する。
+  - **ひらがなで即編集開始（IME 対応）**: 確定ノード上でひらがなを打ち始めると、英数にリセットされずそのまま編集モードに入り日本語が入力される。
+  - **トラックパッドのズームを高速化**: Ctrl/Cmd+wheel の 1 操作あたりの変化量を増やした。
+  - **矢印移動で編集モードに見えない**: 選択中（active）ノードはキャレットを表示せず、編集開始時のみキャレットを出す（選択と編集を視覚的に区別）。
+
+## [0.209.2] - 2026-07-06
+
+### Fixed
+- **Mindmap Mode の実機バグ修正（iteration 22–23、FR-021 の挙動修正・仕様変更なし）**
+  - **#1 toolbar/minimap 固定**: rerender・pan・スクロールをまたいで toolbar/minimap が可視枠内に固定され、消えない/上にずれない（chrome overlay 化）。
+  - **#2 開いた時 title を画面中心**: mindmap を開いたとき title 中心ノードを**縦横とも**可視領域中心へ配置（従来は縦のみで、巨大マップで横方向に中心へ来なかった）。
+  - **#3 shift+click で複数選択**: 素のクリックでアンカーノードを選択集合に含めるようにし、shift+click で選択が累積する（従来は単一ノードしか選べなかった）。
+  - **#4 minimap click / #5 fit**: screen↔SVG 変換を viewBox origin（bounds.min − pad）込みで是正。クリック位置のノードが画面中心付近へ、fit で全ノードが可視領域に収まる（左上に固まらない）。
+  - **#7 group 作成で画面不動**: グループ作成の rerender をまたいで viewport を凍結・復元し、画面がずれない。
+  - **#8 type-to-edit**: 確定ノード上で印字可能文字を打つと、Space を押さずにそのまま編集モードに入り入力できる（非破壊・末尾挿入）。
+  - **#9 編集中の横幅追従**: 英語/日本語とも入力テキストの実幅に対称・単調に横幅が追従する（従来は英語だけ急拡大してすぐ上限280pxに張り付いた）。
+  - **#10 確定後の右空白削減**: ノード幅の padding 想定を実 CSS（水平20px）に整合させ、確定後の右側の余分な空白を解消（編集中幅==確定後幅）。
+
+## [0.209.0] - 2026-07-06
+
+### Added
+- **Mindmap Mode (FR-021)** — Outliner の第3表示モード。View Toggle で Outliner View → Table View → Mindmap Mode を循環。同じ `.out` を SVG マインドマップとして描画・編集する（`viewMode:'mindmap'` を `.out` に永続化、後方互換）。
+  - **レイアウト**: d3-hierarchy + d3-flextree で radial（左右両側）/ right / left / balanced。title を中心ノードにして rootIds を左右展開。可変ノードサイズで重なり回避。
+  - **キーボード操作**: Enter=弟追加 / Shift+Enter=兄追加 / Tab=子追加（いずれも非編集）/ Space=編集開始 / 矢印=空間フォーカス移動 / Delete=削除 / undo・copy 等。マウスなしで完結。
+  - **編集**: contenteditable リッチノード（アイコン/画像/タグ/チェックボックス）。改行なし長文は編集中に横幅リアルタイム拡張（上限280px、最長行フィット）。編集ノード DOM 非再生成で caret/IME 保護、blur/focusout で自動 commit（データ損失防止）。
+  - **配置**: 内側エッジ合わせ（right=左端揃え / left=右端揃え）。接続線はノードのエッジに接続。
+  - **スタイル/構造**: ノード塗り/枠/形状・線種/色の自由設定（サブツリー継承）、複数選択グループ化（Boundary）、関連線（Relationship）、Floating Topic（自由配置）。
+  - **添付**: file/image/markdown を Outliner 同様に添付（markdown は side panel で開く）。
+  - **エクスポート**: PNG / SVG / OPML / Markdown。
+  - **ビューポート**: pan / zoom / fit / minimap。編集確定でフレーム不動（bounds シフト補償）、移動・追加は対象が画面外のときだけ最小パン（実ウィンドウ端から余白を確保、中央寄せしない）。
+  - Single mode / Note mode の両 provider で利用可能。
+
+### Changed
+- Outliner (FR-002) を「3 view modes（Outliner View / Table View / Mindmap Mode）」に更新。
+
 ## [0.207.59] - 2026-05-13
 
 ### Changed

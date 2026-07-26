@@ -15,6 +15,12 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'save' });
         },
 
+        // FR-TH-04: outliner の page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+        // 共通ファクトリに置くことで notes/standalone 両 outlinerHostBridge + standalone test bridge に伝播。
+        syncNodeTextToPageH1: function(pageId, text) {
+            postFn({ type: 'syncNodeTextToPageH1', pageId: pageId, text: text });
+        },
+
         // リンク
         openLink: function(href) {
             postFn({ type: 'openLink', href: href });
@@ -32,6 +38,21 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         reportBlur: function() {
             postFn({ type: 'webviewBlur' });
+        },
+
+        // リソースアクセス範囲設定 (FR-RR-06)
+        openResourceRootsSettings: function() {
+            postFn({ type: 'openResourceRootsSettings' });
+        },
+
+        // 保存先変更 (FR-MD-03, standalone md 限定)。kind='image'|'file'
+        setSaveDir: function(kind) {
+            postFn({ type: 'setSaveDir', kind: kind });
+        },
+
+        // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
+        exportBundle: function(options, sidePanelFilePath) {
+            postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
         },
 
         // 検索
@@ -160,6 +181,18 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 sourceLang: sourceLang,
                 targetLang: targetLang
             });
+        },
+
+        // 画像 fullscreen overlay の 3 ボタン用
+        copyImageToClipboard: function(absPath) {
+            postFn({ type: 'copyImageToClipboard', absPath: absPath });
+        },
+        openImageInNewTab: function(absPath) {
+            postFn({ type: 'openImageInNewTab', absPath: absPath });
+        },
+        openDrawioExternal: function(absPath) {
+            // .drawio.svg/.png を外部アプリで開く（mac: draw.io Desktop 優先 → OS デフォルト fallback）
+            postFn({ type: 'openDrawioExternal', absPath: absPath });
         },
 
         // メッセージ受信

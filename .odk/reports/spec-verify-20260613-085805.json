@@ -1,0 +1,1713 @@
+{
+  "project": "fractal",
+  "timestamp": "20260613-085805",
+  "duration_seconds": 28.3,
+  "file_count": 28,
+  "component_count": 48,
+  "passed": false,
+  "summary": {
+    "failed": 3,
+    "passed": 6,
+    "deterministic_passed": 1
+  },
+  "reviewers": [
+    {
+      "reviewer_id": "N01",
+      "name": "Problem Statement",
+      "score": 8,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 8.8,
+      "reasoning": "The specification contains a clear problem statement with all four required elements present. The WHO is identified as users who need both structured thinking (outliner) and long-form writing capabilities. The WHAT is the lack of integration between outlining tools and WYSIWYG Markdown editors. The WHY is implied through the goals of seamless integration and cooperation with AI tools. The SUCCESS criteria are defined through the three main goals and acceptance conditions. However, the problem statement could be more specific with quantifiable metrics and clearer pain points.",
+      "suggestions": [
+        "Add specific metrics to quantify the current pain points (e.g., time spent switching between tools, productivity loss)",
+        "Make the consequences of not solving the problem more explicit and measurable",
+        "Include more specific success metrics beyond the general goals (e.g., time savings, user satisfaction targets)",
+        "Consider adding user personas or specific use cases to make the WHO more concrete"
+      ],
+      "findings": [
+        {
+          "line": 15,
+          "text": "1. **Integrate outliner and WYSIWYG Markdown editor** \u2014 A single tool that supports structured thinking (tree) and long-form writing (page) seamlessly.",
+          "issue": "Success criteria present but could be more specific with measurable targets"
+        },
+        {
+          "line": 16,
+          "text": "2. **Cooperate with external AI tools** \u2014 External Change Sync plus `Cmd+L` bridge to the IDE's native AI features.",
+          "issue": "Goal stated but lacks specific success metrics"
+        },
+        {
+          "line": 17,
+          "text": "3. **Local-file-based with optional cloud backup** \u2014 Data lives in local files (`.out`, `.md`, `outline.note`); S3 Sync is opt-in.",
+          "issue": "Technical approach rather than user-focused success criteria"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N02",
+      "name": "Success Criteria",
+      "score": 3,
+      "threshold": 8,
+      "passed": false,
+      "elapsed_seconds": 10.9,
+      "reasoning": "The specification contains some success criteria but they are mostly qualitative and lack quantification. The \"Success Criteria\" section in overview.md lists three items: \"E2E tests stay green\", \"Zero S3 Sync data loss\", and \"No regressions across the four modes\" - but none specify measurable thresholds, timeframes, or quantified targets. The \"Acceptance Conditions\" are similarly vague. While there are some quantified NFRs mentioned (like \"50 MB per dropped file\"), these are capacity limits rather than success criteria. The criteria focus on binary pass/fail conditions without measurable performance targets, completion rates, or time-bound objectives.",
+      "suggestions": [
+        "Add quantified performance targets (e.g., 'UI response time under 100ms for typical operations')",
+        "Specify measurable reliability targets (e.g., '99.9% of file operations complete successfully')",
+        "Include time-bound criteria (e.g., 'E2E test suite completes within 10 minutes')",
+        "Add user experience metrics (e.g., 'External Change Sync reflects changes within 500ms')",
+        "Define measurable thresholds for 'zero data loss' verification",
+        "Specify quantified acceptance criteria for the four-mode coverage requirement"
+      ],
+      "findings": [
+        {
+          "line": 67,
+          "text": "E2E tests stay green.",
+          "issue": "Not quantified - no metrics for test coverage, execution time, or pass rate thresholds"
+        },
+        {
+          "line": 68,
+          "text": "Zero S3 Sync data loss.",
+          "issue": "Not measurable - no definition of how 'zero data loss' is verified or measured"
+        },
+        {
+          "line": 69,
+          "text": "No regressions across the four modes",
+          "issue": "Not quantified - no measurable criteria for what constitutes a regression"
+        },
+        {
+          "line": 74,
+          "text": "E2E tests all pass.",
+          "issue": "Binary pass/fail without quantified thresholds for performance, coverage, or execution time"
+        },
+        {
+          "line": 76,
+          "text": "No known bugs that violate the Hard MUST conditions.",
+          "issue": "Qualitative criteria without measurable bug severity thresholds or detection methods"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N03",
+      "name": "Scope Boundaries",
+      "score": 9,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 19.0,
+      "reasoning": "The specification has excellent scope definition across multiple documents. The overview.md explicitly defines goals and non-goals with clear rationale. The scope.md document provides a comprehensive \"Out of Scope / Future Work\" section with explicit categorization. Boundary definitions are well-established through system integration points and ownership models. The only minor weakness is that the in-scope items could be more explicitly enumerated in a single consolidated list, though they are clearly described throughout the functional specifications.",
+      "suggestions": [
+        "Consider adding a single consolidated 'IN SCOPE' list in overview.md to complement the existing goals section",
+        "The scope boundaries are excellent but could benefit from a visual diagram showing system boundaries",
+        "Consider adding estimated timelines or effort levels to the future work items in scope.md"
+      ],
+      "findings": [
+        {
+          "line": 15,
+          "text": "## Goals\n\n1. **Integrate outliner and WYSIWYG Markdown editor** \u2014 A single tool that supports structured thinking (tree) and long-form writing (page) seamlessly.\n2. **Cooperate with external AI tools** \u2014 External Change Sync plus `Cmd+L` bridge to the IDE's native AI features.\n3. **Local-file-based with optional cloud backup** \u2014 Data lives in local files (`.out`, `.md`, `outline.note`); S3 Sync is opt-in.\n\n## Non-goals\n\n1. **Real-time collaborative editing** \u2014 External Change Sync detects external changes only; it is not multi-cursor collaboration.\n2. **Direct integration with proprietary AI services** \u2014 AI cooperation is via bridges to the IDE-native AI (`Cmd+L`).\n3. **Server-side components** \u2014 No backend; all processing is local.",
+          "issue": "Excellent explicit goals and non-goals with clear rationale"
+        },
+        {
+          "line": 11,
+          "text": "## Functional scope expansion\n\n- Introduce unit tests (currently E2E only; the glossary notes \"desired but not yet introduced\").\n- Revive the Electron build (currently inactive).\n- Support `vscode.dev` (web build of VS Code).\n\n## Architecture expansion\n\n- Convert webview code to TypeScript (currently plain JS for historical reasons; technical debt).\n- Split `editor.js` into smaller files (currently a single ~17,000-line file).\n- Virtual scroll / lazy rendering for very large `.out` files.\n\n## Observability hardening\n\n- Telemetry infrastructure (visibility into usage).\n- Automated CI for E2E (e.g., GitHub Actions).",
+          "issue": "Comprehensive out-of-scope / future work section with clear categorization and rationale"
+        },
+        {
+          "line": 85,
+          "text": "**Upstream (data input sources):**\n- User direct input (WYSIWYG / Outliner)\n- Clipboard paste (HTML \u2192 Markdown via [odk:component:webview/html-md-converter])\n- Drag and drop: Finder / OS files (`.md` / image / arbitrary file, 50 MB cap)\n- Drag and drop: VS Code Explorer (via `file://` URI, no size cap)\n- Drag and drop: Web image URLs (`http(s)` images inserted directly)\n- File-import dialog: Markdown import (also resolves and copies relative images)\n- File-import dialog: arbitrary attachments\n- External processes writing to files (AI tools, drawio Desktop, etc.) \u2014 detected via fs watch\n- The Chrome Extension (Web Clipper) writes directly to `.out`\n- S3 Sync (restoring from / syncing with the remote)\n\n**Downstream (consumers):**\n- IDE AI (`Cmd+L` hands the `.md` to the IDE AI)\n- S3 (backup)\n- claude-skills (`fractal-search` / `fractal-edit` reading and writing)\n- llms.txt export (clipboard handoff to AI tools)\n\n**Ownership:** All data is on the user's local file system. Fractal is an editor; it does not own the data.",
+          "issue": "Clear boundary definitions showing system integration points and data ownership"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N04",
+      "name": "Terminology Consistency",
+      "score": 9,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 8.0,
+      "reasoning": "The specification demonstrates excellent domain terminology consistency. All major concepts have single, well-defined names that are used consistently throughout: \"AnyMarkdownEditorProvider\" (never shortened or varied), \"Custom Text Editor\" (consistent term), \"webview\" (never \"web view\" or \"iframe\"), \"postMessage\" (consistent API term), \"TextDocument\" (VS Code API term used consistently), \"WorkspaceEdit\" (consistent), \"External Change Sync\" (defined in glossary and used consistently), \"Side Panel\" (never \"sidebar\" or \"panel\"), etc. The document includes a comprehensive glossary that defines key terms, and technical terms are used precisely. There is one very minor inconsistency where \"image / file / drawio writes\" uses slashes in a way that could be clearer, but this doesn't create confusion about what the concepts are.",
+      "suggestions": [
+        "Consider using more consistent formatting for lists of related items (e.g., 'image, file, and drawio writes' instead of 'image / file / drawio writes')",
+        "The term 'webview messages' could be more precisely stated as 'webview postMessage events' for technical accuracy"
+      ],
+      "findings": [
+        {
+          "line": 8,
+          "text": "image / file / drawio writes",
+          "issue": "Inconsistent formatting for list of related concepts - uses slashes instead of standard list format"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N05",
+      "name": "Ambiguity",
+      "score": 9,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 6.4,
+      "reasoning": "The specification demonstrates exceptional precision throughout. The document uses specific quantified values (200 ms debounce, 50 MB file limits, 1000 ms sync intervals), exact technical terms, and concrete implementation details. Most language is deterministic and verifiable. Only one minor instance of imprecise language was found in a non-critical configuration section where \"3-tier\" could be more explicitly defined, but this doesn't significantly impact the overall precision of the specification.",
+      "suggestions": [
+        "Define what '3-tier (file > settings > default)' means explicitly - specify the exact precedence order and fallback behavior",
+        "Consider adding specific examples of what constitutes each tier in the configuration hierarchy"
+      ],
+      "findings": [
+        {
+          "line": 25,
+          "text": "3-tier: file > settings > default",
+          "issue": "Vague quantifier - '3-tier' is imprecise without explicit definition of what each tier contains"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N06",
+      "name": "Flow Completeness",
+      "score": 4,
+      "threshold": 8,
+      "passed": false,
+      "elapsed_seconds": 18.2,
+      "reasoning": "The specification describes several flows but has significant gaps in error handling and edge case coverage. While some flows mention happy paths clearly, error scenarios are either missing entirely or handled very generically. Key issues include: Flow 1 (Markdown Editor edit \u2192 save) only shows the happy path with no error handling for file write failures or sync conflicts. Flow 2 (External Change Sync) doesn't address what happens if the external process corrupts the file or if the diff algorithm fails. Flow 3 (Outliner D&D file import) mentions a 50 MB guard but doesn't specify what error the user sees when this limit is exceeded. The document mentions \"File-write failures surface via vscode.window.showErrorMessage\" but this is too generic and doesn't specify which operations, what specific errors, or user recovery options. Several operations like S3 sync, translate, and drawio watching mention failure modes but don't describe the complete error flow from user perspective.",
+      "suggestions": [
+        "Add specific error handling to Flow 1: what happens if TextDocument.applyEdit fails, if there's a file permission error, or if the debounce queue overflows",
+        "Expand Flow 2 to cover edge cases: what if external process corrupts the file, if diff algorithm fails to merge changes, or if multiple external processes modify simultaneously",
+        "Complete Flow 3 error paths: specify exact error message shown for 50MB limit, what happens if file classification fails, or if target directory is read-only",
+        "Replace generic 'File-write failures surface via vscode.window.showErrorMessage' with specific error scenarios for each operation type",
+        "Add error flows for S3 sync operations: network failures, authentication errors, bucket permission issues, and user recovery steps",
+        "Document drawio watcher failure modes: what if drawio file is locked, corrupted, or deleted while being watched",
+        "Add concurrent access scenarios: what happens if user edits while external sync is in progress, or if multiple VS Code instances open the same file"
+      ],
+      "findings": [
+        {
+          "line": 85,
+          "text": "U->>WV: type into contenteditable\n    WV->>WV: htmlToMarkdown() (DOM \u2192 MD serialize)\n    WV->>WV: debouncedSync (1000 ms + requestIdleCallback)\n    WV->>EH: postMessage({type: \"sync\", markdown})\n    EH->>EH: edit queue (debounce 100 ms)\n    EH->>FS: TextDocument.applyEdit (WorkspaceEdit)\n    FS-->>EH: onDidChangeTextDocument",
+          "issue": "Flow 1 only shows happy path - no error handling for TextDocument.applyEdit failures, file permission errors, or sync conflicts"
+        },
+        {
+          "line": 95,
+          "text": "AI->>FS: write .md file\n    FS-->>EH: onDidChangeTextDocument (fs watch)\n    EH->>EH: filter out our own edits\n    EH->>WV: postMessage({type: \"externalChange\", markdown})\n    WV->>WV: block-level DOM diff\n    WV->>WV: keep cursor position; update only changed blocks",
+          "issue": "Flow 2 missing error cases: what if external process corrupts file, diff algorithm fails, or multiple processes modify simultaneously"
+        },
+        {
+          "line": 105,
+          "text": "U->>WV: drop files\n    WV->>WV: classifyDroppedFile (md/image/file)\n    WV->>WV: FileReader (50 MB guard)\n    WV->>EH: postMessage({type: \"dropFilesImport\", items})",
+          "issue": "Flow 3 mentions 50 MB guard but doesn't specify what error user sees when limit exceeded or what happens if FileReader fails"
+        },
+        {
+          "line": 147,
+          "text": "File-write failures surface via `vscode.window.showErrorMessage`. There is no DLQ.",
+          "issue": "Generic error handling statement - doesn't specify which operations fail, what specific errors occur, or user recovery options"
+        },
+        {
+          "line": 135,
+          "text": "N/A \u2014 local operations have no retry. S3 Sync delegates retries to the AWS CLI's internal logic. Translate fails the request immediately when a 10 KB chunk fails.",
+          "issue": "Mentions S3 and Translate failures but doesn't describe complete error flow from user perspective or recovery steps"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N07",
+      "name": "Information Density",
+      "score": 9,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 6.5,
+      "reasoning": "The specification documents are exceptionally information-dense with minimal filler. The writing is crisp and direct, using bullet points, tables, and structured formats that maximize information density. Most sections get straight to the point with technical details. I found only one minor instance of conversational padding (\"It should be noted that\") in the any-markdown-editor-provider.md file. The documents consistently use concise phrasing like \"N/A \u2014 local extension only\" and \"TypeScript, VS Code API\" rather than wordy explanations. The technical writing style prioritizes clarity and brevity throughout.",
+      "suggestions": [
+        "Remove the conversational padding 'It should be noted that' from line 15 and start directly with 'There is no DLQ'",
+        "Consider if any of the 'N/A' responses could be more informative while remaining concise"
+      ],
+      "findings": [
+        {
+          "line": 15,
+          "text": "File-write failures surface via `vscode.window.showErrorMessage`. There is no DLQ.",
+          "issue": "Contains conversational padding 'It should be noted that' - should start directly with the factual statement"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N08",
+      "name": "No Technical Specs in Prose",
+      "score": 7,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 9.6,
+      "reasoning": "The document contains 3 legitimate technical specification violations where type annotations appear in prose descriptions. While the deterministic tool found 7 issues, 4 of them are false positives (common English usage of \"datetime\" in natural language contexts). The 3 real violations are: 1) \"UUID v4\" type specification on line 463, 2) \"UUID\" type annotation on line 1399, and 3) \"datetime\" as a column type specification on line 1312. These are minor leaks of technical implementation details that should be abstracted to entity references instead.",
+      "suggestions": [
+        "Replace 'UUID v4' with a reference to the entity manifest that defines page ID generation",
+        "Replace 'UUID' type annotation with '[odk:entity:editor/page] identifier' or similar entity reference",
+        "Replace 'datetime' column type with natural language description like 'timestamp columns' or reference to the appropriate entity manifest"
+      ],
+      "findings": [
+        {
+          "line": 463,
+          "text": "Page ID | `crypto.randomUUID()` (UUID v4) | `a1b2c3d4-...`",
+          "issue": "Contains type annotation 'UUID v4' which is a technical specification that should be in entity manifest"
+        },
+        {
+          "line": 1312,
+          "text": "| `datetime` | ISO date-time string | Click \u2192 native datetime-local picker |",
+          "issue": "Contains column type 'datetime' which is a technical specification that should be abstracted"
+        },
+        {
+          "line": 1399,
+          "text": "Page | A `.md` file attached to a Node via the `@page` command. The Node shows a page icon; `Cmd+Enter` opens the Markdown editor. Identified by a UUID.",
+          "issue": "Contains type annotation 'UUID' which is a technical specification that should be in entity reference"
+        },
+        {
+          "line": 337,
+          "text": "datetime",
+          "category": "type_annotation"
+        },
+        {
+          "line": 463,
+          "text": "UUID",
+          "category": "type_annotation"
+        },
+        {
+          "line": 981,
+          "text": "datetime",
+          "category": "type_annotation"
+        },
+        {
+          "line": 1312,
+          "text": "datetime",
+          "category": "type_annotation"
+        },
+        {
+          "line": 1312,
+          "text": "datetime",
+          "category": "type_annotation"
+        },
+        {
+          "line": 1367,
+          "text": "datetime",
+          "category": "type_annotation"
+        },
+        {
+          "line": 1399,
+          "text": "UUID",
+          "category": "type_annotation"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N09",
+      "name": "Component References",
+      "score": 2,
+      "threshold": 8,
+      "passed": false,
+      "elapsed_seconds": 12.4,
+      "reasoning": "The document has extensive use of [odk:...] references throughout, which is excellent. However, there are numerous specific component names that lack proper references. The automated tool found 88 issues, and upon review, most are legitimate violations where specific system components, entities, or external dependencies are mentioned without proper [odk:...] references. Key examples include: AnyMarkdownEditorProvider, CustomTextEditorProvider, TextDocument, WorkspaceEdit, SidePanelManager, DrawioWatcherRegistry, NotesFileManager, HtmlMdConverter, and many others. While the document demonstrates good understanding of the reference system (many proper references exist), the inconsistent application significantly impacts compliance.",
+      "suggestions": [
+        "Add [odk:component:host/any-markdown-editor-provider] reference for all mentions of AnyMarkdownEditorProvider",
+        "Add [odk:ext:vscode/text-document] reference for TextDocument mentions",
+        "Add [odk:ext:vscode/workspace-edit] reference for WorkspaceEdit mentions",
+        "Add [odk:component:host/side-panel-manager] reference for SidePanelManager mentions",
+        "Add [odk:component:host/drawio-watcher-registry] reference for DrawioWatcherRegistry mentions",
+        "Add [odk:component:host/notes-file-manager] reference for NotesFileManager mentions",
+        "Add [odk:component:webview/html-md-converter] reference for HtmlMdConverter mentions",
+        "Add [odk:ext:vscode/webview-panel] reference for WebviewPanel mentions",
+        "Add [odk:ext:vscode/tree-data-provider] reference for TreeDataProvider mentions",
+        "Systematically review all component names and add appropriate [odk:...] references"
+      ],
+      "findings": [
+        {
+          "line": 3,
+          "text": "AnyMarkdownEditorProvider",
+          "issue": "Component name mentioned without [odk:component:host/any-markdown-editor-provider] reference"
+        },
+        {
+          "line": 17,
+          "text": "CustomTextEditorProvider",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/custom-text-editor-provider] reference"
+        },
+        {
+          "line": 21,
+          "text": "TextDocument",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/text-document] reference"
+        },
+        {
+          "line": 22,
+          "text": "WorkspaceEdit",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/workspace-edit] reference"
+        },
+        {
+          "line": 68,
+          "text": "AnyMarkdownEditorProvider",
+          "issue": "Component name mentioned without [odk:component:host/any-markdown-editor-provider] reference"
+        },
+        {
+          "line": 69,
+          "text": "OutlinerProvider",
+          "issue": "Component name mentioned without [odk:component:host/outliner-provider] reference"
+        },
+        {
+          "line": 70,
+          "text": "NotesEditorProvider",
+          "issue": "Component name mentioned without [odk:component:host/notes-editor-provider] reference"
+        },
+        {
+          "line": 70,
+          "text": "WebviewPanel",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/webview-panel] reference"
+        },
+        {
+          "line": 71,
+          "text": "NotesFolderProvider",
+          "issue": "Component name mentioned without [odk:component:host/notes-folder-provider] reference"
+        },
+        {
+          "line": 71,
+          "text": "TreeDataProvider",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/tree-data-provider] reference"
+        },
+        {
+          "line": 72,
+          "text": "SidePanelManager",
+          "issue": "Component name mentioned without [odk:component:host/side-panel-manager] reference"
+        },
+        {
+          "line": 73,
+          "text": "DrawioWatcherRegistry",
+          "issue": "Component name mentioned without [odk:component:host/drawio-watcher-registry] reference"
+        },
+        {
+          "line": 74,
+          "text": "NotesFileManager",
+          "issue": "Component name mentioned without [odk:component:host/notes-file-manager] reference"
+        },
+        {
+          "line": 86,
+          "text": "HtmlMdConverter",
+          "issue": "Component name mentioned without [odk:component:webview/html-md-converter] reference"
+        },
+        {
+          "line": 126,
+          "text": "WebviewPanel",
+          "issue": "VS Code API mentioned without [odk:ext:vscode/webview-panel] reference"
+        },
+        {
+          "line": 3,
+          "text": "AnyMarkdownEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+        },
+        {
+          "line": 17,
+          "text": "CustomTextEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../CustomTextEditorProvider]"
+        },
+        {
+          "line": 21,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 22,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 22,
+          "text": "WorkspaceEdit",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WorkspaceEdit]"
+        },
+        {
+          "line": 68,
+          "text": "AnyMarkdownEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+        },
+        {
+          "line": 69,
+          "text": "OutlinerProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+        },
+        {
+          "line": 70,
+          "text": "NotesEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+        },
+        {
+          "line": 70,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 71,
+          "text": "NotesFolderProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFolderProvider]"
+        },
+        {
+          "line": 71,
+          "text": "TreeDataProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+        },
+        {
+          "line": 72,
+          "text": "SidePanelManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+        },
+        {
+          "line": 73,
+          "text": "DrawioWatcherRegistry",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../DrawioWatcherRegistry]"
+        },
+        {
+          "line": 74,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 86,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 126,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 137,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 137,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 138,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 139,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 139,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 140,
+          "text": "TreeDataProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+        },
+        {
+          "line": 140,
+          "text": "TreeItem",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeItem]"
+        },
+        {
+          "line": 141,
+          "text": "SidePanelHost",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelHost]"
+        },
+        {
+          "line": 155,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 181,
+          "text": "TreeDataProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+        },
+        {
+          "line": 295,
+          "text": "FileReader",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../FileReader]"
+        },
+        {
+          "line": 301,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 333,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 399,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 430,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 431,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 432,
+          "text": "SidePanelManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+        },
+        {
+          "line": 544,
+          "text": "DrawioWatcherRegistry",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../DrawioWatcherRegistry]"
+        },
+        {
+          "line": 557,
+          "text": "FileSystemWatcher",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../FileSystemWatcher]"
+        },
+        {
+          "line": 578,
+          "text": "SidePanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanel]"
+        },
+        {
+          "line": 596,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 596,
+          "text": "WorkspaceEdit",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WorkspaceEdit]"
+        },
+        {
+          "line": 628,
+          "text": "FileReader",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../FileReader]"
+        },
+        {
+          "line": 649,
+          "text": "GraphState",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../GraphState]"
+        },
+        {
+          "line": 649,
+          "text": "RunState",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../RunState]"
+        },
+        {
+          "line": 658,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 662,
+          "text": "InProgress",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../InProgress]"
+        },
+        {
+          "line": 663,
+          "text": "InProgress",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../InProgress]"
+        },
+        {
+          "line": 664,
+          "text": "InProgress",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../InProgress]"
+        },
+        {
+          "line": 777,
+          "text": "ArrowUp",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowUp]"
+        },
+        {
+          "line": 777,
+          "text": "ArrowDown",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowDown]"
+        },
+        {
+          "line": 792,
+          "text": "ArrowDown",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowDown]"
+        },
+        {
+          "line": 792,
+          "text": "ArrowUp",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowUp]"
+        },
+        {
+          "line": 814,
+          "text": "ArrowUp",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowUp]"
+        },
+        {
+          "line": 815,
+          "text": "ArrowDown",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowDown]"
+        },
+        {
+          "line": 816,
+          "text": "ArrowLeft",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowLeft]"
+        },
+        {
+          "line": 817,
+          "text": "ArrowRight",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../ArrowRight]"
+        },
+        {
+          "line": 1181,
+          "text": "NoteTreeFile",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NoteTreeFile]"
+        },
+        {
+          "line": 1182,
+          "text": "NoteTreeFolder",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NoteTreeFolder]"
+        },
+        {
+          "line": 1409,
+          "text": "HostBridge",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HostBridge]"
+        },
+        {
+          "line": 1409,
+          "text": "SidePanelHostBridge",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelHostBridge]"
+        },
+        {
+          "line": 1416,
+          "text": "AnyMarkdownEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+        },
+        {
+          "line": 1417,
+          "text": "OutlinerProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+        },
+        {
+          "line": 1418,
+          "text": "NotesEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+        },
+        {
+          "line": 1424,
+          "text": "TreeViewTable",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeViewTable]"
+        },
+        {
+          "line": 1460,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 1467,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 1483,
+          "text": "NoteTreeFile",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NoteTreeFile]"
+        },
+        {
+          "line": 1483,
+          "text": "NoteTreeFolder",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NoteTreeFolder]"
+        },
+        {
+          "line": 1488,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 1519,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 1603,
+          "text": "NotesEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+        },
+        {
+          "line": 1609,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 1618,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 1623,
+          "text": "WebviewPanel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+        },
+        {
+          "line": 1639,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 1661,
+          "text": "NotesFolderProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFolderProvider]"
+        },
+        {
+          "line": 1667,
+          "text": "TreeDataProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+        },
+        {
+          "line": 1669,
+          "text": "TreeItem",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeItem]"
+        },
+        {
+          "line": 1673,
+          "text": "TreeDataProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+        },
+        {
+          "line": 1682,
+          "text": "CloudWatch",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../CloudWatch]"
+        },
+        {
+          "line": 1730,
+          "text": "OutlinerProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+        },
+        {
+          "line": 1746,
+          "text": "CustomTextEditorProvider",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../CustomTextEditorProvider]"
+        },
+        {
+          "line": 1750,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 1925,
+          "text": "HtmlMdConverter",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+        },
+        {
+          "line": 2060,
+          "text": "SidePanelManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+        },
+        {
+          "line": 2088,
+          "text": "OutlinerModel",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../OutlinerModel]"
+        },
+        {
+          "line": 2099,
+          "text": "SidePanelManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+        },
+        {
+          "line": 2102,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        },
+        {
+          "line": 2113,
+          "text": "TextDocument",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../TextDocument]"
+        },
+        {
+          "line": 2114,
+          "text": "SidePanelManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+        },
+        {
+          "line": 2115,
+          "text": "NotesFileManager",
+          "category": "unlinked_entity",
+          "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+        }
+      ]
+    },
+    {
+      "reviewer_id": "N10",
+      "name": "YAGNI",
+      "score": 9,
+      "threshold": 8,
+      "passed": true,
+      "elapsed_seconds": 6.9,
+      "reasoning": "The specification is very well-scoped and avoids most YAGNI violations. The system is built for specific, current needs rather than hypothetical future requirements. The architecture is appropriately sized for a VS Code extension with clear use cases. However, there is one minor instance where future extensibility is mentioned without clear current need - the component ID system uses a namespace format that suggests a plugin architecture when the system appears to be a monolithic extension.",
+      "suggestions": [
+        "Remove or justify the odk:component namespace format if it's not currently needed for plugin architecture",
+        "Consider whether the complex component dependency graph could be simplified if no actual plugin system exists",
+        "Verify that all mentioned external dependencies are actually required rather than added for potential future use"
+      ],
+      "findings": [
+        {
+          "line": 1,
+          "text": "Component: [odk:component:host/any-markdown-editor-provider]",
+          "issue": "Uses a complex namespace format (odk:component:host/) that suggests a plugin architecture, but the system appears to be a monolithic VS Code extension without actual plugin capabilities"
+        }
+      ]
+    }
+  ],
+  "deterministic_findings": {
+    "N08": [
+      {
+        "line": 337,
+        "text": "datetime",
+        "category": "type_annotation"
+      },
+      {
+        "line": 463,
+        "text": "UUID",
+        "category": "type_annotation"
+      },
+      {
+        "line": 981,
+        "text": "datetime",
+        "category": "type_annotation"
+      },
+      {
+        "line": 1312,
+        "text": "datetime",
+        "category": "type_annotation"
+      },
+      {
+        "line": 1312,
+        "text": "datetime",
+        "category": "type_annotation"
+      },
+      {
+        "line": 1367,
+        "text": "datetime",
+        "category": "type_annotation"
+      },
+      {
+        "line": 1399,
+        "text": "UUID",
+        "category": "type_annotation"
+      }
+    ],
+    "N09": [
+      {
+        "line": 3,
+        "text": "AnyMarkdownEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+      },
+      {
+        "line": 17,
+        "text": "CustomTextEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../CustomTextEditorProvider]"
+      },
+      {
+        "line": 21,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 22,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 22,
+        "text": "WorkspaceEdit",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WorkspaceEdit]"
+      },
+      {
+        "line": 68,
+        "text": "AnyMarkdownEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+      },
+      {
+        "line": 69,
+        "text": "OutlinerProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+      },
+      {
+        "line": 70,
+        "text": "NotesEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+      },
+      {
+        "line": 70,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 71,
+        "text": "NotesFolderProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFolderProvider]"
+      },
+      {
+        "line": 71,
+        "text": "TreeDataProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+      },
+      {
+        "line": 72,
+        "text": "SidePanelManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+      },
+      {
+        "line": 73,
+        "text": "DrawioWatcherRegistry",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../DrawioWatcherRegistry]"
+      },
+      {
+        "line": 74,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 86,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 126,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 137,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 137,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 138,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 139,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 139,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 140,
+        "text": "TreeDataProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+      },
+      {
+        "line": 140,
+        "text": "TreeItem",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeItem]"
+      },
+      {
+        "line": 141,
+        "text": "SidePanelHost",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelHost]"
+      },
+      {
+        "line": 155,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 181,
+        "text": "TreeDataProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+      },
+      {
+        "line": 295,
+        "text": "FileReader",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../FileReader]"
+      },
+      {
+        "line": 301,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 333,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 399,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 430,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 431,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 432,
+        "text": "SidePanelManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+      },
+      {
+        "line": 544,
+        "text": "DrawioWatcherRegistry",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../DrawioWatcherRegistry]"
+      },
+      {
+        "line": 557,
+        "text": "FileSystemWatcher",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../FileSystemWatcher]"
+      },
+      {
+        "line": 578,
+        "text": "SidePanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanel]"
+      },
+      {
+        "line": 596,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 596,
+        "text": "WorkspaceEdit",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WorkspaceEdit]"
+      },
+      {
+        "line": 628,
+        "text": "FileReader",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../FileReader]"
+      },
+      {
+        "line": 649,
+        "text": "GraphState",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../GraphState]"
+      },
+      {
+        "line": 649,
+        "text": "RunState",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../RunState]"
+      },
+      {
+        "line": 658,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 662,
+        "text": "InProgress",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../InProgress]"
+      },
+      {
+        "line": 663,
+        "text": "InProgress",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../InProgress]"
+      },
+      {
+        "line": 664,
+        "text": "InProgress",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../InProgress]"
+      },
+      {
+        "line": 777,
+        "text": "ArrowUp",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowUp]"
+      },
+      {
+        "line": 777,
+        "text": "ArrowDown",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowDown]"
+      },
+      {
+        "line": 792,
+        "text": "ArrowDown",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowDown]"
+      },
+      {
+        "line": 792,
+        "text": "ArrowUp",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowUp]"
+      },
+      {
+        "line": 814,
+        "text": "ArrowUp",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowUp]"
+      },
+      {
+        "line": 815,
+        "text": "ArrowDown",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowDown]"
+      },
+      {
+        "line": 816,
+        "text": "ArrowLeft",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowLeft]"
+      },
+      {
+        "line": 817,
+        "text": "ArrowRight",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../ArrowRight]"
+      },
+      {
+        "line": 1181,
+        "text": "NoteTreeFile",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NoteTreeFile]"
+      },
+      {
+        "line": 1182,
+        "text": "NoteTreeFolder",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NoteTreeFolder]"
+      },
+      {
+        "line": 1409,
+        "text": "HostBridge",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HostBridge]"
+      },
+      {
+        "line": 1409,
+        "text": "SidePanelHostBridge",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelHostBridge]"
+      },
+      {
+        "line": 1416,
+        "text": "AnyMarkdownEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../AnyMarkdownEditorProvider]"
+      },
+      {
+        "line": 1417,
+        "text": "OutlinerProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+      },
+      {
+        "line": 1418,
+        "text": "NotesEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+      },
+      {
+        "line": 1424,
+        "text": "TreeViewTable",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeViewTable]"
+      },
+      {
+        "line": 1460,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 1467,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 1483,
+        "text": "NoteTreeFile",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NoteTreeFile]"
+      },
+      {
+        "line": 1483,
+        "text": "NoteTreeFolder",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NoteTreeFolder]"
+      },
+      {
+        "line": 1488,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 1519,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 1603,
+        "text": "NotesEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesEditorProvider]"
+      },
+      {
+        "line": 1609,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 1618,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 1623,
+        "text": "WebviewPanel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../WebviewPanel]"
+      },
+      {
+        "line": 1639,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 1661,
+        "text": "NotesFolderProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFolderProvider]"
+      },
+      {
+        "line": 1667,
+        "text": "TreeDataProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+      },
+      {
+        "line": 1669,
+        "text": "TreeItem",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeItem]"
+      },
+      {
+        "line": 1673,
+        "text": "TreeDataProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TreeDataProvider]"
+      },
+      {
+        "line": 1682,
+        "text": "CloudWatch",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../CloudWatch]"
+      },
+      {
+        "line": 1730,
+        "text": "OutlinerProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../OutlinerProvider]"
+      },
+      {
+        "line": 1746,
+        "text": "CustomTextEditorProvider",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../CustomTextEditorProvider]"
+      },
+      {
+        "line": 1750,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 1925,
+        "text": "HtmlMdConverter",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../HtmlMdConverter]"
+      },
+      {
+        "line": 2060,
+        "text": "SidePanelManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+      },
+      {
+        "line": 2088,
+        "text": "OutlinerModel",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../OutlinerModel]"
+      },
+      {
+        "line": 2099,
+        "text": "SidePanelManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+      },
+      {
+        "line": 2102,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      },
+      {
+        "line": 2113,
+        "text": "TextDocument",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../TextDocument]"
+      },
+      {
+        "line": 2114,
+        "text": "SidePanelManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../SidePanelManager]"
+      },
+      {
+        "line": 2115,
+        "text": "NotesFileManager",
+        "category": "unlinked_entity",
+        "suggestion": "Consider [odk:entity:.../NotesFileManager]"
+      }
+    ]
+  },
+  "component_checks": {
+    "total": 48,
+    "passed": 39,
+    "findings": [
+      {
+        "component_id": "odk:entity:editor/page",
+        "file_path": ".odk/components/entity/editor/page.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'page' is not PascalCase.",
+        "suggestion": "Rename 'page' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:entity:notes/note-tree-file",
+        "file_path": ".odk/components/entity/notes/note-tree-file.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'note-tree-file' is not PascalCase.",
+        "suggestion": "Rename 'note-tree-file' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:entity:notes/note-tree-folder",
+        "file_path": ".odk/components/entity/notes/note-tree-folder.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'note-tree-folder' is not PascalCase.",
+        "suggestion": "Rename 'note-tree-folder' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:entity:notes/outline-note",
+        "file_path": ".odk/components/entity/notes/outline-note.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'outline-note' is not PascalCase.",
+        "suggestion": "Rename 'outline-note' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:entity:outliner/node",
+        "file_path": ".odk/components/entity/outliner/node.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'node' is not PascalCase.",
+        "suggestion": "Rename 'node' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:entity:outliner/out-file",
+        "file_path": ".odk/components/entity/outliner/out-file.yaml",
+        "check": "naming-not-pascal-case",
+        "severity": "warning",
+        "message": "Entity name 'out-file' is not PascalCase.",
+        "suggestion": "Rename 'out-file' to PascalCase (e.g. 'Order', 'UserProfile')."
+      },
+      {
+        "component_id": "odk:nfr:capacity/drop-file-size",
+        "file_path": ".odk/components/nfr/capacity/drop-file-size.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: '50 MB per dropped file (webview Files channel)'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/drop-file-size",
+        "file_path": ".odk/components/nfr/capacity/drop-file-size.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/nav-history",
+        "file_path": ".odk/components/nfr/capacity/nav-history.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: '50 entries in navigation history'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/nav-history",
+        "file_path": ".odk/components/nfr/capacity/nav-history.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/s3-sync-scale",
+        "file_path": ".odk/components/nfr/capacity/s3-sync-scale.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: '~10,000 files per Note / Outliner; 500 files per sync batch'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/s3-sync-scale",
+        "file_path": ".odk/components/nfr/capacity/s3-sync-scale.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/translate-chunk",
+        "file_path": ".odk/components/nfr/capacity/translate-chunk.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: 'Per-request chunk \u2264 10,000 bytes'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/translate-chunk",
+        "file_path": ".odk/components/nfr/capacity/translate-chunk.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/undo-stack",
+        "file_path": ".odk/components/nfr/capacity/undo-stack.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: '200 snapshots per webview (Editor and Outliner separately)'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:capacity/undo-stack",
+        "file_path": ".odk/components/nfr/capacity/undo-stack.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:performance/no-ui-block",
+        "file_path": ".odk/components/nfr/performance/no-ui-block.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: 'No frame drops or input latency during continuous typing'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:performance/no-ui-block",
+        "file_path": ".odk/components/nfr/performance/no-ui-block.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/e2e-green",
+        "file_path": ".odk/components/nfr/reliability/e2e-green.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: 'All E2E specs pass on the release branch'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/e2e-green",
+        "file_path": ".odk/components/nfr/reliability/e2e-green.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/mode-coverage",
+        "file_path": ".odk/components/nfr/reliability/mode-coverage.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: 'Feature works in all 4 modes'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/mode-coverage",
+        "file_path": ".odk/components/nfr/reliability/mode-coverage.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/no-data-loss",
+        "file_path": ".odk/components/nfr/reliability/no-data-loss.yaml",
+        "check": "nfr-non-numeric-target",
+        "severity": "error",
+        "message": "NFR target is not numeric: 'Zero data loss across all release versions'.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      },
+      {
+        "component_id": "odk:nfr:reliability/no-data-loss",
+        "file_path": ".odk/components/nfr/reliability/no-data-loss.yaml",
+        "check": "nfr-missing-unit",
+        "severity": "warning",
+        "message": "NFR is missing a 'unit' field.",
+        "suggestion": "Change target to a number and add unit. Example: target: 200, unit: ms"
+      }
+    ]
+  },
+  "reference_integrity": {
+    "valid_refs": 48,
+    "undefined": 0,
+    "orphaned": 0,
+    "broken_cross_refs": 0
+  }
+}

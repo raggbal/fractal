@@ -1,0 +1,21 @@
+$schema: odk:schema:ext
+id: odk:ext:npm/turndown
+description: |
+  npm packages `turndown` and `turndown-plugin-gfm`. The HTML→Markdown
+  converter inside [odk:component:webview/html-md-converter] is built on
+  turndown, with custom rules for tables, code blocks, math, and Mermaid.
+base_url: "https://www.npmjs.com/package/turndown"
+auth: none
+endpoints:
+  turndown:
+    method: POST
+    path: "turndown.turndown(${html})"
+    response: any
+    description: "Convert HTML to Markdown using configured rules"
+rate_limits:
+  notes: "In-process JS library; no rate limit"
+error_handling:
+  parse_error: "turndown handles malformed HTML; output is best-effort Markdown"
+retry_strategy:
+  max_retries: 0
+  notes: "Synchronous library; not retryable"

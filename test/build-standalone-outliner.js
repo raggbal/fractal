@@ -18,6 +18,13 @@ const outlinerJsPath = path.join(__dirname, '../src/webview/outliner.js');
 const outlinerCellJsPath = path.join(__dirname, '../src/webview/outliner-cell.js');
 const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.js');
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
+// Mindmap Mode (sprint 20260701-122355)
+const mindmapModelJsPath = path.join(__dirname, '../src/webview/mindmap-model.js');
+const mindmapLayoutJsPath = path.join(__dirname, '../src/webview/mindmap-layout.js');
+const mindmapRenderJsPath = path.join(__dirname, '../src/webview/mindmap-render.js');
+const mindmapExportJsPath = path.join(__dirname, '../src/webview/mindmap-export.js');
+const mindmapInteractionsJsPath = path.join(__dirname, '../src/webview/mindmap-interactions.js');
+const mindmapCssPath = path.join(__dirname, '../src/webview/mindmap.css');
 const outlinerCssPath = path.join(__dirname, '../src/webview/outliner.css');
 const stylesPath = path.join(__dirname, '../src/webview/styles.css');
 const tokensCssPath = path.join(__dirname, '../src/webview/tokens.css');
@@ -25,6 +32,7 @@ const frBaseCssPath = path.join(__dirname, '../src/webview/fr-base.css');
 const frComponentsCssPath = path.join(__dirname, '../src/webview/fr-components.css');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
 const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
+const clipSelectPath = path.join(__dirname, '../src/webview/outliner-clip-select.js');
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
 const outputPath = path.join(__dirname, 'html/standalone-outliner.html');
 
@@ -58,6 +66,10 @@ const outlinerCss = fs.readFileSync(outlinerCssPath, 'utf-8')
 
 // --- スクリプト読み込み ---
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
+// sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー
+const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
+const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
+const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 
 let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
 editorScript = editorScript
@@ -69,10 +81,18 @@ editorScript = editorScript
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
+const clipSelectScript = fs.readFileSync(clipSelectPath, 'utf-8');
 const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
+// Mindmap Mode scripts + css
+const mindmapModelScript = fs.readFileSync(mindmapModelJsPath, 'utf-8');
+const mindmapLayoutScript = fs.readFileSync(mindmapLayoutJsPath, 'utf-8');
+const mindmapRenderScript = fs.readFileSync(mindmapRenderJsPath, 'utf-8');
+const mindmapExportScript = fs.readFileSync(mindmapExportJsPath, 'utf-8');
+const mindmapInteractionsScript = fs.readFileSync(mindmapInteractionsJsPath, 'utf-8');
+const mindmapCss = fs.existsSync(mindmapCssPath) ? fs.readFileSync(mindmapCssPath, 'utf-8') : '';
 
 // サイドパネルHTML生成
 const { generateSidePanelHtml } = require(editorBodyHtmlPath);
@@ -98,6 +118,11 @@ const testOutlinerHostBridge = `
         syncData: function(jsonString) {
             window.__testApi.messages.push({ type: 'syncData', content: jsonString });
             window.__testApi.lastSyncData = jsonString;
+        },
+        // Mindmap Mode (sprint 20260701-122355): export mock (#M1). TC-223/224/225 は
+        // window.__testApi.messages にこの msg が積まれることで検証する。
+        exportMindmap: function(format, payload, suggestedName) {
+            window.__testApi.messages.push({ type: 'exportMindmap', format: format, payload: payload, suggestedName: suggestedName });
         },
         makePage: function(nodeId, pageId, title) {
             window.__testApi.messages.push({ type: 'makePage', nodeId: nodeId, pageId: pageId, title: title });
@@ -159,6 +184,14 @@ const testOutlinerHostBridge = `
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        // FR-MM-FD: mindmap 外部ファイル D&D の E2E 用。本番 provider の代わりに messages に記録するだけ
+        //   （targetNodeId + position の検証。これが無いと mindmap の drop リスナーが呼んでも undefined で hard error）。
+        dropFilesImport: function(imports, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropFilesImport', imports: imports, targetNodeId: targetNodeId, position: position });
+        },
+        dropVscodeUrisImport: function(uris, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropVscodeUrisImport', uris: uris, targetNodeId: targetNodeId, position: position });
+        },
         importFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },
@@ -201,10 +234,11 @@ const html = `<!DOCTYPE html>
     <style>${frComponentsCss}</style>
     <style>${stylesContent}</style>
     <style>${outlinerCss}</style>
+    <style>${mindmapCss}</style>
 </head>
 <body>
     <div class="outliner-container">
-        <div class="outliner-page-title" style="display:none">
+        <div class="outliner-page-title">
             <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
         </div>
         <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
@@ -231,6 +265,10 @@ const html = `<!DOCTYPE html>
         </div>
         <div class="outliner-breadcrumb"></div>
         <div class="outliner-tree" role="tree"></div>
+        <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+            <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+            <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+        </div>
     </div>
 
     ${sidePanelHtml}
@@ -266,6 +304,8 @@ const html = `<!DOCTYPE html>
     <script src="vendor/turndown.js"></script>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>
+    <script src="vendor/d3-hierarchy.min.js"></script>
+    <script src="vendor/d3-flextree.min.js"></script>
 
     <script>
     window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -274,6 +314,15 @@ const html = `<!DOCTYPE html>
     </script>
     <script>
     __EDITOR_UTILS_SCRIPT__
+    </script>
+    <script>
+    __COLOR_PALETTE_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_PICKER_SCRIPT__
     </script>
     <script>
     __EDITOR_SCRIPT__
@@ -294,7 +343,25 @@ const html = `<!DOCTYPE html>
     __OUTLINER_MODEL_SCRIPT__
     </script>
     <script>
+    __MINDMAP_MODEL_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_LAYOUT_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_RENDER_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_EXPORT_SCRIPT__
+    </script>
+    <script>
+    __MINDMAP_INTERACTIONS_SCRIPT__
+    </script>
+    <script>
     __OUTLINER_SEARCH_SCRIPT__
+    </script>
+    <script>
+    __CLIP_SELECT_SCRIPT__
     </script>
     <script>
     __OUTLINER_SCRIPT__
@@ -315,6 +382,10 @@ const html = `<!DOCTYPE html>
     };
     // Phase F: spec から Outliner.getModel() にアクセスするためのショートカット
     window.__testApi.getModel = function() { return Outliner.getModel(); };
+    // FR-TH-05: sidepanel md 編集シミュレート（本番 syncContent 経路を通す）
+    window.__testApi.editSidePanelMarkdown = function(md) {
+        return Outliner.__editSidePanelMarkdownForTest ? Outliner.__editSidePanelMarkdownForTest(md) : false;
+    };
     // 空データで初期化
     window.__testApi.initOutliner();
     </script>
@@ -325,13 +396,22 @@ const html = `<!DOCTYPE html>
 var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
 var result = html;
 result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
+result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
+result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
+result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testOutlinerHostBridge);
 result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
+result = safeReplace(result, '__MINDMAP_MODEL_SCRIPT__', mindmapModelScript);
+result = safeReplace(result, '__MINDMAP_LAYOUT_SCRIPT__', mindmapLayoutScript);
+result = safeReplace(result, '__MINDMAP_RENDER_SCRIPT__', mindmapRenderScript);
+result = safeReplace(result, '__MINDMAP_EXPORT_SCRIPT__', mindmapExportScript);
+result = safeReplace(result, '__MINDMAP_INTERACTIONS_SCRIPT__', mindmapInteractionsScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
+result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 fs.writeFileSync(outputPath, result);
 

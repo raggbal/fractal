@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fractal is a TypeScript+JavaScript VSCode extension.
+# All ODK-bundled pre-commit plugins (lint-ruff, python-quality,
+# python-tdd-guard, types-ty) target Python projects and fail here,
+# so we skip the pre-commit verification trigger.
+exit 0

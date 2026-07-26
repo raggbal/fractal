@@ -5,18 +5,35 @@
  *
  * @param {Record<string, string>} messages - i18n メッセージ
  * @param {string} platform - process.platform ('darwin' | 'win32' | 'linux')
+ * @param {{ includeSidePanel?: boolean, showOpenInNewTab?: boolean, showNotesPanelToggle?: boolean }} [options]
+ *   includeSidePanel=false の場合 side-panel/overlay の HTML を出力しない
+ *   (Notes モードのように外側で side-panel を持つホスト用)。省略時は true。
+ *   showOpenInNewTab=true の場合 toolbar 右端に「新タブで開く」ボタンを追加
+ *   (Notes 内 .md メインペイン用)。
+ *   showNotesPanelToggle=true の場合 toolbar 左端に「notes file panel を開く」ボタンを追加
+ *   (Notes 内 .md メインペイン用、file-panel が collapsed の時のみ表示)。
  * @returns {string} <div class="container">...</div> の HTML文字列
  */
-function generateEditorBodyHtml(messages, platform) {
+function generateEditorBodyHtml(messages, platform, options) {
     const msg = messages || {};
     const m = (key) => msg[key] || '';
     const mod = platform === 'darwin' ? 'Cmd' : 'Ctrl';
+    const includeSidePanel = !options || options.includeSidePanel !== false;
+    const showOpenInNewTab = !!(options && options.showOpenInNewTab);
+    const showNotesPanelToggle = !!(options && options.showNotesPanelToggle);
+    const openInNewTabBtn = showOpenInNewTab
+        ? `<button data-action="openInNewTab" title="Open in new tab"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>`
+        : '';
+    const notesPanelToggleBtn = showNotesPanelToggle
+        ? `<button class="notes-panel-toggle-btn notes-panel-toggle-btn--toolbar" title="Show file panel (Cmd+\\)">&#9776;</button>`
+        : '';
 
     return `<div class="container">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
+                ${showNotesPanelToggle ? `<button class="notes-panel-toggle-btn notes-panel-toggle-btn--outline" title="Show file panel (Cmd+\\)">&#9776;</button>` : ''}
                 <h3>Outline</h3>
-                <button class="sidebar-toggle" id="closeSidebar" title="${m('closeOutline')} (Cmd+\\)">&#9776;</button>
+                <button class="sidebar-toggle" id="closeSidebar" title="${m('closeOutline')} (Cmd+\\)">&times;</button>
             </div>
             <nav class="outline" id="outline"></nav>
             <div class="sidebar-footer">
@@ -33,6 +50,7 @@ function generateEditorBodyHtml(messages, platform) {
         <main class="editor-container">
             <div class="toolbar" id="toolbar">
                 <div class="toolbar-fixed toolbar-fixed--left">
+                    ${notesPanelToggleBtn}
                     <button data-action="openOutline" class="menu-btn hidden" id="openSidebarBtn" title="${m('openOutline')} (Cmd+\\)"></button>
                     <div class="toolbar-group" data-group="history">
                         <button data-action="undo" title="${m('undo')}"></button>
@@ -42,7 +60,6 @@ function generateEditorBodyHtml(messages, platform) {
                 <button class="toolbar-scroll-btn toolbar-scroll-btn--left hidden" id="toolbarScrollLeft">&#x276E;</button>
                 <div class="toolbar-inner" id="toolbarInner">
                     <div class="toolbar-group" data-group="translate">
-                        <button data-action="translateLang" title="Translation language">ja → en</button>
                         <button data-action="translate" title="Translate"></button>
                     </div>
                     <div class="toolbar-group" data-group="inline">
@@ -50,6 +67,7 @@ function generateEditorBodyHtml(messages, platform) {
                         <button data-action="italic" title="${m('italic')}"></button>
                         <button data-action="strikethrough" title="${m('strikethrough')}"></button>
                         <button data-action="code" title="${m('inlineCode')}"></button>
+                        <button data-action="textColor" title="${m('textColor')}">A</button>
                     </div>
                     <div class="toolbar-group" data-group="block">
                         <button data-action="heading1" title="${m('heading1')}"></button>
@@ -79,7 +97,9 @@ function generateEditorBodyHtml(messages, platform) {
                         <button data-action="attachments" title="${m('attachments') || 'Attachments'}"></button>
                         <button data-action="openInTextEditor" title="${m('openInTextEditor')} (${mod}+Shift+.)"></button>
                         <button data-action="source" title="${m('toggleSourceMode')} (${mod}+.)"></button>
+                        <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
+                        ${openInNewTabBtn}
                     </div>
                 </div>
             </div>
@@ -107,7 +127,11 @@ function generateEditorBodyHtml(messages, platform) {
                 <div class="editor" id="editor" contenteditable="true" spellcheck="true"></div>
                 <textarea class="source-editor" id="sourceEditor" style="display: none;"></textarea>
             </div>
-            ${generateSidePanelHtml(msg)}
+            <div class="fractal-resource-footer" style="display:none" data-rrf-template="${m('resourceAccessOutOfRangeCount')}">
+                <span class="rrf-msg">${m('resourceAccessOutOfRange')}</span>
+                <button class="rrf-open-settings" data-action="openResourceRootsSettings">${m('resourceAccessOpenSettings')}</button>
+            </div>
+            ${includeSidePanel ? generateSidePanelHtml(msg) : ''}
         </main>
     </div>`;
 }
@@ -126,7 +150,7 @@ function generateSidePanelHtml(messages) {
             <aside class="side-panel-sidebar" id="sidePanelSidebar">
                 <div class="sidebar-header">
                     <h3>Outline</h3>
-                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="${msg.closeOutline || 'Close Outline'} (Cmd+\\)">&#9776;</button>
+                    <button class="sidebar-toggle" id="sidePanelSidebarClose" title="${msg.closeOutline || 'Close Outline'} (Cmd+\\)">&times;</button>
                 </div>
                 <nav class="side-panel-toc" id="sidePanelToc"></nav>
                 <div class="side-panel-toc-footer">
@@ -151,6 +175,8 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-header-btn side-panel-nav-leading" data-action="navigateForward" title="Forward (Opt+Right)" disabled>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
+                    <!-- 狭幅レスポンシブ: lead（outline+nav）と close は固定、中央のみ横スクロール -->
+                    <div class="side-panel-header-scroll">
                     <span class="side-panel-filename" id="sidePanelFilename"></span>
                     <div class="side-panel-header-actions">
                         <button class="side-panel-header-btn side-panel-expand" id="sidePanelExpand" title="Expand">
@@ -161,6 +187,9 @@ function generateSidePanelHtml(messages) {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="source" title="Source mode"></button>
                     </div>
                     <button class="side-panel-copy-path" id="sidePanelCopyPath" title="Copy file path">
@@ -169,6 +198,8 @@ function generateSidePanelHtml(messages) {
                     <button class="side-panel-copy-inapp-link" id="sidePanelCopyInAppLink" title="${msg.copyInAppLink || 'Copy In-App Link'}" style="display:none">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                     </button>
+                    </div>
+                    <!-- sprint 20260725: open-in-tab は close と同様に scroll 外＝固定表示（狭幅でも隠れない） -->
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                     </button>
@@ -176,8 +207,8 @@ function generateSidePanelHtml(messages) {
                 </div>
                 <div class="side-panel-iframe-container" id="sidePanelIframeContainer"></div>
             </div>
-        </div>
-        <div class="side-panel-overlay" id="sidePanelOverlay"></div>`;
+        </div>`;
 }
+// sprint 20260724-042927: .side-panel-overlay（シャドー）を全モードで廃止（外側クリック close も廃止）。
 
 module.exports = { generateEditorBodyHtml, generateSidePanelHtml };

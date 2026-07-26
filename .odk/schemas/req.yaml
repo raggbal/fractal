@@ -1,0 +1,39 @@
+name: req
+description: "A business requirement or rule that must be implemented"
+version: 1
+fields:
+  id:
+    type: string
+    required: true
+    pattern: "^odk:req:.+"
+    description: "Unique component identifier in odk:req:namespace/name format"
+  description:
+    type: text
+    required: true
+    description: "What this requirement mandates"
+  type:
+    type: enum
+    values: [business-rule, validation, constraint, policy]
+    required: true
+    description: "Category of requirement"
+  priority:
+    type: enum
+    values: [critical, high, medium, low]
+    required: true
+    description: "Implementation priority"
+  rule:
+    type: text
+    required: true
+    description: "The rule in precise, testable language"
+  failure_behavior:
+    type: string
+    required: true
+    description: "What happens when the rule is violated (reference to error component)"
+  related_components:
+    type: ref_list
+    required: true
+    description: "Components that participate in or are affected by this requirement"
+  acceptance_criteria:
+    type: list
+    required: true
+    description: "Testable criteria that prove this requirement is met"

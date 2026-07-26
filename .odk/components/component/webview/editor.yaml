@@ -1,0 +1,66 @@
+$schema: odk:schema:component
+id: odk:component:webview/editor
+description: |
+  WYSIWYG contenteditable Markdown editor implemented as a single ~18,000-
+  line `editor.js`. Renders inline previews for headings, lists, tables,
+  code blocks, math, Mermaid, and drawio. Owns paste / drop classification
+  in the webview tier. Provides a shared block fullscreen overlay
+  (`openBlockFullscreen`) for code / Mermaid / math blocks with zoom, pan,
+  and ESC-capture scoping so it closes only itself even when nested inside
+  the Markdown Side Panel. Inline images get their own fullscreen overlay
+  (`outliner-image-overlay`) with a 3-button toolbar (Copy Image / Open in
+  New Tab / Copy Path) that dispatches via host bridge methods
+  (`copyImageToClipboard`, `openImageInNewTab`). See
+  docs/specs/markdown-editor.md and ADR-006.
+type: input
+framework: agnostic
+props:
+  initialMarkdown:
+    type: string
+    required: true
+    description: "Initial Markdown source from the host"
+  config:
+    type: "WebviewEditorConfig"
+    required: true
+    description: |
+      fontSize, toolbarMode, imageMaxWidth, theme tokens, language,
+      outlinerPageTitle, showTranslateButtons, enableDebugLogging,
+      forceRelativeImagePath, forceRelativeFilePath. Pushed into the
+      webview at refresh time by AnyMarkdownEditorProvider /
+      NotesEditorProvider.
+emits:
+  # Document sync / save (note: the message type is `edit`, not `sync`;
+  # debounced markdown is sent as { type: 'edit', content } via
+  # window.hostBridge.syncContent → vscode-host-bridge.js)
+  - "webview→host postMessage: edit, save, editingStateChanged, webviewFocus, webviewBlur"
+  # Image / file / drawio writes
+  - "webview→host postMessage: insertImage, saveImageAndInsert, readAndInsertImage, saveFileAndInsert, readAndInsertFile, saveDrawioAndInsert, readAndInsertDrawio, requestCreateDrawio, notifyUnsupportedDrawioXml"
+  # Links
+  - "webview→host postMessage: insertLink, openLink, openLinkInTab"
+  # Outline / word count
+  - "webview→host postMessage: requestOutline, requestWordCount, error"
+  # Host text-editor / file-system bridges
+  - "webview→host postMessage: openInTextEditor, copyFilePath"
+  # Image fullscreen overlay toolbar
+  - "webview→host postMessage: copyImageToClipboard, openImageInNewTab"
+  # Side Panel
+  - "webview→host postMessage: saveSidePanelFile, sidePanelClosed, sidePanelNavigateBack, sidePanelNavigateForward, sidePanelOpenLink, sidePanelOpenInTextEditor, getSidePanelImageDir"
+  # AI handoff
+  - "webview→host postMessage: sendToChat"
+  # Paste asset extraction
+  - "webview→host postMessage: pasteWithAssetCopy, extractDataUrlsInPastedMd"
+  # Page management (notes mode)
+  - "webview→host postMessage: searchFiles, createPageAtPath, createPageAuto, createPageAutoForSidePanel, updatePageH1"
+  # Translation
+  - "webview→host postMessage: translateContent, translateSelectLang, saveTranslateLangs"
+  # Drop / import errors
+  - "Drop / import errors: odk:error:import/file-too-large, odk:error:import/directory-rejected"
+inbound:
+  # host→webview messages this component listens for (handled inside editor.js)
+  - "host→webview postMessage: update (initial / external markdown), insertImageHtml, insertFileLink, insertLinkHtml, scrollToAnchor, drawioFileChanged, imageDirStatus, sidePanelImageDirStatus, fileDirStatus, sidePanelFileDirStatus, outline, wordCount, fileSearchResults, pageCreatedAtPath, pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult, sidePanelAssetContext, sidePanelMessage, translateLangSelected, translateResult, translateError, performUndo, performRedo, toggleSourceMode, triggerTranslate, toggleSidebar"
+lifecycle:
+  destroy:
+    description: |
+      EditorInstance.destroy() removes every DOM node appended to
+      document.body — currently the table toolbar (this._tableToolbarEl).
+      Required so closing the Markdown Side Panel leaves no orphan UI.

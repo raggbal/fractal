@@ -3,11 +3,13 @@
  *
  * BUG: side panel から cmd+/ → "Insert Drawio" を実行しても drawio.svg が挿入されないことがある。
  *
- * 根本原因: SidePanelHostBridge.requestCreateDrawio() が _onImageRequest() を呼んでいなかった。
- *   その結果 sidePanelImagePending=true がセットされず、extension からの insertImageHtml response が
- *   main editor に流れて side panel editor へ届かない (marker も main editor に無いため fallback も失敗)。
- *
- * 修正: SidePanelHostBridge.requestCreateDrawio() で必ず _onImageRequest() を呼ぶ。
+ * 【sprint 20260714 で受信ルーティングを刷新】
+ *   旧: sidePanelImagePending フラグ（instance-local）で「次の insertImageHtml を sidepanel へ回す」判定。
+ *   新: insertImageHtml/insertFileLink の宛先を message.sidePanelFilePath で判定（cross-instance 混線の恒久修正）。
+ *       backend（requestCreateDrawio 等）は sidepanel 由来なら sidePanelFilePath を必ず stamp して発行する。
+ *       受信側は message.sidePanelFilePath === 自分が管理する sidepanel の filePath のときだけ挿入する。
+ *   → 本テストは「sidepanel 由来の insertImageHtml（sidePanelFilePath 付き）が sidepanel editor に挿入される」を検証する。
+ *     test 1 は requestCreateDrawio が _onImageRequest を呼ぶ（既存の routing fix）ことを引き続き担保。
  */
 import { test, expect, Page } from '@playwright/test';
 
@@ -55,7 +57,7 @@ test('side panel requestCreateDrawio sets sidePanelImagePending=true (routing fi
     expect(probe.imgRequestCalled).toBe(true);
 });
 
-test('side panel insertImageHtml routes to side panel editor when sidePanelImagePending is set', async ({ page }) => {
+test('side panel insertImageHtml routes to side panel editor when sidePanelFilePath matches', async ({ page }) => {
     await page.goto('/standalone-notes.html');
     await page.waitForFunction(() => (window as any).__testApi?.ready);
 
@@ -113,15 +115,16 @@ test('side panel insertImageHtml routes to side panel editor when sidePanelImage
     expect(stateAfterTrigger.hostMessages).toHaveLength(1);
     expect(stateAfterTrigger.hostMessages[0].sidePanelFilePath).toBe(FILE_PATH);
 
-    // Now simulate extension's insertImageHtml response — main handler should
-    // dispatch to side panel because sidePanelImagePending=true
-    await page.evaluate(() => {
+    // Now simulate extension's insertImageHtml response — backend が sidepanel 由来の drawio に対して
+    // sidePanelFilePath を stamp して発行する（新宛先判定契約）。受信側は filePath 一致で sidepanel へ挿入する。
+    await page.evaluate(({ fp }) => {
         (window as any).__hostMessageHandler({
             type: 'insertImageHtml',
             markdownPath: 'files/diagram.drawio.svg',
-            displayUri: 'http://localhost:3000/note1/files/diagram.drawio.svg'
+            displayUri: 'http://localhost:3000/note1/files/diagram.drawio.svg',
+            sidePanelFilePath: fp
         });
-    });
+    }, { fp: FILE_PATH });
     await page.waitForTimeout(200);
 
     const final = await page.evaluate(() => {

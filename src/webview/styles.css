@@ -35,7 +35,7 @@ body {
     flex-direction: column;
     position: relative;
 }
-.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; }
+.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; border-right: none; }
 .sidebar-resizer {
     position: absolute;
     top: 0;
@@ -60,7 +60,8 @@ body {
     border-bottom: 1px solid var(--sidebar-bg);
 }
 .sidebar-header h3 { font-size: 13px; font-weight: 600; }
-.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); }
+.sidebar-toggle { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.6; }
+.sidebar-toggle:hover { opacity: 1; }
 .outline { flex: 1; overflow-y: auto; padding: 7px 0; }
 .outline-item {
     display: block;
@@ -123,6 +124,17 @@ body {
     pointer-events: none;
     user-select: none;
     cursor: not-allowed;
+}
+/* FR-MD-02: standalone md 限定 — 保存先表示をクリックで変更可能に */
+.sidebar-status-imagedir.is-editable,
+.sidebar-status-filedir.is-editable {
+    cursor: pointer;
+    opacity: 0.85;
+}
+.sidebar-status-imagedir.is-editable:hover,
+.sidebar-status-filedir.is-editable:hover {
+    opacity: 1;
+    text-decoration: underline;
 }
 .sidebar-status-imagedir.is-locked .imagedir-path,
 .sidebar-status-filedir.is-locked .filedir-path,
@@ -401,6 +413,12 @@ body {
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
     display: none !important;
 }
+/* Open in Text Editor toggle (fractal.showOpenInTextEditor setting, default on).
+   VS Code の組込テキストエディタで開く操作。Electron 化で無意味になるため opt-out。
+   md toolbar / sidepanel header / outliner 右クリックメニューの全 openInTextEditor を隠す。 */
+[data-show-open-in-text-editor="false"] [data-action="openInTextEditor"] {
+    display: none !important;
+}
 /* Standalone toolbar translate language button: text-based label (e.g. "ja → en") */
 .toolbar-inner .toolbar-group[data-group="translate"] [data-action="translateLang"] {
     min-width: 50px;
@@ -634,14 +652,27 @@ body {
     position: relative;
     top: 0.15em;
 }
+/* md リンク系（subpage / 参照）のアイコンをやや大きく */
+.editor a.link-internal-md::before,
+.editor a.link-subpage::before {
+    width: 1.2em;
+    height: 1.2em;
+    margin-right: 3px;
+    top: 0.22em;
+}
 .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%236c6c6c' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%236c6c6c' stroke-width='1.5'/%3E%3C/svg%3E");
 }
 .editor a.link-fractal-page::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%236c6c6c' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
+/* md 参照リンク [](x.md): ページ + 右上外向き矢印 ↗（別ページへ飛ぶ参照） */
 .editor a.link-internal-md::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%236c6c6c' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%236c6c6c' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%236c6c6c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+/* subpage [[]](x.md): 角折れドキュメント（矢印なし・子ページ）。link-internal-md より後に置き後勝ちで上書き */
+.editor a.link-subpage::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%236c6c6c' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
 }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -651,7 +682,10 @@ body {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
 [data-fr-theme="dark"] .editor a.link-internal-md::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+[data-fr-theme="dark"] .editor a.link-subpage::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
 @media (prefers-color-scheme: dark) {
     [data-fr-theme="auto"] .editor a.link-fractal-node::before {
@@ -661,7 +695,10 @@ body {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1h6l4 4v10H4V1z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M10 1v4h4' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8' x2='12' y2='8' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='12' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
     }
     [data-fr-theme="auto"] .editor a.link-internal-md::before {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='1' width='12' height='14' rx='1' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M5 5.5L7 9.5L7 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M9 5.5L11 9.5L11 5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cline x1='5' y1='12' x2='11' y2='12' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 5h5l2.5 2.5V14H2V5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M7 5v2.5h2.5' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='8.5' y1='7.5' x2='14' y2='2' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round'/%3E%3Cpath d='M10.5 2H14V5.5' fill='none' stroke='%23a0a0a0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+    [data-fr-theme="auto"] .editor a.link-subpage::before {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
     }
 }
 
@@ -885,11 +922,200 @@ body {
 .code-block-header > :last-child {
     border-radius: 0 5px 0 0;
 }
-/* Expanded code block - width is set dynamically by JavaScript */
-.editor pre.code-expanded {
+/* Wrapper-level fullscreen button (mermaid / math).
+   Codeblock has its own button inside .code-block-header. */
+.editor .mermaid-wrapper,
+.editor .math-wrapper {
     position: relative;
-    max-width: none;
+}
+.block-fullscreen-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 5;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-color);
+    background: var(--border-color);
+    border: none;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+    user-select: none;
+}
+.block-fullscreen-btn:hover {
+    opacity: 1;
+    background: var(--selection-bg);
+}
+/* Hide wrapper-level button when the block is in edit mode so it doesn't
+   sit on top of the source pre. */
+.editor .mermaid-wrapper[data-mode="edit"] > .block-fullscreen-btn,
+.editor .math-wrapper[data-mode="edit"] > .block-fullscreen-btn {
+    display: none;
+}
+
+/* Fullscreen overlay shared by code / mermaid / math blocks. */
+.block-fullscreen-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    /* Translucent black scrim (matches image overlay). Theme-independent so
+       the white close/copy buttons stay readable on either theme. */
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
     box-sizing: border-box;
+    cursor: zoom-out;
+}
+.block-fullscreen-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    overflow: hidden;
+}
+/* Zoomable / pannable wrapper around the cloned content. */
+.block-fullscreen-stage {
+    transform-origin: 0 0;
+    cursor: grab;
+    user-select: text;
+    will-change: transform;
+    /* Constrain visually but content can be panned around when zoomed. */
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 12px;
+    pointer-events: none;
+    z-index: 10001;
+    user-select: none;
+}
+.block-fullscreen-close {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 10002;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.block-fullscreen-close:hover {
+    background: rgba(255, 255, 255, 0.32);
+    border-color: rgba(255, 255, 255, 0.8);
+}
+.block-fullscreen-label {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    user-select: none;
+    z-index: 10001;
+}
+.block-fullscreen-copy {
+    position: fixed;
+    top: 14px;
+    right: 60px;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    z-index: 10002;
+}
+.block-fullscreen-copy:hover {
+    background: rgba(255, 255, 255, 0.22);
+}
+
+/* Code block in fullscreen: take available space, scroll if too big.
+   The cloned <pre> lives outside .editor so .editor pre styles do not
+   apply — set an opaque background explicitly here. */
+.block-fullscreen-pre {
+    width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    margin: 0;
+    box-sizing: border-box;
+    overflow: auto;
+    border-radius: 6px;
+    background: var(--code-bg, #1e1e1e);
+    color: var(--text-color, #d4d4d4);
+    font-family: var(--font-mono);
+    white-space: pre;
+    word-wrap: normal;
+}
+.block-fullscreen-pre code {
+    display: block;
+    padding: 18px;
+    margin: 0;
+    background: transparent;
+    font-family: inherit;
+    font-size: 14px;
+    white-space: pre;
+    word-wrap: normal;
+}
+
+/* Mermaid / Math diagrams in fullscreen: scale to fit. */
+.block-fullscreen-mermaid-diagram,
+.block-fullscreen-math-display {
+    /* 透明背景の図形/数式が暗い overlay 越しに見づらいのを防ぐため白背景で表示する
+       （lightbox の .outliner-image-large と挙動を揃える）。 */
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 24px;
+    max-width: calc(100vw - 64px);
+    max-height: calc(100vh - 96px);
+    overflow: auto;
+    box-sizing: border-box;
+}
+.block-fullscreen-mermaid-diagram {
+    display: block;
+    /* mermaid も白背景 + 余白で表示（旧: background:transparent/padding:0 で暗く見えていた）。
+       図形ぴったりでなく余白を付けて見やすくする。 */
+    padding: 24px;
+    border: 1px solid var(--border-color);
+    background: #fff;
+}
+.block-fullscreen-mermaid-diagram svg {
+    /* Sizes are set inline by JS using the viewBox aspect ratio. */
+    display: block;
+}
+.block-fullscreen-math-display .katex-display {
+    margin: 0;
 }
 .lang-selector {
     position: fixed;
@@ -1345,12 +1571,20 @@ body {
 /* Side Panel (Notion-style peek overlay) */
 .side-panel {
     position: absolute;
-    top: 0;
+    /* sprint 20260724-042927 (FR-SPC-01・ADRL-SPC-CONTAINING-BLOCK): タブ内領域に収める。
+       Notes モードでは .notes-main-wrapper（position:relative）が containing block になり、
+       top=タブバー下端（--notes-tab-bar-height、Tab Manager が renderTabBar で set・非表示時 0px）、
+       bottom=0 で下端まで。tab1（タブバー非表示）は 0px = 全高。.out/.md single は
+       containing block が従来どおり（--notes-tab-bar-height 未定義 → 0px）で全高。 */
+    top: var(--notes-tab-bar-height, 0px);
     right: 0;
+    bottom: 0;
     width: 50%;
-    min-width: 288px;
+    /* FR-WC-03: 表示領域が 288px 未満に狭まっても左にはみ出さないよう、min-width を 95vw に譲る。
+       通常時（288px 以上）は 288px。position:absolute;right:0 + 固定 min-width だと狭幅で左端がマイナスになるため。*/
+    min-width: min(288px, 95vw);
     max-width: 70%;
-    height: 100%;
+    /* height は top+bottom で確定（旧 height:100% を置換）。 */
     background: var(--bg-color);
     border-left: 1px solid var(--border-color);
     box-shadow: -4px 0 14px rgba(0, 0, 0, 0.15);
@@ -1363,6 +1597,11 @@ body {
 .side-panel.open {
     display: flex;
     transform: translateX(0);
+}
+/* sprint 20260724-063158 (FR-TP-02): タブ復帰でサイドパネルを復元する時はスライドアニメを再生しない。
+   .side-panel(0,1,0) より高特異度(0,2,0)で transition:none が勝つ。復元経路で一時付与し次フレームで除去。 */
+.side-panel.no-transition {
+    transition: none;
 }
 .side-panel.expanded {
     width: 95%;
@@ -1442,6 +1681,40 @@ body {
     padding: 7px 14px;
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
+    gap: 4px;
+}
+/* 狭幅レスポンシブ: lead（outline + 戻る/進む）と close は固定、中央のみ横スクロール。
+   固定要素は縮まない（flex-shrink:0）。中央 wrapper だけが min-width:0 + overflow-x:auto で
+   幅不足時にスクロールする。 */
+.side-panel-header > .side-panel-outline-btn,
+.side-panel-header > .side-panel-nav-leading,
+.side-panel-header > .side-panel-open-tab,
+.side-panel-header > .side-panel-close {
+    flex-shrink: 0;
+}
+.side-panel-header-scroll {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* 狭幅時のみ横スクロール。細いスクロールバーで邪魔しない */
+    scrollbar-width: thin;
+}
+.side-panel-header-scroll::-webkit-scrollbar {
+    height: 4px;
+}
+.side-panel-header-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 2px;
+}
+/* wrapper 内のボタン群は潰さない（潰れると幅不足でも overflow が発火しない） */
+.side-panel-header-scroll > .side-panel-header-actions,
+.side-panel-header-scroll > .side-panel-copy-path,
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
+    flex-shrink: 0;
 }
 .side-panel-filename {
     font-size: 12px;
@@ -1450,8 +1723,8 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 auto;
+    min-width: 40px;
 }
 .side-panel-close {
     background: none;
@@ -1532,9 +1805,10 @@ body {
 .side-panel-header-btn:disabled:hover {
     background: none;
 }
-.side-panel-header-btn svg {
-    width: 13px;
-    height: 13px;
+.side-panel-header-btn svg,
+.side-panel-outline-btn svg {
+    width: 14px;
+    height: 14px;
 }
 /* Side panel outline button (in header, mirrors main openOutline) */
 .side-panel-outline-btn {
@@ -1618,26 +1892,83 @@ body {
     flex: 1;
     overflow: hidden;
 }
+/* FR-HP-08/09: 最近開いたファイル履歴パネル（左ファイルツリーパネル .notes-file-panel 下部・常時表示）。
+   セレクタは親非依存（ancestor を要求しない）ので DOM の親が変わっても効く。
+   .notes-file-panel は flex column、file-panel-content は flex:1 なので
+   history は flex-shrink:0 で下部に固定される。 */
+.side-panel-history {
+    flex-shrink: 0;
+    height: 33%;                 /* 開時: 左パネルの約 1/3。JS が保存値で上書き */
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-color);
+    position: relative;
+    overflow: hidden;
+}
+.side-panel-history.collapsed {
+    height: 28px !important;     /* 閉時: 最下部の小バー。JS の高さ上書きより優先 */
+    min-height: 28px;
+}
+.side-panel-history-resize-handle {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    margin-top: -3px;
+    cursor: ns-resize;
+    z-index: 2;
+}
+.side-panel-history.collapsed .side-panel-history-resize-handle { display: none; }
+.side-panel-history-header {
+    flex-shrink: 0;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #888);
+    user-select: none;
+}
+.side-panel-history-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    padding: 2px;
+    display: flex;
+    transition: transform 0.15s;
+}
+.side-panel-history.collapsed .side-panel-history-toggle { transform: rotate(180deg); }
+.side-panel-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+}
+.side-panel-history.collapsed .side-panel-history-list { display: none; }
+.side-panel-history-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.side-panel-history-item:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
+.side-panel-history-item-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
+.side-panel-history-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-panel-editor-root {
     display: flex;
     flex-direction: column;
     height: 100%;
     position: relative;
 }
-/* Overlay behind side panel to darken main editor */
-.side-panel-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.2);
-    z-index: 99;
-    display: none;
-}
-.side-panel-overlay.open {
-    display: block;
-}
+/* sprint 20260724-042927: .side-panel-overlay（シャドー背景）は全モードで廃止した。 */
 
 ::selection { background: var(--selection-bg); }
 
@@ -1659,6 +1990,11 @@ body {
     max-width: 90vw;
     max-height: 90vh;
     object-fit: contain;
+    /* 透明背景の図形（drawio.svg / mermaid）が暗い overlay 越しに黒く見えるのを防ぐ。
+       白背景 + 余白で図形を明瞭にする。box-sizing:border-box で padding 込みでも 90vw/90vh を超えない。 */
+    background: #fff;
+    padding: 14px;
+    box-sizing: border-box;
     border-radius: 4px;
     box-shadow: 0 4px 22px rgba(0, 0, 0, 0.5);
     cursor: default;
@@ -1681,6 +2017,34 @@ body {
     pointer-events: none;
     z-index: 10001;
     user-select: none;
+}
+/* 画像 fullscreen overlay 右上の 3 ボタン (Copy Image / Open in New Tab / Copy Path) */
+.image-overlay-toolbar {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    gap: 6px;
+    z-index: 10002;
+    user-select: none;
+}
+.image-overlay-toolbar button {
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1.2;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.image-overlay-toolbar button:hover {
+    background: rgba(0, 0, 0, 0.78);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+.image-overlay-toolbar button:active {
+    background: rgba(0, 0, 0, 0.92);
 }
 
 /* v10: Translation Loading Overlay */
@@ -1714,3 +2078,63 @@ body {
     font-size: 13px;
     font-family: var(--font-family);
 }
+
+/* FR-RR-05: リソースアクセス範囲外の控えめなフッター帯 */
+.fractal-resource-footer {
+    padding: 6px 12px;
+    border-top: 1px solid var(--border-color);
+    font-size: 10px;
+    color: var(--text-color);
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.fractal-resource-footer .rrf-msg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fractal-resource-footer .rrf-open-settings {
+    flex-shrink: 0;
+    font-size: 10px;
+    cursor: pointer;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    color: var(--link-color, inherit);
+    font-family: inherit;
+    padding: 0;
+}
+
+/* sprint 20260724-160000: インライン文字色ピッカー（md toolbar/palette + outliner 右クリック共通） */
+.inline-color-popover {
+    background: var(--bg-color, #fff);
+    border: 1px solid var(--border-color, rgba(128,128,128,0.3));
+    border-radius: var(--fr-radius-sm, 6px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 4px 0;
+    min-width: 0;
+}
+.inline-color-popover .file-panel-color-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 18px);
+    gap: 4px;
+    padding: 7px 11px;
+}
+.inline-color-popover .file-panel-color-swatch {
+    width: 18px; height: 18px;
+    border-radius: var(--fr-radius-xs, 4px);
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.1s, border-color 0.1s;
+}
+.inline-color-popover .file-panel-color-swatch:hover { transform: scale(1.15); }
+.inline-color-popover .file-panel-color-none {
+    font-size: 11px;
+    opacity: 0.75;
+    padding: 4px 11px;
+    cursor: pointer;
+}
+.inline-color-popover .file-panel-color-none:hover { opacity: 1; }

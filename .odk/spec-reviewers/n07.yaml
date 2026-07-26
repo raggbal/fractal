@@ -1,0 +1,87 @@
+id: N07
+name: Information Density
+group: quality
+threshold: 7
+model_tier: smart
+
+tools:
+  - name: scan_filler_phrases
+    description: Scan for conversational filler phrases that reduce information density.
+    code: |
+      def scan_filler_phrases(text: str) -> str:
+          import json
+          _FILLER_PHRASES = [
+              "it should be noted that", "in order to", "basically", "essentially",
+              "as mentioned above", "needless to say", "it is important to note",
+              "the fact that", "in terms of", "with respect to", "at the end of the day",
+              "going forward", "as previously mentioned", "it goes without saying",
+              "for all intents and purposes", "at this point in time",
+              "due to the fact that", "in the event that", "on a going-forward basis",
+              "as a matter of fact",
+          ]
+          findings: list[dict[str, object]] = []
+          for line_no, line in enumerate(text.splitlines(), 1):
+              lower = line.lower()
+              findings.extend(
+                  [{"line": line_no, "text": phrase, "category": "filler_phrase"}
+                   for phrase in _FILLER_PHRASES if phrase in lower]
+              )
+          return json.dumps(findings, indent=2)
+
+system_prompt: |
+  You are reviewing whether the narrative is information-dense and free of filler.
+
+  WHAT COUNTS AS FILLER:
+  - Conversational padding: "It should be noted that", "It is important to note", "Needless to say"
+  - Wordy constructions: "In order to" (use "To"), "Due to the fact that" (use "Because")
+  - Hedging preambles: "Basically", "Essentially", "As mentioned above"
+  - Redundant references: "As previously mentioned", "As we discussed earlier"
+  - Empty emphasis: "Very", "Really", "Quite", "Rather"
+  - Obvious statements: "The system needs to work correctly"
+  - Repetition of the same point in different words
+
+  WHAT IS ALLOWED:
+  - Transitional phrases that aid navigation
+  - Deliberate emphasis for safety-critical items
+  - Summaries at section boundaries
+
+  EXAMPLES OF BAD (FILLER-HEAVY) TEXT:
+  - "It should be noted that in order to ensure the system works properly, we essentially need to make sure that the database is properly configured." -> "The system requires a configured database."
+
+  EXAMPLES OF GOOD (DENSE) TEXT:
+  - "The trading engine processes orders in FIFO sequence within each symbol queue."
+  - "Failed orders retry 3 times with exponential backoff (1s, 2s, 4s) before dead-lettering."
+
+
+  CRITICAL RULES:
+  1. ONLY report findings with EXACT quoted text from the document.
+  2. Do NOT invent examples or fabricate findings.
+  3. Every finding MUST include text that actually appears in the spec.
+  4. If deterministic tools found 0 issues, that is strong evidence the document is clean.
+
+  Use any available tools as evidence, then apply your judgment.
+
+  SCORING RUBRIC:
+  - Score 10: Every sentence carries information. Zero filler.
+  - Score 8: Mostly dense, 1-3 minor filler instances.
+  - Score 5: Noticeable filler in multiple sections.
+  - Score 3: Filler dominates — core information buried in padding.
+  - Score 0: The narrative is mostly filler.
+
+  Return ONLY valid JSON:
+  {"score": N, "reasoning": "...", "suggestions": ["..."], "findings": [{"line": N, "text": "...", "issue": "..."}]}
+
+examples:
+  bad:
+    - text: "It should be noted that in order to process orders, we need a database."
+      issue: "Double filler wrapping a simple statement"
+      fix: "The system requires a configured database."
+  good:
+    - text: "The trading engine processes orders in FIFO sequence within each symbol queue."
+
+scoring:
+  10: Every sentence carries information. Zero filler.
+  8: Mostly dense, 1-3 minor filler instances.
+  5: Noticeable filler in multiple sections.
+  3: Filler dominates.
+  0: Mostly filler with little substantive content.

@@ -18,6 +18,11 @@
             api.postMessage({ type: 'syncData', content: jsonString });
         },
 
+        // Mindmap Mode (sprint 20260701-122355): PNG/SVG/OPML/MD エクスポート
+        exportMindmap: function(format, payload, suggestedName) {
+            api.postMessage({ type: 'exportMindmap', format: format, payload: payload, suggestedName: suggestedName });
+        },
+
         // ページ操作
         makePage: function(nodeId, pageId, title) {
             api.postMessage({ type: 'makePage', nodeId: nodeId, pageId: pageId, title: title });
@@ -113,10 +118,35 @@
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },
+        // v0.207.96: Streaming D&D for files > 50MB. The outliner.js sender awaits
+        // dropStreamReady before pumping chunks and dropStreamAck between chunks
+        // to maintain back-pressure with the host-side fs.WriteStream.
+        dropStreamBegin: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamBegin' }, payload));
+        },
+        dropStreamChunk: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamChunk' }, payload));
+        },
+        dropStreamFileEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamFileEnd' }, payload));
+        },
+        dropStreamSessionEnd: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamSessionEnd' }, payload));
+        },
+        dropStreamCancel: function(payload) {
+            api.postMessage(Object.assign({ type: 'dropStreamCancel' }, payload));
+        },
 
         // ファイル添付操作
         openAttachedFile: function(nodeId) {
             api.postMessage({ type: 'openAttachedFile', nodeId: nodeId });
+        },
+        // FR-FR-01/02: Finder (OS ファイラ) で選択状態表示
+        revealAttachedFileInOS: function(nodeId) {
+            api.postMessage({ type: 'revealAttachedFileInOS', nodeId: nodeId });
+        },
+        revealPageInOS: function(nodeId) {
+            api.postMessage({ type: 'revealPageInOS', nodeId: nodeId });
         },
         handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
             api.postMessage({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });

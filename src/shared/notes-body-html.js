@@ -99,6 +99,22 @@ function generateNotesFilePanelHtml(options) {
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
             border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
         }
+        /* notes file panel の ≡ (collapse) ボタン: 枠線なし、アイコン 15px、hover 水色 */
+        #filePanelCollapse.file-panel-btn {
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            padding: 4px 5px;
+            font-size: 15px;
+        }
+        #filePanelCollapse.file-panel-btn:hover {
+            background: var(--selection-bg);
+            border-color: transparent;
+        }
+        #filePanelCollapse.file-panel-btn:focus-visible {
+            box-shadow: none;
+            border-color: transparent;
+        }
         .file-panel-list { flex: 1; overflow-y: auto; padding: 4px 0; }
 
         /* ── File item ── */
@@ -129,21 +145,28 @@ function generateNotesFilePanelHtml(options) {
         /* ── Folder ── */
         .file-panel-folder { }
         .file-panel-folder-header {
+            /* folder-icon を file-item の icon と同じ開始位置に揃えるため、file-item と同一の
+             * padding(11px) + gap(5px) にし、chevron は position:absolute でフローから外す。
+             * これで先頭のフロー要素 = folder-icon が file-icon と同じ x に来る（FR-FA-01）。*/
             padding: 5px 11px; cursor: pointer; font-size: 12px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border-radius: var(--fr-radius-sm, 6px); margin: 1px 4px;
-            display: flex; align-items: center; gap: 4px;
+            display: flex; align-items: center; gap: 5px;
             font-weight: 500;
+            position: relative;
         }
         .file-panel-folder-header:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-folder-chevron {
-            flex-shrink: 0; width: 13px; height: 13px;
+            /* padding-left(11px) の内側に絶対配置。folder-icon(x=11) に被らないよう幅を詰める。*/
+            position: absolute; left: 0; top: 50%;
+            transform: translateY(-50%);
+            width: 11px; height: 13px;
             display: flex; align-items: center; justify-content: center;
             transition: transform 0.15s;
             opacity: 0.6;
         }
         .file-panel-folder.collapsed > .file-panel-folder-header > .file-panel-folder-chevron {
-            transform: rotate(-90deg);
+            transform: translateY(-50%) rotate(-90deg);
         }
         .file-panel-folder-icon { flex-shrink: 0; opacity: 0.5; width: 13px; height: 13px; }
         .file-panel-folder-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -156,6 +179,14 @@ function generateNotesFilePanelHtml(options) {
 
         /* ── Drag & Drop ── */
         .file-panel-drag-over { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); border-radius: var(--fr-radius-sm, 6px); }
+        /* v0.207.77 (D&D Feature A): md → .out item のドロップ時 yellow highlight。
+           既存の青系 .file-panel-drag-over (folder hover) と区別する。 */
+        .file-panel-drag-over-md-into-out {
+            background: var(--fr-color-warning-bg, rgba(255, 215, 64, 0.35));
+            outline: 2px solid var(--fr-color-warning, #f5a623);
+            outline-offset: -2px;
+            border-radius: var(--fr-radius-sm, 6px);
+        }
         .file-panel-drop-line {
             height: 2px; background: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
             margin: 0 4px; border-radius: 1px;
@@ -168,22 +199,175 @@ function generateNotesFilePanelHtml(options) {
             padding: 14px 11px; color: var(--fr-color-text-tertiary, var(--outliner-subtext, #999)); font-size: 11px; text-align: center;
         }
         .notes-main-wrapper { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
-        .notes-panel-toggle-btn {
-            background: transparent; border: 1px solid var(--fr-color-border, var(--outliner-border, #e0e0e0));
-            border-radius: var(--fr-radius-sm, 6px); cursor: pointer; padding: 4px 5px; line-height: 1;
-            display: none; color: var(--fr-color-text-primary, inherit); opacity: 0.7; font-size: 12px;
-            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
+        /* sprint 20260723-233506: tab bar 追加で .notes-main-wrapper が [tab-bar | container] の
+           2 段 flex column になった。container 側は height:100vh（outliner.css）だと tab bar 分溢れて
+           下端がクリップされ、内側スクロールで tab bar が押し出されて隠れる。→ wrapper 直下の
+           container を flex:1 + min-height:0 で「残り高さ」に収め、内側（.editor-wrapper /
+           .outliner-scroll-content）だけがスクロールするようにする（tab bar は flex:0 0 auto で常時上端固定）。 */
+        .notes-main-wrapper > .outliner-container,
+        .notes-main-wrapper > .markdown-container {
+            flex: 1 1 auto;
+            min-height: 0;
+            height: auto;   /* outliner.css の height:100vh を上書き。flex で「残り高さ」に収める */
         }
+        /* md pane の内側 .container は height:100vh（styles.css:26）なので、flex で正しくサイズされた
+           .markdown-container にフィットさせる（100vh のままだと tab bar 分溢れて下端クリップ）。 */
+        .notes-main-wrapper > .markdown-container > .container { height: 100%; }
+        /* sprint 20260723-233506: webview 内マルチタブ tab bar（tabs>=2 で Tab Manager が display:flex に）。
+           tab 領域だけ左右スクロール（FR-TAB-05）。1 タブ時は display:none（初期 inline style）。 */
+        .notes-tab-bar {
+            display: none;
+            /* tab を全高まで伸ばして下の境界線に接地させる（center だと tab と線の間に隙間が出る） */
+            align-items: stretch;
+            flex: 0 0 auto;
+            min-height: 30px;
+            /* 下境界線は border ではなく inset box-shadow で bar の内側最下行に描く（全幅・tab の無い右側も含む）。
+               active tab の背景（子・bar 内側の最下行まで届く）が後から描画されてこの線を覆う＝active 下だけ線が消える。
+               border-bottom（padding box の外に描画）だと子が margin で覆えず overflow でクリップされる問題を回避。 */
+            box-shadow: inset 0 -1px 0 var(--border-color, rgba(128,128,128,0.25));
+            background: var(--sidebar-bg, rgba(128,128,128,0.06));
+        }
+        .notes-tab-bar .notes-tab-bar-scroll {
+            display: flex;
+            align-items: stretch;
+            flex: 1 1 auto;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
+        }
+        .notes-tab-bar .notes-tab-bar-scroll::-webkit-scrollbar { height: 4px; }
+        .notes-tab-bar .notes-tab {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex: 0 0 auto;
+            min-width: 90px;
+            max-width: 200px;
+            padding: 4px 8px;
+            font-size: 12px;
+            border-right: 1px solid var(--border-color, rgba(128,128,128,0.2));
+            cursor: pointer;
+            opacity: 0.65;
+            white-space: nowrap;
+            user-select: none;
+            /* sprint 20260724-063158 (FR-TP-05): 非選択タブ = 灰オーバーレイ（地色に灰を重ねて沈ませる。
+               --sidebar-bg と --bg-color が同色のテーマでも確実にコントラストが出るよう rgba 灰を明示）。 */
+            background: rgba(128,128,128,0.14);
+        }
+        .notes-tab-bar .notes-tab:hover { opacity: 0.85; }
+        .notes-tab-bar .notes-tab[data-active="true"] {
+            opacity: 1;
+            /* sprint 20260724-063158 (FR-TP-05): 選択タブ = 明るい地色（コンテンツ地続き＝目立つ・灰を重ねない）。
+               背景が bar 内側の最下行まで届き、bar の inset 下線をこの部分だけ覆う＝active 下の線が消え editor と地続き。 */
+            background: var(--bg-color, #ffffff);
+        }
+        .notes-tab-bar .notes-tab-title {
+            /* title が min-width より短くても余白を埋めて伸び、close ボタンをタブ右端へ押し出す */
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .notes-tab-bar .notes-tab-close {
+            flex: 0 0 auto;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0 2px;
+            opacity: 0.5;
+            color: inherit;
+        }
+        .notes-tab-bar .notes-tab-close:hover { opacity: 1; }
+        .notes-tab-bar .notes-tab-add {
+            flex: 0 0 auto;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            padding: 0 8px;
+            opacity: 0.6;
+            color: inherit;
+        }
+        .notes-tab-bar .notes-tab-add:hover { opacity: 1; }
+        /* v0.207.88: notes md メインペインの toolbar アイコンを sidepanel md / outliner header
+           の色味と揃える。standalone editor の color: var(--text-color) は #1A1B1F の真っ黒で
+           outliner-search-bar/side-panel-header-btn の opacity: 0.5-0.6 軽減と乖離するため、
+           notes md main pane のみ scoped に opacity を当てる (standalone editor は影響なし)。 */
+        .notes-main-wrapper .markdown-container .toolbar button {
+            opacity: 0.6;
+        }
+        .notes-main-wrapper .markdown-container .toolbar button:hover:not(:disabled) {
+            opacity: 1;
+        }
+        .notes-main-wrapper .markdown-container .toolbar button:disabled {
+            opacity: 0.3;
+        }
+        /* notes editor > markdown の outline header を file-panel-header と揃える
+           (standalone / sidepanel md は影響なし — scoped セレクタ) */
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header {
+            padding: 7px 11px;
+            border-bottom: 1px solid var(--fr-color-divider, var(--outliner-border, #e0e0e0));
+            box-sizing: border-box;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-header h3 {
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-toggle {
+            font-size: 15px;
+            padding: 4px 5px;
+            line-height: 1;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--fr-color-text-primary, inherit);
+            opacity: 0.7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .notes-main-wrapper .markdown-container .sidebar .sidebar-toggle:hover {
+            opacity: 1;
+            background: var(--selection-bg);
+        }
+        /* notes panel toggle (≡) — outliner / markdown 共通ベース、font-size 15px */
+        .notes-panel-toggle-btn,
+        .toolbar button.notes-panel-toggle-btn {
+            background: transparent; border: none; border-radius: 4px;
+            cursor: pointer; padding: 4px 5px; line-height: 1;
+            display: none; color: var(--fr-color-text-primary, inherit);
+            opacity: 0.7; font-size: 15px;
+            align-items: center; justify-content: center; flex-shrink: 0; margin-right: 5px;
+            min-width: 0; min-height: 0;
+        }
+        /* outliner pane: hover で薄く色付け（既存トーン維持、塗りつぶしなし） */
         .notes-panel-toggle-btn:hover {
             opacity: 1;
-            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            background: transparent;
+        }
+        /* markdown pane: hover で水色塗りつぶし (markdown toolbar の他ボタンと同じ var(--selection-bg)) */
+        .toolbar button.notes-panel-toggle-btn:hover {
+            opacity: 1;
+            background: var(--selection-bg);
         }
         .notes-panel-toggle-btn:focus-visible {
             outline: none;
-            box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
-            border-color: var(--fr-color-primary, var(--vscode-focusBorder, #007acc));
+            box-shadow: none;
         }
-        .notes-file-panel.collapsed ~ .notes-main-wrapper .notes-panel-toggle-btn { display: flex; }
+        /* file panel 閉のとき toggle を出す。全 3 個（① outliner pane / ② md toolbar / ③ md Outline ヘッダ）を
+           それぞれ個別ルールで制御（旧ブランケットルールは全マッチで ②③ 二重表示になるため分割）。 */
+        /* ① outliner pane（#notesPanelToggleBtn）: file panel 閉なら Outline 開閉に関わらず常に表示（従来挙動・回帰防止） */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #notesPanelToggleBtn { display: flex; }
+        /* ② md toolbar 左端: Outline 閉（#sidebar.hidden）のときだけ表示 */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar.hidden ~ .editor-container .notes-panel-toggle-btn--toolbar { display: flex; }
+        /* ③ md Outline ヘッダ左: Outline 開（#sidebar が .hidden でない）のときだけ表示（②と排他 = 単一ボタン） */
+        .notes-file-panel.collapsed ~ .notes-main-wrapper #sidebar:not(.hidden) .notes-panel-toggle-btn--outline { display: flex; }
         .file-panel-rename-input {
             width: 100%; padding: 4px 7px; font-size: 12px;
             border: 1px solid var(--fr-color-primary, var(--outliner-active, #4a9eff));
@@ -303,6 +487,16 @@ function generateNotesFilePanelHtml(options) {
         }
         .file-panel-search-match:hover { background: var(--fr-color-selection-bg, var(--outliner-hover, #e8e8e8)); }
         .file-panel-search-highlight { background: rgba(255, 200, 0, 0.3); font-weight: 500; }
+        /* Yellow flash for explore-tree jump (search → notes tab) */
+        @keyframes file-panel-explore-flash-kf {
+            0%   { background: rgba(255, 215, 64, 0.85); }
+            60%  { background: rgba(255, 215, 64, 0.55); }
+            100% { background: rgba(255, 215, 64, 0); }
+        }
+        .file-panel-explore-flash {
+            animation: file-panel-explore-flash-kf 2s ease-out;
+            border-radius: var(--fr-radius-sm, 6px);
+        }
         .file-panel-search-count { padding: 4px 11px; font-size: 10px; opacity: 0.6; }
         .file-panel-search-spinner { padding: 7px 11px; font-size: 11px; opacity: 0.5; }
 
@@ -371,7 +565,7 @@ function generateNotesFilePanelHtml(options) {
 
     var html = `<aside class="notes-file-panel${panelClass}" id="notesFilePanel">
             <div class="file-panel-header">
-                <span class="file-panel-title">Outlines</span>
+                <span class="file-panel-title" id="notesTitleLabel" title="${m('notesRenameNoteTitle', 'Click to rename this note')}"></span>
                 <div class="file-panel-actions">
                     <button class="file-panel-btn" id="filePanelCollapse" title="${m('notesCollapsePanel', 'Collapse panel')} (Cmd+\\)">&#9776;</button>
                 </div>
@@ -396,6 +590,7 @@ function generateNotesFilePanelHtml(options) {
                 <div class="file-panel-content-actions">
                     <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="${m('notesNewOutline', 'New Outline')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+                    <button class="file-panel-btn" id="filePanelAddMarkdown" title="${m('notesNewMarkdown', 'New Markdown')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+md</span></button>
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>
@@ -472,6 +667,16 @@ function generateNotesFilePanelHtml(options) {
                         ${m('notesUpdateTranslateTerminology', 'Update Translate Terminology')}
                     </button>
                 </div>
+            </div>
+            <div class="side-panel-history" id="sidePanelHistory">
+                <div class="side-panel-history-resize-handle" id="sidePanelHistoryResizeHandle" title="Drag to resize"></div>
+                <div class="side-panel-history-header">
+                    <span class="side-panel-history-title">${m('recentFilesLabel', 'Recent')}</span>
+                    <button class="side-panel-history-toggle" id="sidePanelHistoryToggle" title="${m('toggleRecent', 'Toggle recent files')}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                </div>
+                <div class="side-panel-history-list" id="sidePanelHistoryList"></div>
             </div>
         </aside>
         <div class="notes-resize-handle" id="notesResizeHandle"></div>`;

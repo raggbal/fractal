@@ -36,6 +36,11 @@ export interface Messages {
   failedToProcessFile: string;
   fileNotFound: string;
   fileNotFoundOrUnsafe: string;
+  // FR-MV-01: Move Other Note
+  notesMoveNoOtherNote: string;
+  notesMoveOtherNotePick: string;
+  notesMoveFailed: string;
+  notesMoveDone: string;
   forceRelativeFileNo: string;
   forceRelativeFileYes: string;
   forceRelativeFilePrompt: string;
@@ -73,6 +78,8 @@ export interface WebviewMessages {
   taskList: string;
   blockquote: string;
   inlineCode: string;
+  textColor: string;
+  textColorNone: string;
   codeBlock: string;
   insertLink: string;
   insertImage: string;
@@ -112,6 +119,11 @@ export interface WebviewMessages {
   redo: string;
   // Image directory source labels
   imageDirLabel: string;
+  // Save directory picker (standalone md 限定 per-file 保存先)
+  saveDirChoose: string;
+  saveDirReset: string;
+  recentFilesLabel: string;
+  toggleRecent: string;
   imageDirSourceFile: string;
   imageDirSourceSettings: string;
   imageDirSourceDefault: string;
@@ -120,10 +132,15 @@ export interface WebviewMessages {
   fileDirSourceFile: string;
   fileDirSourceSettings: string;
   fileDirSourceDefault: string;
+  // Resource access range (FR-RR-05)
+  resourceAccessOutOfRange: string;
+  resourceAccessOutOfRangeCount: string;
+  resourceAccessOpenSettings: string;
   // Notes left panel
   notesTabNotes: string;
   notesTabSearch: string;
   notesNewFolder: string;
+  notesOpenInNewTab: string;
   notesNewOutline: string;
   notesToday: string;
   notesCollapsePanel: string;
@@ -133,6 +150,9 @@ export interface WebviewMessages {
   notesUseRegex: string;
   notesSearching: string;
   notesResults: string;
+  notesSearchExploreResults: string;
+  notesSearchOutlinerResults: string;
+  notesSearchMarkdownResults: string;
   notesRename: string;
   notesDelete: string;
   notesDeleteFolder: string;

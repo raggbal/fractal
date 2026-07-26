@@ -37,9 +37,11 @@ export interface AwsCredentials {
     region: string;
 }
 
-function s3Uri(config: S3SyncConfig): string {
-    // 末尾スラッシュを確保（フォルダ全体のsyncを確実にする）
-    const bp = config.bucketPath.replace(/\/+$/, '');
+export function s3Uri(config: S3SyncConfig): string {
+    // bucketPath を parseBucketPath と同じ正規化に揃える:
+    // `s3://` スキームを除去（付いたまま `s3://${bp}/` にすると二重スキームで aws が失敗する）+ 末尾スラッシュ除去。
+    // 末尾スラッシュは最後に付け直してフォルダ全体の sync を確実にする。
+    const bp = config.bucketPath.trim().replace(/^s3:\/\//, '').replace(/\/+$/, '');
     return `s3://${bp}/`;
 }
 

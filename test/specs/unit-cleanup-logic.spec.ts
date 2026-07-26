@@ -67,12 +67,26 @@ test.describe('v7 Cleanup Logic - Static Verification', () => {
     });
 
     test('DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)', () => {
-        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' || true`;
+        const cmd = `grep -rn 'unlinkSync\\|rmSync\\|rmdirSync' "${projectRoot}/src/" --include='*.ts' --include='*.js' | grep -v 'test/' | grep -v 'paste-asset-handler.ts' | grep -v 'notes-s3-sync.ts' | grep -v 'notes-asset-mover.ts' | grep -v 'drop-stream.ts' | grep -v 'notes-file-manager.ts' | grep -v 'flat-migrate.ts' || true`;
         const output = execSync(cmd, { encoding: 'utf-8' }).trim();
 
-        // 例外 (v7.1 DOD-24 の除外リスト):
+        // 例外 (DOD-24 除外リスト):
         // - paste-asset-handler.ts: cross-outliner cut-paste の move semantics (実害ゼロ)
         // - notes-s3-sync.ts: S3 同期処理、リモートから再取得できる即時削除セマンティクス
+        // - notes-asset-mover.ts: cross-note move の src cleanup (move semantics)。共有アセットは
+        //     collectSurvivingAssetRefs で残留参照を確認してからのみ削除 = データロス防止済み
+        //     (sprint 20260707-124018-notes-flat-storage TASK-09/10, ADRL-notes-flat-storage)
+        // - drop-stream.ts: ストリーミング D&D の中断時 temp ファイル削除 (ユーザーデータでない)
+        // - notes-file-manager.ts: (a) 空 legacy pages/ dir の rmdirSync (remaining.length===0 ガード),
+        //     (b) copy-error 時に「作成した dst コピー」のみ rollback rmSync (src ユーザーデータは消さない)。
+        //     いずれもユーザーデータの unrecoverable 削除ではない。cross-note move の src 削除は
+        //     notes-asset-mover.cleanupMovedAssets に集約済み (残留参照ガード + move semantics)。
+        // - flat-migrate.ts: (a) executePlan rollback 時の逆順 rmSync (自分で作った dst コピーのみ復元用),
+        //     (b) FR-MG-08 cleanupOldDirs: 移行成功後の旧 per-outliner サブフォルダ削除。呼び出し側が
+        //     backup 成功 (FR-MG-07, note フォルダ全体を外部コピー) を確認した後にのみ実行 = recoverable。
+        //     4 ガード (isFlatOut / !==noteDir / startsWith(noteDir+sep) / isDir) で noteDir 自身・外・親を
+        //     絶対に消さない (全消し事故防止)。unrecoverable なユーザーデータ損失ではない
+        //     (sprint 20260721-215959, ADRL-0002)。
         expect(output).toBe('');
     });
 });
@@ -632,5 +646,177 @@ test.describe('v8 File Attachment Cleanup', () => {
         const orphanFiles = candidates.filter(c => c.type === 'orphan-file');
         expect(orphanFiles.length).toBe(1);
         expect(orphanFiles[0].relPath).toContain('orphan.doc');
+    });
+});
+
+test.describe('Notes Editor MD Cleanup (v0.207.92)', () => {
+    let tmpDir: string;
+
+    test.beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-md-cleanup-test-'));
+    });
+
+    test.afterEach(() => {
+        if (tmpDir && fs.existsSync(tmpDir)) {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    test('outline.note structure 経由の md (ext: md) は liveMd に含まれる', async () => {
+        // Setup: outline.note に ext='md' の file item を登録
+        const noteFile = path.join(tmpDir, 'outline.note');
+        const structure = {
+            rootIds: ['f1', 'f2', 'd1'],
+            items: {
+                f1: { type: 'file', id: 'f1', title: 'Alive MD', ext: 'md' },
+                f2: { type: 'file', id: 'f2', title: 'Outliner page', ext: 'out' },
+                d1: { type: 'folder', id: 'd1', title: 'Folder', childIds: [] }
+            }
+        };
+        fs.writeFileSync(noteFile, JSON.stringify(structure, null, 2), 'utf8');
+
+        const mdRoot = path.join(tmpDir, '_notes_md');
+        fs.mkdirSync(mdRoot);
+        fs.writeFileSync(path.join(mdRoot, 'f1.md'), '# Alive\n', 'utf8');
+        // f3.md は structure に登録されていない orphan
+        fs.writeFileSync(path.join(mdRoot, 'f3.md'), '# Orphan\n', 'utf8');
+
+        // Execute (no .out files yet — only outline.note structure)
+        const { liveMd } = await buildLiveSetPass1([], tmpDir);
+
+        // Verify
+        expect(liveMd.has(path.join(mdRoot, 'f1.md'))).toBe(true);
+        expect(liveMd.has(path.join(mdRoot, 'f3.md'))).toBe(false);
+        // ext='out' は md ではないので liveMd には入らない
+        expect(liveMd.has(path.join(mdRoot, 'f2.md'))).toBe(false);
+    });
+
+    test('scanSingleNoteCore: notes-md の orphan のみが検出され alive は守られる', async () => {
+        const noteFile = path.join(tmpDir, 'outline.note');
+        const structure = {
+            rootIds: ['f1'],
+            items: {
+                f1: { type: 'file', id: 'f1', title: 'Alive', ext: 'md' }
+            }
+        };
+        fs.writeFileSync(noteFile, JSON.stringify(structure, null, 2), 'utf8');
+
+        const mdRoot = path.join(tmpDir, '_notes_md');
+        fs.mkdirSync(mdRoot);
+        fs.writeFileSync(path.join(mdRoot, 'f1.md'), '# alive', 'utf8');
+        fs.writeFileSync(path.join(mdRoot, 'orphan-1.md'), '# orphan 1', 'utf8');
+        fs.writeFileSync(path.join(mdRoot, 'orphan-2.md'), '# orphan 2', 'utf8');
+
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        const orphanMd = candidates.filter(c => c.type === 'orphan-md');
+        expect(orphanMd.length).toBe(2);
+        const paths = orphanMd.map(c => c.relPath);
+        expect(paths.some(p => p.includes('orphan-1.md'))).toBe(true);
+        expect(paths.some(p => p.includes('orphan-2.md'))).toBe(true);
+        expect(paths.some(p => p.endsWith('f1.md'))).toBe(false);
+    });
+
+    test('Pass 2: notes-md 本文の ![](images/foo.png) が liveImages に追加される', async () => {
+        const noteFile = path.join(tmpDir, 'outline.note');
+        const structure = {
+            rootIds: ['f1'],
+            items: {
+                f1: { type: 'file', id: 'f1', title: 'Alive', ext: 'md' }
+            }
+        };
+        fs.writeFileSync(noteFile, JSON.stringify(structure, null, 2), 'utf8');
+
+        const mdRoot = path.join(tmpDir, '_notes_md');
+        const imagesDir = path.join(mdRoot, 'images');
+        fs.mkdirSync(imagesDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(mdRoot, 'f1.md'),
+            '# Page\n![](images/alive.png)\n',
+            'utf8'
+        );
+        fs.writeFileSync(path.join(imagesDir, 'alive.png'), 'alive', 'utf8');
+        fs.writeFileSync(path.join(imagesDir, 'orphan.png'), 'orphan', 'utf8');
+
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        const orphanImages = candidates.filter(c => c.type === 'orphan-image');
+        expect(orphanImages.length).toBe(1);
+        expect(orphanImages[0].relPath).toContain('orphan.png');
+
+        // alive.png は liveImages に守られているので候補に含まれない
+        expect(orphanImages.some(c => c.relPath.includes('alive.png'))).toBe(false);
+    });
+
+    test('Pass 2: notes-md 本文の [📎 file](files/foo.pdf) が liveFiles に追加される', async () => {
+        const noteFile = path.join(tmpDir, 'outline.note');
+        const structure = {
+            rootIds: ['f1'],
+            items: {
+                f1: { type: 'file', id: 'f1', title: 'Alive', ext: 'md' }
+            }
+        };
+        fs.writeFileSync(noteFile, JSON.stringify(structure, null, 2), 'utf8');
+
+        const mdRoot = path.join(tmpDir, '_notes_md');
+        const filesDir = path.join(mdRoot, 'files');
+        fs.mkdirSync(filesDir, { recursive: true });
+
+        fs.writeFileSync(
+            path.join(mdRoot, 'f1.md'),
+            'Doc: [📎 doc.pdf](files/doc.pdf)',
+            'utf8'
+        );
+        fs.writeFileSync(path.join(filesDir, 'doc.pdf'), 'pdf', 'utf8');
+        fs.writeFileSync(path.join(filesDir, 'orphan.pdf'), 'orphan', 'utf8');
+
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        const orphanFiles = candidates.filter(c => c.type === 'orphan-file');
+        expect(orphanFiles.length).toBe(1);
+        expect(orphanFiles[0].relPath).toContain('orphan.pdf');
+        expect(orphanFiles.some(c => c.relPath.endsWith('doc.pdf'))).toBe(false);
+    });
+
+    test('outline.note が無い古い note でも従来通り動作する (regression guard)', async () => {
+        // outline.note なし、.out ベースの旧 note 構造
+        const outFile = path.join(tmpDir, 'test.out');
+        fs.writeFileSync(outFile, JSON.stringify({
+            title: 'Old',
+            pageDir: './pages',
+            nodes: { a: { text: 'A', pageId: 'p1' } }
+        }, null, 2), 'utf8');
+
+        const pagesDir = path.join(tmpDir, 'pages');
+        fs.mkdirSync(pagesDir);
+        fs.writeFileSync(path.join(pagesDir, 'p1.md'), 'alive', 'utf8');
+        fs.writeFileSync(path.join(pagesDir, 'orphan.md'), 'orphan', 'utf8');
+
+        const candidates = await scanSingleNoteCore(tmpDir);
+
+        const orphanMd = candidates.filter(c => c.type === 'orphan-md');
+        expect(orphanMd.length).toBe(1);
+        expect(orphanMd[0].relPath).toContain('orphan.md');
+    });
+
+    test('壊れた outline.note でも例外を出さず .out ベースの判定は維持される', async () => {
+        const noteFile = path.join(tmpDir, 'outline.note');
+        fs.writeFileSync(noteFile, '{ this is not valid json', 'utf8');
+
+        const outFile = path.join(tmpDir, 'test.out');
+        fs.writeFileSync(outFile, JSON.stringify({
+            title: 'Test',
+            pageDir: './pages',
+            nodes: { a: { text: 'A', pageId: 'p1' } }
+        }, null, 2), 'utf8');
+
+        const pagesDir = path.join(tmpDir, 'pages');
+        fs.mkdirSync(pagesDir);
+        fs.writeFileSync(path.join(pagesDir, 'p1.md'), 'alive', 'utf8');
+
+        // Should not throw; outline.note parse failure は warn のみで処理継続
+        const candidates = await scanSingleNoteCore(tmpDir);
+        expect(candidates.filter(c => c.relPath.endsWith('p1.md')).length).toBe(0);
     });
 });

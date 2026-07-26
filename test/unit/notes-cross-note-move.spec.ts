@@ -1,0 +1,170 @@
+/**
+ * FR-MV-01/02: NotesFileManager.moveFileItemToOtherNote — 別 note フォルダへの物理移動
+ *
+ * - .out: <src>/<id>.out + pageDir <src>/<id>/ を dst へ丸ごと移動
+ * - .md : <src>/_notes_md/<id>.md + 参照 images/files を dst へ移動
+ * - 移動先 rootIds 先頭に登録、src からは除去、両 outline.note 整合
+ * - id 衝突は dst で採番し直す
+ */
+
+import { test, expect } from '@playwright/test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { NotesFileManager } from '../../src/shared/notes-file-manager';
+
+test.describe('NotesFileManager — cross-note move', () => {
+    let srcDir: string;
+    let dstDir: string;
+
+    test.beforeEach(() => {
+        srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-move-src-'));
+        dstDir = fs.mkdtempSync(path.join(os.tmpdir(), 'notes-move-dst-'));
+    });
+    test.afterEach(() => {
+        for (const d of [srcDir, dstDir]) {
+            if (d && fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+        }
+    });
+
+    // TC-MV-01: .out + page md を dst へ移動（notes-flat-storage: md=Note 直下、per-id フォルダなし）
+    test('TC-MV-01 .out 本体 + page md を dst へ移動、src から消える', () => {
+        const src = new NotesFileManager(srcDir);
+        const outPath = src.createFile('Doc A', null);
+        const id = path.basename(outPath, '.out');
+        // flat: page md は Note 直下 <srcDir>/p1.md（.out の node.pageId に対応）
+        fs.writeFileSync(path.join(srcDir, 'p1.md'), '# page', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        dst.createFile('Existing', null); // dst に既存 item
+
+        const newId = src.moveFileItemToOtherNote(id, dstDir);
+        expect(newId).toBeTruthy();
+
+        // dst に .out 本体が存在
+        expect(fs.existsSync(path.join(dstDir, `${newId}.out`))).toBe(true);
+        // src から .out は消えた
+        expect(fs.existsSync(outPath)).toBe(false);
+
+        // 構造: dst 先頭に入り、src からは除去
+        const dst2 = new NotesFileManager(dstDir);
+        expect(dst2.getStructure().rootIds[0]).toBe(newId);
+        const src2 = new NotesFileManager(srcDir);
+        expect(src2.getStructure().items[id]).toBeUndefined();
+    });
+
+    // TC-MV-02: .md + 参照 image/file を移動（notes-flat-storage: md=Note 直下、images/files=共有）
+    test('TC-MV-02 .md 本体 + 参照 images/files を dst へ移動', () => {
+        const src = new NotesFileManager(srcDir);
+        const mdPath = src.createMarkdownFile('Note MD', null);
+        const id = path.basename(mdPath, '.md');
+        // flat: md 本文が参照する image / file は共有 <srcDir>/images・<srcDir>/files に配置
+        const imgDir = path.join(srcDir, 'images');
+        const fileDir = path.join(srcDir, 'files');
+        fs.mkdirSync(imgDir, { recursive: true });
+        fs.mkdirSync(fileDir, { recursive: true });
+        fs.writeFileSync(path.join(imgDir, 'pic.png'), 'PNG', 'utf8');
+        fs.writeFileSync(path.join(fileDir, 'doc.pdf'), 'PDF', 'utf8');
+        // md 本文で参照させる (moveFileItemToOtherNote は本文参照分のみ移動)
+        fs.writeFileSync(mdPath, '![](images/pic.png)\n[doc](files/doc.pdf)\n', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        dst.createFile('Existing', null);
+
+        const newId = src.moveFileItemToOtherNote(id, dstDir);
+        expect(newId).toBeTruthy();
+
+        // dst に md + 参照アセットが移動（flat: Note 直下 md + 共有 images/files）
+        expect(fs.existsSync(path.join(dstDir, `${newId}.md`))).toBe(true);
+        expect(fs.existsSync(path.join(dstDir, 'images', 'pic.png'))).toBe(true);
+        expect(fs.existsSync(path.join(dstDir, 'files', 'doc.pdf'))).toBe(true);
+        // src から md は消える
+        expect(fs.existsSync(mdPath)).toBe(false);
+
+        // dst 構造に md item (ext:'md') が先頭で登録
+        const dst2 = new NotesFileManager(dstDir);
+        const rootFirst = dst2.getStructure().rootIds[0];
+        expect(rootFirst).toBe(newId);
+        expect((dst2.getStructure().items[newId as string] as any).ext).toBe('md');
+    });
+
+    // TC-FS-40: 共有アセットが残留 item に参照されていれば移動時に削除しない（データロス防止）
+    test('TC-FS-40 移動する md と残留 md が同名共有アセットを参照 → 移動後も残留側のアセットが残る', () => {
+        const src = new NotesFileManager(srcDir);
+        // 移動対象 md と、src に残る別 md の両方が shared.png を参照
+        const movingMd = src.createMarkdownFile('Moving', null);
+        const movingId = path.basename(movingMd, '.md');
+        const stayingMd = src.createMarkdownFile('Staying', null);
+        const imgDir = path.join(srcDir, 'images');
+        fs.mkdirSync(imgDir, { recursive: true });
+        fs.writeFileSync(path.join(imgDir, 'shared.png'), 'PNG', 'utf8');
+        // 両方の本文が shared.png を参照
+        fs.writeFileSync(movingMd, '![](images/shared.png)\n', 'utf8');
+        fs.writeFileSync(stayingMd, '![](images/shared.png)\n', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        const newId = src.moveFileItemToOtherNote(movingId, dstDir);
+        expect(newId).toBeTruthy();
+
+        // dst にはコピーされる
+        expect(fs.existsSync(path.join(dstDir, 'images', 'shared.png'))).toBe(true);
+        // ★残留 md がまだ参照しているので src の shared.png は削除されない（データロス防止）
+        expect(fs.existsSync(path.join(srcDir, 'images', 'shared.png'))).toBe(true);
+    });
+
+    // TC-FS-40b: 残留参照が無ければ従来どおり src から削除される
+    test('TC-FS-40b 残留参照が無い共有アセットは移動後 src から削除される', () => {
+        const src = new NotesFileManager(srcDir);
+        const movingMd = src.createMarkdownFile('Moving', null);
+        const movingId = path.basename(movingMd, '.md');
+        const imgDir = path.join(srcDir, 'images');
+        fs.mkdirSync(imgDir, { recursive: true });
+        fs.writeFileSync(path.join(imgDir, 'only.png'), 'PNG', 'utf8');
+        fs.writeFileSync(movingMd, '![](images/only.png)\n', 'utf8');
+
+        const dst = new NotesFileManager(dstDir);
+        const newId = src.moveFileItemToOtherNote(movingId, dstDir);
+        expect(newId).toBeTruthy();
+        expect(fs.existsSync(path.join(dstDir, 'images', 'only.png'))).toBe(true);
+        // 誰も参照していないので src からは消える
+        expect(fs.existsSync(path.join(srcDir, 'images', 'only.png'))).toBe(false);
+    });
+
+    // TC-MV-03: id 衝突時の採番
+    test('TC-MV-03 dst に同 id が存在する場合は採番し直す', () => {
+        const src = new NotesFileManager(srcDir);
+        const outPath = src.createFile('Doc', null);
+        const id = path.basename(outPath, '.out');
+
+        // dst に同じ id の item を人工的に作る (衝突を強制)
+        const dst = new NotesFileManager(dstDir);
+        const dstStructure = dst.getStructure();
+        dstStructure.version = dstStructure.version || 1;
+        dstStructure.items[id] = { type: 'file', id, title: 'collision' };
+        dstStructure.rootIds.unshift(id);
+        dst.saveStructure();
+        // 実ファイルも置く
+        fs.writeFileSync(path.join(dstDir, `${id}.out`), '{"title":"collision","rootIds":[],"nodes":{}}', 'utf8');
+
+        const newId = src.moveFileItemToOtherNote(id, dstDir);
+        expect(newId).toBeTruthy();
+        expect(newId).not.toBe(id); // 採番し直された
+        // 衝突元は保持され、新 id が別に存在
+        const dst2 = new NotesFileManager(dstDir);
+        expect(dst2.getStructure().items[id]).toBeDefined();       // 既存 collision
+        expect(dst2.getStructure().items[newId as string]).toBeDefined(); // 移動分
+        expect(dst2.getStructure().rootIds[0]).toBe(newId);        // 先頭に移動分
+        expect(fs.existsSync(path.join(dstDir, `${newId}.out`))).toBe(true);
+    });
+
+    // folder item は対象外 (file のみ)
+    test('TC-MV-03b folder item は移動対象外 (null を返す)', () => {
+        const src = new NotesFileManager(srcDir);
+        src.createFolder('Folder1', null);
+        const folderId = Object.keys(src.getStructure().items).find(
+            k => src.getStructure().items[k].type === 'folder'
+        )!;
+        const r = src.moveFileItemToOtherNote(folderId, dstDir);
+        expect(r).toBeNull();
+    });
+});

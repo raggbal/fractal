@@ -11,9 +11,22 @@ import {
     removeAllDirectives
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import {
+    resolveSaveDirFromSidecar,
+    readSaveDirConfig,
+    sidecarPathForMd,
+    isValidSaveDirValue,
+    withSaveDir,
+    withoutSaveDir,
+    isUnderFractalNote,
+    detectStandaloneOutlinerPage,
+} from './shared/save-dir-directive';
+import { runExportBundle } from './shared/export-bundle-host';
+import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
+import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 
@@ -61,7 +74,7 @@ function resolveToAbsolute(configPath: string, documentPath: string): string {
  * @param forceRelative 強制的に相対パスを使用するかどうか
  * @returns Markdown用のパス（絶対または相対）
  */
-function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: boolean, forceRelative: boolean = false): string {
+export function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: boolean, forceRelative: boolean = false): string {
     // forceRelative が true なら、常に相対パスを使用
     if (forceRelative || !useAbsolute) {
         const docDir = path.dirname(documentPath);
@@ -79,7 +92,7 @@ function toMarkdownPath(imagePath: string, documentPath: string, useAbsolute: bo
 /**
  * ディレクトリが存在しない場合は作成
  */
-function ensureDirectoryExists(dirPath: string): void {
+export function ensureDirectoryExists(dirPath: string): void {
     if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
     }
@@ -92,7 +105,7 @@ function ensureDirectoryExists(dirPath: string): void {
  * @param extension 拡張子（ドットなし）
  * @returns ユニークなファイル名
  */
-function generateUniqueFileName(dir: string, extension: string): string {
+export function generateUniqueFileName(dir: string, extension: string): string {
     const timestamp = Date.now();
     const baseName = `${timestamp}.${extension}`;
     const basePath = path.join(dir, baseName);
@@ -160,7 +173,7 @@ function normalizeTrailingSlash(p: string): string {
     return p.replace(/[\/\\]+$/, '');
 }
 
-class ImageDirectoryManager {
+export class ImageDirectoryManager {
     // ファイルURIをキーとしたIMAGE_DIRのマップ
     private fileImageDirs: Map<string, string> = new Map();
     // 最後に検出されたIMAGE_DIR（変更検出用）
@@ -170,13 +183,24 @@ class ImageDirectoryManager {
     
     /**
      * 現在有効な画像保存ディレクトリを取得
-     * 優先順位: 1. ファイル単位のIMAGE_DIR (outliner forced), 2. VS Code設定のimageDefaultDir, 3. ドキュメントと同じディレクトリ
+     * 優先順位: 1. 保存先ディレクティブ (standalone md 限定), 2. ファイル単位のIMAGE_DIR (outliner forced), 3. <mdDir>/images
      */
     getImageDirectory(documentUri: vscode.Uri, documentContent: string): string {
         const documentPath = documentUri.fsPath;
         const uriKey = documentUri.toString();
 
-        // 1. ファイル単位のIMAGE_DIR (outliner page forced dir)
+        // 1. 保存先サイドカー .fractal.json（standalone md 限定・resolver 内ガード。ADRL-0016 / D-1）。
+        //    共有シングルトンなので Notes/outliner page md では発火させない（保存先固定の不変条件 NFR-MD-01）。
+        if (!isUnderFractalNote(documentPath) && detectStandaloneOutlinerPage(documentPath) === null) {
+            const dir = resolveSaveDirFromSidecar(documentPath, 'imageDir');
+            if (dir) {
+                const normalized = normalizeTrailingSlash(dir);
+                this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
+                return resolveToAbsolute(normalized, documentPath);
+            }
+        }
+
+        // 2. ファイル単位のIMAGE_DIR (outliner page forced dir)
         const fileImageDir = this.fileImageDirs.get(uriKey);
         if (fileImageDir) {
             const normalized = normalizeTrailingSlash(fileImageDir);
@@ -184,20 +208,11 @@ class ImageDirectoryManager {
             return resolveToAbsolute(normalized, documentPath);
         }
 
-        // 2. VS Code設定のimageDefaultDirをチェック
-        const config = vscode.workspace.getConfiguration('fractal');
-        const defaultDir = config.get<string>('imageDefaultDir', '');
-        if (defaultDir) {
-            const normalized = normalizeTrailingSlash(defaultDir);
-            this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
-            return resolveToAbsolute(normalized, documentPath);
-        }
-
-        // 3. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
+        // 3. デフォルト: <mdDir>/images（相対パス扱い・固定）
         this.useAbsolutePath.set(uriKey, false);
-        return path.dirname(documentPath);
+        return path.join(path.dirname(documentPath), 'images');
     }
-    
+
     /**
      * 設定されたパスが絶対パスかどうかを取得
      * getImageDirectory() を先に呼び出す必要がある
@@ -205,14 +220,12 @@ class ImageDirectoryManager {
     shouldUseAbsolutePath(documentUri: vscode.Uri): boolean {
         return this.useAbsolutePath.get(documentUri.toString()) || false;
     }
-    
+
     /**
-     * 相対パスを強制するかどうかを取得
-     * VS Code設定のforceRelativeImagePathを使用
+     * 相対パスを強制するかどうかを取得（旧設定は廃止 → 常に false）
      */
-    shouldForceRelativePath(documentUri: vscode.Uri, documentContent: string): boolean {
-        const config = vscode.workspace.getConfiguration('fractal');
-        return config.get<boolean>('forceRelativeImagePath', false);
+    shouldForceRelativePath(_documentUri: vscode.Uri, _documentContent: string): boolean {
+        return false;
     }
     
     /**
@@ -239,13 +252,13 @@ class ImageDirectoryManager {
 }
 
 // グローバルインスタンス
-const imageDirectoryManager = new ImageDirectoryManager();
+export const imageDirectoryManager = new ImageDirectoryManager();
 
 // ============================================
 // FileDirectoryManager: ファイル保存ディレクトリの管理
 // ============================================
 
-class FileDirectoryManager {
+export class FileDirectoryManager {
     // ファイルURIをキーとしたFILE_DIRのマップ
     private fileFileDirs: Map<string, string> = new Map();
     // 最後に検出されたFILE_DIR（変更検出用）
@@ -255,13 +268,23 @@ class FileDirectoryManager {
 
     /**
      * 現在有効なファイル保存ディレクトリを取得
-     * 優先順位: 1. ファイル単位のFILE_DIR (outliner forced), 2. VS Code設定のfileDefaultDir, 3. ドキュメントと同じディレクトリ
+     * 優先順位: 1. 保存先ディレクティブ (standalone md 限定), 2. ファイル単位のFILE_DIR (outliner forced), 3. <mdDir>/files
      */
     getFileDirectory(documentUri: vscode.Uri, documentContent: string): string {
         const documentPath = documentUri.fsPath;
         const uriKey = documentUri.toString();
 
-        // 1. ファイル単位のFILE_DIR (outliner page forced dir)
+        // 1. 保存先サイドカー .fractal.json（standalone md 限定・resolver 内ガード。ADRL-0016 / D-1）。
+        if (!isUnderFractalNote(documentPath) && detectStandaloneOutlinerPage(documentPath) === null) {
+            const dir = resolveSaveDirFromSidecar(documentPath, 'fileDir');
+            if (dir) {
+                const normalized = normalizeTrailingSlash(dir);
+                this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
+                return resolveToAbsolute(normalized, documentPath);
+            }
+        }
+
+        // 2. ファイル単位のFILE_DIR (outliner page forced dir)
         const fileFileDir = this.fileFileDirs.get(uriKey);
         if (fileFileDir) {
             const normalized = normalizeTrailingSlash(fileFileDir);
@@ -269,18 +292,9 @@ class FileDirectoryManager {
             return resolveToAbsolute(normalized, documentPath);
         }
 
-        // 2. VS Code設定のfileDefaultDirをチェック
-        const config = vscode.workspace.getConfiguration('fractal');
-        const defaultDir = config.get<string>('fileDefaultDir', '');
-        if (defaultDir) {
-            const normalized = normalizeTrailingSlash(defaultDir);
-            this.useAbsolutePath.set(uriKey, path.isAbsolute(normalized));
-            return resolveToAbsolute(normalized, documentPath);
-        }
-
-        // 3. デフォルト: ドキュメントと同じディレクトリ（相対パス扱い）
+        // 3. デフォルト: <mdDir>/files（相対パス扱い・固定）
         this.useAbsolutePath.set(uriKey, false);
-        return path.dirname(documentPath);
+        return path.join(path.dirname(documentPath), 'files');
     }
 
     /**
@@ -292,12 +306,10 @@ class FileDirectoryManager {
     }
 
     /**
-     * 相対パスを強制するかどうかを取得
-     * VS Code設定のforceRelativeFilePathを使用
+     * 相対パスを強制するかどうかを取得（旧設定は廃止 → 常に false）
      */
-    shouldForceRelativeFilePath(documentUri: vscode.Uri, documentContent: string): boolean {
-        const config = vscode.workspace.getConfiguration('fractal');
-        return config.get<boolean>('forceRelativeFilePath', false);
+    shouldForceRelativeFilePath(_documentUri: vscode.Uri, _documentContent: string): boolean {
+        return false;
     }
 
     /**
@@ -324,44 +336,9 @@ class FileDirectoryManager {
 }
 
 // グローバルインスタンス
-const fileDirectoryManager = new FileDirectoryManager();
+export const fileDirectoryManager = new FileDirectoryManager();
 
-/**
- * v0.207.44: standalone で直接 .md を開いた時に「outliner page MD」と heuristic 検出する。
- *
- * Fractal の命名規約: `<basename>.out` の page MD は `<basename>/<pageId>.md` に保存される。
- * よって `.md` の親フォルダ名 (basename) と同名の `.out` が grandparent に存在すれば
- * その `.md` は outliner page MD と判定できる。
- *
- * 検出された場合、image / file の保存先を `<pageDir>/images` / `<pageDir>/files` に強制。
- *
- * 例:
- *   ~/Desktop/notes/abc.out                       ← outliner file
- *   ~/Desktop/notes/abc/p123abc.md                ← page MD
- *   ~/Desktop/notes/abc/images/                   ← image 保存先 (固定)
- *   ~/Desktop/notes/abc/files/                    ← file 保存先 (固定)
- *
- * standalone で `~/Desktop/notes/abc/p123abc.md` を直接開いた時:
- *   pageDir = `~/Desktop/notes/abc` (= parent)
- *   folderName = `abc`
- *   parentDir = `~/Desktop/notes` (= grandparent)
- *   outFile = `~/Desktop/notes/abc.out` ← 存在すれば検出成功
- */
-function detectStandaloneOutlinerPage(mdPath: string): { pageDir: string } | null {
-    try {
-        const pageDir = path.dirname(mdPath);
-        const folderName = path.basename(pageDir);
-        const parentDir = path.dirname(pageDir);
-        if (!folderName || pageDir === parentDir) return null;  // root 直下等の edge case
-        const outFile = path.join(parentDir, `${folderName}.out`);
-        if (fs.existsSync(outFile) && fs.statSync(outFile).isFile()) {
-            return { pageDir };
-        }
-    } catch {
-        /* fs error → 検出失敗扱い */
-    }
-    return null;
-}
+// detectStandaloneOutlinerPage は src/shared/save-dir-directive.ts に移動（pure・unit 直接 require 用）。
 
 export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvider {
     private static readonly viewType = 'fractal.editor';
@@ -431,16 +408,17 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // Get the document directory and workspace folder for local resource access
         const documentDir = vscode.Uri.joinPath(document.uri, '..');
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        
-        // Get user's home directory for accessing Downloads, etc.
-        const homeDir = require('os').homedir();
-        const homeDirUri = vscode.Uri.file(homeDir);
-        
+
+        // FR-RR-03: homeDir ハードコードを settings 由来の許可範囲に置換（空なら [homedir]＝後方互換）。
+        const cfg = vscode.workspace.getConfiguration('fractal');
+        const resourceRoots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
+
         const localResourceRoots = [
             vscode.Uri.joinPath(this.context.extensionUri, 'media'),
             vscode.Uri.joinPath(this.context.extensionUri, 'node_modules'),
             documentDir,
-            homeDirUri // Allow access to home directory (Downloads, Pictures, etc.)
+            // Allow access to configured roots (default = home directory: Downloads, Pictures, etc.)
+            ...resourceRoots.map(p => vscode.Uri.file(p))
         ];
         if (workspaceFolder) {
             localResourceRoots.push(workspaceFolder.uri);
@@ -465,7 +443,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     return match;
                 }
                 // Convert absolute path to webview URI
-                if (src.startsWith('/')) {
+                // path.isAbsolute: mac/Linux では startsWith('/') と同値（挙動不変）。Windows では C:\ / UNC も絶対と判定
+                if (path.isAbsolute(src)) {
                     const fileUri = vscode.Uri.file(src);
                     const webviewUri = webviewPanel.webview.asWebviewUri(fileUri).toString();
                     return `![${alt}](${webviewUri})`;
@@ -529,6 +508,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         isOutlinerPage: isOutlinerPage,
                         showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                        showOpenInTextEditor: config.get<boolean>('showOpenInTextEditor', true),
                         imageMaxWidth: config.get<number>('imageMaxWidth', 400)
                     },
                     webviewNonce
@@ -553,6 +533,21 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             }
         };
 
+        // FR-RR-04: この md 内の画像で許可範囲外のものを検知し、フッター案内を webview に送る
+        const sendResourceAccessStatus = () => {
+            try {
+                const body = document.getText();
+                const mdDir = path.dirname(document.uri.fsPath);
+                const outOfRange = findOutOfRangeImages(body, mdDir, resourceRoots);
+                webviewPanel.webview.postMessage({
+                    type: 'resourceAccessStatus',
+                    outOfRange: outOfRange.length > 0,
+                    count: outOfRange.length,
+                    samplePath: outOfRange[0]
+                });
+            } catch { /* 検知は best-effort。失敗しても本体表示を妨げない */ }
+        };
+
         // Send current image directory status to webview
         const sendImageDirStatus = () => {
             const docContent = document.getText();
@@ -560,19 +555,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             const uriKey = document.uri.toString();
             const docDir = path.dirname(docPath);
 
-            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
+            // Determine source (file = outliner forced, default = <mdDir>/images or directive)
             const fileImageDir = imageDirectoryManager.getFileImageDir(uriKey);
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            const settingsDir = cfg.get<string>('imageDefaultDir', '');
-
-            let source: 'file' | 'settings' | 'default';
-            if (fileImageDir) {
-                source = 'file';
-            } else if (settingsDir) {
-                source = 'settings';
-            } else {
-                source = 'default';
-            }
+            const source: 'file' | 'default' = fileImageDir ? 'file' : 'default';
 
             // Compute display path (same logic as toMarkdownPath for directories)
             const absDir = imageDirectoryManager.getImageDirectory(document.uri, docContent);
@@ -591,12 +576,15 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
                 displayPath += '/';
             }
+            // FR-MD-01/02: standalone md（note 配下でない・outliner page でない）だけ保存先変更 UI を出せる
+            const editable = !isUnderFractalNote(docPath) && detectStandaloneOutlinerPage(docPath) === null;
 
             webviewPanel.webview.postMessage({
                 type: 'imageDirStatus',
                 displayPath,
                 source,
-                locked
+                locked,
+                editable
             });
         };
 
@@ -613,20 +601,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 try { spContent = fs.readFileSync(spFilePath, 'utf-8'); } catch { /* empty */ }
             }
 
-            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
+            // Determine source (file = outliner forced, default = <mdDir>/images or directive)
             const spUriKey = spUri.toString();
             const fileImageDir = imageDirectoryManager.getFileImageDir(spUriKey);
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            const settingsDir = cfg.get<string>('imageDefaultDir', '');
-
-            let source: 'file' | 'settings' | 'default';
-            if (fileImageDir) {
-                source = 'file';
-            } else if (settingsDir) {
-                source = 'settings';
-            } else {
-                source = 'default';
-            }
+            const source: 'file' | 'default' = fileImageDir ? 'file' : 'default';
 
             const absDir = imageDirectoryManager.getImageDirectory(spUri, spContent);
             const useAbsolute = imageDirectoryManager.shouldUseAbsolutePath(spUri);
@@ -659,19 +637,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             const uriKey = document.uri.toString();
             const docDir = path.dirname(docPath);
 
-            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
+            // Determine source (file = outliner forced, default = <mdDir>/files or directive)
             const fileFileDir = fileDirectoryManager.getFileFileDir(uriKey);
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            const settingsDir = cfg.get<string>('fileDefaultDir', '');
-
-            let source: 'file' | 'settings' | 'default';
-            if (fileFileDir) {
-                source = 'file';
-            } else if (settingsDir) {
-                source = 'settings';
-            } else {
-                source = 'default';
-            }
+            const source: 'file' | 'default' = fileFileDir ? 'file' : 'default';
 
             // Compute display path (same logic as toMarkdownPath for directories)
             const absDir = fileDirectoryManager.getFileDirectory(document.uri, docContent);
@@ -689,12 +657,14 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             if (locked && displayPath !== '.' && !displayPath.endsWith('/')) {
                 displayPath += '/';
             }
+            const editable = !isUnderFractalNote(docPath) && detectStandaloneOutlinerPage(docPath) === null;
 
             webviewPanel.webview.postMessage({
                 type: 'fileDirStatus',
                 displayPath,
                 source,
-                locked
+                locked,
+                editable
             });
         };
 
@@ -711,20 +681,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 try { spContent = fs.readFileSync(spFilePath, 'utf-8'); } catch { /* empty */ }
             }
 
-            // Determine source (file = outliner forced, settings = VS Code config, default = doc dir)
+            // Determine source (file = outliner forced, default = <mdDir>/files or directive)
             const spUriKey = spUri.toString();
             const fileFileDir = fileDirectoryManager.getFileFileDir(spUriKey);
-            const cfg = vscode.workspace.getConfiguration('fractal');
-            const settingsDir = cfg.get<string>('fileDefaultDir', '');
-
-            let source: 'file' | 'settings' | 'default';
-            if (fileFileDir) {
-                source = 'file';
-            } else if (settingsDir) {
-                source = 'settings';
-            } else {
-                source = 'default';
-            }
+            const source: 'file' | 'default' = fileFileDir ? 'file' : 'default';
 
             const absDir = fileDirectoryManager.getFileDirectory(spUri, spContent);
             const useAbsolute = fileDirectoryManager.shouldUseAbsoluteFilePath(spUri);
@@ -758,6 +718,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
         // Send initial file dir status (queued for webview)
         sendFileDirStatus();
+
+        // FR-RR-04: この md の画像に許可範囲外があればフッター案内を送る
+        sendResourceAccessStatus();
 
         // Sync policy: when user is actively editing, external changes are queued in webview.
         // When user is idle (even with focus), external changes are applied with cursor preservation.
@@ -947,6 +910,95 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     await document.save();
                     break;
 
+                case 'openResourceRootsSettings':
+                    await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+                    break;
+
+                // FR-MD-03/04/06: standalone md（note 配下でない）限定 — 画像/添付保存先の変更 UI。
+                // sidebar-footer の保存先表示クリック → QuickPick（フォルダを選ぶ / デフォルトに戻す）→
+                // md 冒頭の保存先ディレクティブ upsert/remove（ADRL-0015）。
+                case 'setSaveDir': {
+                    const kind: 'image' | 'file' = message.kind === 'file' ? 'file' : 'image';
+                    const docPath = document.uri.fsPath;
+                    // 二重ガード: standalone md（note 配下でない・outliner page でない）のみ
+                    if (isUnderFractalNote(docPath) || detectStandaloneOutlinerPage(docPath) !== null) break;
+                    const dirKey: 'imageDir' | 'fileDir' = kind === 'image' ? 'imageDir' : 'fileDir';
+                    const labelKind = kind === 'image'
+                        ? (getWebviewMessages().imageDirLabel || 'Image save directory')
+                        : (getWebviewMessages().fileDirLabel || 'File save directory');
+                    const pickChoose = getWebviewMessages().saveDirChoose || 'Choose folder…';
+                    const pickReset = getWebviewMessages().saveDirReset || 'Reset to default (images/ · files/)';
+                    const choice = await vscode.window.showQuickPick([pickChoose, pickReset], {
+                        placeHolder: labelKind,
+                    });
+                    if (!choice) break;
+                    const mdDir = path.dirname(docPath);
+                    if (choice === pickChoose) {
+                        const picked = await vscode.window.showOpenDialog({
+                            canSelectFolders: true,
+                            canSelectFiles: false,
+                            canSelectMany: false,
+                            defaultUri: vscode.Uri.file(mdDir),
+                            openLabel: pickChoose,
+                        });
+                        if (!picked || picked.length === 0) break;
+                        const pickedDir = picked[0].fsPath;
+                        // md からの相対。md 外へ出る（.. で始まる）なら絶対パスのまま。
+                        let rel = path.relative(mdDir, pickedDir).replace(/\\/g, '/');
+                        let value: string;
+                        if (rel === '') {
+                            value = '.';
+                        } else if (rel.startsWith('..')) {
+                            value = pickedDir; // md 外 → 絶対パス
+                        } else {
+                            value = rel;
+                        }
+                        if (!isValidSaveDirValue(value)) {
+                            vscode.window.showWarningMessage('Invalid save directory path.');
+                            break;
+                        }
+                        // .fractal.json（md 同フォルダ）に該当キーを upsert（本文は触らない・他キー保持）
+                        const sidecar = sidecarPathForMd(docPath);
+                        const nextCfg = withSaveDir(readSaveDirConfig(docPath), dirKey, value);
+                        try {
+                            fs.writeFileSync(sidecar, JSON.stringify(nextCfg, null, 2) + '\n', 'utf-8');
+                        } catch (e) {
+                            vscode.window.showWarningMessage(`Failed to write ${sidecar}: ${e}`);
+                            break;
+                        }
+                    } else {
+                        // デフォルトに戻す → .fractal.json の該当キーを削除（両キー空なら file 削除）
+                        const sidecar = sidecarPathForMd(docPath);
+                        const existing = readSaveDirConfig(docPath);
+                        if (existing) {
+                            const { config: nextCfg, empty } = withoutSaveDir(existing, dirKey);
+                            try {
+                                if (empty) {
+                                    if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
+                                } else {
+                                    fs.writeFileSync(sidecar, JSON.stringify(nextCfg, null, 2) + '\n', 'utf-8');
+                                }
+                            } catch (e) {
+                                vscode.window.showWarningMessage(`Failed to update ${sidecar}: ${e}`);
+                                break;
+                            }
+                        }
+                    }
+                    // 表示更新
+                    if (kind === 'image') { sendImageDirStatus(); } else { sendFileDirStatus(); }
+                    break;
+                }
+
+                // FR-EX-01/03: md export bundle。standalone md は document.uri が root
+                // （sidepanel から開いた場合は message.sidePanelFilePath 優先）。
+                case 'exportBundle': {
+                    const rootMd = message.sidePanelFilePath || document.uri.fsPath;
+                    if (rootMd && message.options) {
+                        await runExportBundle(rootMd, message.options);
+                    }
+                    break;
+                }
+
                 case 'editingStateChanged':
                     isActivelyEditing = message.editing;
                     break;
@@ -963,7 +1015,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'insertImage': {
                     const imgDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const imgDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleImageInsert(imgDocUri, imgDocContent, webviewPanel.webview);
+                    await this.handleImageInsert(imgDocUri, imgDocContent, webviewPanel.webview, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -971,7 +1023,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Save pasted/dropped image to file
                     const saveDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const saveDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveImage(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    // FR: sidepanel が実際にこの md を開いている（watchedPath 一致）ときだけ sidepanel 宛に載せる
+                    const saveImgSp = sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined;
+                    await this.handleSaveImage(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName, saveImgSp);
                     break;
                 }
 
@@ -979,7 +1033,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Read an existing image file and insert it
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertImage(readDocUri, readDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertImage(readDocUri, readDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -987,7 +1041,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Save pasted/dropped file
                     const saveDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const saveDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveFile(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    await this.handleSaveFile(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -995,7 +1049,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // Read an existing file and insert it
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1003,7 +1057,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-45: drawio.svg / drawio.png D&D (Files 経路) — fileDir に dataUrl デコード保存
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleSaveDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.dataUrl, message.fileName);
+                    await this.handleSaveDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.dataUrl, message.fileName, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1011,7 +1065,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-45: drawio.svg / drawio.png D&D (URI 経路) — fileDir にコピー
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath);
+                    await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1039,7 +1093,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入
                     const drawDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const drawDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
-                    await this.handleRequestCreateDrawio(drawDocUri, drawDocContent, webviewPanel.webview);
+                    await this.handleRequestCreateDrawio(drawDocUri, drawDocContent, webviewPanel.webview, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
 
@@ -1076,7 +1130,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             anchor: linkHref.substring(1)
                         });
                     } else {
-                        const resolvedUri = linkHref.startsWith('/')
+                        const resolvedUri = path.isAbsolute(linkHref)
                             ? vscode.Uri.file(linkHref)
                             : vscode.Uri.joinPath(document.uri, '..', linkHref);
                         const resolvedPath = resolvedUri.fsPath.toLowerCase();
@@ -1120,6 +1174,20 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'copyFilePath':
                     await vscode.env.clipboard.writeText(document.uri.fsPath);
                     break;
+
+                case 'copyImageToClipboard':
+                    await copyImageToClipboard(message.absPath);
+                    break;
+
+                case 'openImageInNewTab':
+                    await openImageInNewTab(message.absPath);
+                    break;
+
+                case 'openDrawioExternal': {
+                    const { openDrawioExternal } = await import('./shared/drawio-external');
+                    await openDrawioExternal(message.absPath);
+                    break;
+                }
 
                 case 'saveSidePanelFile':
                     await sidePanel.handleSave(message.filePath, message.content);
@@ -1365,10 +1433,12 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'createPageAuto': {
                     const docDir3 = path.dirname(document.uri.fsPath);
-                    // outliner page MD なら outliner の pageDir 直下、それ以外は <docDir>/pages
+                    // outliner page MD なら outliner の pageDir 直下、それ以外は md と同階層（フラット）。
+                    // notes-flat-storage (2026-07-07): standalone md の Add Page も pages/ サブフォルダを作らず
+                    // <docDir> 直下に置く（md 本文リンクは ./<file>.md）。
                     const pagesDir = (isOutlinerPage && outlinerPageDir)
                         ? outlinerPageDir
-                        : path.join(docDir3, 'pages');
+                        : docDir3;
                     if (!fs.existsSync(pagesDir)) {
                         fs.mkdirSync(pagesDir, { recursive: true });
                     }
@@ -1387,16 +1457,18 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'createPageAutoForSidePanel': {
                     // v15+: side panel の cmd+/ Add Page (simple flow)
                     // sidePanel が outliner page を開いている場合は outliner の pageDir 直下、
-                    // それ以外は side panel file dir/pages に作る
+                    // それ以外は side panel file と同階層（フラット、pages/ を作らない）
                     const sidePanelFilePath: string = message.sidePanelFilePath || '';
                     if (!sidePanelFilePath) break;
                     const spDir = path.dirname(sidePanelFilePath);
                     // side panel が outliner page MD かどうか判定
                     const spIsOutlinerPage = OutlinerProvider.outlinerPagePaths.has(sidePanelFilePath);
                     const spOutlinerPageDir = OutlinerProvider.outlinerPagePaths.get(sidePanelFilePath);
+                    // notes-flat-storage (2026-07-07): outliner page なら pageDir 直下、
+                    // それ以外（standalone md の side panel）は md と同階層（フラット、pages/ を作らない）。
                     const pagesDir = (spIsOutlinerPage && spOutlinerPageDir)
                         ? spOutlinerPageDir
-                        : path.join(spDir, 'pages');
+                        : spDir;
                     if (!fs.existsSync(pagesDir)) {
                         fs.mkdirSync(pagesDir, { recursive: true });
                     }
@@ -1571,7 +1643,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         return document.getText();
     }
 
-    private async handleImageInsert(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview) {
+    private async handleImageInsert(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1622,7 +1694,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     type: 'insertImageHtml',
                     markdownPath: markdownPath,
                     displayUri: webviewUri,
-                    dataUri: dataUrl
+                    dataUri: dataUrl,
+                    sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
                 });
             } catch (error) {
                 console.error('Failed to copy image:', error);
@@ -1631,7 +1704,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleSaveImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string) {
+    private async handleSaveImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1670,7 +1743,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel（sidepanel が watchedPath 一致のときのみ dispatch が渡す）
             });
         } catch (error) {
             console.error('[DEBUG] Failed to save image:', error);
@@ -1684,7 +1758,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         return match ? mimeToExt(match[1]) : 'png';
     }
 
-    private async handleReadAndInsertImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string) {
+    private async handleReadAndInsertImage(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1728,7 +1802,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('Failed to read/copy image:', error);
@@ -1736,7 +1811,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleSaveFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string) {
+    private async handleSaveFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, dataUrl: string, fileName?: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1769,7 +1844,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertFileLink',
                 markdownPath: markdownPath,
-                fileName: uniqueFileName
+                fileName: uniqueFileName,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('[DEBUG] Failed to save file:', error);
@@ -1777,7 +1853,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleReadAndInsertFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string) {
+    private async handleReadAndInsertFile(documentUri: vscode.Uri, documentContent: string, webview: vscode.Webview, filePath: string, spFilePath?: string) {
         const path = require('path');
         const fs = require('fs');
 
@@ -1811,7 +1887,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertFileLink',
                 markdownPath: markdownPath,
-                fileName: uniqueFileName
+                fileName: uniqueFileName,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (error) {
             console.error('Failed to read/copy file:', error);
@@ -1820,7 +1897,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     /**
-     * MD-45: drawio.svg / drawio.png を fileDefaultDir に保存（dataUrl デコード）し、
+     * MD-45: drawio.svg / drawio.png をファイル保存先に保存（dataUrl デコード）し、
      * `![<base>](relative)` をエディタに insertText 指示する。
      */
     private async handleSaveDrawio(
@@ -1828,7 +1905,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         documentContent: string,
         webview: vscode.Webview,
         dataUrl: string,
-        fileName: string
+        fileName: string,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1854,7 +1932,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
                 displayUri: webviewUri,
-                dataUri: dataUrl
+                dataUri: dataUrl,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleSaveDrawio error:', err);
@@ -1863,14 +1942,15 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     }
 
     /**
-     * MD-45 (URI 経路): 既存 drawio.svg / drawio.png を fileDefaultDir にコピーし、
+     * MD-45 (URI 経路): 既存 drawio.svg / drawio.png をファイル保存先にコピーし、
      * `![<base>](relative)` をエディタに insertText 指示する。
      */
     private async handleReadAndInsertDrawio(
         documentUri: vscode.Uri,
         documentContent: string,
         webview: vscode.Webview,
-        filePath: string
+        filePath: string,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1895,7 +1975,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
-                displayUri: webviewUri
+                displayUri: webviewUri,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleReadAndInsertDrawio error:', err);
@@ -1910,7 +1991,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
     private async handleRequestCreateDrawio(
         documentUri: vscode.Uri,
         documentContent: string,
-        webview: vscode.Webview
+        webview: vscode.Webview,
+        spFilePath?: string
     ): Promise<void> {
         const path = require('path');
         const fs = require('fs');
@@ -1931,7 +2013,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             webview.postMessage({
                 type: 'insertImageHtml',
                 markdownPath: markdownPath,
-                displayUri: webviewUri
+                displayUri: webviewUri,
+                sidePanelFilePath: spFilePath // FR: 宛先=sidepanel
             });
         } catch (err) {
             console.error('[Any MD] handleRequestCreateDrawio error:', err);

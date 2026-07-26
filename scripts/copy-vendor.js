@@ -21,6 +21,9 @@ const files = [
     { src: 'mermaid/dist/mermaid.min.js', dest: 'mermaid.min.js' },
     { src: 'katex/dist/katex.min.js', dest: 'katex.min.js' },
     { src: 'katex/dist/katex.min.css', dest: 'katex.min.css' },
+    // Mindmap Mode: d3 layout engine (UMD, attaches to window.d3). No eval → CSP-safe.
+    { src: 'd3-hierarchy/dist/d3-hierarchy.min.js', dest: 'd3-hierarchy.min.js' },
+    { src: 'd3-flextree/build/d3-flextree.min.js', dest: 'd3-flextree.min.js' },
 ];
 
 for (const { src, dest } of files) {
@@ -57,12 +60,22 @@ console.log('  ✓ katex.min.css (stripped woff/ttf references)');
 const licenses = [
     { pkg: 'mermaid', dest: 'LICENSE-mermaid' },
     { pkg: 'katex', dest: 'LICENSE-katex' },
+    { pkg: 'd3-hierarchy', dest: 'LICENSE-d3-hierarchy' },  // ISC
+    { pkg: 'd3-flextree', dest: 'LICENSE-d3-flextree' },    // WTFPL
 ];
+let licenseCount = 0;
 for (const { pkg, dest } of licenses) {
     const srcPath = path.join(NODE_MODULES, pkg, 'LICENSE');
     const destPath = path.join(VENDOR, dest);
-    fs.copyFileSync(srcPath, destPath);
+    // Guard: not every package ships a file literally named LICENSE. Skip (with warning)
+    // rather than throwing and aborting the whole vendor copy.
+    if (fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, destPath);
+        licenseCount++;
+    } else {
+        console.warn(`  ! LICENSE not found for ${pkg} (${srcPath}) — add ${dest} manually`);
+    }
 }
-console.log(`  ✓ LICENSE files (${licenses.length} packages)`);
+console.log(`  ✓ LICENSE files (${licenseCount}/${licenses.length} packages)`);
 
 console.log('\nVendor copy complete.');

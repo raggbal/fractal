@@ -5,8 +5,11 @@ import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
+import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
+import { setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { ExportOptions } from './md-export-core';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -23,6 +26,15 @@ export interface NotesSender {
 export interface NotesPlatformActions {
     /** 外部リンクをブラウザで開く */
     openExternalLink(href: string): void;
+    /** FR-RR-06: fractal.resourceRoots の settings を開く */
+    openResourceRootsSettings?(): void;
+    /** FR-MG-03/05/07: 起動時移行ゲートで移行を実行（backup→validate→execute→成功で reopen / 失敗で通知） */
+    runFlatMigration?(): void;
+
+    // FR-EX-01/03: md export bundle。フォルダ選択ダイアログ + fs 書き出し（VS Code 依存）。
+    exportBundle?(rootMdAbs: string, options: ExportOptions): void;
+    /** FR-RR-04: notes 本体 md open 時、その md の画像に許可範囲外があればフッター案内を送る */
+    sendResourceAccessStatus?(filePath: string, mdBody: string): void;
     /** .md ファイルをエディタで開く (Electron: createWindow, VSCode: vscode.openWith) */
     openFileInEditor(filePath: string): void;
     /** サイドパネルでページを開く (lineNumber指定時はスクロール) */
@@ -45,6 +57,34 @@ export interface NotesPlatformActions {
     saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイル添付をコピーしてマークダウンリンク挿入 */
     readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ に保存して挿入 */
+    saveMdImageToDir?(dataUrl: string, fileName: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ にコピーして挿入 */
+    readAndInsertMdImage?(filePath: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ に保存して挿入 */
+    saveMdFileToDir?(dataUrl: string, fileName: string): void;
+    /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
+    readAndInsertMdFile?(filePath: string): void;
+    /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
+    sendMdDirStatus?(): void;
+    /** v0.207.82: Notes 内 .md エディタ用 — webview 内で相対画像 URL を解決するための base URI */
+    getMdDocumentBaseUri?(filePath: string): string;
+    /** v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page — <_notes_md>/pages/<unique>.md を作成 */
+    notesMdCreatePageAuto?(currentMdFilePath: string): void;
+    /** v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page で linkName を H1 に同期 */
+    notesMdUpdatePageH1?(currentMdFilePath: string, relativePath: string, h1Text: string): void;
+    /** v0.207.86: Notes 内 .md メインペインからのリンククリック (plain) — sidepanel で開く */
+    notesMdOpenLink?(currentMdFilePath: string, href: string): void;
+    /** v0.207.86: Notes 内 .md メインペインからのリンククリック (cmd/ctrl+click) — 新タブ standalone で開く */
+    notesMdOpenLinkInTab?(currentMdFilePath: string, href: string): void;
+    /** v0.207.88: Notes 内 .md メインペインヘッダーの「新タブで開く」ボタン — 自身を standalone editor で開く */
+    notesMdOpenSelfInNewTab?(currentMdFilePath: string): void;
+    /** v0.207.82: Notes 内 .md メインペインの open hook — sidepanel パターンで TextDocument 開き + FileSystemWatcher 起動 */
+    mdMainOpened?(filePath: string): void;
+    /** v0.207.82: Notes 内 .md メインペインの close hook — TextDocument / watcher を破棄 */
+    mdMainClosed?(): void;
+    /** v0.207.82: Notes 内 .md auto-save 経路 — TextDocument バッファ経由で書く (sidepanel と同じ) */
+    mdMainSave?(filePath: string, content: string): Promise<void> | void;
     /** MD-45: drawio dataUrl を fileDir に保存して `![]()` 挿入 */
     saveDrawioToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** MD-45 (URI 経路): drawio ファイルを fileDir にコピーして `![]()` 挿入 */
@@ -66,6 +106,12 @@ export interface NotesPlatformActions {
     handleSidePanelOpenInTextEditor?(sidePanelFilePath: string): void;
     /** サイドパネルが閉じられた */
     handleSidePanelClosed(): void;
+    /** sprint 20260723-233506: タブ切替の flush（fileManager.flushSave）。NFR-TAB-03 */
+    flushActiveForTab?(): void;
+    /** sprint 20260723-233506: タブ復帰でサイドパネルを復元（sidePanel.openFile(fp,false,true)）。FR-TAB-06 */
+    restoreSidePanelForTab?(filePath: string): void;
+    /** sprint 20260723-233506: サイドパネル「Open in tab」等から .md を webview 内タブで開く（FR-TAB-02）。 */
+    openFileInWebviewTab?(filePath: string): void;
     /** サイドパネルの sendToChat を処理（テキストエディタで開いて行選択） */
     sendToChatFromSidePanel?(sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string): Promise<void>;
     /** .outファイルをテキストエディタで開く */
@@ -88,8 +134,6 @@ export interface NotesPlatformActions {
     s3LocalDeleteAndDownload?(bucketPath: string): void;
     /** S3ステータス取得（認証情報の有無、バケットパス） */
     s3GetStatus?(): void;
-    /** outliner toolbar の同期ボタン押下 (FR-OS3-03) */
-    outlinerS3Sync?(outlinerId: string): void;
     /** Outlinerノード画像保存 */
     saveOutlinerImage?(nodeId: string, dataUrl: string, fileName: string): void;
     /** .mdファイルインポートダイアログ表示 */
@@ -98,8 +142,22 @@ export interface NotesPlatformActions {
     importFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
     /** ファイル添付を開く */
     openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** FR-NT-03: note タイトル変更後に Notes Folder ツリービューを更新する */
+    refreshNotesFolderTree?(): void;
+    /** FR-FR-01: ファイル添付を OS ファイラ (Finder) で選択状態表示する */
+    revealAttachedFileInOS?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示する */
+    revealPageInOS?(nodeId: string, fileManager: NotesFileManager, sender: NotesSender): void;
+    /** FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick で移動先選択) */
+    moveItemToOtherNote?(itemId: string, fileManager: NotesFileManager, sender: NotesSender): void;
     /** FR-OL-COPYPATH-1: ファイル添付ノードの絶対 path を OS clipboard へコピー */
     copyAttachedFilePath?(nodeId: string, outFilePath: string, sender: NotesSender): void;
+    /** 画像 fullscreen overlay: 画像をピクセルとして OS clipboard へコピー */
+    copyImageToClipboard?(absPath: string): void;
+    /** 画像 fullscreen overlay: 画像を新規タブで開く */
+    openImageInNewTab?(absPath: string): void;
+    /** .drawio.svg/.png を外部アプリで開く（mac: draw.io Desktop 優先 → OS デフォルト fallback） */
+    openDrawioExternal?(absPath: string): void;
     /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
     copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
@@ -140,10 +198,28 @@ export interface NotesPlatformActions {
     notifyDropFolderRejected?(folders: string[]): void;
     /** v12: ファイルサイズ超過通知 */
     notifyDropFileTooLarge?(fileName: string): void;
+    /** v0.207.96: Streaming D&D pipeline (files > 50MB). Routes all 5 dropStream* messages
+     *  to a per-panel DropStreamHost on the platform side. */
+    dropStreamMessage?(message: { type: string } & Record<string, unknown>): Promise<boolean> | boolean;
     /** タスクモード archive: 情報メッセージ表示 */
     showInformationMessage?(text: string): void;
     /** タスクモード archive: エラーメッセージ表示 */
     showErrorMessage?(text: string): void;
+    /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
+    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
+    notesImportOutPageNodeAsMd?(
+        payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
+        parentId: string | null,
+        index: number,
+        sender: NotesSender
+    ): Promise<void> | void;
+    /** node-move-to-other-outliner: outliner node（サブツリー）を右パネルの別 .out に move（root 先頭挿入） */
+    notesMoveOutNodeSubtreeIntoOut?(
+        payload: { outFileKey: string; nodeId: string },
+        targetOutFilePath: string,
+        sender: NotesSender
+    ): Promise<void> | void;
 }
 
 /**
@@ -155,12 +231,16 @@ function sendFileListWithStructure(
     currentFile?: string | null
 ): void {
     const fileList = fileManager.listFiles();
-    const structure = fileManager.getStructure();
+    // FR-HP: 履歴 title を送出時に最新解決（保存値は非破壊。stale title の 1テンポ遅れ解消）。
+    // 全 notesFileListChanged 送出経路で getStructureForWebview() に統一（送出経路の取りこぼし防止）。
+    const structure = fileManager.getStructureForWebview();
     sender.postMessage({
         type: 'notesFileListChanged',
         fileList,
         structure,
         currentFile: currentFile !== undefined ? currentFile : fileManager.getCurrentFilePath(),
+        // FR-NT-01: note フォルダ名 (noteTitle 未設定時の既定表示に webview 側で使う)
+        noteFolderName: path.basename(fileManager.getMainFolderPath()),
     });
 }
 
@@ -177,6 +257,26 @@ export async function handleNotesMessage(
     switch (message.type) {
         // ── Core Data ──
 
+        case 'openResourceRootsSettings':
+            platform.openResourceRootsSettings?.();
+            break;
+
+        // FR-MG-03: 起動時移行ゲートの「移行する」ボタン。backup→validate→execute→成功で reopen。
+        case 'runFlatMigration':
+            platform.runFlatMigration?.();
+            break;
+
+        // FR-EX-01/03: md export bundle。root md 解決は
+        //   sidepanel から開いた md = message.sidePanelFilePath / メインペイン = 現在の md。
+        // dialog + fs 書き出しは VS Code 依存なので platform に委譲。
+        case 'exportBundle': {
+            const rootMd = (message.sidePanelFilePath as string) || fileManager.getCurrentFilePath();
+            if (rootMd && message.options) {
+                platform.exportBundle?.(rootMd, message.options as ExportOptions);
+            }
+            break;
+        }
+
         case 'syncData':
             // stale sync（ファイル切替前のデータ）を無視
             if (message.fileChangeId !== undefined && message.fileChangeId !== fileManager.getFileChangeId()) {
@@ -185,11 +285,65 @@ export async function handleNotesMessage(
             }
             console.log('[NotesMessageHandler] syncData received from webview at', new Date().toISOString(), 'size=', (message.content || '').length, 'B fileChangeId=', message.fileChangeId);
             fileManager.saveCurrentFile(message.content);
+            // .out の title 変更を tree（items[id].title）へ即反映（md の syncTitleFromH1 と対称）。
+            // 変化時のみ再描画。tree の .out title は items[id].title を優先表示するため即時反映される。
+            if (fileManager.syncOutTitleToTree(message.content)) {
+                sendFileListWithStructure(fileManager, sender);
+            }
             break;
+
+        // ADR-008: Notes メインペイン Markdown editor からの auto-save
+        case 'notesSaveCurrentMd': {
+            if (message.fileChangeId !== undefined && message.fileChangeId !== fileManager.getFileChangeId()) {
+                break;
+            }
+            const cur = fileManager.getCurrentFilePath();
+            if (!cur || !cur.endsWith('.md')) break;
+            // v0.207.82: sidepanel と同じく TextDocument バッファ経由で保存。
+            // mdMainSave が無い場合は従来の fileManager.saveCurrentFile (debounced fs.writeFile) に fallback。
+            // ★再オープン③ fix2: disk 書込を await してから title 再解決する（getHistoryWithFreshTitles は
+            //   tree 外 md の title を disk から読むため、await しないと新 H1 が disk 反映前に読まれて stale
+            //   になる = レース）。saveSidePanelFile:643 と同じ理由で await する。
+            if (platform.mdMainSave) {
+                try {
+                    await platform.mdMainSave(cur, message.content);
+                } catch (e) {
+                    console.error('[NotesMessageHandler] mdMainSave error:', e);
+                }
+            } else {
+                fileManager.saveCurrentFile(message.content);
+            }
+            // FR-TH-02: 先頭 H1 を tree title に反映（変化時のみ再描画）
+            let mdNeedResend = fileManager.syncTitleFromH1(cur, message.content);
+            // FR-TP-04（再オープン③）: tree 外 md（open-new-tab で開いた page md 等、items に無い md）は
+            //   syncTitleFromH1 が false を返す（tree item 専用）。この場合でも現 md が Recent history に
+            //   note-md（絶対パス）で存在するなら、H1 編集を Recent/tab に即反映するため再送する
+            //   （saveSidePanelFile の history フォールバックと対称。これが無いと tree 外 md の H1 変更が
+            //    別 md に移動するまで反映されない）。
+            if (!mdNeedResend) {
+                const fp = path.resolve(cur);
+                const hasHistory = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+                if (hasHistory) { mdNeedResend = true; }
+            }
+            if (mdNeedResend) {
+                sendFileListWithStructure(fileManager, sender);
+            }
+            break;
+        }
 
         case 'save':
             fileManager.flushSave();
             break;
+
+        case 'exportMindmap': {
+            // Mindmap Mode (sprint 20260701-122355): Note モードの PNG/SVG/OPML/MD 書き出し (#M2, 4-mode)。
+            const cur = fileManager.getCurrentFilePath();
+            const baseDir = cur ? path.dirname(cur) : '';
+            const result = await handleExportMindmap(message, baseDir);
+            sender.postMessage({ type: 'mindmapExportDone', ...result });
+            break;
+        }
 
         case 'openInTextEditor':
             platform.openInTextEditor?.();
@@ -237,11 +391,40 @@ export async function handleNotesMessage(
             platform.notifyDropFileTooLarge?.(message.fileName);
             break;
 
+        case 'dropStreamBegin':
+        case 'dropStreamChunk':
+        case 'dropStreamFileEnd':
+        case 'dropStreamSessionEnd':
+        case 'dropStreamCancel':
+            await platform.dropStreamMessage?.(message);
+            break;
+
         case 'openAttachedFile': {
             const currentFilePath = fileManager.getCurrentFilePath();
             if (currentFilePath) {
                 platform.openAttachedFile?.(message.nodeId, currentFilePath, sender);
             }
+            break;
+        }
+
+        // FR-FR-01: file 添付ノードを OS ファイラ (Finder) で選択状態表示 (Notes mode)
+        case 'revealAttachedFileInOS': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.revealAttachedFileInOS?.(message.nodeId, currentFilePath, sender);
+            }
+            break;
+        }
+
+        // FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示 (Notes mode)
+        case 'revealPageInOS': {
+            platform.revealPageInOS?.(message.nodeId, fileManager, sender);
+            break;
+        }
+
+        // FR-MV-01: Notes タブの項目を別 Note へ移動 (QuickPick で移動先選択)
+        case 'notesMoveToOtherNote': {
+            platform.moveItemToOtherNote?.(message.itemId, fileManager, sender);
             break;
         }
 
@@ -434,14 +617,88 @@ export async function handleNotesMessage(
         case 'openPageInSidePanel': {
             const pagePath = fileManager.getPageFilePath(message.pageId);
             if (fs.existsSync(pagePath)) {
+                // FR-HP-08: 履歴記録は sidePanelManager.onFileOpened（sidepanel open の単一記録点）が担う。
+                //   platform.openPageInSidePanel → sidePanel.openFile → onFileOpened で recordFileHistory される。
+                //   ここで記録すると二重記録になるため呼ばない。
                 platform.openPageInSidePanel(pagePath);
+                sendFileListWithStructure(fileManager, sender);
             }
             break;
         }
 
-        case 'saveSidePanelFile':
-            platform.saveSidePanelFile(message.filePath, message.content);
+        // sprint 20260723-233506: webview 内マルチタブの host 協調
+        case 'notesFlushActive':
+            platform.flushActiveForTab?.();
             break;
+        case 'notesRestoreSidePanel':
+            if (typeof message.filePath === 'string' && message.filePath) {
+                platform.restoreSidePanelForTab?.(message.filePath);
+            }
+            break;
+        // sprint 20260724-063158 (FR-TP-06): タブ右クリック → standalone（VS Code 別タブ）で開く。
+        case 'notesOpenInVscodeTab':
+            if (typeof message.filePath === 'string' && message.filePath) {
+                platform.openFileInEditor(message.filePath);  // 既存: vscode.openWith 'fractal.editor'
+            }
+            break;
+
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」→ webview 内タブ（md/.out 両対応・kind は host が拡張子で決定）
+        case 'notesOpenFileInTab':
+            if (typeof message.filePath === 'string' && message.filePath && platform.openFileInWebviewTab) {
+                platform.openFileInWebviewTab(message.filePath);
+            }
+            break;
+
+        // ★reopen 2026-07-23: openPageFromHistory は廃止（Recent の page md も note-md・絶対パスで記録し
+        //   bridge.openFile → notesOpenFile でメインペインに開くため、sidepanel 専用の page 開き経路は不要）。
+
+        // FR-HP-06/07: history パネルの開閉状態・高さを永続化。
+        case 'notesSaveHistoryPanelCollapsed':
+            fileManager.saveHistoryPanelCollapsed(!!message.collapsed);
+            break;
+
+        case 'notesSaveHistoryPanelHeight':
+            if (typeof message.height === 'number') {
+                fileManager.saveHistoryPanelHeight(message.height);
+            }
+            break;
+
+        case 'saveSidePanelFile': {
+            // disk 書込を await してから履歴を再解決する（getHistoryWithFreshTitles は disk を読むため、
+            // await しないと page md の新 H1 が disk 反映前に読まれて stale になる = レース）。
+            await platform.saveSidePanelFile(message.filePath, message.content);
+            // FR-TH-02: sidepanel md（tree item = note md の場合）の先頭 H1 を tree title に反映。
+            let needFileListResend = fileManager.syncTitleFromH1(message.filePath, message.content);
+            // FR-HP（sidepanel で開いた md の Recent title 反映）: sidepanel で開いた md が
+            // Recent 履歴に note-md（絶対パス）として存在するなら、その H1 編集を Recent に反映するため
+            // history を再送する。syncTitleFromH1 は tree item（items）専用で items 外 md（page md / 他 note md）を
+            // 拾わないため、これが無いと items 外 md の H1 変更が Recent に永久に反映されない（別ファイルを開いても
+            // notesOpenFile を通らない sidepanel-only 操作では再送されない）。
+            // ★reopen 2026-07-23: page-md kind 廃止に伴い、旧「basename=pageId が page-md 履歴」判定を
+            //   「絶対パス一致の note-md 履歴」判定に置換（統一後 page md も note-md・絶対パスで記録される）。
+            if (!needFileListResend) {
+                const fp = path.resolve(message.filePath);
+                const hasHistory = (fileManager.getHistory() || []).some(
+                    (e) => e.kind === 'note-md' && path.resolve(e.id) === fp);
+                if (hasHistory) { needFileListResend = true; }
+            }
+            if (needFileListResend) {
+                sendFileListWithStructure(fileManager, sender);
+            }
+            break;
+        }
+
+        // FR-TH-04: outliner の page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+        // notes モードは fileManager.getPageFilePath(pageId)（1引数）で解決。
+        case 'syncNodeTextToPageH1': {
+            if (!message.pageId || typeof message.text !== 'string') break;
+            const pagePath = fileManager.getPageFilePath(message.pageId);
+            if (pagePath && fs.existsSync(pagePath)) {
+                const body = fs.readFileSync(pagePath, 'utf8');
+                writeFileIfChanged(pagePath, setFirstH1(body, message.text)); // 冪等・byte skip
+            }
+            break;
+        }
 
         case 'sidePanelClosed':
             platform.handleSidePanelClosed();
@@ -517,6 +774,68 @@ export async function handleNotesMessage(
             }
             break;
 
+        // ── ADR-008: Notes 内 .md メインペイン editor 用 ──
+        case 'notesMdSaveImage':
+            if (message.dataUrl && platform.saveMdImageToDir) {
+                platform.saveMdImageToDir(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadAndInsertImage':
+            if (message.filePath && platform.readAndInsertMdImage) {
+                platform.readAndInsertMdImage(message.filePath);
+            }
+            break;
+
+        case 'notesMdSaveFile':
+            if (message.dataUrl && platform.saveMdFileToDir) {
+                platform.saveMdFileToDir(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadAndInsertFile':
+            if (message.filePath && platform.readAndInsertMdFile) {
+                platform.readAndInsertMdFile(message.filePath);
+            }
+            break;
+
+        // v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page
+        case 'notesMdCreatePageAuto':
+            if (platform.notesMdCreatePageAuto) {
+                platform.notesMdCreatePageAuto(message.filePath || '');
+            }
+            break;
+
+        case 'notesMdUpdatePageH1':
+            if (platform.notesMdUpdatePageH1) {
+                platform.notesMdUpdatePageH1(
+                    message.filePath || '',
+                    message.relativePath || '',
+                    message.h1Text || ''
+                );
+            }
+            break;
+
+        // v0.207.86: Notes 内 .md からのリンククリック route
+        case 'notesMdOpenLink':
+            if (platform.notesMdOpenLink) {
+                platform.notesMdOpenLink(message.filePath || '', message.href || '');
+            }
+            break;
+
+        case 'notesMdOpenLinkInTab':
+            if (platform.notesMdOpenLinkInTab) {
+                platform.notesMdOpenLinkInTab(message.filePath || '', message.href || '');
+            }
+            break;
+
+        // v0.207.88: notes md ヘッダーの「新タブで開く」ボタン
+        case 'notesMdOpenSelfInNewTab':
+            if (platform.notesMdOpenSelfInNewTab) {
+                platform.notesMdOpenSelfInNewTab(message.filePath || '');
+            }
+            break;
+
         case 'readAndInsertDrawio':
             if (message.sidePanelFilePath && message.filePath && platform.readAndInsertDrawio) {
                 platform.readAndInsertDrawio(message.filePath, message.sidePanelFilePath);
@@ -572,8 +891,34 @@ export async function handleNotesMessage(
             break;
 
         case 'openLinkInTab':
+            // sprint 20260723-233506: Notes サイドパネル「Open in tab」（outliner.js の side-panel-open-tab）は
+            // ここに落ちる（host=outlinerHostBridge → shared openLinkInTab → type:'openLinkInTab'）。
+            // .md は VS Code 別タブでなく webview 内タブで開く（FR-TAB-02 / NFR-TAB-04）。
             if (message.href) {
-                platform.openFileInEditor(message.href);
+                const lower = String(message.href).toLowerCase();
+                if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && platform.openFileInWebviewTab) {
+                    platform.openFileInWebviewTab(message.href);
+                } else {
+                    platform.openFileInEditor(message.href);
+                }
+            }
+            break;
+
+        case 'copyImageToClipboard':
+            if (message.absPath) {
+                platform.copyImageToClipboard?.(message.absPath);
+            }
+            break;
+
+        case 'openImageInNewTab':
+            if (message.absPath) {
+                platform.openImageInNewTab?.(message.absPath);
+            }
+            break;
+
+        case 'openDrawioExternal':
+            if (message.absPath) {
+                platform.openDrawioExternal?.(message.absPath);
             }
             break;
 
@@ -587,10 +932,47 @@ export async function handleNotesMessage(
                     platform.saveLastOpenedFile(message.filePath);
                 }
 
-                const data = JSON.parse(content);
-                sendFileListWithStructure(fileManager, sender, message.filePath);
-                const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes });
+                const isMd = message.filePath.endsWith('.md');
+                // FR-HP-03: 履歴に記録（sendFileListWithStructure が structure ごと送るので、その前に）。
+                fileManager.recordFileHistory(message.filePath);
+                if (isMd) {
+                    sendFileListWithStructure(fileManager, sender, message.filePath);
+                    sender.postMessage({
+                        type: 'updateData',
+                        kind: 'md',
+                        markdown: content,
+                        filePath: message.filePath,
+                        documentBaseUri: platform.getMdDocumentBaseUri?.(message.filePath) || '',
+                        fileChangeId: fileManager.getFileChangeId(),
+                        outFileKey: fileManager.getCurrentFilePath(),
+                        // FR-TP-04: tab 名用 title（items 優先 → 先頭 H1 → basename）
+                        title: fileManager.resolveTitleForPath(message.filePath, content),
+                    });
+                    platform.sendMdDirStatus?.();
+                    platform.sendResourceAccessStatus?.(message.filePath, content);
+                    platform.mdMainOpened?.(message.filePath);
+                    // search hit からの open の場合、markdown pane が rebuild された後に
+                    // ヒット箇所へジャンプ + 黄色ハイライト (scrollToText)。
+                    // EditorInstance の構築 & DOM レンダリング完了を待つため delay。
+                    if (message.searchQuery) {
+                        const sq = message.searchQuery;
+                        const so = typeof message.searchOccurrence === 'number'
+                            ? message.searchOccurrence : 0;
+                        setTimeout(() => {
+                            sender.postMessage({
+                                type: 'scrollToText',
+                                text: sq,
+                                occurrence: so,
+                            });
+                        }, 500);
+                    }
+                } else {
+                    platform.mdMainClosed?.();
+                    const data = JSON.parse(content);
+                    sendFileListWithStructure(fileManager, sender, message.filePath);
+                    const isDailyNotes = path.basename(message.filePath) === 'dailynotes.out';
+                    sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath(), isDailyNotes, title: (typeof data.title === 'string' && data.title) ? data.title : fileManager.resolveTitleForPath(message.filePath, content) });
+                }
             } else {
                 // ファイル読み込み失敗: 元のファイルリストを再送信してUI状態を復元
                 sendFileListWithStructure(fileManager, sender);
@@ -600,7 +982,7 @@ export async function handleNotesMessage(
 
         case 'notesCreateFile': {
             fileManager.flushSave();
-            const filePath = fileManager.createFile(message.title || 'Untitled', message.parentId || null);
+            const filePath = fileManager.createFile(message.title || 'Untitled', message.parentId || null, message.afterId || null);
             const content = fileManager.openFile(filePath);
             if (content !== null) {
                 if (platform.saveLastOpenedFile) {
@@ -608,7 +990,32 @@ export async function handleNotesMessage(
                 }
                 const data = JSON.parse(content);
                 sendFileListWithStructure(fileManager, sender, filePath);
-                sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+            }
+            break;
+        }
+
+        case 'notesCreateMarkdownFile': {
+            fileManager.flushSave();
+            const filePath = fileManager.createMarkdownFile(message.title || 'Untitled', message.parentId || null, message.afterId || null);
+            const content = fileManager.openFile(filePath);
+            if (content !== null) {
+                if (platform.saveLastOpenedFile) {
+                    platform.saveLastOpenedFile(filePath);
+                }
+                sendFileListWithStructure(fileManager, sender, filePath);
+                sender.postMessage({
+                    type: 'updateData',
+                    kind: 'md',
+                    markdown: content,
+                    filePath,
+                    documentBaseUri: platform.getMdDocumentBaseUri?.(filePath) || '',
+                    fileChangeId: fileManager.getFileChangeId(),
+                    outFileKey: fileManager.getCurrentFilePath(),
+                });
+                platform.sendMdDirStatus?.();
+                platform.sendResourceAccessStatus?.(filePath, content);
+                platform.mdMainOpened?.(filePath);
             }
             break;
         }
@@ -625,13 +1032,30 @@ export async function handleNotesMessage(
                         if (platform.saveLastOpenedFile) {
                             platform.saveLastOpenedFile(fp);
                         }
-                        const data = JSON.parse(content);
+                        const isMd = fp.endsWith('.md');
                         sendFileListWithStructure(fileManager, sender, fp);
-                        sender.postMessage({ type: 'updateData', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                        if (isMd) {
+                            sender.postMessage({
+                                type: 'updateData',
+                                kind: 'md',
+                                markdown: content,
+                                filePath: fp,
+                                documentBaseUri: platform.getMdDocumentBaseUri?.(fp) || '',
+                                fileChangeId: fileManager.getFileChangeId(),
+                                outFileKey: fileManager.getCurrentFilePath(),
+                            });
+                            platform.sendMdDirStatus?.();
+                            platform.sendResourceAccessStatus?.(fp, content);
+                            platform.mdMainOpened?.(fp);
+                        } else {
+                            platform.mdMainClosed?.();
+                            const data = JSON.parse(content);
+                            sender.postMessage({ type: 'updateData', kind: 'out', data, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                        }
                     }
                 } else {
                     sendFileListWithStructure(fileManager, sender);
-                    sender.postMessage({ type: 'updateData', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
+                    sender.postMessage({ type: 'updateData', kind: 'out', data: { title: '', rootIds: [], nodes: {} }, fileChangeId: fileManager.getFileChangeId(), outFileKey: fileManager.getCurrentFilePath() });
                 }
             } else {
                 sendFileListWithStructure(fileManager, sender);
@@ -642,6 +1066,15 @@ export async function handleNotesMessage(
         case 'notesRenameTitle': {
             fileManager.renameTitle(message.filePath, message.newTitle);
             sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
+        // FR-NT-02: note フォルダ全体のタイトルを outline.note に保存し、webview 再描画 +
+        // Notes Folder ツリーの表示名を更新する。
+        case 'notesSetNoteTitle': {
+            fileManager.setNoteTitle(message.title || '');
+            sendFileListWithStructure(fileManager, sender);
+            platform.refreshNotesFolderTree?.();
             break;
         }
 
@@ -664,7 +1097,7 @@ export async function handleNotesMessage(
         // ── Folder Operations ──
 
         case 'notesCreateFolder': {
-            fileManager.createFolder(message.title || 'New Folder', message.parentId || null);
+            fileManager.createFolder(message.title || 'New Folder', message.parentId || null, message.afterId || null);
             sendFileListWithStructure(fileManager, sender);
             break;
         }
@@ -690,6 +1123,39 @@ export async function handleNotesMessage(
         case 'notesMoveItem': {
             fileManager.moveItem(message.itemId, message.targetParentId, message.index);
             sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
+        // v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加
+        case 'notesImportMdIntoOut': {
+            if (typeof platform.notesImportMdIntoOut === 'function') {
+                await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender);
+            }
+            break;
+        }
+
+        // v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → 独立 .md として登録
+        case 'notesImportOutPageNodeAsMd': {
+            if (typeof platform.notesImportOutPageNodeAsMd === 'function') {
+                await platform.notesImportOutPageNodeAsMd(
+                    message.payload,
+                    message.parentId ?? null,
+                    typeof message.index === 'number' ? message.index : 0,
+                    sender
+                );
+            }
+            break;
+        }
+
+        // node-move-to-other-outliner: outliner node（サブツリー）を別 .out に move
+        case 'notesMoveOutNodeSubtreeIntoOut': {
+            if (typeof platform.notesMoveOutNodeSubtreeIntoOut === 'function') {
+                await platform.notesMoveOutNodeSubtreeIntoOut(
+                    message.payload,
+                    message.targetOutFilePath,
+                    sender
+                );
+            }
             break;
         }
 
@@ -733,6 +1199,7 @@ export async function handleNotesMessage(
             const dailyFilePath = fileManager.ensureDailyNotesFile();
             const dailyContent = fileManager.openFile(dailyFilePath);
             if (dailyContent === null) break;
+            fileManager.recordFileHistory(dailyFilePath); // FR-HP-03
 
             const dailyData = JSON.parse(dailyContent);
             const today = new Date();
@@ -766,6 +1233,7 @@ export async function handleNotesMessage(
             const navDailyFilePath = fileManager.ensureDailyNotesFile();
             const navContent = fileManager.openFile(navDailyFilePath);
             if (navContent === null) break;
+            fileManager.recordFileHistory(navDailyFilePath); // FR-HP-03
 
             const navData = JSON.parse(navContent);
 
@@ -808,6 +1276,7 @@ export async function handleNotesMessage(
             const navDateFilePath = fileManager.ensureDailyNotesFile();
             const navDateContent = fileManager.openFile(navDateFilePath);
             if (navDateContent === null) break;
+            fileManager.recordFileHistory(navDateFilePath); // FR-HP-03
 
             const navDateData = JSON.parse(navDateContent);
             const targetDate = new Date(message.targetDate);
@@ -996,15 +1465,6 @@ export async function handleNotesMessage(
         }
         case 'notesS3SaveBucketPath': {
             fileManager.saveS3BucketPath(message.bucketPath);
-            // FR-OS3-02 / TASK-06: bucket path 変更で outliner toolbar の sync ボタン表示切替を broadcast
-            if (platform.postMessage) {
-                const visible = !!(message.bucketPath && message.bucketPath.trim());
-                platform.postMessage({ type: 'sync-button-visibility', visible });
-            }
-            break;
-        }
-        case 'outlinerS3SyncRequest': {
-            if (platform.outlinerS3Sync) platform.outlinerS3Sync(message.outlinerId);
             break;
         }
         case 'notesS3GetStatus': {
@@ -1047,6 +1507,7 @@ export async function handleNotesMessage(
             const jumpFilePath = fileManager.getFilePathById(message.fileId);
             const jumpContent = fileManager.openFile(jumpFilePath);
             if (jumpContent !== null) {
+                fileManager.recordFileHistory(jumpFilePath); // FR-HP-03（検索から .out へジャンプ）
                 if (platform.saveLastOpenedFile) {
                     platform.saveLastOpenedFile(jumpFilePath);
                 }
@@ -1068,6 +1529,8 @@ export async function handleNotesMessage(
             const mdOutFilePath = fileManager.getFilePathById(message.outFileId);
             const mdOutContent = fileManager.openFile(mdOutFilePath);
             if (mdOutContent === null) break;
+            // FR-HP-03: 検索から md page を開く経路。ユーザーが見るのは page md（sidepanel）なので
+            // .out ではなく page md を履歴に記録する（下の openPageInSidePanel 箇所で recordFileHistory・note-md 絶対パス）。
 
             const mdOutData = JSON.parse(mdOutContent);
 
@@ -1099,6 +1562,7 @@ export async function handleNotesMessage(
                 const pagePath = fileManager.getPageFilePath(message.pageId);
                 if (platform.openPageInSidePanel) {
                     platform.openPageInSidePanel(pagePath, message.lineNumber, message.query, message.occurrence);
+                    fileManager.recordFileHistory(pagePath); // ★reopen 2026-07-23: page md も note-md（絶対パス）で統一記録
                 }
             }
             break;
@@ -1118,6 +1582,7 @@ export async function handleNotesMessage(
             if (!navFilePath) break;
             const navContent = fileManager.openFile(navFilePath);
             if (navContent === null) break;
+            fileManager.recordFileHistory(navFilePath); // FR-HP-03（アプリ内リンク）
 
             if (platform.saveLastOpenedFile) {
                 platform.saveLastOpenedFile(navFilePath);

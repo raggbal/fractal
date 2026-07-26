@@ -1,0 +1,15 @@
+$schema: odk:schema:nfr
+id: odk:nfr:capacity/s3-sync-scale
+description: |
+  S3 Sync targets workspaces of up to ~10,000 files. The engine processes
+  files in batches of 500 to keep CLI spawn count bounded.
+category: scalability
+target: 10000
+unit: files
+measurement: |
+  Batch size constant in [odk:component:s3-sync/per-file-sync]; observed
+  CLI spawn count.
+test_method: |
+  Manual sync against a synthetic 10,000-file workspace.
+applies_to:
+  - odk:component:s3-sync/per-file-sync

@@ -1,0 +1,48 @@
+$schema: odk:schema:ext
+id: odk:ext:vscode/extension-api
+description: |
+  The VS Code Extension API used by the host. Fractal registers Custom Editor
+  Providers (`*.md`, `*.out`), a TreeDataProvider (Notes Folders), Webview Panels
+  (Notes mode), and command/keybinding handlers. Document edits, file reads,
+  and webview messaging all flow through this API.
+base_url: "vscode://extension-api"
+auth: none
+endpoints:
+  registerCustomEditorProvider:
+    method: POST
+    path: "/window/registerCustomEditorProvider"
+    response: any
+    description: "Registers AnyMarkdownEditorProvider / OutlinerProvider"
+  registerTreeDataProvider:
+    method: POST
+    path: "/window/registerTreeDataProvider"
+    response: any
+    description: "Registers NotesFolderProvider for the Activity Bar tree"
+  createWebviewPanel:
+    method: POST
+    path: "/window/createWebviewPanel"
+    response: any
+    description: "Creates the Notes mode WebviewPanel"
+  postMessage:
+    method: POST
+    path: "/webview/postMessage"
+    response: any
+    description: "Send a message from host to webview"
+  applyEdit:
+    method: POST
+    path: "/workspace/applyEdit"
+    response: any
+    description: "Apply WorkspaceEdit through the TextDocument API"
+  openExternal:
+    method: GET
+    path: "/env/openExternal"
+    response: any
+    description: "Open an http(s) URL in the user's browser"
+rate_limits:
+  notes: "In-process API calls; no rate limit applies"
+error_handling:
+  invalid_state: "Provider/panel disposal aborts pending operations gracefully"
+  api_unavailable: "Activation fails fast; the extension never registers"
+retry_strategy:
+  max_retries: 0
+  notes: "In-process synchronous-or-promise API; retry is not meaningful"

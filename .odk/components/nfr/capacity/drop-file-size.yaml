@@ -1,0 +1,18 @@
+$schema: odk:schema:nfr
+id: odk:nfr:capacity/drop-file-size
+description: |
+  Webview drag-and-drop ingestion (Finder / OS files via `Files` channel)
+  caps individual files at 50 MB. Drops larger than the cap are rejected
+  with a user-facing notification. The VS Code Explorer URI channel does
+  not enforce this cap.
+category: scalability
+target: 50
+unit: MB
+measurement: |
+  File size checked in the webview drop handler before FileReader read.
+test_method: |
+  E2E spec dropping a > 50 MB synthetic file and asserting the rejection
+  notification.
+applies_to:
+  - odk:component:webview/editor
+  - odk:component:webview/outliner

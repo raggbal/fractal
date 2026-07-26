@@ -1,0 +1,15 @@
+$schema: odk:schema:component
+id: odk:component:host/sync-conflict-dialog
+description: |
+  Dialog shown by the S3 Sync engine when conflict mode is `confirm` and a
+  conflict is detected (the local and remote sides both changed). The user
+  picks "use local", "use remote", or "skip". See docs/specs/s3-sync.md.
+type: modal
+framework: agnostic
+props:
+  conflicts:
+    type: "ConflictEntry[]"
+    required: true
+    description: "List of conflicting files with mtimes for each side"
+emits:
+  - "User selection per file: local | remote | skip"

@@ -50,6 +50,10 @@ const stylesContent = fs.readFileSync(stylesPath, 'utf-8')
 
 // editor-utils.js を読み込み（editor.jsより前にロードされる）
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
+// sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー（editor.js より前）
+const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
+const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
+const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 
 // editor.jsを読み込み
 let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
@@ -199,8 +203,14 @@ const html = `<!DOCTYPE html>
     <div class="sidebar-resizer" id="sidebarResizer" style="display:none;"></div>
     <div class="toolbar" id="toolbar" style="display:none;"></div>
     <div id="statusLeft" style="display:none;"></div>
-    <div class="sidebar-status-imagedir" id="statusImageDir" style="display:none;"></div>
-    <div class="sidebar-status-filedir" id="statusFileDir" style="display:none;"></div>
+    <!-- 保存先表示は本番 editor-body-html と同 DOM（.imagedir-path/.filedir-path 子 + 可視）。
+         standalone md の保存先クリック UI (FR-MD-02) の E2E を成立させるため。 -->
+    <div class="sidebar-status-imagedir" id="statusImageDir">
+        <span class="imagedir-label">Image save directory:</span> <span class="imagedir-path" id="imageDirPath"></span>
+    </div>
+    <div class="sidebar-status-filedir" id="statusFileDir">
+        <span class="filedir-label">File save directory:</span> <span class="filedir-path" id="fileDirPath"></span>
+    </div>
     <div class="word-count" id="wordCount" style="display:none;"></div>
     <div class="source-editor" id="sourceEditor" style="display:none;"></div>
     <button class="sidebar-toggle" id="closeSidebar" style="display:none;"></button>
@@ -223,7 +233,11 @@ const html = `<!DOCTYPE html>
         <input class="search-regex" id="searchRegex" type="checkbox">
     </div>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false"></div>
-    
+    <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+        <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+        <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+    </div>
+
     <script src="vendor/turndown.js"></script>
     <script src="vendor/turndown-plugin-gfm.js"></script>
     <script src="vendor/mermaid.min.js"></script>
@@ -240,6 +254,15 @@ const html = `<!DOCTYPE html>
     __EDITOR_UTILS_SCRIPT__
     </script>
     <script>
+    __COLOR_PALETTE_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_PICKER_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
 </body>
@@ -251,6 +274,9 @@ result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testHostBridgeScript);
 result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
+result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
+result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
+result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 fs.writeFileSync(outputPath, result);
 console.log('Generated:', outputPath);

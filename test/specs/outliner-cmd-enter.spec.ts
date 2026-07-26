@@ -106,10 +106,11 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
     });
 
     /**
-     * TC-CE-3: 添付なしノード Cmd+Enter → openPageInSidePanel / openAttachedFile 共に呼ばれない
-     *          (preventDefault のみ、既存挙動維持)
+     * TC-CE-3: 添付なしノード Cmd+Enter → md 作成+添付+sidepanel オープン
+     *   (sprint 20260721-134546: 旧「何もしない」から挙動変更 = @page 相当)
+     *   makePage（md 作成+添付）→ openPageInSidePanel（sidepanel で開く）が発火する。
      */
-    test('TC-CE-3: 添付なしノード Cmd+Enter → 何もしない (preventDefault のみ)', async ({ page }) => {
+    test('TC-CE-3: 添付なしノード Cmd+Enter → makePage + openPageInSidePanel', async ({ page }) => {
         await initWithMixedNodes(page);
 
         const plainText = page.locator('.outliner-node[data-id="n3"] .outliner-text');
@@ -118,10 +119,40 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
         await page.waitForTimeout(50);
 
         const messages = await getMessages(page);
+        const makeMsgs = messages.filter((m: any) => m.type === 'makePage');
         const openMsgs = messages.filter((m: any) => m.type === 'openPageInSidePanel');
-        const openAttachedMsgs = messages.filter((m: any) => m.type === 'openAttachedFile');
+        expect(makeMsgs).toHaveLength(1);
+        expect(makeMsgs[0].nodeId).toBe('n3');
+        expect(openMsgs).toHaveLength(1);
+        expect(openMsgs[0].nodeId).toBe('n3');
+        // makePage が open より先（md 作成後に開く）
+        expect(messages.indexOf(makeMsgs[0])).toBeLessThan(messages.indexOf(openMsgs[0]));
+        // 外部ファイルは開かない
+        expect(messages.filter((m: any) => m.type === 'openAttachedFile')).toHaveLength(0);
+    });
 
-        expect(openMsgs).toHaveLength(0);
-        expect(openAttachedMsgs).toHaveLength(0);
+    /**
+     * TC-CE-2b: 画像だけの node Cmd+Enter → md 化する（ユーザー決定: 画像ありでも md 化）
+     */
+    test('TC-CE-2b: 画像だけの node Cmd+Enter → makePage + openPageInSidePanel', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['img1'],
+                nodes: {
+                    img1: {
+                        id: 'img1', parentId: null, children: [], text: 'Image node', tags: [],
+                        images: ['images/x.png'],   // 画像あり・md/file なし
+                    },
+                },
+            });
+        });
+        const t = page.locator('.outliner-node[data-id="img1"] .outliner-text');
+        await t.click();
+        await page.keyboard.press('Meta+Enter');
+        await page.waitForTimeout(50);
+        const messages = await getMessages(page);
+        expect(messages.filter((m: any) => m.type === 'makePage')).toHaveLength(1);
+        expect(messages.filter((m: any) => m.type === 'openPageInSidePanel')).toHaveLength(1);
     });
 });

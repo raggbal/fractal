@@ -1,0 +1,15 @@
+$schema: odk:schema:nfr
+id: odk:nfr:capacity/translate-chunk
+description: |
+  AWS Translate accepts up to 10,000 bytes per `TranslateText` request.
+  Markdown is segmented (code / math / HTML are preserved as untranslated
+  segments) and chunked under this byte budget before each call.
+category: scalability
+target: 10000
+unit: bytes
+measurement: |
+  Pre-call byte length assertion in the chunker.
+test_method: |
+  Unit-style chunker test with a synthetic large Markdown input.
+applies_to:
+  - odk:component:translate/aws-translate

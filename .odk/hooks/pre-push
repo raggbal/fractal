@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fractal is a TypeScript+JavaScript VSCode extension.
+# ODK-bundled pre-push plugins (pr-body-validation 等) は Python/Conventional
+# Commits 系プロジェクトを前提としており、ここでは強制しない。
+# 詳細は docs/adrs/007-odk-hooks-neutralized.md を参照。
+exit 0

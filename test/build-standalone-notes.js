@@ -26,6 +26,7 @@ const frBaseCssPath = path.join(__dirname, '../src/webview/fr-base.css');
 const frComponentsCssPath = path.join(__dirname, '../src/webview/fr-components.css');
 const sidePanelBridgePath = path.join(__dirname, '../src/shared/sidepanel-bridge-methods.js');
 const linkParserPath = path.join(__dirname, '../src/shared/markdown-link-parser.js');
+const clipSelectPath = path.join(__dirname, '../src/webview/outliner-clip-select.js');
 const editorBodyHtmlPath = path.join(__dirname, '../src/shared/editor-body-html.js');
 const notesBodyHtmlPath = path.join(__dirname, '../src/shared/notes-body-html.js');
 const notesFilePanelJsPath = path.join(__dirname, '../src/shared/notes-file-panel.js');
@@ -80,16 +81,30 @@ editorScript = editorScript
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
+const clipSelectScript = fs.readFileSync(clipSelectPath, 'utf-8');
 const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
 const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8');
+// sprint 20260724-160000: インライン文字色 共有 core + ピッカー
+const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
+const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
+// FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
+// （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
+const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
+// FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
+const notesHistoryPanelScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-history-panel.js'), 'utf-8');
+// sprint 20260723-233506: webview 内マルチタブ Tab Manager（本番 notesWebviewContent と同じ実体を inline）
+const notesTabManagerScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-tab-manager.js'), 'utf-8');
 
 // サイドパネルHTML生成
-const { generateSidePanelHtml } = require(editorBodyHtmlPath);
+const { generateSidePanelHtml, generateEditorBodyHtml } = require(editorBodyHtmlPath);
 const sidePanelHtml = generateSidePanelHtml({});
+// TC-RR-46: notes md ペイン（EditorInstance を構築して editor.js の click listener を document に登録させ、
+// cross-script 二重発火の load-bearing 条件を成立させるため）。production notesWebviewContent と同じ markdownPaneHtml。
+const markdownPaneHtml = generateEditorBodyHtml({}, process.platform, { includeSidePanel: false });
 
 // --- テスト用 HostBridge モック (notes-host-bridge.js 相当) ---
 const testNotesHostBridge = `
@@ -167,12 +182,17 @@ const testNotesHostBridge = `
             window.__testApi.messages.push({ type: 'showConfirm', id: id, message: message });
         },
         onMessage: function(handler) {
-            // updateData受信時にcurrentFileChangeIdを自動更新（本番のnotes-host-bridge.jsと同等）
+            // FR (cross-instance E2E): 本番は複数 instance（md pane + outliner/sidepanel）が各々 window message を
+            // 受信する（2 系統受信）。singleton だと後勝ちで 1 本しか残らず 2 系統受信を再現できない（tautology）。
+            // → 配列に push して全 handler へ配送する。後方互換: 既存 25+ spec が window.__hostMessageHandler(msg) を
+            // callable として直接呼ぶため、__hostMessageHandler は「全 handler へ配送する関数」として残す（undefined にしない）。
+            window.__hostMessageHandlers = window.__hostMessageHandlers || [];
+            window.__hostMessageHandlers.push(handler);
             window.__hostMessageHandler = function(msg) {
                 if (msg && msg.type === 'updateData' && msg.fileChangeId !== undefined) {
                     currentFileChangeId = msg.fileChangeId;
                 }
-                handler(msg);
+                window.__hostMessageHandlers.forEach(function(h) { h(msg); });
             };
         }
     });
@@ -184,6 +204,10 @@ const testNotesHostBridge = `
                 window.Outliner.flushSync();
             }
             window.__testApi.notesMessages.push({ type: 'openFile', filePath: filePath });
+        },
+        // sprint 20260725: 左ツリー右クリック「Open in new tab」用モック
+        openFileInTab: function(filePath) {
+            window.__testApi.notesMessages.push({ type: 'openFileInTab', filePath: filePath });
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
@@ -211,6 +235,16 @@ const testNotesHostBridge = `
         },
         moveItem: function(itemId, targetParentId, index) {
             window.__testApi.notesMessages.push({ type: 'moveItem', itemId: itemId, targetParentId: targetParentId, index: index });
+        },
+        // node-move-to-other-outliner: E2E 用モック（file-panel drop が呼ぶ）
+        notesImportOutPageNodeAsMd: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesImportOutPageNodeAsMd', payload: payload, parentId: parentId, index: index });
+        },
+        notesImportMdIntoOut: function(mdFileId, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+        notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
+            window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
         },
         openDailyNotes: function() {
             window.__testApi.notesMessages.push({ type: 'openDailyNotes' });
@@ -268,51 +302,63 @@ const html = `<!DOCTYPE html>
     <div class="notes-layout">
         ${notesHtml}
         <div class="notes-main-wrapper">
+            <!-- sprint 20260723-233506: webview 内タブ bar（本番 notesWebviewContent.ts:193 と同位置。tabs>=2 で表示） -->
+            <div class="notes-tab-bar" id="notesTabBar" style="display:none;"></div>
             <div class="outliner-container">
-                <div class="outliner-page-title" style="display:none;">
-                    <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
-                </div>
-                <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
-                <div class="outliner-search-bar">
-                    <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
-                    <button class="outliner-nav-back-btn" title="Back" disabled></button>
-                    <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
-                    <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
-                    <div class="outliner-search-input-wrapper">
-                        <input type="text" class="outliner-search-input" placeholder="Search..." />
-                        <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
+                <!-- ★本番と同じ 3 段（container > scroll-content > tree）。scroll owner = .outliner-scroll-content -->
+                <div class="outliner-scroll-content">
+                    <div class="outliner-page-title">
+                        <input type="text" class="outliner-page-title-input" placeholder="Untitled" />
                     </div>
-                    <button class="outliner-undo-btn" title="Undo" disabled></button>
-                    <button class="outliner-redo-btn" title="Redo" disabled></button>
-                    <button class="outliner-menu-btn" title="Menu"></button>
-                </div>
-                <div class="outliner-pinned-nav-bar">
-                    <div class="outliner-daily-nav-area" style="display:none">
-                        <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavNext">&gt;</button>
-                        <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavCalendar"></button>
-                        <div class="outliner-daily-picker" id="dailyNavPicker" style="display:none">
-                            <div class="outliner-daily-picker-header">
-                                <button class="outliner-daily-picker-nav" id="dailyPickerPrevMonth">&lt;</button>
-                                <span class="outliner-daily-picker-title" id="dailyPickerTitle"></span>
-                                <button class="outliner-daily-picker-nav" id="dailyPickerNextMonth">&gt;</button>
-                            </div>
-                            <div class="outliner-daily-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
-                            <div class="outliner-daily-picker-grid" id="dailyPickerGrid"></div>
+                    <div class="outliner-scope-search-indicator" style="display:none"><span class="outliner-scope-search-tag"></span></div>
+                    <div class="outliner-search-bar">
+                        <button class="notes-panel-toggle-btn" id="notesPanelToggleBtn" title="Show file panel"></button>
+                        <button class="outliner-nav-back-btn" title="Back" disabled></button>
+                        <button class="outliner-nav-forward-btn" title="Forward" disabled></button>
+                        <button class="outliner-search-mode-toggle" title="Toggle search mode: Tree / Focus"></button>
+                        <div class="outliner-search-input-wrapper">
+                            <input type="text" class="outliner-search-input" placeholder="Search..." />
+                            <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
                         </div>
+                        <button class="outliner-undo-btn" title="Undo" disabled></button>
+                        <button class="outliner-redo-btn" title="Redo" disabled></button>
+                        <button class="outliner-menu-btn" title="Menu"></button>
                     </div>
-                    <div class="outliner-pinned-tags-area"></div>
-                    <div class="outliner-pinned-nav-spacer"></div>
-                    <button class="outliner-pinned-settings-btn" title="Pinned tag settings"></button>
+                    <div class="outliner-pinned-nav-bar">
+                        <div class="outliner-daily-nav-area" style="display:none">
+                            <button class="outliner-daily-btn" id="dailyNavToday">Today</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavPrev">&lt;</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavNext">&gt;</button>
+                            <button class="outliner-daily-btn outliner-daily-btn-sm" id="dailyNavCalendar"></button>
+                            <div class="outliner-daily-picker" id="dailyNavPicker" style="display:none">
+                                <div class="outliner-daily-picker-header">
+                                    <button class="outliner-daily-picker-nav" id="dailyPickerPrevMonth">&lt;</button>
+                                    <span class="outliner-daily-picker-title" id="dailyPickerTitle"></span>
+                                    <button class="outliner-daily-picker-nav" id="dailyPickerNextMonth">&gt;</button>
+                                </div>
+                                <div class="outliner-daily-picker-weekdays"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+                                <div class="outliner-daily-picker-grid" id="dailyPickerGrid"></div>
+                            </div>
+                        </div>
+                        <div class="outliner-pinned-tags-area"></div>
+                        <div class="outliner-pinned-nav-spacer"></div>
+                        <button class="outliner-pinned-settings-btn" title="Pinned tag settings"></button>
+                    </div>
+                    <div class="outliner-breadcrumb"></div>
+                    <div class="outliner-tree" role="tree"></div>
                 </div>
-                <div class="outliner-breadcrumb"></div>
-                <div class="outliner-tree" role="tree"></div>
+                <div class="fractal-resource-footer" style="display:none" data-rrf-template="{count} image(s) are outside the allowed folders and cannot be shown (e.g. {sample}).">
+                    <span class="rrf-msg">Some images are outside the allowed folders and cannot be shown.</span>
+                    <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
+                </div>
             </div>
+            <div class="markdown-container" style="display:none">
+                ${markdownPaneHtml}
+            </div>
+            <!-- sprint 20260724-042927 (FR-SPC-01): サイドパネルを .notes-main-wrapper 内に配置（本番と同位置） -->
+            ${sidePanelHtml}
         </div>
     </div>
-
-    ${sidePanelHtml}
 
     <!-- editor.js のサイドパネル用に必要な隠しDOM要素 -->
     <div class="sidebar" id="sidebar" style="display:none;"><div class="outline" id="outline"></div></div>
@@ -364,6 +410,15 @@ const html = `<!DOCTYPE html>
     __EDITOR_UTILS_SCRIPT__
     </script>
     <script>
+    __NOTES_COLOR_PALETTE_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_SCRIPT__
+    </script>
+    <script>
+    __INLINE_COLOR_PICKER_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -376,13 +431,22 @@ const html = `<!DOCTYPE html>
     __OUTLINER_SEARCH_SCRIPT__
     </script>
     <script>
+    __CLIP_SELECT_SCRIPT__
+    </script>
+    <script>
     __OUTLINER_SCRIPT__
     </script>
     <script>
-    __NOTES_COLOR_PALETTE_SCRIPT__
+    __NOTES_FILE_PANEL_SCRIPT__
     </script>
     <script>
-    __NOTES_FILE_PANEL_SCRIPT__
+    __NOTES_MD_DISPATCHER_SCRIPT__
+    </script>
+    <script>
+    __NOTES_HISTORY_PANEL_SCRIPT__
+    </script>
+    <script>
+    __NOTES_TAB_MANAGER_SCRIPT__
     </script>
     <script>
     // テストAPI公開
@@ -407,6 +471,100 @@ const html = `<!DOCTYPE html>
         }
         return null;
     };
+    // TC-RR-46: md ペインの EditorInstance を構築して editor.js の document click listener を
+    // 登録させる（production notes モードと同じ「outliner.js + editor.js を同一 document に両ロード」状態を
+    // 再現）。これで .rrf-open-settings の cross-script 二重発火の load-bearing 条件が成立する。
+    window.__testApi.loadMarkdownPane = function(text) {
+        var mc = document.querySelector('.markdown-container');
+        if (!mc || !window.EditorInstance) return;
+        mc.style.display = '';
+        new window.EditorInstance(mc, window.outlinerHostBridge, {
+            initialContent: text || '',
+            filePath: null,
+            documentBaseUri: '',
+            sidebarHidden: true,
+        });
+    };
+    // FR-LR-03: production notesWebviewContent と同じ md dispatcher を初期化。
+    // bridge は production の notesMarkdownHostBridge 相当（onMessage は test bridge の配列登録を共有）。
+    // standalone の message 配送は window event 非経由（__hostMessageHandler → handlers 配列直呼び）のため、
+    // subscribe / deliverUpdate とも配列経由を注入する（本番は既定の window listener / window.postMessage）。
+    window.notesMarkdownHostBridge = Object.assign({}, window.outlinerHostBridge, {
+        // 本番 notes-host-bridge.js の notesMarkdownHostBridge 相当（editor.js の編集/idle 経路が呼ぶ）
+        syncContent: function(markdown) {
+            // fileChangeId は test bridge IIFE のクロージャ内なのでここでは 0 固定（テストで参照しない）
+            window.__testApi.messages.push({ type: 'notesSaveCurrentMd', content: markdown, fileChangeId: 0 });
+        },
+        save: function() { window.__testApi.messages.push({ type: 'save' }); },
+        reportEditingState: function(editing) {
+            window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
+        },
+    });
+    window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({
+        outlinerContainer: document.querySelector('.outliner-container'),
+        markdownContainer: document.querySelector('.markdown-container'),
+        bridge: window.notesMarkdownHostBridge,
+        subscribe: function(handler) {
+            window.__hostMessageHandlers = window.__hostMessageHandlers || [];
+            window.__hostMessageHandlers.push(handler);
+        },
+        deliverUpdate: function(msg) { window.__hostMessageHandler(msg); },
+    });
+    // FR-HP: 最近開いたファイル履歴パネル（test bridge は messages 記録）。
+    // 履歴データは __testApi.loadHistory で注入可能。
+    window.__testApi.initHistoryPanel = function(history, height, collapsed) {
+        window.__notesHistoryPanel = window.__initNotesHistoryPanel({
+            panelEl: document.getElementById('sidePanelHistory'),
+            listEl: document.getElementById('sidePanelHistoryList'),
+            toggleEl: document.getElementById('sidePanelHistoryToggle'),
+            resizeHandleEl: document.getElementById('sidePanelHistoryResizeHandle'),
+            bridge: {
+                openFile: function(id) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: id }); },
+                saveHistoryPanelCollapsed: function(c) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelCollapsed', collapsed: c }); },
+                saveHistoryPanelHeight: function(h) { window.__testApi.messages.push({ type: 'notesSaveHistoryPanelHeight', height: h }); },
+            },
+            initialHistory: history || [],
+            initialHeight: (typeof height === 'number' ? height : null),
+            initialCollapsed: !!collapsed,
+        });
+        return window.__notesHistoryPanel;
+    };
+    // sprint 20260723-233506: Tab Manager（webview 内マルチタブ）。E2E から driveできるよう __testApi に露出。
+    // scroll owner は本番同様 kind で .outliner-scroll-content / .editor-wrapper を返す。
+    window.__testApi.initTabManager = function() {
+        function activeKind() {
+            var oc = document.querySelector('.outliner-container');
+            return (oc && oc.style.display !== 'none') ? 'out' : 'md';
+        }
+        window.__testApi.tabManager = window.__initNotesTabManager({
+            tabBarEl: document.getElementById('notesTabBar'),
+            getActiveMainScrollEl: function() {
+                return activeKind() === 'out'
+                    ? document.querySelector('.outliner-scroll-content')
+                    : document.querySelector('.markdown-container .editor-wrapper');
+            },
+            bridge: {
+                openFile: function(fp) { window.__testApi.messages.push({ type: 'notesOpenFile', filePath: fp }); },
+                flushActive: function() { window.__testApi.messages.push({ type: 'notesFlushActive' }); },
+                restoreSidePanel: function(fp) { window.__testApi.messages.push({ type: 'notesRestoreSidePanel', filePath: fp }); },
+                closeSidePanel: function() { window.__testApi.messages.push({ type: 'sidePanelClosed' }); },
+                openInVscodeTab: function(fp) { window.__testApi.messages.push({ type: 'notesOpenInVscodeTab', filePath: fp }); },
+            },
+            flushActiveWebview: function() { window.__testApi.messages.push({ type: 'flushActiveWebview' }); },
+            captureOutlinerView: function() {
+                return (window.Outliner && window.Outliner.captureView) ? window.Outliner.captureView() : null;
+            },
+            applyOutlinerView: function(v) {
+                if (window.Outliner && window.Outliner.applyView) window.Outliner.applyView(v);
+            },
+            captureSidePanel: function() {
+                return window.__testApi.sidePanelState || { open: false, filePath: null, scrollTop: 0 };
+            },
+            getSidePanelScrollEl: function() { return document.querySelector('.side-panel .editor-wrapper'); },
+            closeSidePanelInWebview: function() { window.__testApi.messages.push({ type: 'closeSidePanelInWebview' }); },
+        });
+        return window.__testApi.tabManager;
+    };
     // 空データで初期化
     window.__testApi.initOutliner();
     window.__testApi.initNotesPanel();
@@ -424,9 +582,15 @@ result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);
 result = safeReplace(result, '__OUTLINER_MODEL_SCRIPT__', outlinerModelScript);
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
+result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
+result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
+result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
+result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
+result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

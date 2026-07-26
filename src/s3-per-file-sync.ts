@@ -439,7 +439,11 @@ export function getLocalFileInfo(filePath: string): FileInfo | null {
 
 export function walkLocalDir(dirPath: string): Map<string, FileInfo> {
     const result = new Map<string, FileInfo>();
-    if (!fs.existsSync(dirPath)) return result;
+    // 末尾スラッシュを正規化してから baseLen を取る（BUG-3）。
+    // 末尾 `/` 付きだと baseLen が 1 過大になり substring(baseLen+1) で relPath 先頭が欠落する。
+    // upload/download の srcDir 補正（endsWith(path.sep)）と対称にする。
+    const base = dirPath.replace(/[/\\]+$/, '');
+    if (!fs.existsSync(base)) return result;
 
     function recurse(currentPath: string, baseLen: number) {
         let entries: fs.Dirent[];
@@ -464,6 +468,6 @@ export function walkLocalDir(dirPath: string): Map<string, FileInfo> {
         }
     }
 
-    recurse(dirPath, dirPath.length);
+    recurse(base, base.length);
     return result;
 }

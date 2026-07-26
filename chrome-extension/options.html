@@ -72,20 +72,34 @@
 <body>
     <h1>Fractal Web Clipper — Settings</h1>
 
-    <h2>Notes フォルダ</h2>
+    <h2>Note</h2>
     <div class="row">
-        <button id="addFolderBtn" class="primary">📁 Add Notes Folder…</button>
+        <button id="addFolderBtn" class="primary">📓 Add Note…</button>
         <span id="addStatus" class="status" style="display:none"></span>
     </div>
-    <div class="hint">対象 Notes フォルダ (= 複数 <code>.out</code> + <code>outline.note</code> を持つ Fractal の管理ディレクトリ) を **複数**登録できます。許可は永続化され毎回聞かれません。</div>
+    <div class="hint">Fractal の Note（複数 <code>.out</code> + <code>outline.note</code> を持つディレクトリ）を複数登録できます。名前は Note のタイトルで表示されます。許可は永続化され毎回聞かれません。</div>
 
     <ul id="folderList" class="folder-list">
-        <li class="empty">(未登録 — 上の「Add Notes Folder」 で追加)</li>
+        <li class="empty">(未登録 — 上の「Add Note…」で追加)</li>
     </ul>
 
-    <div class="hint" style="margin-top: 24px;">対象 outliner の選択は、ツールバー icon を click した時の popup で毎回行います。直前に選んだ outliner が default 選択されます。</div>
+    <h2>保存先プリセット</h2>
+    <div class="hint">よく使う保存先（Note + Outliner/Markdown）をプリセット登録できます。★ を付けたプリセットが popup の初期選択と quick clip (Alt+Shift+F) の保存先になります。</div>
+    <div class="row" style="margin-top:8px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        <select id="presetFolderSelect" style="min-width:140px;"></select>
+        <select id="presetTargetSelect" style="min-width:200px;"><option>(Note を選択)</option></select>
+        <input id="presetNameInput" type="text" placeholder="プリセット名 (省略可)" style="padding:6px 8px; border:1px solid #ccc; border-radius:3px;">
+        <button id="addPresetBtn" class="primary">＋ 追加</button>
+        <span id="presetStatus" class="status" style="display:none"></span>
+    </div>
+    <ul id="presetList" class="folder-list">
+        <li class="empty">(プリセット未登録)</li>
+    </ul>
+
+    <div class="hint" style="margin-top: 24px;">保存先の選択は、ツールバー icon を click した時の popup でも毎回行えます（プリセット or 手動選択）。</div>
 
     <script src="lib/idb.js"></script>
+    <script src="lib/flat-layout-mirror.js"></script>
     <script src="lib/folder-registry.js"></script>
     <script src="options.js"></script>
 </body>

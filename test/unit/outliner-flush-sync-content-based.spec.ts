@@ -87,13 +87,9 @@ test.describe('outliner.js flushSync content-based skip (v0.207.40)', () => {
         }
     });
 
-    test('applySyncedData の data 適用後 lastSentJson を更新する', () => {
-        const m = outlinerSrc.match(/function\s+applySyncedData\s*\(\s*newData\s*\)\s*\{([\s\S]*?)\n\s{4}\}\n/);
-        expect(m, 'applySyncedData 関数本体が見つからない').toBeTruthy();
-        if (m) {
-            expect(m[1]).toMatch(/lastSentJson\s*=\s*serializeForSave\(\)/);
-        }
-    });
+    // ('applySyncedData の data 適用後 lastSentJson を更新する' の TC は、
+    //  applySyncedData が outliner ヘッダー S3 sync 専用関数として削除されたため除去
+    //  sprint 20260721-112357-remove-outliner-header-s3sync)
 
     test('updateData (fileChangeId 付き) 経路で lastSentJson 更新する', () => {
         // case 'updateData' の fileChangeId 分岐内に lastSentJson 代入

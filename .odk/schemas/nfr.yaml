@@ -1,0 +1,36 @@
+name: nfr
+description: "A non-functional requirement with quantified target and measurement method"
+version: 1
+fields:
+  id:
+    type: string
+    required: true
+    pattern: "^odk:nfr:.+"
+    description: "Unique component identifier in odk:nfr:namespace/name format"
+  description:
+    type: text
+    required: true
+    description: "What this NFR constrains"
+  category:
+    type: enum
+    values: [performance, scalability, reliability, security, observability]
+    required: true
+    description: "NFR category"
+  target:
+    type: string
+    required: true
+    description: "Quantified target with units (e.g. P95 < 200ms)"
+  measurement:
+    type: text
+    required: true
+    description: "How to measure this NFR"
+  test_method:
+    type: text
+    required: true
+    description: "How to test this NFR (tool, scenario, duration)"
+  monitoring:
+    type: string
+    description: "Production monitoring setup (metric name, alert threshold)"
+  applies_to:
+    type: ref_list
+    description: "Components this NFR applies to"

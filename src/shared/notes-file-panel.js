@@ -22,6 +22,9 @@ var notesFilePanel = (function() {
     var fileList = [];
     var currentFile = null;
     var structure = null;
+    var noteFolderName = '';       // FR-NT-01: noteTitle 未設定時の既定表示 (フォルダ名)
+    var titleLabelEl = null;       // FR-NT-01: #notesTitleLabel
+    var _titleEditing = false;     // 二重編集ガード
     var listEl = null;
     var panelEl = null;
     var contextMenu = null;
@@ -31,6 +34,7 @@ var notesFilePanel = (function() {
     // D&D state (module-scope, VSCode webview の dataTransfer 制限回避)
     var dragItemId = null;
     var dragItemType = null; // 'file' or 'folder'
+    var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     var dropIndicator = null;
 
     // Resize state
@@ -55,6 +59,8 @@ var notesFilePanel = (function() {
 
     // SVG icons
     var ICON_FILE = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
+    // ADR-008: Notes 内 .md ファイル識別用アイコン (file の右下に "M" ラベル)
+    var ICON_FILE_MD = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>';
     var ICON_FOLDER = '<svg class="file-panel-folder-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
     var ICON_CHEVRON = '<svg class="file-panel-folder-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
@@ -67,6 +73,58 @@ var notesFilePanel = (function() {
             map[id] = f;
         });
         return map;
+    }
+
+    // ── FR-NT-01/02: note フォルダタイトル (見出し) の表示と inline 編集 ──
+
+    function currentNoteTitleText() {
+        var t = structure && structure.noteTitle;
+        return (t && String(t).trim()) ? String(t).trim() : (noteFolderName || '');
+    }
+
+    function renderNoteTitle() {
+        if (!titleLabelEl) { titleLabelEl = document.getElementById('notesTitleLabel'); }
+        if (!titleLabelEl || _titleEditing) { return; }
+        titleLabelEl.textContent = currentNoteTitleText();
+    }
+
+    function beginNoteTitleEdit() {
+        if (!titleLabelEl || _titleEditing) { return; }
+        _titleEditing = true;
+        var original = currentNoteTitleText();
+        titleLabelEl.setAttribute('contenteditable', 'true');
+        titleLabelEl.classList.add('editing');
+        titleLabelEl.focus();
+        // 全選択
+        try {
+            var range = document.createRange();
+            range.selectNodeContents(titleLabelEl);
+            var sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(range);
+        } catch (e) { /* noop */ }
+
+        var finish = function(commit) {
+            if (!_titleEditing) { return; }
+            _titleEditing = false;
+            titleLabelEl.removeAttribute('contenteditable');
+            titleLabelEl.classList.remove('editing');
+            titleLabelEl.removeEventListener('keydown', onKey);
+            titleLabelEl.removeEventListener('blur', onBlur);
+            if (commit) {
+                var val = (titleLabelEl.textContent || '').trim();
+                if (val !== original && bridge && bridge.setNoteTitle) {
+                    bridge.setNoteTitle(val); // 空文字なら host 側でクリア (フォルダ名表示に戻る)
+                }
+            }
+            renderNoteTitle(); // 表示を確定値 (or 元) に戻す
+        };
+        var onKey = function(e) {
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); finish(true); }
+            else if (e.key === 'Escape') { e.preventDefault(); titleLabelEl.textContent = original; finish(false); }
+        };
+        var onBlur = function() { finish(true); };
+        titleLabelEl.addEventListener('keydown', onKey);
+        titleLabelEl.addEventListener('blur', onBlur);
     }
 
     // ── ツリーレンダリング ──
@@ -151,20 +209,24 @@ var notesFilePanel = (function() {
 
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
+        var isMd = /\.md$/i.test(f.filePath);
         var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
         // v11: color class 反映
-        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, ''));
+        var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, ''));
         if (itemColor) {
             itemClass += ' notes-item-color-' + itemColor;
         }
+        if (isMd) itemClass += ' is-md';
         item.className = itemClass;
         item.dataset.filePath = f.filePath;
-        item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.out$/, '');
+        item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, '');
         item.dataset.itemType = 'file';
+        item.dataset.fileExt = isMd ? 'md' : 'out';
         if (parentId) item.dataset.parentId = parentId;
         item.draggable = true;
 
-        item.innerHTML = ICON_FILE + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
+        var icon = isMd ? ICON_FILE_MD : ICON_FILE;
+        item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function() {
             if (f.filePath !== currentFile) {
@@ -267,7 +329,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; titleSpan.innerHTML = originalHtml; }
         });
     }
@@ -294,7 +356,7 @@ var notesFilePanel = (function() {
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; itemEl.textContent = file.title || (i18n.notesUntitled || 'Untitled'); }
         });
     }
@@ -328,7 +390,7 @@ var notesFilePanel = (function() {
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
             e.stopPropagation();
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; titleSpan.innerHTML = originalHtml; }
         });
     }
@@ -360,6 +422,28 @@ var notesFilePanel = (function() {
             return;
         }
 
+        // クリックされた file 要素の親フォルダ ID を取得（ルート直下なら null）
+        var fileItemEl = clickedItem || (listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null);
+        var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
+
+        // sprint 20260725: md/.out を webview 内の新しいタブで開く（file-tree 右クリック）
+        addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+            closeContextMenu();
+            if (bridge && bridge.openFileInTab) { bridge.openFileInTab(file.filePath); }
+        });
+        addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
+            closeContextMenu();
+            promptNewFile(fileParentId, fileId);
+        });
+        // ADR-008: 同階層に Markdown ファイルを新規作成
+        addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+            closeContextMenu();
+            promptNewMarkdownFile(fileParentId, fileId);
+        });
+        addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
+            closeContextMenu();
+            promptNewFolder(fileParentId, fileId);
+        });
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
@@ -375,6 +459,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
+        });
+        // FR-MV-01: 別 Note へ移動 (QuickPick は host 側)。file item のみ (outliner/md)。
+        addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
+            closeContextMenu();
+            if (bridge.moveToOtherNote) { bridge.moveToOtherNote(file.id || fileId); }
         });
         // v11: Set Color メニュー項目 (stopProp=true でメニュー内での遷移を維持)
         addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
@@ -412,6 +501,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
             closeContextMenu();
             promptNewFile(folder.id);
+        });
+        // ADR-008: フォルダ内に Markdown ファイルを新規作成
+        addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+            closeContextMenu();
+            promptNewMarkdownFile(folder.id);
         });
         addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
             closeContextMenu();
@@ -516,12 +610,55 @@ var notesFilePanel = (function() {
 
     // ── Drag & Drop ──
 
+    // v0.207.77 (D&D Feature B): outliner page-node からの drag 判定。
+    // dragstart で application/x-fractal-out-node-page を setData している経路。
+    var OUT_NODE_PAGE_MIME = 'application/x-fractal-out-node-page';
+
+    function isOutNodePageDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(OUT_NODE_PAGE_MIME) !== -1;
+    }
+
+    function readOutNodePagePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(OUT_NODE_PAGE_MIME);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    }
+
+    // node-move-to-other-outliner: outliner node（サブツリー）→ 別 .out への move 用 MIME。
+    // dragstart（outliner.js）で notes モードの全 node に載る（page 有無問わず）。payload {outFileKey, nodeId}。
+    var OUT_NODE_SUBTREE_MIME = 'application/x-fractal-out-node-subtree';
+
+    function isOutNodeSubtreeDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(OUT_NODE_SUBTREE_MIME) !== -1;
+    }
+
+    function readOutNodeSubtreePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(OUT_NODE_SUBTREE_MIME);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    }
+
     function setupDragSource(el) {
         el.addEventListener('dragstart', function(e) {
             var target = el.closest('[data-item-id]') || el;
             dragItemId = target.dataset.itemId;
             dragItemType = target.dataset.itemType;
-            e.dataTransfer.effectAllowed = 'move';
+            dragSourceFileExt = target.dataset.fileExt || null;
+            // v0.207.77: 'copyMove' にしないと、dropEffect='copy' (Feature A/B) との不一致で
+            // ブラウザが drop event をキャンセルする (HTML5 D&D 仕様)。
+            e.dataTransfer.effectAllowed = 'copyMove';
             // テキストを設定（VSCode webview互換）
             try { e.dataTransfer.setData('text/plain', dragItemId); } catch(err) { /* ignore */ }
             // ドラッグ中のスタイル
@@ -533,6 +670,7 @@ var notesFilePanel = (function() {
             target.style.opacity = '';
             dragItemId = null;
             dragItemType = null;
+            dragSourceFileExt = null;
             removeDropIndicator();
             clearAllDragOver();
         });
@@ -540,15 +678,42 @@ var notesFilePanel = (function() {
 
     function setupDropTarget(el) {
         el.addEventListener('dragover', function(e) {
-            if (!dragItemId) return;
+            // v0.207.77 (Feature B): outliner page-node からの drag を最優先で処理
+            var fromOutliner = isOutNodePageDrag(e);
+            // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
+            // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
+            var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
             e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
+            e.dataTransfer.dropEffect = 'copy';
 
             clearAllDragOver();
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (target.dataset.itemId === dragItemId) return;
+            if (!fromOutliner && !fromOutlinerSubtree && target.dataset.itemId === dragItemId) return;
+
+            // node-move-to-other-outliner: outliner node（サブツリー）を .out item にドロップ → 別 outliner へ move
+            // （page 付き node は Feature B の -out-node-page も持つが、.out item が drop 先のときは本経路を優先）
+            if (
+                fromOutlinerSubtree &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
+
+            // Feature A: md ファイルを .out item にドロップ → import (中央のみ、黄色 highlight)
+            if (
+                !fromOutliner &&
+                dragSourceFileExt === 'md' &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
 
             // フォルダヘッダーの場合: 上半分=前に挿入、中央=中に入れる、下半分=後に挿入
             // ファイルの場合: 上半分=前に挿入、下半分=後に挿入
@@ -578,25 +743,81 @@ var notesFilePanel = (function() {
         el.addEventListener('dragleave', function(e) {
             var target = el.closest('[data-item-id]') || el;
             target.classList.remove('file-panel-drag-over');
+            target.classList.remove('file-panel-drag-over-md-into-out');
         });
 
         el.addEventListener('drop', function(e) {
+            // v0.207.77 (Feature B): outliner page-node からの drop を最優先処理
+            var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+            // node-move-to-other-outliner: サブツリー move payload（notes 全 node に載る）
+            var subtreePayload = isOutNodeSubtreeDrag(e) ? readOutNodeSubtreePayload(e) : null;
             e.preventDefault();
-            if (!dragItemId) return;
+            if (!dragItemId && !outPayload && !subtreePayload) return;
 
             clearAllDragOver();
             removeDropIndicator();
 
             var target = el.closest('[data-item-id]') || el;
-            if (target.dataset.itemId === dragItemId) return;
-
-            var rect = target.getBoundingClientRect();
-            var y = e.clientY - rect.top;
-            var ratio = y / rect.height;
+            if (!outPayload && !subtreePayload && target.dataset.itemId === dragItemId) return;
 
             var targetId = target.dataset.itemId;
             var targetType = target.dataset.itemType;
             var targetParentId = target.dataset.parentId || null;
+
+            // node-move-to-other-outliner: node（サブツリー）→ 別 .out item への move（最優先）。
+            // 移動先が .out file のときのみ本経路。それ以外（folder/md item）は下の Feature B（page-node→md 化）へ。
+            if (subtreePayload && targetType === 'file' && target.dataset.fileExt === 'out') {
+                var targetOutPath = target.dataset.filePath;
+                // 自分自身の .out への drop は no-op（同一 outliner 内は tree D&D が担う）
+                if (targetOutPath && subtreePayload.outFileKey !== targetOutPath
+                    && typeof bridge.notesMoveOutNodeSubtreeIntoOut === 'function') {
+                    bridge.notesMoveOutNodeSubtreeIntoOut(subtreePayload, targetOutPath);
+                }
+                return;
+            }
+
+            // Feature B: outliner page-node → Notes panel
+            if (outPayload) {
+                var rectB = target.getBoundingClientRect();
+                var yB = e.clientY - rectB.top;
+                var ratioB = yB / rectB.height;
+                var insertParentB = null;
+                var insertIndexB = 0;
+                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.75) {
+                    // フォルダ中央 → フォルダ内先頭
+                    insertParentB = target.dataset.folderId || targetId;
+                    insertIndexB = 0;
+                } else {
+                    insertParentB = targetParentId;
+                    var siblingsB = getChildIdsOfParent(insertParentB);
+                    var tIdxB = siblingsB.indexOf(targetId);
+                    if (tIdxB === -1) tIdxB = siblingsB.length;
+                    var aboveB = (targetType === 'folder' || target.classList.contains('file-panel-folder-header'))
+                        ? ratioB < 0.25
+                        : ratioB < 0.5;
+                    insertIndexB = aboveB ? tIdxB : tIdxB + 1;
+                }
+                if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                    bridge.notesImportOutPageNodeAsMd(outPayload, insertParentB, insertIndexB);
+                }
+                return;
+            }
+
+            // Feature A: md ファイル → .out item ドロップ → import
+            if (
+                dragSourceFileExt === 'md' &&
+                targetType === 'file' &&
+                target.dataset.fileExt === 'out'
+            ) {
+                if (typeof bridge.notesImportMdIntoOut === 'function') {
+                    bridge.notesImportMdIntoOut(dragItemId, targetId);
+                }
+                return;
+            }
+
+            var rect = target.getBoundingClientRect();
+            var y = e.clientY - rect.top;
+            var ratio = y / rect.height;
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
             if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
@@ -635,11 +856,12 @@ var notesFilePanel = (function() {
 
     function setupFolderChildrenDrop(childrenEl, folderId) {
         childrenEl.addEventListener('dragover', function(e) {
-            if (!dragItemId) return;
+            var fromOutliner = isOutNodePageDrag(e);
+            if (!dragItemId && !fromOutliner) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
                 clearAllDragOver();
                 childrenEl.classList.add('file-panel-drag-over');
             }
@@ -649,11 +871,18 @@ var notesFilePanel = (function() {
         });
         childrenEl.addEventListener('drop', function(e) {
             if (e.target !== childrenEl && e.target.className !== 'file-panel-folder-children') return;
+            var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             e.preventDefault();
-            if (!dragItemId) return;
+            if (!dragItemId && !outPayload) return;
             clearAllDragOver();
-            // フォルダ末尾に追加
             var childIds = getChildIdsOfParent(folderId);
+            if (outPayload) {
+                if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                    bridge.notesImportOutPageNodeAsMd(outPayload, folderId, childIds.length);
+                }
+                return;
+            }
+            // フォルダ末尾に追加
             bridge.moveItem(dragItemId, folderId, childIds.length);
         });
     }
@@ -680,6 +909,10 @@ var notesFilePanel = (function() {
         var els = listEl.querySelectorAll('.file-panel-drag-over');
         for (var i = 0; i < els.length; i++) {
             els[i].classList.remove('file-panel-drag-over');
+        }
+        var els2 = listEl.querySelectorAll('.file-panel-drag-over-md-into-out');
+        for (var j = 0; j < els2.length; j++) {
+            els2[j].classList.remove('file-panel-drag-over-md-into-out');
         }
     }
 
@@ -719,7 +952,9 @@ var notesFilePanel = (function() {
 
     // ── 新規作成プロンプト ──
 
-    function promptNewFile(parentId) {
+    // afterId が渡された場合、そのアイテムの直後に input row を表示し、
+    // 確定時には bridge.createFile に afterId を渡してその直後に挿入させる。
+    function promptNewFile(parentId, afterId) {
         var inputRow = document.createElement('div');
         inputRow.className = 'file-panel-item active';
         var input = document.createElement('input');
@@ -729,22 +964,7 @@ var notesFilePanel = (function() {
         input.placeholder = 'Enter title...';
         inputRow.appendChild(input);
 
-        // 親フォルダ内に挿入
-        if (parentId) {
-            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
-            if (folderEl) {
-                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
-                if (childrenEl) {
-                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
-                } else {
-                    listEl.insertBefore(inputRow, listEl.firstChild);
-                }
-            } else {
-                listEl.insertBefore(inputRow, listEl.firstChild);
-            }
-        } else {
-            listEl.insertBefore(inputRow, listEl.firstChild);
-        }
+        insertPromptRow(inputRow, parentId, afterId);
         input.focus();
 
         var done = false;
@@ -754,17 +974,55 @@ var notesFilePanel = (function() {
             var val = input.value.trim();
             if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
             if (val) {
-                bridge.createFile(val, parentId || null);
+                bridge.createFile(val, parentId || null, afterId || null);
             }
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
     }
 
-    function promptNewFolder(parentId) {
+    // ADR-008: Markdown ファイル新規作成プロンプト
+    function promptNewMarkdownFile(parentId, afterId) {
+        if (!bridge.createMarkdownFile) {
+            // 古い host bridge への安全弁
+            return;
+        }
+        var inputRow = document.createElement('div');
+        inputRow.className = 'file-panel-item active is-md';
+        var iconWrap = document.createElement('span');
+        iconWrap.innerHTML = ICON_FILE_MD;
+        inputRow.appendChild(iconWrap.firstChild);
+        var input = document.createElement('input');
+        input.className = 'file-panel-rename-input';
+        input.type = 'text';
+        input.value = '';
+        input.placeholder = 'Markdown title...';
+        inputRow.appendChild(input);
+
+        insertPromptRow(inputRow, parentId, afterId);
+        input.focus();
+
+        var done = false;
+        function finish() {
+            if (done) return;
+            done = true;
+            var val = input.value.trim();
+            if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
+            if (val) {
+                bridge.createMarkdownFile(val, parentId || null, afterId || null);
+            }
+        }
+        input.addEventListener('blur', finish);
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
+            if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
+        });
+    }
+
+    function promptNewFolder(parentId, afterId) {
         var inputRow = document.createElement('div');
         inputRow.className = 'file-panel-folder-header';
         inputRow.style.margin = '1px 4px';
@@ -775,21 +1033,7 @@ var notesFilePanel = (function() {
         input.placeholder = 'Folder name...';
         inputRow.appendChild(input);
 
-        if (parentId) {
-            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
-            if (folderEl) {
-                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
-                if (childrenEl) {
-                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
-                } else {
-                    listEl.insertBefore(inputRow, listEl.firstChild);
-                }
-            } else {
-                listEl.insertBefore(inputRow, listEl.firstChild);
-            }
-        } else {
-            listEl.insertBefore(inputRow, listEl.firstChild);
-        }
+        insertPromptRow(inputRow, parentId, afterId);
         input.focus();
 
         var done = false;
@@ -799,14 +1043,39 @@ var notesFilePanel = (function() {
             var val = input.value.trim();
             if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow);
             if (val) {
-                bridge.createFolder(val, parentId || null);
+                bridge.createFolder(val, parentId || null, afterId || null);
             }
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') { finish(); }
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { finish(); }
             if (e.key === 'Escape') { done = true; if (inputRow.parentNode) inputRow.parentNode.removeChild(inputRow); }
         });
+    }
+
+    // 入力行を DOM に挿入する位置決定ロジック:
+    //   afterId 指定 → そのアイテム要素の直後
+    //   parentId 指定 → そのフォルダの children 先頭
+    //   どちらも null → ルートリストの先頭
+    function insertPromptRow(inputRow, parentId, afterId) {
+        if (afterId) {
+            var anchor = listEl.querySelector('[data-item-id="' + CSS.escape(afterId) + '"]');
+            if (anchor && anchor.parentNode) {
+                anchor.parentNode.insertBefore(inputRow, anchor.nextSibling);
+                return;
+            }
+        }
+        if (parentId) {
+            var folderEl = listEl.querySelector('[data-folder-id="' + CSS.escape(parentId) + '"]');
+            if (folderEl) {
+                var childrenEl = folderEl.querySelector('.file-panel-folder-children');
+                if (childrenEl) {
+                    childrenEl.insertBefore(inputRow, childrenEl.firstChild);
+                    return;
+                }
+            }
+        }
+        listEl.insertBefore(inputRow, listEl.firstChild);
     }
 
     // ── 検索 ──
@@ -848,12 +1117,16 @@ var notesFilePanel = (function() {
 
     var searchSectionOut = null;
     var searchSectionMd = null;
+    var searchSectionExplore = null;
     var searchSectionOutBody = null;
     var searchSectionMdBody = null;
+    var searchSectionExploreBody = null;
     var searchSectionOutTitle = null;
     var searchSectionMdTitle = null;
+    var searchSectionExploreTitle = null;
     var searchCountOut = 0;
     var searchCountMd = 0;
+    var searchCountExplore = 0;
 
     function buildSearchSection(label) {
         var section = document.createElement('div');
@@ -873,20 +1146,153 @@ var notesFilePanel = (function() {
         searchTotalCount = 0;
         searchCountOut = 0;
         searchCountMd = 0;
+        searchCountExplore = 0;
         if (searchResultsEl) {
             searchResultsEl.innerHTML = '';
+            var exploreSec = buildSearchSection((i18n.notesSearchExploreResults || 'Notes Exploreの検索結果'));
             var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
             var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            searchSectionExplore = exploreSec.section;
+            searchSectionExploreBody = exploreSec.body;
+            searchSectionExploreTitle = exploreSec.title;
             searchSectionOut = outSec.section;
             searchSectionOutBody = outSec.body;
             searchSectionOutTitle = outSec.title;
             searchSectionMd = mdSec.section;
             searchSectionMdBody = mdSec.body;
             searchSectionMdTitle = mdSec.title;
+            searchResultsEl.appendChild(searchSectionExplore);
             searchResultsEl.appendChild(searchSectionOut);
             searchResultsEl.appendChild(searchSectionMd);
+
+            // Render explore (file/folder name) results immediately (client-side).
+            // The backend streaming search covers content; this section covers names only.
+            renderExploreResults();
         }
         if (searchCountEl) searchCountEl.textContent = i18n.notesSearching || 'Searching...';
+    }
+
+    /** Collect file/folder name matches against searchInputEl.value, render into
+     *  the Explore section. Respects searchOptions (caseSensitive / wholeWord / useRegex). */
+    function renderExploreResults() {
+        if (!searchInputEl || !structure || !searchSectionExploreBody) return;
+        var query = searchInputEl.value.trim();
+        if (!query) return;
+
+        var matcher = buildNameMatcher(query);
+        if (!matcher) return;
+
+        var matches = []; // [{ id, type: 'file'|'folder', title, filePath?, fileExt? }]
+        var fileMap = buildFileMap(fileList);
+
+        Object.keys(structure.items || {}).forEach(function(id) {
+            var item = structure.items[id];
+            if (!item) return;
+            if (item.type === 'folder') {
+                var t = item.title || '';
+                if (matcher(t)) {
+                    matches.push({ id: id, type: 'folder', title: t });
+                }
+            } else if (item.type === 'file') {
+                var fileEntry = fileMap[id];
+                var title = (item.title) || (fileEntry && fileEntry.title) || '';
+                if (matcher(title)) {
+                    var fp = fileEntry ? fileEntry.filePath : null;
+                    var isMd = fp ? /\.md$/i.test(fp) : false;
+                    matches.push({
+                        id: id, type: 'file', title: title, filePath: fp,
+                        fileExt: isMd ? 'md' : 'out',
+                    });
+                }
+            }
+        });
+
+        if (matches.length === 0) {
+            updateExploreSectionTitle();
+            return;
+        }
+
+        searchSectionExplore.style.display = '';
+        matches.forEach(function(m) {
+            var matchEl = document.createElement('div');
+            matchEl.className = 'file-panel-search-match';
+            // Title (highlighted) + small badge for type
+            matchEl.innerHTML = highlightSearchText(m.title || (i18n.notesUntitled || 'Untitled'), query);
+            var badge = document.createElement('span');
+            badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
+            badge.textContent = '[' + (m.type === 'folder' ? 'folder' : (m.fileExt || 'file')) + ']';
+            matchEl.appendChild(badge);
+            matchEl.addEventListener('click', function() {
+                jumpToExploreItem(m);
+            });
+            searchSectionExploreBody.appendChild(matchEl);
+            searchCountExplore++;
+            searchTotalCount++;
+        });
+        updateExploreSectionTitle();
+    }
+
+    function updateExploreSectionTitle() {
+        var base = i18n.notesSearchExploreResults || 'Notes Exploreの検索結果';
+        if (searchSectionExploreTitle) {
+            searchSectionExploreTitle.textContent = base + ' (' + searchCountExplore + ')';
+        }
+    }
+
+    function buildNameMatcher(query) {
+        try {
+            var pattern = searchOptions.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b';
+            var flags = searchOptions.caseSensitive ? '' : 'i';
+            var re = new RegExp(pattern, flags);
+            return function(text) { return re.test(text || ''); };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /** Switch to Notes tab, expand ancestor folders, scroll target into view, flash yellow. */
+    function jumpToExploreItem(m) {
+        switchTab('notes');
+        if (!m || !m.id) return;
+        // Expand ancestor folders (collapsed=false) so the target is visible
+        expandAncestorFolders(m.id);
+        // Defer to next frame so renderTree() has propagated any collapse state changes
+        setTimeout(function() {
+            var sel = m.type === 'folder'
+                ? '[data-folder-id="' + CSS.escape(m.id) + '"] > .file-panel-folder-header'
+                : '[data-item-id="' + CSS.escape(m.id) + '"]';
+            var el = listEl ? listEl.querySelector(sel) : null;
+            if (!el) return;
+            if (typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+            el.classList.remove('file-panel-explore-flash');
+            // Force reflow so re-adding the class restarts the animation
+            void el.offsetWidth;
+            el.classList.add('file-panel-explore-flash');
+            setTimeout(function() {
+                el.classList.remove('file-panel-explore-flash');
+            }, 2200);
+        }, 50);
+    }
+
+    function expandAncestorFolders(itemId) {
+        if (!structure) return;
+        var changed = false;
+        var cursor = findParentIdOf(itemId);
+        var safety = 0;
+        while (cursor && safety++ < 100) {
+            var folder = structure.items ? structure.items[cursor] : null;
+            if (folder && folder.collapsed) {
+                folder.collapsed = false;
+                changed = true;
+                // Notify host so the toggled state is persisted
+                if (bridge && bridge.toggleFolder) bridge.toggleFolder(cursor);
+            }
+            cursor = findParentIdOf(cursor);
+        }
+        if (changed) renderTree();
     }
 
     function onSearchPartial(searchId, fileResult) {
@@ -924,8 +1330,15 @@ var notesFilePanel = (function() {
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
                         bridge.jumpToMdPage(fileResult.parentOutFileId, fileResult.pageId, match.lineNumber || 0, query, matchIdx);
-                    } else if (fileResult.mdFilePath && bridge.openMdFileExternal) {
-                        bridge.openMdFileExternal(fileResult.mdFilePath);
+                    } else if (fileResult.mdFilePath && bridge.openFile) {
+                        // root-level .md は notes editor 内の markdown pane で開く
+                        // (旧実装は openMdFileExternal で VSCode 標準エディタ起動だったが、
+                        //  notes editor の content として表示するのが期待動作)。
+                        // query/occurrence を渡すと、ロード後にヒット箇所へジャンプ + 黄色ハイライト。
+                        if (fileResult.mdFilePath !== currentFile) {
+                            currentFile = fileResult.mdFilePath;
+                        }
+                        bridge.openFile(fileResult.mdFilePath, query, matchIdx);
                     }
                 }
             });
@@ -971,7 +1384,7 @@ var notesFilePanel = (function() {
 
         if (searchInputEl) {
             searchInputEl.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
                     executeSearch();
                 } else if (e.key === 'Escape') {
                     switchTab('notes');
@@ -1066,18 +1479,19 @@ var notesFilePanel = (function() {
         }
     }
 
-    function init(noteBridge, initialFileList, initialCurrentFile, initialStructure, initialPanelWidth) {
+    function init(noteBridge, initialFileList, initialCurrentFile, initialStructure, initialPanelWidth, initialNoteFolderName) {
         bridge = noteBridge;
         fileList = initialFileList || [];
         currentFile = initialCurrentFile || null;
         structure = initialStructure || null;
+        noteFolderName = initialNoteFolderName || '';  // FR-NT-01
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
         var addBtn = document.getElementById('filePanelAdd');
+        var addMdBtn = document.getElementById('filePanelAddMarkdown');
         var addFolderBtn = document.getElementById('filePanelAddFolder');
         var collapseBtn = document.getElementById('filePanelCollapse');
-        var toggleBtn = document.getElementById('notesPanelToggleBtn');
 
         // 初期パネル幅復元
         if (initialPanelWidth) {
@@ -1090,6 +1504,12 @@ var notesFilePanel = (function() {
         if (addBtn) {
             addBtn.addEventListener('click', function() {
                 promptNewFile(null);
+            });
+        }
+
+        if (addMdBtn) {
+            addMdBtn.addEventListener('click', function() {
+                promptNewMarkdownFile(null);
             });
         }
 
@@ -1141,24 +1561,38 @@ var notesFilePanel = (function() {
             });
         }
 
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', function() {
-                if (panelEl) {
-                    panelEl.classList.remove('collapsed');
-                    if (lastSavedPanelWidth) {
-                        panelEl.style.width = lastSavedPanelWidth + 'px';
-                    }
+        // markdown pane の DOM は updateData で再生成されるため、
+        // 個別 button.addEventListener では listener が剥がれる。
+        // document に event delegation で張って、再生成後の button も拾う。
+        document.addEventListener('click', function(e) {
+            var t = e.target;
+            if (!t) return;
+            var btn = t.closest ? t.closest('.notes-panel-toggle-btn') : null;
+            if (!btn) return;
+            if (panelEl) {
+                panelEl.classList.remove('collapsed');
+                if (lastSavedPanelWidth) {
+                    panelEl.style.width = lastSavedPanelWidth + 'px';
                 }
-                bridge.togglePanel(false);
-            });
+            }
+            bridge.togglePanel(false);
+        });
+
+        // FR-NT-01/02: note タイトル見出しの初期化 + inline 編集バインド
+        titleLabelEl = document.getElementById('notesTitleLabel');
+        if (titleLabelEl) {
+            titleLabelEl.addEventListener('click', function() { beginNoteTitleEdit(); });
         }
+        renderNoteTitle();
 
         // Listen for file list + structure updates
         if (bridge.onFileListChanged) {
-            bridge.onFileListChanged(function(newList, newCurrentFile, newStructure) {
+            bridge.onFileListChanged(function(newList, newCurrentFile, newStructure, newNoteFolderName) {
                 fileList = newList;
                 if (newCurrentFile) currentFile = newCurrentFile;
                 if (newStructure) structure = newStructure;
+                if (typeof newNoteFolderName === 'string') noteFolderName = newNoteFolderName;
+                renderNoteTitle();  // FR-NT-01: タイトル更新
                 renderTree();
             });
         }
@@ -1166,20 +1600,28 @@ var notesFilePanel = (function() {
         // ルートエリアへのD&D（アイテム間の空白部分）
         if (listEl) {
             listEl.addEventListener('dragover', function(e) {
-                if (!dragItemId) return;
+                var fromOutliner = isOutNodePageDrag(e);
+                if (!dragItemId && !fromOutliner) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
             });
             listEl.addEventListener('drop', function(e) {
                 if (e.target !== listEl) return;
+                var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
                 e.preventDefault();
-                if (!dragItemId) return;
+                if (!dragItemId && !outPayload) return;
                 clearAllDragOver();
                 removeDropIndicator();
-                // ルート末尾に追加
                 var rootIds = structure ? structure.rootIds : [];
+                if (outPayload) {
+                    if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
+                        bridge.notesImportOutPageNodeAsMd(outPayload, null, rootIds.length);
+                    }
+                    return;
+                }
+                // ルート末尾に追加
                 bridge.moveItem(dragItemId, null, rootIds.length);
             });
         }

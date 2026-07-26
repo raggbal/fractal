@@ -1,0 +1,19 @@
+$schema: odk:schema:nfr
+id: odk:nfr:reliability/e2e-green
+description: |
+  The Playwright E2E test suite (~178 spec files under `test/specs/`) must
+  be green before publishing.
+category: reliability
+target: 100
+unit: percent_passing
+measurement: |
+  `npm run test:parallel` exits with code 0; CI status is green.
+test_method: |
+  `test/build-standalone.js` builds the webview as standalone HTML, then
+  `test/run-parallel-tests.sh` runs Playwright in parallel.
+applies_to:
+  - odk:component:webview/editor
+  - odk:component:webview/outliner
+  - odk:component:host/any-markdown-editor-provider
+  - odk:component:host/outliner-provider
+  - odk:component:host/notes-editor-provider

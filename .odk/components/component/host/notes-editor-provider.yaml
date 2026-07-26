@@ -1,0 +1,50 @@
+$schema: odk:schema:component
+id: odk:component:host/notes-editor-provider
+description: |
+  Notes workspace provider. Creates a single `WebviewPanel` per Notes
+  folder; embeds Notes file panel, Outliner, and Markdown editor views;
+  delegates `outline.note` CRUD to NotesFileManager and S3 sync to
+  notes-s3-sync. See docs/specs/notes-editor-provider.md.
+type: layout
+framework: agnostic
+props:
+  notesFolderPath:
+    type: string
+    required: true
+    description: "Absolute path of the Notes root folder"
+  webviewPanel:
+    type: "vscode.WebviewPanel"
+    required: true
+    description: "The Notes WebviewPanel"
+  config:
+    type: "FractalConfig"
+    required: true
+    description: "fractal.* settings"
+emits:
+  # Initial / external sync (per-file)
+  - "host→webview postMessage: updateData"
+  # Notes file panel state
+  - "host→webview postMessage: notesFileListChanged, notesNavigateInAppLink"
+  # Notes-folder S3 sync lifecycle
+  - "host→webview postMessage: notesS3Status, notesS3Progress, sync-button-state, sync-button-visibility, sync-lock, sync-progress, sync-applied"
+  # Notes search (delegated through notes-message-handler)
+  - "host→webview postMessage: notesSearchStart, notesSearchPartial, notesSearchEnd"
+  # Drop / import results
+  - "host→webview postMessage: importMdFilesResult, importFilesResult"
+  # Image / file insert + dir status
+  - "host→webview postMessage: insertImageHtml, insertFileLink, insertLinkHtml, sidePanelImageDirStatus, sidePanelFileDirStatus, outlinerImageSaved"
+  # Page lifecycle
+  - "host→webview postMessage: pageDirChanged, pageCreated"
+  # Side Panel relay
+  - "host→webview postMessage: sidePanelAssetContext, sidePanelMessage"
+  # Paste asset extraction results
+  - "host→webview postMessage: pasteWithAssetCopyResult, extractDataUrlsInPastedMdResult"
+  # Translate
+  - "host→webview postMessage: translateLangSelected, translateSaveOk, translateSaveError"
+  # Outliner / editor command bridge
+  - "host→webview postMessage: toggleSidebar, scrollToLine, scrollToText"
+  # File-system writes
+  - "outline.note writes via NotesFileManager"
+  - "Per-file .out / .md writes inside the Notes folder; image / file writes under fractal.outlinerImageDir / fractal.outlinerFileDir"
+  # Cloud
+  - "Notes-folder S3 sync trigger via notes-s3-sync"

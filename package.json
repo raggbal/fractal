@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.207.59",
+  "version": "1.0.0",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -81,6 +81,11 @@
       {
         "command": "fractal.openNotesFolder",
         "title": "Open Notes Folder",
+        "category": "Fractal"
+      },
+      {
+        "command": "fractal.migrateToFlatLayout",
+        "title": "Migrate to Flat Layout",
         "category": "Fractal"
       },
       {
@@ -187,6 +192,14 @@
     "configuration": {
       "title": "Fractal",
       "properties": {
+        "fractal.resourceRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Directories the editor is allowed to load images/attachments from (webview `localResourceRoots`). Empty = allow the whole home directory (`~`). Add absolute paths or paths starting with `~` to restrict or extend the allowed range (e.g. `~/notes`, `/Volumes/ext/notes`). Relative paths are ignored. Changes take effect when you reopen the editor."
+        },
         "fractal.theme": {
           "type": "string",
           "enum": [
@@ -207,26 +220,6 @@
           "default": 12,
           "description": "Base font size in pixels"
         },
-        "fractal.imageDefaultDir": {
-          "type": "string",
-          "default": "images/",
-          "description": "Default directory for saving images. Uses the same directory as the Markdown file when empty. Accepts absolute (/path/to/dir) or relative (./images, images/) paths."
-        },
-        "fractal.forceRelativeImagePath": {
-          "type": "boolean",
-          "default": false,
-          "description": "Always insert image paths as relative paths, even when imageDefaultDir is an absolute path."
-        },
-        "fractal.fileDefaultDir": {
-          "type": "string",
-          "default": "files/",
-          "description": "Default directory for saving file attachments. Uses document directory when empty."
-        },
-        "fractal.forceRelativeFilePath": {
-          "type": "boolean",
-          "default": false,
-          "description": "Always insert file attachment paths as relative paths."
-        },
         "fractal.language": {
           "type": "string",
           "enum": [
@@ -241,11 +234,6 @@
           ],
           "default": "default",
           "description": "UI language. 'default' uses VS Code's display language."
-        },
-        "fractal.outlinerPageTitle": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show page title input above the search bar in Outliner."
         },
         "fractal.toolbarMode": {
           "type": "string",
@@ -322,15 +310,10 @@
           "default": false,
           "description": "Show translate buttons in the editor toolbar (standalone) and side panel header. When off, translation can still be triggered via the 'fractal.translate' command (Cmd+/)."
         },
-        "fractal.outlinerS3SyncMode": {
-          "type": "string",
-          "enum": ["auto", "confirm"],
-          "default": "auto",
-          "enumDescriptions": [
-            "Auto-decide based on mtime newer-wins (no dialog)",
-            "Show confirmation dialog when local and S3 sizes differ"
-          ],
-          "description": "How to handle outliner S3 sync conflicts. 'auto' (default): decide automatically based on mtime newer-wins. 'confirm': show a dialog asking which side (local/S3) to keep when sizes differ — safer for multi-device scenarios."
+        "fractal.showOpenInTextEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the \"Open in Text Editor\" button (opens the current file in VS Code's built-in text editor). Turn off if you don't use it."
         }
       }
     },
@@ -378,6 +361,11 @@
           "command": "fractal.removeNotesFolder",
           "when": "view == notesExplorer",
           "group": "inline"
+        },
+        {
+          "command": "fractal.migrateToFlatLayout",
+          "when": "view == notesExplorer && viewItem == notesFolder",
+          "group": "1_modification"
         }
       ]
     },
@@ -460,6 +448,8 @@
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "d3-flextree": "^2.1.2",
+    "d3-hierarchy": "^3.1.2",
     "eslint": "^8.55.0",
     "jsdom": "^27.4.0",
     "serve": "^14.2.5",

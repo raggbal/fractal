@@ -13,6 +13,7 @@
         'italic': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg>',
         'strikethrough': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" x2="20" y1="12" y2="12"/></svg>',
         'code': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>',
+        'textColor': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12 6 12"/><path d="M8 12h8"/></svg>',
         'heading1': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="m17 12 3-2v8"/></svg>',
         'heading2': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1"/></svg>',
         'heading3': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2"/><path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2"/></svg>',
@@ -293,6 +294,28 @@
         return patterns;
     }
 
+    // ===== Paste 時のファイルパス判定（FR-PA-01） =====
+    // 貼り付け plain text が「拡張子付きファイルパス」なら {path, base, isImage} を返す。
+    // URL 貼り付けの autolink（editor.js の _insertPastedMarkdown）と同じ経路で、パスもリンク/画像化するための判定。
+    // 誤検知を抑えるため: 空白なし単一トークン / 拡張子必須 / Windows パス（C:\ / バックスラッシュ）は除外 / URL は別経路。
+    var PASTE_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+    function classifyPastedPath(text) {
+        var t = (text || '').trim();
+        if (!t || /\s/.test(t)) return null;                 // 空白含み（複数語）は除外
+        if (/^https?:\/\//i.test(t)) return null;            // URL は別経路（保険）
+        if (/^[a-zA-Z]:[\\/]/.test(t)) return null;          // Windows ドライブパス除外
+        if (t.indexOf('\\') >= 0) return null;               // バックスラッシュ除外（Windows/エスケープ回避）
+        // 絶対（/ or ~/）or 相対（./ ../ or seg/seg）
+        var isAbs = t.charAt(0) === '/' || t.slice(0, 2) === '~/';
+        var isRel = t.slice(0, 2) === './' || t.slice(0, 3) === '../' || /^[^/]+\/[^/]/.test(t);
+        if (!isAbs && !isRel) return null;
+        var m = t.match(/\.([A-Za-z0-9]+)$/);                // 末尾拡張子必須（誤検知回避の要）
+        if (!m) return null;
+        var ext = m[1].toLowerCase();
+        var base = t.slice(t.lastIndexOf('/') + 1);
+        return { path: t, base: base, isImage: PASTE_IMAGE_EXTS.indexOf(ext) >= 0 };
+    }
+
     // ===== Normalize multi-line table cells =====
     // Handles two cases of malformed table markdown:
     // 1. Flattened tables: entire table on one line with | <br> | as row separators
@@ -432,8 +455,26 @@
             .replace(/^(#{1,6})(?=\S)/gm, '$1 ');
     }
 
+    // ===== Caret scroll-follow (TASK-11 bug fix 2026-07-24) =====
+    // Pure: caret rect と scroll owner rect から owner.scrollTop の増減量を返す。
+    // caret が owner 上端より上 → 負（上へ）、下端より下 → 正（下へ）、可視域内 → 0。
+    // owner-rect ベースにすることで祖先スクロールコンテナ（.editor-wrapper）でも up/down 対称に追従する
+    // （旧実装は window.innerHeight 基準 + scrollIntoView nearest で ↑非対称だった）。
+    function computeCaretScrollDelta(caretRect, ownerRect, margin) {
+        margin = margin || 0;
+        if (!caretRect || !ownerRect) return 0;
+        if (caretRect.top < ownerRect.top) {
+            return caretRect.top - ownerRect.top - margin;
+        }
+        if (caretRect.bottom > ownerRect.bottom) {
+            return caretRect.bottom - ownerRect.bottom + margin;
+        }
+        return 0;
+    }
+
     // ===== Export =====
     window.__editorUtils = {
+        computeCaretScrollDelta: computeCaretScrollDelta,
         LUCIDE_ICONS: LUCIDE_ICONS,
         SUPPORTED_LANGUAGES: SUPPORTED_LANGUAGES,
         LANGUAGE_ALIASES: LANGUAGE_ALIASES,
@@ -446,6 +487,7 @@
         cleanImageSrc: cleanImageSrc,
         getHighlightPatterns: getHighlightPatterns,
         normalizeMultiLineTableCells: normalizeMultiLineTableCells,
-        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown
+        normalizeTranslatedMarkdown: normalizeTranslatedMarkdown,
+        classifyPastedPath: classifyPastedPath
     };
 })();

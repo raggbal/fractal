@@ -2,18 +2,25 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
+import { runExportBundle } from './shared/export-bundle-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
+import { setFirstH1, writeFileIfChanged } from './shared/md-h1-utils';
 import { safeResolveUnderDir } from './shared/path-safety';
+import * as flatLayout from './shared/flat-layout';
+import { handleExportMindmap } from './shared/mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
+import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
+import { DropStreamHost } from './shared/drop-stream-host';
 
 
 /**
@@ -58,13 +65,24 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         const documentDir = vscode.Uri.joinPath(document.uri, '..');
         const outlinerImageDir = vscode.Uri.file(this.getOutlinerImageDirPath(document));
+        // notes-flat-storage (2026-07-07): 共有 files/ も明示（画像 dir は documentDir 配下だが念のため）。
+        const outlinerFileDir = vscode.Uri.file(this.getFileDirPath(document));
+
+        // FR-RR-03: homeDir ハードコードを settings 由来の許可範囲に置換（空なら [homedir]）。
+        const cfg = vscode.workspace.getConfiguration('fractal');
+        const resourceRoots = resolveResourceRoots(cfg.get<string[]>('resourceRoots', []));
 
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(this.context.extensionUri, 'media'),
                 documentDir,
-                outlinerImageDir
+                outlinerImageDir,
+                outlinerFileDir,
+                // standalone outliner の sidepanel md から別フォルダ md リンクを開いた際に
+                // その md の画像/添付を解決できるよう settings 由来の許可範囲を追加
+                // （editorProvider / notesEditorProvider と揃える。空なら [homedir]＝後方互換）
+                ...resourceRoots.map(p => vscode.Uri.file(p))
             ]
         };
 
@@ -95,8 +113,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         toolbarMode: config.get<string>('toolbarMode', 'simple'),
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
-                        outlinerPageTitle: config.get<boolean>('outlinerPageTitle', true),
                         imageMaxWidth: config.get<number>('imageMaxWidth', 400),
+                        showOpenInTextEditor: config.get<boolean>('showOpenInTextEditor', true),
                         documentBaseUri: docBaseUri
                     },
                     document.uri.fsPath
@@ -131,8 +149,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
         // 画像ディレクトリ状態送信 (MDファイルからの相対パスで表示 — toMarkdownPath と同じロジック)
         const sendSidePanelImageDirStatus = (spFilePath: string) => {
-            const pagesDir = this.getPagesDirPath(document);
-            const imagesDir = path.join(pagesDir, 'images');
+            // FR: sidepanel で開いている md の場所を基準にフッター表示
+            const imagesDir = flatLayout.resolveImagesDirForMd(spFilePath);
             const spDir = path.dirname(spFilePath);
             const displayPath = path.relative(spDir, imagesDir).replace(/\\/g, '/') || '.';
             webviewPanel.webview.postMessage({
@@ -142,10 +160,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             });
         };
 
-        // ファイルディレクトリ状態送信 ({pageDir}/files/ — 画像と同じパターン)
+        // ファイルディレクトリ状態送信 (開いている md の場所基準 — 画像と同じパターン)
         const sendSidePanelFileDirStatus = (spFilePath: string) => {
-            const pagesDir = this.getPagesDirPath(document);
-            const filesDir = path.join(pagesDir, 'files');
+            const filesDir = flatLayout.resolveFilesDirForMd(spFilePath);
             const spDir = path.dirname(spFilePath);
             const displayPath = path.relative(spDir, filesDir).replace(/\\/g, '/') || '.';
             webviewPanel.webview.postMessage({
@@ -176,6 +193,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         const handleFinderDrop = createDropImportHandler(processDropFilesImport, dropHandlerDeps);
         const handleExplorerDrop = createDropImportHandler(processDropVscodeUrisImport, dropHandlerDeps);
 
+        // v0.207.96: Streaming D&D sink for files > 50MB.
+        const dropStreamHost = new DropStreamHost({
+            resolveDirs: () => ({
+                fileDir: this.getFileDirPath(document),
+                outDir: path.dirname(document.uri.fsPath)
+            }),
+            postMessage: (msg) => webviewPanel.webview.postMessage(msg),
+            onFailed: (names) => {
+                const head = names.slice(0, 3).join(', ');
+                vscode.window.showWarningMessage(`${t('dropImportFailed')}: ${head}${names.length > 3 ? '...' : ''}`);
+            }
+        });
+
         disposables.push(
             webviewPanel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.type) {
@@ -191,6 +221,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'save':
                         await document.save();
                         break;
+
+                    case 'openResourceRootsSettings':
+                        await vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
+                        break;
+
+                    // FR-EX-01/03: md export bundle。outliner では .out 自体でなく
+                    // sidepanel で開いている md（message.sidePanelFilePath）が root。
+                    case 'exportBundle': {
+                        if (message.sidePanelFilePath && message.options) {
+                            await runExportBundle(message.sidePanelFilePath, message.options);
+                        }
+                        break;
+                    }
 
                     case 'openInTextEditor':
                         await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
@@ -260,6 +303,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'exportMindmap': {
+                        // Mindmap Mode (sprint 20260701-122355): PNG/SVG/OPML/MD 書き出し。
+                        const baseDir = path.dirname(document.uri.fsPath);
+                        const result = await handleExportMindmap(message as any, baseDir);
+                        webviewPanel.webview.postMessage({ type: 'mindmapExportDone', ...result });
+                        break;
+                    }
+
                     case 'dropFilesImport':
                         await handleFinderDrop(message.items as DropImportItem[], message.targetNodeId, message.position);
                         break;
@@ -275,10 +326,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'notifyDropFileTooLarge': {
-                        // Note: t() doesn't support interpolation, keeping plain string with filename
                         vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${message.fileName}`);
                         break;
                     }
+
+                    case 'dropStreamBegin':
+                    case 'dropStreamChunk':
+                    case 'dropStreamFileEnd':
+                    case 'dropStreamSessionEnd':
+                    case 'dropStreamCancel':
+                        await dropStreamHost.handle(message);
+                        break;
 
                     case 'openAttachedFile': {
                         const data = JSON.parse(document.getText());
@@ -299,6 +357,36 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
                         // Use openExternal to open with OS default app
                         await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
+                        break;
+                    }
+
+                    // FR-FR-01: file 添付ノードを OS ファイラ (Finder) で選択状態表示
+                    case 'revealAttachedFileInOS': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.filePath) break;
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const safeFilePath = safeResolveUnderDir(outDir, node.filePath);
+                        if (!safeFilePath || !fs.existsSync(safeFilePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+                        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(safeFilePath));
+                        break;
+                    }
+
+                    // FR-FR-02: md ページ実体を OS ファイラ (Finder) で選択状態表示
+                    case 'revealPageInOS': {
+                        const data = JSON.parse(document.getText());
+                        const node = data.nodes?.[message.nodeId];
+                        if (!node?.isPage || !node.pageId) break;
+                        const pageDir = this.getPagesDirPath(document);
+                        const pagePath = path.join(pageDir, `${node.pageId}.md`);
+                        if (!fs.existsSync(pagePath)) {
+                            vscode.window.showErrorMessage(t('fileNotFound'));
+                            break;
+                        }
+                        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(pagePath));
                         break;
                     }
 
@@ -394,6 +482,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'makePage':
                         await this.handleMakePage(document, webviewPanel, message);
                         break;
+
+                    // FR-TH-04: page node text 確定 → 添付 page md の先頭 H1 を text に同期。
+                    // standalone は document 基準の getPageFilePath(document, pageId)（2引数）。
+                    case 'syncNodeTextToPageH1': {
+                        if (message.pageId && typeof message.text === 'string') {
+                            const pagePath = this.getPageFilePath(document, message.pageId);
+                            if (pagePath && fs.existsSync(pagePath)) {
+                                const body = fs.readFileSync(pagePath, 'utf8');
+                                writeFileIfChanged(pagePath, setFirstH1(body, message.text));
+                            }
+                        }
+                        break;
+                    }
 
                     case 'removePage':
                         await this.handleRemovePage(document, sidePanel, message);
@@ -616,17 +717,31 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    case 'copyImageToClipboard':
+                        await copyImageToClipboard(message.absPath);
+                        break;
+
+                    case 'openImageInNewTab':
+                        await openImageInNewTab(message.absPath);
+                        break;
+
+                    case 'openDrawioExternal': {
+                        const { openDrawioExternal } = await import('./shared/drawio-external');
+                        await openDrawioExternal(message.absPath);
+                        break;
+                    }
+
                     case 'getSidePanelImageDir':
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
                             sendSidePanelFileDirStatus(message.sidePanelFilePath);
-                            // v9: Send absolute paths for MD paste asset copy
-                            const pagesDir = this.getPagesDirPath(document);
+                            // v9: Send absolute paths for MD paste asset copy（開いている md の場所基準）
+                            const spDir = path.dirname(message.sidePanelFilePath);
                             webviewPanel.webview.postMessage({
                                 type: 'sidePanelAssetContext',
-                                imageDir: path.join(pagesDir, 'images'),
-                                fileDir: path.join(pagesDir, 'files'),
-                                mdDir: pagesDir
+                                imageDir: flatLayout.resolveImagesDirForMd(message.sidePanelFilePath),
+                                fileDir: flatLayout.resolveFilesDirForMd(message.sidePanelFilePath),
+                                mdDir: spDir
                             });
                         }
                         break;
@@ -634,9 +749,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'pasteWithAssetCopy': {
                         // v9: MD paste with asset copy (cross-outliner/cross-note paste)
                         if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const destImageDir = path.join(pagesDir, 'images');
-                            const destFileDir = path.join(pagesDir, 'files');
+                            // FR: 貼り付け先は sidepanel で開いている md の場所を基準にする
+                            const destImageDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
+                            const destFileDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             const destMdDir = path.dirname(message.sidePanelFilePath);
 
                             const result = copyMdPasteAssets({
@@ -663,11 +778,13 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         try {
                             // eslint-disable-next-line @typescript-eslint/no-var-requires
                             const { processDataUrlsInContent } = require('./shared/data-url-image-extractor');
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imageDir = path.join(pagesDir, 'images');
+                            // FR: sidepanel で開いている md の場所を基準に保存
+                            const imageDir = message.sidePanelFilePath
+                                ? flatLayout.resolveImagesDirForMd(message.sidePanelFilePath)
+                                : path.join(this.getPagesDirPath(document), 'images');
                             const mdFileDir = message.sidePanelFilePath
                                 ? path.dirname(message.sidePanelFilePath)
-                                : pagesDir;
+                                : this.getPagesDirPath(document);
                             const { newContent, savedCount } = processDataUrlsInContent(message.markdown, imageDir, mdFileDir);
                             webviewPanel.webview.postMessage({
                                 type: 'extractDataUrlsInPastedMdResult',
@@ -686,10 +803,11 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'createPageAutoForSidePanel': {
-                        // v15+: side panel cmd+/ Add Page (simple flow) — outliner pageDir 直下に新規 .md 作成
+                        // v15+: side panel cmd+/ Add Page — サイドパネルで開いている md と同じ場所に subpage を作る。
+                        // FR: メイン document でなく開いている md（sidePanelFilePath）の dir 基準（別 note / 非 note 対応）。
                         const sidePanelFilePath: string = message.sidePanelFilePath || '';
                         if (!sidePanelFilePath) break;
-                        const pagesDir = this.getPagesDirPath(document);
+                        const pagesDir = path.dirname(sidePanelFilePath);
                         if (!fs.existsSync(pagesDir)) fs.mkdirSync(pagesDir, { recursive: true });
                         // unique <timestamp>.md (衝突時 -0001 等)
                         const ts = Date.now();
@@ -716,10 +834,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'insertImage': {
-                        // 画像挿入 (サイドパネル用)
+                        // 画像挿入 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -739,7 +856,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertImageHtml',
                                     markdownPath: relPath,
-                                    displayUri: displayUri
+                                    displayUri: displayUri,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             }
                         }
@@ -747,10 +865,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'saveImageAndInsert': {
-                        // ペースト/ドロップ画像の保存 (サイドパネル用)
+                        // ペースト/ドロップ画像の保存 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath && message.dataUrl) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -770,17 +887,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 type: 'insertImageHtml',
                                 markdownPath: relPath,
                                 displayUri: displayUri,
-                                dataUri: message.dataUrl
+                                dataUri: message.dataUrl,
+                                sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                             });
                         }
                         break;
                     }
 
                     case 'readAndInsertImage': {
-                        // ドロップされたローカルファイル画像の読み取り+挿入
+                        // ドロップされたローカルファイル画像の読み取り+挿入 (サイドパネル用: 開いている md の場所基準 images/)
                         if (message.sidePanelFilePath && message.filePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const imagesDir = path.join(pagesDir, 'images');
+                            const imagesDir = flatLayout.resolveImagesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(imagesDir)) {
                                 fs.mkdirSync(imagesDir, { recursive: true });
                             }
@@ -795,7 +912,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertImageHtml',
                                     markdownPath: relPath,
-                                    displayUri: displayUri
+                                    displayUri: displayUri,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             } catch (e) {
                                 console.error('[Outliner] readAndInsertImage error:', e);
@@ -805,10 +923,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'saveFileAndInsert': {
-                        // ペースト/ドロップファイルの保存 (サイドパネル用: {pageDir}/files/ に保存)
+                        // ペースト/ドロップファイルの保存 (サイドパネル用: 開いている md の場所基準 files/ に保存)
                         if (message.sidePanelFilePath && message.dataUrl) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const filesDir = path.join(pagesDir, 'files');
+                            const filesDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(filesDir)) {
                                 fs.mkdirSync(filesDir, { recursive: true });
                             }
@@ -831,17 +948,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             webviewPanel.webview.postMessage({
                                 type: 'insertFileLink',
                                 markdownPath: relPath,
-                                fileName: destFileName
+                                fileName: destFileName,
+                                sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                             });
                         }
                         break;
                     }
 
                     case 'readAndInsertFile': {
-                        // ドロップされたローカルファイルの読み取り+挿入 (サイドパネル用: {pageDir}/files/)
+                        // ドロップされたローカルファイルの読み取り+挿入 (サイドパネル用: 開いている md の場所基準 files/)
                         if (message.sidePanelFilePath && message.filePath) {
-                            const pagesDir = this.getPagesDirPath(document);
-                            const filesDir = path.join(pagesDir, 'files');
+                            const filesDir = flatLayout.resolveFilesDirForMd(message.sidePanelFilePath);
                             if (!fs.existsSync(filesDir)) {
                                 fs.mkdirSync(filesDir, { recursive: true });
                             }
@@ -864,7 +981,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 webviewPanel.webview.postMessage({
                                     type: 'insertFileLink',
                                     markdownPath: relPath,
-                                    fileName: destFileName
+                                    fileName: destFileName,
+                                    sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                                 });
                             } catch (e) {
                                 console.error('[Outliner] readAndInsertFile error:', e);
@@ -1206,8 +1324,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 }
                 if (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
-                    e.affectsConfiguration('fractal.outlinerPageTitle') ||
-                    e.affectsConfiguration('fractal.language')) {
+                    e.affectsConfiguration('fractal.language') ||
+                    e.affectsConfiguration('fractal.showOpenInTextEditor')) {
                     updateWebview();
                 }
                 if (
@@ -1225,6 +1343,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 this.activeWebviewPanel = undefined;
             }
             sidePanel.disposeFileWatcher();
+            dropStreamHost.disposeAll();
             disposables.forEach(d => d.dispose());
         });
 
@@ -1250,87 +1369,30 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
     // --- ページ管理 ---
 
-    private getOutlinerImageDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のimageDirフィールドを優先
+    // notes-flat-storage (2026-07-07): .out ページ/画像/添付のパスは flat-layout に一元化。
+    // md=basedir(=.out と同階層) 直下、images/files=共有サブフォルダ。
+    // .out JSON の pageDir/imageDir/fileDir ヒントを優先、新 wins + legacy fallback。
+    private readOutHints(document: vscode.TextDocument): flatLayout.OutDirHints {
         try {
             const data = JSON.parse(document.getText());
-            if (data.imageDir) {
-                if (path.isAbsolute(data.imageDir)) {
-                    return data.imageDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.imageDir);
-            }
-        } catch { /* ignore parse errors */ }
+            return { pageDir: data.pageDir, imageDir: data.imageDir, fileDir: data.fileDir };
+        } catch { return {}; }
+    }
 
-        // 2. デフォルト: ./<basename>/images (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerImageDefaultDir` を撤廃。
-        //    per-.out-file 上書きは data.imageDir で対応 (priority 1)。
-        //    互換性: 既存の ./images が物理的に存在し、新 ./<basename>/images が存在しない場合は
-        //    旧パスを使い続ける (旧ファイル参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename, 'images');
-        const legacyDir = path.resolve(outDir, 'images');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+    private getOutlinerImageDirPath(document: vscode.TextDocument): string {
+        return flatLayout.resolveImagesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getPagesDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のpageDirフィールドを優先
-        try {
-            const data = JSON.parse(document.getText());
-            if (data.pageDir) {
-                if (path.isAbsolute(data.pageDir)) {
-                    return data.pageDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.pageDir);
-            }
-        } catch { /* ignore parse errors */ }
-
-        // 2. デフォルト: ./<basename>/ (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerPageDir` を撤廃。
-        //    互換性: 既存の ./pages が物理的に存在し、新 ./<basename>/ が存在しない場合は
-        //    旧パスを使い続ける (旧 page MD 参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename);
-        const legacyDir = path.resolve(outDir, 'pages');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+        return flatLayout.resolvePagesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getFileDirPath(document: vscode.TextDocument): string {
-        // 1. out JSON内のfileDirフィールドを優先
-        try {
-            const data = JSON.parse(document.getText());
-            if (data.fileDir) {
-                if (path.isAbsolute(data.fileDir)) {
-                    return data.fileDir;
-                }
-                return path.resolve(path.dirname(document.uri.fsPath), data.fileDir);
-            }
-        } catch { /* ignore parse errors */ }
-
-        // 2. デフォルト: ./<basename>/files (Notes mode と同じ命名規則で self-contained)
-        //    sprint 20260509-185557: VSCode 設定 `fractal.outlinerFileDir` を撤廃。
-        //    互換性: 既存の ./files が物理的に存在し、新 ./<basename>/files が存在しない場合は
-        //    旧パスを使い続ける (旧ファイル参照を壊さない)
-        const outDir = path.dirname(document.uri.fsPath);
-        const basename = path.basename(document.uri.fsPath, '.out');
-        const newDefaultDir = path.resolve(outDir, basename, 'files');
-        const legacyDir = path.resolve(outDir, 'files');
-        if (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir)) {
-            return legacyDir;
-        }
-        return newDefaultDir;
+        return flatLayout.resolveFilesDir(document.uri.fsPath, undefined, this.readOutHints(document));
     }
 
     private getPageFilePath(document: vscode.TextDocument, pageId: string): string {
-        return path.join(this.getPagesDirPath(document), `${pageId}.md`);
+        return flatLayout.resolvePageFilePath(document.uri.fsPath, pageId, undefined, this.readOutHints(document));
     }
 
     private async ensurePagesDir(document: vscode.TextDocument): Promise<void> {

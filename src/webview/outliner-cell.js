@@ -67,14 +67,41 @@
     function renderInlineText(text) {
         if (!text) { return ''; }
 
+        // sprint 20260724-160000: インライン文字色。
+        // ★ inline code を先に placeholder 退避（code 内の色記法を着色しないため・NFR-IC-04）→
+        //   その後で color span を protect（code に隠れた span は見えない）→ escape → 末尾で復元。
+        var codePlaceholders = [];
+        text = text.replace(/`([^`]+)`/g, function (_m, inner) {
+            codePlaceholders.push(inner);
+            return '\x00CODE' + (codePlaceholders.length - 1) + '\x00';
+        });
+        // color span を escape 前に protect（安全な hex のみ・危険 span はそのまま escape でテキスト化・NFR-IC-03）
+        var colorPlaceholders = [];
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        if (IC) {
+            text = text.replace(IC.makeColorSpanRe(), function (_m, hex, inner) {
+                if (!IC.isSafeColorValue(hex)) { return _m; }
+                colorPlaceholders.push({ hex: hex.trim().toLowerCase(), inner: inner });
+                return '\x00COLOR' + (colorPlaceholders.length - 1) + '\x00';
+            });
+        }
+
         // エスケープ
         var html = text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
-        // インラインコード (先に処理してコード内を保護)
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // inline code placeholder を <code> に復元（inner は escape。code 内の色記法はテキストのまま）
+        html = html.replace(/\x00CODE(\d+)\x00/g, function (_, idx) {
+            var innerRaw = codePlaceholders[parseInt(idx, 10)];
+            var innerEsc = innerRaw
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<code>' + innerEsc + '</code>';
+        });
 
         // 太字
         html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -131,6 +158,17 @@
         html = html.replace(/(?<![&#\w\p{L}])([#@][\w\p{L}][\w\p{L}-]*)/gu, '<span class="outliner-tag">$1</span>');
         html = html.replace(/\x00LINK(\d+)\x00/g, function(_, idx) {
             return linkPlaceholders[parseInt(idx, 10)];
+        });
+
+        // sprint 20260724-160000: color span placeholder を実 HTML に復元（inner は escape）。
+        html = html.replace(/\x00COLOR(\d+)\x00/g, function (_, idx) {
+            var ph = colorPlaceholders[parseInt(idx, 10)];
+            if (!ph) { return ''; }
+            var innerEsc = ph.inner
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            return '<span style="color:' + ph.hex + '">' + innerEsc + '</span>';
         });
 
         // 末尾スペースをNBSPに変換 (contenteditableで末尾空白が描画されない問題を回避)
@@ -467,6 +505,56 @@
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
 
+        // 右上 toolbar: Copy Image / Open in New Tab / Copy Path
+        var absPath = (src || '')
+            .replace(/^https:\/\/file\+\.vscode-resource\.vscode-cdn\.net/, '')
+            .replace(/^https:\/\/file%2B\.vscode-resource\.vscode-cdn\.net/, '')
+            .split('?')[0].split('#')[0];
+        var hostBridge = (typeof window !== 'undefined') ? window.outlinerHostBridge : null;
+        var toolbar = document.createElement('div');
+        toolbar.className = 'image-overlay-toolbar';
+        var btnCopyImg = document.createElement('button');
+        btnCopyImg.type = 'button';
+        btnCopyImg.textContent = 'Copy Image';
+        btnCopyImg.title = 'Copy image to clipboard';
+        var btnOpenTab = document.createElement('button');
+        btnOpenTab.type = 'button';
+        btnOpenTab.textContent = 'Open in New Tab';
+        btnOpenTab.title = 'Open image in a new VS Code tab';
+        var btnCopyPath = document.createElement('button');
+        btnCopyPath.type = 'button';
+        btnCopyPath.textContent = 'Copy Path';
+        btnCopyPath.title = 'Copy absolute path to clipboard';
+        toolbar.appendChild(btnCopyImg);
+        toolbar.appendChild(btnOpenTab);
+        toolbar.appendChild(btnCopyPath);
+        overlay.appendChild(toolbar);
+        function flash(btn, text) {
+            var orig = btn.textContent;
+            btn.textContent = text;
+            setTimeout(function() { btn.textContent = orig; }, 900);
+        }
+        btnCopyImg.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (hostBridge && hostBridge.copyImageToClipboard) {
+                hostBridge.copyImageToClipboard(absPath);
+                flash(btnCopyImg, 'Copied!');
+            }
+        });
+        btnOpenTab.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (hostBridge && hostBridge.openImageInNewTab) {
+                hostBridge.openImageInNewTab(absPath);
+            }
+        });
+        btnCopyPath.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            try {
+                navigator.clipboard.writeText(absPath);
+                flash(btnCopyPath, 'Copied!');
+            } catch (_e) { /* noop */ }
+        });
+
         document.body.appendChild(overlay);
 
         var scale = 1, tx = 0, ty = 0;
@@ -682,6 +770,68 @@
     }
 
     /**
+     * sprint 20260724-160000: node text の選択範囲に文字色を適用 / 除去する。
+     * marker 対称でない（open != close）ため applyInlineFormat と別関数。
+     * node.text 内に <span style="color:#hex">…</span> を保存（md と同一エンコード）。
+     * hex=null で選択を覆う色 span を除去（partial は span split）。
+     * Args: { nodeId, textEl, hex, model, host, offsets }
+     *   - offsets = { start, end }（source offset）が渡されればその範囲を対象（右クリック時に数値捕捉済み・
+     *     ★再オープン②TASK-13: focus 再レンダーで Range が detached になり全体着色に化ける問題を回避）。
+     *   - offsets が null なら node text 全体を対象（選択なし右クリック経路）。
+     */
+    function applyTextColor(args) {
+        if (!args) { return; }
+        var nodeId = args.nodeId;
+        var textEl = args.textEl;
+        var hex = args.hex;
+        var model = args.model;
+        var host = args.host || {};
+        if (!model || !textEl) { return; }
+        var IC = (typeof InlineColor !== 'undefined') ? InlineColor
+            : (typeof window !== 'undefined' ? window.InlineColor : null);
+        var node = model.getNode(nodeId);
+        if (!node) { return; }
+        var text = node.text || '';
+
+        var before, selected, after;
+
+        if (args.offsets && typeof args.offsets.start === 'number' &&
+            typeof args.offsets.end === 'number' && args.offsets.end > args.offsets.start) {
+            // ★ 数値 source-offset で部分適用（DOM 再構築に強い・contextmenu 時に捕捉済み）
+            var s = Math.max(0, args.offsets.start);
+            var en = Math.min(text.length, args.offsets.end);
+            before = text.slice(0, s);
+            selected = text.slice(s, en);
+            after = text.slice(en);
+        } else {
+            // offset 無し = node text 全体（選択なし右クリック経路・source 直接）
+            if (!text) { return; }
+            before = '';
+            selected = text;
+            after = '';
+        }
+        var newText;
+        var newCursor;
+
+        if (hex && IC && IC.isSafeColorValue(hex)) {
+            // 適用: 選択を色 span で包む（既存の色 span があれば一旦剥がしてから）
+            var innerPlain = IC.stripColorSpan(selected);
+            var span = IC.wrapColorSpan(innerPlain, hex.trim().toLowerCase());
+            newText = before + span + after;
+            newCursor = (before + span).length;
+        } else {
+            // 除去: 選択内の色 span を外す（partial は選択部分だけ plain 化）
+            var stripped = IC ? IC.stripColorSpan(selected) : selected;
+            newText = before + stripped + after;
+            newCursor = (before + stripped).length;
+        }
+        model.updateText(nodeId, newText);
+        textEl.innerHTML = renderEditingText(newText);
+        setCursorAtOffset(textEl, newCursor);
+        if (host.scheduleSyncToHost) { host.scheduleSyncToHost(); }
+    }
+
+    /**
      * Open subtext for editing.
      * Args: { nodeId, treeEl, model } — host: not needed (read-only DOM ops + model.getNode)
      */
@@ -821,6 +971,7 @@
         renderNodeImages: renderNodeImages,
         // Phase 5 — applyInlineFormat / subtext open/close (model + host inject)
         applyInlineFormat: applyInlineFormat,
+        applyTextColor: applyTextColor,
         openSubtext: openSubtext,
         closeSubtext: closeSubtext,
         handleSubtextKeydown: handleSubtextKeydown

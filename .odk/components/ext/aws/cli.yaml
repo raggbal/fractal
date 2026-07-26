@@ -1,0 +1,34 @@
+$schema: odk:schema:ext
+id: odk:ext:aws/cli
+description: |
+  The AWS CLI binary spawned by [odk:component:s3-sync/per-file-sync] and
+  [odk:component:translate/aws-translate]. Fractal does not bundle an SDK;
+  it shells out to `aws` so the user's existing CLI auth (profile, SSO,
+  IAM role) is reused. See ADR-002.
+base_url: "spawn://aws"
+auth: "delegated to user's AWS CLI configuration (profile / env / SSO)"
+endpoints:
+  s3_ls:
+    method: GET
+    path: "s3 ls --recursive ${prefix}"
+    response: any
+    description: "List S3 objects under a prefix"
+  s3_cp:
+    method: PUT
+    path: "s3 cp ${src} ${dst}"
+    response: any
+    description: "Copy a single file to/from S3"
+  translate_text:
+    method: POST
+    path: "translate translate-text --text ${chunk} --source-language-code ${src} --target-language-code ${dst}"
+    response: any
+    description: "Translate one chunk of text"
+rate_limits:
+  notes: "Constrained by AWS service quotas (S3, Translate); no client-side limit"
+error_handling:
+  non_zero_exit: "Surface stderr to user via VS Code notification; do not retry destructive ops"
+  missing_binary: "Show actionable error: 'aws CLI not found; install or set fractal.awsCliPath'"
+  auth_failure: "Surface stderr; recommend `aws configure` or profile selection"
+retry_strategy:
+  max_retries: 0
+  notes: "User initiates sync explicitly; failed operations are reported, not auto-retried"

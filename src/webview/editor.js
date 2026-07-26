@@ -19,6 +19,9 @@ class SidePanelHostBridge {
     reportBlur() {}
     openLink(href) { this._mainHost.sidePanelOpenLink(href, this.filePath); }
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
+    copyImageToClipboard(absPath) { this._mainHost.copyImageToClipboard(absPath); }
+    openImageInNewTab(absPath) { this._mainHost.openImageInNewTab(absPath); }
+    openDrawioExternal(absPath) { if (this._mainHost.openDrawioExternal) this._mainHost.openDrawioExternal(absPath); }
     requestInsertLink(text) {
         if (this._onLinkRequest) this._onLinkRequest();
         this._mainHost.requestInsertLink(text);
@@ -110,6 +113,12 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
+    exportBundle(options) {
+        if (typeof this._mainHost.exportBundle === 'function') {
+            this._mainHost.exportBundle(options, this.filePath);
+        }
+    }
     extractDataUrlsInPastedMd(markdown) {
         this._mainHost.extractDataUrlsInPastedMd(markdown, this.filePath);
     }
@@ -195,6 +204,19 @@ class EditorInstance {
     // ===== Destroy instance =====
     destroy() {
         console.log('[DEBUG] EditorInstance.destroy() called. instances before=' + EditorInstance.instances.length);
+        // Mark as destroyed FIRST so any pending timer that fires before
+        // clearTimeout completes will be a no-op (notifyChangeImmediate /
+        // notifyChange / setTimeout closures all check self._destroyed).
+        this._destroyed = true;
+        // Cancel any pending debounced/idle saves bound to closure variables
+        // inside _legacyInit() (saveTimeout / syncTimeout / editingIdleTimer).
+        try {
+            if (typeof this._cancelPendingSync === 'function') {
+                this._cancelPendingSync();
+            }
+        } catch (e) {
+            console.error('[DEBUG] _cancelPendingSync failed:', e);
+        }
         const idx = EditorInstance.instances.indexOf(this);
         if (idx !== -1) EditorInstance.instances.splice(idx, 1);
         if (EditorInstance.activeInstance === this) {
@@ -211,6 +233,10 @@ class EditorInstance {
         if (this._actionPanelEl) {
             this._actionPanelEl.remove();
             this._actionPanelEl = null;
+        }
+        if (this._tableToolbarEl) {
+            this._tableToolbarEl.remove();
+            this._tableToolbarEl = null;
         }
         console.log('[DEBUG] EditorInstance.destroy() done. instances after=' + EditorInstance.instances.length);
     }
@@ -242,6 +268,7 @@ class EditorInstance {
                         <button data-action="italic"></button>
                         <button data-action="strikethrough"></button>
                         <button data-action="code"></button>
+                        <button data-action="textColor" title="Text Color">A</button>
                     </div>
                     <div class="toolbar-group" data-group="block">
                         <button data-action="heading1"></button>
@@ -337,6 +364,21 @@ class EditorInstance {
     const wordCount = container.querySelector('.word-count') || container.querySelector('.side-panel-word-count');
     const statusImageDir = container.querySelector('.sidebar-status-imagedir');
     const statusFileDir = container.querySelector('.sidebar-status-filedir');
+    // FR-MD-02/03: standalone md（is-editable のとき）だけ保存先表示クリックで変更 UI を出す。
+    if (statusImageDir) {
+        statusImageDir.addEventListener('click', function() {
+            if (statusImageDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('image');
+            }
+        });
+    }
+    if (statusFileDir) {
+        statusFileDir.addEventListener('click', function() {
+            if (statusFileDir.classList.contains('is-editable') && host && host.setSaveDir) {
+                host.setSaveDir('file');
+            }
+        });
+    }
     const sidebar = container.querySelector('.sidebar');
     const toolbar = container.querySelector('.toolbar');
 
@@ -367,7 +409,7 @@ class EditorInstance {
     // Set toolbar button titles from i18n (needed for side panel whose HTML lacks titles)
     var toolbarTitleMap = {
         undo: i18n.undo, redo: i18n.redo, bold: i18n.bold, italic: i18n.italic,
-        strikethrough: i18n.strikethrough, code: i18n.inlineCode,
+        strikethrough: i18n.strikethrough, code: i18n.inlineCode, textColor: i18n.textColor,
         heading1: i18n.heading1, heading2: i18n.heading2, heading3: i18n.heading3,
         heading4: i18n.heading4, heading5: i18n.heading5, heading6: i18n.heading6,
         ul: i18n.unorderedList, ol: i18n.orderedList, task: i18n.taskList,
@@ -471,11 +513,13 @@ class EditorInstance {
     let hasUserEdited = false; // Flag to track if user has made any edits
     // REMOVED: currentImageDir, currentForceRelativePath (per-file directive feature removed)
     let imageDirDisplayPath = null; // Resolved display path from extension
-    let imageDirSource = null; // 'file' | 'settings' | 'default'
+    let imageDirSource = null; // 'file' | 'default'
     let imageDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let imageDirEditable = false; // FR-MD-01: true only for standalone md (not under fractal note)
     let fileDirDisplayPath = null; // Resolved display path for files from extension
-    let fileDirSource = null; // 'file' | 'settings' | 'default'
+    let fileDirSource = null; // 'file' | 'default'
     let fileDirLocked = false; // v0.207.44: true when source==='file' (outliner page forced)
+    let fileDirEditable = false; // FR-MD-01: true only for standalone md
 
     // v10: Translation state
     let translateSourceLang = 'en';
@@ -620,14 +664,15 @@ class EditorInstance {
     // Per-file directive feature removed
     
     // Classify link href for visual icon distinction
-    function classifyLinkHref(href) {
+    function classifyLinkHref(href, isSubpage) {
         if (!href) return '';
         if (href.startsWith('fractal://note/')) {
             return /\/page\/[^/?]+$/.test(href) ? 'link-fractal-page' : 'link-fractal-node';
         }
         if (!href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#') &&
             /\.(?:md|markdown)(?:[#?]|$)/i.test(href)) {
-            return 'link-internal-md';
+            // subpage marker は参照リンクと区別する class を付与
+            return isSubpage ? 'link-internal-md link-subpage' : 'link-internal-md';
         }
         return '';
     }
@@ -641,14 +686,17 @@ class EditorInstance {
             src.startsWith('vscode-webview:')) {
             return src;
         }
-        // If absolute file path (starts with /)
-        if (src.startsWith('/')) {
+        // If absolute file path (mac/Linux: `/` 先頭＝従来判定そのまま。Windows: C:\ / C:/ ドライブレターも絶対扱い)
+        if (src.startsWith('/') || /^[A-Za-z]:[\\/]/.test(src)) {
+            // vscode-resource URI は `/C:/...` 形式（先頭スラッシュ + `/` 区切り）を要求する
+            var absNorm = src.replace(/\\/g, '/');
+            if (!absNorm.startsWith('/')) absNorm = '/' + absNorm;
             if (documentBaseUri && documentBaseUri.startsWith('file://')) {
                 // Electron: use file:// protocol directly
-                return 'file://' + src;
+                return 'file://' + absNorm;
             }
             // VSCode webview: use vscode-resource URI
-            return 'https://file+.vscode-resource.vscode-cdn.net' + src;
+            return 'https://file+.vscode-resource.vscode-cdn.net' + absNorm;
         }
         // Resolve relative path against document base URI
         if (documentBaseUri) {
@@ -809,6 +857,102 @@ class EditorInstance {
             titleText: i18n.confirmLinkName || 'Link name'
         });
     }
+
+    // md export bundle 設定ダイアログ (FR-EX-02)。4 トグル + 実行/キャンセル。
+    // onExecute(options) を呼ぶ（options = {includeChildren, recurseChildren, includeLinks, recurseLinks}）。
+    var exportDialogEl = null;
+    // notes モードでは sidepanel を outliner.js が所有するため、outliner.js からも同じダイアログを
+    // 使えるよう window に公開する（editor.js + outliner.js は同一 document ロード）。
+    function openExportDialog(onExecute) {
+        if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; }
+        var cs = getComputedStyle(document.documentElement);
+        var bg = cs.getPropertyValue('--bg-color').trim() || '#252526';
+        var fg = cs.getPropertyValue('--text-color').trim() || '#cccccc';
+        var border = cs.getPropertyValue('--border-color').trim() || '#454545';
+        var accent = cs.getPropertyValue('--link-color').trim() || '#0e639c';
+
+        var overlay = document.createElement('div');
+        overlay.className = 'md-export-dialog-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:20000;display:flex;align-items:center;justify-content:center;';
+
+        var modal = document.createElement('div');
+        modal.className = 'md-export-dialog';
+        modal.style.cssText = 'background:' + bg + ';color:' + fg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px;min-width:320px;max-width:480px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-size:13px;';
+
+        var title = document.createElement('div');
+        title.style.cssText = 'margin-bottom:12px;font-weight:600;';
+        title.textContent = 'Export bundle';
+        modal.appendChild(title);
+
+        // 4 トグル行を作る。recurse は対応 include が off のとき disabled。
+        function checkRow(id, label, indent) {
+            var row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;' + (indent ? 'margin-left:22px;' : '');
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'md-export-opt';
+            cb.dataset.opt = id;
+            var span = document.createElement('span');
+            span.textContent = label;
+            row.appendChild(cb);
+            row.appendChild(span);
+            modal.appendChild(row);
+            return cb;
+        }
+        var cbChildren = checkRow('includeChildren', '子md を含む', false);
+        var cbRecChildren = checkRow('recurseChildren', '子を再帰的に取得（孫も）', true);
+        var cbLinks = checkRow('includeLinks', 'リンク先md を含む', false);
+        var cbRecLinks = checkRow('recurseLinks', 'リンク先を再帰的に取得', true);
+        // 既定値（requirement FR-EX-02）
+        cbChildren.checked = true; cbRecChildren.checked = true;
+        cbLinks.checked = false; cbRecLinks.checked = false;
+        function syncDisabled() {
+            cbRecChildren.disabled = !cbChildren.checked;
+            cbRecLinks.disabled = !cbLinks.checked;
+            cbRecChildren.parentNode.style.opacity = cbChildren.checked ? '1' : '0.5';
+            cbRecLinks.parentNode.style.opacity = cbLinks.checked ? '1' : '0.5';
+        }
+        cbChildren.addEventListener('change', syncDisabled);
+        cbLinks.addEventListener('change', syncDisabled);
+        syncDisabled();
+
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;';
+        function btn(label, primary) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = label;
+            b.style.cssText = 'padding:5px 14px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid ' + border + ';' +
+                (primary ? 'background:' + accent + ';color:#ffffff;border-color:' + accent + ';' : 'background:transparent;color:' + fg + ';');
+            return b;
+        }
+        var cancelBtn = btn(i18n.actionPanelCancel || 'Cancel', false);
+        cancelBtn.className = 'md-export-cancel';
+        var execBtn = btn('Export', true);
+        execBtn.className = 'md-export-execute';
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(execBtn);
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        exportDialogEl = overlay;
+
+        function close() { if (exportDialogEl) { try { exportDialogEl.remove(); } catch (e) {} exportDialogEl = null; } }
+        cancelBtn.addEventListener('click', close);
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+        execBtn.addEventListener('click', function () {
+            var options = {
+                includeChildren: cbChildren.checked,
+                recurseChildren: cbChildren.checked && cbRecChildren.checked,
+                includeLinks: cbLinks.checked,
+                recurseLinks: cbLinks.checked && cbRecLinks.checked,
+            };
+            close();
+            if (typeof onExecute === 'function') onExecute(options);
+        });
+    }
+    // outliner.js（notes モードの sidepanel 所有者）から同じダイアログを使えるよう公開。
+    if (typeof window !== 'undefined') { window.openExportDialog = openExportDialog; }
     function showRenameLinkModal(currentText, onResult, opts) {
         hideRenameLinkModal();
         var cs = getComputedStyle(document.documentElement);
@@ -1118,31 +1262,40 @@ class EditorInstance {
         element.focus();
     }
     
-    // Helper: scroll cursor position into view (for code block / mermaid block navigation)
+    // Helper: scroll cursor position into view.
+    // ★ TASK-11（バグ修正 2026-07-24）: 旧実装は可視判定に window.innerHeight を使い、
+    //   scrollIntoView({block:'nearest'}) をカーソル親要素に対して呼んでいた。だが Notes/sidepanel の
+    //   縦スクロール owner は祖先 .editor-wrapper で、ネイティブ caret スクロール（nearest）は祖先コンテナに
+    //   対して非対称（下方向は追従・上方向は非追従）→ ↑でカーソルを見失うバグ。
+    //   → 実スクロール owner（.editor-wrapper || editor 自身）の rect 基準で owner.scrollTop を
+    //     up/down 対称に直接調整する（standalone は editor 自身が owner でも同ロジックで動く）。
+    var CARET_SCROLL_MARGIN = 8;
+    // 純関数は __editorUtils.computeCaretScrollDelta に集約（単一の真実・unit テスト対象）。
     function scrollCursorIntoView() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
 
         try {
             const range = sel.getRangeAt(0);
-            // Try to get cursor position from range rect (no DOM modification needed)
             const rects = range.getClientRects();
-            const rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
-
-            if (rect && (rect.height > 0 || rect.width > 0)) {
-                // Use the rect to check if cursor is visible
-                const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-                if (rect.top < 0 || rect.bottom > viewportHeight) {
-                    // Scroll the cursor's parent element into view
-                    let el = range.startContainer;
-                    if (el.nodeType === 3) el = el.parentElement;
-                    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-                }
-            } else {
-                // Collapsed range with zero-size rect: scroll parent element
+            let caretRect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+            // zero-size collapsed range: 親要素の rect で代用
+            if (!caretRect || (caretRect.height === 0 && caretRect.width === 0)) {
                 let el = range.startContainer;
                 if (el.nodeType === 3) el = el.parentElement;
-                if (el) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                if (el && el.getBoundingClientRect) caretRect = el.getBoundingClientRect();
+            }
+            if (!caretRect) return;
+
+            // 実スクロール owner: Notes/sidepanel = .editor-wrapper、standalone も .editor-wrapper あり。
+            // 無ければ editor 自身（フォールバック）。
+            const owner = (editor && editor.closest && editor.closest('.editor-wrapper')) || editor;
+            if (!owner) return;
+            const ownerRect = owner.getBoundingClientRect();
+            const _delta = window.__editorUtils && window.__editorUtils.computeCaretScrollDelta;
+            const delta = _delta ? _delta(caretRect, ownerRect, CARET_SCROLL_MARGIN) : 0;
+            if (delta !== 0) {
+                owner.scrollTop += delta;   // 同期・instant（チラつかせない）。up/down 対称。
             }
         } catch (e) {
             logger.log('scrollCursorIntoView failed:', e);
@@ -1919,16 +2072,43 @@ class EditorInstance {
 
     function parseInline(text) {
         if (!text) return '';
-        
-        let html = escapeHtml(text);
-        
-        // Restore <br> tags that were escaped (used in table cells for line breaks)
-        html = html.replace(/&lt;br&gt;/gi, '<br>');
-        
+
         // Use placeholders to protect content from further processing
         const placeholders = [];
         let placeholderIndex = 0;
-        
+
+        // sprint 20260724-160000 (TASK-07 fix): インライン文字色。色 span は raw text 中に
+        // `<span style="color:#hex">…</span>` として存在するため、escapeHtml で `<` が壊れる前に protect する。
+        // ★ 順序が肝（reviewer iter1 で判明した自己 round-trip 破損の修正）:
+        //   (1) inline code 領域を raw から一時退避 → code 内の色 span は color 正規表現に拾われず、
+        //       code 内容がリテラル保存される（NFR-IC-04。outliner renderInlineText と同方式）。
+        //   (2) 色 span を protect（code 退避済み）。inner は plaintext（color 最内 canonical）なので escape。
+        //   (3) code 領域を戻し、後段の parseInlineCode に委ねる。
+        //   (4) 色 placeholder の復元は escape/code/link/bold の**後に global 一括**で行う（下部）。
+        //       これで link/img の中にネストした色 token も link 復元後に解決される（色+link の round-trip）。
+        // 危険な span（複合 style / 危険属性）は makeColorSpanRe が拾わず、escapeHtml でリテラル化（NFR-IC-03）。
+        const colorPlaceholders = [];
+        if (typeof InlineColor !== 'undefined') {
+            const rawCode = [];
+            let t = text.replace(/`[^`]+`/g, function (m) {
+                rawCode.push(m);
+                return '\x00RAWCODE' + (rawCode.length - 1) + '\x00';
+            });
+            t = t.replace(InlineColor.makeColorSpanRe(), function (_m, hex, inner) {
+                if (!InlineColor.isSafeColorValue(hex)) { return _m; } // 危険色はそのまま（後で escape）
+                var ph = '\x00COLOR' + (colorPlaceholders.length) + '\x00';
+                colorPlaceholders.push('<span style="color:' + hex.trim().toLowerCase() + '">' + escapeHtml(inner) + '</span>');
+                return ph;
+            });
+            t = t.replace(/\x00RAWCODE(\d+)\x00/g, function (_, i) { return rawCode[parseInt(i, 10)]; });
+            text = t;
+        }
+
+        let html = escapeHtml(text);
+
+        // Restore <br> tags that were escaped (used in table cells for line breaks)
+        html = html.replace(/&lt;br&gt;/gi, '<br>');
+
         // IMPORTANT: Process inline code FIRST to protect code content from other formatting
         // Code spans should not have their contents processed as markdown
         html = parseInlineCode(html, placeholders, () => placeholderIndex++);
@@ -1950,9 +2130,11 @@ class EditorInstance {
                     html = html.slice(0, ln.start) + imgPlaceholder + html.slice(ln.end);
                 } else if (ln.kind === 'link' && ln.alt.length > 0) {
                     // link は空 text を許容しない (旧 regex 挙動踏襲)
-                    var linkClass = classifyLinkHref(ln.url);
+                    var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + '>' + ln.alt + '</a>';
+                    // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -1983,10 +2165,20 @@ class EditorInstance {
         for (const { placeholder, html: replacement } of placeholders) {
             html = html.replace(placeholder, replacement);
         }
-        
+
+        // sprint 20260724-160000 (TASK-07): 色 placeholder を最後に global 一括復元する。
+        // code/link/img/bold の復元後に行うことで、link/img HTML の中にネストした色 token も解決される
+        // （\x00COLOR<idx>\x00 は escape/regex で変化しないので安全に一括 replace できる）。
+        if (colorPlaceholders.length) {
+            html = html.replace(/\x00COLOR(\d+)\x00/g, function (_, i) {
+                var rep = colorPlaceholders[parseInt(i, 10)];
+                return rep !== undefined ? rep : '';
+            });
+        }
+
         return html;
     }
-    
+
     function renderFromMarkdown() {
         logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
         const html = markdownToHtmlFragment(markdown);
@@ -3085,9 +3277,10 @@ class EditorInstance {
                 }
                 wrapper.dataset.mermaidSetup = 'true';
                 logger.log('Setting up wrapper');
-                
+
                 renderMermaidDiagram(wrapper);
-                
+                attachBlockFullscreenButton(wrapper, 'mermaid');
+
                 // Add click handler to enter editing mode
                 wrapper.addEventListener('click', function(e) {
                     // Don't enter edit mode if clicking on the diagram itself when already in display mode
@@ -3200,6 +3393,7 @@ class EditorInstance {
                 wrapper.dataset.mathSetup = 'true';
 
                 renderMathBlock(wrapper);
+                attachBlockFullscreenButton(wrapper, 'math');
 
                 // Click → edit mode
                 wrapper.addEventListener('click', function(e) {
@@ -3295,40 +3489,20 @@ class EditorInstance {
             copyCodeBlock(pre);
         });
         
-        // Expand/collapse button
+        // Fullscreen button (replaces the old width-expand toggle).
         const expandBtn = document.createElement('button');
         expandBtn.className = 'code-expand-btn';
         expandBtn.textContent = '⤢';
-        expandBtn.title = i18n.expandCodeBlock || 'Expand';
+        expandBtn.title = i18n.expandCodeBlock || 'Fullscreen';
         expandBtn.setAttribute('contenteditable', 'false');
         expandBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const isExpanded = pre.classList.toggle('code-expanded');
-            expandBtn.textContent = isExpanded ? '⤡' : '⤢';
-            expandBtn.title = isExpanded ? (i18n.collapseCodeBlock || 'Collapse') : (i18n.expandCodeBlock || 'Expand');
-            
-            if (isExpanded) {
-                // Calculate width to fill editor-wrapper
-                const editorWrapper = container.querySelector('.editor-wrapper');
-                const editorEl = editor;
-                if (editorWrapper && editorEl) {
-                    const wrapperRect = editorWrapper.getBoundingClientRect();
-                    const editorRect = editorEl.getBoundingClientRect();
-                    const preRect = pre.getBoundingClientRect();
-                    
-                    // Calculate how much to expand left and right
-                    const leftOffset = preRect.left - wrapperRect.left - 20; // 20px padding
-                    const rightOffset = wrapperRect.right - preRect.right - 20;
-                    const newWidth = preRect.width + leftOffset + rightOffset;
-                    
-                    pre.style.width = newWidth + 'px';
-                    pre.style.marginLeft = -leftOffset + 'px';
-                }
-            } else {
-                // Reset to default
-                pre.style.width = '';
-                pre.style.marginLeft = '';
+            // Make sure the source block is in display mode so fullscreen
+            // shows highlighted output, not the editable plaintext.
+            if (pre.getAttribute('data-mode') === 'edit') {
+                enterDisplayMode(pre);
             }
+            openBlockFullscreen({ kind: 'code', source: pre });
         });
         
         header.appendChild(expandBtn);
@@ -3412,16 +3586,24 @@ class EditorInstance {
             }
         }
         
-        // Focus and place cursor at start
+        // Focus and place cursor at end of content (re-edit UX: "continue from
+        // where I left off"). Placing at start would also leave cursor at
+        // offset 0 where Backspace gets blocked by the merge-protection at
+        // line ~11060, making the block feel uneditable.
         code.focus();
         const range = document.createRange();
         const sel = window.getSelection();
-        if (code.firstChild) {
-            if (code.firstChild.nodeType === 1 && code.firstChild.tagName === 'BR') {
-                // Empty code block - set cursor before the <br>
-                range.setStart(code, 0);
+        if (code.lastChild) {
+            const last = code.lastChild;
+            if (last.nodeType === 1 && last.tagName === 'BR') {
+                // Place cursor before the trailing <br> (sentinel or empty marker)
+                const idx = Array.prototype.indexOf.call(code.childNodes, last);
+                range.setStart(code, idx);
+            } else if (last.nodeType === 3) {
+                range.setStart(last, last.textContent.length);
             } else {
-                range.setStart(code.firstChild, 0);
+                range.selectNodeContents(code);
+                range.collapse(false);
             }
             range.collapse(true);
             sel.removeAllRanges();
@@ -3493,6 +3675,7 @@ class EditorInstance {
 
         wrapper.dataset[type + 'Setup'] = 'true';
         renderFn(wrapper);
+        attachBlockFullscreenButton(wrapper, type);
 
         // Add click handler to enter edit mode
         wrapper.addEventListener('click', function(e) {
@@ -3783,6 +3966,11 @@ class EditorInstance {
         });
 
         document.body.appendChild(tableToolbar);
+        // Expose for destroy() so the toolbar (appended to document.body)
+        // doesn't survive after the owning EditorInstance is destroyed
+        // (e.g. when the side panel closes while a table cell is focused —
+        // otherwise the floating toolbar lingers over the outliner).
+        self._tableToolbarEl = tableToolbar;
     }
 
     function showTableToolbar(table) {
@@ -4460,6 +4648,51 @@ class EditorInstance {
         hint.className = 'outliner-image-overlay-hint';
         hint.textContent = 'Pinch to zoom · Drag to pan · Double-click to reset · ESC to close';
         overlay.appendChild(hint);
+        // 右上 toolbar: Copy Image / Open in New Tab / Copy Path
+        var absPath = (typeof cleanImageSrc === 'function' ? cleanImageSrc(imgSrc) : imgSrc).split('?')[0].split('#')[0];
+        var toolbar = document.createElement('div');
+        toolbar.className = 'image-overlay-toolbar';
+        var btnCopyImg = document.createElement('button');
+        btnCopyImg.type = 'button';
+        btnCopyImg.textContent = 'Copy Image';
+        btnCopyImg.title = 'Copy image to clipboard';
+        var btnOpenTab = document.createElement('button');
+        btnOpenTab.type = 'button';
+        btnOpenTab.textContent = 'Open in New Tab';
+        btnOpenTab.title = 'Open image in a new VS Code tab';
+        var btnCopyPath = document.createElement('button');
+        btnCopyPath.type = 'button';
+        btnCopyPath.textContent = 'Copy Path';
+        btnCopyPath.title = 'Copy absolute path to clipboard';
+        toolbar.appendChild(btnCopyImg);
+        toolbar.appendChild(btnOpenTab);
+        toolbar.appendChild(btnCopyPath);
+        overlay.appendChild(toolbar);
+        function flash(btn, text) {
+            var orig = btn.textContent;
+            btn.textContent = text;
+            setTimeout(function() { btn.textContent = orig; }, 900);
+        }
+        btnCopyImg.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (host && host.copyImageToClipboard) {
+                host.copyImageToClipboard(absPath);
+                flash(btnCopyImg, 'Copied!');
+            }
+        });
+        btnOpenTab.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            if (host && host.openImageInNewTab) {
+                host.openImageInNewTab(absPath);
+            }
+        });
+        btnCopyPath.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            try {
+                navigator.clipboard.writeText(absPath);
+                flash(btnCopyPath, 'Copied!');
+            } catch (_e) { /* noop */ }
+        });
         document.body.appendChild(overlay);
 
         var scale = 1, tx = 0, ty = 0;
@@ -4534,17 +4767,261 @@ class EditorInstance {
         }
     }
 
-    // drawio.svg / drawio.png 用「Open」「Copy Path」ボタン (codeblock copy ボタンと同じデザイン系統)
-    // mouseover で対象 img の右上に floating 表示
-    //   Open       → 外部アプリ起動 (ファイルリンクと同経路 host.openLink)
-    //   Copy Path  → 絶対 fs path を clipboard にコピー (vscode-resource 接頭辞除去)
+    /**
+     * Attach a small fullscreen button (top-right) to a mermaid/math wrapper.
+     * Mirrors the codeblock expand button design but lives on the wrapper
+     * itself because the .pre is hidden in display mode.
+     */
+    function attachBlockFullscreenButton(wrapper, kind) {
+        if (!wrapper || wrapper.querySelector(':scope > .block-fullscreen-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'block-fullscreen-btn';
+        btn.type = 'button';
+        btn.textContent = '⤢';
+        btn.title = i18n.expandCodeBlock || 'Fullscreen';
+        btn.setAttribute('contenteditable', 'false');
+        btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Force display mode before snapshotting so the rendered diagram
+            // (not the source pre) is what we clone into the overlay.
+            if (wrapper.getAttribute('data-mode') === 'edit') {
+                wrapper.setAttribute('data-mode', 'display');
+                if (kind === 'mermaid') renderMermaidDiagram(wrapper);
+                else if (kind === 'math') renderMathBlock(wrapper);
+            }
+            openBlockFullscreen({ kind, source: wrapper });
+        });
+        wrapper.appendChild(btn);
+    }
+
+    /**
+     * Open a fullscreen overlay showing the rendered output of a code,
+     * mermaid, or math block. Closes on background click or ESC.
+     *
+     * - kind: 'code' | 'mermaid' | 'math'
+     * - source: the source <pre> (code) or wrapper div (mermaid/math)
+     */
+    function openBlockFullscreen({ kind, source }) {
+        if (!source) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'block-fullscreen-overlay block-fullscreen-' + kind;
+
+        const inner = document.createElement('div');
+        inner.className = 'block-fullscreen-inner';
+        overlay.appendChild(inner);
+
+        // Zoomable stage — content is mounted inside this so pinch/wheel
+        // zoom and drag pan work uniformly for code/mermaid/math.
+        const stage = document.createElement('div');
+        stage.className = 'block-fullscreen-stage';
+        inner.appendChild(stage);
+
+        // Close button
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'block-fullscreen-close';
+        closeBtn.type = 'button';
+        closeBtn.textContent = '✕';
+        closeBtn.title = 'Close (ESC)';
+        overlay.appendChild(closeBtn);
+
+        // Hint banner (matches image overlay UX).
+        const hint = document.createElement('div');
+        hint.className = 'block-fullscreen-hint';
+        hint.textContent = 'Pinch / Ctrl+Wheel to zoom · Drag to pan · Double-click to reset · ESC to close';
+        overlay.appendChild(hint);
+
+        // Build the content per kind
+        if (kind === 'code') {
+            // Clone the <pre> with its highlighted <code>, but drop the
+            // header (lang tag / copy / expand buttons live on the original).
+            const preClone = source.cloneNode(true);
+            const headerInClone = preClone.querySelector('.code-block-header');
+            if (headerInClone) headerInClone.remove();
+            preClone.classList.add('block-fullscreen-pre');
+            preClone.style.width = '';
+            preClone.style.marginLeft = '';
+            // Make code non-editable inside the overlay.
+            const codeInClone = preClone.querySelector('code');
+            if (codeInClone) codeInClone.setAttribute('contenteditable', 'false');
+            // Optional: language label in top-left
+            const langLabel = source.getAttribute('data-lang') || 'plaintext';
+            const label = document.createElement('div');
+            label.className = 'block-fullscreen-label';
+            label.textContent = langLabel;
+            overlay.appendChild(label);
+            stage.appendChild(preClone);
+
+            // Copy button: reuse copyCodeBlock against the original pre.
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'block-fullscreen-copy';
+            copyBtn.type = 'button';
+            copyBtn.textContent = i18n.copy || 'Copy';
+            copyBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                copyCodeBlock(source);
+            });
+            overlay.appendChild(copyBtn);
+        } else if (kind === 'mermaid') {
+            const diagram = source.querySelector('.mermaid-diagram');
+            if (diagram) {
+                const clone = diagram.cloneNode(true);
+                clone.classList.add('block-fullscreen-mermaid-diagram');
+                // Mermaid hardcodes an inline style="max-width: <px>" on its
+                // SVG that pins it to the original (small) render width.
+                // Compute a target size that fits the viewport while keeping
+                // the original aspect ratio (from viewBox).
+                const svg = clone.querySelector('svg');
+                if (svg) {
+                    let aspect = 1;
+                    const vb = svg.getAttribute('viewBox');
+                    if (vb) {
+                        const parts = vb.split(/\s+/).map(Number);
+                        if (parts.length === 4 && parts[3] > 0) {
+                            aspect = parts[2] / parts[3];
+                        }
+                    }
+                    // Target ~80% of viewport, fitting inside both axes.
+                    const maxW = Math.max(200, window.innerWidth - 160);
+                    const maxH = Math.max(200, window.innerHeight - 160);
+                    let targetW = maxW;
+                    let targetH = targetW / aspect;
+                    if (targetH > maxH) {
+                        targetH = maxH;
+                        targetW = targetH * aspect;
+                    }
+                    svg.removeAttribute('width');
+                    svg.removeAttribute('height');
+                    svg.style.maxWidth = 'none';
+                    svg.style.width = targetW + 'px';
+                    svg.style.height = targetH + 'px';
+                    svg.style.display = 'block';
+                }
+                stage.appendChild(clone);
+            }
+        } else if (kind === 'math') {
+            const display = source.querySelector('.math-display');
+            if (display) {
+                const clone = display.cloneNode(true);
+                clone.classList.add('block-fullscreen-math-display');
+                stage.appendChild(clone);
+            }
+        }
+
+        document.body.appendChild(overlay);
+
+        // ===== Pinch / wheel zoom + drag pan on the stage =====
+        let scale = 1, tx = 0, ty = 0;
+        const MIN_SCALE = 0.2, MAX_SCALE = 16;
+        let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+        function applyTransform() {
+            stage.style.transform =
+                'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+        }
+        applyTransform();
+
+        // Mac touchpad pinch arrives as wheel + ctrlKey; regular wheel
+        // also zooms while ctrl/⌘ is held.
+        overlay.addEventListener('wheel', function(ev) {
+            if (!ev.ctrlKey && !ev.metaKey) return;
+            ev.preventDefault();
+            const delta = -ev.deltaY * 0.01;
+            const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
+            if (newScale === scale) return;
+            // Zoom toward the cursor.
+            const rect = stage.getBoundingClientRect();
+            const ox = ev.clientX - rect.left;
+            const oy = ev.clientY - rect.top;
+            tx += ox * (1 - newScale / scale);
+            ty += oy * (1 - newScale / scale);
+            scale = newScale;
+            applyTransform();
+        }, { passive: false });
+
+        // Drag to pan.
+        stage.addEventListener('mousedown', function(ev) {
+            // Don't start a drag from interactive elements (copy button, code).
+            if (ev.button !== 0) return;
+            isDragging = true;
+            dragStartX = ev.clientX - tx;
+            dragStartY = ev.clientY - ty;
+            stage.style.cursor = 'grabbing';
+            ev.preventDefault();
+        });
+        const onMove = function(ev) {
+            if (!isDragging) return;
+            tx = ev.clientX - dragStartX;
+            ty = ev.clientY - dragStartY;
+            applyTransform();
+        };
+        const onUp = function() {
+            if (!isDragging) return;
+            isDragging = false;
+            stage.style.cursor = '';
+        };
+        overlay.addEventListener('mousemove', onMove);
+        overlay.addEventListener('mouseup', onUp);
+        overlay.addEventListener('mouseleave', onUp);
+
+        // Double-click → reset zoom (clicking the dim border still closes).
+        stage.addEventListener('dblclick', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            scale = 1; tx = 0; ty = 0;
+            applyTransform();
+        });
+
+        function cleanup() {
+            overlay.remove();
+            document.removeEventListener('keydown', escHandler, true);
+        }
+        function escHandler(ev) {
+            if (ev.key === 'Escape') {
+                // Capture phase + stopImmediatePropagation so the side-panel
+                // close handler (also listening for ESC) doesn't run.
+                ev.preventDefault();
+                ev.stopPropagation();
+                ev.stopImmediatePropagation();
+                cleanup();
+            }
+        }
+        // Capture phase, registered AFTER appending overlay so it runs first.
+        document.addEventListener('keydown', escHandler, true);
+
+        overlay.addEventListener('click', (ev) => {
+            // Only the dim border closes; clicks inside the stage interact.
+            if (ev.target === overlay || ev.target === inner) cleanup();
+        });
+        closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            cleanup();
+        });
+    }
+
+    // drawio.svg / drawio.png 用「Open in VS Code」「Open in External」「Copy Path」ボタン
+    // (codeblock copy ボタンと同じデザイン系統) mouseover で対象 img の右上に floating 表示
+    //   Open in External → OS 関連付けアプリで開く (ファイルリンクと同経路 host.openLink)
+    //   Open in VS Code  → VS Code タブで開く (host.openImageInNewTab = vscode.open。
+    //                      hediet.vscode-drawio 等の *.drawio.svg カスタムエディタがあればタブ内 draw.io になる)
+    //   Copy Path        → 絶対 fs path を clipboard にコピー (vscode-resource 接頭辞除去)
     var drawioOpenBtn = document.createElement('button');
     drawioOpenBtn.className = 'drawio-open-btn';
-    drawioOpenBtn.textContent = (typeof i18n !== 'undefined' && i18n.openInDrawioDesktopButton) || 'Open';
-    drawioOpenBtn.title = 'Open in external app';
+    drawioOpenBtn.textContent = 'Open in External';
+    drawioOpenBtn.title = 'Open in external app (OS default)';
     drawioOpenBtn.setAttribute('contenteditable', 'false');
     drawioOpenBtn.style.display = 'none';
     document.body.appendChild(drawioOpenBtn);
+
+    var drawioOpenVscodeBtn = document.createElement('button');
+    drawioOpenVscodeBtn.className = 'drawio-open-btn'; // 同 style 流用
+    drawioOpenVscodeBtn.textContent = 'Open in VS Code';
+    drawioOpenVscodeBtn.title = 'Open in a VS Code tab (uses the draw.io extension if installed)';
+    drawioOpenVscodeBtn.setAttribute('contenteditable', 'false');
+    drawioOpenVscodeBtn.style.display = 'none';
+    document.body.appendChild(drawioOpenVscodeBtn);
 
     var drawioCopyPathBtn = document.createElement('button');
     drawioCopyPathBtn.className = 'drawio-open-btn'; // 同 style 流用
@@ -4564,13 +5041,17 @@ class EditorInstance {
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
-        // 右上に Open、その左に Copy Path を配置
+        // 右上から左へ [Copy Path] [Open in VS Code] [Open in External] の順に配置
         var openTop = rect.top + 4;
         var openLeft = rect.right - drawioOpenBtn.offsetWidth - 4;
         drawioOpenBtn.style.top = openTop + 'px';
         drawioOpenBtn.style.left = openLeft + 'px';
-        // Copy Path を Open の左に gap 4px で
-        var copyLeft = openLeft - drawioCopyPathBtn.offsetWidth - 4;
+        // Open in VS Code を Open in External の左に gap 4px で
+        var vscodeLeft = openLeft - drawioOpenVscodeBtn.offsetWidth - 4;
+        drawioOpenVscodeBtn.style.top = openTop + 'px';
+        drawioOpenVscodeBtn.style.left = vscodeLeft + 'px';
+        // Copy Path をさらに左に gap 4px で
+        var copyLeft = vscodeLeft - drawioCopyPathBtn.offsetWidth - 4;
         drawioCopyPathBtn.style.top = openTop + 'px';
         drawioCopyPathBtn.style.left = copyLeft + 'px';
     }
@@ -4578,6 +5059,7 @@ class EditorInstance {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
         drawioOpenBtnTargetImg = img;
         drawioOpenBtn.style.display = 'block';
+        drawioOpenVscodeBtn.style.display = 'block';
         drawioCopyPathBtn.style.display = 'block';
         positionDrawioOpenBtn(img);
         // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
@@ -4587,10 +5069,21 @@ class EditorInstance {
         if (drawioOpenBtnHideTimer) clearTimeout(drawioOpenBtnHideTimer);
         drawioOpenBtnHideTimer = setTimeout(function() {
             drawioOpenBtn.style.display = 'none';
+            drawioOpenVscodeBtn.style.display = 'none';
             drawioCopyPathBtn.style.display = 'none';
             drawioOpenBtnTargetImg = null;
         }, 120);
     }
+    /** 対象 img の絶対 fs path（webview URL 接頭辞 / ?v= / #fragment を除去。Copy Path と同ロジック） */
+    function drawioTargetAbsPath() {
+        if (!drawioOpenBtnTargetImg) return '';
+        var rawSrc = drawioOpenBtnTargetImg.getAttribute('src') || '';
+        var cleaned = (typeof cleanImageSrc === 'function')
+            ? cleanImageSrc(rawSrc)
+            : rawSrc.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
+        return (cleaned || '').split('?')[0].split('#')[0];
+    }
+
     drawioOpenBtn.addEventListener('mouseenter', function() {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
     });
@@ -4600,12 +5093,35 @@ class EditorInstance {
         e.preventDefault();
         e.stopPropagation();
         if (!drawioOpenBtnTargetImg) return;
+        // 絶対パスで専用経路へ（mac: draw.io Desktop 優先。.svg の OS 関連付けがブラウザでも draw.io で開ける）
+        var absPath = drawioTargetAbsPath();
+        if (absPath && typeof host !== 'undefined' && host.openDrawioExternal) {
+            host.openDrawioExternal(absPath);
+            return;
+        }
+        // fallback（旧経路 = OS 関連付け）: bridge 未対応環境用
         var mdPath = drawioOpenBtnTargetImg.dataset.markdownPath || drawioOpenBtnTargetImg.getAttribute('src') || '';
         if (!mdPath) return;
-        // ?v=mtime / #fragment を strip して host へ
         var cleanPath = mdPath.split('?')[0].split('#')[0];
         if (typeof host !== 'undefined' && host.openLink) {
             host.openLink(cleanPath);
+        }
+    });
+
+    drawioOpenVscodeBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioOpenVscodeBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioOpenVscodeBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioOpenVscodeBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // VS Code タブで開く: openImageInNewTab (= vscode.open) を流用。
+        // hediet.vscode-drawio 等が *.drawio.svg のカスタムエディタを登録していればタブ内 draw.io エディタになる
+        var absPath = drawioTargetAbsPath();
+        if (!absPath) return;
+        if (typeof host !== 'undefined' && host.openImageInNewTab) {
+            host.openImageInNewTab(absPath);
         }
     });
 
@@ -4652,7 +5168,7 @@ class EditorInstance {
         if (isDrawioImg(t)) {
             // related target がボタン or 同じ img なら維持
             var rt = e.relatedTarget;
-            if (rt === drawioOpenBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
+            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
             hideDrawioOpenBtnSoon();
         }
     });
@@ -5824,6 +6340,22 @@ class EditorInstance {
         syncMarkdown();
     }
 
+    // sprint 20260724-160000 再オープン③(TASK-18): execCommand('bold'/'italic') は caret に sticky typing
+    // style を残す（queryCommandState===true）。適用後にこれをリセットしないと、選択解除後に打った文字が
+    // 前の書式を引きずる（実 webview の toolbar/palette/shortcut 経路）。境界 handler は DOM 位置は直すが
+    // sticky state は消せない → apply-time で確実に消す（色 TASK-10 と同型・caret 非依存で実 webview に強い）。
+    // 選択済みテキストは既に <b>/<i> で包まれているので、collapse 後の二重トグルは typing state のみ off にする。
+    function _resetInlineTypingStyleAfterApply(cmd) {
+        if (cmd !== 'bold' && cmd !== 'italic') { return; }  // strikeThrough は execCommand でも sticky 問題が出にくいが、bold/italic を確実に
+        try {
+            var sel = window.getSelection();
+            if (sel && sel.rangeCount) { sel.collapseToEnd(); }
+            if (document.queryCommandState && document.queryCommandState(cmd)) {
+                document.execCommand(cmd);  // collapsed caret の typing state だけ off（包み済みテキストは不変）
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     // Apply inline formatting (bold, italic, strikethrough) with proper handling
     // for blockquotes and table cells where line breaks should be preserved
     function applyInlineFormat(tagName) {
@@ -5857,26 +6389,30 @@ class EditorInstance {
         
         // If not in blockquote or table cell, use standard execCommand
         if (!blockquote && !tableCell) {
-            document.execCommand(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough');
+            var _cmd = tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough';
+            document.execCommand(_cmd);
+            _resetInlineTypingStyleAfterApply(_cmd);
             return;
         }
-        
+
         // Get the selected content
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
-        
+
         // Check if selection contains line breaks (newlines in text or <br> elements)
-        const hasLineBreaks = tempDiv.innerHTML.includes('<br>') || 
+        const hasLineBreaks = tempDiv.innerHTML.includes('<br>') ||
                               tempDiv.textContent.includes('\n') ||
                               tempDiv.querySelectorAll('br').length > 0;
-        
+
         if (!hasLineBreaks) {
             // Single line - use standard execCommand
-            document.execCommand(tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough');
+            var _cmd2 = tagName === 'strong' ? 'bold' : tagName === 'em' ? 'italic' : 'strikeThrough';
+            document.execCommand(_cmd2);
+            _resetInlineTypingStyleAfterApply(_cmd2);
             return;
         }
-        
+
         // Multiple lines - need to apply formatting to each line separately
         // Strategy: Split by line breaks, wrap each non-empty segment, rejoin
         
@@ -5936,9 +6472,51 @@ class EditorInstance {
         
         // Insert the processed content
         range.insertNode(result);
-        
+
         // Collapse selection to end
         sel.collapseToEnd();
+    }
+
+    // sprint 20260724-160000: インライン文字色。選択範囲を color の span でラップ / 解除する。
+    // execCommand('foreColor') は styleWithCSS=true で `<span style="color:...">` を生成する
+    // （partial/multi-node 選択もブラウザが処理）。serialize（collectCharStyles）は style.color を
+    // 読むので、ブラウザがどう wrap しても hex を拾える。code 内選択は着色しない。
+    function _selectionInCode() {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return false;
+        const n = sel.getRangeAt(0).startContainer;
+        const el = n.nodeType === 3 ? n.parentElement : n;
+        return !!(el && el.closest && el.closest('code, pre'));
+    }
+
+    function applyTextColor(hex) {
+        if (typeof InlineColor === 'undefined' || !InlineColor.isSafeColorValue(hex)) return;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed) return;
+        if (_selectionInCode()) return; // code 内は着色しない（NFR-IC-04）
+        try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) { /* ignore */ }
+        document.execCommand('foreColor', false, hex.trim().toLowerCase());
+        // ★ sprint 20260724-160000 fix: 適用後にカーソルを選択末尾へ畳み、typing 色を既定に戻す。
+        //   これをしないと「色付き文字の直後で入力すると色が継続する」（execCommand foreColor が
+        //   caret の sticky typing style を残すため）。collapse 後の foreColor は既存テキストを変えず
+        //   typing state だけリセットする。
+        try {
+            sel.collapseToEnd();
+            document.execCommand('foreColor', false, 'inherit');
+        } catch (e) { /* ignore */ }
+        syncMarkdown();
+    }
+
+    function removeTextColor() {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.getRangeAt(0).collapsed) return;
+        if (_selectionInCode()) return;
+        // foreColor を継承色(inherit)にして色を外す。partial 選択でも execCommand が span を分割する。
+        try { document.execCommand('styleWithCSS', false, 'true'); } catch (e) { /* ignore */ }
+        // 'currentColor' 相当: テキスト既定色に戻す。空文字だと no-op なので inherit を使う。
+        document.execCommand('foreColor', false, 'inherit');
+        // inherit は collectCharStyles の extractColorFromStyle が hex でないため色なし扱い → span が消える方向。
+        syncMarkdown();
     }
 
     // ========== HTML TO MARKDOWN ==========
@@ -6254,6 +6832,10 @@ class EditorInstance {
     // by collecting character-level style information and generating
     // minimal Markdown output.
 
+    // subpage serialize フラグ（既定 true）。テストで counterfactual（subpage 分岐を切って [] 劣化を実証）用に
+    // __testApi.__setSubpageSerialize(false) で無効化できる。本番では常に true。
+    let _subpageSerializeEnabled = true;
+
     /**
      * Collect character-level style information from a DOM node.
      * Each character gets a style set indicating which formatting applies.
@@ -6261,9 +6843,9 @@ class EditorInstance {
      * @param {Set} currentStyles - Currently active styles from parent nodes
      * @returns {Array<{char: string, styles: Set<string>, isLink: boolean, href: string, isImage: boolean, src: string, alt: string, isCode: boolean}>}
      */
-    function collectCharStyles(node, currentStyles = new Set()) {
+    function collectCharStyles(node, currentStyles = new Set(), currentColor = null) {
         const result = [];
-        
+
         if (node.nodeType === 3) {
             // Text node - each character inherits current styles
             const text = node.textContent || '';
@@ -6271,6 +6853,7 @@ class EditorInstance {
                 result.push({
                     char: char,
                     styles: new Set(currentStyles),
+                    color: currentColor,   // sprint 20260724-160000: 文字色（styles Set とは別フィールド）
                     isLink: false,
                     href: '',
                     isImage: false,
@@ -6292,6 +6875,8 @@ class EditorInstance {
         if (tag === 'a') {
             // Check if this is a file attachment link
             const isFileAttachment = node.dataset.isFileAttachment === 'true';
+            // subpage marker `[[]]` 往路フラグ（serialize が [[]] に書き戻す）
+            const isSubpage = node.dataset.subpage === 'true';
             // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
             const href = resolveLinkRefForCopy(node);
 
@@ -6301,6 +6886,7 @@ class EditorInstance {
                 result.push({
                     char: '',
                     styles: new Set(currentStyles),
+                    color: currentColor,
                     isLink: false,
                     href: '',
                     isImage: false,
@@ -6317,16 +6903,17 @@ class EditorInstance {
             // Regular link - collect content with link info
             const linkStyles = new Set(currentStyles);
             for (const child of node.childNodes) {
-                const childChars = collectCharStyles(child, linkStyles);
+                const childChars = collectCharStyles(child, linkStyles, currentColor);
                 for (const c of childChars) {
                     c.isLink = true;
                     c.href = href;
+                    c.isSubpage = isSubpage;   // subpage フラグを char entry に伝播
                     result.push(c);
                 }
             }
             return result;
         }
-        
+
         if (tag === 'img') {
             // Image - return as single special entry
             // BUG-FIX (![](rel)→![](abs) on cmd+c/v): documentBaseUri 接頭辞経由で相対化
@@ -6335,6 +6922,7 @@ class EditorInstance {
             result.push({
                 char: '',
                 styles: new Set(currentStyles),
+                color: currentColor,
                 isLink: false,
                 href: '',
                 isImage: true,
@@ -6344,11 +6932,11 @@ class EditorInstance {
             });
             return result;
         }
-        
+
         if (tag === 'code' && node.parentNode.tagName.toLowerCase() !== 'pre') {
-            // Inline code - collect content with code flag
+            // Inline code - collect content with code flag（code は着色しない=color を伝播しない）
             for (const child of node.childNodes) {
-                const childChars = collectCharStyles(child, currentStyles);
+                const childChars = collectCharStyles(child, currentStyles, null);
                 for (const c of childChars) {
                     c.isCode = true;
                     result.push(c);
@@ -6381,13 +6969,21 @@ class EditorInstance {
         } else if (tag === 'del' || tag === 's' || tag === 'strike') {
             newStyles.add('strikethrough');
         }
-        
+
+        // sprint 20260724-160000: span[style*=color] は文字色を子 char に伝播（styles Set でなく color フィールド）。
+        // ネスト時は内側優先。安全な hex のみ（extractColorFromStyle が allowlist 検証）。
+        let newColor = currentColor;
+        if (tag === 'span' && typeof InlineColor !== 'undefined') {
+            const c = InlineColor.extractColorFromStyle(node.getAttribute('style') || '');
+            if (c) { newColor = c; }
+        }
+
         // Process children with updated styles
         for (const child of node.childNodes) {
-            const childChars = collectCharStyles(child, newStyles);
+            const childChars = collectCharStyles(child, newStyles, newColor);
             result.push(...childChars);
         }
-        
+
         return result;
     }
 
@@ -6409,6 +7005,7 @@ class EditorInstance {
                 !c.isFileLink && !currentGroup.isFileLink &&
                 !c.isLink && !currentGroup.isLink &&
                 !c.isCode && !currentGroup.isCode &&
+                (c.color || null) === (currentGroup.color || null) &&   // sprint 20260724-160000: 色境界で分割
                 sameStyleSet(c.styles, currentGroup.styles);
 
             if (canMerge) {
@@ -6421,8 +7018,10 @@ class EditorInstance {
                 currentGroup = {
                     text: (c.isImage || c.isFileLink) ? '' : c.char,
                     styles: c.styles,
+                    color: c.color || null,   // sprint 20260724-160000: 文字色を group に運ぶ
                     isLink: c.isLink,
                     href: c.href,
+                    isSubpage: c.isSubpage,   // subpage フラグを group に運ぶ
                     isImage: c.isImage,
                     src: c.src,
                     alt: c.alt,
@@ -6442,11 +7041,14 @@ class EditorInstance {
         const mergedGroups = [];
         for (const g of groups) {
             const prev = mergedGroups[mergedGroups.length - 1];
-            if (prev && prev.isLink && g.isLink && 
-                prev.href === g.href && 
+            if (prev && prev.isLink && g.isLink &&
+                prev.href === g.href &&
+                prev.isSubpage === g.isSubpage &&
+                (prev.color || null) === (g.color || null) &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else if (prev && prev.isCode && g.isCode &&
+                (prev.color || null) === (g.color || null) &&
                 sameStyleSet(prev.styles, g.styles)) {
                 prev.text += g.text;
             } else {
@@ -6487,22 +7089,26 @@ class EditorInstance {
         if (group.isLink) {
             // Apply styles to link text, then wrap in link syntax
             let text = group.text;
-            text = applyInlineStyles(text, group.styles);
+            text = applyInlineStyles(text, group.styles, group.color);
+            // subpage marker はラウンドトリップで [[]] を保持（劣化防止・INV-1）
+            if (group.isSubpage && _subpageSerializeEnabled) {
+                return '[[' + text + ']](' + group.href + ')';
+            }
             return '[' + text + '](' + group.href + ')';
         }
-        
+
         if (group.isCode) {
-            // Code doesn't get other formatting
+            // Code doesn't get other formatting（色も付けない）
             // Use appropriate number of backticks based on content
             return wrapInlineCode(group.text);
         }
-        
+
         // Skip empty text (from empty formatting tags)
         if (!group.text) {
             return '';
         }
-        
-        return applyInlineStyles(group.text, group.styles);
+
+        return applyInlineStyles(group.text, group.styles, group.color);
     }
 
     /**
@@ -6512,12 +7118,20 @@ class EditorInstance {
      * @param {Set<string>} styles - Set of style names
      * @returns {string} - Formatted text
      */
-    function applyInlineStyles(text, styles) {
+    function applyInlineStyles(text, styles, color) {
         if (!text) return '';
-        
+
         let result = text;
-        
-        // Apply in order: italic (innermost), bold, strikethrough (outermost)
+
+        // sprint 20260724-160000: 文字色は【最内】（span はプレーンテキストのみを包む）。
+        // parse が色 span 全体を 1 placeholder で protect するため、span 内に md marker（**）を入れると
+        // リテラル化する（<strong> にならない）。span を最内にして marker を外側に出すと、reload 時に
+        // `**` が bold として正常 parse される（ADRL-INLINE-COLOR-ENCODING / design R-1）。
+        if (color && typeof InlineColor !== 'undefined' && InlineColor.isSafeColorValue(color)) {
+            result = InlineColor.wrapColorSpan(result, color);
+        }
+
+        // Apply in order: italic (innermost of markers), bold, strikethrough (outermost)
         if (styles.has('italic')) {
             result = '*' + result + '*';
         }
@@ -6527,7 +7141,7 @@ class EditorInstance {
         if (styles.has('strikethrough')) {
             result = '~~' + result + '~~';
         }
-        
+
         return result;
     }
 
@@ -6712,6 +7326,10 @@ class EditorInstance {
             } else if (tag === 'a') {
                 // BUG-FIX: documentBaseUri 経由で相対化
                 const href = resolveLinkRefForCopy(node);
+                // subpage marker はテーブルセル内でも [[]] を保持（INV-1）
+                if (node.dataset && node.dataset.subpage === 'true' && _subpageSerializeEnabled) {
+                    return '[[' + innerContent + ']](' + href + ')';
+                }
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
                 // BUG-FIX: documentBaseUri 経由で相対化
@@ -9292,6 +9910,7 @@ class EditorInstance {
                     if (prev) {
                         e.preventDefault();
                         navigateToAdjacentElement(prev, 'up', false);
+                        scrollCursorIntoView(); // TASK-11: ↑追従（owner-rect ベース・祖先 .editor-wrapper に対称）
                         return;
                     }
                 } else if (e.key === 'ArrowDown') {
@@ -9307,6 +9926,7 @@ class EditorInstance {
                     if (next) {
                         e.preventDefault();
                         navigateToAdjacentElement(next, 'down', false);
+                        scrollCursorIntoView(); // TASK-11: ↓追従
                         return;
                     }
                 }
@@ -11039,14 +11659,20 @@ class EditorInstance {
                         syncMarkdown();
                         return;
                     }
-                    // Non-empty code block: check if cursor is at the very beginning
-                    // If so, prevent backspace from merging with previous element
+                    // Non-empty code block: check if cursor is at the absolute beginning
+                    // (= nothing — neither text nor <br> — exists before the cursor).
+                    // If so, prevent backspace from merging with previous element.
+                    // Range.toString() ignores <br>, so we use cloneContents() to also
+                    // detect leading BR sentinels (e.g. when the code block starts with
+                    // an empty line and the cursor is on the second line).
                     if (codeElement) {
                         const contentRange = document.createRange();
                         contentRange.selectNodeContents(codeElement);
                         contentRange.setEnd(range.startContainer, range.startOffset);
-                        const textBeforeCursor = contentRange.toString();
-                        if (textBeforeCursor.length === 0) {
+                        const before = contentRange.cloneContents();
+                        const hasTextBefore = (before.textContent || '').length > 0;
+                        const hasBrBefore = !!before.querySelector('br');
+                        if (!hasTextBefore && !hasBrBefore) {
                             e.preventDefault();
                             return;
                         }
@@ -11084,67 +11710,20 @@ class EditorInstance {
                     return;
                 }
                 
-                // Handle blockquote - only convert to paragraph if at the very beginning
+                // Handle blockquote - block backspace at absolute beginning so the
+                // blockquote does not dissolve (matches code-block behavior).
+                // Range.toString() ignores <br>, so cloneContents() + querySelector('br')
+                // are used to also detect leading BR sentinels.
                 if (tag === 'blockquote') {
-                    // Check if cursor is truly at the beginning of the blockquote
-                    // (not just at offset 0 of some node in the middle)
                     const contentRange = document.createRange();
                     contentRange.selectNodeContents(currentLine);
                     contentRange.setEnd(range.startContainer, range.startOffset);
-                    const textBeforeCursor = contentRange.toString();
-                    
-                    logger.log('Backspace in blockquote:', { textBeforeCursor, length: textBeforeCursor.length });
-                    
-                    if (textBeforeCursor.length === 0) {
-                        // Truly at the beginning - convert to paragraph(s)
+                    const before = contentRange.cloneContents();
+                    const hasTextBefore = (before.textContent || '').length > 0;
+                    const hasBrBefore = !!before.querySelector('br');
+                    if (!hasTextBefore && !hasBrBefore) {
                         e.preventDefault();
-
-                        // Split blockquote content by <br> and \n into individual paragraphs
-                        // Blockquote content may use \n text nodes (from markdownToHtmlFragment)
-                        // or <br> elements (from insertLineBreak on Enter)
-                        const childNodes = Array.from(currentLine.childNodes);
-                        const lines = [];
-                        let currentFragment = document.createDocumentFragment();
-
-                        for (const node of childNodes) {
-                            if (node.nodeName === 'BR' && !node.hasAttribute?.('data-trailing-br')) {
-                                lines.push(currentFragment);
-                                currentFragment = document.createDocumentFragment();
-                            } else if (node.nodeType === 3 && node.textContent.includes('\n')) {
-                                // Text node containing \n - split it
-                                const parts = node.textContent.split('\n');
-                                for (let i = 0; i < parts.length; i++) {
-                                    if (i > 0) {
-                                        lines.push(currentFragment);
-                                        currentFragment = document.createDocumentFragment();
-                                    }
-                                    if (parts[i] !== '') {
-                                        currentFragment.appendChild(document.createTextNode(parts[i]));
-                                    }
-                                }
-                            } else {
-                                currentFragment.appendChild(node.cloneNode(true));
-                            }
-                        }
-                        lines.push(currentFragment);
-
-                        // Create <p> elements for each line
-                        const paragraphs = [];
-                        for (const fragment of lines) {
-                            const p = document.createElement('p');
-                            if (fragment.childNodes.length === 0 || (fragment.childNodes.length === 1 && fragment.firstChild.nodeType === 3 && fragment.firstChild.textContent === '')) {
-                                p.innerHTML = '<br>';
-                            } else {
-                                p.appendChild(fragment);
-                            }
-                            paragraphs.push(p);
-                        }
-
-                        // Replace blockquote with paragraphs
-                        const firstP = paragraphs[0];
-                        currentLine.replaceWith(...paragraphs);
-                        setCursorToStart(firstP);
-                        syncMarkdown();
+                        return;
                     }
                     // Otherwise, let default backspace behavior handle it (delete previous char/br)
                     return;
@@ -11423,14 +12002,78 @@ class EditorInstance {
     });
 
     // BeforeInput handler - handle triple-click selection replacement
+    // sprint 20260724-160000 再オープン②(TASK-14): inline 要素（strong/em/del/code）の末尾境界に
+    // collapsed caret がある状態で printable 文字を入力すると、contenteditable が要素内に文字を挿入し
+    // 前の inline 書式を引きずる。作成直後・reload 後・全経路（palette/toolbar/直接マーキング）で発生する。
+    // → 入力の直前に caret を要素の外（後続 plain text node）へ出してから入力させる（direct-marking の
+    //   ZWSP 外出しと同発想を全要素・全経路に拡張。DOM に ZWSP sentinel が無い reload 後もこれで直る）。
+    // 既存の end-marker+space 脱出（checkInlineEscapeBeforeSpace）とは別経路（あちらは keydown space）。
+    function _exitInlineBoundaryBeforeInput(e) {
+        if (isSourceMode) return;
+        // ★ TASK-15(BLOCKER fix): insertText のみ対象。insertCompositionText（IME 変換中）は
+        //   beforeinput が cancelable:false なので preventDefault が no-op → 手動挿入がブラウザの
+        //   composition 挿入に二重に積まれ「ああい」等の IME データ破損になる。composition は横取りしない。
+        //   （IME 確定は insertText / insertFromComposition ではなく、確定後の通常入力で境界脱出が効く。
+        //    変換中に境界脱出しないのは許容 = 確定文字が inline 内に入っても、次の通常入力から外に出る）。
+        var it = e.inputType || '';
+        if (it !== 'insertText') return;
+        if (e.cancelable === false) return;   // 念のため: キャンセル不可なら手動挿入しない（二重挿入防止）
+        var sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return;
+        var range = sel.getRangeAt(0);
+        if (!range.collapsed) return;
+        var node = range.startContainer;
+        // caret が text node の末尾にあること
+        if (node.nodeType !== 3) return;
+        if (range.startOffset !== (node.textContent || '').length) return;
+        // その text node が inline 要素の（最後の子孫の）末尾で、次に兄弟が無い＝要素の末尾境界
+        var inlineTags = { strong: 1, b: 1, em: 1, i: 1, del: 1, s: 1, strike: 1, code: 1 };
+        // text node から上がって、末尾境界を成す最も外側の inline 要素を見つける
+        var cur = node;
+        var inlineEl = null;
+        while (cur && cur !== editor) {
+            if (cur.nextSibling) break;                     // 末尾境界でない（後ろに兄弟がある）
+            var p = cur.parentNode;
+            if (p && p.nodeType === 1 && inlineTags[p.tagName.toLowerCase()]) {
+                if (!p.closest || !p.closest('pre')) { inlineEl = p; }  // code block 内は除外
+                cur = p;
+                continue;
+            }
+            break;
+        }
+        if (!inlineEl) return;
+        // caret を inlineEl の直後の plain text node に移す（無ければ作る）。ここに入力させる。
+        e.preventDefault();
+        var parent = inlineEl.parentNode;
+        var afterNode = inlineEl.nextSibling;
+        if (!(afterNode && afterNode.nodeType === 3)) {
+            afterNode = document.createTextNode('');
+            if (inlineEl.nextSibling) { parent.insertBefore(afterNode, inlineEl.nextSibling); }
+            else { parent.appendChild(afterNode); }
+        }
+        // 入力しようとした文字を afterNode 先頭に挿入し、caret をその後ろへ
+        var data = e.data != null ? e.data : '';
+        afterNode.textContent = data + afterNode.textContent;
+        var nr = document.createRange();
+        nr.setStart(afterNode, data.length);
+        nr.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(nr);
+        if (typeof syncMarkdown === 'function') syncMarkdown();
+    }
+
     editor.addEventListener('beforeinput', function(e) {
         if (isSourceMode) return;
-        
+
+        // sprint 20260724-160000 TASK-14: inline 要素末尾境界での入力を要素外へ（引きずり防止・全経路/reload）
+        _exitInlineBoundaryBeforeInput(e);
+        if (e.defaultPrevented) return;
+
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
         const range = sel.getRangeAt(0);
-        
+
         // Only handle when there's a selection (not collapsed)
         if (range.collapsed) return;
         
@@ -12033,6 +12676,16 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'openInNewTab':
+                if (typeof host.openInNewTab === 'function') {
+                    host.openInNewTab();
+                }
+                break;
+            case 'exportBundle':
+                openExportDialog(function (options) {
+                    if (typeof host.exportBundle === 'function') host.exportBundle(options);
+                });
+                break;
             case 'attachments':
                 showAttachmentsPanel(e.target.closest('[data-action="attachments"]'));
                 break;
@@ -12041,12 +12694,51 @@ class EditorInstance {
                 openTranslatePopup(e.target.closest('[data-action="translate"]'));
                 break;
             }
+            case 'textColor': {
+                // sprint 20260724-160000: 色ボタン → swatch picker（ボタン下にアンカー）
+                openTextColorPicker(e.target.closest('[data-action="textColor"]'));
+                break;
+            }
             default:
                 // Shared actions (toolbar + command palette)
                 dispatchToolbarAction(action);
                 break;
         }
     });
+
+    // sprint 20260724-160000: 色 picker を開く（選択 range を保存 → pick で復元して適用）。
+    // toolbar ボタンからも command palette（saved range）からも使う。
+    function openTextColorPicker(anchorEl) {
+        const sel = window.getSelection();
+        // 現在の選択 range を保存（picker を開くと選択が失われるため）
+        let savedRange = null;
+        if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
+            savedRange = sel.getRangeAt(0).cloneRange();
+        } else if (commandPaletteSavedRange) {
+            savedRange = commandPaletteSavedRange.cloneRange();
+        }
+        if (!savedRange) return; // 選択なしは no-op
+        let px = 0, py = 0;
+        if (anchorEl && anchorEl.getBoundingClientRect) {
+            const r = anchorEl.getBoundingClientRect();
+            px = r.left; py = r.bottom + 2;
+        } else {
+            const rr = savedRange.getBoundingClientRect();
+            px = rr.left; py = rr.bottom + 2;
+        }
+        if (typeof window.showInlineColorPicker !== 'function') return;
+        window.showInlineColorPicker({
+            x: px, y: py,
+            noneLabel: (typeof i18n !== 'undefined' && i18n.textColorNone) || 'None',
+            onPick: function (hex) {
+                // 保存 range を復元してから適用
+                const s = window.getSelection();
+                s.removeAllRanges();
+                s.addRange(savedRange);
+                if (hex) { applyTextColor(hex); } else { removeTextColor(); }
+            },
+        });
+    }
 
     // Shared action dispatcher used by both toolbar and command palette
     function dispatchToolbarAction(action) {
@@ -12069,6 +12761,11 @@ class EditorInstance {
                     document.execCommand('insertHTML', false, '<code>' + codeSel.toString() + '</code>');
                     syncMarkdown();
                 }
+                break;
+            case 'textColor':
+                // sprint 20260724-160000: command palette 経由（palette が savedRange を selection に復元済み）。
+                // toolbar からは click switch の case 'textColor' が anchor 付きで呼ぶ（そちらが優先）。
+                openTextColorPicker(null);
                 break;
             case 'heading1':
             case 'heading2':
@@ -12338,6 +13035,7 @@ class EditorInstance {
         { group: 'inline', action: 'italic',        i18nKey: 'italic',        icon: 'italic' },
         { group: 'inline', action: 'strikethrough', i18nKey: 'strikethrough', icon: 'strikethrough' },
         { group: 'inline', action: 'code',          i18nKey: 'inlineCode',    icon: 'code' },
+        { group: 'inline', action: 'textColor',     i18nKey: 'textColor',     icon: 'palette' },
         // Group: Headings
         { group: 'headings', action: 'heading1', i18nKey: 'heading1', icon: 'heading1' },
         { group: 'headings', action: 'heading2', i18nKey: 'heading2', icon: 'heading2' },
@@ -12977,6 +13675,11 @@ class EditorInstance {
         var a = document.createElement('a');
         a.href = filePath;
         a.textContent = linkName;
+        // 新規ページ作成時のみ subpage（既存ファイルへの参照挿入は参照リンクのまま・ADRL-0003）
+        if (!isExistingFile) {
+            a.dataset.subpage = 'true';
+            a.className = 'link-internal-md link-subpage';
+        }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
             var range = sel2.getRangeAt(0);
@@ -13132,6 +13835,9 @@ class EditorInstance {
                 pcA.href = relativePath;
                 pcA.textContent = pcLinkText;
                 pcA.dataset.markdownPath = relativePath;
+                // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
+                pcA.dataset.subpage = 'true';
+                pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
                 } else {
@@ -13206,6 +13912,11 @@ class EditorInstance {
     if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', function() {
         closeSidebar();
     });
+
+    // Apply initial sidebar state from options (e.g. notes md pane defaults to closed)
+    if (this.options.sidebarHidden) {
+        closeSidebar();
+    }
 
     // REMOVED: Image/File directory settings button handlers (per-file directive feature removed)
 
@@ -13337,8 +14048,9 @@ class EditorInstance {
             var clean = (rel || '').split('?')[0].split('#')[0];
             // file://... → strip
             if (clean.startsWith('file://')) return clean.substring(7);
-            // /abs/path → そのまま
+            // /abs/path → そのまま（Windows: C:\ / C:/ ドライブレターも絶対扱い）
             if (clean.startsWith('/') && !clean.startsWith('//')) return clean;
+            if (/^[A-Za-z]:[\\/]/.test(clean)) return clean;
             // ./rel/ や rel/ → resolveImagePath + cleanImageSrc 経路
             try {
                 var resolved = (typeof resolveImagePath === 'function')
@@ -13482,6 +14194,11 @@ class EditorInstance {
     function notifyChangeImmediate() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        // Race guard: a destroyed instance must not save anymore. Otherwise
+        // a debounced sync (or an idle flush) belonging to the previous
+        // side-panel page can fire after navigation and write the current
+        // (visible) markdown to the OLD bridge's filePath.
+        if (self._destroyed) return;
         host.syncContent(markdown);
         updateOutline();
         updateWordCount();
@@ -13492,8 +14209,10 @@ class EditorInstance {
     function notifyChange() {
         // Only save if user has made edits (prevents saving on initial load)
         if (!hasUserEdited) return;
+        if (self._destroyed) return;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
+            if (self._destroyed) return;
             host.syncContent(markdown);
             updateOutline();
             updateWordCount();
@@ -13604,6 +14323,7 @@ class EditorInstance {
                     : imageDirDisplayPath;
             }
             statusImageDir.classList.toggle('is-locked', imageDirLocked);
+            statusImageDir.classList.toggle('is-editable', imageDirEditable);
         }
         if (statusFileDir) {
             const pathEl = container.querySelector('.filedir-path');
@@ -13614,6 +14334,7 @@ class EditorInstance {
                     : fileDirDisplayPath;
             }
             statusFileDir.classList.toggle('is-locked', fileDirLocked);
+            statusFileDir.classList.toggle('is-editable', fileDirEditable);
         }
     }
 
@@ -14537,6 +15258,42 @@ class EditorInstance {
         syncMarkdown();
     }
 
+    // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア。
+    // notes モードでは outliner/markdown の 2 ペインに帯があるため全 .fractal-resource-footer を更新。
+    // count/samplePath があれば data-rrf-template（{count}/{sample} プレースホルダ）を textContent で動的表示（XSS 回避で innerHTML 不使用）。
+    function updateResourceAccessFooter(outOfRange, count, samplePath) {
+        const footers = document.querySelectorAll('.fractal-resource-footer');
+        footers.forEach(function(footer) {
+            if (outOfRange && count > 0) {
+                footer.style.display = '';
+                const msgEl = footer.querySelector('.rrf-msg');
+                const tmpl = footer.getAttribute('data-rrf-template');
+                if (msgEl && tmpl) {
+                    // 関数置換で samplePath の $&/$1 等の特殊置換パターンによる意図せぬ展開を防ぐ。
+                    msgEl.textContent = tmpl
+                        .replace('{count}', function() { return String(count); })
+                        .replace('{sample}', function() { return samplePath || ''; });
+                }
+            } else {
+                footer.style.display = 'none';
+            }
+        });
+    }
+
+    // FR-RR-06: フッターの「設定を開く」ボタン → host.openResourceRootsSettings()
+    // isMainInstance ガードで main + side panel の二重登録を防ぐ（他の全 document listener と同書式）。
+    // さらに notes モードは editor.js と outliner.js を同一 document に両ロードするため、
+    // 共有グローバルフラグ window.__rrfClickWired で cross-script 二重登録も先勝ち 1 回に抑える。
+    if (isMainInstance && !window.__rrfClickWired) {
+        window.__rrfClickWired = true;
+        document.addEventListener('click', function(e) {
+            const btn = e.target && e.target.closest && e.target.closest('.rrf-open-settings');
+            if (btn && typeof host.openResourceRootsSettings === 'function') {
+                host.openResourceRootsSettings();
+            }
+        });
+    }
+
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
@@ -14545,8 +15302,50 @@ class EditorInstance {
             if (!message.markdown) return;
             undoManager.saveSnapshot();
             markAsEdited();
-            editor.focus();
-            _insertPastedMarkdown(message.markdown, { clipboardEvent: null, isInternal: true, plainText: '' });
+            // Restore the caret captured at paste-time. editor.focus() alone
+            // can collapse the selection to editor's first child when a
+            // contenteditable=false wrapper (mermaid/math) is in the path.
+            const snap = self._pendingPasteSelection;
+            self._pendingPasteSelection = null;
+            const restoredPlainText = (snap && snap.plainText) || '';
+            try {
+                if (snap && snap.startContainer && snap.startContainer.isConnected) {
+                    const r = document.createRange();
+                    r.setStart(snap.startContainer, snap.startOffset);
+                    r.setEnd(snap.endContainer || snap.startContainer,
+                             typeof snap.endOffset === 'number' ? snap.endOffset : snap.startOffset);
+                    const target = (snap.startContainer.nodeType === 1
+                        ? snap.startContainer
+                        : snap.startContainer.parentNode);
+                    let focusable = target;
+                    while (focusable && focusable !== editor) {
+                        if (focusable.nodeType === 1
+                            && focusable.getAttribute &&
+                            focusable.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable = focusable.parentNode;
+                    }
+                    if (focusable && focusable !== editor && typeof focusable.focus === 'function') {
+                        focusable.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr) {
+                logger.warn('paste selection restore failed:', restoreErr);
+                editor.focus();
+            }
+            _insertPastedMarkdown(message.markdown, {
+                clipboardEvent: null,
+                isInternal: true,
+                plainText: restoredPlainText
+            });
             return;
         }
         // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
@@ -14557,7 +15356,41 @@ class EditorInstance {
             if (!message.markdown) return;
             var pending = self._pendingDataUrlPaste || {};
             self._pendingDataUrlPaste = null;
-            editor.focus();
+            // Restore caret from snapshot (same reason as pasteWithAssetCopyResult)
+            try {
+                var snap2 = pending.selection;
+                if (snap2 && snap2.startContainer && snap2.startContainer.isConnected) {
+                    var r2 = document.createRange();
+                    r2.setStart(snap2.startContainer, snap2.startOffset);
+                    r2.setEnd(snap2.endContainer || snap2.startContainer,
+                              typeof snap2.endOffset === 'number' ? snap2.endOffset : snap2.startOffset);
+                    var target2 = (snap2.startContainer.nodeType === 1
+                        ? snap2.startContainer
+                        : snap2.startContainer.parentNode);
+                    var focusable2 = target2;
+                    while (focusable2 && focusable2 !== editor) {
+                        if (focusable2.nodeType === 1
+                            && focusable2.getAttribute &&
+                            focusable2.getAttribute('contenteditable') === 'true') {
+                            break;
+                        }
+                        focusable2 = focusable2.parentNode;
+                    }
+                    if (focusable2 && focusable2 !== editor && typeof focusable2.focus === 'function') {
+                        focusable2.focus({ preventScroll: true });
+                    } else {
+                        editor.focus();
+                    }
+                    var selR2 = window.getSelection();
+                    selR2.removeAllRanges();
+                    selR2.addRange(r2);
+                } else {
+                    editor.focus();
+                }
+            } catch (restoreErr2) {
+                logger.warn('extractDataUrlsInPastedMdResult selection restore failed:', restoreErr2);
+                editor.focus();
+            }
             _insertPastedMarkdown(message.markdown, {
                 clipboardEvent: null,
                 isInternal: !!pending.isInternal,
@@ -14653,30 +15486,38 @@ class EditorInstance {
             imageDirDisplayPath = message.displayPath;
             imageDirSource = message.source;
             imageDirLocked = !!message.locked;
+            imageDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'fileDirStatus') {
             fileDirDisplayPath = message.displayPath;
             fileDirSource = message.source;
             fileDirLocked = !!message.locked;
+            fileDirEditable = !!message.editable;
             updateStatus();
         } else if (message.type === 'sidePanelImageDirStatus') {
             updateSidePanelImageDir(message.displayPath, message.source, message.locked);
         } else if (message.type === 'sidePanelFileDirStatus') {
             updateSidePanelFileDir(message.displayPath, message.source, message.locked);
+        } else if (message.type === 'resourceAccessStatus') {
+            updateResourceAccessFooter(!!message.outOfRange, message.count || 0, message.samplePath);
         } else if (message.type === 'insertImageHtml') {
-            logger.log('insertImageHtml received, sidePanelImagePending:', sidePanelImagePending, 'markdownPath:', message.markdownPath);
-            // If image was requested from side panel, dispatch to side panel instance
-            if (sidePanelImagePending && sidePanelHostBridge) {
-                sidePanelImagePending = false;
-                sidePanelHostBridge._sendMessage({
-                    type: 'insertImageHtml',
-                    markdownPath: message.markdownPath,
-                    displayUri: message.displayUri,
-                    dataUri: message.dataUri
-                });
-                return;
+            logger.log('insertImageHtml received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): 宛先判定。message.sidePanelFilePath があれば sidepanel 宛。
+            // このインスタンスが該当 sidepanel を管理している（filePath 一致）ときだけ中継し、
+            // 管理していなければ何もしない（notes メインペイン md instance の誤挿入を防ぐ）。
+            // instance-local フラグ（sidePanelImagePending）依存は廃止（cross-instance で破れるため）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertImageHtml',
+                        markdownPath: message.markdownPath,
+                        displayUri: message.displayUri,
+                        dataUri: message.dataUri
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
             }
-            sidePanelImagePending = false;
+            // sidePanelFilePath 無し = 自分（この instance）宛 → 自分の editor に挿入
             // Insert image at cursor position
             const img = document.createElement('img');
             img.src = message.displayUri;
@@ -14806,7 +15647,19 @@ class EditorInstance {
             syncMarkdown();
             logger.log('Image element inserted');
         } else if (message.type === 'insertFileLink') {
-            logger.log('insertFileLink received, markdownPath:', message.markdownPath, 'fileName:', message.fileName);
+            logger.log('insertFileLink received, sidePanelFilePath:', message.sidePanelFilePath, 'markdownPath:', message.markdownPath);
+            // FR (cross-instance): insertImageHtml と同じ宛先判定。sidepanel 宛は自分に挿入せず、
+            // 自分が該当 sidepanel を管理していれば中継（standalone editor の file 添付 sidepanel 中継はここが担う）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertFileLink',
+                        markdownPath: message.markdownPath,
+                        fileName: message.fileName
+                    });
+                }
+                return; // sidepanel 宛は自分の editor に挿入しない
+            }
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
@@ -14890,35 +15743,38 @@ class EditorInstance {
             // Show toast notification for external change
             showExternalChangeToast(message.message);
         } else if (message.type === 'scrollToAnchor') {
-            // Scroll to anchor (heading) in the document
+            // Scroll to a heading in the document.
+            // Prefer headingIndex (deterministic, no slug mismatch); fall back to anchor slug.
             const anchor = message.anchor;
-            if (anchor) {
-                // Find heading by id or by text content
-                const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const headingIndex = (typeof message.headingIndex === 'number' && message.headingIndex >= 0)
+                ? message.headingIndex : null;
+            const headings = editor.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const scrollToHeading = function(heading) {
+                if (!heading) return;
+                const wrapper = editor.closest('.editor-wrapper');
+                if (wrapper) {
+                    const wrapperRect = wrapper.getBoundingClientRect();
+                    const headingRect = heading.getBoundingClientRect();
+                    wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
+                } else {
+                    heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                heading.style.transition = 'background-color 0.3s';
+                heading.style.backgroundColor = 'var(--selection-bg)';
+                setTimeout(() => { heading.style.backgroundColor = ''; }, 1500);
+            };
+            if (headingIndex !== null && headings[headingIndex]) {
+                scrollToHeading(headings[headingIndex]);
+            } else if (anchor) {
                 for (const heading of headings) {
-                    // Generate slug from heading text (same as GitHub-style anchor)
                     const headingText = heading.textContent || '';
                     const slug = headingText
                         .toLowerCase()
                         .trim()
-                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '') // Keep alphanumeric, Japanese, Chinese, Korean, hyphen
-                        .replace(/\s+/g, '-'); // Replace spaces with hyphens
-                    
+                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '')
+                        .replace(/\s+/g, '-');
                     if (slug === anchor || heading.id === anchor) {
-                        const wrapper = editor.closest('.editor-wrapper');
-                        if (wrapper) {
-                            const wrapperRect = wrapper.getBoundingClientRect();
-                            const headingRect = heading.getBoundingClientRect();
-                            wrapper.scrollTo({ top: wrapper.scrollTop + headingRect.top - wrapperRect.top, behavior: 'smooth' });
-                        } else {
-                            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }
-                        // Briefly highlight the heading
-                        heading.style.transition = 'background-color 0.3s';
-                        heading.style.backgroundColor = 'var(--selection-bg)';
-                        setTimeout(() => {
-                            heading.style.backgroundColor = '';
-                        }, 1500);
+                        scrollToHeading(heading);
                         break;
                     }
                 }
@@ -14966,6 +15822,15 @@ class EditorInstance {
                 sidePanelCanGoBack = !!spData.canGoBack;
                 sidePanelCanGoForward = !!spData.canGoForward;
                 applySidePanelNavButtonState();
+                return;
+            }
+            // Race guard: external 'update' may arrive after a navigation has
+            // switched the side panel to a different file. Drop stale updates
+            // whose filePath does not match the currently displayed file.
+            if (spData.type === 'update' && spData.filePath
+                && sidePanelFilePath && spData.filePath !== sidePanelFilePath) {
+                logger.log('[Any MD] dropping stale sidePanel update for', spData.filePath,
+                    '(current=', sidePanelFilePath, ')');
                 return;
             }
             // それ以外は side panel EditorInstance に dispatch
@@ -15041,7 +15906,7 @@ class EditorInstance {
     var sidePanel = container.querySelector('.side-panel');
     var sidePanelFilename = container.querySelector('.side-panel-filename');
     var sidePanelClose = container.querySelector('.side-panel-close');
-    var sidePanelOverlay = container.querySelector('.side-panel-overlay');
+    // sprint 20260724-042927: sidePanelOverlay 廃止（全モード）。
     var sidePanelIframeContainer = container.querySelector('.side-panel-iframe-container');
     var sidePanelSidebar = container.querySelector('.side-panel-sidebar');
     var sidePanelToc = container.querySelector('.side-panel-toc');
@@ -15061,6 +15926,10 @@ class EditorInstance {
     var sidePanelCustomWidth = null; // session-only resize width
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
+        // FR-C (cross-instance): notes の markdown pane は side-panel DOM を持たない（sidePanelIframeContainer=null）。
+        // sidepanel は outliner.js が管轄するので、editor.js md instance は浮遊 sidepanel instance / scope 汚染を作らず早期 return。
+        // standalone editor は side-panel DOM を持つので非 null → 従来どおり続行。
+        if (!sidePanelIframeContainer) return;
         // Close existing panel if open (panel switch, not full close — preserve nav history)
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
@@ -15101,12 +15970,10 @@ class EditorInstance {
         // Setup image dir display in side panel body
         setupSidePanelImageDir();
 
-        // Show panel with animation
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
         if (sidePanel) sidePanel.style.display = 'flex';
-        if (sidePanelOverlay) sidePanelOverlay.style.display = 'block';
         requestAnimationFrame(function() {
             if (sidePanel) sidePanel.classList.add('open');
-            if (sidePanelOverlay) sidePanelOverlay.classList.add('open');
         });
 
         // アニメーション完了後にエディタに自動フォーカス
@@ -15165,7 +16032,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        if (exportBtn) exportBtn.addEventListener('click', function() {
+            openExportDialog(function (options) {
+                // sidepanel で開いている md を root にする（sidePanelFilePath 付き）
+                if (sidePanelFilePath && typeof host.exportBundle === 'function') {
+                    host.exportBundle(options, sidePanelFilePath);
+                }
+            });
+        });
 
         if (navBackBtn) navBackBtn.addEventListener('click', function() {
             if (sidePanelFilePath) host.sidePanelNavigateBack(sidePanelFilePath);
@@ -15230,8 +16107,9 @@ class EditorInstance {
         // 仕様: heading が無くても outline は default ON で表示する。
         //   user が明示的に閉じた (sidePanelTocVisible=false) 時は隠す。
         if (toc && toc.length > 0) {
-            sidePanelToc.innerHTML = toc.map(function(item) {
+            sidePanelToc.innerHTML = toc.map(function(item, i) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
+                    '" data-heading-index="' + i +
                     '" data-anchor="' + escapeHtml(item.anchor) + '" title="' + escapeHtml(item.text) + '">' +
                     escapeHtml(item.text) + '</a>';
             }).join('');
@@ -15251,8 +16129,13 @@ class EditorInstance {
         sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(item) {
             item.addEventListener('click', function() {
                 var anchor = item.dataset.anchor;
+                var headingIndex = item.dataset.headingIndex;
                 if (sidePanelHostBridge) {
-                    sidePanelHostBridge._sendMessage({ type: 'scrollToAnchor', anchor: anchor });
+                    sidePanelHostBridge._sendMessage({
+                        type: 'scrollToAnchor',
+                        anchor: anchor,
+                        headingIndex: headingIndex != null ? parseInt(headingIndex, 10) : undefined,
+                    });
                 }
                 // Update active state
                 sidePanelToc.querySelectorAll('.side-panel-toc-item').forEach(function(i) {
@@ -15285,12 +16168,6 @@ class EditorInstance {
     }
 
     function setupSidePanelImageDir() {
-        // Settings button click handler
-        if (sidePanelImageDirBtn) {
-            sidePanelImageDirBtn.onclick = function() {
-                if (sidePanelHostBridge) sidePanelHostBridge.requestSetImageDir();
-            };
-        }
         // Request initial image dir status from host
         host.getSidePanelImageDir(sidePanelFilePath);
     }
@@ -15322,7 +16199,7 @@ class EditorInstance {
 
     function closeSidePanel() {
         sidePanel.classList.remove('open');
-        sidePanelOverlay.classList.remove('open');
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要・旧: null 無ガードで .out/.md single クラッシュ源）。
         setTimeout(function() {
             closeSidePanelImmediate();
         }, 200);
@@ -15336,7 +16213,7 @@ class EditorInstance {
         //   isSwitch=false (=ユーザー明示 close / 拡張 destroy) の時のみ notify する。
         if (!isSwitch) {
             if (sidePanel) sidePanel.style.display = 'none';
-            if (sidePanelOverlay) sidePanelOverlay.style.display = 'none';
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         // Reset expanded state
         if (sidePanelExpanded) {
@@ -15497,9 +16374,7 @@ class EditorInstance {
     if (sidePanelClose) {
         sidePanelClose.addEventListener('click', closeSidePanel);
     }
-    if (sidePanelOverlay) {
-        sidePanelOverlay.addEventListener('click', closeSidePanel);
-    }
+    // sprint 20260724-042927 (FR-SPC-03): overlay click → close を廃止（外側クリックで閉じない）。Esc は下で残す。
     if (isMainInstance) document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && sidePanel && sidePanel.classList.contains('open')) {
             // Don't close side panel if action panel or command palette is handling ESC
@@ -16247,14 +17122,33 @@ class EditorInstance {
         let filePath = null;
         let pathFileName = '';
 
+        // file:// URI → fs パス変換（cross-platform）。
+        // mac/Linux: 従来どおり `file://` を strip して decode（挙動不変）。
+        // Windows: `file:///C:/foo` の先頭 `/` を剥がし `\` 区切りにも対応（従来は /C:/foo の不正パスになっていた）。
+        function decodeFileUriToPath(uri) {
+            let p = decodeURIComponent(uri.replace('file://', ''));
+            // Windows drive letter: "/C:/..." → "C:/..."
+            if (/^\/[A-Za-z]:[\\/]/.test(p)) p = p.substring(1);
+            return p;
+        }
+        // basename 抽出（`/` と `\` の両区切り対応。mac は従来の split('/') と同結果）
+        function basenameOfPath(p) {
+            const parts = String(p || '').split(/[\\/]/);
+            return parts.pop();
+        }
+        // 素のテキストが絶対パスか（mac/Linux: 先頭 `/`＝従来判定そのまま。Windows: ドライブレター/UNC を追加許容）
+        function looksLikeAbsolutePath(p) {
+            return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
+        }
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    const decodedPath = decodeURIComponent(uri.replace('file://', ''));
+                    const decodedPath = decodeFileUriToPath(uri);
                     filePath = decodedPath;
-                    pathFileName = decodedPath.split('/').pop();
+                    pathFileName = basenameOfPath(decodedPath);
                     break;
                 }
             }
@@ -16263,13 +17157,13 @@ class EditorInstance {
         if (!filePath && plainText) {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
-                const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
+                const decodedPath = decodeFileUriToPath(plainText);
                 filePath = decodedPath;
-                pathFileName = decodedPath.split('/').pop();
-            } else if (plainText.startsWith('/')) {
+                pathFileName = basenameOfPath(decodedPath);
+            } else if (looksLikeAbsolutePath(plainText)) {
                 // Direct file path
                 filePath = plainText;
-                pathFileName = plainText.split('/').pop();
+                pathFileName = basenameOfPath(plainText);
             }
         }
 
@@ -16722,6 +17616,14 @@ class EditorInstance {
     editor.addEventListener('paste', function(e) {
         if (isSourceMode) return;
 
+        // sprint 20260724-160000 再オープン③(TASK-19): notes モードでは EditorInstance 再生成で
+        // 同一 .editor に paste リスナーが累積し、1 回の Ctrl+V で複数リスナーが発火 → 複数行 paste が
+        // 二重挿入される（2 行→4 行）。1 物理 paste = 1 挿入に coalesce する（同 tick ガード・全 instance 共有）。
+        // これは native paste 抑止（preventDefault）とは別: 二重の正体は JS+JS の複数リスナーなので JS 側で束ねる。
+        if (window.__fractalPasteInFlight) { e.preventDefault(); return; }
+        window.__fractalPasteInFlight = true;
+        setTimeout(function() { window.__fractalPasteInFlight = false; }, 0);
+
         // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
         // here so text/HTML paste still works when clipboard has no image.
         const kiroSkipImage = self._kiroImagePasteHandled === true;
@@ -16808,6 +17710,26 @@ class EditorInstance {
                 if (isCut && sameOutliner) {
                     // fallthrough → pastedMd = internalMd で内部挿入
                 } else {
+                    // Save current selection (range.startContainer / startOffset)
+                    // so the async pasteWithAssetCopyResult handler can restore
+                    // it. Without this, mermaid/math wrappers (contenteditable=false)
+                    // lose their inner caret on the editor.focus() roundtrip and
+                    // the paste lands at the top of the document.
+                    try {
+                        const sel0 = window.getSelection();
+                        if (sel0 && sel0.rangeCount > 0) {
+                            const r0 = sel0.getRangeAt(0).cloneRange();
+                            self._pendingPasteSelection = {
+                                startContainer: r0.startContainer,
+                                startOffset: r0.startOffset,
+                                endContainer: r0.endContainer,
+                                endOffset: r0.endOffset,
+                                plainText: e.clipboardData.getData('text/plain') || ''
+                            };
+                        }
+                    } catch (selErr) {
+                        logger.warn('paste selection snapshot failed:', selErr);
+                    }
                     host.pasteWithAssetCopy(internalMd, sourceCtx);
                     return; // Wait for pasteWithAssetCopyResult
                 }
@@ -16951,7 +17873,25 @@ class EditorInstance {
         if (pastedMd && pastedMd.indexOf('data:image/') >= 0 && typeof host.extractDataUrlsInPastedMd === 'function') {
             logger.log('Pasted MD contains data:image/, delegating to host for extraction');
             // 後の result handler で _insertPastedMarkdown するため、plainText を保持
-            self._pendingDataUrlPaste = { plainText: text || '', isInternal: !!internalMd };
+            // selection も保存して async result 受信時に復元する (mermaid/math 対応)
+            var selSnap = null;
+            try {
+                var selNow = window.getSelection();
+                if (selNow && selNow.rangeCount > 0) {
+                    var rNow = selNow.getRangeAt(0).cloneRange();
+                    selSnap = {
+                        startContainer: rNow.startContainer,
+                        startOffset: rNow.startOffset,
+                        endContainer: rNow.endContainer,
+                        endOffset: rNow.endOffset
+                    };
+                }
+            } catch (selSnapErr) { /* noop */ }
+            self._pendingDataUrlPaste = {
+                plainText: text || '',
+                isInternal: !!internalMd,
+                selection: selSnap
+            };
             host.extractDataUrlsInPastedMd(pastedMd);
             return;
         }
@@ -17050,18 +17990,39 @@ class EditorInstance {
         // Handle paste inside code block - insert as plain text
         if (codeElement || preElement) {
             logger.log('Paste inside code block');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty: pasteWithAssetCopyResult
+            // path passes plainText:'' but pastedMd contains the rewritten markdown,
+            // which for code-block paste is exactly the literal text we want.
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
-                const textNode = document.createTextNode(textToPaste);
-                range.insertNode(textNode);
-                
-                // Move cursor to end of inserted text
-                range.setStartAfter(textNode);
-                range.collapse(true);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                
+                // Code block: split on newlines and insert <br> between lines so
+                // multi-line paste becomes multiple visible lines (textNodes don't
+                // render \n inside contenteditable).
+                if (textToPaste.indexOf('\n') >= 0) {
+                    const lines = textToPaste.split('\n');
+                    const frag = document.createDocumentFragment();
+                    lines.forEach((line, idx) => {
+                        if (idx > 0) frag.appendChild(document.createElement('br'));
+                        if (line) frag.appendChild(document.createTextNode(line));
+                    });
+                    const lastChild = frag.lastChild;
+                    range.insertNode(frag);
+                    if (lastChild) {
+                        range.setStartAfter(lastChild);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                } else {
+                    const textNode = document.createTextNode(textToPaste);
+                    range.insertNode(textNode);
+                    range.setStartAfter(textNode);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+
                 syncMarkdownSync();
                 logger.log('Code block paste completed');
             }
@@ -17071,7 +18032,8 @@ class EditorInstance {
         // Handle paste inside blockquote - insert as plain text (preserving line breaks as <br>)
         if (blockquoteElement) {
             logger.log('Paste inside blockquote');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -17115,7 +18077,8 @@ class EditorInstance {
         
         if (tableCellElement) {
             logger.log('Paste inside table cell');
-            const textToPaste = plainText;
+            // Fallback to pastedMd when plainText is empty (pasteWithAssetCopyResult path)
+            const textToPaste = plainText || pastedMd;
             if (textToPaste) {
                 range.deleteContents();
                 
@@ -17191,6 +18154,56 @@ class EditorInstance {
                     return;
                 }
                 // If selection spans multiple lines, fall through to normal paste
+            }
+
+            // File path auto-link on paste (FR-PA-01/02/03)
+            // URL と同じ経路で、拡張子付きファイルパスを貼ったらリンク/画像化する。
+            // URL 判定を先に通しているので http(s) はここに来ない（classifyPastedPath も保険で除外）。
+            var pathInfo = (window.__editorUtils && window.__editorUtils.classifyPastedPath)
+                ? window.__editorUtils.classifyPastedPath(plainText) : null;
+            if (pathInfo && !plainText.trim().includes('\n')) {
+                const selText = range.toString();
+                if (selText && !selText.includes('\n')) {
+                    // 選択あり → [選択](path)（画像パスでも選択時はリンクラベル優先＝URL wrap と同じ）
+                    const a = document.createElement('a');
+                    a.href = pathInfo.path;
+                    a.textContent = selText;
+                    range.deleteContents();
+                    range.insertNode(a);
+                    const nr = document.createRange();
+                    nr.setStartAfter(a); nr.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(nr);
+                    syncMarkdown();
+                    return;
+                } else if (!selText || selText.trim() === '') {
+                    if (pathInfo.isImage) {
+                        // 画像 → ![base](path)。<img> を挿入（syncMarkdown が ![]() に変換）。
+                        const img = document.createElement('img');
+                        img.src = resolveImagePath(pathInfo.path);
+                        img.alt = pathInfo.base;
+                        img.setAttribute('data-markdown-path', pathInfo.path);
+                        img.style.maxWidth = '100%';
+                        range.deleteContents();
+                        range.insertNode(img);
+                        const nr = document.createRange();
+                        nr.setStartAfter(img); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    } else {
+                        // 非画像 → [base](path)
+                        const a = document.createElement('a');
+                        a.href = pathInfo.path;
+                        a.textContent = pathInfo.base;
+                        range.deleteContents();
+                        range.insertNode(a);
+                        const nr = document.createRange();
+                        nr.setStartAfter(a); nr.collapse(true);
+                        sel.removeAllRanges(); sel.addRange(nr);
+                        syncMarkdown();
+                        return;
+                    }
+                }
             }
         }
 
@@ -17386,6 +18399,26 @@ class EditorInstance {
                     
                     logger.log('Block paste - inserted pasted list items after current li');
                 }
+            } else if (listItemElement && parentListElement &&
+                       newElements.length > 0 && newElements.every(el => el.tagName === 'P')) {
+                // sprint 20260725: リスト項目にカーソルがある状態で「プレーンな複数行テキスト」を paste した場合、
+                // 各行を兄弟 <li> として現在の項目の後ろに挿入する（従来はリスト全体の後ろに <p> が漏れていた）。
+                // markdownToHtmlFragment がプレーン複数行を <p>×N に変換する → 全要素が P のときだけこの分岐。
+                // table(TABLE)/heading(H1..)/code(PRE)/nested-list(UL/OL) は P 以外を含むので該当せず従来経路（standard else）。
+                let insertAfterLi = listItemElement;
+                const parentList = listItemElement.parentNode;
+                newElements.forEach(pEl => {
+                    const li = document.createElement('li');
+                    li.innerHTML = pEl.innerHTML || '<br>';
+                    if (insertAfterLi.nextSibling) {
+                        parentList.insertBefore(li, insertAfterLi.nextSibling);
+                    } else {
+                        parentList.appendChild(li);
+                    }
+                    insertAfterLi = li;
+                    lastInsertedElement = li;
+                });
+                logger.log('Block paste - inserted multiline plain text as sibling <li>s');
             } else {
                 // Standard block paste behavior (non-list or pasting into non-list)
                 // Find the current block element
@@ -17907,6 +18940,20 @@ class EditorInstance {
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;
+        // sprint 20260724-160000: インライン文字色。toolbar/palette が最終的に呼ぶ apply/remove を直接叩く
+        //（standalone-editor は #toolbar が空 DOM で live ボタンが無いため、選択に対し関数を直接検証する）。
+        window.__testApi.applyTextColor = (hex) => applyTextColor(hex);
+        window.__testApi.removeTextColor = () => removeTextColor();
+        window.__testApi.openTextColorPicker = (anchor) => openTextColorPicker(anchor || null);
+        // sprint 20260724-160000 再オープン③(TASK-18): toolbar/palette 相当の実 applyInlineFormat を検証する
+        window.__testApi.applyInlineFormat = (tagName) => applyInlineFormat(tagName);
+        // subpage serialize 分岐の on/off（TC-SP-10 counterfactual: false で [[]] → [] 劣化を機械実証）
+        window.__testApi.__setSubpageSerialize = (v) => { _subpageSerializeEnabled = !!v; };
+        // finalizeAddPage を直接呼ぶ（TC-SP-15: action panel 経由 = 新規/既存で subpage 分岐を検証）
+        window.__testApi.__finalizeAddPage = (filePath, linkName, isExistingFile) => {
+            actionPanelState.isExistingFile = !!isExistingFile;
+            finalizeAddPage(filePath, linkName);
+        };
         window.__testApi.ready = true;
         
         // Table operation functions for testing
@@ -17951,6 +18998,28 @@ class EditorInstance {
             set: (value) => { markdown = value; }
         });
     }
+
+    // Expose closure-scoped pending timers + cancel hook so destroy() can
+    // cancel them. Without this, a stale debounced sync (1000ms / 300ms /
+    // 1500ms idle flush) belonging to the OLD side-panel instance fires
+    // *after* the side panel has navigated, calling host.syncContent on
+    // an already-destroyed bridge — which is one of the contributors to
+    // the "back button overwrites parent markdown" race.
+    self._cancelPendingSync = function() {
+        try { if (saveTimeout) clearTimeout(saveTimeout); } catch (e) {}
+        try { if (syncTimeout) clearTimeout(syncTimeout); } catch (e) {}
+        try { if (editingIdleTimer) clearTimeout(editingIdleTimer); } catch (e) {}
+        saveTimeout = null;
+        syncTimeout = null;
+        editingIdleTimer = null;
+        pendingSync = false;
+    };
+    // sprint 20260723-233506: タブ切替/unload の前に debounce 未送信編集を即 host へ送る（NFR-TAB-03・flush 二段）。
+    // destroy（_cancelPendingSync で timer 破棄）より前に呼ぶこと。_destroyed 前提。
+    self.flushPendingSync = function() {
+        if (self._destroyed) return;
+        try { notifyChangeImmediate(); } catch (e) { console.error('[flushPendingSync]', e); }
+    };
     } // end _legacyInit()
 } // end class EditorInstance
 

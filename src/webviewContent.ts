@@ -24,6 +24,7 @@ interface EditorConfig {
     enableDebugLogging?: boolean;
     isOutlinerPage?: boolean;
     showTranslateButtons?: boolean;
+    showOpenInTextEditor?: boolean;
     imageMaxWidth?: number;
 }
 
@@ -62,6 +63,7 @@ export function getWebviewContent(
         enableDebugLogging: config?.enableDebugLogging ?? false,
         isOutlinerPage: config?.isOutlinerPage ?? false,
         showTranslateButtons: config?.showTranslateButtons ?? false,
+        showOpenInTextEditor: config?.showOpenInTextEditor ?? true,
         imageMaxWidth: typeof config?.imageMaxWidth === 'number' && config!.imageMaxWidth >= 100
             ? config!.imageMaxWidth : 600
     };
@@ -102,6 +104,14 @@ export function getWebviewContent(
 
     const editorUtilsScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor-utils.js'), 'utf8');
+    // sprint 20260724-160000: インライン文字色の共有 core + 20色パレット + ピッカー
+    //（editor.js より前に window.InlineColor / NOTES_COLOR_PALETTE / showInlineColorPicker を用意）
+    const inlineColorScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color.js'), 'utf8');
+    const colorPaletteScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
+    const inlineColorPickerScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
 
     // Vendor library URIs (local instead of CDN)
     const vendorDir = path.join(__dirname, '..', 'vendor');
@@ -124,7 +134,7 @@ export function getWebviewContent(
         .replace('__CONTENT__', `'${base64Content}'`);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${safeConfig.theme}" data-fr-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}">
+<html lang="en" data-theme="${safeConfig.theme}" data-fr-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}" data-show-open-in-text-editor="${String(safeConfig.showOpenInTextEditor ?? true)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -159,6 +169,15 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${editorUtilsScript}
+    </script>
+    <script nonce="${nonce}">
+        ${colorPaletteScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorScript}
+    </script>
+    <script nonce="${nonce}">
+        ${inlineColorPickerScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

@@ -1,0 +1,59 @@
+id: N06
+name: Flow Completeness
+group: clarity
+threshold: 8
+model_tier: smart
+
+tools: []
+
+system_prompt: |
+  You are reviewing whether described flows cover both happy paths AND error/edge cases.
+
+  WHAT TO CHECK:
+  1. Every user flow describes what happens when things go RIGHT
+  2. Every user flow describes what happens when things go WRONG
+  3. Edge cases are explicitly addressed (empty states, boundary values, race conditions)
+  4. Error handling specifies WHAT error, WHO sees it, and WHAT they can do about it
+  5. Concurrent/timing scenarios are addressed where relevant
+
+  EXAMPLES OF BAD (INCOMPLETE) FLOWS:
+  - "User places an order. The system validates it and creates the order." -> What if validation fails?
+  - "The system fetches prices from the exchange." -> What if the exchange is down?
+  - "User logs in with their credentials." -> What about wrong password? Account locked? 2FA?
+
+  EXAMPLES OF GOOD (COMPLETE) FLOWS:
+  - "User places an order: Happy: System validates balance, creates order, returns confirmation. Insufficient balance: Returns error with current balance. Invalid symbol: Returns error with valid symbols. Exchange unavailable: Queues for retry, notifies user."
+
+
+  CRITICAL RULES:
+  1. ONLY report findings with EXACT quoted text from the document.
+  2. Do NOT invent examples or fabricate findings.
+  3. Every finding MUST include text that actually appears in the spec.
+  4. If deterministic tools found 0 issues, that is strong evidence the document is clean.
+
+  Use any available tools as evidence, then apply your judgment.
+
+  SCORING RUBRIC:
+  - Score 10: Every flow covers happy path, error cases, and edge cases explicitly.
+  - Score 8: Most flows are complete, 1-2 minor edge cases not addressed.
+  - Score 5: Happy paths are described but error handling is sparse or generic.
+  - Score 3: Only happy paths described. Errors mentioned generically.
+  - Score 0: No error paths, no edge cases.
+
+  Return ONLY valid JSON:
+  {"score": N, "reasoning": "...", "suggestions": ["..."], "findings": [{"line": N, "text": "...", "issue": "..."}]}
+
+examples:
+  bad:
+    - text: "User places an order. The system validates it and creates the order."
+      issue: "No error/failure path described"
+      fix: "Add what happens when validation fails, exchange is down, etc."
+  good:
+    - text: "User places an order: Happy path returns confirmation. Insufficient balance returns error with current balance."
+
+scoring:
+  10: Every flow covers happy path, error cases, and edge cases.
+  8: Most flows complete, 1-2 minor edge cases not addressed.
+  5: Happy paths described but error handling sparse.
+  3: Only happy paths described.
+  0: No error paths, no edge cases.

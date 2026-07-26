@@ -1,0 +1,31 @@
+project:
+  name: fractal
+  spec_location: docs/specs
+  adrs_location: docs/adrs
+  research_location: docs/research
+  remote: local
+hooks:
+  pre_push:
+    spec_check: false
+    task_check: false
+spec_check:
+  model: us.anthropic.claude-sonnet-4-6
+  timeout: 60
+  global_timeout: 120
+  concurrency: 10
+  results_path: .odk/spec-check-results.json
+  thresholds:
+    completeness: 8
+    clarity: 8
+    architecture: 8
+  custom: []
+task_management:
+  dag_validation: true
+  coverage_check: true
+execution:
+  max_parallel_agents: 5
+  task_timeout_minutes: 30
+  worktree_isolation: true
+aws:
+  profile: ''
+  region: us-east-1

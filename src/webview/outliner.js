@@ -22,6 +22,9 @@ var Outliner = (function() {
 
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
+    // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
+    // focus 要素へのブラウザ自動スクロールが復元 scrollTop を上書きするのを防ぐ。
+    var _suppressFocusScroll = false;
     var currentSearchResult = null;  // Set<string> or null
     var searchFocusMode = false;     // true: マッチノード頂点+子のみ, false: ルートまで表示
     var pageDir = null;              // outファイル個別のpageDir設定
@@ -46,33 +49,87 @@ var Outliner = (function() {
     //   'table'           : 列ヘッダー + 各 outliner row に列セルを並べる (table editor)
     // 列定義は model.columns で永続化、各 node の値は node.columnValues で保持。
     // F2.1 段階では 'table' は stub (= outliner と同じ描画)。F2.2 で実装。
+    // Mindmap Mode (sprint 20260701-122355): 'outliner' | 'table' | 'mindmap' の 3 状態。
     var VIEW_MODE = 'outliner';
     function getViewMode() { return VIEW_MODE; }
     function setViewMode(mode) {
-        if (mode !== 'outliner' && mode !== 'table') return;
+        if (mode !== 'outliner' && mode !== 'table' && mode !== 'mindmap') return;
         if (VIEW_MODE === mode) return;
+        var prev = VIEW_MODE;
         VIEW_MODE = mode;
+        // model にも反映 → serialize で永続化 (#M6, decision-persistence)
+        if (model) { model.viewMode = mode; }
         if (mode === 'table') ensureColumnsForTable();
         if (treeEl) {
-            // table mode → outliner に戻す時は inline grid styles を解除
-            if (mode === 'outliner') {
+            // table/mindmap → outliner に戻す時は inline grid/mindmap styles を解除
+            if (mode !== 'table') {
                 treeEl.style.display = '';
                 treeEl.style.gridTemplateColumns = '';
                 treeEl.style.width = '';
                 treeEl.style.minWidth = '';
             }
+            // mindmap から離れる時は mindmap DOM/リスナを破棄
+            if (prev === 'mindmap' && mode !== 'mindmap' &&
+                typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                MindmapRender.destroy();
+            }
             renderTree();
         }
         updateViewToggleButton();
+        updateHeaderForViewMode(); // [K] iteration 29 / TASK-77
+        scheduleSyncToHost();
     }
     function updateViewToggleButton() {
         if (!viewToggleBtn) return;
-        // 現在 outliner なら「table に切替えたい」アイコン (table icon)
-        // 現在 table なら「outliner に切替えたい」アイコン (outline icon)
-        viewToggleBtn.innerHTML = (VIEW_MODE === 'outliner') ? ICON_VIEW_TABLE : ICON_VIEW_OUTLINE;
-        viewToggleBtn.title = (VIEW_MODE === 'outliner')
-            ? 'Switch to Table view'
-            : 'Switch to Outline view';
+        // 3 状態循環: 現在のモードから「次に切替わるモード」のアイコン/ラベルを表示。
+        //   outliner → (押すと) table, table → mindmap, mindmap → outliner
+        if (VIEW_MODE === 'outliner') {
+            viewToggleBtn.innerHTML = ICON_VIEW_TABLE;
+            viewToggleBtn.title = 'Switch to Table view';
+        } else if (VIEW_MODE === 'table') {
+            viewToggleBtn.innerHTML = ICON_VIEW_MINDMAP;
+            viewToggleBtn.title = 'Switch to Mindmap mode';
+        } else { // mindmap
+            viewToggleBtn.innerHTML = ICON_VIEW_OUTLINE;
+            viewToggleBtn.title = 'Switch to Outline view';
+        }
+    }
+    function nextViewMode(mode) {
+        return mode === 'outliner' ? 'table' : (mode === 'table' ? 'mindmap' : 'outliner');
+    }
+
+    /** [K] iteration 29 / TASK-77: mindmap モードでは使わないヘッダーボタンをグレーアウト
+     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box。
+     *  使わないボタン: task-mode / task-filter / archive / menu / nav-back / nav-forward /
+     *  search-mode-toggle。mindmap を抜けると解除 (元の enabled 状態へ戻す)。
+     *  undo/redo の disabled は履歴状態 (updateUndoRedoButtons) が管理するので触らない。
+     *  S3 sync button は Note mode の HTML にのみ存在 (Single mode には無い) → 存在時のみ制御。 */
+    function updateHeaderForViewMode() {
+        var isMindmap = (VIEW_MODE === 'mindmap');
+        // 「mindmap で使わない」ボタン群 → mindmap 時 disabled、それ以外は解除。
+        var disableInMindmap = [
+            taskModeToggleBtn, taskFilterToggleBtn, archiveBtn, menuBtn,
+            navBackBtn, navForwardBtn, searchModeToggleBtn
+        ];
+        for (var i = 0; i < disableInMindmap.length; i++) {
+            var b = disableInMindmap[i];
+            if (!b) { continue; }
+            if (isMindmap) {
+                b.classList.add('is-mindmap-disabled');
+                b.setAttribute('disabled', '');
+            } else {
+                b.classList.remove('is-mindmap-disabled');
+                // nav-back/forward は履歴状態で別途 disabled 制御されるため、
+                // mindmap 由来の disabled のみ外す (履歴側は updateNavButtons が再設定)。
+                b.removeAttribute('disabled');
+            }
+        }
+        // nav ボタンの履歴状態を復元 (mindmap 解除後)。
+        if (!isMindmap && typeof updateNavButtons === 'function') {
+            try { updateNavButtons(); } catch (e) { /* noop */ }
+        }
+        // 使うボタン (search / undo / redo / view-toggle) は触らない
+        // (それぞれの状態管理に委ねる)。
     }
 
 
@@ -237,6 +294,10 @@ var Outliner = (function() {
     var taskFilterToggleBtn = null;  // 全て / 処理中 切替 (タスクモード ON 時のみ表示)
     var archiveBtn = null;           // 完了タスクを Daily Notes に archive
     var contextMenuEl = null;
+    // sprint 20260724-160000: 右クリック文字色メニュー用の選択保存
+    // 再オープン②(TASK-13): Range でなく source-offset 数値で保持（focus 再レンダーに強い）
+    var _contextTextEl = null;
+    var _contextColorOffsets = null;   // { start, end } source offsets, or null (=node 全体)
 
     var syncDebounceTimer = null;
     /** v0.207.40: 最後に host に送った serialize 結果。flushSync が「実編集ありか」を
@@ -297,7 +358,10 @@ var Outliner = (function() {
         // Phase F2: 列定義は model 側で serialize されるので known
         'columns',
         // タスクモード関連 (model 経由で serialize)
-        'taskMode', 'taskFilter'
+        'taskMode', 'taskFilter',
+        // Mindmap Mode (sprint 20260701-122355): model 側で serialize されるので known
+        // (rawDataExtras に二重取り込みしない #M6)
+        'viewMode', 'mindmap'
     ];
 
     function captureRawDataExtras(data) {
@@ -731,6 +795,8 @@ var Outliner = (function() {
     // Phase F3: outliner / table view 切替アイコン
     var ICON_VIEW_OUTLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
     var ICON_VIEW_TABLE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="16" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+    // Mindmap Mode (sprint 20260701-122355): 中心ノードから枝が伸びるアイコン
+    var ICON_VIEW_MINDMAP = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><line x1="7.3" y1="11" x2="17" y2="6.8"/><line x1="7.3" y1="13" x2="17" y2="17.2"/></svg>';
     // タスクモード: チェックボックス square + check
     var ICON_TASK_MODE = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
     // フィルタ: 漏斗 (active 時 fill あり)
@@ -747,6 +813,10 @@ var Outliner = (function() {
         if (outFileKey) {
             currentOutFileKey = outFileKey;
         }
+        // Mindmap Mode (sprint 20260701-122355): model が復元した viewMode を runtime に同期。
+        // 旧 .out は 'outliner'。table/mindmap を永続化していれば復元する (decision-persistence)。
+        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
+            ? model.viewMode : 'outliner';
 
         // JSONから検索モードを復元
         if (data && data.searchFocusMode) {
@@ -822,7 +892,7 @@ var Outliner = (function() {
         if (viewToggleBtn) {
             updateViewToggleButton();
             viewToggleBtn.addEventListener('click', function () {
-                setViewMode(VIEW_MODE === 'outliner' ? 'table' : 'outliner');
+                setViewMode(nextViewMode(VIEW_MODE));
                 updateViewToggleButton();
             });
         }
@@ -855,13 +925,20 @@ var Outliner = (function() {
         setupHostMessages();
         setupTextSearchReplace();
         initSidePanel();
-        setupS3SyncButton();
+        setupResourceRootsFooter();
+
+        // [K] iteration 29 / TASK-77: 初期 VIEW_MODE (mindmap で開いた場合) のヘッダー状態を反映。
+        updateHeaderForViewMode();
 
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
 
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
+            // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
+            //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
+            //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -873,6 +950,8 @@ var Outliner = (function() {
             e.preventDefault();
         });
         treeEl.addEventListener('drop', function(e) {
+            // FR-MM-FD: mindmap では mindmap-interactions の drop リスナーが扱う（上記 dragover と同理由）。
+            if (VIEW_MODE === 'mindmap') { return; }
             // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
                 // Finder path
@@ -999,14 +1078,27 @@ var Outliner = (function() {
         });
     }
 
-    /** Handle Files D&D drop event */
+    /**
+     * Handle Files D&D drop event.
+     *
+     * Two paths depending on size:
+     *   - Buffered (≤ 50MB): existing FileReader path → host.dropFilesImport
+     *   - Streamed (50MB < size ≤ 1GB): chunked transfer via dropStream*
+     *
+     * Limits (large path): 1GB per file, 1GB total per drop, max 10 files.
+     */
     async function handleFilesDrop(e, targetNodeId, position) {
         var dt = e.dataTransfer;
-        var items = [];
+        var bufferedItems = [];   // ≤ 50MB → existing buffered import
+        var streamItems = [];     // > 50MB → streaming import (only "file" kind)
         var rejectedFolders = [];
-        var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        var BUFFER_THRESHOLD = 50 * 1024 * 1024;        // 50MB → existing path boundary
+        var MAX_PER_FILE     = 1024 * 1024 * 1024;      // 1GB hard cap (per file)
+        var MAX_TOTAL        = 1024 * 1024 * 1024;      // 1GB hard cap (per drop)
+        var MAX_STREAM_FILES = 10;
+        var streamTotal = 0;
 
-        // 1. Filter out folders and oversized files
+        // 1. Triage items
         for (var i = 0; i < dt.items.length; i++) {
             var item = dt.items[i];
             var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
@@ -1015,38 +1107,195 @@ var Outliner = (function() {
                 continue;
             }
             var file = item.getAsFile();
-            if (file) {
-                if (file.size > MAX_FILE_SIZE) {
-                    host.notifyDropFileTooLarge(file.name);
-                    continue;
-                }
-                items.push(file);
+            if (!file) continue;
+
+            if (file.size <= BUFFER_THRESHOLD) {
+                bufferedItems.push(file);
+                continue;
             }
+
+            if (file.size > MAX_PER_FILE) {
+                host.notifyDropFileTooLarge(file.name + ' (>1GB)');
+                continue;
+            }
+            if (streamItems.length >= MAX_STREAM_FILES) {
+                host.notifyDropFileTooLarge(file.name + ' (max 10 large files per drop)');
+                continue;
+            }
+            if (streamTotal + file.size > MAX_TOTAL) {
+                host.notifyDropFileTooLarge(file.name + ' (drop exceeds 1GB total)');
+                continue;
+            }
+            streamTotal += file.size;
+            streamItems.push(file);
         }
 
         if (rejectedFolders.length > 0) {
             host.notifyDropFolderRejected(rejectedFolders);
         }
-        if (items.length === 0) return;
+        if (bufferedItems.length === 0 && streamItems.length === 0) return;
 
-        // 2. Read each file by kind
-        var imports = [];
-        for (var j = 0; j < items.length; j++) {
-            var f = items[j];
-            var kind = classifyDroppedFile(f);
-            try {
-                var content = await readFileByKind(f, kind);
-                imports.push({ kind: kind, name: f.name, ...content });
-            } catch (err) {
-                // Skip failed reads
-                console.warn('Failed to read file:', f.name, err);
+        // 2. Buffered path (existing): read via FileReader → dropFilesImport
+        if (bufferedItems.length > 0) {
+            var imports = [];
+            for (var j = 0; j < bufferedItems.length; j++) {
+                var bf = bufferedItems[j];
+                var kind = classifyDroppedFile(bf);
+                try {
+                    var content = await readFileByKind(bf, kind);
+                    imports.push({ kind: kind, name: bf.name, ...content });
+                } catch (err) {
+                    console.warn('Failed to read file:', bf.name, err);
+                }
+            }
+            if (imports.length > 0) {
+                host.dropFilesImport(imports, targetNodeId, position);
             }
         }
 
-        if (imports.length === 0) return;
+        // 3. Streaming path: chunk over postMessage with ack-based back-pressure
+        if (streamItems.length > 0) {
+            await streamLargeFiles(streamItems, targetNodeId, position);
+        }
+    }
 
-        // 3. Send to host
-        host.dropFilesImport(imports, targetNodeId, position);
+    /**
+     * Stream a list of large files to the host one chunk at a time.
+     * Uses postMessage ACK as back-pressure (next chunk only after dropStreamAck).
+     */
+    async function streamLargeFiles(files, targetNodeId, position) {
+        var CHUNK_SIZE = 4 * 1024 * 1024; // 4MiB
+        var sessionId = 'ds-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+
+        // Per-session reply router. Each fileId has pending begin/ack/fail/end resolvers.
+        var pending = new Map();
+
+        function getPending(fileId) {
+            var p = pending.get(fileId);
+            if (p) return p;
+            p = {
+                ackSeq: -1,
+                ackResolvers: [],   // { seq, resolve }
+                readyResolve: null,
+                failed: null
+            };
+            pending.set(fileId, p);
+            return p;
+        }
+
+        function onAck(fileId, seq) {
+            var p = getPending(fileId);
+            p.ackSeq = Math.max(p.ackSeq, seq);
+            for (var k = p.ackResolvers.length - 1; k >= 0; k--) {
+                if (p.ackResolvers[k].seq <= p.ackSeq) {
+                    var r = p.ackResolvers.splice(k, 1)[0];
+                    r.resolve();
+                }
+            }
+        }
+
+        var sessionListener = function(ev) {
+            var msg = ev.data;
+            if (!msg || msg.sessionId !== sessionId) return;
+            switch (msg.type) {
+                case 'dropStreamReady': {
+                    var pr = getPending(msg.fileId);
+                    if (pr.readyResolve) { pr.readyResolve(); pr.readyResolve = null; }
+                    break;
+                }
+                case 'dropStreamAck':
+                    onAck(msg.fileId, msg.seq);
+                    break;
+                case 'dropStreamFailed': {
+                    var pf = getPending(msg.fileId);
+                    pf.failed = msg.error || 'unknown';
+                    if (pf.readyResolve) { pf.readyResolve(); pf.readyResolve = null; }
+                    // Wake any pending ack waiters so they fail fast
+                    while (pf.ackResolvers.length) pf.ackResolvers.pop().resolve();
+                    break;
+                }
+                case 'dropStreamCancel':
+                    // Host-initiated cancel (notification cancel button). Abort all.
+                    pending.forEach(function(pp) {
+                        pp.failed = pp.failed || 'cancelled';
+                        if (pp.readyResolve) { pp.readyResolve(); pp.readyResolve = null; }
+                        while (pp.ackResolvers.length) pp.ackResolvers.pop().resolve();
+                    });
+                    break;
+            }
+        };
+        window.addEventListener('message', sessionListener);
+
+        try {
+            for (var fi = 0; fi < files.length; fi++) {
+                var f = files[fi];
+                var fileId = 'f-' + fi + '-' + Math.random().toString(36).slice(2, 8);
+                var pr = getPending(fileId);
+
+                // Begin → wait for Ready
+                var readyPromise = new Promise(function(resolve) { pr.readyResolve = resolve; });
+                host.dropStreamBegin({
+                    sessionId: sessionId,
+                    fileId: fileId,
+                    name: f.name,
+                    size: f.size,
+                    targetNodeId: targetNodeId,
+                    position: position,
+                    totalFiles: files.length,
+                    isFirst: fi === 0
+                });
+                await readyPromise;
+                if (pr.failed) {
+                    console.warn('Stream begin failed:', f.name, pr.failed);
+                    continue;
+                }
+
+                // Pump chunks with ack-based back-pressure
+                var seq = 0;
+                var offset = 0;
+                var aborted = false;
+                while (offset < f.size) {
+                    if (pr.failed) { aborted = true; break; }
+                    var end = Math.min(offset + CHUNK_SIZE, f.size);
+                    var slice = f.slice(offset, end);
+                    var arrBuf = await slice.arrayBuffer();
+                    var b64 = arrayBufferToBase64(arrBuf);
+
+                    var thisSeq = seq++;
+                    var ackPromise = new Promise(function(resolve) {
+                        pr.ackResolvers.push({ seq: thisSeq, resolve: resolve });
+                    });
+
+                    host.dropStreamChunk({
+                        sessionId: sessionId,
+                        fileId: fileId,
+                        seq: thisSeq,
+                        bytesB64: b64
+                    });
+
+                    await ackPromise;
+                    offset = end;
+                }
+
+                if (!aborted && !pr.failed) {
+                    host.dropStreamFileEnd({ sessionId: sessionId, fileId: fileId });
+                }
+            }
+        } finally {
+            host.dropStreamSessionEnd({ sessionId: sessionId });
+            window.removeEventListener('message', sessionListener);
+        }
+    }
+
+    /** Encode an ArrayBuffer to base64 in chunks (avoids "argument list too long" on big buffers). */
+    function arrayBufferToBase64(buf) {
+        var bytes = new Uint8Array(buf);
+        var CHUNK = 0x8000; // 32KB worth of char codes per fromCharCode call
+        var binary = '';
+        for (var i = 0; i < bytes.length; i += CHUNK) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        return btoa(binary);
     }
 
     /**
@@ -1108,6 +1357,59 @@ var Outliner = (function() {
         // table mode は F2.2 以降で列ヘッダー + grid layout を追加。F2.1 は stub。
         if (VIEW_MODE === 'table') {
             renderTableMode();
+            return;
+        }
+        // Mindmap Mode (sprint 20260701-122355): SVG マインドマップ描画に委譲。
+        if (VIEW_MODE === 'mindmap') {
+            if (typeof MindmapRender !== 'undefined' && MindmapRender.render) {
+                MindmapRender.render(model, model.mindmap, treeEl, window.outlinerHostBridge, {
+                    i18n: i18n,
+                    imageBaseUri: (typeof window !== 'undefined' && window.__outlinerImageBaseUri) || '',
+                    scheduleSync: scheduleSyncToHost,
+                    focusedNodeId: focusedNodeId,
+                    selectedNodeIds: selectedNodeIds,
+                    // title 中心ノード (FR-021-B6)
+                    titleText: model.title || '',
+                    setTitle: function (t) {
+                        model.title = t;
+                        if (pageTitleInput) { pageTitleInput.value = t; }
+                    },
+                    // Mindmap interactions が使う outliner 内部フック
+                    pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    setFocusedNodeId: function (id) { focusedNodeId = id; },
+                    getFocusedNodeId: function () { return focusedNodeId; },
+                    openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },
+                    // cmd+enter で md 未添付 node を @page 相当で md 作成+添付する（sidepanel は openPage で開く）
+                    makePage: function (nodeId) { if (typeof makePage === 'function') makePage(nodeId); },
+                    // FR-MM-FD: mindmap の外部ファイル D&D は outliner の drop 機構を ctx フックで共有する
+                    //   （ADRL-0001: 重い drop ロジック= FileReader/triage/サイズ制限/streaming を複製しない）。
+                    //   これらは Outliner IIFE 内 module-local なので、closure を ctx 経由で mindmap に渡す。
+                    isFilesDragEvent: function (e) { return isFilesDragEvent(e); },
+                    isVscodeUriDragEvent: function (e) { return isVscodeUriDragEvent(e); },
+                    isAnyFilesDragEvent: function (e) { return isAnyFilesDragEvent(e); },
+                    handleFilesDrop: function (e, targetNodeId, position) { return handleFilesDrop(e, targetNodeId, position); },
+                    handleVscodeUrisDrop: function (e, targetNodeId, position) { return handleVscodeUrisDrop(e, targetNodeId, position); },
+                    // FR-021-A4: 空状態の "+ Add" から最初の root を作成
+                    addRootAndEdit: function () {
+                        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+                        var n = model.addNode(null, null, '');
+                        focusedNodeId = n.id;
+                        scheduleSyncToHost();
+                        renderTree();
+                        // 再描画後、新規ノードのテキストを編集状態にフォーカス
+                        var textEl = treeEl.querySelector('.mindmap-node-text[data-node-id="' + n.id + '"]');
+                        if (textEl) {
+                            textEl.setAttribute('contenteditable', 'true');
+                            // preventScroll: mindmap 空状態の初回 root 追加。native focus
+                            // scroll による中央寄せを止める (iteration 17 / TASK-51)。
+                            try { textEl.focus({ preventScroll: true }); }
+                            catch (e) { textEl.focus(); }
+                        }
+                    }
+                });
+            } else {
+                treeEl.innerHTML = '<div class="outliner-empty"><div>Mindmap renderer not loaded</div></div>';
+            }
             return;
         }
         updateBreadcrumb();
@@ -2671,8 +2973,34 @@ var Outliner = (function() {
             e.stopPropagation();
             dragState = { nodeId: node.id, nodeEl: el };
             el.classList.add('is-dragging');
-            e.dataTransfer.effectAllowed = 'move';
+            // v0.207.77: Notes panel への drop (Feature B) は 'copy' を使うため
+            // 'copyMove' にしないと dropEffect 不一致で drop がキャンセルされる
+            e.dataTransfer.effectAllowed = 'copyMove';
             e.dataTransfer.setData('text/plain', node.id);
+            // v0.207.77 (D&D Feature B): Notes mode + page-node を Notes panel にドロップする経路用
+            // のカスタム MIME。outFileKey + nodeId + pageId を payload。
+            if (isNotesMode() && node.isPage && node.pageId) {
+                try {
+                    var payload = JSON.stringify({
+                        outFileKey: currentOutFileKey,
+                        nodeId: node.id,
+                        pageId: node.pageId,
+                        title: node.text || '',
+                    });
+                    e.dataTransfer.setData('application/x-fractal-out-node-page', payload);
+                } catch (err) { /* ignore */ }
+            }
+            // node-move-to-other-outliner: notes モードなら全 node（page 有無問わず）で
+            // サブツリー移動用 MIME を載せる。実体は host が src .out（flush 済み disk）から解決（案B）。
+            if (isNotesMode()) {
+                try {
+                    var subtreePayload = JSON.stringify({
+                        outFileKey: currentOutFileKey,
+                        nodeId: node.id,
+                    });
+                    e.dataTransfer.setData('application/x-fractal-out-node-subtree', subtreePayload);
+                } catch (err) { /* ignore */ }
+            }
         });
         bulletEl.addEventListener('dragend', function() {
             if (dragState) {
@@ -2736,7 +3064,12 @@ var Outliner = (function() {
         textEl.innerHTML = renderInlineText(node.text);
         textEl.dataset.nodeId = node.id;
 
+        // FR-TH-04（★手動テスト起因 code_fix）: この focus セッションで text が実編集されたか。
+        // Cmd+Enter/クリック等で「編集せず blur」した時に page md H1 を上書きしないためのガード。
+        var _textDirty = false;
+
         textEl.addEventListener('focus', function() {
+            _textDirty = false; // focus のたびにリセット（未編集で blur したら同期しない）
             clearImageSelection();
             setFocusedNode(node.id);
             // 編集モードに切替: マーカーを生テキストで表示 (フォーマットは非適用)
@@ -2751,6 +3084,12 @@ var Outliner = (function() {
         textEl.addEventListener('blur', function() {
             // 表示モードに切替: フルフォーマット適用
             textEl.innerHTML = renderInlineText(node.text || '');
+            // FR-TH-04: page node の text を「実編集した時だけ」確定として H1 に同期。
+            // 未編集の blur（Cmd+Enter で開く / クリックで外す等）では上書きしない。
+            if (_textDirty) {
+                _textDirty = false;
+                syncPageH1FromNodeText(node.id);
+            }
         });
 
         textEl.addEventListener('mousedown', function(e) {
@@ -2816,8 +3155,12 @@ var Outliner = (function() {
             textEl.innerHTML = renderEditingText(plainText);
             setCursorAtOffset(textEl, off);
             scheduleSyncToHost();
+            // FR-TH-04: IME 確定は実編集 → page node なら page md H1 に同期
+            _textDirty = true;
+            syncPageH1FromNodeText(node.id);
         });
         textEl.addEventListener('input', function() {
+            _textDirty = true; // 実編集フラグ（blur で H1 同期の可否を決める）
             var plainText = getPlainText(textEl);
             model.updateText(node.id, plainText);
             if (!isComposing) {
@@ -3165,6 +3508,20 @@ var Outliner = (function() {
         });
     }
 
+    // sprint 20260724-160000: node text の選択に文字色を適用 / 除去（hex=null で除去）。
+    // 再オープン②(TASK-13): offsets = { start, end }（source offset）が渡されればその範囲だけ着色、
+    // null なら node text 全体（選択なし右クリック経路）。
+    function applyTextColor(nodeId, textEl, hex, offsets) {
+        return OutlinerCell.applyTextColor({
+            nodeId: nodeId,
+            textEl: textEl,
+            hex: hex,
+            offsets: (offsets && typeof offsets.start === 'number') ? offsets : null,
+            model: model,
+            host: { scheduleSyncToHost: function() { scheduleSyncToHost(); } }
+        });
+    }
+
     // --- カーソル操作 (TASK-A3, Phase 3 split → OutlinerCell.setCursor / getCursor) ---
 
     function setCursorToEnd(el) {
@@ -3361,13 +3718,6 @@ var Outliner = (function() {
         return nodes;
     }
 
-    /** 内部クリップボードの照合（テキスト一致チェック） */
-    function getValidInternalClipboard(clipText) {
-        if (!internalClipboard) { return null; }
-        if (internalClipboard.plainText !== clipText) { return null; }
-        return internalClipboard;
-    }
-
     /** HTMLクリップボードからcross-outlinerメタデータを抽出 */
     function extractOutlinerClipboardMeta(html) {
         if (!html) { return null; }
@@ -3416,10 +3766,10 @@ var Outliner = (function() {
     }
 
     /** クリップボードに text/plain + text/html を書き込む (cross-outlinerメタデータ埋め込み) */
-    function writeClipboardWithHtml(plainText, nodesData, isCut) {
+    function writeClipboardWithHtml(plainText, nodesData, isCut, copyId) {
         var htmlText = buildSelectedNodesHtml(nodesData);
-        // メタデータをHTMLに埋め込み (cross-webview paste用)
-        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut });
+        // メタデータをHTMLに埋め込み (cross-webview paste用)。copyId(nonce) で同一コピー操作を識別。
+        var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
         try {
             navigator.clipboard.write([
@@ -3500,25 +3850,24 @@ var Outliner = (function() {
         var node = model.getNode(nodeId);
         if (!node) { return; }
 
-        // 内部クリップボードの照合 (Priority 1: 同一webview)
-        var intClip = getValidInternalClipboard(clipText);
-        var clipNodes = intClip ? intClip.nodes : null;
-        var isCutPaste = intClip ? intClip.isCut : false;
-        var clipSourceKey = intClip ? (intClip.sourceOutFileKey || null) : null;
+        // クリップボード源の選定 (copyId nonce による同一コピー操作判定)
+        // internalClipboard は「copyId が OS crossMeta の copyId と一致する時だけ」勝つ。
+        // 不一致（別のコピー操作 = OS クリップボードが新しい）なら crossMeta を優先し、
+        // round-trip の stale internalClipboard シャドウを防ぐ。
+        var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
+        var crossMeta = extractOutlinerClipboardMeta(htmlData);
+        var sel = OutlinerClipSelect.selectClipSource(internalClipboard, crossMeta, clipText);
+        // sel===null = クリップボードに outliner メタが無い（純粋な外部プレーンテキスト
+        // paste、または plainText 不一致で内部 clip を無視）ケース。旧コードは clipNodes=null
+        // のまま **早期 return せず** fall-through して pasteNodesFromText で行分割していた。
+        // 早期 return は外部プレーンテキスト貼り付けを殺すので、external sentinel にフォールバック。
+        if (!sel) { sel = { source: 'external', nodes: null, isCut: false, sourceOutFileKey: null }; }
+        var clipNodes = sel.nodes;   // null → 下流のプレーンテキスト行分割経路へ
+        var isCutPaste = sel.isCut;
+        var clipSourceKey = sel.sourceOutFileKey || null;
 
-        // Priority 2: HTMLクリップボードからcross-outlinerメタデータ抽出
-        if (!intClip) {
-            var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
-            var crossMeta = extractOutlinerClipboardMeta(htmlData);
-            if (crossMeta && crossMeta.nodes) {
-                clipNodes = crossMeta.nodes;
-                isCutPaste = !!crossMeta.isCut; // cross-webview でも cut 情報を保持
-                clipSourceKey = crossMeta.sourceOutFileKey || null;
-            }
-        }
-
-        // カット時は1回消費
-        if (intClip && intClip.isCut) {
+        // カット消費: internalClip が採用され かつ cut の時のみ (従来と同一)
+        if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
             internalClipboard = null;
         }
 
@@ -3793,7 +4142,9 @@ var Outliner = (function() {
         var textEl = nodeEl.querySelector('.outliner-text');
         if (textEl) {
             setFocusedNode(nodeId);
-            textEl.focus();
+            // sprint 20260723-233506: タブ復帰の scroll 復元中は preventScroll で自動スクロールを抑止
+            if (_suppressFocusScroll) { try { textEl.focus({ preventScroll: true }); } catch (e) { textEl.focus(); } }
+            else { textEl.focus(); }
             setCursorToEnd(textEl);
             var aeAfter = document.activeElement;
             console.log('[Fractal:focusNode] AFTER focus: activeEl=', aeAfter && aeAfter.tagName, aeAfter && aeAfter.className, 'data-node-id=', aeAfter && aeAfter.dataset && aeAfter.dataset.nodeId, 'isHidden=', getComputedStyle(textEl).display === 'none');
@@ -3924,8 +4275,15 @@ var Outliner = (function() {
                     } else if (pageNode.filePath) {
                         // FR-OL-CMDENTER-1: file 添付ノードを外部アプリで開く
                         host.openAttachedFile(nodeId);
+                    } else {
+                        // md もファイルも添付なし → @page 相当で md を作成+添付し sidepanel で開く。
+                        // 画像だけの node でも md 化する（images は node に残る）。
+                        // makePage は model を同期更新(isPage=true,pageId) + host.makePage で md を同期作成し
+                        // renderTree/scheduleSyncToHost まで行う。host メッセージは FIFO なので直後の
+                        // openPage(host.openPageInSidePanel) は md 作成後に届く（レースなし）。
+                        makePage(nodeId);
+                        openPage(nodeId);
                     }
-                    // 添付なし: preventDefault のみ、新規動作なし (既存挙動維持)
                     return;
                 }
                 e.preventDefault();
@@ -4413,12 +4771,14 @@ var Outliner = (function() {
                         e.preventDefault();
                         var copyText = getSelectedText();
                         var copyNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(copyText, copyNodesData, false);
+                        var copyIdC = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(copyText, copyNodesData, false, copyIdC);
                         internalClipboard = {
                             plainText: copyText,
                             isCut: false,
                             nodes: copyNodesData,
-                            sourceOutFileKey: currentOutFileKey
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyIdC
                         };
                         host.saveOutlinerClipboard(copyText, false, copyNodesData);
                     } else {
@@ -4435,12 +4795,14 @@ var Outliner = (function() {
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
                                 filePath: node.filePath || null
                             }];
-                            writeClipboardWithHtml(singleText, singleNodesData, false);
+                            var copyIdCS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            writeClipboardWithHtml(singleText, singleNodesData, false, copyIdCS);
                             internalClipboard = {
                                 plainText: singleText,
                                 isCut: false,
                                 nodes: singleNodesData,
-                                sourceOutFileKey: currentOutFileKey
+                                sourceOutFileKey: currentOutFileKey,
+                                copyId: copyIdCS
                             };
                             host.saveOutlinerClipboard(singleText, false, singleNodesData);
                         }
@@ -4452,12 +4814,14 @@ var Outliner = (function() {
                         e.preventDefault();
                         var cutText = getSelectedText();
                         var cutNodesData = getSelectedNodesData();
-                        writeClipboardWithHtml(cutText, cutNodesData, true);
+                        var copyIdX = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(cutText, cutNodesData, true, copyIdX);
                         internalClipboard = {
                             plainText: cutText,
                             isCut: true,
                             nodes: cutNodesData,
-                            sourceOutFileKey: currentOutFileKey
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyIdX
                         };
                         host.saveOutlinerClipboard(cutText, true, cutNodesData);
                         deleteSelectedNodes();
@@ -4475,12 +4839,14 @@ var Outliner = (function() {
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
                                 filePath: node.filePath || null
                             }];
-                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true);
+                            var copyIdXS = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                            writeClipboardWithHtml(cutSingleText, cutSingleNodesData, true, copyIdXS);
                             internalClipboard = {
                                 plainText: cutSingleText,
                                 isCut: true,
                                 nodes: cutSingleNodesData,
-                                sourceOutFileKey: currentOutFileKey
+                                sourceOutFileKey: currentOutFileKey,
+                                copyId: copyIdXS
                             };
                             host.saveOutlinerClipboard(cutSingleText, true, cutSingleNodesData);
                             saveSnapshot();
@@ -4889,21 +5255,35 @@ var Outliner = (function() {
         });
         pageTitleInput.addEventListener('compositionend', function() {
             isComposing = false;
-            model.title = pageTitleInput.value;
-            scheduleSyncToHost();
+            // ★1テンポ遅れバグ修正: 実ブラウザ（Chromium）では compositionend 発火時点で
+            // input.value に確定文字がまだ反映されていないことがある（compositionend→input の順で
+            // value が更新される）。ここで同期的に読むと「1つ前の確定値」を送ってしまい 1 テンポ遅れる。
+            // 次 tick（value 反映後）に読んで flush することで最新の確定値を即 tree へ反映する。
+            setTimeout(function() {
+                model.title = pageTitleInput.value;
+                syncToHostImmediate(); // pending debounce を clear して即送信
+            }, 0);
         });
         pageTitleInput.addEventListener('input', function() {
             if (!isComposing) {
                 model.title = pageTitleInput.value;
+                // 非 IME の通常入力は debounce（連続打鍵で送信を間引く）。確定は blur/Enter で flush。
                 scheduleSyncToHost();
             }
         });
-        // Enterでツリーにフォーカス移動
+        // blur（フォーカスを外す = 確定）で tree へ即反映
+        pageTitleInput.addEventListener('blur', function() {
+            model.title = pageTitleInput.value;
+            syncToHostImmediate();
+        });
+        // Enterでツリーにフォーカス移動（確定として即送信してから移動）
         pageTitleInput.addEventListener('keydown', function(e) {
             if (e.isComposing || e.keyCode === 229) { return; }
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
+                model.title = pageTitleInput.value;
+                syncToHostImmediate();
                 focusFirstVisibleNode();
             }
         });
@@ -5084,6 +5464,26 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('keydown', function(e) {
+            // [M] iteration 29 / TASK-79: mindmap モードの検索は「Enter で次の一致へ巡回中央化」。
+            // Escape でハイライト解除。絞り込み系 (currentSearchResult) は使わない。
+            if (VIEW_MODE === 'mindmap') {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    if (typeof MindmapInteractions !== 'undefined') { MindmapInteractions.clearSearch(); }
+                    return;
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    // 同一 Enter イベントで handler が二重登録環境でも 1 回だけ進める (dedupe)。
+                    if (e.__mmSearchNextHandled) { return; }
+                    e.__mmSearchNextHandled = true;
+                    if (typeof MindmapInteractions !== 'undefined') {
+                        // 未検索 (ハイライトなし) なら現在の入力で検索、既に検索済みなら次へ巡回。
+                        if (searchInput.value.trim()) { MindmapInteractions.searchNext(); }
+                    }
+                    return;
+                }
+                // それ以外のキーは通常の入力処理 (debounce → executeSearch) に委ねる。
+            }
             if (e.key === 'Escape') {
                 e.preventDefault();
                 clearSearch();
@@ -5168,6 +5568,7 @@ var Outliner = (function() {
         // Open in Text Editor
         var openTextEditorItem = document.createElement('button');
         openTextEditorItem.className = 'menu-item';
+        openTextEditorItem.setAttribute('data-action', 'openInTextEditor'); // showOpenInTextEditor=false で CSS 非表示
         openTextEditorItem.textContent = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.title = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.addEventListener('click', function() {
@@ -5445,8 +5846,17 @@ var Outliner = (function() {
     }
 
     function executeSearch() {
-        pushNavState();
         var queryStr = searchInput.value.trim();
+        // [M] iteration 29 / TASK-79: mindmap モードは絞り込み (filter) ではなく
+        // 「該当テキストを含むノードをハイライト + 最初の一致を画面中央へ」。renderTree はしない。
+        if (VIEW_MODE === 'mindmap') {
+            if (typeof MindmapInteractions !== 'undefined') {
+                if (!queryStr) { MindmapInteractions.clearSearch(); }
+                else { MindmapInteractions.search(model, queryStr); }
+            }
+            return;
+        }
+        pushNavState();
         if (!queryStr) {
             clearSearch();
             return;
@@ -5730,6 +6140,41 @@ var Outliner = (function() {
             // The tag literal text becomes a candidate for the pinned-tag menu item.
             var tagEl = e.target.closest && e.target.closest('.outliner-tag');
             var clickedTag = tagEl ? (tagEl.textContent || '').trim() : null;
+            // sprint 20260724-160000: 文字色メニュー用に、右クリック時の選択（.outliner-text 内）を保存。
+            // ★ 再オープン②(TASK-13): Range clone は onPick の focus() 再レンダーで detached になり
+            //   選択が collapse → 全体着色に化ける。DOM 再構築に強い **source-offset の数値**で捕捉する。
+            //   選択があればその source 範囲 {start,end}、無ければ null（＝node 全体対象）。
+            _contextTextEl = nodeEl.querySelector('.outliner-text');
+            _contextColorOffsets = null;
+            var csel = window.getSelection();
+            var hasSel = !!(csel && !csel.isCollapsed && _contextTextEl &&
+                _contextTextEl.contains(csel.anchorNode) && _contextTextEl.contains(csel.focusNode));
+            if (hasSel) {
+                try {
+                    var cnode = model.getNode(nodeEl.dataset.id);
+                    var srcText = cnode ? (cnode.text || '') : '';
+                    var rng = csel.getRangeAt(0);
+                    var preRange = rng.cloneRange();
+                    preRange.selectNodeContents(_contextTextEl);
+                    preRange.setEnd(rng.startContainer, rng.startOffset);
+                    var startDom = preRange.toString().length;
+                    var endDom = startDom + rng.toString().length;
+                    // ★ TASK-16 fix: edit mode（focus 済み）は renderEditingText で textContent===source
+                    //   （marker が literal 表示）なので DOM offset は既に source offset。renderedOffsetToSource に
+                    //   通すと marker 長だけ前方シフトする（**hi** world で "world" 選択→"d" だけ着色）。
+                    //   edit mode は raw offset を使う。display mode（未 focus・renderInlineText で marker 圧縮）
+                    //   のみ rendered→source 変換する。
+                    var isEditMode = (document.activeElement === _contextTextEl);
+                    var startSrc, endSrc;
+                    if (isEditMode) {
+                        startSrc = startDom; endSrc = endDom;
+                    } else {
+                        startSrc = renderedOffsetToSource(srcText, startDom);
+                        endSrc = renderedOffsetToSource(srcText, endDom);
+                    }
+                    if (endSrc > startSrc) { _contextColorOffsets = { start: startSrc, end: endSrc }; }
+                } catch (err) { _contextColorOffsets = null; }
+            }
             e.preventDefault();
             showContextMenu(nodeEl.dataset.id, e.clientX, e.clientY, clickedTag);
         });
@@ -5788,6 +6233,28 @@ var Outliner = (function() {
             addMenuSeparator(contextMenuEl);
         }
 
+        // --- sprint 20260724-160000: 文字色（node text があれば常に表示） ---
+        // 再オープン②(TASK-13): 部分選択は source-offset {start,end} で適用（focus 再レンダーに強い）、
+        // 選択なしは node text 全体。offset があれば wholeText 昇格しない（部分着色を保証）。
+        if (_contextTextEl && node.text && typeof window.showInlineColorPicker === 'function') {
+            var colorTextEl = _contextTextEl;
+            var colorOffsets = _contextColorOffsets;   // 数値 offset（DOM 再構築で失われない）
+            addMenuItem(contextMenuEl, i18n.textColor || 'Text Color', function(ev) {
+                var px = ev && ev.clientX ? ev.clientX : x;
+                var py = ev && ev.clientY ? ev.clientY : y;
+                window.showInlineColorPicker({
+                    x: px, y: py,
+                    noneLabel: i18n.textColorNone || 'None',
+                    onPick: function(hex) {
+                        // 数値 offset を直接渡す（focus/選択復元に依存しない）。
+                        applyTextColor(nodeId, colorTextEl, hex, colorOffsets);
+                    }
+                });
+                hideContextMenu();
+            });
+            addMenuSeparator(contextMenuEl);
+        }
+
         // --- 複数選択時のページパスコピー ---
         if (selectedNodeIds.size > 0) {
             var selectedPageIds = [];
@@ -5815,6 +6282,11 @@ var Outliner = (function() {
                 openPage(nodeId);
                 hideContextMenu();
             }, modLabel + '+Enter');
+            // FR-FR-02: md ページ実体を Finder (OS ファイラ) で選択状態表示
+            addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
+                if (host.revealPageInOS) { host.revealPageInOS(nodeId); }
+                hideContextMenu();
+            });
             if (selectedNodeIds.size === 0) {
                 addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
                     host.copyPagePaths([node.pageId]);
@@ -5836,6 +6308,11 @@ var Outliner = (function() {
         if (node.filePath) {
             addMenuItem(contextMenuEl, i18n.outlinerOpenFile || 'Open File', function() {
                 host.openAttachedFile(nodeId);
+                hideContextMenu();
+            });
+            // FR-FR-01: 添付ファイルを Finder (OS ファイラ) で選択状態表示
+            addMenuItem(contextMenuEl, i18n.outlinerRevealInFinder || 'Reveal in Finder', function() {
+                if (host.revealAttachedFileInOS) { host.revealAttachedFileInOS(nodeId); }
                 hideContextMenu();
             });
             // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を clipboard へコピー
@@ -6074,7 +6551,7 @@ var Outliner = (function() {
     var sidePanelEl = null;
     var sidePanelFilename = null;
     var sidePanelClose = null;
-    var sidePanelOverlay = null;
+    // sprint 20260724-042927: sidePanelOverlay 廃止（シャドー + 外側クリック close を全廃）。
     var sidePanelIframeContainer = null;
     var sidePanelSidebar = null;
     var sidePanelTocEl = null;
@@ -6091,6 +6568,13 @@ var Outliner = (function() {
     var sidePanelInstance = null;
     var sidePanelHostBridge = null;
     var sidePanelFilePath = null;
+    // sprint 20260723-233506: タブ復帰でサイドパネルを開く時、400ms auto-focus の自動スクロールを抑止し
+    // 保存 scrollTop を復元する（ADRL-TABS-SIDEPANEL-PER-TAB）。通常の openPageInSidePanel では false。
+    var _sidePanelRestorePending = false;
+    // FR-TH-07: md→node 反映中は node→md 送信をスキップ（双方向連鎖の belt-and-suspenders）。
+    var _applyingH1ToNode = false;
+    // FR-TH-05: sidepanel md の先頭 H1 の前回反映値（IME 中間文字での過剰反映を避け確定値のみ反映）。
+    var _lastSidePanelH1 = null;
     // v15+: side panel navigation history (back/forward) state
     var outerSidePanelNavBackBtn = null;
     var outerSidePanelNavForwardBtn = null;
@@ -6274,7 +6758,6 @@ var Outliner = (function() {
         sidePanelEl = document.querySelector('.side-panel');
         sidePanelFilename = document.querySelector('.side-panel-filename');
         sidePanelClose = document.querySelector('.side-panel-close');
-        sidePanelOverlay = document.querySelector('.side-panel-overlay');
         sidePanelIframeContainer = document.querySelector('.side-panel-iframe-container');
         sidePanelSidebar = document.querySelector('.side-panel-sidebar');
         sidePanelTocEl = document.querySelector('.side-panel-toc');
@@ -6292,9 +6775,8 @@ var Outliner = (function() {
         if (sidePanelClose) {
             sidePanelClose.addEventListener('click', closeSidePanel);
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.addEventListener('click', closeSidePanel);
-        }
+        // sprint 20260724-042927 (FR-SPC-03): 外側クリックで閉じる listener（overlay click）を廃止。
+        // 閉じるは ✗（.side-panel-close）+ Esc（keydown listener）のみ。
 
         // Expand toggle — delegated on sidePanelEl so it survives
         // .side-panel-header-actions innerHTML rebuilds from the translate flow.
@@ -6312,8 +6794,7 @@ var Outliner = (function() {
                     sidePanelEl.classList.remove('expanded');
                     expandBtn.classList.remove('active');
                     if (sidePanelWidthSetting) {
-                        sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-                        sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
+                        applySidePanelWidthClamped(); // FR-WC-01: 表示領域内にクランプ
                     } else {
                         sidePanelEl.style.width = '';
                         sidePanelEl.style.maxWidth = '';
@@ -6488,6 +6969,57 @@ var Outliner = (function() {
                 syncToHostImmediate();
             }
         }
+    }
+
+    // FR-WC-01: 保存幅 sidePanelWidthSetting を表示領域内（親の 95%）にクランプして適用する。
+    // 無条件に保存幅を px 適用すると、表示領域より大きい保存幅で sidepanel がタブ領域を溢れる。
+    // resize（onMove）と同じ maxW=parentOffsetWidth*0.95 で頭打ちにする。
+    // 親の offsetWidth が未確定（show 前で 0）のときは保存幅そのまま（次描画/resize で是正）。
+    function applySidePanelWidthClamped() {
+        if (!sidePanelWidthSetting || !sidePanelEl) return;
+        var parentW = (sidePanelEl.parentElement || document.body).offsetWidth || 0;
+        var w = parentW > 0 ? Math.min(sidePanelWidthSetting, parentW * 0.95) : sidePanelWidthSetting;
+        sidePanelEl.style.width = w + 'px';
+        sidePanelEl.style.maxWidth = w + 'px';
+    }
+
+    // FR-WC-02: sidepanel を開いた後に表示領域（window）が縮むと、inline style(px) で固定された幅が
+    // 表示領域を超えて溢れる。window resize で visible かつ非 expanded の sidepanel を再クランプする。
+    // 1 回だけ登録（editor.js:427 の window resize 前例と同パターン）。
+    var _sidePanelResizeWired = false;
+    function ensureSidePanelWindowResizeHandler() {
+        if (_sidePanelResizeWired) return;
+        _sidePanelResizeWired = true;
+        window.addEventListener('resize', function() {
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();
+        });
+    }
+
+    // sprint 20260724-063158 (FR-TP-01): サイドパネルの containing block（.notes-main-wrapper）の幅が
+    // 左ファイルパネル開閉等で変わっても px 固定幅が追従せず editor 領域を超えるバグ。ResizeObserver で
+    // 幅変化を検知し、visible かつ非 expanded 時に再クランプする（window resize 経路を包含）。
+    // ★ .side-panel は position:absolute（flow 外）なので、幅を触っても観測対象 wrapper のサイズに
+    //   フィードバックせず無限ループしない。1 回だけ登録。
+    var _sidePanelResizeObserverWired = false;
+    var _sidePanelResizeObserverDisabled = false;                      // TC-TP-01 counterfactual 用（テストのみ）
+    function ensureSidePanelResizeObserver() {
+        if (_sidePanelResizeObserverWired) return;
+        if (typeof ResizeObserver === 'undefined') return;             // 念のためガード（webview は native 対応）
+        if (!sidePanelEl) return;
+        var container = sidePanelEl.parentElement;                     // = .notes-main-wrapper
+        if (!container) return;
+        _sidePanelResizeObserverWired = true;
+        var ro = new ResizeObserver(function() {
+            if (_sidePanelResizeObserverDisabled) return;              // counterfactual: 無効化すると px 据え置き
+            if (!sidePanelEl || !sidePanelWidthSetting) return;
+            if (sidePanelEl.style.display === 'none') return;          // 非表示時は何もしない
+            if (sidePanelEl.classList.contains('expanded')) return;    // 全画面時はクランプ対象外
+            applySidePanelWidthClamped();                              // .side-panel 幅のみ触る（wrapper は不変）
+        });
+        ro.observe(container);
     }
 
     // sidepanel TOC (sidebar) drag-resize
@@ -6696,9 +7228,24 @@ var Outliner = (function() {
             sidePanelEl.style.display = 'flex';
             requestAnimationFrame(function() { sidePanelEl.classList.add('open'); });
         }
-        if (sidePanelOverlay) {
-            sidePanelOverlay.style.display = 'block';
-            requestAnimationFrame(function() { sidePanelOverlay.classList.add('open'); });
+        // sprint 20260724-042927: overlay 廃止（表示操作なし）。
+    }
+
+    // sprint 20260724-042927: サイドパネルの現在状態 {open, filePath, scrollTop}（Tab Manager per-tab 追随用）。
+    // return object の captureSidePanelState と同一実体（内部関数化して openSidePanel/close からも呼べるように）。
+    function _captureSidePanelState() {
+        var open = !!(sidePanelEl && sidePanelEl.classList.contains('open'));
+        var scrollTop = 0;
+        if (open && sidePanelInstance && sidePanelInstance.container) {
+            var wrap = sidePanelInstance.container.querySelector('.editor-wrapper');
+            if (wrap) scrollTop = wrap.scrollTop;
+        }
+        return { open: open, filePath: open ? sidePanelFilePath : null, scrollTop: scrollTop };
+    }
+    // アクティブタブの sidePanel 状態を追随させる（開閉の瞬間に呼ぶ・FR-SPC-05）。
+    function _syncActiveTabSidePanel(state) {
+        if (window.__notesTabManager && typeof window.__notesTabManager.updateActiveSidePanel === 'function') {
+            window.__notesTabManager.updateActiveSidePanel(state);
         }
     }
 
@@ -6707,6 +7254,19 @@ var Outliner = (function() {
             closeSidePanelImmediate(true /* isSwitch */);
         }
         sidePanelFilePath = filePath;
+        // FR-TH-05: 別 md に切り替わったら H1 前回値をリセット（新 md の初回 H1 を stale 値で抑止しない）。
+        // 開いた時点では反映しない（FR: 編集時のみ）ため、現在の先頭 H1 で初期化して差分検知の基準にする。
+        _lastSidePanelH1 = (function() {
+            var lines = String(markdown || '').split('\n');
+            var inCode = false;
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i].startsWith('```')) { inCode = !inCode; continue; }
+                if (inCode) { continue; }
+                var m = lines[i].match(/^#\s+(.+)$/);
+                if (m) { return m[1].trim(); }
+            }
+            return null;
+        })();
         if (sidePanelFilename) { sidePanelFilename.textContent = fileName; }
 
         // Create EditorInstance container and instance
@@ -6754,6 +7314,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
                 var translateBtn = freshSpHeaderBtn('translate');
@@ -6772,6 +7333,23 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
+                // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
+                if (exportBtn) {
+                    exportBtn.addEventListener('click', function() {
+                        if (!sidePanelFilePath || typeof host.exportBundle !== 'function') return;
+                        if (typeof window.openExportDialog === 'function') {
+                            window.openExportDialog(function(options) {
+                                host.exportBundle(options, sidePanelFilePath);
+                            });
+                        } else {
+                            // フォールバック（editor.js 未ロード時）: 既定オプションで実行
+                            host.exportBundle(
+                                { includeChildren: true, recurseChildren: true, includeLinks: false, recurseLinks: false },
+                                sidePanelFilePath);
+                        }
+                    });
+                }
                 if (sourceBtn) { sourceBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._toggleSourceMode(); }); }
                 if (attachmentsBtn) {
                     attachmentsBtn.addEventListener('click', function() {
@@ -6814,19 +7392,47 @@ var Outliner = (function() {
         // Setup image dir display
         setupSidePanelImageDir();
 
-        // Apply saved width
-        if (sidePanelWidthSetting && sidePanelEl) {
-            sidePanelEl.style.width = sidePanelWidthSetting + 'px';
-            sidePanelEl.style.maxWidth = sidePanelWidthSetting + 'px';
+        // Apply saved width（FR-WC-01: 表示領域内にクランプ）
+        applySidePanelWidthClamped();
+        // FR-WC-02: window resize でも再クランプ（開いた後の表示領域縮小に追従）
+        ensureSidePanelWindowResizeHandler();
+        // FR-TP-01: .notes-main-wrapper 幅変化（左ファイルパネル開閉等）にも追従して再クランプ
+        ensureSidePanelResizeObserver();
+
+        // Show panel with animation（sprint 20260724-042927: overlay 廃止）
+        if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }
+        // sprint 20260724-063158 (FR-TP-02): タブ復帰（_sidePanelRestorePending）はスライドアニメを再生せず即 open。
+        //   ★ フラグはここで読むだけ（clear は下の consume :7340 付近に任せる）。else は通常 open（現行同一・回帰なし）。
+        if (_sidePanelRestorePending && sidePanelEl) {
+            sidePanelEl.classList.add('no-transition');
+            sidePanelEl.classList.add('open');                 // 同期付与＝transition:none で即 translateX(0)（スライドなし）
+            requestAnimationFrame(function() {
+                requestAnimationFrame(function() {
+                    if (sidePanelEl) { sidePanelEl.classList.remove('no-transition'); } // 以降の開閉アニメは復活
+                });
+            });
+        } else {
+            requestAnimationFrame(function() {
+                if (sidePanelEl) { sidePanelEl.classList.add('open'); }
+            });
         }
 
-        // Show panel with animation
-        if (sidePanelEl) { sidePanelEl.style.display = 'flex'; }
-        if (sidePanelOverlay) { sidePanelOverlay.style.display = 'block'; }
-        requestAnimationFrame(function() {
-            if (sidePanelEl) { sidePanelEl.classList.add('open'); }
-            if (sidePanelOverlay) { sidePanelOverlay.classList.add('open'); }
-        });
+        // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
+        // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
+        // scroll 復元の同期アンカー（§5・ADRL-TABS-SCROLL）。復元中は下の 400ms auto-focus を skip。
+        if (_sidePanelRestorePending) {
+            _sidePanelRestorePending = false;
+            if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingSidePanelRestore === 'function') {
+                window.__notesTabManager.consumePendingSidePanelRestore();
+            }
+            return; // 復元経路では auto-focus しない（focus 自動スクロールが復元 scrollTop を上書きするため）
+        }
+
+        // sprint 20260724-042927 (FR-SPC-05・TASK-05): fresh-open の瞬間にアクティブタブの sidePanel 状態を追随。
+        //   ★ `.side-panel.open` は上の rAF（次フレーム）で付与されるため、この同期時点では未付与。
+        //   よって _captureSidePanelState() を呼ばず、fresh-open は定義上 open=true・filePath は上で同期設定済み
+        //   （sidePanelFilePath）なので明示構築する（rAF 待ちの誤 open:false を避ける）。
+        _syncActiveTabSidePanel({ open: true, filePath: sidePanelFilePath, scrollTop: 0 });
 
         // アニメーション完了後にエディタに自動フォーカス
         setTimeout(function() {
@@ -6857,7 +7463,7 @@ var Outliner = (function() {
         restoreHeaderActionsFromTranslation();
         sidePanelPreTranslationState = null;
         if (sidePanelEl) { sidePanelEl.classList.remove('open'); }
-        if (sidePanelOverlay) { sidePanelOverlay.classList.remove('open'); }
+        // sprint 20260724-042927: overlay 廃止（remove('open') 不要）。
         setTimeout(function() { closeSidePanelImmediate(); }, 200);
     }
 
@@ -6884,7 +7490,7 @@ var Outliner = (function() {
         sidePanelPreTranslationState = null;
         if (!isSwitch) {
             if (sidePanelEl) { sidePanelEl.style.display = 'none'; }
-            if (sidePanelOverlay) { sidePanelOverlay.style.display = 'none'; }
+            // sprint 20260724-042927: overlay 廃止（display:none 不要）。
         }
         if (sidePanelExpanded) {
             if (sidePanelEl) { sidePanelEl.classList.remove('expanded'); }
@@ -6900,9 +7506,29 @@ var Outliner = (function() {
         if (sidePanelIframeContainer) { sidePanelIframeContainer.innerHTML = ''; }
         if (!isSwitch) {
             sidePanelFilePath = null;
+            // sprint 20260724-042927 (FR-SPC-05): 実 close の瞬間にアクティブタブの sidePanel 状態を閉に追随。
+            //   isSwitch=true（別 md 切替）は実 close でないので呼ばない（#3c）。
+            _syncActiveTabSidePanel({ open: false, filePath: null, scrollTop: 0 });
             host.notifySidePanelClosed();
             if (sidePanelOriginNodeId) {
-                focusNode(sidePanelOriginNodeId);
+                if (VIEW_MODE === 'mindmap') {
+                    // mindmap は focusNode（.outliner-node 前提）が効かない。focusedNodeId + renderTree で
+                    // is-focused クラスを付けるだけでは keydown が届かない（treeEl 配線のキー処理は
+                    // .mindmap-node-text に real DOM focus が無いと発火しない）。renderTree 後に
+                    // origin node の text 要素へ実 focus を当て、↑↓/Enter を即受け付けられるようにする。
+                    if (model && model.getNode && model.getNode(sidePanelOriginNodeId)) {
+                        focusedNodeId = sidePanelOriginNodeId;
+                        renderTree();
+                        var mmText = treeEl.querySelector('.mindmap-node-text[data-node-id="' + sidePanelOriginNodeId + '"]');
+                        if (mmText) {
+                            mmText.setAttribute('contenteditable', 'true'); // committed active（編集開始はしない）
+                            mmText.classList.remove('is-editing');
+                            try { mmText.focus({ preventScroll: true }); } catch (e) { mmText.focus(); }
+                        }
+                    }
+                } else {
+                    focusNode(sidePanelOriginNodeId);
+                }
                 sidePanelOriginNodeId = null;
             }
         }
@@ -6916,8 +7542,9 @@ var Outliner = (function() {
         var escapeHtml = window.__editorUtils ? window.__editorUtils.escapeHtml : function(s) { return s; };
         // 仕様: heading が無くても outline は default ON で表示する。
         if (toc && toc.length > 0) {
-            sidePanelTocEl.innerHTML = toc.map(function(item) {
+            sidePanelTocEl.innerHTML = toc.map(function(item, i) {
                 return '<a class="side-panel-toc-item" data-level="' + item.level +
+                    '" data-heading-index="' + i +
                     '" data-anchor="' + escapeHtml(item.anchor) + '" title="' + escapeHtml(item.text) + '">' +
                     escapeHtml(item.text) + '</a>';
             }).join('');
@@ -6934,8 +7561,13 @@ var Outliner = (function() {
         sidePanelTocEl.querySelectorAll('.side-panel-toc-item').forEach(function(item) {
             item.addEventListener('click', function() {
                 var anchor = item.dataset.anchor;
+                var headingIndex = item.dataset.headingIndex;
                 if (sidePanelHostBridge) {
-                    sidePanelHostBridge._sendMessage({ type: 'scrollToAnchor', anchor: anchor });
+                    sidePanelHostBridge._sendMessage({
+                        type: 'scrollToAnchor',
+                        anchor: anchor,
+                        headingIndex: headingIndex != null ? parseInt(headingIndex, 10) : undefined,
+                    });
                 }
                 sidePanelTocEl.querySelectorAll('.side-panel-toc-item').forEach(function(i) {
                     i.classList.remove('active');
@@ -6945,10 +7577,34 @@ var Outliner = (function() {
         });
     }
 
+    // FR-TH-04: page node \u306e text \u78ba\u5b9a \u2192 \u6dfb\u4ed8 page md \u306e\u5148\u982d H1 \u3092 text \u306b\u540c\u671f\u3002
+    // page node\uff08isPage + pageId\uff09\u306e\u3068\u304d\u3060\u3051 host \u3078\u9001\u308b\u3002\u51aa\u7b49: text \u672a\u5909\u5316\u306a\u3089\u9001\u3089\u306a\u3044\u3002
+    // md\u2192node \u53cd\u6620\u4e2d\uff08_applyingH1ToNode\uff09\u306f\u9001\u3089\u306a\u3044\uff08\u53cc\u65b9\u5411\u9023\u9396\u30ac\u30fc\u30c9, FR-TH-07\uff09\u3002
+    function syncPageH1FromNodeText(nodeId) {
+        if (_applyingH1ToNode) { return; }
+        var node = model.getNode(nodeId);
+        if (!node || !node.isPage || !node.pageId) { return; }
+        var text = (node.text || '').trim();
+        if (!text) { return; }
+        if (host && typeof host.syncNodeTextToPageH1 === 'function') {
+            host.syncNodeTextToPageH1(node.pageId, text);
+        }
+    }
+
+    // FR-TH-05 (\u2605review it.2): H1 \u30c6\u30ad\u30b9\u30c8\u62bd\u51fa\u3092 md-h1-utils.parseAtxH1Text \u3068\u540c\u4e00\u30dd\u30ea\u30b7\u30fc\u306b\u3059\u308b\u3002
+    // \u672b\u5c3e\u306e\u9589\u3058 `#` \u5217\u306f\u300c\u76f4\u524d\u306b\u7a7a\u767d\u304c\u3042\u308b\u6642\u3060\u3051\u300d\u5265\u304c\u3059\uff08`# C#`\u2192`C#` \u4fdd\u6301 / `# Title #`\u2192`Title` \u5265\u304c\u3057\uff09\u3002
+    // host\uff08md-h1-utils\uff09\u3068 webview \u3067\u540c\u4e00\u5165\u529b\u2192\u540c\u4e00\u7d50\u679c\u306b\u3057\u3001\u53cc\u65b9\u5411\u540c\u671f\u3067\u5024\u304c\u30d6\u30ec\u306a\u3044\u3088\u3046\u306b\u3059\u308b\u3002
+    function parseH1TextCommonMark(headingBody) {
+        var text = String(headingBody).replace(/\r$/, '').replace(/[ \t]+$/, '');
+        var closing = text.match(/^(.*?)[ \t]+#+$/);
+        if (closing) { text = closing[1]; }
+        return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
+    }
+
     function updateSidePanelTocFromMarkdown(markdown) {
-        if (!sidePanelTocEl) { return; }
-        var lines = markdown.split('\n');
         var toc = [];
+        var firstH1 = null;
+        var lines = markdown.split('\n');
         var inCodeBlock = false;
         for (var k = 0; k < lines.length; k++) {
             var line = lines[k];
@@ -6956,14 +7612,43 @@ var Outliner = (function() {
             if (inCodeBlock) { continue; }
             var match = line.match(/^(#{1,6})\s+(.+)$/);
             if (match) {
+                // TOC \u8868\u793a\u306f\u5f93\u6765\u3069\u304a\u308a trim\uff08\u8868\u793a\u5c02\u7528\uff09\u3002firstH1\uff08node \u540c\u671f\u7528\uff09\u306f CommonMark \u30dd\u30ea\u30b7\u30fc\u3067\u62bd\u51fa\u3002
                 var text = match[2].trim();
+                if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
                     .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
         }
+        // FR-TH-05/06: sidepanel md\uff08outliner node \u7531\u6765\uff09\u306e\u5148\u982d H1 \u2192 \u547c\u3073\u51fa\u3057\u5143 node \u306e text \u306b\u53cd\u6620\u3002
+        // origin=\u69cb\u9020\u9006\u5f15\u304d\uff08ADRL-0001\uff09: \u4eca\u958b\u3044\u3066\u3044\u308b md \u306e basename=pageId \u304c\u73fe .out \u306e node \u306b\u4e00\u81f4\u3059\u308b\u6642\u3060\u3051\u3002
+        // \u30ea\u30f3\u30af/\u5c65\u6b74/\u691c\u7d22/\u5916\u90e8 md \u306f findNodeByPageId \u304c null \u3067\u81ea\u7136\u306b\u5f3e\u304b\u308c\u308b\uff08FR-TH-06\uff09\u3002
+        if (firstH1 !== null && sidePanelFilePath && firstH1 !== _lastSidePanelH1) {
+            _lastSidePanelH1 = firstH1;
+            var pageId = basenameNoExt(sidePanelFilePath);
+            var node = model.findNodeByPageId(pageId);
+            if (node && (node.text || '') !== firstH1) {
+                _applyingH1ToNode = true; // FR-TH-07: \u3053\u306e\u9593 node\u2192md \u9001\u4fe1\u3092\u30b9\u30ad\u30c3\u30d7
+                try {
+                    model.updateText(node.id, firstH1);
+                    renderTree();
+                    scheduleSyncToHost();
+                } finally {
+                    _applyingH1ToNode = false;
+                }
+            }
+        }
+        if (!sidePanelTocEl) { return; }
         renderSidePanelToc(toc);
+    }
+
+    // sidePanelFilePath \u306e basename \u304b\u3089\u62e1\u5f35\u5b50\u3092\u9664\u3044\u305f pageId \u3092\u8fd4\u3059\u3002
+    function basenameNoExt(filePath) {
+        if (!filePath) { return ''; }
+        var base = String(filePath).replace(/\\/g, '/').split('/').pop() || '';
+        var dot = base.lastIndexOf('.');
+        return dot > 0 ? base.slice(0, dot) : base;
     }
 
     function setupSidePanelImageDir() {
@@ -7310,33 +7995,12 @@ var Outliner = (function() {
     }
 
     // FR-OS3-01 / D-08 / D-09: outliner-toolbar-s3-sync 関連
-    function setupS3SyncButton() {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.addEventListener('click', function() {
-            if (btn.dataset.state !== 'idle') return;
-            var id = extractOutlinerIdFromKey(currentOutFileKey);
-            if (!id) {
-                console.warn('[outliner-s3-sync] outlinerId 抽出失敗', currentOutFileKey);
-                return;
-            }
-            // bridge 経由で host にメッセージ送信
-            if (host && typeof host.outlinerS3SyncRequest === 'function') {
-                host.outlinerS3SyncRequest(id);
-            } else {
-                console.error('[outliner-s3-sync] host.outlinerS3SyncRequest が定義されていない');
-            }
-        });
-    }
-
-    function extractOutlinerIdFromKey(key) {
-        if (!key) return null;
-        var m = String(key).match(/([^/\\]+)\.out$/);
-        return m ? m[1] : null;
-    }
-
+    // 左サイドパネル S3 sync（notes 全体 sync）中のロック/再描画。
+    // ※ outliner ヘッダーの per-outliner sync ボタンは廃止したが、これらの受信ハンドラは
+    //   左サイドパネル sync（runS3Operation / revertAndReinitNotePanel）が送出する
+    //   sync-lock / sync-progress / sync-applied を処理するため残す。
     function enterSyncLock() {
-        // 編集中フラグ強制 false + timer clear (D-08)
+        // 編集中フラグ強制 false + timer clear
         isActivelyEditing = false;
         if (editingIdleTimer) { clearTimeout(editingIdleTimer); editingIdleTimer = null; }
         if (typeof syncDebounceTimer !== 'undefined' && syncDebounceTimer) {
@@ -7353,8 +8017,7 @@ var Outliner = (function() {
     }
 
     function applySyncedData(newData) {
-        // D-09 / H1 修正: Notes ファイル切替 path と同等処理
-        // listener teardown せず、Outliner.init は再呼び出ししない
+        // Notes ファイル切替 path と同等処理（listener teardown せず init 再呼び出ししない）
         if (newData) {
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
@@ -7370,8 +8033,7 @@ var Outliner = (function() {
             updateBreadcrumb();
             renderTree();
             saveBaseline();
-            updateScopeSearchIndicator();
-            // v0.207.40: S3 sync 後 model = disk と一致したので flushSync baseline 更新
+            // sync 後 model = disk と一致したので flushSync baseline 更新
             lastSentJson = serializeForSave();
         }
         try { if (typeof vscode !== 'undefined' && vscode && vscode.setState) vscode.setState(undefined); } catch (e) { /* ignore */ }
@@ -7379,47 +8041,63 @@ var Outliner = (function() {
         isActivelyEditing = false;
     }
 
-    function updateSyncButtonState(state, tooltip) {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.dataset.state = state;
-        if (tooltip) btn.title = tooltip;
-        if (state === 'success') {
-            setTimeout(function() {
-                btn.dataset.state = 'idle';
-                btn.title = 'Sync to/from S3';
-            }, 2000);
-        } else if (state === 'syncing') {
-            btn.title = 'Syncing…';
-        } else if (state === 'idle') {
-            btn.title = 'Sync to/from S3';
+    // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア（全 .fractal-resource-footer を更新）
+    // count/samplePath があれば data-rrf-template を textContent で動的表示（XSS 回避で innerHTML 不使用）。
+    function updateResourceAccessFooter(outOfRange, count, samplePath) {
+        var footers = document.querySelectorAll('.fractal-resource-footer');
+        for (var i = 0; i < footers.length; i++) {
+            var footer = footers[i];
+            if (outOfRange && count > 0) {
+                footer.style.display = '';
+                var msgEl = footer.querySelector('.rrf-msg');
+                var tmpl = footer.getAttribute('data-rrf-template');
+                if (msgEl && tmpl) {
+                    // 関数置換で samplePath の $&/$1 等の特殊置換パターンによる意図せぬ展開を防ぐ。
+                    msgEl.textContent = tmpl
+                        .replace('{count}', function() { return String(count); })
+                        .replace('{sample}', function() { return samplePath || ''; });
+                }
+            } else {
+                footer.style.display = 'none';
+            }
         }
     }
 
-    function updateSyncButtonVisibility(visible) {
-        var btn = document.querySelector('.outliner-s3-sync-btn');
-        if (!btn) return;
-        btn.style.display = visible ? 'flex' : 'none';
+    // FR-RR-06: フッター「設定を開く」ボタン → host.openResourceRootsSettings()。
+    // init が複数回呼ばれても listener を 1 回だけ登録する（_resourceRootsFooterWired）。
+    // さらに notes モードは editor.js と outliner.js を同一 document に両ロードするため、
+    // 共有グローバルフラグ window.__rrfClickWired で cross-script 二重登録も先勝ち 1 回に抑える。
+    var _resourceRootsFooterWired = false;
+    function setupResourceRootsFooter() {
+        if (_resourceRootsFooterWired) return;
+        if (window.__rrfClickWired) { _resourceRootsFooterWired = true; return; }
+        _resourceRootsFooterWired = true;
+        window.__rrfClickWired = true;
+        document.addEventListener('click', function(e) {
+            var btn = e.target && e.target.closest && e.target.closest('.rrf-open-settings');
+            if (btn && host && typeof host.openResourceRootsSettings === 'function') {
+                host.openResourceRootsSettings();
+            }
+        });
     }
 
     function setupHostMessages() {
         host.onMessage(function(msg) {
             switch (msg.type) {
-                // FR-OS3-08 / D-08: outliner-toolbar-s3-sync 経路
+                // FR-RR-05: リソースアクセス範囲外フッターの表示/クリア
+                case 'resourceAccessStatus':
+                    updateResourceAccessFooter(!!msg.outOfRange, msg.count || 0, msg.samplePath);
+                    break;
+
+                // 左サイドパネル S3 sync（notes 全体 sync）経路の webview lock / 再描画
                 case 'sync-lock':
                     enterSyncLock();
                     break;
-                case 'sync-applied':
-                    applySyncedData(msg.data);
-                    break;
-                case 'sync-button-state':
-                    updateSyncButtonState(msg.state, msg.tooltip);
-                    break;
-                case 'sync-button-visibility':
-                    updateSyncButtonVisibility(msg.visible);
-                    break;
                 case 'sync-progress':
                     updateSyncOverlayPhase(msg.message || '');
+                    break;
+                case 'sync-applied':
+                    applySyncedData(msg.data);
                     break;
 
                 case 'updateNodeImages': {
@@ -7445,6 +8123,11 @@ var Outliner = (function() {
                 }
 
                 case 'updateData':
+                    // ADR-008: kind === 'md' の updateData は notes webview の markdown
+                    // dispatcher が処理する。outliner はノータッチ。
+                    if (msg.kind === 'md') {
+                        break;
+                    }
                     // file identity を先に反映 (同一性判定の唯一の根拠)
                     if (msg.outFileKey !== undefined) {
                         currentOutFileKey = msg.outFileKey;
@@ -7458,11 +8141,24 @@ var Outliner = (function() {
 
                         var savedFocus = focusedNodeId;
                         model = new OutlinerModel(msg.data);
+                        // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
+                        //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
+                        //   view mode が残っていた）。renderTree より前に設定。init(:814) と同ロジック。
+                        VIEW_MODE = (model.viewMode === 'table' || model.viewMode === 'mindmap')
+                            ? model.viewMode : 'outliner';
                         searchEngine = new OutlinerSearch.SearchEngine(model);
                         // TBE-03 / TASK-A6: ファイル切替でも rawDataExtras を再構築
                         rawDataExtras = captureRawDataExtras(msg.data);
                         pageDir = msg.data.pageDir || null;
-                        sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        // sprint 20260725-120000: Notes モードはサイドパネル幅を note 単位（outline.note =
+                        //   window.__noteSidePanelWidth）に保存する。updateData（ファイル/outliner 切替・note 再オープン）で
+                        //   .out 個別値のみ読むと note 値を null 上書きしデフォルト幅に戻る（init :844-847 と同じ
+                        //   notes-mode 優先分岐に揃える）。Standalone は従来どおり .out の data 値。
+                        if (isNotesMode() && typeof window.__noteSidePanelWidth === 'number' && window.__noteSidePanelWidth > 0) {
+                            sidePanelWidthSetting = window.__noteSidePanelWidth;
+                        } else {
+                            sidePanelWidthSetting = msg.data.sidePanelWidth || null;
+                        }
                         pinnedTags = msg.data.pinnedTags || [];
                         isDailyNotes = !!msg.isDailyNotes;
                         updatePinnedTagBar();
@@ -7523,6 +8219,15 @@ var Outliner = (function() {
                         updateScopeSearchIndicator();
                         // v0.207.40: ファイル切替後 model = disk と一致 → flushSync baseline 更新
                         lastSentJson = serializeForSave();
+                        // sprint 20260723-233506: タブ復帰の main scroll 復元（§3b・ADRL-TABS-SCROLL）。
+                        // DOM 構築（renderTree/focusNode）が同期完了したこの末尾で、同一同期タスク内に
+                        // scrollTop を代入する（paint 前確定＝チラつき無し）。focusNode の後に置くことで
+                        // focus 自動スクロールとの競合を回避（focusNode は _suppressFocusScroll で preventScroll 済み）。
+                        if (window.__notesTabManager && typeof window.__notesTabManager.consumePendingMainRestore === 'function') {
+                            _suppressFocusScroll = true;
+                            try { window.__notesTabManager.consumePendingMainRestore(); }
+                            finally { _suppressFocusScroll = false; }
+                        }
                         break;
                     }
 
@@ -7723,9 +8428,17 @@ var Outliner = (function() {
                     if (msg.nodeId && msg.imagePath) {
                         saveSnapshot();
                         model.addImage(msg.nodeId, msg.imagePath);
-                        var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
-                        if (imgContainer) {
-                            renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                        // FR-MM-IP: mindmap モードには .outliner-images コンテナが無い（別描画）。
+                        //   incremental 更新（renderNodeImages）は outliner モード専用なので、
+                        //   mindmap では renderTree() にフォールバックして画像を反映する
+                        //   （これが無いと paste 画像が model に入っても mindmap に描画されない = silent drop）。
+                        if (model.viewMode === 'mindmap') {
+                            renderTree();
+                        } else {
+                            var imgContainer = document.querySelector('.outliner-images[data-node-id="' + msg.nodeId + '"]');
+                            if (imgContainer) {
+                                renderNodeImages(imgContainer, model.getNode(msg.nodeId));
+                            }
                         }
                         scheduleSyncToHost();
                     }
@@ -7759,6 +8472,9 @@ var Outliner = (function() {
 
                 // --- サイドパネル関連メッセージ ---
                 case 'openSidePanel':
+                    // sprint 20260723-233506: msg.restoreScrollTop 付きはタブ復帰の復元経路
+                    // （openSidePanel 末尾で scroll 同期復元 + auto-focus skip）。
+                    if (msg.restoreForTab) { _sidePanelRestorePending = true; }
                     openSidePanel(msg.markdown, msg.filePath, msg.fileName, msg.toc, msg.documentBaseUri);
                     break;
 
@@ -7769,6 +8485,12 @@ var Outliner = (function() {
                         outerSidePanelCanGoBack = !!spdata.canGoBack;
                         outerSidePanelCanGoForward = !!spdata.canGoForward;
                         applyOuterSidePanelNavButtonState();
+                        break;
+                    }
+                    // Race guard: drop stale 'update' targeting a file that the side
+                    // panel has already navigated away from (back button overwrite fix).
+                    if (spdata.type === 'update' && spdata.filePath
+                        && sidePanelFilePath && spdata.filePath !== sidePanelFilePath) {
                         break;
                     }
                     if (sidePanelHostBridge) {
@@ -7797,7 +8519,9 @@ var Outliner = (function() {
                     break;
 
                 case 'insertImageHtml':
-                    if (sidePanelInstance && sidePanelHostBridge) {
+                    // FR (cross-instance): sidepanel 宛（sidePanelFilePath あり）かつ管理中の sidepanel と filePath 一致のときだけ転送。
+                    // sidePanelFilePath 無し（メイン宛）は outliner は何もしない。stale broadcast も filePath 一致で弾く。
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
                         sidePanelHostBridge._sendMessage({
                             type: 'insertImageHtml',
                             markdownPath: msg.markdownPath,
@@ -7818,7 +8542,8 @@ var Outliner = (function() {
                     break;
 
                 case 'insertFileLink':
-                    if (sidePanelInstance && sidePanelHostBridge) {
+                    // FR (cross-instance): insertImageHtml と同じ宛先 + filePath 一致条件
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
                         sidePanelHostBridge._sendMessage({
                             type: 'insertFileLink',
                             markdownPath: msg.markdownPath,
@@ -7905,7 +8630,7 @@ var Outliner = (function() {
                     var filePanel = document.querySelector('.notes-file-panel');
                     if (!filePanel) break;
                     if (filePanel.classList.contains('collapsed')) {
-                        var openBtn = document.getElementById('notesPanelToggleBtn');
+                        var openBtn = document.querySelector('.notes-panel-toggle-btn');
                         if (openBtn) openBtn.click();
                     } else {
                         var closeBtn = document.getElementById('filePanelCollapse');
@@ -8353,7 +9078,7 @@ var Outliner = (function() {
     // --- グローバルキーハンドラ ---
 
     function setupKeyHandlers() {
-        // FR-OS3-08 Layer F: sync 中は全キー入力を swallow
+        // 左サイドパネル S3 sync 中は全キー入力を swallow（sync-lock 中の編集を防ぐ）
         document.addEventListener('keydown', function(e) {
             if (document.body.classList.contains('outliner-sync-locked')) {
                 e.preventDefault();
@@ -8540,5 +9265,72 @@ var Outliner = (function() {
         // Phase F2/F3: view mode 切替 API (テスト + 外部から)
         getViewMode: getViewMode,
         setViewMode: setViewMode,
+        // sprint 20260723-233506 + 20260724-063158 (FR-TP-03): Tab Manager 用の画面状態 capture/apply。
+        //   focus/scope に加え、検索状態（テキスト + Tree/Focus モード）と view mode を per-tab 復元する
+        //   （outliner/table/mindmap 全モード。updateData でリセットされる module singleton を復元）。
+        captureView: function() {
+            return {
+                focusedNodeId: focusedNodeId,
+                currentScope: currentScope,
+                searchQuery: (searchInput ? searchInput.value : ''),
+                searchFocusMode: searchFocusMode,
+                viewMode: VIEW_MODE,
+            };
+        },
+        applyView: function(view) {
+            if (!view) return;
+            // view mode を復元（per-tab。VIEW_MODE と異なれば切替。setViewMode は同一なら :57 ガードで no-op）。
+            if (view.viewMode && view.viewMode !== VIEW_MODE && typeof setViewMode === 'function') {
+                setViewMode(view.viewMode);
+            }
+            // scope を復元（document/subtree）。best-effort（node が消えていれば document）。
+            if (view.currentScope && view.currentScope.type === 'subtree' && view.currentScope.rootId
+                && model && model.getNode(view.currentScope.rootId)) {
+                currentScope = view.currentScope;
+            } else {
+                currentScope = { type: 'document' };
+            }
+            if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
+            // FR-TP-03: 検索状態を復元（テキスト + モード）。updateData がクリアした後に走るので上書きになる。
+            searchFocusMode = !!view.searchFocusMode;
+            if (searchInput) { searchInput.value = view.searchQuery || ''; }
+            if (typeof updateSearchModeButton === 'function') updateSearchModeButton();
+            if (typeof executeSearch === 'function') executeSearch();          // currentSearchResult 再計算（空なら clear 相当・全モード分岐）
+            if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+            // focus を復元（preventScroll は呼び出し側 _suppressFocusScroll で担保）。
+            if (view.focusedNodeId && model && model.getNode(view.focusedNodeId)) {
+                focusNode(view.focusedNodeId);
+            }
+        },
+        // サイドパネルの現在状態（open/filePath/scrollTop）を返す（タブ切替 capture 用）。
+        captureSidePanelState: function() { return _captureSidePanelState(); },
+        // sprint 20260724-042927 (#3d): タブ切替で「サイドパネル無しタブ」へ移る時、webview 内で直接閉じる
+        //   （host 往復の handleClose は watcher dispose のみで .side-panel.open を閉じない）。isSwitch=true で
+        //   notifySidePanelClosed/refocus を出さず静かに閉じる。
+        closeSidePanelForTab: function() {
+            if (sidePanelEl && sidePanelEl.classList.contains('open')) {
+                closeSidePanelImmediate(true /* isSwitch */);
+                sidePanelEl.classList.remove('open');
+                sidePanelEl.style.display = 'none';
+            }
+        },
+        // FR-TH-05 テスト用: 現在開いている sidepanel md の編集をシミュレートする。
+        // 実 editor が編集ごとに呼ぶ SidePanelHostBridge.syncContent と同じ経路
+        // （saveSidePanelFile + onTocUpdate=updateSidePanelTocFromMarkdown）を通す＝本番反映コードを実行する。
+        __editSidePanelMarkdownForTest: function(md) {
+            if (sidePanelHostBridge && typeof sidePanelHostBridge.syncContent === 'function') {
+                sidePanelHostBridge.syncContent(md);
+                return true;
+            }
+            return false;
+        },
+        // TC-TP-01（FR-TP-01）テスト用フック。保存幅 px を注入 + ResizeObserver を張り + クランプを同期発火。
+        //   RO は非同期発火なので、テストの決定性のため clamp を直接叩ける口も出す。
+        __setSidePanelWidthForTest: function(px) { sidePanelWidthSetting = px; },
+        __getSidePanelWidthSettingForTest: function() { return sidePanelWidthSetting; },  // sprint 20260725-120000: note 復元検証用
+        __wireSidePanelResizeObserverForTest: function() { ensureSidePanelResizeObserver(); },
+        __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
+        // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
+        __setSidePanelResizeObserverDisabledForTest: function(v) { _sidePanelResizeObserverDisabled = !!v; },
     };
 })();
