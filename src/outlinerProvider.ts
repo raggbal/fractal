@@ -114,6 +114,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         imageMaxWidth: config.get<number>('imageMaxWidth', 400),
+                        showOpenInTextEditor: config.get<boolean>('showOpenInTextEditor', true),
                         documentBaseUri: docBaseUri
                     },
                     document.uri.fsPath
@@ -724,6 +725,12 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await openImageInNewTab(message.absPath);
                         break;
 
+                    case 'openDrawioExternal': {
+                        const { openDrawioExternal } = await import('./shared/drawio-external');
+                        await openDrawioExternal(message.absPath);
+                        break;
+                    }
+
                     case 'getSidePanelImageDir':
                         if (message.sidePanelFilePath) {
                             sendSidePanelImageDirStatus(message.sidePanelFilePath);
@@ -1317,7 +1324,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 }
                 if (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
-                    e.affectsConfiguration('fractal.language')) {
+                    e.affectsConfiguration('fractal.language') ||
+                    e.affectsConfiguration('fractal.showOpenInTextEditor')) {
                     updateWebview();
                 }
                 if (

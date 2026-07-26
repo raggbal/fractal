@@ -507,6 +507,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                         isOutlinerPage: isOutlinerPage,
                         showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                        showOpenInTextEditor: config.get<boolean>('showOpenInTextEditor', true),
                         imageMaxWidth: config.get<number>('imageMaxWidth', 400)
                     },
                     webviewNonce
@@ -1180,6 +1181,12 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 case 'openImageInNewTab':
                     await openImageInNewTab(message.absPath);
                     break;
+
+                case 'openDrawioExternal': {
+                    const { openDrawioExternal } = await import('./shared/drawio-external');
+                    await openDrawioExternal(message.absPath);
+                    break;
+                }
 
                 case 'saveSidePanelFile':
                     await sidePanel.handleSave(message.filePath, message.content);

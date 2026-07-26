@@ -11,6 +11,7 @@ interface OutlinerConfig {
     enableDebugLogging?: boolean;
     documentBaseUri?: string;
     imageMaxWidth?: number;
+    showOpenInTextEditor?: boolean;
 }
 
 export function getOutlinerWebviewContent(
@@ -124,7 +125,7 @@ export function getOutlinerWebviewContent(
     const sidePanelHtml = generateSidePanelHtml(msg);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}">
+<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-open-in-text-editor="${String(config.showOpenInTextEditor ?? true)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

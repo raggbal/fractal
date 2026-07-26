@@ -5568,6 +5568,7 @@ var Outliner = (function() {
         // Open in Text Editor
         var openTextEditorItem = document.createElement('button');
         openTextEditorItem.className = 'menu-item';
+        openTextEditorItem.setAttribute('data-action', 'openInTextEditor'); // showOpenInTextEditor=false で CSS 非表示
         openTextEditorItem.textContent = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.title = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.addEventListener('click', function() {

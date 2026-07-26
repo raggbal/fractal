@@ -12,6 +12,7 @@ interface NotesConfig {
     documentBaseUri?: string;
     folderName?: string;
     showTranslateButtons?: boolean;
+    showOpenInTextEditor?: boolean;
     imageMaxWidth?: number;
 }
 
@@ -33,6 +34,9 @@ interface NotesInitData {
     history?: Array<{ kind: string; id: string; title: string; ts: number }>;
     historyPanelHeight?: number;
     historyPanelCollapsed?: boolean;
+    /** 初期ファイルが .md（ext:'md' item）の場合の本文 + baseUri。
+     *  jsonContent に md を入れると JSON.parse が落ちて空 outliner になるバグの是正。 */
+    initialMd?: { content: string; documentBaseUri: string } | null;
 }
 
 export function getNotesWebviewContent(
@@ -158,6 +162,9 @@ export function getNotesWebviewContent(
     // Base64 encode JSON content
     const jsonToEncode = initData.jsonContent || '{"version":1,"rootIds":[],"nodes":{}}';
     const base64Content = Buffer.from(jsonToEncode, 'utf8').toString('base64');
+    // 初期ファイルが .md の場合の本文（base64。空なら初期 md なし）
+    const initialMdB64 = initData.initialMd
+        ? Buffer.from(initData.initialMd.content, 'utf8').toString('base64') : '';
 
     // Side panel HTML (shared with all editors)
     const { generateSidePanelHtml, generateEditorBodyHtml } = require(path.join(__dirname, 'shared', 'editor-body-html.js'));
@@ -170,7 +177,7 @@ export function getNotesWebviewContent(
     const markdownPaneHtml = generateEditorBodyHtml(msg, process.platform, { includeSidePanel: false, showOpenInNewTab: true, showNotesPanelToggle: true });
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}">
+<html lang="en" data-theme="${config.theme}" data-fr-theme="${config.theme}" data-toolbar-mode="${config.toolbarMode || 'full'}" data-show-translate-buttons="${String(config.showTranslateButtons ?? false)}" data-show-open-in-text-editor="${String(config.showOpenInTextEditor ?? true)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -316,6 +323,19 @@ export function getNotesWebviewContent(
             bridge: window.notesMarkdownHostBridge,
         });
 
+        // 初期ファイルが .md（ツリー先頭が md item）→ outliner でなく md ペインで開く
+        var __initialMdB64 = '${initialMdB64}';
+        if (__initialMdB64) {
+            try {
+                var __mdText = decodeURIComponent(escape(atob(__initialMdB64)));
+                window.__notesMdDispatcher.loadMarkdown(
+                    __mdText,
+                    ${JSON.stringify(initData.currentFilePath)},
+                    ${JSON.stringify(initData.initialMd ? initData.initialMd.documentBaseUri : '')}
+                );
+            } catch(e) { console.error('[Notes] initial md load failed:', e); }
+        }
+
         // ─── sprint 20260723-233506: webview 内マルチタブ Tab Manager（FR-TAB-*） ───
         (function() {
             function activeKind() {
@@ -361,8 +381,9 @@ export function getNotesWebviewContent(
                     if (window.Outliner && window.Outliner.closeSidePanelForTab) window.Outliner.closeSidePanelForTab();
                 },
             });
-            // 初期タブ（開いているファイル = .out）を登録（FR-TP-04: title は host 解決の currentFileTitle）
-            window.__notesTabManager.initFirstTab(${JSON.stringify(initData.currentFilePath)}, 'out', ${JSON.stringify(initData.currentFileTitle || '')} || undefined);
+            // 初期タブ（開いているファイル）を登録（FR-TP-04: title は host 解決の currentFileTitle）。
+            // kind は初期ファイルが md なら 'md'（ツリー先頭 md item の初期表示バグ是正）
+            window.__notesTabManager.initFirstTab(${JSON.stringify(initData.currentFilePath)}, ${initData.initialMd ? "'md'" : "'out'"}, ${JSON.stringify(initData.currentFileTitle || '')} || undefined);
             // host からの「webview 内タブで開く」指示（open new tab 置換・リンク cmd+click・FR-TAB-02）
             window.addEventListener('message', function(e) {
                 var m = e.data;

@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal - Markdown & Outline Editor",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "0.212.1",
+  "version": "0.212.5",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -309,6 +309,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show translate buttons in the editor toolbar (standalone) and side panel header. When off, translation can still be triggered via the 'fractal.translate' command (Cmd+/)."
+        },
+        "fractal.showOpenInTextEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the \"Open in Text Editor\" button (opens the current file in VS Code's built-in text editor). Turn off if you don't use it."
         }
       }
     },

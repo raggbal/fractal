@@ -194,6 +194,9 @@ export class NotesEditorProvider {
         let fileList: ReturnType<typeof fileManager.listFiles> = [];
         let currentFilePath: string | null = null;
         let jsonContent = '{"version":1,"rootIds":[],"nodes":{}}';
+        // 初期ファイルが .md（ext:'md' item）の場合は outliner でなく md ペインで開く。
+        // md 本文を jsonContent に入れると webview の JSON.parse が落ちて空 outliner になる（バグ）。
+        let initialMdContent: string | null = null;
         if (!needsMigration) {
             // .note構造をロード（自動マイグレーション含む）
             fileManager.loadStructure();
@@ -212,13 +215,13 @@ export class NotesEditorProvider {
                 const content = fileManager.openFile(fp);
                 if (content !== null) {
                     currentFilePath = fp;
-                    jsonContent = content;
+                    if (fp.endsWith('.md')) { initialMdContent = content; } else { jsonContent = content; }
                 }
             } else if (fileList.length > 0) {
                 const content = fileManager.openFile(fileList[0].filePath);
                 if (content !== null) {
                     currentFilePath = fileList[0].filePath;
-                    jsonContent = content;
+                    if (currentFilePath.endsWith('.md')) { initialMdContent = content; } else { jsonContent = content; }
                 }
             }
         }
@@ -283,6 +286,7 @@ export class NotesEditorProvider {
                     webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                     enableDebugLogging: config.get<boolean>('enableDebugLogging', false),
                     showTranslateButtons: config.get<boolean>('showTranslateButtons', false),
+                    showOpenInTextEditor: config.get<boolean>('showOpenInTextEditor', true),
                     imageMaxWidth: config.get<number>('imageMaxWidth', 400),
                     documentBaseUri: folderBaseUri,
                     folderName: path.basename(folderPath),
@@ -302,10 +306,26 @@ export class NotesEditorProvider {
                     history: fileManager.getHistoryWithFreshTitles(),  // FR-HP: 最近開いたファイル履歴（title は最新解決）
                     historyPanelHeight: fileManager.getHistoryPanelHeight(),
                     historyPanelCollapsed: fileManager.getHistoryPanelCollapsed(),
+                    // ツリー先頭が md item の場合は md ペインで初期表示（空 outliner バグ是正）
+                    initialMd: (initialMdContent !== null && currentFilePath) ? {
+                        content: initialMdContent,
+                        documentBaseUri: panel.webview.asWebviewUri(vscode.Uri.file(path.dirname(currentFilePath))).toString(),
+                    } : null,
                 }
             );
         }
         sendTranslateLangFromConfig();
+
+        // 初期ファイルが md の場合、外部変更 watcher を張る（notesOpenFile 経由の mdMainOpened と対称。
+        // mdMain はこの後で生成されるため次 tick で張る）
+        if (initialMdContent !== null && currentFilePath) {
+            const initialMdPath = currentFilePath;
+            setImmediate(() => {
+                mdMain.setupFileWatcher(initialMdPath).catch(e => {
+                    console.error('[Notes] initial md setupFileWatcher error:', e);
+                });
+            });
+        }
 
         // サイドパネル管理
         const sidePanel = new SidePanelManager(
@@ -847,6 +867,10 @@ export class NotesEditorProvider {
             },
             openImageInNewTab: async (absPath: string) => {
                 await openImageInNewTab(absPath);
+            },
+            openDrawioExternal: async (absPath: string) => {
+                const { openDrawioExternal } = await import('./shared/drawio-external');
+                await openDrawioExternal(absPath);
             },
             // FR-OL-COPYPATH-1: file 添付ノードの絶対 path を OS clipboard へコピー
             copyAttachedFilePath: async (nodeId: string, outFilePath: string, _senderRef: NotesSender) => {
@@ -2028,15 +2052,27 @@ export class NotesEditorProvider {
                 if (!needsMigration && (e.affectsConfiguration('fractal.theme') ||
                     e.affectsConfiguration('fractal.fontSize') ||
                     e.affectsConfiguration('fractal.showTranslateButtons') ||
+                    e.affectsConfiguration('fractal.showOpenInTextEditor') ||
                     e.affectsConfiguration('fractal.language'))) {
                     // refreshPanel inline (ローカル変数を使用)
                     const refreshConfig = vscode.workspace.getConfiguration('fractal');
                     const refreshFileList = fileManager.listFiles();
                     const refreshCurrentFile = fileManager.getCurrentFilePath();
                     let refreshJsonContent = '{"version":1,"rootIds":[],"nodes":{}}';
+                    let refreshInitialMd: { content: string; documentBaseUri: string } | null = null;
                     if (refreshCurrentFile) {
                         const refreshContent = fileManager.openFile(refreshCurrentFile);
-                        if (refreshContent !== null) refreshJsonContent = refreshContent;
+                        if (refreshContent !== null) {
+                            // 現ファイルが md の場合は md ペインで再表示（jsonContent に入れると空 outliner になる）
+                            if (refreshCurrentFile.endsWith('.md')) {
+                                refreshInitialMd = {
+                                    content: refreshContent,
+                                    documentBaseUri: panel.webview.asWebviewUri(vscode.Uri.file(path.dirname(refreshCurrentFile))).toString(),
+                                };
+                            } else {
+                                refreshJsonContent = refreshContent;
+                            }
+                        }
                     }
                     const refreshPanelCollapsed = this.context.globalState.get<boolean>(
                         `notesPanelCollapsed:${folderPath}`, false
@@ -2050,10 +2086,11 @@ export class NotesEditorProvider {
                             webviewMessages: getWebviewMessages() as unknown as Record<string, string>,
                             enableDebugLogging: refreshConfig.get<boolean>('enableDebugLogging', false),
                             showTranslateButtons: refreshConfig.get<boolean>('showTranslateButtons', false),
+                            showOpenInTextEditor: refreshConfig.get<boolean>('showOpenInTextEditor', true),
                             imageMaxWidth: refreshConfig.get<number>('imageMaxWidth', 400),
                             folderName: path.basename(folderPath),
                         },
-                        { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), noteSidePanelWidth: fileManager.getSidePanelWidth(), noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(), fileChangeId: fileManager.getFileChangeId() }
+                        { jsonContent: refreshJsonContent, fileList: refreshFileList, currentFilePath: refreshCurrentFile, panelCollapsed: refreshPanelCollapsed, structure: fileManager.getStructure(), panelWidth: fileManager.getPanelWidth(), noteSidePanelWidth: fileManager.getSidePanelWidth(), noteSidePanelOutlineWidth: fileManager.getSidePanelOutlineWidth(), fileChangeId: fileManager.getFileChangeId(), initialMd: refreshInitialMd }
                     );
                     sendTranslateLangFromConfig();
                 }

@@ -1055,6 +1055,12 @@ body {
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
     display: none !important;
 }
+/* Open in Text Editor toggle (fractal.showOpenInTextEditor setting, default on).
+   VS Code の組込テキストエディタで開く操作。Electron 化で無意味になるため opt-out。
+   md toolbar / sidepanel header / outliner 右クリックメニューの全 openInTextEditor を隠す。 */
+[data-show-open-in-text-editor="false"] [data-action="openInTextEditor"] {
+    display: none !important;
+}
 /* Standalone toolbar translate language button: text-based label (e.g. "ja → en") */
 .toolbar-inner .toolbar-group[data-group="translate"] [data-action="translateLang"] {
     min-width: 50px;
@@ -6109,6 +6115,7 @@ class SidePanelHostBridge {
     openLinkInTab(href) { this._mainHost.openLinkInTab(href); }
     copyImageToClipboard(absPath) { this._mainHost.copyImageToClipboard(absPath); }
     openImageInNewTab(absPath) { this._mainHost.openImageInNewTab(absPath); }
+    openDrawioExternal(absPath) { if (this._mainHost.openDrawioExternal) this._mainHost.openDrawioExternal(absPath); }
     requestInsertLink(text) {
         if (this._onLinkRequest) this._onLinkRequest();
         this._mainHost.requestInsertLink(text);
@@ -11085,17 +11092,27 @@ class EditorInstance {
         });
     }
 
-    // drawio.svg / drawio.png 用「Open」「Copy Path」ボタン (codeblock copy ボタンと同じデザイン系統)
-    // mouseover で対象 img の右上に floating 表示
-    //   Open       → 外部アプリ起動 (ファイルリンクと同経路 host.openLink)
-    //   Copy Path  → 絶対 fs path を clipboard にコピー (vscode-resource 接頭辞除去)
+    // drawio.svg / drawio.png 用「Open in VS Code」「Open in External」「Copy Path」ボタン
+    // (codeblock copy ボタンと同じデザイン系統) mouseover で対象 img の右上に floating 表示
+    //   Open in External → OS 関連付けアプリで開く (ファイルリンクと同経路 host.openLink)
+    //   Open in VS Code  → VS Code タブで開く (host.openImageInNewTab = vscode.open。
+    //                      hediet.vscode-drawio 等の *.drawio.svg カスタムエディタがあればタブ内 draw.io になる)
+    //   Copy Path        → 絶対 fs path を clipboard にコピー (vscode-resource 接頭辞除去)
     var drawioOpenBtn = document.createElement('button');
     drawioOpenBtn.className = 'drawio-open-btn';
-    drawioOpenBtn.textContent = (typeof i18n !== 'undefined' && i18n.openInDrawioDesktopButton) || 'Open';
-    drawioOpenBtn.title = 'Open in external app';
+    drawioOpenBtn.textContent = 'Open in External';
+    drawioOpenBtn.title = 'Open in external app (OS default)';
     drawioOpenBtn.setAttribute('contenteditable', 'false');
     drawioOpenBtn.style.display = 'none';
     document.body.appendChild(drawioOpenBtn);
+
+    var drawioOpenVscodeBtn = document.createElement('button');
+    drawioOpenVscodeBtn.className = 'drawio-open-btn'; // 同 style 流用
+    drawioOpenVscodeBtn.textContent = 'Open in VS Code';
+    drawioOpenVscodeBtn.title = 'Open in a VS Code tab (uses the draw.io extension if installed)';
+    drawioOpenVscodeBtn.setAttribute('contenteditable', 'false');
+    drawioOpenVscodeBtn.style.display = 'none';
+    document.body.appendChild(drawioOpenVscodeBtn);
 
     var drawioCopyPathBtn = document.createElement('button');
     drawioCopyPathBtn.className = 'drawio-open-btn'; // 同 style 流用
@@ -11115,13 +11132,17 @@ class EditorInstance {
     }
     function positionDrawioOpenBtn(img) {
         var rect = img.getBoundingClientRect();
-        // 右上に Open、その左に Copy Path を配置
+        // 右上から左へ [Copy Path] [Open in VS Code] [Open in External] の順に配置
         var openTop = rect.top + 4;
         var openLeft = rect.right - drawioOpenBtn.offsetWidth - 4;
         drawioOpenBtn.style.top = openTop + 'px';
         drawioOpenBtn.style.left = openLeft + 'px';
-        // Copy Path を Open の左に gap 4px で
-        var copyLeft = openLeft - drawioCopyPathBtn.offsetWidth - 4;
+        // Open in VS Code を Open in External の左に gap 4px で
+        var vscodeLeft = openLeft - drawioOpenVscodeBtn.offsetWidth - 4;
+        drawioOpenVscodeBtn.style.top = openTop + 'px';
+        drawioOpenVscodeBtn.style.left = vscodeLeft + 'px';
+        // Copy Path をさらに左に gap 4px で
+        var copyLeft = vscodeLeft - drawioCopyPathBtn.offsetWidth - 4;
         drawioCopyPathBtn.style.top = openTop + 'px';
         drawioCopyPathBtn.style.left = copyLeft + 'px';
     }
@@ -11129,6 +11150,7 @@ class EditorInstance {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
         drawioOpenBtnTargetImg = img;
         drawioOpenBtn.style.display = 'block';
+        drawioOpenVscodeBtn.style.display = 'block';
         drawioCopyPathBtn.style.display = 'block';
         positionDrawioOpenBtn(img);
         // 幅確定後に再配置 (display:none → block 直後は offsetWidth が 0 のことがある)
@@ -11138,10 +11160,21 @@ class EditorInstance {
         if (drawioOpenBtnHideTimer) clearTimeout(drawioOpenBtnHideTimer);
         drawioOpenBtnHideTimer = setTimeout(function() {
             drawioOpenBtn.style.display = 'none';
+            drawioOpenVscodeBtn.style.display = 'none';
             drawioCopyPathBtn.style.display = 'none';
             drawioOpenBtnTargetImg = null;
         }, 120);
     }
+    /** 対象 img の絶対 fs path（webview URL 接頭辞 / ?v= / #fragment を除去。Copy Path と同ロジック） */
+    function drawioTargetAbsPath() {
+        if (!drawioOpenBtnTargetImg) return '';
+        var rawSrc = drawioOpenBtnTargetImg.getAttribute('src') || '';
+        var cleaned = (typeof cleanImageSrc === 'function')
+            ? cleanImageSrc(rawSrc)
+            : rawSrc.replace(/^https:\/\/file(?:\+|%2B)\.vscode-resource\.vscode-cdn\.net/, '');
+        return (cleaned || '').split('?')[0].split('#')[0];
+    }
+
     drawioOpenBtn.addEventListener('mouseenter', function() {
         if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
     });
@@ -11151,12 +11184,35 @@ class EditorInstance {
         e.preventDefault();
         e.stopPropagation();
         if (!drawioOpenBtnTargetImg) return;
+        // 絶対パスで専用経路へ（mac: draw.io Desktop 優先。.svg の OS 関連付けがブラウザでも draw.io で開ける）
+        var absPath = drawioTargetAbsPath();
+        if (absPath && typeof host !== 'undefined' && host.openDrawioExternal) {
+            host.openDrawioExternal(absPath);
+            return;
+        }
+        // fallback（旧経路 = OS 関連付け）: bridge 未対応環境用
         var mdPath = drawioOpenBtnTargetImg.dataset.markdownPath || drawioOpenBtnTargetImg.getAttribute('src') || '';
         if (!mdPath) return;
-        // ?v=mtime / #fragment を strip して host へ
         var cleanPath = mdPath.split('?')[0].split('#')[0];
         if (typeof host !== 'undefined' && host.openLink) {
             host.openLink(cleanPath);
+        }
+    });
+
+    drawioOpenVscodeBtn.addEventListener('mouseenter', function() {
+        if (drawioOpenBtnHideTimer) { clearTimeout(drawioOpenBtnHideTimer); drawioOpenBtnHideTimer = null; }
+    });
+    drawioOpenVscodeBtn.addEventListener('mouseleave', hideDrawioOpenBtnSoon);
+    drawioOpenVscodeBtn.addEventListener('mousedown', function(e) { e.preventDefault(); });
+    drawioOpenVscodeBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // VS Code タブで開く: openImageInNewTab (= vscode.open) を流用。
+        // hediet.vscode-drawio 等が *.drawio.svg のカスタムエディタを登録していればタブ内 draw.io エディタになる
+        var absPath = drawioTargetAbsPath();
+        if (!absPath) return;
+        if (typeof host !== 'undefined' && host.openImageInNewTab) {
+            host.openImageInNewTab(absPath);
         }
     });
 
@@ -11203,7 +11259,7 @@ class EditorInstance {
         if (isDrawioImg(t)) {
             // related target がボタン or 同じ img なら維持
             var rt = e.relatedTarget;
-            if (rt === drawioOpenBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
+            if (rt === drawioOpenBtn || rt === drawioOpenVscodeBtn || rt === drawioCopyPathBtn || rt === drawioOpenBtnTargetImg) return;
             hideDrawioOpenBtnSoon();
         }
     });
@@ -25488,6 +25544,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openImageInNewTab: function(absPath) {
             postFn({ type: 'openImageInNewTab', absPath: absPath });
         },
+        openDrawioExternal: function(absPath) {
+            // .drawio.svg/.png を外部アプリで開く（mac: draw.io Desktop 優先 → OS デフォルト fallback）
+            postFn({ type: 'openDrawioExternal', absPath: absPath });
+        },
 
         // メッセージ受信
         onMessage: function(handler) {
@@ -37076,6 +37136,7 @@ var Outliner = (function() {
         // Open in Text Editor
         var openTextEditorItem = document.createElement('button');
         openTextEditorItem.className = 'menu-item';
+        openTextEditorItem.setAttribute('data-action', 'openInTextEditor'); // showOpenInTextEditor=false で CSS 非表示
         openTextEditorItem.textContent = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.title = i18n.openInTextEditor || 'Open in Text Editor';
         openTextEditorItem.addEventListener('click', function() {

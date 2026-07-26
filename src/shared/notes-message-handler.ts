@@ -156,6 +156,8 @@ export interface NotesPlatformActions {
     copyImageToClipboard?(absPath: string): void;
     /** 画像 fullscreen overlay: 画像を新規タブで開く */
     openImageInNewTab?(absPath: string): void;
+    /** .drawio.svg/.png を外部アプリで開く（mac: draw.io Desktop 優先 → OS デフォルト fallback） */
+    openDrawioExternal?(absPath: string): void;
     /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
     copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
@@ -911,6 +913,12 @@ export async function handleNotesMessage(
         case 'openImageInNewTab':
             if (message.absPath) {
                 platform.openImageInNewTab?.(message.absPath);
+            }
+            break;
+
+        case 'openDrawioExternal':
+            if (message.absPath) {
+                platform.openDrawioExternal?.(message.absPath);
             }
             break;
 

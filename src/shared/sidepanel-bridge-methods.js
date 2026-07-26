@@ -190,6 +190,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         openImageInNewTab: function(absPath) {
             postFn({ type: 'openImageInNewTab', absPath: absPath });
         },
+        openDrawioExternal: function(absPath) {
+            // .drawio.svg/.png を外部アプリで開く（mac: draw.io Desktop 優先 → OS デフォルト fallback）
+            postFn({ type: 'openDrawioExternal', absPath: absPath });
+        },
 
         // メッセージ受信
         onMessage: function(handler) {

@@ -24,6 +24,7 @@ interface EditorConfig {
     enableDebugLogging?: boolean;
     isOutlinerPage?: boolean;
     showTranslateButtons?: boolean;
+    showOpenInTextEditor?: boolean;
     imageMaxWidth?: number;
 }
 
@@ -62,6 +63,7 @@ export function getWebviewContent(
         enableDebugLogging: config?.enableDebugLogging ?? false,
         isOutlinerPage: config?.isOutlinerPage ?? false,
         showTranslateButtons: config?.showTranslateButtons ?? false,
+        showOpenInTextEditor: config?.showOpenInTextEditor ?? true,
         imageMaxWidth: typeof config?.imageMaxWidth === 'number' && config!.imageMaxWidth >= 100
             ? config!.imageMaxWidth : 600
     };
@@ -132,7 +134,7 @@ export function getWebviewContent(
         .replace('__CONTENT__', `'${base64Content}'`);
 
     return `<!DOCTYPE html>
-<html lang="en" data-theme="${safeConfig.theme}" data-fr-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}">
+<html lang="en" data-theme="${safeConfig.theme}" data-fr-theme="${safeConfig.theme}" data-toolbar-mode="${safeConfig.toolbarMode}" data-show-translate-buttons="${String(safeConfig.showTranslateButtons)}" data-show-open-in-text-editor="${String(safeConfig.showOpenInTextEditor ?? true)}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

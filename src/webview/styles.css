@@ -413,6 +413,12 @@ body {
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
     display: none !important;
 }
+/* Open in Text Editor toggle (fractal.showOpenInTextEditor setting, default on).
+   VS Code の組込テキストエディタで開く操作。Electron 化で無意味になるため opt-out。
+   md toolbar / sidepanel header / outliner 右クリックメニューの全 openInTextEditor を隠す。 */
+[data-show-open-in-text-editor="false"] [data-action="openInTextEditor"] {
+    display: none !important;
+}
 /* Standalone toolbar translate language button: text-based label (e.g. "ja → en") */
 .toolbar-inner .toolbar-group[data-group="translate"] [data-action="translateLang"] {
     min-width: 50px;
