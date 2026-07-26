@@ -1,0 +1,416 @@
+<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal — VS Code のための Markdown & アウトライナー（データベース&マインドマップ）
+=
+
+**VS Code の中で完結するノートテイキング環境。** Fractal は **Notion ライクな WYSIWYG マークダウンエディタ** と **Dynalist ライクなアウトライナー( データベース / マインドマップ モードもあり) **をひとつのワークスペースに統合。**Note** 単位で整理し、すべてを横断検索でき、S3 に同期でき、そして **AI コーディングアシスタントとの共同作業** を前提に設計されています。
+
+![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
+![Open VSX](https://img.shields.io/open-vsx/v/imaken/fractal?label=Open%20VSX)
+![License](https://img.shields.io/badge/license-MIT-green)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/raggbal?label=Sponsor)
+
+---
+
+## Fractal を選ぶ理由
+
+- ✍️ **WYSIWYG Markdown** — 編集と閲覧を同時に。分割プレビューも生のマークダウン記法も不要。テーブル、コードブロック、Mermaid、数式、draw.io — すべてリアルタイムにレンダリング。
+- 🌲 **本格的なアウトライナー** — Dynalist / Workflowy スタイルのツリー編集。タグ管理、スムーズな絞り込み、そして **アウトライナー / データベース / マインドマップ** の3つのビュー。
+- 📄 **サブページ** — アウトラインのノードやマークダウンページの子として、マークダウンページを埋め込み。Notion のデータベースのような階層的ドキュメントを構築できます。
+- 🤖 **AI フレンドリーな設計** — 外部からのファイル変更を **リアルタイム** に画面へ反映。Claude Code、Cursor、Kiro にノートを編集させながら、自分の作業を続けられます。カーソル位置や編集中の内容は保持されます。
+- 🗂 **Notes** — フォルダ（"note"）単位で情報を管理。ファイル自体はフラットに保存しつつ、表示上は仮想的なフォルダ/ファイルツリーで構造的に整理。横断フルテキスト検索、タブ・履歴管理、Daily Notes も。
+- ☁️ **S3 バックアップ & リストア** — 自分の AWS S3 バケットへワンクリックでバックアップ、そこからのリストアも可能。
+- 🧩 **エディタの外へ** — Web ページを取り込む Chrome 拡張、Amazon Translate 連携、そして AI エージェントが Fractal のノートを読み書きできる **AI スキル** を公開（Fractal を Obsidian の代わりに）。
+
+`.md` と `.out` は単体（standalone）でも動作しますが、真価を発揮するのはすべてが繋がる **Notes マネージャ** です。
+
+---
+
+## キービジュアル
+
+### マークダウンエディタ
+Notionのような心地よい入力ができるMarkdown エディター。基本的なMarkdown要素は全て使え、さらに codeブロック、数式ブロック、mermaidブロック、drawio埋め込みブロック、文字色変更など拡張的な機能も存在。あらゆる人のMarkdownニーズに対応。
+さらに、Notion的な Subpage も対応(Linkとは区別)。階層的に Markdown を管理することが可能。
+![assets/images/1785072634683.png](assets/images/1785072634683.png)
+
+### アウトライナーエディタ
+Dynalist クラスのアウトライナー。フォルダ、タグ、そしてアウトラインノードとマークダウン本文の横断フルテキスト検索。
+![assets/images/1785071780563.png](assets/images/1785071780563.png)
+
+
+---
+
+## ✨ コアコンセプト
+
+**Notion のように、Markdown・Outliner・Database・Mindmap をひとつの場所で管理する。** Fractal では 4 つのコンテンツが別々のツールではなく、同じ note の中で繋がります — アウトラインのノードにマークダウンページをぶら下げ、同じアウトラインをデータベースやマインドマップとして眺め、すべてを横断検索する。しかもデータはプレーンな `.md` と JSON のままです。
+
+| コンテンツ | 実体 | 概要 |
+| --- | --- | --- |
+| **Markdown** | `.md` | Notion ライクな WYSIWYG エディタ。ひとつのビューで編集と閲覧を同時に。サブページで階層化 |
+| **Outliner** | `.out` | Dynalist ライクなツリー編集。タグ・タスク・検索 |
+| **Database** | `.out`（ビュー） | 同じアウトラインを Notion ライクなテーブルとして表示。テキスト / タグ / 日付列 |
+| **Mindmap** | `.out`（ビュー） | 同じアウトラインを SVG マインドマップとして表示・編集 |
+
+これらを束ねるのが **Notes** — フォルダ単位のワークスペース（仮想ツリー、横断検索、タブ、Daily Notes、S3 同期）です。マークダウンページはマークダウンエディタからもアウトライナーからも開けます。サブページはデフォルトで **サイドパネル** に、または **新しいタブ** で独立ドキュメントとして開きます。
+
+---
+
+## 📝 マークダウンエディタ (.md)
+Notion スタイルの WYSIWYG エディタ。見えているものがそのままファイルの中身です。
+![assets/images/1785071877602.png](assets/images/1785071877602.png)
+![assets/images/1785072859352.png](assets/images/1785072859352.png)
+
+### 編集
+- **シームレスなライブプレビュー** — マークダウンを書くと即座にレンダリング。いつでも **ソースモード** に切り替え可能（`Cmd+.`）
+- **見出し、リスト、タスクリスト、引用、水平線** — 標準的なマークダウンをすべてキーボードファーストで
+- **テーブル** — 任意のセルの端をドラッグして列幅を変更、幅はファイルに保存（他のビューアには影響しない HTML コメント形式）。Tab でセル移動、Enter で行追加
+- **コードブロック** — 24以上の言語のシンタックスハイライト、VS Code のエディタタブへの展開
+- **インライン書式** — 太字、斜体、取り消し線、インラインコード、スマートリンク作成
+- **アクションパレット**（`Cmd+/`） — すべての書式・挿入アクションを検索可能なメニューに集約
+
+### 添付とメディア
+- **画像** — ペーストまたはドラッグ&ドロップ。ピンチズーム・パン対応のフルスクリーンライトボックス。表示幅の上限は設定可能
+- **ファイル添付** — 任意のファイル（PDF、Excel など）をドロップすると `[📎 filename](path)` リンクを挿入。クリックで OS デフォルトアプリで開く
+- **添付パネル** — ドキュメント内で参照しているすべての画像・ファイルを一覧表示。Open / Copy Path 付き
+
+### 図と数式
+- **Mermaid** — インラインでレンダリング、クリックでソース編集
+- **KaTeX 数式** — ディスプレイモードの数式をライブ再レンダリング
+- **draw.io** — VS Code を離れずに図の作成・編集。`.drawio.svg`（GitHub でも表示でき、任意の draw.io クライアントで再編集できる本物の SVG）として保存され、通常の画像として埋め込まれます。draw.io Desktop や drawio VS Code 拡張から保存すると、開いているドキュメントに自動で再レンダリング
+
+### サブページ
+- `Cmd+/`** → Add Page**（または `Cmd+N`） — 子マークダウンページを作成してカーソル位置にリンクを挿入
+- `.md` リンクをクリックすると **Notion スタイルのサイドピークパネル** で開き、フル WYSIWYG 編集が可能。戻る/進むナビゲーション付き（`Opt+←` / `Opt+→`）
+- `Cmd+クリック` で **新しいタブ** に単独ドキュメントとして開く
+- ページの中にページ — いくらでも深い階層を構築できます
+
+### AI フレンドリー: 外部変更のリアルタイム同期
+AI アシスタント（Claude Code、Cursor、Kiro など）— あるいは他の何か — が開いているファイルを変更したとき:
+
+- **ブロックレベルの DOM 差分** — 変更されたブロックだけをパッチ。カーソル位置と編集中の内容は保持
+- 自分の編集と AI の編集が、ひとつのドキュメントの中で **安全に共存**
+- `Cmd+L` — 選択テキストを AI チャットへ送信。`Cmd+Shift+.` で VS Code のテキストエディタとして開く
+
+### スタンドアロンモード
+- Fractal を `.md`** のデフォルトエディタ** に設定すれば、マシン上のあらゆるマークダウンを編集可能 — Fractal の note は不要
+- スタンドアロンのファイルでは **画像・添付ファイルの保存先フォルダを指定可能**（ファイルの隣の隠しファイル `.fractal.json` に保存 — マークダウン本文には一切手を加えないため、他のエディタからは見えません）
+
+---
+
+## 🌲 アウトライナー (.out)
+Dynalist ライクなアウトライナー。同じデータを3つの視点で。
+
+#### アウトラインビュー
+![assets/images/1785071590698.png](assets/images/1785071590698.png)
+
+#### データベースビュー
+![assets/images/1785071543294.png](assets/images/1785071543294.png)
+
+#### マインドマップビュー
+![assets/images/1785071464193.png](assets/images/1785071464193.png)
+
+### 3つのビューモード
+ビュートグルで切り替え:
+
+1. **アウトライナービュー** — クラシックなバレットツリー。無制限のネスト、折りたたみ/展開、パンくず付きのサブツリースコープ
+2. **データベースビュー** — アウトラインを Notion ライクなデータベース（ツリーテーブル）として表示。テキスト / タグ（マルチセレクト）列に加え、ネイティブの日付ピッカー付き **Date / Date & Time 列** を追加可能
+3. **マインドマップモード** — 同じ `.out` を SVG マインドマップとしてレンダリング。放射 / 左 / 右 / バランスの4レイアウト、キーボード中心の編集（ナビゲーション・兄弟/子追加・入れ替え・タイプで即編集）、ノードの色・シェイプ変更、境界（グループ）、関係線
+
+### タグと検索で整理
+- `#tag` と `@tag` は自動でハイライトされ、クリックで即絞り込み
+- **ピン留めタグ** — よく使うタグをワンクリックフィルタに
+- **Dynalist 互換の検索** — AND、OR、NOT、`"フレーズ"`、`#tag`、`in:title`、`has:children`、`is:page`、`is:task` — スムーズなインクリメンタル絞り込み
+
+### 何でも添付
+- **マークダウンサブページ** — 任意のバレットをページ化（`@page`）し、サイドパネルのフル WYSIWYG エディタで編集。**Notion のデータベース** のように階層的なマークダウンを管理
+- **画像** — `Cmd+V` でペースト。ノード下にサムネイル表示、ドラッグで並べ替え、ダブルクリックで拡大
+- **ファイル** — 任意のファイル形式をノードに添付。📎 ノードは OS デフォルトアプリで開く
+- `.md`** インポート** — Notion / Obsidian のエクスポートをページノードとして取り込み。画像は自動コピーされ、パスも書き換え
+
+### タスク
+- `- [ ]` / `- [x]` チェックボックスと充実したキーボード操作（`Cmd+Shift+X` でトグル）
+- **タスクモード** — 新規ルートノードが自動でチェックボックス化
+- **タスクフィルタ** — 完了済みサブツリーをワンクリックで非表示
+- **Daily Notes へのアーカイブ** — 完了タスク（ページ・画像・ファイルごと）を今日の Daily Note 配下へ移動し、`#TASK #DONE` タグを付与
+
+### 編集の基本
+Enter / Tab / Shift+Tab は期待どおりに動作。複数選択インデント、ノード移動（`Cmd+Shift+↑/↓`）、サブテキスト（`Shift+Enter`）、インライン書式、クリック可能なリンク、ナビゲーション履歴（`Opt+←/→`）、完全な Undo/Redo。詳細は下の「主なショートカット」参照。
+
+---
+
+## 🗂 Notes — すべてが繋がる場所
+
+Fractal は **note** 単位で情報を管理します。アクティビティバーから任意のフォルダを登録するだけです。
+
+- **ロックインのない構造化** — ファイルはディスク上に **フラット** に保存しつつ、`.out` と `.md` を **仮想的なフォルダ/ファイルツリー** でドラッグ&ドロップ整理。データはあくまでプレーンなファイルのまま
+- **フルテキスト検索** — note 内のすべてのアウトライン、サブページ、スタンドアロンのマークダウンを横断検索。ストリーミング表示、クリックでジャンプ
+- **タブ** — note 内で複数のアウトライナーや md をブラウザライクなタブで切り替え。タブ名はタイトル / H1 に追従、md タブは右クリックで VS Code タブとしても開ける
+- **Recent（履歴）** — 最近開いたファイルの一覧からワンクリックで復帰
+- **Daily Notes** — ワンクリックの日次ジャーナル。年/月/日の階層を自動作成、`<` `>` ナビゲーションとカレンダーピッカー付き
+- **アプリ内リンク** — 任意のノードやページへのリンクをコピーし、Fractal 内のどこにでもペースト。クリックでジャンプ
+- **お掃除機能** — "Clean Unused Files" で孤立した画像・ページ・添付を検出してゴミ箱へ。"Move to Other Note" でページをアセットごと別の note へ移動
+
+### ☁️ S3 バックアップ & リストア
+AWS アカウントがあれば、note を S3 に同期できます:
+
+- **note 全体の同期（Tools タブ）** — note フォルダ全体の双方向 newer-wins 同期。または全アップロード / 全ダウンロード / クリーンリビルド
+- mtime ベースのファイル単位 newer-wins 判定: ローカルの編集が古い S3 の内容で上書きされることはありません
+
+### 🌍 翻訳
+選択範囲またはドキュメント全体を **Amazon Translate** で翻訳。カスタム用語集（Custom Terminology）による精度向上にも対応。
+
+> S3 同期と翻訳には AWS CLI が必要です。それ以外の機能は AWS なしで動作します。
+
+---
+
+## 🤖 AI スキル — Fractal をエージェントのノートに
+
+Fractal は **AI スキル**（`ai_skills/`）を公開しています。AI エージェントに Fractal のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
+
+- `fractal-structure` — Notes / Outliner / Page のデータモデルのリファレンス
+- `fractal-search` — Notes フォルダの自動検出、note 横断の全文検索、タグ・タスク状態フィルタ（`--tag` / `--checked`）、note 名での絞り込み
+- `fractal-edit` — ノードの追加・変更・削除・移動、マークダウンページの取り込み（単一・一括）、画像・ファイル添付、md へのサブページ / 添付の追加、新規アウトライナー / md 作成
+- `fractal-doctor` — note の整合性チェック（参照切れ・孤児ファイル・レイアウト検査。read-only）
+- `fractal-summary` — アウトライナーや md（サブページ再帰込み）を 1 本のマークダウンにまとめて AI に読ませる
+- `collect` ほか変換系 — Web ページ / YouTube 字幕 / arXiv 論文 / PDF・Office 文書を Markdown 化して取り込み
+
+```bash
+ai_skills/install.sh         # 検出した AI IDE すべてに配置（Claude Code / Cursor / Kiro / Antigravity）
+./install-skills.sh          # Claude Code のみ・rules 付きでインストール
+```
+
+スキルをインストールすれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。
+
+---
+
+## 🌐 Chrome 拡張（Web クリッパー）
+
+任意の Web ページを Fractal の Note へ保存 — VS Code を起動せず、Chrome から直接。
+
+- リポジトリの `chrome-extension/` にあります（unpacked extension として読み込み）
+- アイコンをクリック（または `Alt+Shift+F` でクイッククリップ）→ ページを **Mozilla Readability** で抽出し、**Fractal 自身の HTML→MD パイプライン** で変換（テーブル、GFM、Medium / dev.to のコードブロックなどに対応）
+- 保存先は **アウトライナー**（ページノードとして追加）と **マークダウン**（新規 md を作成し、選んだ md の末尾にサブページリンクを追記）の両方に対応
+- **保存先プリセット** — よく使う「Note + 保存先」の組み合わせを複数登録し、★デフォルトを指定。ポップアップはデフォルト選択済みで開き、即保存できます
+- File System Access API でディスクに直接書き込み — VS Code との通信は不要
+- 同時クリップはキューで直列化され、書き込み競合を防止
+
+詳細は `chrome-extension/README.md` を参照してください。
+
+---
+
+## 📦 インストール
+
+### VS Code Marketplace
+1. 拡張機能を開く（`Ctrl+Shift+X`）
+2. **"Fractal"** を検索 → インストール
+
+または直接: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
+
+### Open VSX（VSCodium / Gitpod / Eclipse Theia）
+[Open VSX Registry](https://open-vsx.org/extension/imaken/fractal)
+
+### VSIX から
+```bash
+code --install-extension fractal-{version}.vsix
+```
+
+### ソースから
+```bash
+git clone https://github.com/raggbal/fractal
+cd fractal
+npm install
+npm run compile
+# F5 でデバッグモードで起動
+```
+
+### オプション: AWS CLI（S3 同期 & 翻訳）
+コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、[AWS CLI](https://aws.amazon.com/cli/) をインストールし、VS Code の設定で認証情報を設定してください:
+
+- S3 同期: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
+- 翻訳: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+
+---
+
+## 🚀 はじめかた
+
+### Notes（おすすめ）
+1. アクティビティバーの **Fractal Notes** アイコンをクリック
+2. 任意のフォルダを追加して note として登録
+3. note をクリックして3ペイン UI を開く — アウトライナー、ページ、フォルダはそこから作成できます
+
+### マークダウンエディタ
+1. 任意の `.md` を右クリック → **"Open with Fractal"**
+2. またはデフォルトに設定: `.md` を右クリック → **Open With…** → **Configure default editor** → **Fractal**
+
+### アウトライナー
+- `.out` ファイルは自動的に Fractal で開きます
+- コマンドパレットから作成: `Fractal: New Outliner File`
+
+### アプリ内リンク
+- アウトライナーのノードを右クリック → **Copy In-App Link**
+- サイドパネルヘッダの 🔗 で現在のページへのリンクを作成
+- Fractal 内のどこにでもペースト — クリックでジャンプ
+
+---
+
+## ⌨️ 主なショートカット
+
+クイックリファレンスです。（Mac 表記。ほぼすべてのショートカットは `Cmd` の代わりに `Ctrl` でも動作し、Windows/Linux では `Ctrl` を使用します）
+
+### マークダウンエディタ
+
+| ショートカット | アクション |
+| --- | --- |
+| `Cmd+/` | アクションパレット（全アクションの検索メニュー） |
+| `Cmd+N` | Add Page（サブページを作成してリンク） |
+| `Cmd+.` | ソースモード切り替え |
+| `Cmd+Shift+.` | VS Code のテキストエディタで開く |
+| `Cmd+\` | サイドバー（アウトライン / ファイルパネル）切り替え |
+| `Cmd+L` | 選択テキストを AI チャットへ送信 |
+| `Cmd+B` / `Cmd+I` / `Cmd+Shift+S` | 太字 / 斜体 / 取り消し線 |
+| ``` Cmd+`  ``` / `Cmd+K` | インラインコード / リンク挿入 |
+| `Cmd+1`…`Cmd+6` / `Cmd+0` | 見出し 1–6 / 段落に戻す |
+| `Cmd+T` / `Cmd+Shift+I` | テーブル挿入 / 画像挿入 |
+| `Cmd+F` / `Cmd+H` | 検索 / 置換 |
+| `Cmd+S` / `Cmd+Z` / `Cmd+Shift+Z` | 保存 / 元に戻す / やり直し |
+| `Tab` / `Shift+Tab` | テーブル: セル移動、リスト: インデント / アウトデント |
+| `Opt+←` / `Opt+→` | サイドパネルの戻る / 進む（サイドパネル内のみ） |
+
+### アウトライナービュー
+
+| ショートカット | アクション |
+| --- | --- |
+| `Enter` / `Option+Enter` | 兄弟ノード作成 / 子ノード作成 |
+| `Shift+Enter` | サブテキスト（ノート）を開く |
+| `Tab` / `Shift+Tab` | インデント / アウトデント（複数選択対応） |
+| `Cmd+Enter` | ページを開く（ページが無ければ作成、ファイル添付なら外部アプリで開く） |
+| `↑` / `↓`、`Shift+↑/↓` | ノード間移動 / 複数選択の拡張 |
+| `Cmd+Shift+↑/↓` | ノードを上下に移動 |
+| `←` / `→` | 折りたたみ / 展開（行頭・行末で） |
+| `Cmd+.` | ノード折りたたみ切り替え |
+| `Cmd+]` / `Cmd+Shift+]` | スコープイン（ズーム） / スコープアウト |
+| `Cmd+Shift+X` | チェックボックス切り替え（`Cmd+Shift+Opt+X` で解除） |
+| `Cmd+B` / `Cmd+I` / `Cmd+E` / `Cmd+Shift+S` | 太字 / 斜体 / インラインコード / 取り消し線 |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | ノードのコピー / カット / ペースト（複数選択・画像ペースト対応） |
+| `Cmd+A` | 全ノード選択 |
+| `Cmd+F` / `Cmd+H` / `Cmd+Shift+F` | テキスト検索 / 置換 / 絞り込みフィルタ |
+| `Cmd+N` | 末尾に新規ノード |
+| `Cmd+Z` / `Cmd+Shift+Z` | 元に戻す / やり直し |
+| `Opt+←` / `Opt+→` | ナビゲーション履歴の戻る / 進む |
+| `Backspace`（行頭） | 前のノードと結合 / 空ノード削除 |
+
+### データベースビュー
+
+アウトライナー列では上記アウトライナーのショートカットがそのまま使えます。加えて:
+
+| ショートカット | アクション |
+| --- | --- |
+| `Cmd+←/→/↑/↓` | セル間の移動（全列共通） |
+| `Tab` / `Shift+Tab` | 次 / 前のセルへ（テキスト列） |
+| `Enter` または `Space` | タグドロップダウンを開く（タグ列） / 日付ピッカー（Date 列はクリックでも） |
+| `↑↓` + `Enter` | ドロップダウン内の選択と確定 |
+| `Cmd+B` / `Cmd+I` / `Cmd+E` | テキスト列のインライン書式 |
+
+### マインドマップモード
+
+| ショートカット | アクション |
+| --- | --- |
+| `↑↓←→` | ノード間の移動（レイアウトに応じた空間ナビゲーション） |
+| `Enter` / `Shift+Enter` | 弟ノード追加 / 兄ノード追加 |
+| `Tab` | 子ノード追加 |
+| `Space` / `F2` / 文字入力 | 編集開始（文字入力はそのまま追記） |
+| `Enter` / `Tab` / `Esc`（編集中） | 編集確定 |
+| `Delete` / `Backspace` | ノード削除（グループ選択時はグループ削除） |
+| `Option+↑/↓` | 兄弟との入れ替え |
+| `Cmd+Shift+L` | レイアウト切り替え（放射 → 右 → 左 → バランス） |
+| `Cmd+Enter` | ページを開く / 作成 |
+| `Cmd+V` | 画像をノードに添付 |
+| `Cmd+A` / `Cmd+Z` | 全選択 / 元に戻す |
+| `Cmd+ホイール` | ズーム（ツールバーの ＋/−/Fit も） |
+| ドラッグ | 空白: パン、ノード: 付け替え（上 1/3 = 兄、下 1/3 = 弟、中央 = 子） |
+| 右クリック | 色・シェイプ変更、グループ（境界）作成、関係線の作成 |
+
+### マークダウン記法ショートカット
+
+マークダウンのパターンを入力するとその場で変換されます: `# ` で見出し、`- ` でリスト、`- [ ] ` でタスク、`> ` で引用、````` ``` ````` でコードブロック、`**太字**`、`*斜体*`、``` `コード` ``` など。
+
+<details>
+<summary>マークダウン要素の完全リファレンス</summary>
+
+#### ブロック要素
+
+| 要素 | パターン入力 | ショートカット |
+| --- | --- | --- |
+| 見出し 1–6 | `#`…`######` + Space | `Cmd+1`…`Cmd+6` |
+| 段落 | （デフォルト） | `Cmd+0` |
+| 箇条書きリスト | `- ` または `* ` + Space | `Cmd+Shift+U` |
+| 番号付きリスト | `1. ` + Space | `Cmd+Shift+O` |
+| タスクリスト | `- [ ] ` + Space | `Cmd+Shift+X` |
+| 引用 | `> ` + Space | `Cmd+Shift+Q` |
+| コードブロック | ````` ``` ````` + Enter（````` ```mermaid ````` / ````` ```math ````` も） | `Cmd+Shift+K` |
+| テーブル | `| col1 | col2 |` + Enter | `Cmd+T` |
+| 水平線 | `---` + Space/Enter | `Cmd+Shift+-` |
+
+#### インライン要素
+
+| 要素 | パターン入力 | ショートカット |
+| --- | --- | --- |
+| 太字 | `**text**` + Space | `Cmd+B` |
+| 斜体 | `*text*` + Space | `Cmd+I` |
+| 取り消し線 | `~~text~~` + Space | `Cmd+Shift+S` |
+| インラインコード | ``` `text` ``` + Space | ``` Cmd+`  ``` |
+| リンク | `[text](url)` | `Cmd+K` |
+| 画像 | `![text](url)` | `Cmd+Shift+I` |
+
+</details>
+
+---
+
+## 🎨 設定
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.theme` | エディタテーマ（`light`, `dark`, `auto`） | `auto` |
+| `fractal.fontSize` | 基本フォントサイズ（px） | `12` |
+| `fractal.imageMaxWidth` | インライン画像の最大表示幅（px） | `400` |
+| `fractal.language` | UI 言語（`default`, `en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `es`, `fr`） | `default` |
+| `fractal.toolbarMode` | ツールバーモード（`full`, `simple`） | `simple` |
+| `fractal.resourceRoots` | エディタが画像・添付を読み込めるディレクトリ | `[]`（ホームディレクトリ） |
+| `fractal.showTranslateButtons` | ツールバー / サイドパネルに翻訳ボタンを表示 | `false` |
+| `fractal.showOpenInTextEditor` | Open in Text Editor ボタンの表示 | `true` |
+| `fractal.enableDebugLogging` | ブラウザコンソールへのデバッグログ | `false` |
+
+このほか S3 同期（`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`）と翻訳（`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`、`translateSourceLang` / `translateTargetLang`、カスタム用語集）の設定があります。画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
+
+UI は **英語、日本語、簡体字/繁体字中国語、韓国語、スペイン語、フランス語** にローカライズされています（`fractal.language`、`default` で VS Code に追従）。
+
+---
+
+## 🛠️ 開発
+
+```bash
+npm install        # 依存関係のインストール
+npm run compile    # TypeScript のコンパイル + ロケールビルド + アセットコピー
+npm run watch      # ウォッチモード
+npm test           # テスト実行（並列 Playwright スイート）
+vsce package --no-dependencies   # 拡張機能のパッケージング
+```
+
+---
+
+## 💖 プロジェクトを支援する
+
+- [GitHub で **スポンサー**](https://github.com/sponsors/raggbal) — プロジェクトの継続的なメンテナンスを支援
+- [GitHub](https://github.com/raggbal/fractal) で **スター**
+- [Issues](https://github.com/raggbal/fractal/issues) で **不具合報告** や機能提案
+- プルリクエストで **コントリビュート**
+
+---
+
+## 📄 ライセンス
+
+MIT License — ご自身のプロジェクトで自由にお使いください。
+
+---
+
+## 🙏 謝辞
+
+- VS Code コミュニティへの愛を込めて
