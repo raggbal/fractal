@@ -1,171 +1,232 @@
-<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal - Markdown & Outliner Editor VS Code
+<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal — Markdown & Outliner (Database & Mindmap) for VS Code
 =
 
-A note app that lives in your VS Code Activity Bar. Add folders, organize outlines, write markdown pages — all without leaving the editor. Fractal combines a **Dynalist-like outliner** and a **Typora-like WYSIWYG markdown editor** into a single, integrated note-taking experience with Daily Notes, full-text search, and S3 cloud sync. The markdown editor is **AI-friendly** — edit visually while AI assistants (Claude Code, Cursor, etc.) modify the same file in real-time, with your edits and AI's edits coexisting safely.
-
-Each `.out` (outliner) and `.md` (markdown) file also works standalone — but the real power is in the **Notes manager**, where everything comes together.
+**A complete note-taking environment inside VS Code.** Fractal combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. Organize everything into **Notes**, search across all of it, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
 ![Open VSX](https://img.shields.io/open-vsx/v/imaken/fractal?label=Open%20VSX)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![GitHub Sponsors](https://img.shields.io/github/sponsors/raggbal?label=Sponsor)
 
-## Visual
-### Outliner Editor
-The Outliner Editor can be used by first adding a Note (any folder) from Fractal Notes in the VSCode Activity Bar.
-The Outliner Editor is an outliner with features comparable to Dynalist and Workflowy. Additionally, you can structurally organize outline files using folders, and perform full-text search across both outline node text and Markdown content. You can also back up notes to S3 and restore them from S3.
+---
 
-Overview
-![1778078522878.png](assets/images/1778078522878.png)
+## Why Fractal
 
-Outline View
-![1778048858635.png](assets/images/1778048858635.png)
+- ✍️ **WYSIWYG Markdown** — Edit and read at the same time. No split preview, no raw markup. Tables, code blocks, Mermaid, math, draw.io — all rendered live.
+- 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
+- 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
+- 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
+- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen. Cross-file full-text search, tabs and history, Daily Notes.
+- ☁️ **S3 backup & restore** — One-click backup to your own AWS S3 bucket, and restore from it.
+- 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your Fractal notes (use Fractal instead of Obsidian).
 
-Table View:  ≒ TreeViewTable
-![1778048833886.png](assets/images/1778048833886.png)
-
-
-
-### Side Panel Markdown Editor
-Each node in the outliner can easily embed a Markdown file as a page using the `@page` command. Nodes with an attached page display a page icon, and pressing Cmd+Enter opens the Markdown editor in the side panel.
-![assets/images/1778048882019.png](assets/images/1778048882019.png)
-
-### Markdown Editor (Standalone)
-The Markdown editor can be launched in standalone mode from the side panel. The functionality is the same, but standalone mode offers the advantage of a larger editing area. It can also be set as the default Markdown editor, allowing you to edit any Markdown file with the Fractal Markdown editor.
-![1778048566296.png](assets/images/1778048566296.png)
-
-**Action Palette (Cmd+/ / Ctrl+/)**
-![1778048652638.png](assets/images/1778048652638.png)
-
-Darawio embed
-![1778050575689.png](assets/images/1778050575689.png)
-
-## 🎬 Demo (gif)
-
-You can freely use markdown using only the keyboard.
-lists, tables, code blocks, and everything else! And when you want to request AI Chat, select the range and press cmd+l (ctr+l).
-<movie now construction>
-> Note: The editor design shown in the gif above is from an older version.
+`.md` and `.out` files work standalone, but Fractal shines when everything is connected in the **Notes manager**.
 
 ---
 
-## ✨ Features
+## Key visuals
 
-### Markdown Editor (.md files)
+### Markdown editor
+A markdown editor with the same pleasant writing feel as Notion. Every basic markdown element is available, plus extended features like code blocks, math blocks, Mermaid blocks, embedded draw.io diagrams, and text color — covering everyone's markdown needs.
+It also supports Notion-style **subpages** (distinct from plain links), so you can manage markdown hierarchically.
+![assets/images/1785072634683.png](assets/images/1785072634683.png)
 
-A Typora / Notion-style WYSIWYG markdown editor.
-
-- **Seamless live preview** — Edit markdown in a beautifully rendered view. No split windows
-- **Source mode toggle** — Switch between WYSIWYG and raw markdown with one click
-- **AI-friendly editing** — Edit visually while AI assistants (Claude Code, Cursor, etc.) modify the same file. Your edits and AI's edits coexist safely
-- `Cmd+L` / `Ctrl+L` — Select text, press `Cmd+L` to open the source file in VS Code's text editor with the exact lines selected. Press `Cmd+L` again to send to AI chat. Works with VS Code, Cursor, Kiro, and more
-- **Real-time external change sync** — When AI modifies the file, only changed blocks are patched via block-level DOM diff. Cursor position and in-progress edits are preserved
-- **Headers** (H1-H6) with outline navigation
-- **Text formatting** — Bold, Italic, Strikethrough, Inline Code
-- **Lists** — Ordered, Unordered, Task Lists with checkboxes
-- **Tables** — **Column resize from any cell** (drag right edge of any cell, not just the header) with **persistent widths** saved as a `<!-- fractal-col-widths: ... -->` HTML comment in the markdown source (re-opens at the same width, ignored by other markdown viewers). Alignment, Tab/Shift+Tab cell navigation, Enter to add row, Shift+Enter for in-cell line break
-- **Code blocks** — Syntax highlighting for 24+ languages, expand to VS Code editor tab
-- **Blockquotes** and **Horizontal rules**
-- **Links and Images** — Drag & drop, paste, smart link creation (select text + paste URL)
-  - **Image fullscreen lightbox** — Double-click any image to open it fullscreen. **Pinch to zoom** (Mac touchpad), **drag to pan** when zoomed, double-click to reset, ESC to close
-  - `fractal.imageMaxWidth`** setting** (default 400px) — Cap inline image width
-  - **Right-click → Rename Link** — Edit the visible text of any link without changing its URL
-- **drawio.svg / drawio.png inline support** — Drag a `.drawio.svg` from Finder onto the editor, or use `Cmd+/` → **"Insert Drawio Diagram"** to create a new placeholder. Renders as an inline image in the MD; saving the file from drawio Desktop / `hediet.vscode-drawio` triggers automatic re-render of all open MDs that reference it (powered by a polling-fallback file watcher to catch atomic-rename saves). Dropping a `.drawio` (XML) file shows a "Open in drawio Desktop" guidance dialog instead of inserting raw XML
-- **File attachments** — Drag & drop any file onto the editor to insert a `[📎 filename](path)` link. Click to open with OS default app
-- **Notion-style side panel** — Click a `.md` link to open it in a side peek panel with full WYSIWYG editing. Cmd+Click to open in a new tab instead
-  - **Back / Forward navigation** in the side panel header (or `Opt+Left` / `Opt+Right`) to revisit MD links you've followed inside the panel
-  - `Cmd+/`** Add Page** also works inside the side panel — creates `<sidePanelDir>/pages/<timestamp>.md` and inserts the link
-  - **Outline always visible** — the side panel's heading outline stays open even when the MD has zero headings (shows a placeholder)
-  - **Outline drag-resize** — Drag the right edge of the outline sidebar to set its width. Standalone `.out`: width saved per-outliner. Notes mode: width shared across all `.out` files in the note (saved to `outline.note`)
-  - **Side panel width per-note** — In Notes mode, the side panel MD width is stored in `outline.note` and shared across all `.out` in the note (consistent reading width for the whole notebook). Standalone `.out` keeps its own per-file width
-- **Cmd+/ Add Page (link-name modal)** — Press `Cmd+/` → `Add Page` → type the link text → a new MD is created (auto-named) and `<a>{linkName}</a>` is inserted at the cursor. The new MD's H1 is synced from the link name (so the new page is immediately discoverable by title)
-- **Mermaid diagrams** — Rendered inline, click to edit source
-- **KaTeX math equations** — Display-mode equations with live re-rendering
-- **YAML Front Matter** support
-- **Action Palette** (`Cmd+/`) — Quick access to all formatting and insertion actions, including Add Page, Insert Drawio Diagram, and Insert Table
-- **Attachments panel** — Paperclip icon (top-right toolbar / side panel header). Lists every image and file referenced in the document with **Open** (external app) and **Copy Path** (absolute filesystem path) actions. Works in standalone editor and Notes side panel
-
-<!-- TODO: Add Markdown editor screenshot -->
+### Outliner editor
+A Dynalist-class outliner. Folders, tags, and full-text search across both outline node text and markdown bodies.
+![assets/images/1785071780563.png](assets/images/1785071780563.png)
 
 ---
 
-### Outliner (.out files)
+## ✨ Core concept
 
-A Dynalist-like outliner built into VS Code.
+**Manage Markdown, Outliner, Database, and Mindmap in one place — like Notion.** In Fractal these four kinds of content aren't separate tools; they connect inside the same note — hang markdown pages off outline nodes, view the same outline as a database or a mindmap, and search across all of it. And your data stays plain `.md` files and JSON.
 
-- **Tree editing** — Unlimited nesting with bullet points. Enter, Backspace, Tab, Shift+Tab work as you expect
-- **Collapse / Expand** — Click bullets to fold branches. `Ctrl+.` to toggle, `Ctrl+Shift+.` to toggle all
-- **Subtree scoping** — Focus on any branch with breadcrumb navigation. `Cmd+]` to scope in, `Cmd+[` to scope out
-- **Tags** — `#tag` and `@tag` are auto-highlighted and clickable for instant search
-- **Pinned tags** — Pin frequently used tags for one-click filtering. Right-click a `#tag` / `@mention` span on a node → **"Add to Pinned Tags"** to add it without leaving the keyboard / context. Already-pinned tags show the menu item greyed out
-- **Search** — Dynalist-compatible queries: AND, OR, NOT, `"phrase"`, `#tag`, `in:title`, `has:children`, `is:page`, `is:task`. Tree mode and focus mode
-- **Page nodes** — Turn any bullet into a page with a full WYSIWYG markdown editor in a resizable side panel
-- **Import .md files** — Import Markdown files (Notion, Obsidian exports) as page nodes via ⋮ menu. Images are auto-copied and paths rewritten
-- **File attachments** — Attach any file type (PDF, Excel, etc.) to nodes via ⋮ → "Import any files...". File nodes display a 📎 icon; click to open with OS default app. Copy/paste duplicates the physical file
-- **Task nodes** — `- [ ]` / `- [x]` checkboxes with toggle support
-  - Type `[ ]` / `[x]` + `Space` at the start of a node text to convert it into a checkbox (MD task list parity)
-  - `Cmd+Shift+X` toggles checkbox (add if missing, otherwise true ⇄ false)
-  - `Cmd+Shift+Option+X` removes the checkbox
-  - Pressing `Backspace` at the start of a checkbox node first clears the checkbox; the second press merges as usual
-- **Task Mode** — Search bar checkbox icon (top-right). When ON, every newly-created **root** node is auto-checked-list (children remain plain). Turning OFF clears all root checkboxes
-- **Task Filter (All / Active)** — Funnel icon, always visible. `Active` hides the entire subtree of checked-true nodes; `All` shows everything
-- **Archive completed tasks → Daily Notes** — Box icon (Notes mode only). Moves all `checked=true` nodes (+ descendants) under today's day node in `dailynotes.out`, appends `#TASK #DONE` tags to root text, and **copies the related assets** (page MD, page images, drawio, attached files, node images) into Daily Notes' folder. Ancestors that are also checked-true absorb their checked descendants (no double-archiving)
-- **Date / Date & Time columns** (Table view) — Add a `Date` or `Date & Time` column from the column-add dialog. Click a cell to open a native date picker; type to enter directly. Empty cells show no placeholder
-- **Inline formatting** — Bold (`Cmd+B`), italic (`Cmd+I`), strikethrough (`Cmd+Shift+S`), inline code (`Cmd+E`), `[text](url)` links
-- **Clickable links** — `[text](url)` links are rendered and clickable in display mode. URLs pasted via `Cmd+V` are auto-converted to link format
-- **Multi-select indent** — Select multiple nodes with Shift+Click, then Tab/Shift+Tab to indent/outdent them all at once
-- **Move nodes** — `Ctrl+Shift+↑/↓` to reorder
-- **Subtext** — `Shift+Enter` to add notes below any bullet
-- **Navigation history** — Back / forward buttons to revisit previous search and scope states
-- **Node images** — Paste images with `Cmd+V`. Thumbnails shown below the node, drag to reorder, double-click to enlarge
-- **Undo / Redo** — Full undo/redo with `Cmd+Z` / `Cmd+Shift+Z`
-- **Mindmap Mode** — A third view mode (cycle Outliner View → Table View → Mindmap Mode via the view toggle). Renders the same `.out` as an SVG mindmap.
-  - Layouts: radial (both sides) / right / left / balanced, with the title as the center node. Automatic non-overlapping placement (d3-hierarchy + flextree)
-  - Fully keyboard-driven: Enter = younger sibling, Shift+Enter = elder sibling, Tab = child, Space = edit, arrows = spatial focus move, Delete = remove
-  - Rich nodes (icons / image thumbnails / tags / checkboxes); node width grows live while typing (fit to longest line, capped)
-  - Free styling (node fill / border / shape, link style / color, with subtree inheritance), grouping (Boundary), relationship lines, Floating Topics
-  - Attachments (file / image / markdown — markdown opens in the side panel)
-  - Export to PNG / SVG / OPML / Markdown
-  - Pan / zoom / fit / minimap; the viewport stays put on commit and follows by one node only when the target would go off-screen
-  - Works in both Single mode and Note mode
+| Content | Storage | Summary |
+| --- | --- | --- |
+| **Markdown** | `.md` | Notion-like WYSIWYG editor. Edit and read in a single view. Hierarchy via subpages |
+| **Outliner** | `.out` | Dynalist-like tree editing. Tags, tasks, search |
+| **Database** | `.out` (view) | The same outline as a Notion-like table. Text / tag / date columns |
+| **Mindmap** | `.out` (view) | The same outline rendered and edited as an SVG mindmap |
 
-<!-- TODO: Add Outliner feature screenshot -->
-<!-- TODO: Add Mindmap Mode screenshot -->
-
+Tying it all together is **Notes** — a folder-scoped workspace (virtual tree, cross-file search, tabs, Daily Notes, S3 sync). Markdown pages open from both the markdown editor and the outliner. Subpages open in the **side panel** by default, or as standalone documents in a **new tab**.
 
 ---
 
-### Note (.note)
+## 📝 Markdown editor (.md)
+A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
+![assets/images/1785071877602.png](assets/images/1785071877602.png)
+![assets/images/1785072859352.png](assets/images/1785072859352.png)
 
-A 3-pane note management experience, accessed from the **Activity Bar**.
+### Editing
+- **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
+- **Headings, lists, task lists, quotes, horizontal rules** — all standard markdown, keyboard-first
+- **Tables** — Drag any cell edge to resize columns; widths are saved into the file (as an HTML comment that doesn't affect other viewers). Tab to move between cells, Enter to add rows
+- **Code blocks** — Syntax highlighting for 24+ languages, expandable into a VS Code editor tab
+- **Inline formatting** — Bold, italic, strikethrough, inline code, smart link creation
+- **Action palette** (`Cmd+/`) — Every formatting and insert action in one searchable menu
 
-- **Multi-file management** — Organize multiple `.out` files in virtual folders with drag & drop
-- **Full-text search** — Search across all outlines, pages, and standalone `.md` files. Streaming results with click-to-jump
-- **Daily Notes** — One-click daily journal. Auto-creates year/month/day hierarchy. Navigate with `<` `>` buttons or a calendar picker
-- **S3 cloud sync** — Sync your notes to AWS S3 with one click. Two scopes:
-    - **Note-wide (Tools tab)** — Bidirectional newer-wins sync of the entire note folder. Or full upload / full download / clean rebuild
-    - **Per-outliner (toolbar button)** — One-click sync of just the currently open outliner (`<id>.out` + `<id>/` folder). Appears when bucket path is configured
-  - True mtime-based newer-wins (per-file `aws s3api head-object` + `aws s3 cp`/`sync`); local edits are never overwritten by older S3 content even when sizes differ
-  - Editor lock + progress overlay during sync; webview cache fully invalidated after sync so the latest content always shows
-- **Resizable panels** — Drag to resize left panel and side panel. Widths are saved per folder
+### Attachments & media
+- **Images** — Paste or drag & drop. Full-screen lightbox with pinch-zoom and pan. Max display width is configurable
+- **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open in the OS default app
+- **Attachments panel** — Lists every image and file referenced in the document, with Open / Copy Path
 
-<!-- TODO: Add Notes manager feature screenshot -->
+### Diagrams & math
+- **Mermaid** — Rendered inline; click to edit the source
+- **KaTeX math** — Display-mode formulas re-render live
+
+### Embedded draw.io
+
+Create and edit draw.io diagrams without leaving VS Code.
+
+- **Create** — `Cmd+/` → **Insert Drawio Diagram** generates an empty diagram and inserts it as an image at the cursor. Dragging & dropping existing `.drawio.svg` / `.drawio.png` files also works
+- **File format** — Diagrams are saved as `.drawio.svg` (a real SVG with draw.io's editing data embedded inside). They render as images on GitHub as-is and stay editable in any draw.io client. They're embedded in the document as ordinary `![]()` images, so compatibility with other markdown editors is preserved
+- **Edit** — Hover a diagram to reveal three buttons:
+  - **Open in VS Code** — Open it in a VS Code tab. With the [Draw.io Integration extension](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio) (hediet.vscode-drawio) installed, the draw.io editor opens right inside that tab (recommended)
+  - **Open in External** — Open it in an external app. draw.io Desktop is preferred if installed; otherwise the OS default app is used
+  - **Copy Path** — Copy the absolute path to the clipboard
+- **Automatic re-render** — However you edited it, the diagram in your open document redraws itself the instant you save. A seamless edit loop — just bounce between editors
+
+### Subpages
+- **`Cmd+/` → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
+- Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
+- `Cmd+click` to open it as a standalone document in a **new tab**
+- Pages within pages — build hierarchies as deep as you like
+
+### AI-friendly: live sync of external changes
+When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — modifies the file you have open:
+
+- **Block-level DOM diffing** — only the changed blocks are patched; your cursor position and in-progress edits survive
+- Your edits and the AI's edits **coexist safely** in the same document
+- `Cmd+L` — send the selected text to the AI chat. `Cmd+Shift+.` opens the file in the VS Code text editor
+
+### Standalone mode
+- Set Fractal as your **default editor for `.md`** and edit any markdown on your machine — no Fractal note required
+- For standalone files you can **choose where images and attachments are saved** (stored in a hidden `.fractal.json` file next to the markdown — the markdown body itself is never touched, so other editors never see it)
+
+---
+
+## 🌲 Outliner (.out)
+A Dynalist-like outliner. The same data from three perspectives.
+
+#### Outline view
+![assets/images/1785071590698.png](assets/images/1785071590698.png)
+
+#### Database view
+![assets/images/1785071543294.png](assets/images/1785071543294.png)
+
+#### Mindmap view
+![assets/images/1785071464193.png](assets/images/1785071464193.png)
+
+### Three view modes
+Switch with the view toggle:
+
+1. **Outliner view** — Classic bullet tree. Unlimited nesting, collapse/expand, subtree scoping with breadcrumbs
+2. **Database view** — Your outline as a Notion-like database (tree table). Text and tag (multi-select) columns, plus optional **Date / Date & Time columns** with a native date picker
+3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit), node colors and shapes, boundaries (groups), and relationship lines
+
+### Organize with tags & search
+- `#tag` and `@tag` are auto-highlighted; click to filter instantly
+- **Pinned tags** — Turn frequent tags into one-click filters
+- **Dynalist-compatible search** — AND, OR, NOT, `"phrases"`, `#tag`, `in:title`, `has:children`, `is:page`, `is:task` — with smooth incremental filtering
+
+### Attach anything
+- **Markdown subpages** — Turn any bullet into a page (`@page`) and edit it in the side panel's full WYSIWYG editor. Manage hierarchical markdown like a **Notion database**
+- **Images** — Paste with `Cmd+V`. Thumbnails appear under the node; drag to reorder, double-click to zoom
+- **Files** — Attach any file type to a node. 📎 nodes open in the OS default app
+- **`.md` import** — Import Notion / Obsidian exports as page nodes. Images are copied automatically and paths rewritten
+
+### Tasks
+- `- [ ]` / `- [x]` checkboxes with rich keyboard support (`Cmd+Shift+X` to toggle)
+- **Task mode** — New root nodes automatically get checkboxes
+- **Task filter** — Hide completed subtrees with one click
+- **Archive to Daily Notes** — Move finished tasks (with their pages, images, and files) under today's Daily Note, tagged `#TASK #DONE`
+
+### Editing basics
+Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node moves (`Cmd+Shift+↑/↓`), subtext (`Shift+Enter`), inline formatting, clickable links, navigation history (`Opt+←/→`), and full undo/redo. See "Key shortcuts" below for details.
+
+---
+
+## 🗂 Notes — where everything connects
+
+Fractal organizes information into **notes**. Just register any folder from the activity bar.
+
+- **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out` and `.md` files in a **virtual folder/file tree** with drag & drop. Your data stays plain files
+- **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note. Streaming results, click to jump
+- **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
+- **Recent** — Jump back to a recently opened file with one click
+- **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
+- **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal. Click to jump
+- **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
+
+### ☁️ S3 backup & restore
+With an AWS account, you can sync your notes to S3:
+
+- **Whole-note sync (Tools tab)** — Bidirectional newer-wins sync of the entire note folder, or upload-all / download-all / clean rebuild
+- Per-file, mtime-based newer-wins resolution: your local edits are never overwritten by older S3 content
+
+### 🌍 Translation
+Translate a selection or the whole document with **Amazon Translate**, including Custom Terminology support for better accuracy.
+
+> S3 sync and translation require the AWS CLI. Everything else works without AWS.
+
+---
+
+## 🤖 AI skills — make Fractal your agent's notebook
+
+Fractal publishes **AI skills** (`ai_skills/`) that teach AI agents the Fractal data model so they can search, read, and write your notes directly:
+
+- `fractal-structure` — Reference for the Notes / Outliner / Page data model
+- `fractal-search` — Auto-discovers notes folders, full-text search across notes, tag and task-state filters (`--tag` / `--checked`), filtering by note name
+- `fractal-edit` — Add / modify / delete / move nodes, import markdown pages (single or bulk), attach images and files, add subpages and attachments to markdown files, create new outliners and markdown files
+- `fractal-doctor` — Note integrity checks (broken references, orphaned files, layout inspection; read-only)
+- `fractal-summary` — Bundle an outliner or a markdown file (including subpages recursively) into a single markdown for an AI to read
+- `collect` and other converters — Ingest web pages / YouTube transcripts / arXiv papers / PDF & Office documents as Markdown
+
+```bash
+ai_skills/install.sh         # install into every detected AI IDE (Claude Code / Cursor / Kiro / Antigravity)
+./install-skills.sh          # Claude Code only, with rules
+```
+
+With the skills installed, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal — a practical **Obsidian alternative** with an AI-native workflow.
+
+---
+
+## 🌐 Chrome extension (web clipper)
+
+Save any web page into a Fractal Note — straight from Chrome, without launching VS Code.
+
+- Lives in `chrome-extension/` in this repository (load it as an unpacked extension)
+- Click the icon (or `Alt+Shift+F` for a quick clip) → the page is extracted with **Mozilla Readability** and converted through **Fractal's own HTML→MD pipeline** (tables, GFM, Medium / dev.to code blocks, and more)
+- Save to an **outliner** (added as a page node) or to **markdown** (a new md is created and a subpage link is appended to the md you picked) — both are supported
+- **Destination presets** — Register multiple "Note + destination" pairs and mark a ★default. The popup opens with the default pre-selected, ready to save immediately
+- Writes directly to disk via the File System Access API — no communication with VS Code needed
+- Concurrent clips are serialized through a queue to prevent write conflicts
+
+See `chrome-extension/README.md` for details.
+
+---
+
+## 💻 Supported OS
+
+| OS | Status |
+| --- | --- |
+| **macOS** | ✅ Verified (development and testing happen on macOS) |
+| **Windows** | ⚠️ Implemented, not guaranteed |
+| **Linux** | ⚠️ Implemented, not guaranteed |
+
+The Windows / Linux implementations (path handling, clipboard, launching external apps, and so on) are in place, but day-to-day verification only happens on macOS, so **behavior cannot be guaranteed**. If you hit a problem, please file a request in [GitHub Issues](https://github.com/raggbal/fractal/issues) — I'll get to it when time allows. Reproduction steps plus your OS / VS Code version are much appreciated.
 
 ---
 
 ## 📦 Installation
 
-### From VS Code Marketplace
+### VS Code Marketplace
+1. Open Extensions (`Ctrl+Shift+X`)
+2. Search **"Fractal"** → Install
 
-1. Open VS Code
-2. Go to Extensions (`Ctrl+Shift+X`)
-3. Search for **"Fractal"**
-4. Click **Install**
+Or directly: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
 
-Or install directly: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
-
-### From Open VSX (VSCodium / Gitpod / Eclipse Theia)
-
+### Open VSX (VSCodium / Gitpod / Eclipse Theia)
 [Open VSX Registry](https://open-vsx.org/extension/imaken/fractal)
 
 ### From VSIX
@@ -173,456 +234,205 @@ Or install directly: [VS Code Marketplace](https://marketplace.visualstudio.com/
 code --install-extension fractal-{version}.vsix
 ```
 
-### From Source
+### From source
 ```bash
 git clone https://github.com/raggbal/fractal
 cd fractal
 npm install
 npm run compile
-# Press F5 to launch in debug mode
+# press F5 to launch in debug mode
 ```
 
-### Optional: AWS CLI (for S3 sync & Translation features)
+### Optional: AWS CLI (S3 sync & translation)
+Core features work without AWS. To use S3 sync and Amazon Translate, install the [AWS CLI](https://aws.amazon.com/cli/) and configure credentials in VS Code settings:
 
-Fractal itself works without AWS CLI. However, the following features require the AWS CLI (`aws` command) to be installed and available in PATH:
-
-- **S3 sync** (Notes: sync notes folder to/from S3 bucket)
-- **Translation** (MD editor: translate selected text or full document via Amazon Translate)
-
-If AWS CLI is not installed, the core editor features (Markdown, Outliner, Notes management) work normally — only these two AWS-based features will show an error when invoked.
-
-**Install AWS CLI:** https://aws.amazon.com/cli/
-
-**Configure credentials** in VS Code settings:
-- For S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
-- For Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
+- S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
+- Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
 
 ---
 
-## ⚙️ Set as Default Editor
+## 🚀 Getting started
 
-### For Markdown Files (.md)
+### Notes (recommended)
+1. Click the **Fractal Notes** icon in the activity bar
+2. Add any folder to register it as a note
+3. Click the note to open the three-pane UI — outliners, pages, and folders are all created from there
 
-1. Right-click any `.md` file in the Explorer
-2. Select **"Open With..."**
-3. Select **"Configure default editor for '*.md'..."**
-4. Select **"Fractal"**
-
-### For Outline Files (.out)
-
-`.out` files open with Fractal automatically when the extension is installed.
-
----
-
-## 🚀 Usage
-
-### Markdown Editor
-1. Open any `.md` or `.markdown` file
-2. Right-click and select **"Open with Fractal"**
-3. Or use Command Palette: `Fractal: Open with Fractal`
+### Markdown editor
+1. Right-click any `.md` → **"Open with Fractal"**
+2. Or make it the default: right-click a `.md` → **Open With…** → **Configure default editor** → **Fractal**
 
 ### Outliner
-1. Open any `.out` file — it opens directly in the outliner
-2. Or create a new `.out` file with `{}` as content to start fresh
+- `.out` files open in Fractal automatically
+- Create one from the command palette: `Fractal: New Outliner File`
 
-### Notes (Fractal)
-1. Click the **Notes** icon in the Activity Bar (left sidebar)
-2. Add a folder to register it as a notes workspace
-3. Click a folder to open the 3-pane Notes UI
-4. Click the file-panel title to **rename the note** — the name is saved per note and shown in the FRACTAL NOTES tree
-5. Right-click a file/page node → **Reveal in Finder** to open its real file in the OS file manager
-6. Right-click a page/attachment → **Move to Other Note** to move it (with its assets) into another note
-
-### In-App Links
-- Right-click an outliner node → **Copy In-App Link** to create a link to that node
-- Click the 🔗 button in the sidepanel header to create a link to the current page
-- Paste the link in any outliner or markdown editor — click to navigate instantly
+### In-app links
+- Right-click an outliner node → **Copy In-App Link**
+- Use 🔗 in the side-panel header to create a link to the current page
+- Paste it anywhere in Fractal — click to jump
 
 ---
 
-## 📝 Creating Markdown Elements
+## ⌨️ Key shortcuts
 
-### Block Elements
+A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` instead of `Cmd`, and Windows/Linux uses `Ctrl`.)
 
-| Element | Pattern Input | Toolbar | Shortcut |
-| --- | --- | --- | --- |
-| Heading 1 | `# ` + Space | Heading menu → H1 | `Ctrl+1` |
-| Heading 2 | `## ` + Space | Heading menu → H2 | `Ctrl+2` |
-| Heading 3 | `### ` + Space | Heading menu → H3 | `Ctrl+3` |
-| Heading 4 | `#### ` + Space | Heading menu → H4 | `Ctrl+4` |
-| Heading 5 | `##### ` + Space | Heading menu → H5 | `Ctrl+5` |
-| Heading 6 | `###### ` + Space | Heading menu → H6 | `Ctrl+6` |
-| Paragraph | (default)<br> | — | `Ctrl+0` |
-| Unordered List | `- ` or `* ` + Space | List button | `Ctrl+Shift+U` |
-| Ordered List | `1. ` + Space | Numbered list button | `Ctrl+Shift+O` |
-| Task List | `- [ ] ` + Space | Task list button | `Ctrl+Shift+X` |
-| Blockquote | `> ` + Space | Quote button | `Ctrl+Shift+Q` |
-| Code Block | ````` ``` ````` + Enter | Code button | `Ctrl+Shift+K` |
-| Table | `| col1 | col2 |` + Enter | Table button | `Ctrl+T` |
-| Horizontal Rule | `---` + Enter | HR button | `Ctrl+Shift+-` |
-
-
-### Inline Elements
-
-| Element | Pattern Input | Toolbar | Shortcut |
-| --- | --- | --- | --- |
-| Bold | `**text**` + Space | Bold button | `Ctrl+B` |
-| Italic | `*text*` + Space | Italic button | `Ctrl+I` |
-| Strikethrough | `~~text~~` + Space | Strikethrough button | `Ctrl+Shift+S` |
-| Inline Code | ``` `text` ``` + Space | Code button | ``` Ctrl+` ``` |
-| Link | `[text](url)` <br>Space conversion not supported<br> | Link button | `Ctrl+K` |
-| Image | `![text](url)` <br>Space conversion not supported<br> | Image button | `Ctrl+Shift+I` |
-
-
----
-
-## ⌨️ Special Operations
-
-### Markdown Editor Shortcuts
-
-These shortcuts are active when the Fractal markdown editor is focused:
+### Markdown editor
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd+/` / `Ctrl+/` | Open Action Palette |
-| `Cmd+N` / `Ctrl+N` | Add Page (create & link a new .md file) |
-| `Cmd+.` / `Ctrl+.` | Toggle Source Mode |
-| `Cmd+Shift+.` / `Ctrl+Shift+.` | Open in Text Editor |
-| `Ctrl/Cmd + S` | Save |
-| `Ctrl/Cmd + Z` | Undo |
-| `Ctrl/Cmd + Shift + Z` | Redo |
-| `Ctrl/Cmd + B` | Bold |
-| `Ctrl/Cmd + I` | Italic |
-| `Ctrl/Cmd + K` | Insert link |
-| `Ctrl/Cmd + F` | Find |
-| `Ctrl/Cmd + H` | Find and replace |
-| `Ctrl/Cmd + L` | Open source file with selected lines in text editor |
+| `Cmd+/` | Action palette (searchable menu of every action) |
+| `Cmd+N` | Add Page (create a subpage and insert a link) |
+| `Cmd+.` | Toggle source mode |
+| `Cmd+Shift+.` | Open in the VS Code text editor |
+| `Cmd+\` | Toggle sidebar (outline / file panel) |
+| `Cmd+L` | Send selected text to the AI chat |
+| `Cmd+B` / `Cmd+I` / `Cmd+Shift+S` | Bold / italic / strikethrough |
+| ``` Cmd+`  ``` / `Cmd+K` | Inline code / insert link |
+| `Cmd+1`…`Cmd+6` / `Cmd+0` | Heading 1–6 / back to paragraph |
+| `Cmd+T` / `Cmd+Shift+I` | Insert table / insert image |
+| `Cmd+F` / `Cmd+H` | Find / replace |
+| `Cmd+S` / `Cmd+Z` / `Cmd+Shift+Z` | Save / undo / redo |
+| `Tab` / `Shift+Tab` | Tables: move between cells; lists: indent / outdent |
+| `Opt+←` / `Opt+→` | Side-panel back / forward (side panel only) |
 
-### Side Panel Shortcuts
-
-These shortcuts apply to the side panel markdown editor (Notion-style peek):
-
-| Shortcut | Action |
-| --- | --- |
-| `Opt+Left` / `Alt+Left` | Navigate back through MD links followed inside the side panel |
-| `Opt+Right` / `Alt+Right` | Navigate forward |
-| `Cmd+/` / `Ctrl+/` → Add Page | Create a new MD under `<sidePanelDir>/pages/` and insert the link |
-| `Esc` | Close the side panel (or close the image lightbox if open) |
-
-### Outliner Shortcuts
-
-These shortcuts are active when the Fractal outliner is focused:
+### Outliner view
 
 | Shortcut | Action |
 | --- | --- |
-| `Enter` | Create new sibling node |
-| `Option+Enter` / `Alt+Enter` | Create child node |
-| `Shift+Enter` | Add/focus subtext |
-| `Tab` | Indent node |
-| `Shift+Tab` | Outdent node |
-| `Backspace` at start | Clear checkbox (if any) → otherwise merge with previous node |
-| `[ ]` / `[x]` + `Space` at start | Convert node into a checkbox (preserves remaining text) |
-| `Cmd+Shift+X` / `Ctrl+Shift+X` | Toggle checkbox (add if missing, then true ⇄ false) |
-| `Cmd+Shift+Option+X` / `Ctrl+Shift+Alt+X` | Remove checkbox |
-| `↑` / `↓` | Navigate between nodes |
-| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Move node up / down |
-| `Ctrl+.` | Toggle collapse/expand |
-| `Ctrl+Shift+.` | Toggle all collapse/expand |
-| `Cmd+]` / `Ctrl+]` | Scope into current node |
-| `Cmd+[` / `Ctrl+[` | Scope out (back to document) |
-| `Cmd+B` | Bold toggle |
-| `Cmd+I` | Italic toggle |
-| `Cmd+E` | Inline code toggle |
-| `Cmd+Shift+S` | Strikethrough toggle |
-| `Ctrl+F` | Focus search bar |
-| `Ctrl+N` | Add new node at end |
-| `Cmd+Z` | Undo |
-| `Cmd+Shift+Z` | Redo |
+| `Enter` / `Option+Enter` | New sibling node / new child node |
+| `Shift+Enter` | Open subtext (note) |
+| `Tab` / `Shift+Tab` | Indent / outdent (multi-select supported) |
+| `Cmd+Enter` | Open the page (creates one if missing; file attachments open in an external app) |
+| `↑` / `↓`, `Shift+↑/↓` | Move between nodes / extend multi-selection |
+| `Cmd+Shift+↑/↓` | Move node up / down |
+| `←` / `→` | Collapse / expand (at start / end of line) |
+| `Cmd+.` | Toggle collapse for the node |
+| `Cmd+]` / `Cmd+Shift+]` | Scope in (zoom) / scope out |
+| `Cmd+Shift+X` | Toggle checkbox (`Cmd+Shift+Opt+X` to remove) |
+| `Cmd+B` / `Cmd+I` / `Cmd+E` / `Cmd+Shift+S` | Bold / italic / inline code / strikethrough |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut / paste nodes (multi-select and image paste supported) |
+| `Cmd+A` | Select all nodes |
+| `Cmd+F` / `Cmd+H` / `Cmd+Shift+F` | Text search / replace / filter |
+| `Cmd+N` | New node at the end |
+| `Cmd+Z` / `Cmd+Shift+Z` | Undo / redo |
+| `Opt+←` / `Opt+→` | Navigation history back / forward |
+| `Backspace` (at line start) | Merge with previous node / delete empty node |
 
-### Escaping Block Elements
+### Database view
 
-| Element | Key | Action |
+The outliner column supports all of the outliner shortcuts above. In addition:
+
+| Shortcut | Action |
+| --- | --- |
+| `Cmd+←/→/↑/↓` | Move between cells (all columns) |
+| `Tab` / `Shift+Tab` | Next / previous cell (text columns) |
+| `Enter` or `Space` | Open the tag dropdown (tag columns) / the date picker (Date columns; clicking works too) |
+| `↑↓` + `Enter` | Select and confirm inside the dropdown |
+| `Cmd+B` / `Cmd+I` / `Cmd+E` | Inline formatting in text columns |
+
+### Mindmap mode
+
+| Shortcut | Action |
+| --- | --- |
+| `↑↓←→` | Navigate between nodes (layout-aware spatial navigation) |
+| `Enter` / `Shift+Enter` | Add next sibling / add previous sibling |
+| `Tab` | Add child node |
+| `Space` / `F2` / type any character | Start editing (typed characters are appended as-is) |
+| `Enter` / `Tab` / `Esc` (while editing) | Commit the edit |
+| `Delete` / `Backspace` | Delete node (deletes the group when a group is selected) |
+| `Option+↑/↓` | Swap with sibling |
+| `Cmd+Shift+L` | Cycle layout (radial → right → left → balanced) |
+| `Cmd+Enter` | Open / create the page |
+| `Cmd+V` | Attach a pasted image to the node |
+| `Cmd+A` / `Cmd+Z` | Select all / undo |
+| `Cmd+wheel` | Zoom (toolbar ＋/−/Fit also available) |
+| Drag | Empty space: pan; node: re-parent (top ⅓ = previous sibling, bottom ⅓ = next sibling, middle = child) |
+| Right-click | Colors & shapes, create a group (boundary), create a relationship line |
+
+### Markdown syntax shortcuts
+
+Type a markdown pattern and it converts in place: `# ` for headings, `- ` for lists, `- [ ] ` for tasks, `> ` for quotes, ````` ``` ````` for code blocks, `**bold**`, `*italic*`, ``` `code` ```, and more.
+
+<details>
+<summary>Full markdown element reference</summary>
+
+#### Block elements
+
+| Element | Pattern | Shortcut |
 | --- | --- | --- |
-| Code Block | `Shift+Enter` | Exit code block and create new paragraph |
-| Blockquote | `Shift+Enter` | Exit blockquote and create new paragraph |
-| Mermaid/Math | `Shift+Enter` | Exit block and create new paragraph |
-| Code Block | `↑` at first line | Exit to previous element |
-| Code Block | `↓` at last line | Exit to next element |
-| Blockquote | `↑` at first line | Exit to previous element |
-| Blockquote | `↓` at last line | Exit to next element |
-| Mermaid/Math | `↑` at first line | Exit to previous element |
-| Mermaid/Math | `↓` at last line | Exit to next element |
+| Heading 1–6 | `#`…`######` + Space | `Cmd+1`…`Cmd+6` |
+| Paragraph | (default) | `Cmd+0` |
+| Bullet list | `- ` or `* ` + Space | `Cmd+Shift+U` |
+| Numbered list | `1. ` + Space | `Cmd+Shift+O` |
+| Task list | `- [ ] ` + Space | `Cmd+Shift+X` |
+| Quote | `> ` + Space | `Cmd+Shift+Q` |
+| Code block | ````` ``` ````` + Enter (````` ```mermaid ````` / ````` ```math ````` too) | `Cmd+Shift+K` |
+| Table | `| col1 | col2 |` + Enter | `Cmd+T` |
+| Horizontal rule | `---` + Space/Enter | `Cmd+Shift+-` |
 
-### Escaping Inline Elements
+#### Inline elements
 
-To exit inline formatting, type the closing marker followed by Space:
-
-| Element | Input | Action |
+| Element | Pattern | Shortcut |
 | --- | --- | --- |
-| Bold | `**` + Space | Close bold and move cursor outside |
-| Italic | `*` + Space | Close italic and move cursor outside |
-| Strikethrough | `~~` + Space | Close strikethrough and move cursor outside |
-| Inline Code | ``` ` ``` + Space | Close inline code and move cursor outside |
+| Bold | `**text**` + Space | `Cmd+B` |
+| Italic | `*text*` + Space | `Cmd+I` |
+| Strikethrough | `~~text~~` + Space | `Cmd+Shift+S` |
+| Inline code | ``` `text` ``` + Space | ``` Cmd+`  ``` |
+| Link | `[text](url)` | `Cmd+K` |
+| Image | `![text](url)` | `Cmd+Shift+I` |
 
-### Table Operations
-
-| Key | Action |
-| --- | --- |
-| `Tab` | Move to next cell |
-| `Shift+Tab` | Move to previous cell |
-| `Enter` | Insert new row |
-| `Shift+Enter` | Insert line break within cell |
-| `↑` / `↓` | Navigate between rows |
-| `←` / `→` | Navigate within/between cells |
-| `Cmd+A` | Select all text in current cell |
-
-### Code Block Operations
-
-| Key | Action |
-| --- | --- |
-| `Tab` | Insert 4 spaces |
-| `Shift+Tab` | Remove up to 4 leading spaces |
-| `Cmd+A` | Select all text within code block |
-
-### List Operations
-
-| Key | Action |
-| --- | --- |
-| `Tab` | Indent list item (increase nesting) |
-| `Shift+Tab` | Outdent list item (decrease nesting) |
-| `Enter` on empty item | Convert to paragraph or decrease nesting |
-| `Backspace` at start | Convert to paragraph |
-| Pattern at line start + Space | Convert list type in-place (e.g., `1. ` converts `- item` to ordered list) |
-
-### Multi-Block Selection
-
-| Key | Action |
-| --- | --- |
-| `Tab` | Insert 4 spaces at the beginning of each selected block |
-| `Shift+Tab` | Remove up to 4 leading spaces from each selected block |
+</details>
 
 ---
 
-## 💻 Code Block Features
-
-### Supported Languages
-
-The editor supports syntax highlighting for the following languages:
-
-`javascript`, `typescript`, `python`, `json`, `bash`, `shell`, `css`, `html`, `xml`, `sql`, `java`, `go`, `rust`, `yaml`, `markdown`, `c`, `cpp`, `csharp`, `php`, `ruby`, `swift`, `kotlin`, `dockerfile`, `plaintext`
-
-**Language Aliases:** `js`→javascript, `ts`→typescript, `py`→python, `sh`→bash, `yml`→yaml, `md`→markdown, `c++`→cpp, `c#`→csharp
-
-### Display Mode / Edit Mode
-
-- **Display Mode**: Shows syntax-highlighted code with language tag and copy button
-- **Edit Mode**: Plain text editing (click on code block to enter)
-- **Expand Button**: Open code in a separate VS Code editor tab for larger editing
-
-### Mermaid Diagrams
-
-Code blocks with language `mermaid` are rendered as diagrams:
-
-```mermaid
-graph TD
-    A[Start] --> B{Decision}
-    B -->|Yes| C[Action]
-    B -->|No| D[End]
-```
-
-- Click on diagram to edit source
-- Diagram re-renders when exiting edit mode
-
-### KaTeX Math Equations
-
-Code blocks with language `math` are rendered as mathematical equations using KaTeX:
-
-```math
-E = mc^2
-\int_0^\infty e^{-x} dx = 1
-\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
-```
-
-- Each line is rendered as an independent display-mode equation
-- Click on the rendered equation to edit the LaTeX source
-- Equations re-render automatically (500ms debounce) while editing
-- Invalid LaTeX is shown as a red error message (does not break the layout)
-- Empty blocks show "Empty expression"
-- Navigate in/out with arrow keys, just like code blocks and Mermaid diagrams
-
-### draw.io Diagrams
-
-Insert and edit draw.io / diagrams.net diagrams **directly inside Markdown** without leaving VS Code. The diagram is stored as an `.drawio.svg` file (a real SVG that draw.io can re-open) and embedded in markdown as a regular `![](...)` image — fully portable, viewable on GitHub, and editable from any draw.io client.
-![1778050810701.png](assets/images/1778050810701.png)
-
-#### Insert a new diagram
-
-- **Slash command** — Type `/` in the editor to open the action panel, then choose **Insert Drawio Diagram**
-- **Cmd+/** opens the action panel keyboard shortcut
-- A draw.io editor tab opens; design your diagram and save (`Cmd+S`)
-- The diagram is saved into the configured `outlinerFileDir` (default `./files`) as `<filename>.drawio.svg`
-- An image reference `![](./files/<filename>.drawio.svg)` is inserted at the cursor position automatically
-- The thumbnail rendered inline in the markdown editor is the actual SVG — no separate preview file is generated
-
-#### Edit an existing diagram
-
-- **Click the rendered thumbnail** to reopen the diagram in the draw.io editor
-- Save (`Cmd+S`) to update the underlying `.drawio.svg` — the markdown thumbnail refreshes automatically (file watcher echoes the change back to the editor)
-
-No separate `.drawio` source file is needed; the SVG itself contains the editable diagram data.
-
----
-
-## 🖼️ Image & File Save Location
-
-By default, pasted / dropped images go to an `images/` subfolder and file attachments to a `files/` subfolder next to the current file. Markdown links are inserted as relative paths.
-
-### Changing the save location (standalone `.md` only)
-
-For a `.md` opened standalone (not inside a fractal note), you can change where images/attachments are saved:
-
-1. Click the **"Image save directory" / "File save directory"** indicator at the bottom of the outline panel.
-2. Choose **"Choose folder…"** and pick a folder.
-
-The chosen folder is stored in a hidden `.fractal.json` file **next to the markdown file** (`{"imageDir": "...", "fileDir": "..."}`). All `.md` files in that folder share the same save location. **The markdown body is never modified**, so the setting is invisible in other editors (Typora, GitHub, previews). Choose **"Reset to default"** to go back to `images/` · `files/`.
-
-> Notes / `.out` outliner files / outliner page markdown always use their fixed `images/` · `files/` layout and do not show this option.
-
----
-
-## 🎨 Configuration
-
-### VS Code Settings
+## 🎨 Settings
 
 | Setting | Description | Default |
 | --- | --- | --- |
 | `fractal.theme` | Editor theme (`light`, `dark`, `auto`) | `auto` |
 | `fractal.fontSize` | Base font size (px) | `12` |
-| `fractal.imageMaxWidth` | Max width (px) for images and `.drawio.svg` thumbnails in the editor / side panel / outliner page side panel. Toolbar / lucide / command-palette icons are excluded. Min `100` | `400` |
-| `fractal.language` | UI language (`default`, `en`, `ja`, `zh-cn`, `zh-tw`, `ko`, `es`, `fr`) | `default` |
-| `fractal.toolbarMode` | Toolbar display mode (`full`, `simple`) | `simple` |
-| `fractal.enableDebugLogging` | Enable debug logging in browser console | `false` |
-| `fractal.showTranslateButtons` | Show translate buttons in standalone toolbar (leftmost) and side panel header. When off, translation can still be triggered via the `fractal.translate` command (Cmd+/) | `false` |
+| `fractal.imageMaxWidth` | Max display width for inline images (px) | `400` |
+| `fractal.language` | UI language (`default`, `en`, `ja`, `zh-CN`, `zh-TW`, `ko`, `es`, `fr`) | `default` |
+| `fractal.toolbarMode` | Toolbar mode (`full`, `simple`) | `simple` |
+| `fractal.resourceRoots` | Directories the editor may load images/attachments from | `[]` (home directory) |
+| `fractal.showTranslateButtons` | Show translate buttons in the toolbar / side panel | `false` |
+| `fractal.showOpenInTextEditor` | Show the Open in Text Editor button | `true` |
+| `fractal.enableDebugLogging` | Debug logging to the browser console | `false` |
 
-### Themes
+There are also settings for S3 sync (`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`) and translation (`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`, `translateSourceLang` / `translateTargetLang`, custom terminology). Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
 
-All 7 themes apply to both the markdown editor and the outliner:
-
-| Theme | Description |
-| --- | --- |
-| `github` | Clean GitHub-style rendering |
-| `sepia` | Warm, paper-like appearance for comfortable reading |
-| `night` | Dark theme with Tokyo Night inspired colors (blue tint) |
-| `dark` | Pure dark theme with neutral black/gray colors |
-| `minimal` | Distraction-free black and white design |
-| `perplexity` | Light theme with Perplexity brand colors (Paper White background) |
-| `things` | Clean, minimal theme inspired by Things app (SF Pro font, blue accents) (default) |
-
----
-
-## 🌐 Supported Languages (i18n)
-
-The editor UI supports the following languages:
-
-| Language | Code |
-| --- | --- |
-| English | `en` (default) |
-| Japanese | `ja` |
-| Simplified Chinese | `zh-cn` |
-| Traditional Chinese | `zh-tw` |
-| Korean | `ko` |
-| Spanish | `es` |
-| French | `fr` |
-
-Set via `fractal.language` or use `default` to follow VS Code's display language.
-
----
-
-## 🔧 Commands
-
-Available in Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
-
-| Command | Description |
-| --- | --- |
-| `Fractal: Open with Fractal` | Open markdown file in WYSIWYG editor |
-| `Fractal: Insert Table` | Insert a new table |
-| `Fractal: Insert TOC` | Insert table of contents |
-| `Fractal: Open as Text` | Open in standard text editor |
-| `Fractal: Compare as Text` | Compare with text version |
-| `Fractal: Toggle Source Mode` | Switch between WYSIWYG and source mode |
-| `Fractal: Undo` | Undo last edit |
-| `Fractal: Redo` | Redo last undone edit |
-| `Fractal: Clean Unused Files in Note` | Scan all notes for orphan images, markdown files, and file attachments. Move selected to trash |
-| `Fractal: Clean Unused Files (Current Note)` | Same as above, limited to the currently open note |
-
----
-
-## 🌐 Chrome Extension (Web Clipper)
-
-Save any web page as a new top-level node in your Fractal Outliner — directly from Chrome, without launching VS Code.
-
-- Located in `chrome-extension/` of this repo (load as **unpacked extension** in `chrome://extensions/`).
-- Click the extension icon (or `Alt+Shift+F`) on any web page → page is extracted with **Mozilla Readability**, converted to Markdown using **Fractal's own HTML→MD pipeline** (same logic as the MD editor's `Cmd+V` paste — supports tables, code blocks with `<br>`-style Medium / dev.to highlight, image-wrap link unwrap, GFM, etc.), and prepended as a `pageId`-linked node to your selected `.out` file.
-- Configure target Notes folder + `.out` file once via the extension's Options page (uses **File System Access API** — no VS Code communication needed; the file is updated directly on disk).
-- In-page banner shows clip progress / completion / errors (works even when OS notifications are disabled).
-- Concurrent clicks across tabs are **serialized in a queue** to prevent `.out` write conflicts.
-
-See `chrome-extension/README.md` for installation and usage details.
-
----
-
-## 🔄 External File Changes
-
-When another tool (e.g., AI coding assistants like Claude Code, Cursor, etc.) modifies the same markdown file while you have it open in Fractal:
-
-- **Block-level DOM diff**: Only changed blocks are updated — your cursor position and in-progress edits are preserved.
-- **Toast notification**: A notification appears allowing you to review and accept or dismiss external changes.
-- **Unsaved changes warning**: If you have unsaved edits, a confirmation dialog prevents accidental overwrites.
+The UI is localized in **English, Japanese, Simplified/Traditional Chinese, Korean, Spanish, and French** (`fractal.language`; `default` follows VS Code).
 
 ---
 
 ## 🛠️ Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Compile TypeScript
-npm run compile
-
-# Watch for changes
-npm run watch
-
-# Run tests
-npm test
-
-# Package extension
-vsce package --no-dependencies
+npm install        # install dependencies
+npm run compile    # compile TypeScript + build locales + copy assets
+npm run watch      # watch mode
+npm test           # run tests (parallel Playwright suite)
+vsce package --no-dependencies   # package the extension
 ```
 
 ---
 
-## 💖 Support This Project
+## 💖 Support the project
 
-If you find this extension useful, please consider:
-
-- [**Sponsor** on GitHub](https://github.com/sponsors/raggbal) - Help keep this project maintained
-- **Star** this repository on [GitHub](https://github.com/raggbal/fractal)
-- **Report issues** or suggest features on [Issues](https://github.com/raggbal/fractal/issues)
-- **Contribute** with pull requests
-
-Your support helps keep this project maintained and improved!
+- [**Sponsor** on GitHub](https://github.com/sponsors/raggbal) — support ongoing maintenance of the project
+- **Star** it on [GitHub](https://github.com/raggbal/fractal)
+- **Report bugs** and suggest features in [Issues](https://github.com/raggbal/fractal/issues)
+- **Contribute** via pull requests
 
 ---
 
 ## 📄 License
 
-MIT License - feel free to use this extension in your projects.
+MIT License — free to use in your own projects.
 
 ---
 
-## 🙏 Acknowledgments
+## 🙏 Acknowledgements
 
-- Built with love for the VS Code community
-
----
+- Made with love for the VS Code community
