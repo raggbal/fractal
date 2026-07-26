@@ -5,6 +5,22 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-27
+
+### Added
+- **Chrome 拡張 v0.4.0 — i18n 対応**: デフォルト英語 + Settings（options）で日本語切替（`chrome.storage.local`）。
+  popup / options / 通知 / エラー / 生成 md メタラベル（Source/Author/Site ⇄ 元ページ/著者/サイト）の全 59 文言を辞書化（`lib/i18n.js` + `lib/i18n-messages.js`）
+- **AI Skills — fractal-search 検索強化**:
+  - `--outline-name`（outliner 名の AND プレフィルタ・単独で一覧モード。`--find-outline` は互換維持）
+  - `--h1`（md 先頭 H1 検索。CommonMark 準拠 — `# C#` の末尾 `#` 保持・コードフェンス内無視）
+  - `--list-notes` / `--list-folders` × `--note-name`（note 一覧 + 名前検索。`--json` に name/dirName）
+  - 全フィルタ AND 合成（note → outliner → md(H1) → 本文/tag/checked）
+
+### Fixed
+- **AI Skills: symlink 経由の CLI 実行が無反応になるバグ**（import guard が realpath 差で不一致。
+  `~/.claude/skills` 等 symlink 配置の全 fractal 系 skill に影響 — 全 6 mjs を realpathSync 対応に修正）
+- fractal-md.mjs の H1 抽出がコードフェンス内の `#` を誤検出する問題（正典ミラーに置換）
+
 ## [1.1.0] - 2026-07-27
 
 ### Added

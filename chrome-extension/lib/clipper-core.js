@@ -72,13 +72,16 @@
         };
     }
 
-    /** page MD 本文を組み立て (1 行目 H1 タイトル + 元 URL + 空行 + 本文) */
+    /** page MD 本文を組み立て (1 行目 H1 タイトル + 元 URL + 空行 + 本文)。
+     *  FR-CI-05: メタラベルは options.labels { source, author, site } で受ける
+     *  (core は i18n 非依存の純ロジック。省略時は en 既定 = 後方互換)。 */
     function buildPageMd(options) {
+        const L = options.labels || { source: 'Source', author: 'Author', site: 'Site' };
         const lines = [];
         if (options.title) lines.push('# ' + options.title);
-        if (options.url) lines.push('元ページ: [' + options.url + '](' + options.url + ')');
-        if (options.byline) lines.push('著者: ' + options.byline);
-        if (options.siteName) lines.push('サイト: ' + options.siteName);
+        if (options.url) lines.push(L.source + ': [' + options.url + '](' + options.url + ')');
+        if (options.byline) lines.push(L.author + ': ' + options.byline);
+        if (options.siteName) lines.push(L.site + ': ' + options.siteName);
         lines.push('');  // 区切り
         lines.push(options.markdown || '');
         return lines.join('\n\n');

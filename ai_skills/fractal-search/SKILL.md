@@ -1,6 +1,6 @@
 ---
 name: fractal-search
-description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/VSCodium/Antigravity/Code Insiders/Electron）、outline 一覧、outline タイトル絞込（--find-outline）、note 名絞込（--note-name/--exclude-note）、タグ・タスク状態フィルタ（--tag/--checked）、outline ノード／page MD／ルート MD の全文検索に対応
+description: Fractal の Notes フォルダ／Outline 一覧・横断検索スキル。登録済み Notes フォルダの自動検出（VSCode/Cursor/Kiro/VSCodium/Antigravity/Code Insiders/Electron）、note 一覧・note 名検索（--list-notes/--list-folders × --note-name）、outliner 名検索（--outline-name、AND 合成可）、md 先頭 H1 検索（--h1、CommonMark 準拠）、タグ・タスク状態フィルタ（--tag/--checked）、outline ノード／page MD／ルート MD の全文検索、全フィルタの AND 組み合わせに対応
 ---
 
 # fractal-search — Fractal 全文検索
@@ -43,11 +43,13 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --find-outline AWS
 
 | オプション | 説明 |
 |-----------|------|
-| `--query <str>` | 検索語（`--list-folders` / `--tag` / `--checked` 使用時以外は必須） |
+| `--query <str>` | 検索語（`--list-folders` / `--tag` / `--checked` / `--outline-name` / `--h1` 使用時以外は必須） |
 | `--tag <tag>` | ノードのタグ絞り込み（`#`/`@` プレフィックス省略可。複数指定 OR）。`--query` と AND 併用可、単独なら該当ノードを列挙 |
 | `--checked true\|false\|none\|any` | チェックボックス状態で絞り込み（true=済 / false=未 / none=チェックなし / any=タスクノード全部）。`--tag` 同様 `--query` 省略可 |
 | `--note-name <name>` | **対象 note を名前で絞る**（`outline.note` の `noteTitle`、無ければフォルダ名。部分一致・大小無視・複数指定 OR）。`--folder` 未指定なら自動検出を起動するので `--auto` 不要 |
 | `--exclude-note <name>` | 名前が一致する note を**除外**（`--note-name` と同じ一致規則。include より優先） |
+| `--outline-name <str>` | **対象 outliner を title で絞る AND プレフィルタ**（部分一致・大小無視）。`--query`/`--tag`/`--checked`/`--h1`/`--note-name` と AND 合成可。単独指定ならマッチした outliner の一覧を返す。`--find-outline` の後継（互換のため両方残る。新規はこちら推奨） |
+| `--h1 <str>` | **md の先頭 H1 で絞る AND プレフィルタ**（部分一致・大小無視）。page md と note 直下 md が対象。H1 抽出は CommonMark ATX 準拠（`# C#` の末尾 `#` は保持・コードフェンス内は無視）。単独指定なら H1 マッチ md の一覧（`h1` フィールド付き）、`--query` と併用でその md 内の本文検索 |
 | `--folder <path>` | 検索対象 Notes フォルダ（複数指定可、先頭に複数並べるか `--folder <p1> --folder <p2>`） |
 | `--auto` | Electron `config.json` と VSCode/Code-Insiders/Cursor/Kiro/VSCodium/Antigravity の `state.vscdb` から登録済み Notes フォルダを自動検出 |
 | `--list-folders` | 検索はせず、自動検出された Notes フォルダ一覧を出力（複数エディタに登録されている場合は sources を集約して表示） |
@@ -177,6 +179,18 @@ node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --tag revie
 # note 名で対象を絞って横断検索（noteTitle「仕事ノート」を含む note だけ。--auto 不要）
 node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --note-name 仕事
 
+# note 一覧を note 名で絞る（note の発見）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --list-notes --note-name 仕事 --json
+
+# outliner 名で検索（単独 = 一覧）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --outline-name "プロジェクト計画"
+
+# md を先頭 H1 で検索（単独 = H1 マッチ md の一覧）
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --h1 "Roadmap"
+
+# AND 組み合わせ: note 名 × outliner 名 × 先頭 H1 × 本文
+node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --note-name 仕事 --outline-name 計画 --h1 2026 --query "納期" --json
+
 # 特定 note を除外して全 note 横断
 node ${CLAUDE_SKILL_DIR}/scripts/fractal-search.mjs --query "設計" --auto --exclude-note アーカイブ
 ```
@@ -274,6 +288,5 @@ Total: 6 outline(s) across 2 folder(s).
 ## 制限事項
 
 - バイナリ添付（画像・PDF 等）は検索しない（パスだけ）
-- タグ検索は未対応（`nodes.*.tags[]` は見ない — 必要なら後で追加）
 - 大きなフォルダだと全 `.out` を JSON.parse する時間がかかる（現状 `NotesFileManager` と同じ）
 - `outline.note` のフォルダ階層は反映しない（ヒットした `.out` のファイル単位でのみ集約）

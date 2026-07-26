@@ -31,7 +31,7 @@ async function refreshUI() {
     if (folders.length === 0) {
         const empty = document.createElement('li');
         empty.className = 'empty';
-        empty.textContent = '(未登録 — 上の「Add Note」 で追加)';
+        empty.textContent = FractalI18n.t('options_no_notes');
         folderListEl.appendChild(empty);
         return;
     }
@@ -48,15 +48,15 @@ async function refreshUI() {
         if (!hasPerm) {
             const warn = document.createElement('span');
             warn.className = 'perm-warn';
-            warn.textContent = '⚠️ 要再許可';
+            warn.textContent = FractalI18n.t('options_reauth_needed');
             li.appendChild(warn);
             const reauthBtn = document.createElement('button');
             reauthBtn.className = 'small';
-            reauthBtn.textContent = '再許可';
+            reauthBtn.textContent = FractalI18n.t('options_reauth_button');
             reauthBtn.addEventListener('click', async () => {
                 const ok = await FractalFolders.requestPermission(f.handle);
                 if (ok) await refreshUI();
-                else setStatus(addStatus, '❌ 許可されませんでした', 'err');
+                else setStatus(addStatus, FractalI18n.t('options_permission_denied'), 'err');
             });
             li.appendChild(reauthBtn);
         }
@@ -65,7 +65,7 @@ async function refreshUI() {
         removeBtn.className = 'danger small';
         removeBtn.textContent = 'Remove';
         removeBtn.addEventListener('click', async () => {
-            if (!confirm(`"${f.name}" を登録解除しますか? (フォルダ自体は削除されません)`)) return;
+            if (!confirm(FractalI18n.t('options_confirm_unregister', { name: f.name }))) return;
             await FractalFolders.removeFolder(f.id);
             await refreshUI();
         });
@@ -79,7 +79,7 @@ addFolderBtn.addEventListener('click', async () => {
     try {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
         const entry = await FractalFolders.addFolder(handle);
-        setStatus(addStatus, '✅ ' + entry.name + ' を登録', 'ok');
+        setStatus(addStatus, FractalI18n.t('options_registered', { name: entry.name }), 'ok');
         await refreshUI();
     } catch (e) {
         if (e.name === 'AbortError') return;
@@ -106,20 +106,20 @@ async function loadPresetTargets() {
     presetTargetSelect.innerHTML = '';
     presetTargets = [];
     if (!f) {
-        presetTargetSelect.innerHTML = '<option>(Note を選択)</option>';
+        presetTargetSelect.innerHTML = '<option>' + FractalI18n.t('options_select_note') + '</option>';
         return;
     }
     if (!(await FractalFolders.hasPermission(f.handle))) {
         const ok = await FractalFolders.requestPermission(f.handle);
         if (!ok) {
-            presetTargetSelect.innerHTML = '<option>(Note の許可が必要)</option>';
+            presetTargetSelect.innerHTML = '<option>' + FractalI18n.t('options_note_permission_needed') + '</option>';
             return;
         }
     }
     try {
         presetTargets = await FractalFolders.readTargetsFromOutlineNote(f.handle);
     } catch (e) {
-        presetTargetSelect.innerHTML = '<option>(読み取り失敗)</option>';
+        presetTargetSelect.innerHTML = '<option>' + FractalI18n.t('options_read_failed') + '</option>';
         return;
     }
     for (const t of presetTargets) {
@@ -140,7 +140,7 @@ async function refreshPresetList() {
     if (presets.length === 0) {
         const empty = document.createElement('li');
         empty.className = 'empty';
-        empty.textContent = '(プリセット未登録)';
+        empty.textContent = FractalI18n.t('options_no_presets');
         presetListEl.appendChild(empty);
         return;
     }
@@ -150,7 +150,7 @@ async function refreshPresetList() {
         defRadio.type = 'radio';
         defRadio.name = 'defaultPreset';
         defRadio.checked = !!(def && def.id === p.id);
-        defRadio.title = 'default に設定（popup 初期選択 + quick clip）';
+        defRadio.title = FractalI18n.t('options_default_radio_title');
         defRadio.addEventListener('change', async () => {
             await FractalFolders.setDefaultPreset(p.id);
             await refreshPresetList();
@@ -188,7 +188,7 @@ addPresetBtn.addEventListener('click', async () => {
     const folderId = presetFolderSelect.value;
     const target = presetTargets.find((t) => t.id === presetTargetSelect.value);
     if (!folderId || !target) {
-        setStatus(presetStatus, '❌ Note と保存先を選択してください', 'err');
+        setStatus(presetStatus, FractalI18n.t('options_select_note_and_dest'), 'err');
         return;
     }
     const name = presetNameInput.value.trim() || target.title;
@@ -200,11 +200,28 @@ addPresetBtn.addEventListener('click', async () => {
         await FractalFolders.setDefaultPreset(added.id);
     }
     presetNameInput.value = '';
-    setStatus(presetStatus, '✅ 追加しました', 'ok');
+    setStatus(presetStatus, FractalI18n.t('options_preset_added'), 'ok');
     await refreshPresetList();
 });
 
 (async () => {
+    // i18n 初期化（ADRL-0001）
+    const langStore = await chrome.storage.local.get('language');
+    FractalI18n.init(langStore.language);
+    FractalI18n.applyDom(document);
+    const langSelect = document.getElementById('langSelect');
+    if (langSelect) {
+        langSelect.value = FractalI18n.getLang();
+        langSelect.addEventListener('change', async () => {
+            await chrome.storage.local.set({ language: langSelect.value });
+            FractalI18n.init(langSelect.value);
+            FractalI18n.applyDom(document);
+            // 動的リスト（登録 Note / プリセット）の文言も新言語で再描画
+            await refreshUI();
+            await refreshPresetFolderSelect();
+            await refreshPresetList();
+        });
+    }
     await FractalFolders.migrateLegacyIfNeeded();
     await refreshUI();
     await refreshPresetFolderSelect();

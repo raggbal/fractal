@@ -69,11 +69,32 @@ function generatePageId() {
     return crypto.randomUUID();
 }
 
-// --- H1抽出 ---
+// --- H1抽出（FR-SS-05: 旧簡易 regex /^# (.+)$/m を正典ミラーに置換） ---
+// 正典: src/shared/md-h1-utils.ts の parseAtxH1Text / extractFirstH1 のミラー（ADRL-0002）。
+// CommonMark ATX 準拠: 閉じ `#` 列は「直前に空白がある時だけ」剥がす（`# C#` → `C#`）。
+// コードフェンス（```）内の `#` は見出しとみなさない（旧実装はフェンス内 H1 を誤検出していた）。
+// 乖離は test/specs/skills-search-filters.spec.ts の 3 者一致 TC が番人。
 
-function extractH1(mdContent) {
-    const match = mdContent.match(/^# (.+)$/m);
-    return match ? match[1].trim() : null;
+export function parseAtxH1TextMjs(line) {
+    const bare = String(line).replace(/\r$/, '');
+    const m = bare.match(/^ {0,3}#[ \t]+(.*)$/);
+    if (!m) return null;
+    let text = m[1].replace(/[ \t]+$/, '');
+    const closing = text.match(/^(.*?)[ \t]+#+$/);
+    if (closing) text = closing[1];
+    return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
+}
+
+export function extractFirstH1Mjs(md) {
+    const lines = String(md).split('\n');
+    let inCode = false;
+    for (const line of lines) {
+        if (line.startsWith('```')) { inCode = !inCode; continue; }
+        if (inCode) continue;
+        const text = parseAtxH1TextMjs(line);
+        if (text !== null) return text;
+    }
+    return null;
 }
 
 // ────────────────────────────────────────────
@@ -283,7 +304,7 @@ function importMdFile(sourcePath, pageDir, imageDir, fileDir) {
         return null;
     }
 
-    const title = extractH1(rawContent) || path.basename(sourcePath, '.md');
+    const title = extractFirstH1Mjs(rawContent) || path.basename(sourcePath, '.md');
 
     // Markdown正規化
     let content = normalizeMultiLineTableCells(rawContent);
@@ -661,7 +682,7 @@ export function addSubpageToMd(targetMdPath, { sourceMdPath = null, text = null 
     let content;
     if (sourceMdPath) {
         const raw = fs.readFileSync(path.resolve(sourceMdPath), 'utf-8');
-        title = extractH1(raw) || path.basename(sourceMdPath, '.md');
+        title = extractFirstH1Mjs(raw) || path.basename(sourceMdPath, '.md');
         content = normalizeMultiLineTableCells(raw);
         const sourceDir = path.dirname(path.resolve(sourceMdPath));
         content = processImages(content, sourceDir, imageDir, targetDir);
@@ -868,7 +889,17 @@ async function main() {
 }
 
 // CLI 直接実行時のみ main を走らせる（unit が import した時に暴発しない・design §B5）
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// CLI 直接実行判定（TASK-B5 sprint 20260727-065214）: install.sh は claude/cursor/antigravity に
+// symlink 配置するが、Node は main entry の import.meta.url を realpath 解決するため、
+// argv[1]（symlink パス）との素の比較は不一致 → main() が走らない silent no-op になる。
+// argv[1] を realpathSync で解決してから比較する（解決失敗時は素の argv[1] に fallback）。
+function __isCliInvocation() {
+    if (!process.argv[1]) return false;
+    let entry = process.argv[1];
+    try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
+    return import.meta.url === pathToFileURL(entry).href;
+}
+if (__isCliInvocation()) {
     main().catch(err => {
         console.error(err);
         process.exit(1);

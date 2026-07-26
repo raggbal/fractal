@@ -8,7 +8,7 @@
  */
 
 // MV3 service worker: 共有 lib を importScripts で読み込む（global = self）
-importScripts('lib/flat-layout-mirror.js', 'lib/clipper-core.js', 'lib/data-url-image-extractor.js');
+importScripts('lib/i18n-messages.js', 'lib/i18n.js', 'lib/flat-layout-mirror.js', 'lib/clipper-core.js', 'lib/data-url-image-extractor.js');
 
 console.log('[Fractal Clipper] SW loaded at', new Date().toISOString());
 
@@ -147,15 +147,20 @@ async function resolveMdTarget(folderHandle, mdId) {
 
 async function quickClip(tab) {
     const t0 = performance.now();
+    // i18n: SW は都度再起動するため通知前に毎回言語を読む（ADRL-0001。onChanged 待ちより堅牢）
+    try {
+        const langStore = await chrome.storage.local.get('language');
+        FractalI18n.init(langStore.language);
+    } catch { /* storage 不可でも en 既定で続行 */ }
     setBadge('…', '#0969da');
-    if (tab && tab.id) showBanner(tab.id, '📥 Clip 処理中…\n' + (tab.title || ''), 'progress');
+    if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_clip_in_progress', { title: tab.title || '' }), 'progress');
 
     // 保存先: default preset 優先 → lastSelection fallback（FR-CL-06）。旧 lastSelection {outId} も正規化。
     const folders = (await idbGet('notesFolders')) || [];
     if (!Array.isArray(folders) || folders.length === 0) {
         setBadge('!', '#cc3333');
-        notify('未設定', 'Options で Notes フォルダを登録してください', true);
-        if (tab && tab.id) showBanner(tab.id, '❌ Notes フォルダ未登録\nicon click で popup を開いて選択するか、Options で登録', 'err');
+        notify(FractalI18n.t('bg_not_configured_title'), FractalI18n.t('bg_not_configured_body'), true);
+        if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_no_folder_banner'), 'err');
         chrome.runtime.openOptionsPage();
         return;
     }
@@ -178,14 +183,14 @@ async function quickClip(tab) {
     }
     if (!sel) {
         setBadge('!', '#cc3333');
-        notify('未選択', 'icon click で popup を開いて保存先を選んでください (初回のみ)', true);
-        if (tab && tab.id) showBanner(tab.id, '❌ 保存先なし\nicon click で保存先を選択するか、Options で default preset を設定', 'err');
+        notify(FractalI18n.t('bg_no_selection_title'), FractalI18n.t('bg_no_selection_body'), true);
+        if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_no_dest_banner'), 'err');
         return;
     }
     const folder = folders.find((f) => f.id === sel.folderId);
     if (!folder) {
         setBadge('!', '#cc3333');
-        notify('Folder not found', 'icon click で再選択してください', true);
+        notify(FractalI18n.t('bg_folder_not_found_title'), FractalI18n.t('bg_folder_not_found_body'), true);
         return;
     }
 
@@ -194,8 +199,8 @@ async function quickClip(tab) {
     if (perm !== 'granted') {
         // SW から requestPermission は user gesture が必要 → popup 経由を促す
         setBadge('!', '#cc3333');
-        notify('要再許可', 'icon click で popup を開いて許可してください', true);
-        if (tab && tab.id) showBanner(tab.id, '❌ folder 許可が失効\nicon click で popup から再許可してください', 'err');
+        notify(FractalI18n.t('bg_reauth_title'), FractalI18n.t('bg_reauth_body'), true);
+        if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_reauth_banner'), 'err');
         return;
     }
 
@@ -249,7 +254,13 @@ async function quickClip(tab) {
 
     const title = result.title || '(untitled)';
     const pageMd = FractalClipperCore.buildPageMd({
-        title, url: result.url, byline: result.byline, siteName: result.siteName, markdown: result.markdown
+        title, url: result.url, byline: result.byline, siteName: result.siteName, markdown: result.markdown,
+        // FR-CI-05: 生成 MD ラベルも言語設定に従う
+        labels: {
+            source: FractalI18n.t('core_label_source'),
+            author: FractalI18n.t('core_label_author'),
+            site: FractalI18n.t('core_label_site')
+        }
     });
 
     let destLabel;
@@ -293,9 +304,9 @@ async function quickClip(tab) {
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     setBadge('✓', '#2da44e');
     setTimeout(() => setBadge('', ''), 5000);
-    notify('✅ Clip 完了 (' + elapsed + 's)', title + '\n→ ' + folder.name + '/' + destLabel);
+    notify(FractalI18n.t('bg_clip_done_title', { sec: elapsed }), title + '\n→ ' + folder.name + '/' + destLabel);
     if (tab && tab.id) {
-        showBanner(tab.id, '✅ Clip 完了 (' + elapsed + 's)\n→ ' + folder.name + '/' + destLabel + '\n' + title, 'ok');
+        showBanner(tab.id, FractalI18n.t('bg_clip_done_banner', { sec: elapsed, dest: folder.name + '/' + destLabel, title: title }), 'ok');
     }
 }
 
@@ -310,8 +321,8 @@ chrome.commands.onCommand.addListener(async (command) => {
     } catch (e) {
         console.error('[Fractal Clipper] quickClip error', e);
         setBadge('!', '#cc3333');
-        notify('Clip 失敗', e.message || String(e), true);
-        if (tab && tab.id) showBanner(tab.id, '❌ Clip 失敗\n' + (e.message || String(e)), 'err');
+        notify(FractalI18n.t('bg_clip_failed_title'), e.message || String(e), true);
+        if (tab && tab.id) showBanner(tab.id, FractalI18n.t('bg_clip_failed_banner', { message: e.message || String(e) }), 'err');
     }
 });
 

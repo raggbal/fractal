@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Fractal Web Clipper</title>
@@ -75,13 +75,13 @@
     <h1>📥 Clip to Fractal</h1>
 
     <div id="setupRequired" style="display:none">
-        <div class="empty">⚠️ Note が未登録です</div>
-        <button id="openOptionsBtn" class="primary">⚙️ Open Settings</button>
+        <div class="empty" data-i18n="popup_no_note_registered">⚠️ No Note registered</div>
+        <button id="openOptionsBtn" class="primary" data-i18n="popup_open_settings">⚙️ Open Settings</button>
     </div>
 
     <div id="picker" style="display:none">
         <div id="presetRow" style="display:none">
-            <label for="presetSelect">保存先プリセット</label>
+            <label for="presetSelect" data-i18n="popup_preset_label">Preset</label>
             <select id="presetSelect"></select>
         </div>
 
@@ -89,17 +89,19 @@
             <label for="folderSelect">Note</label>
             <select id="folderSelect"></select>
 
-            <label for="outSelect">保存先 (Outliner / Markdown)</label>
-            <select id="outSelect"><option>(まず Note を選択)</option></select>
+            <label for="outSelect" data-i18n="popup_dest_label">Destination (Outliner / Markdown)</label>
+            <select id="outSelect"><option data-i18n="popup_select_note_first">(select a Note first)</option></select>
         </div>
 
         <button id="clipBtn" class="primary" disabled>📌 Bookmark</button>
         <div id="status" class="status info" style="display:none"></div>
-        <div class="row"><a href="#" id="optionsLink">⚙️ 設定</a></div>
+        <div class="row"><a href="#" id="optionsLink" data-i18n="popup_settings_link">⚙️ Settings</a></div>
     </div>
 
     <!-- 重い lib (turndown / Readability / fractal-md) は popup ではなく対象 tab 側で
          chrome.scripting.executeScript で inject 実行する。 -->
+    <script src="lib/i18n-messages.js"></script>
+    <script src="lib/i18n.js"></script>
     <script src="lib/idb.js"></script>
     <script src="lib/flat-layout-mirror.js"></script>
     <script src="lib/folder-registry.js"></script>

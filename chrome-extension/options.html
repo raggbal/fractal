@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Fractal Web Clipper - Options</title>
@@ -77,27 +77,37 @@
         <button id="addFolderBtn" class="primary">📓 Add Note…</button>
         <span id="addStatus" class="status" style="display:none"></span>
     </div>
-    <div class="hint">Fractal の Note（複数 <code>.out</code> + <code>outline.note</code> を持つディレクトリ）を複数登録できます。名前は Note のタイトルで表示されます。許可は永続化され毎回聞かれません。</div>
+    <div class="hint" data-i18n="options_note_hint">Register one or more Fractal Notes (directories containing .out files and outline.note). Names are shown using the Note title. Permissions persist, so you will not be asked every time.</div>
 
     <ul id="folderList" class="folder-list">
-        <li class="empty">(未登録 — 上の「Add Note…」で追加)</li>
+        <li class="empty" data-i18n="options_no_notes">(none — add with "Add Note…" above)</li>
     </ul>
 
-    <h2>保存先プリセット</h2>
-    <div class="hint">よく使う保存先（Note + Outliner/Markdown）をプリセット登録できます。★ を付けたプリセットが popup の初期選択と quick clip (Alt+Shift+F) の保存先になります。</div>
+    <h2 data-i18n="options_preset_heading">Destination Presets</h2>
+    <div class="hint" data-i18n="options_preset_hint">Register frequently used destinations (Note + Outliner/Markdown) as presets. The preset marked ★ becomes the initial selection in the popup and the destination for quick clip (Alt+Shift+F).</div>
     <div class="row" style="margin-top:8px; display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
         <select id="presetFolderSelect" style="min-width:140px;"></select>
-        <select id="presetTargetSelect" style="min-width:200px;"><option>(Note を選択)</option></select>
-        <input id="presetNameInput" type="text" placeholder="プリセット名 (省略可)" style="padding:6px 8px; border:1px solid #ccc; border-radius:3px;">
-        <button id="addPresetBtn" class="primary">＋ 追加</button>
+        <select id="presetTargetSelect" style="min-width:200px;"><option data-i18n="options_select_note">(select a Note)</option></select>
+        <input id="presetNameInput" type="text" data-i18n-placeholder="options_preset_name_placeholder" placeholder="Preset name (optional)" style="padding:6px 8px; border:1px solid #ccc; border-radius:3px;">
+        <button id="addPresetBtn" class="primary" data-i18n="options_add_preset">＋ Add</button>
         <span id="presetStatus" class="status" style="display:none"></span>
     </div>
     <ul id="presetList" class="folder-list">
-        <li class="empty">(プリセット未登録)</li>
+        <li class="empty" data-i18n="options_no_presets">(no presets)</li>
     </ul>
 
-    <div class="hint" style="margin-top: 24px;">保存先の選択は、ツールバー icon を click した時の popup でも毎回行えます（プリセット or 手動選択）。</div>
+    <div class="hint" style="margin-top: 24px;" data-i18n="options_footer_hint">You can also pick the destination every time in the popup when you click the toolbar icon (preset or manual selection).</div>
 
+    <h2 data-i18n="options_language_heading">Language</h2>
+    <div class="row">
+        <select id="langSelect">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+        </select>
+    </div>
+
+    <script src="lib/i18n-messages.js"></script>
+    <script src="lib/i18n.js"></script>
     <script src="lib/idb.js"></script>
     <script src="lib/flat-layout-mirror.js"></script>
     <script src="lib/folder-registry.js"></script>
