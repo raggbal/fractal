@@ -30932,6 +30932,27 @@ var MindmapInteractions = (function() {
             var nodeEl = nodeElFromEvent(e);
             e.preventDefault();
             closeContextMenu();
+            // FR-GC-01 (sprint 20260727-080242): group 枠上の右クリックは Group 用メニュー。
+            // 従来は nodeEl のみ判定して group 上が「空白扱い」に落ち、選択済みノードから
+            // Create Group が出るバグだった。ノードが枠に重なる場合はノード優先 (nodeEl 先勝ち)。
+            if (!nodeEl) {
+                var groupEl = e.target.closest ? e.target.closest('.mindmap-group') : null;
+                if (groupEl) {
+                    var ctxGid = groupEl.getAttribute('data-group-id');
+                    if (ctxGid) {
+                        // メニュー対象を選択状態に (視覚整合)。既存 click 選択 (:1126) と同じく
+                        // rerender で is-selected 枠を反映 (menu は document.body 直下なので消えない)
+                        if (_selectedGroupId !== ctxGid) { markGroupSelected(ctxGid); rerender(); }
+                        var gMenu = buildGroupContextMenu(ctxGid, e.clientX, e.clientY);
+                        document.body.appendChild(gMenu);
+                        if (typeof MindmapRender !== 'undefined' && MindmapRender._trackBodyEl) {
+                            MindmapRender._trackBodyEl(gMenu);
+                        }
+                        _contextMenuEl = gMenu;
+                        return;
+                    }
+                }
+            }
             var menu = buildContextMenu(nodeEl ? nodeEl.getAttribute('data-node-id') : null, e.clientX, e.clientY);
             document.body.appendChild(menu);
             if (typeof MindmapRender !== 'undefined' && MindmapRender._trackBodyEl) {
@@ -30943,6 +30964,102 @@ var MindmapInteractions = (function() {
         on(document, 'mousedown', function(e) {
             if (_contextMenuEl && !_contextMenuEl.contains(e.target)) { closeContextMenu(); }
         });
+
+        // FR-GC-02: Group rename 用ダイアログ。window.prompt は VS Code webview でブロックされる
+        // ため、outliner.js:2652 openRenameColumnDialog と同型のカスタム DOM ダイアログを使う
+        // (同じ .outliner-add-col-* CSS クラスを流用 = 追加 CSS 不要)。
+        // 確定 (Save/Enter): 同値なら no-op、空文字は label 消去 (枠は残る)。キャンセル/Esc: 変更なし。
+        function openRenameGroupDialog(groupId, cur) {
+            var existing = document.querySelector('.outliner-add-col-dialog');
+            if (existing) { existing.remove(); }
+            var dialog = document.createElement('div');
+            dialog.className = 'outliner-add-col-dialog';
+            dialog.style.position = 'fixed';
+            dialog.style.left = '50%';
+            dialog.style.top = '40%';
+            dialog.style.transform = 'translate(-50%, -50%)';
+            dialog.addEventListener('contextmenu', function(ev) { ev.preventDefault(); });
+
+            var label = document.createElement('div');
+            label.className = 'outliner-add-col-label';
+            label.textContent = 'Group name';
+            dialog.appendChild(label);
+
+            var nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'outliner-add-col-name';
+            nameInput.value = cur;
+            dialog.appendChild(nameInput);
+
+            function commit() {
+                var next = nameInput.value; // 空文字 = label 消去を許可 (trim で弾かない)
+                dialog.remove();
+                if (next === cur) { return; } // 同値は no-op (undo も積まない)
+                pushUndo();
+                if (typeof MindmapModel !== 'undefined') {
+                    MindmapModel.updateGroup(settings, groupId, { label: next });
+                }
+                scheduleSync(); rerender();
+            }
+
+            var btnRow = document.createElement('div');
+            btnRow.className = 'outliner-add-col-buttons';
+            var cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', function() { dialog.remove(); });
+            var okBtn = document.createElement('button');
+            okBtn.type = 'button';
+            okBtn.textContent = 'Save';
+            okBtn.addEventListener('click', commit);
+            btnRow.appendChild(cancelBtn);
+            btnRow.appendChild(okBtn);
+            dialog.appendChild(btnRow);
+
+            document.body.appendChild(dialog);
+            if (typeof MindmapRender !== 'undefined' && MindmapRender._trackBodyEl) {
+                MindmapRender._trackBodyEl(dialog); // mindmap 破棄時に一緒に消す (menu と同じ管理)
+            }
+            setTimeout(function() { nameInput.focus(); nameInput.select(); }, 0);
+
+            nameInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); dialog.remove(); }
+                e.stopPropagation(); // mindmap の keydown (Delete 等) に食われない
+            });
+        }
+
+        // FR-GC-02/03 (sprint 20260727-080242): Group 用コンテキストメニュー。
+        // Rename Group… (prompt → updateGroup) と Delete Group (removeGroup) の 2 項目のみ。
+        // Create Group / ノード用項目 / Fit to screen は出さない。
+        function buildGroupContextMenu(groupId, x, y) {
+            var menu = document.createElement('div');
+            menu.className = 'mindmap-context-menu';
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+            function item(label, fn) {
+                var it = document.createElement('div');
+                it.className = 'mindmap-ctx-item';
+                it.textContent = label;
+                it.addEventListener('click', function() { fn(); closeContextMenu(); });
+                menu.appendChild(it);
+            }
+            var grp = (settings.groups || []).filter(function(g) { return g.id === groupId; })[0];
+            item('Rename Group…', function() {
+                // window.prompt は VS Code webview でブロックされるため使わない
+                // (outliner.js:2652 openRenameColumnDialog と同じ判断・同 CSS クラスのカスタムダイアログ)。
+                openRenameGroupDialog(groupId, (grp && grp.label) || '');
+            });
+            item('Delete Group', function() {
+                pushUndo();
+                if (typeof MindmapModel !== 'undefined') {
+                    MindmapModel.removeGroup(settings, groupId);
+                }
+                markGroupSelected(null);
+                scheduleSync(); rerender();
+            });
+            return menu;
+        }
 
         function buildContextMenu(nodeId, x, y) {
             var menu = document.createElement('div');
