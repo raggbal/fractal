@@ -28309,17 +28309,18 @@ var Outliner = (function() {
     }
 
     /** [K] iteration 29 / TASK-77: mindmap モードでは使わないヘッダーボタンをグレーアウト
-     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box。
-     *  使わないボタン: task-mode / task-filter / archive / menu / nav-back / nav-forward /
-     *  search-mode-toggle。mindmap を抜けると解除 (元の enabled 状態へ戻す)。
+     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box /
+     *  task-mode / task-filter / archive (sprint 20260727-024112 FR-MT-05 / ADRL-0001 で
+     *  task 系 3 個を有効化 = TASK-77 の部分 supersede)。
+     *  使わないボタン: menu / nav-back / nav-forward / search-mode-toggle。
+     *  mindmap を抜けると解除 (元の enabled 状態へ戻す)。
      *  undo/redo の disabled は履歴状態 (updateUndoRedoButtons) が管理するので触らない。
      *  S3 sync button は Note mode の HTML にのみ存在 (Single mode には無い) → 存在時のみ制御。 */
     function updateHeaderForViewMode() {
         var isMindmap = (VIEW_MODE === 'mindmap');
         // 「mindmap で使わない」ボタン群 → mindmap 時 disabled、それ以外は解除。
         var disableInMindmap = [
-            taskModeToggleBtn, taskFilterToggleBtn, archiveBtn, menuBtn,
-            navBackBtn, navForwardBtn, searchModeToggleBtn
+            menuBtn, navBackBtn, navForwardBtn, searchModeToggleBtn
         ];
         for (var i = 0; i < disableInMindmap.length; i++) {
             var b = disableInMindmap[i];
@@ -29106,23 +29107,29 @@ var Outliner = (function() {
                 updateViewToggleButton();
             });
         }
+        // task 3 ボタンは onclick 代入で冪等に配線する (sprint 20260727-024112 TASK-07)。
+        // init() が複数回呼ばれる環境 (standalone test harness は build 時 + spec の initOutliner(data)
+        // で 2 回) だと addEventListener は二重登録され、1 click で toggle が 2 回発火して元に戻る。
+        // onclick は再 init で上書きされ常に 1 本 (production は init 1 回なので挙動不変)。
+        // viewToggleBtn 等の他ボタンは本 sprint スコープ外 (mindmap で新規有効化する task 3 ボタン
+        // のみ冪等化。既存挙動維持 — TASK-09)。
         if (taskModeToggleBtn) {
             taskModeToggleBtn.innerHTML = ICON_TASK_MODE;
             updateTaskModeButtons();
-            taskModeToggleBtn.addEventListener('click', function () {
+            taskModeToggleBtn.onclick = function () {
                 toggleTaskMode();
-            });
+            };
         }
         if (taskFilterToggleBtn) {
-            taskFilterToggleBtn.addEventListener('click', function () {
+            taskFilterToggleBtn.onclick = function () {
                 toggleTaskFilter();
-            });
+            };
         }
         if (archiveBtn) {
             archiveBtn.innerHTML = ICON_ARCHIVE;
-            archiveBtn.addEventListener('click', function () {
+            archiveBtn.onclick = function () {
                 archiveCompletedTasks();
-            });
+            };
         }
 
         renderTree();
@@ -29586,6 +29593,9 @@ var Outliner = (function() {
                     },
                     // Mindmap interactions が使う outliner 内部フック
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
+                    // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
+                    isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
                     setFocusedNodeId: function (id) { focusedNodeId = id; },
                     getFocusedNodeId: function () { return focusedNodeId; },
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },

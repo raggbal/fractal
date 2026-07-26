@@ -119,25 +119,32 @@ test('TC-M24 file 添付ノード Cmd+Enter → openAttachedFile / page(md) → 
     await page.waitForTimeout(100);
     types = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
     expect(types.some((t: string) => /openPage/i.test(t))).toBe(true);
-    // load-bearing: plain ノードでは何も開かない
+    // test_update (sprint 20260727-024112 TASK-08): 旧期待「plain ノードでは何も開かない」は
+    // commit 81424d7（空 node の Cmd+Enter → makePage + openPageInSidePanel）で仕様反転済み。
+    // 詳細番人は mindmap-cmd-enter-makepage.spec.ts TC-CE-M1。ここは smoke として発火を確認。
     await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
     await page.locator('.mindmap-node[data-node-id="plain"] .mindmap-node-box').click();
     await page.waitForTimeout(60);
     await page.keyboard.press('Meta+Enter');
     await page.waitForTimeout(100);
     types = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
-    expect(types.filter((t: string) => /openAttachedFile|openPage/i.test(t)).length).toBe(0);
+    expect(types).toContain('makePage');
+    expect(types.some((t: string) => /openPage/i.test(t))).toBe(true);
 });
 
 // ============ [K] TC-M25 header buttons disabled in mindmap ============
 
-test('TC-M25 mindmap モードで使わないヘッダーボタンが disabled、使うボタンは有効', async ({ page }) => {
+// test_update (sprint 20260727-024112-mindmap-task-mode / FR-MT-05 / ADRL-0001):
+// task-mode / task-filter / archive は mindmap でも有効に仕様反転 (TASK-77 の部分 supersede)。
+// menu / nav / search-mode-toggle は従来どおり disabled を維持。
+test('TC-M25 mindmap モードで使わないヘッダーボタンが disabled、task 系と使うボタンは有効', async ({ page }) => {
     await setup(page);
     await toMindmap(page, titleModel());
     const state = await page.evaluate(() => {
         const q = (c: string) => { const e = document.querySelector(c) as HTMLElement | null; return e ? { disabled: (e as any).disabled === true || e.classList.contains('is-mindmap-disabled') } : null; };
         return {
             taskMode: q('.outliner-task-mode-toggle-btn'),
+            taskFilter: q('.outliner-task-filter-toggle-btn'),
             archive: q('.outliner-archive-btn'),
             menu: q('.outliner-menu-btn'),
             navBack: q('.outliner-nav-back-btn'),
@@ -147,8 +154,12 @@ test('TC-M25 mindmap モードで使わないヘッダーボタンが disabled�
         };
     });
     // 使わないボタンは disabled (存在する場合)
-    for (const k of ['taskMode', 'archive', 'menu', 'navBack', 'searchModeToggle'] as const) {
+    for (const k of ['menu', 'navBack', 'searchModeToggle'] as const) {
         if ((state as any)[k]) { expect((state as any)[k].disabled).toBe(true); }
+    }
+    // task 系 3 ボタンは mindmap でも有効 (FR-MT-05)
+    for (const k of ['taskMode', 'taskFilter', 'archive'] as const) {
+        if ((state as any)[k]) { expect((state as any)[k].disabled).toBe(false); }
     }
     // 使うボタンは有効 (view-toggle は disabled でない)
     if (state.viewToggle) { expect(state.viewToggle.disabled).toBe(false); }
@@ -161,12 +172,14 @@ test('TC-M25 load-bearing: outliner モードに戻すと disabled が解除さ�
     // outliner へ戻す
     await page.evaluate(() => (window as any).Outliner.setViewMode('outliner'));
     await page.waitForTimeout(200);
-    const taskModeDisabled = await page.evaluate(() => {
-        const e = document.querySelector('.outliner-task-mode-toggle-btn') as HTMLElement | null;
+    // test_update: task ボタンは mindmap で disabled にならなくなったため、
+    // 検証対象を配列に残る menuBtn に差し替え (部分 supersede と 1:1)。
+    const menuDisabled = await page.evaluate(() => {
+        const e = document.querySelector('.outliner-menu-btn') as HTMLElement | null;
         return e ? ((e as any).disabled === true || e.classList.contains('is-mindmap-disabled')) : null;
     });
-    // outliner では task-mode は mindmap 由来の disabled が外れている
-    if (taskModeDisabled !== null) { expect(taskModeDisabled).toBe(false); }
+    // outliner では menu は mindmap 由来の disabled が外れている
+    if (menuDisabled !== null) { expect(menuDisabled).toBe(false); }
 });
 
 // ============ [M] TC-M26 mindmap search ============

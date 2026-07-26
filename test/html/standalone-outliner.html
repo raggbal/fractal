@@ -4970,6 +4970,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 .mindmap-node-checkbox {
     flex: 0 0 auto;
     margin: 0;
+    /* FR-MT-01: foreignObject 内 input への実クリック到達を明示 (NFR-MT-08) */
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .mindmap-collapse-handle {
@@ -27671,15 +27674,21 @@ var MindmapLayout = (function() {
     /**
      * 折りたたみを考慮した children accessor を作る。
      * collapsed ノードの子は辿らない (描画されないため)。
+     * hidden(id)=true の子も辿らない (FR-MT-04: task filter 等の除外述語。ADRL-0002)。
      */
-    function makeChildrenAccessor(model) {
+    function makeChildrenAccessor(model, hidden) {
         return function(id) {
             var n = model.nodes[id];
             if (!n || n.collapsed) { return null; }
             var kids = n.children || [];
-            // 存在する子のみ (壊れた参照を除外)
-            return kids.filter(function(cid) { return !!model.nodes[cid]; });
+            // 存在する子のみ (壊れた参照を除外) + hidden 除外 (subtree ごと消える)
+            return kids.filter(function(cid) { return !!model.nodes[cid] && !hidden(cid); });
         };
+    }
+
+    /** hideNode 引数を正規化する (省略時は「隠さない」= 後方互換)。 */
+    function normalizeHidden(hideNode) {
+        return (typeof hideNode === 'function') ? hideNode : function() { return false; };
     }
 
     /**
@@ -27687,8 +27696,8 @@ var MindmapLayout = (function() {
      * 戻り値: d3.hierarchy の root ノード (各 node に x/y が入る)。
      * axis: x = 兄弟方向, y = 深さ方向 (flextree の nodeSize=[height,width])。
      */
-    function computeSubtree(d3, model, rootId, settings, measure) {
-        var childrenOf = makeChildrenAccessor(model);
+    function computeSubtree(d3, model, rootId, settings, measure, hidden) {
+        var childrenOf = makeChildrenAccessor(model, hidden);
         var root = d3.hierarchy(rootId, childrenOf);
 
         var useFlex = typeof d3.flextree === 'function';
@@ -27770,7 +27779,7 @@ var MindmapLayout = (function() {
     // 予約 ID: title 中心ノード (実 node ID は 'n' 始まりなので衝突しない)
     var TITLE_ID = '__title__';
 
-    function compute(model, settings, measure, titleText) {
+    function compute(model, settings, measure, titleText, hideNode) {
         var d3 = resolveD3();
         var positions = {};
         var links = [];
@@ -27780,8 +27789,11 @@ var MindmapLayout = (function() {
         if (typeof settings.siblingSpacing !== 'number') { settings.siblingSpacing = 16; }
         if (typeof settings.levelSpacing !== 'number') { settings.levelSpacing = 80; }
         var layout = settings.layout || 'right';
+        // FR-MT-04 (ADRL-0002): 除外述語。true のノードは subtree ごと positions に入らない
+        // (collapsed と同強度・AND 併存)。layout は述語の意味論 (task filter 等) を知らない。
+        var hidden = normalizeHidden(hideNode);
 
-        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id]; });
+        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
 
         // title 中心ノード (FR-021-B6): title が非空なら __title__ を中心に、rootIds をその子として
         // 左右両側に展開する。model を汚さない一時ラッパで children accessor を拡張。
@@ -27798,9 +27810,9 @@ var MindmapLayout = (function() {
             // 食い違い、link 始点 (sx = cx ± 幅/2) が box エッジからズレて中央 title だけ線が離れた。
             // render 側 buildTitleNodeEl も measure(TITLE_ID) で box を描くので、両者を揃えれば一致する。
             emitBalanced(d3, wrapModel, TITLE_ID, settings, measure,
-                positions, links, 0, 0, sideMode);
+                positions, links, 0, 0, sideMode, hidden);
             // Floating Topic を追加してリターン
-            addFloatingTopics(model, rootIds, positions);
+            addFloatingTopics(model, rootIds, positions, hidden);
             return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
         }
 
@@ -27811,11 +27823,11 @@ var MindmapLayout = (function() {
                 if (layout === 'radial' || layout === 'balanced') {
                     // radial/balanced は「左右両側」。ブロック分割で安定化 (#2)。
                     // 視覚差 (radial=曲線/中心強調, balanced=直線寄り) は描画層 (linkStyle) で表現。
-                    emitBalanced(d3, model, rid, settings, measure, positions, links, 0, stackY, 'both');
-                    stackY += subtreeHeight(model, rid, measure, settings) + 60;
+                    emitBalanced(d3, model, rid, settings, measure, positions, links, 0, stackY, 'both', hidden);
+                    stackY += subtreeHeight(model, rid, measure, settings, hidden) + 60;
                 } else {
                     var dir = (layout === 'left') ? -1 : 1;
-                    var rootL = computeSubtree(d3, model, rid, settings, measure);
+                    var rootL = computeSubtree(d3, model, rid, settings, measure, hidden);
                     // 各 root サブツリーの縦オフセット (重ならないよう積む)
                     var minX = Infinity;
                     rootL.each(function(n) { if (n.x < minX) { minX = n.x; } });
@@ -27825,15 +27837,16 @@ var MindmapLayout = (function() {
             }
         }
 
-        addFloatingTopics(model, rootIds, positions);
+        addFloatingTopics(model, rootIds, positions, hidden);
 
         return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
     }
 
-    /** Floating Topic: mindmap.x/y をそのまま positions に入れる (レイアウト対象外) */
-    function addFloatingTopics(model, rootIds, positions) {
+    /** Floating Topic: mindmap.x/y をそのまま positions に入れる (レイアウト対象外)。hidden は除外 */
+    function addFloatingTopics(model, rootIds, positions, hidden) {
         for (var id in model.nodes) {
             if (!model.nodes.hasOwnProperty(id)) { continue; }
+            if (hidden(id)) { continue; }
             var n = model.nodes[id];
             if (n.parentId == null && rootIds.indexOf(id) < 0 &&
                 n.mindmap && n.mindmap.x != null && n.mindmap.y != null) {
@@ -27869,12 +27882,16 @@ var MindmapLayout = (function() {
      * (前半 ceil(n/2) を右・後半を左)。子を末尾に追加しても既存子の side がほぼ保たれる
      * (parity 方式だと 1 個追加で全子の side が入れ替わり左右に飛ぶ)。
      */
-    function emitBalanced(d3, model, rootId, settings, measure, positions, links, centerX, centerY, sideMode) {
+    function emitBalanced(d3, model, rootId, settings, measure, positions, links, centerX, centerY, sideMode, hidden) {
         sideMode = sideMode || 'both';
+        hidden = normalizeHidden(hidden);
+        // FR-MT-04: hidden root は positions に一切入れない (代入 :positions[rootId] より前に弾く)。
+        // __title__ は実 node でないため述語対象外 (isHiddenByTaskFilter は未知 id に false を返す)。
+        if (rootId !== TITLE_ID && hidden(rootId)) { return; }
         var rootNode = model.nodes[rootId];
         positions[rootId] = { x: centerX, y: centerY };
         if (!rootNode || rootNode.collapsed) { return; }
-        var kids = (rootNode.children || []).filter(function(c) { return !!model.nodes[c]; });
+        var kids = (rootNode.children || []).filter(function(c) { return !!model.nodes[c] && !hidden(c); });
         var rightKids = [], leftKids = [];
         if (sideMode === 'right') {
             rightKids = kids.slice();
@@ -27889,14 +27906,14 @@ var MindmapLayout = (function() {
         // 中心ノードの半幅を子の起点オフセットに加味する (#1 title 中心ノードが子と重ならないように)
         var centerHalfW = (measure(rootId).width || 0) / 2;
         if (rightKids.length) {
-            emitBalancedSide(d3, model, rootId, rightKids, settings, measure, positions, links, +1, centerX, centerY, centerHalfW);
+            emitBalancedSide(d3, model, rootId, rightKids, settings, measure, positions, links, +1, centerX, centerY, centerHalfW, hidden);
         }
         if (leftKids.length) {
-            emitBalancedSide(d3, model, rootId, leftKids, settings, measure, positions, links, -1, centerX, centerY, centerHalfW);
+            emitBalancedSide(d3, model, rootId, leftKids, settings, measure, positions, links, -1, centerX, centerY, centerHalfW, hidden);
         }
     }
 
-    function emitBalancedSide(d3, model, rootId, kids, settings, measure, positions, links, dir, cx, cy, centerHalfW) {
+    function emitBalancedSide(d3, model, rootId, kids, settings, measure, positions, links, dir, cx, cy, centerHalfW, hidden) {
         centerHalfW = centerHalfW || 0;
         // 各子サブツリーを個別に配置し、実 measure 高さベースで縦に積む (#3 sync 2026-07-02)。
         // 固定 30/40px ではなく、各サブツリーの実 Y 範囲 + siblingSpacing で間隔を保つ。
@@ -27906,7 +27923,7 @@ var MindmapLayout = (function() {
         var subs = [];
         var totalH = 0;
         for (var i = 0; i < kids.length; i++) {
-            var sub = computeSubtree(d3, model, kids[i], settings, measure);
+            var sub = computeSubtree(d3, model, kids[i], settings, measure, hidden);
             var ext = subtreeYExtent(sub, measure); // {min,max,height} (screen-Y = flextree x 軸)
             subs.push({ root: sub, kid: kids[i], ext: ext });
             totalH += ext.height;
@@ -27964,13 +27981,15 @@ var MindmapLayout = (function() {
         return maxX - minX;
     }
 
-    function subtreeHeight(model, rootId, measure, settings) {
-        // 概算: leaf 数 × (nodeH + spacing)
+    function subtreeHeight(model, rootId, measure, settings, hidden) {
+        hidden = normalizeHidden(hidden);
+        // 概算: leaf 数 × (nodeH + spacing)。hidden subtree は数えない (FR-MT-04)
         var count = 0;
         (function walk(id) {
+            if (hidden(id)) { return; }
             var n = model.nodes[id];
             if (!n) { return; }
-            var kids = n.collapsed ? [] : (n.children || []);
+            var kids = n.collapsed ? [] : (n.children || []).filter(function(c) { return !hidden(c); });
             if (!kids.length) { count++; return; }
             kids.forEach(walk);
         })(rootId);
@@ -28456,6 +28475,7 @@ var MindmapRender = (function() {
             var cb = document.createElementNS(XHTMLNS, 'input');
             cb.setAttribute('type', 'checkbox');
             cb.setAttribute('class', 'mindmap-node-checkbox');
+            cb.setAttribute('data-node-id', nodeId); // FR-MT-01: click delegation の対象特定
             if (node.checked) { cb.setAttribute('checked', 'checked'); }
             box.insertBefore(cb, box.firstChild);
         }
@@ -28604,9 +28624,11 @@ var MindmapRender = (function() {
             return estimateMeasure(model.nodes[nodeId], ctx.fontSize);
         };
 
-        // レイアウト計算
+        // レイアウト計算。FR-MT-04 (ADRL-0002): task filter 述語を第 5 引数で橋渡し
+        // (outliner.js renderTree の ctx.isHiddenByTaskFilter。未注入なら undefined = 隠さない)。
+        var hideNode = (ctx && typeof ctx.isHiddenByTaskFilter === 'function') ? ctx.isHiddenByTaskFilter : undefined;
         var layout = (typeof MindmapLayout !== 'undefined')
-            ? MindmapLayout.compute(model, settings, measure, titleText)
+            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode)
             : { positions: {}, links: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
         var positions = layout.positions;
 
@@ -29679,6 +29701,41 @@ var MindmapInteractions = (function() {
             scheduleSync(); rerender();
         });
 
+        // FR-MT-02 (TASK-10): X 系キーの document フォールバック。
+        // 実機 (VS Code webview) で checkbox クリックや rerender 後に DOM フォーカスが body に
+        // 落ちると、keydown が treeEl (バブル) に届かず VS Code 側の Cmd+Shift+X (Extensions) /
+        // Cmd+Shift+Opt+X キーバインドに食われる。論理フォーカス (getFocused) は生きているので、
+        // document レベルで拾って同一ロジックを適用し preventDefault で VS Code へのバブルを止める。
+        // treeEl ハンドラが先に処理した場合は e.defaultPrevented で skip (二重発火防止)。
+        // 配線は on(document,...) = 既存 group-delete ハンドラと同パターン (detach で解除)。
+        on(document, 'keydown', function(e) {
+            if (e.defaultPrevented) { return; }
+            if (e.isComposing || e.keyCode === 229) { return; }
+            var mod = e.metaKey || e.ctrlKey;
+            if (!(mod && e.shiftKey && e.code === 'KeyX')) { return; }
+            var activeEditing = document.activeElement &&
+                document.activeElement.classList &&
+                document.activeElement.classList.contains('is-editing');
+            if (activeEditing) { return; }
+            var fid = getFocused();
+            if (!fid || fid === '__title__') { return; }
+            var fnode = model.getNode(fid);
+            if (!fnode) { return; }
+            e.preventDefault();
+            e.stopPropagation();
+            pushUndo();
+            if (e.altKey) {
+                // Cmd+Shift+Opt+X → チェックボックス削除 (treeEl ハンドラと同一ロジック)
+                fnode.checked = null;
+            } else if (fnode.checked === null || fnode.checked === undefined) {
+                fnode.checked = false;
+            } else {
+                fnode.checked = !fnode.checked;
+            }
+            scheduleSync(); rerender();
+            focusNode(fid, false);
+        });
+
         function handleKeydown(e) {
             // iteration 28 (TASK-73): IME 変換開始 (keyCode 229 / isComposing) の扱い。
             // committed active (非編集) ノード上で IME 入力が始まった (ひらがな等) 場合は、
@@ -29768,6 +29825,31 @@ var MindmapInteractions = (function() {
                 // 画面中心へ。_needsOpenCenter を立ててから rerender (open-centering が発火)。
                 _needsOpenCenter = true;
                 pushUndo(); scheduleSync(); rerender();
+                return;
+            }
+
+            // FR-MT-02: Cmd+Shift+Opt+X → チェックボックス削除 (checked → null)。
+            // outliner (:4669-4679) と同一判定順: Opt 付きを先に判定 (逆だとトグル側が食う)。
+            // Alt 併用は e.key が化けるため e.code で判定。title 中心ノードは対象外。
+            if (mod && e.shiftKey && e.altKey && e.code === 'KeyX') {
+                e.preventDefault();
+                if (isTitle) { return; }
+                pushUndo();
+                node.checked = null;
+                scheduleSync(); rerender();
+                focusNode(nodeId, false);
+                return;
+            }
+            // FR-MT-02: Cmd+Shift+X → チェックボックスのトグル (なければ追加、あれば true ⇄ false)。
+            // !e.altKey 条件必須 (Opt 付きは前段が処理)。
+            if (mod && e.shiftKey && !e.altKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
+                e.preventDefault();
+                if (isTitle) { return; }
+                pushUndo();
+                if (node.checked === null || node.checked === undefined) { node.checked = false; }
+                else { node.checked = !node.checked; }
+                scheduleSync(); rerender();
+                focusNode(nodeId, false);
                 return;
             }
 
@@ -30286,6 +30368,23 @@ var MindmapInteractions = (function() {
             // クリック処理の前に、編集中の別ノードを commit（テキスト消失防止 #B）
             var clickedNodeEl = nodeElFromEvent(e);
             commitEditingExcept(clickedNodeEl ? clickedNodeEl.getAttribute('data-node-id') : null);
+            // FR-MT-01: チェックボックス → checked トグル (collapse-handle と同 delegation パターン)。
+            // preventDefault で native toggle に依存せず model を単一の真実に (rerender で DOM を作り直す)。
+            // stopPropagation でノード選択・編集へ伝播させない。
+            var cbEl = e.target.closest ? e.target.closest('.mindmap-node-checkbox') : null;
+            if (cbEl) {
+                e.preventDefault();
+                e.stopPropagation();
+                var cbId = cbEl.getAttribute('data-node-id');
+                var cbNode = cbId ? model.getNode(cbId) : null;
+                if (cbNode && (cbNode.checked === false || cbNode.checked === true)) {
+                    pushUndo();
+                    cbNode.checked = !cbNode.checked;
+                    scheduleSync();
+                    rerender();
+                }
+                return;
+            }
             // 折りたたみハンドル
             var handle = e.target.closest ? e.target.closest('.mindmap-collapse-handle') : null;
             if (handle) {
@@ -30911,6 +31010,27 @@ var MindmapInteractions = (function() {
                         scheduleSync(); rerender();
                     });
                 });
+                // FR-MT-03: チェックボックス Add/Remove (outliner :6395-6414 と同じ出し分け・同 i18n キー)。
+                // title 中心ノード (__title__) は対象外。i18n は ctx.i18n を明示読み
+                // (mindmap-interactions.js は i18n を直接持たない — ctx から個別に取る作り)。
+                if (nodeId !== '__title__') {
+                    var cbCtxNode = model.getNode(nodeId);
+                    if (cbCtxNode) {
+                        if (cbCtxNode.checked === null || cbCtxNode.checked === undefined) {
+                            item((ctx.i18n && ctx.i18n.outlinerAddCheckbox) || 'Add Checkbox', function() {
+                                pushUndo();
+                                cbCtxNode.checked = false;
+                                scheduleSync(); rerender();
+                            });
+                        } else {
+                            item((ctx.i18n && ctx.i18n.outlinerRemoveCheckbox) || 'Remove Checkbox', function() {
+                                pushUndo();
+                                cbCtxNode.checked = null;
+                                scheduleSync(); rerender();
+                            });
+                        }
+                    }
+                }
                 // グループ作成 (単一ノード or 複数選択、#3 TASK-57)。
                 //   groupTargets = selected があれば selected、無ければ右クリックノード 1 個。
                 addGroupItem();
@@ -31690,17 +31810,18 @@ var Outliner = (function() {
     }
 
     /** [K] iteration 29 / TASK-77: mindmap モードでは使わないヘッダーボタンをグレーアウト
-     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box。
-     *  使わないボタン: task-mode / task-filter / archive / menu / nav-back / nav-forward /
-     *  search-mode-toggle。mindmap を抜けると解除 (元の enabled 状態へ戻す)。
+     *  (disabled) する。使うボタン: undo / redo / view-toggle / S3 sync / search box /
+     *  task-mode / task-filter / archive (sprint 20260727-024112 FR-MT-05 / ADRL-0001 で
+     *  task 系 3 個を有効化 = TASK-77 の部分 supersede)。
+     *  使わないボタン: menu / nav-back / nav-forward / search-mode-toggle。
+     *  mindmap を抜けると解除 (元の enabled 状態へ戻す)。
      *  undo/redo の disabled は履歴状態 (updateUndoRedoButtons) が管理するので触らない。
      *  S3 sync button は Note mode の HTML にのみ存在 (Single mode には無い) → 存在時のみ制御。 */
     function updateHeaderForViewMode() {
         var isMindmap = (VIEW_MODE === 'mindmap');
         // 「mindmap で使わない」ボタン群 → mindmap 時 disabled、それ以外は解除。
         var disableInMindmap = [
-            taskModeToggleBtn, taskFilterToggleBtn, archiveBtn, menuBtn,
-            navBackBtn, navForwardBtn, searchModeToggleBtn
+            menuBtn, navBackBtn, navForwardBtn, searchModeToggleBtn
         ];
         for (var i = 0; i < disableInMindmap.length; i++) {
             var b = disableInMindmap[i];
@@ -32487,23 +32608,29 @@ var Outliner = (function() {
                 updateViewToggleButton();
             });
         }
+        // task 3 ボタンは onclick 代入で冪等に配線する (sprint 20260727-024112 TASK-07)。
+        // init() が複数回呼ばれる環境 (standalone test harness は build 時 + spec の initOutliner(data)
+        // で 2 回) だと addEventListener は二重登録され、1 click で toggle が 2 回発火して元に戻る。
+        // onclick は再 init で上書きされ常に 1 本 (production は init 1 回なので挙動不変)。
+        // viewToggleBtn 等の他ボタンは本 sprint スコープ外 (mindmap で新規有効化する task 3 ボタン
+        // のみ冪等化。既存挙動維持 — TASK-09)。
         if (taskModeToggleBtn) {
             taskModeToggleBtn.innerHTML = ICON_TASK_MODE;
             updateTaskModeButtons();
-            taskModeToggleBtn.addEventListener('click', function () {
+            taskModeToggleBtn.onclick = function () {
                 toggleTaskMode();
-            });
+            };
         }
         if (taskFilterToggleBtn) {
-            taskFilterToggleBtn.addEventListener('click', function () {
+            taskFilterToggleBtn.onclick = function () {
                 toggleTaskFilter();
-            });
+            };
         }
         if (archiveBtn) {
             archiveBtn.innerHTML = ICON_ARCHIVE;
-            archiveBtn.addEventListener('click', function () {
+            archiveBtn.onclick = function () {
                 archiveCompletedTasks();
-            });
+            };
         }
 
         renderTree();
@@ -32967,6 +33094,9 @@ var Outliner = (function() {
                     },
                     // Mindmap interactions が使う outliner 内部フック
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
+                    // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
+                    isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
                     setFocusedNodeId: function (id) { focusedNodeId = id; },
                     getFocusedNodeId: function () { return focusedNodeId; },
                     openPage: function (nodeId) { if (typeof openPage === 'function') openPage(nodeId); },

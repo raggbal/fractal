@@ -417,6 +417,41 @@ var MindmapInteractions = (function() {
             scheduleSync(); rerender();
         });
 
+        // FR-MT-02 (TASK-10): X 系キーの document フォールバック。
+        // 実機 (VS Code webview) で checkbox クリックや rerender 後に DOM フォーカスが body に
+        // 落ちると、keydown が treeEl (バブル) に届かず VS Code 側の Cmd+Shift+X (Extensions) /
+        // Cmd+Shift+Opt+X キーバインドに食われる。論理フォーカス (getFocused) は生きているので、
+        // document レベルで拾って同一ロジックを適用し preventDefault で VS Code へのバブルを止める。
+        // treeEl ハンドラが先に処理した場合は e.defaultPrevented で skip (二重発火防止)。
+        // 配線は on(document,...) = 既存 group-delete ハンドラと同パターン (detach で解除)。
+        on(document, 'keydown', function(e) {
+            if (e.defaultPrevented) { return; }
+            if (e.isComposing || e.keyCode === 229) { return; }
+            var mod = e.metaKey || e.ctrlKey;
+            if (!(mod && e.shiftKey && e.code === 'KeyX')) { return; }
+            var activeEditing = document.activeElement &&
+                document.activeElement.classList &&
+                document.activeElement.classList.contains('is-editing');
+            if (activeEditing) { return; }
+            var fid = getFocused();
+            if (!fid || fid === '__title__') { return; }
+            var fnode = model.getNode(fid);
+            if (!fnode) { return; }
+            e.preventDefault();
+            e.stopPropagation();
+            pushUndo();
+            if (e.altKey) {
+                // Cmd+Shift+Opt+X → チェックボックス削除 (treeEl ハンドラと同一ロジック)
+                fnode.checked = null;
+            } else if (fnode.checked === null || fnode.checked === undefined) {
+                fnode.checked = false;
+            } else {
+                fnode.checked = !fnode.checked;
+            }
+            scheduleSync(); rerender();
+            focusNode(fid, false);
+        });
+
         function handleKeydown(e) {
             // iteration 28 (TASK-73): IME 変換開始 (keyCode 229 / isComposing) の扱い。
             // committed active (非編集) ノード上で IME 入力が始まった (ひらがな等) 場合は、
@@ -506,6 +541,31 @@ var MindmapInteractions = (function() {
                 // 画面中心へ。_needsOpenCenter を立ててから rerender (open-centering が発火)。
                 _needsOpenCenter = true;
                 pushUndo(); scheduleSync(); rerender();
+                return;
+            }
+
+            // FR-MT-02: Cmd+Shift+Opt+X → チェックボックス削除 (checked → null)。
+            // outliner (:4669-4679) と同一判定順: Opt 付きを先に判定 (逆だとトグル側が食う)。
+            // Alt 併用は e.key が化けるため e.code で判定。title 中心ノードは対象外。
+            if (mod && e.shiftKey && e.altKey && e.code === 'KeyX') {
+                e.preventDefault();
+                if (isTitle) { return; }
+                pushUndo();
+                node.checked = null;
+                scheduleSync(); rerender();
+                focusNode(nodeId, false);
+                return;
+            }
+            // FR-MT-02: Cmd+Shift+X → チェックボックスのトグル (なければ追加、あれば true ⇄ false)。
+            // !e.altKey 条件必須 (Opt 付きは前段が処理)。
+            if (mod && e.shiftKey && !e.altKey && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
+                e.preventDefault();
+                if (isTitle) { return; }
+                pushUndo();
+                if (node.checked === null || node.checked === undefined) { node.checked = false; }
+                else { node.checked = !node.checked; }
+                scheduleSync(); rerender();
+                focusNode(nodeId, false);
                 return;
             }
 
@@ -1024,6 +1084,23 @@ var MindmapInteractions = (function() {
             // クリック処理の前に、編集中の別ノードを commit（テキスト消失防止 #B）
             var clickedNodeEl = nodeElFromEvent(e);
             commitEditingExcept(clickedNodeEl ? clickedNodeEl.getAttribute('data-node-id') : null);
+            // FR-MT-01: チェックボックス → checked トグル (collapse-handle と同 delegation パターン)。
+            // preventDefault で native toggle に依存せず model を単一の真実に (rerender で DOM を作り直す)。
+            // stopPropagation でノード選択・編集へ伝播させない。
+            var cbEl = e.target.closest ? e.target.closest('.mindmap-node-checkbox') : null;
+            if (cbEl) {
+                e.preventDefault();
+                e.stopPropagation();
+                var cbId = cbEl.getAttribute('data-node-id');
+                var cbNode = cbId ? model.getNode(cbId) : null;
+                if (cbNode && (cbNode.checked === false || cbNode.checked === true)) {
+                    pushUndo();
+                    cbNode.checked = !cbNode.checked;
+                    scheduleSync();
+                    rerender();
+                }
+                return;
+            }
             // 折りたたみハンドル
             var handle = e.target.closest ? e.target.closest('.mindmap-collapse-handle') : null;
             if (handle) {
@@ -1649,6 +1726,27 @@ var MindmapInteractions = (function() {
                         scheduleSync(); rerender();
                     });
                 });
+                // FR-MT-03: チェックボックス Add/Remove (outliner :6395-6414 と同じ出し分け・同 i18n キー)。
+                // title 中心ノード (__title__) は対象外。i18n は ctx.i18n を明示読み
+                // (mindmap-interactions.js は i18n を直接持たない — ctx から個別に取る作り)。
+                if (nodeId !== '__title__') {
+                    var cbCtxNode = model.getNode(nodeId);
+                    if (cbCtxNode) {
+                        if (cbCtxNode.checked === null || cbCtxNode.checked === undefined) {
+                            item((ctx.i18n && ctx.i18n.outlinerAddCheckbox) || 'Add Checkbox', function() {
+                                pushUndo();
+                                cbCtxNode.checked = false;
+                                scheduleSync(); rerender();
+                            });
+                        } else {
+                            item((ctx.i18n && ctx.i18n.outlinerRemoveCheckbox) || 'Remove Checkbox', function() {
+                                pushUndo();
+                                cbCtxNode.checked = null;
+                                scheduleSync(); rerender();
+                            });
+                        }
+                    }
+                }
                 // グループ作成 (単一ノード or 複数選択、#3 TASK-57)。
                 //   groupTargets = selected があれば selected、無ければ右クリックノード 1 個。
                 addGroupItem();

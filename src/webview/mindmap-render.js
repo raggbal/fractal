@@ -400,6 +400,7 @@ var MindmapRender = (function() {
             var cb = document.createElementNS(XHTMLNS, 'input');
             cb.setAttribute('type', 'checkbox');
             cb.setAttribute('class', 'mindmap-node-checkbox');
+            cb.setAttribute('data-node-id', nodeId); // FR-MT-01: click delegation の対象特定
             if (node.checked) { cb.setAttribute('checked', 'checked'); }
             box.insertBefore(cb, box.firstChild);
         }
@@ -548,9 +549,11 @@ var MindmapRender = (function() {
             return estimateMeasure(model.nodes[nodeId], ctx.fontSize);
         };
 
-        // レイアウト計算
+        // レイアウト計算。FR-MT-04 (ADRL-0002): task filter 述語を第 5 引数で橋渡し
+        // (outliner.js renderTree の ctx.isHiddenByTaskFilter。未注入なら undefined = 隠さない)。
+        var hideNode = (ctx && typeof ctx.isHiddenByTaskFilter === 'function') ? ctx.isHiddenByTaskFilter : undefined;
         var layout = (typeof MindmapLayout !== 'undefined')
-            ? MindmapLayout.compute(model, settings, measure, titleText)
+            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode)
             : { positions: {}, links: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
         var positions = layout.positions;
 

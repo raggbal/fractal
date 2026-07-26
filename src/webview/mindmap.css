@@ -191,6 +191,9 @@
 .mindmap-node-checkbox {
     flex: 0 0 auto;
     margin: 0;
+    /* FR-MT-01: foreignObject 内 input への実クリック到達を明示 (NFR-MT-08) */
+    pointer-events: auto;
+    cursor: pointer;
 }
 
 .mindmap-collapse-handle {
