@@ -176,7 +176,7 @@ async function loadTargetsForCurrentFolder() {
     const f = selectedFolder();
     if (!f) {
         currentTargets = [];
-        outSelect.innerHTML = '<option>(まず Note を選択)</option>';
+        outSelect.innerHTML = '<option>' + FractalI18n.t('popup_select_note_first') + '</option>';
         outSelect.disabled = true;
         updateClipBtn();
         return;
@@ -184,9 +184,9 @@ async function loadTargetsForCurrentFolder() {
     if (!(await FractalFolders.hasPermission(f.handle))) {
         const ok = await FractalFolders.requestPermission(f.handle);
         if (!ok) {
-            outSelect.innerHTML = '<option>(Note の許可が必要)</option>';
+            outSelect.innerHTML = '<option>' + FractalI18n.t('popup_permission_needed') + '</option>';
             outSelect.disabled = true;
-            setStatus('❌ ' + f.name + ' の書き込み許可が得られませんでした', 'err');
+            setStatus(FractalI18n.t('popup_write_permission_denied', { name: f.name }), 'err');
             updateClipBtn();
             return;
         }
@@ -196,13 +196,13 @@ async function loadTargetsForCurrentFolder() {
         currentTargets = await FractalFolders.readTargetsFromOutlineNote(f.handle);
     } catch (e) {
         currentTargets = [];
-        setStatus('❌ outline.note 読み取り失敗: ' + e.message, 'err');
+        setStatus(FractalI18n.t('popup_outline_read_failed', { message: e.message }), 'err');
     }
     outSelect.innerHTML = '';
     outSelect.disabled = false;
     if (currentTargets.length === 0) {
         const opt = document.createElement('option');
-        opt.textContent = '(.out / .md が見つかりません)';
+        opt.textContent = FractalI18n.t('popup_no_out_md_found');
         outSelect.appendChild(opt);
         outSelect.disabled = true;
     } else {
@@ -248,10 +248,16 @@ async function clipToOutliner(folder, outId, extracted) {
         url: extracted.url,
         byline: extracted.byline,
         siteName: extracted.siteName,
-        markdown: extracted.markdown
+        markdown: extracted.markdown,
+        // FR-CI-05: 生成 MD ラベルも言語設定に従う（core は labels 引数で受ける = i18n 非依存）
+        labels: {
+            source: FractalI18n.t('core_label_source'),
+            author: FractalI18n.t('core_label_author'),
+            site: FractalI18n.t('core_label_site')
+        }
     });
 
-    setStatus('.out 読み込み中…', 'info');
+    setStatus(FractalI18n.t('popup_loading_out'), 'info');
     const outFileHandle = await getNestedFileHandle(folder.handle, outId + '.out');
     const outData = await readJsonFile(outFileHandle);
 
@@ -262,21 +268,21 @@ async function clipToOutliner(folder, outId, extracted) {
     const writeDirRel = FractalFlatLayout.chooseWriteDirRel(hints, outId);
     const pageDirHandle = writeDirRel ? await getNestedDirHandle(folder.handle, writeDirRel) : folder.handle;
 
-    setStatus('page MD 保存中…', 'info');
+    setStatus(FractalI18n.t('popup_saving_page_md'), 'info');
     // data:image/... を page md 隣の画像 dir に実体化（imageDir ヒント尊重・default 'images' = FR-CL-02）
     const imagesSubdir = FractalFlatLayout.resolveImagesDirRel(hints);
     let finalMd = pageMd;
     try {
         const { newMd, savedCount } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, pageDirHandle, imagesSubdir);
         finalMd = newMd;
-        if (savedCount > 0) setStatus(`画像 ${savedCount} 件を保存中…`, 'info');
+        if (savedCount > 0) setStatus(FractalI18n.t('popup_saving_images', { count: savedCount }), 'info');
     } catch (e) {
         console.warn('[clipper] data URL extract failed, fallback to inline', e);
     }
     const pageMdHandle = await pageDirHandle.getFileHandle(result.pageId + '.md', { create: true });
     await writeTextFile(pageMdHandle, finalMd);
 
-    setStatus('.out 書き込み中…', 'info');
+    setStatus(FractalI18n.t('popup_writing_out'), 'info');
     await writeJsonFile(outFileHandle, result.outData);
     return { title, dest: outId + '.out' };
 }
@@ -289,10 +295,16 @@ async function clipToMd(folder, mdId, extracted) {
         url: extracted.url,
         byline: extracted.byline,
         siteName: extracted.siteName,
-        markdown: extracted.markdown
+        markdown: extracted.markdown,
+        // FR-CI-05: 生成 MD ラベルも言語設定に従う（core は labels 引数で受ける = i18n 非依存）
+        labels: {
+            source: FractalI18n.t('core_label_source'),
+            author: FractalI18n.t('core_label_author'),
+            site: FractalI18n.t('core_label_site')
+        }
     });
 
-    setStatus('対象 md 読み込み中…', 'info');
+    setStatus(FractalI18n.t('popup_loading_target_md'), 'info');
     const { fileHandle: targetMdHandle, dirHandle: targetDirHandle } = await resolveMdTarget(folder.handle, mdId);
     const targetFile = await targetMdHandle.getFile();
     const targetText = await targetFile.text();
@@ -300,20 +312,20 @@ async function clipToMd(folder, mdId, extracted) {
     // 新規 md 名 + 対象 md の追記本文（pure）
     const clip = FractalClipperCore.buildMdClipResult({ targetMdText: targetText, title });
 
-    setStatus('新規 md 保存中…', 'info');
+    setStatus(FractalI18n.t('popup_saving_new_md'), 'info');
     // 画像は新規 md 隣の images/（= 対象 md と同 dir の images/。本体 resolveImagesDirForMd と一致）
     let finalMd = pageMd;
     try {
         const { newMd, savedCount } = await DataUrlImageExtractor.processDataUrlsInMd(pageMd, targetDirHandle);
         finalMd = newMd;
-        if (savedCount > 0) setStatus(`画像 ${savedCount} 件を保存中…`, 'info');
+        if (savedCount > 0) setStatus(FractalI18n.t('popup_saving_images', { count: savedCount }), 'info');
     } catch (e) {
         console.warn('[clipper] data URL extract failed, fallback to inline', e);
     }
     const newMdHandle = await targetDirHandle.getFileHandle(clip.newMdName, { create: true });
     await writeTextFile(newMdHandle, finalMd);
 
-    setStatus('subpage リンク追記中…', 'info');
+    setStatus(FractalI18n.t('popup_appending_subpage_link'), 'info');
     await writeTextFile(targetMdHandle, clip.appendedTargetText);
     return { title, dest: mdId + '.md' };
 }
@@ -322,16 +334,16 @@ clipBtn.addEventListener('click', async () => {
     const sel = effectiveSelection();
     if (!sel) return;
     clipBtn.disabled = true;
-    setStatus('処理中…', 'info');
+    setStatus(FractalI18n.t('popup_processing'), 'info');
     try {
         // 1. permission 確認
         if (!(await FractalFolders.hasPermission(sel.folder.handle))) {
             const ok = await FractalFolders.requestPermission(sel.folder.handle);
-            if (!ok) throw new Error('Note への書き込み許可が得られませんでした');
+            if (!ok) throw new Error(FractalI18n.t('popup_note_write_permission_denied'));
         }
 
         // 2. tab 側で変換
-        setStatus('ページを Markdown に変換中…', 'info');
+        setStatus(FractalI18n.t('popup_converting_markdown'), 'info');
         const extracted = await convertActiveTabToMarkdown();
 
         // 3. 保存（out / md 分岐）
@@ -342,7 +354,7 @@ clipBtn.addEventListener('click', async () => {
         // 4. last selection 記憶
         await FractalFolders.setLastSelection(sel.folder.id, sel.targetId, sel.targetKind);
 
-        setStatus('✅ Clip 完了: ' + result.title + ' → ' + result.dest, 'ok');
+        setStatus(FractalI18n.t('popup_clip_done', { title: result.title, dest: result.dest }), 'ok');
     } catch (e) {
         console.error(e);
         setStatus('❌ ' + (e.message || String(e)), 'err');
@@ -352,6 +364,12 @@ clipBtn.addEventListener('click', async () => {
 });
 
 (async () => {
+    // i18n 初期化（ADRL-0001: chrome.storage.local の 'language'、未設定 = 'en'）
+    const langStore = await chrome.storage.local.get('language');
+    FractalI18n.init(langStore.language);
+    FractalI18n.applyDom(document);
+    // 言語切替 UI は options（Settings）のみ（ユーザー決定 2026-07-27: popup には置かない）。
+    // popup は storage の 'language' を読んで表示するだけ。
     await FractalFolders.migrateLegacyIfNeeded();
     folders = await FractalFolders.listFolders();
     if (folders.length === 0) {
@@ -389,7 +407,7 @@ clipBtn.addEventListener('click', async () => {
         }
         const manualOpt = document.createElement('option');
         manualOpt.value = MANUAL_VALUE;
-        manualOpt.textContent = '(手動選択…)';
+        manualOpt.textContent = FractalI18n.t('popup_manual_select');
         presetSelect.appendChild(manualOpt);
         presetSelect.value = defaultPreset ? defaultPreset.id : MANUAL_VALUE;
     } else {

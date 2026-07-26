@@ -226,6 +226,16 @@ function main() {
 }
 
 // unit import 時に実行されないよう main guard
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// CLI 直接実行判定（TASK-B5 sprint 20260727-065214）: install.sh は claude/cursor/antigravity に
+// symlink 配置するが、Node は main entry の import.meta.url を realpath 解決するため、
+// argv[1]（symlink パス）との素の比較は不一致 → main() が走らない silent no-op になる。
+// argv[1] を realpathSync で解決してから比較する（解決失敗時は素の argv[1] に fallback）。
+function __isCliInvocation() {
+    if (!process.argv[1]) return false;
+    let entry = process.argv[1];
+    try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
+    return import.meta.url === pathToFileURL(entry).href;
+}
+if (__isCliInvocation()) {
     main();
 }

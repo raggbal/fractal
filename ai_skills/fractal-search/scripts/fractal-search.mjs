@@ -82,6 +82,51 @@ export function filterFoldersByNoteName(entries, noteNames, excludeNotes, labelO
     });
 }
 
+// ─────────────── md 先頭 H1（FR-SS-03） ───────────────
+// 正典: src/shared/md-h1-utils.ts の parseAtxH1Text / extractFirstH1 のミラー（ADRL-0002）。
+// CommonMark ATX 準拠: 閉じ `#` 列は「直前に空白がある時だけ」剥がす（`# C#` → `C#`）。
+// コードフェンス（```）内の `#` は見出しとみなさない。
+// 乖離は test/specs/skills-search-filters.spec.ts の 3 者一致 TC（正典 ts / search mjs / md mjs）が番人。
+
+export function parseAtxH1TextMjs(line) {
+    // 末尾 CR を落としてからマッチ（split('\n') 残留 \r 対策）
+    const bare = String(line).replace(/\r$/, '');
+    // 行頭 0-3 スペース + `#` 1 個 + 空白必須
+    const m = bare.match(/^ {0,3}#[ \t]+(.*)$/);
+    if (!m) return null;
+    let text = m[1].replace(/[ \t]+$/, '');
+    // 閉じ `#` 列は「1 個以上の空白の後」のみ剥がす（C#/F# はタイトルの一部）
+    const closing = text.match(/^(.*?)[ \t]+#+$/);
+    if (closing) text = closing[1];
+    return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
+}
+
+export function extractFirstH1Mjs(md) {
+    const lines = String(md).split('\n');
+    let inCode = false;
+    for (const line of lines) {
+        if (line.startsWith('```')) { inCode = !inCode; continue; }
+        if (inCode) continue;
+        const text = parseAtxH1TextMjs(line);
+        if (text !== null) return text;
+    }
+    return null;
+}
+
+/** --h1 フィルタ: md 本文の先頭 H1 への大小無視部分一致。h1Filter なしは常に true */
+export function matchesH1Filter(mdBody, h1Filter) {
+    if (!h1Filter) return true;
+    const h1 = extractFirstH1Mjs(mdBody);
+    if (h1 == null) return false;
+    return h1.toLowerCase().includes(String(h1Filter).toLowerCase());
+}
+
+/** --outline-name フィルタ: .out title への大小無視部分一致。filter なしは常に true */
+export function matchesOutlineName(title, filter) {
+    if (!filter) return true;
+    return String(title || '').toLowerCase().includes(String(filter).toLowerCase());
+}
+
 /** --checked フィルタ: true|false|none|any。filter なし（null）は常に true */
 export function matchesCheckedFilter(checked, mode) {
     if (!mode) return true;
@@ -114,6 +159,8 @@ function parseArgs(argv) {
         checked: null,       // --checked true|false|none|any
         noteNames: [],       // --note-name（noteTitle/フォルダ名の部分一致で対象 note を絞る・複数 OR）
         excludeNotes: [],    // --exclude-note（同上の一致で除外）
+        outlineName: null,   // --outline-name（.out title 部分一致の AND プレフィルタ・FR-SS-02）
+        h1: null,            // --h1（md 先頭 H1 部分一致の AND プレフィルタ・FR-SS-03）
         json: false,
         summary: false,
         noCache: false,
@@ -139,6 +186,8 @@ function parseArgs(argv) {
             case '--tag': a.tags.push(v()); break;
             case '--note-name': a.noteNames.push(v()); break;
             case '--exclude-note': a.excludeNotes.push(v()); break;
+            case '--outline-name': a.outlineName = v(); break;
+            case '--h1': a.h1 = v(); break;
             case '--checked':
                 a.checked = v();
                 if (!['true', 'false', 'none', 'any'].includes(a.checked)) {
@@ -155,7 +204,9 @@ function parseArgs(argv) {
                 console.log('Usage: fractal-search.mjs --query <str> (--folder <path>... | --auto) [options]');
                 console.log('Modes:   --list-folders | --list-notes | --find-outline <kw> | --clear-cache');
                 console.log('Filters: --tag <t>... --checked true|false|none|any --note-name <n>... --exclude-note <n>...');
-                console.log('         （--tag / --checked 指定時は --query 省略可）');
+                console.log('         --outline-name <s> (.out title 部分一致) --h1 <s> (md 先頭 H1 部分一致)');
+                console.log('         全フィルタ AND 合成: note → outliner → md(H1) → 行/ノード');
+                console.log('         （--tag / --checked / --outline-name / --h1 指定時は --query 省略可）');
                 console.log('Options: --regex --case-sensitive --whole-word --scope outline,node,page,md');
                 console.log('         --max-per-file N --max-results N --json --summary --no-cache --cache-dir <p>');
                 process.exit(0);
@@ -165,10 +216,10 @@ function parseArgs(argv) {
                 process.exit(1);
         }
     }
-    // --tag / --checked があれば --query 省略可（フィルタのみで列挙・FR-SRF-03）
-    const hasFilter = a.tags.length > 0 || a.checked !== null;
+    // --tag / --checked / --outline-name / --h1 があれば --query 省略可（フィルタのみで列挙）
+    const hasFilter = a.tags.length > 0 || a.checked !== null || a.outlineName !== null || a.h1 !== null;
     if (!a.listFolders && !a.listNotes && !a.findOutline && !a.clearCache && !a.query && !hasFilter) {
-        console.error('Error: --query is required (or use --tag / --checked / --list-folders / --list-notes / --find-outline / --clear-cache)');
+        console.error('Error: --query is required (or use --tag / --checked / --outline-name / --h1 / --list-folders / --list-notes / --find-outline / --clear-cache)');
         process.exit(1);
     }
     return a;
@@ -463,6 +514,10 @@ function searchFolder(folder, regex, args, state, cache) {
     const notesStructure = noteWrap?.structure || null;
     const folderChainMap = buildFolderChainMap(notesStructure);
 
+    // flat layout では page md が note 直下に居るため、root md 走査との重複を防ぐ台帳
+    // （--h1 モードの dedup 用。FR-SS-03。--query の既存挙動は変えない = NFR-SS-01）
+    const pageMdNames = new Set();
+
     for (const outFile of outFiles) {
         if (state.results.length >= args.maxResults) return;
         const filePath = path.join(folder, outFile);
@@ -477,14 +532,28 @@ function searchFolder(folder, regex, args, state, cache) {
         const title = data.title
             || (notesStructure?.items?.[outlineId]?.title)
             || outlineId;
+        // --outline-name: .out title 部分一致の AND プレフィルタ（FR-SS-02。不一致 outliner は丸ごと skip）
+        if (!matchesOutlineName(title, args.outlineName)) continue;
         const folderChain = folderChainMap.get(outlineId) || [];
         summary[outlineId] = {
             kind: 'outline', outlineId, outlineTitle: title, outlineFile: filePath,
             folderChain, nodeHits: 0, pageHits: 0,
         };
 
+        // --outline-name 単独（--query/--h1/--tag/--checked なし）: マッチ outliner 自体を結果に積む
+        if (args.outlineName && !regex && !args.h1 && args.tags.length === 0 && args.checked === null) {
+            state.results.push({
+                folder, kind: 'outline', outlineId, outlineTitle: title,
+                outlineFile: filePath, folderChain,
+            });
+            summary[outlineId].nodeHits++;
+            if (state.results.length >= args.maxResults) return;
+            continue;
+        }
+
         // --- nodes ---
-        if (!args.scope || args.scope.has('node') || args.scope.has('outline')) {
+        // --h1 指定時は対象が md（page/root md）なので node 走査は skip（FR-SS-04 の階層）
+        if (!args.h1 && (!args.scope || args.scope.has('node') || args.scope.has('outline'))) {
             let perFile = 0;
             for (const node of data.nodes) {
                 if (perFile >= args.maxPerFile && args.maxPerFile > 0) break;
@@ -528,8 +597,8 @@ function searchFolder(folder, regex, args, state, cache) {
 
         // --- pages (only nodes with pageId) ---
         // pageDir 解決: フラット規約（hint 優先 → flat 直下 → legacy <basename>/ → legacy pages/。ADRL-0018 ミラー）
-        // --query 省略時（フィルタのみ）は本文検索の対象がないので skip
-        if (regex && (!args.scope || args.scope.has('page'))) {
+        // 対象: --query あり（本文検索）or --h1 あり（先頭 H1 フィルタ。FR-SS-03/04）
+        if ((regex || args.h1) && (!args.scope || args.scope.has('page'))) {
             const pageDirAbs = resolvePagesDirForSearch(folder, outFile, data.pageDir);
             if (fs.existsSync(pageDirAbs)) {
                 let perFile = 0;
@@ -537,22 +606,44 @@ function searchFolder(folder, regex, args, state, cache) {
                     if (!node.pageId) continue;
                     if (perFile >= args.maxPerFile && args.maxPerFile > 0) break;
                     const mdAbs = path.join(pageDirAbs, `${node.pageId}.md`);
+                    pageMdNames.add(path.basename(mdAbs)); // root md 走査との dedup 台帳（--h1 用）
                     const relKey = path.relative(folder, mdAbs).replace(/\\/g, '/');
                     const mdHit = getCachedOrParse(cache, folder, relKey, parseMdForSearch, { noCache: args.noCache });
                     if (!mdHit) continue;
                     if (mdHit.fromCache) state.stats.mdCacheHit++; else state.stats.mdCacheMiss++;
-                    const pageMatches = searchLines(mdHit.data.lines, regex, args);
-                    if (pageMatches.length > 0) {
+                    // --h1: 先頭 H1 の部分一致で md を絞る（AND プレフィルタ。不一致は skip）
+                    const body = mdHit.data.lines.join('\n');
+                    if (!matchesH1Filter(body, args.h1)) continue;
+                    if (regex) {
+                        const pageMatches = searchLines(mdHit.data.lines, regex, args);
+                        if (pageMatches.length > 0) {
+                            summary[outlineId].pageHits++;
+                            state.results.push({
+                                folder,
+                                kind: 'page',
+                                outlineId, outlineTitle: title, outlineFile: filePath, folderChain,
+                                pageId: node.pageId,
+                                pagePath: mdAbs,
+                                parentNodeId: node.id,
+                                parentNodeText: node.text,
+                                h1: args.h1 ? extractFirstH1Mjs(body) : undefined,
+                                matches: pageMatches,
+                            });
+                            perFile++;
+                            if (state.results.length >= args.maxResults) return;
+                        }
+                    } else {
+                        // --h1 のみ（--query なし）: H1 マッチ md 自体を結果に積む
                         summary[outlineId].pageHits++;
                         state.results.push({
                             folder,
-                            kind: 'page',
+                            kind: 'page-h1',
                             outlineId, outlineTitle: title, outlineFile: filePath, folderChain,
                             pageId: node.pageId,
                             pagePath: mdAbs,
                             parentNodeId: node.id,
                             parentNodeText: node.text,
-                            matches: pageMatches,
+                            h1: extractFirstH1Mjs(body),
                         });
                         perFile++;
                         if (state.results.length >= args.maxResults) return;
@@ -563,22 +654,40 @@ function searchFolder(folder, regex, args, state, cache) {
     }
 
     // --- root-level .md (not tied to any outline) ---
-    // --query 省略時（フィルタのみ）は node 属性フィルタなので md は対象外
-    if (regex && (!args.scope || args.scope.has('md'))) {
+    // 対象: --query あり or --h1 あり（FR-SS-03。--outline-name 指定時は outliner 対象なので skip）
+    if ((regex || args.h1) && !args.outlineName && (!args.scope || args.scope.has('md'))) {
         for (const md of rootMds) {
             if (state.results.length >= args.maxResults) break;
+            // --h1 モードでは page md（flat 直下）を root md として二重ヒットさせない
+            if (args.h1 && pageMdNames.has(md)) continue;
             const mdHit = getCachedOrParse(cache, folder, md, parseMdForSearch, { noCache: args.noCache });
             if (!mdHit) continue;
             if (mdHit.fromCache) state.stats.mdCacheHit++; else state.stats.mdCacheMiss++;
-            const m = searchLines(mdHit.data.lines, regex, args);
-            if (m.length > 0) {
+            // --h1: 先頭 H1 部分一致で絞る（AND プレフィルタ）
+            const body = mdHit.data.lines.join('\n');
+            if (!matchesH1Filter(body, args.h1)) continue;
+            if (regex) {
+                const m = searchLines(mdHit.data.lines, regex, args);
+                if (m.length > 0) {
+                    state.results.push({
+                        folder,
+                        kind: 'md',
+                        mdPath: path.join(folder, md),
+                        mdName: md,
+                        folderChain: [],
+                        h1: args.h1 ? extractFirstH1Mjs(body) : undefined,
+                        matches: m,
+                    });
+                }
+            } else {
+                // --h1 のみ: H1 マッチ md 自体を結果に積む
                 state.results.push({
                     folder,
-                    kind: 'md',
+                    kind: 'md-h1',
                     mdPath: path.join(folder, md),
                     mdName: md,
                     folderChain: [],
-                    matches: m,
+                    h1: extractFirstH1Mjs(body),
                 });
             }
         }
@@ -640,7 +749,7 @@ function renderText(results, outlineSummaries, args) {
         const byOutline = new Map();
         const looseMds = [];
         for (const r of arr) {
-            if (r.kind === 'md') looseMds.push(r);
+            if (r.kind === 'md' || r.kind === 'md-h1') looseMds.push(r);
             else {
                 const k = r.outlineFile;
                 (byOutline.get(k) || byOutline.set(k, []).get(k)).push(r);
@@ -668,10 +777,20 @@ function renderText(results, outlineSummaries, args) {
                         if (seen.has(m.lineNumber)) continue; seen.add(m.lineNumber);
                         lines.push(`       L${m.lineNumber + 1}: ${truncate(m.line, 80)}`);
                     }
+                } else if (r.kind === 'page-h1') {
+                    // --h1 単独モード: H1 マッチ md の一覧（FR-SS-03）
+                    lines.push(`     📄 H1 "${truncate(r.h1 || '', 60)}"  (pageId: ${r.pageId.slice(0, 8)}... / node: ${r.parentNodeId})`);
+                } else if (r.kind === 'outline') {
+                    // --outline-name 単独モード: マッチ outliner の一覧（FR-SS-02）
+                    // タイトル行（📓）自体が情報なので追加行は不要
                 }
             }
         }
         for (const r of looseMds) {
+            if (r.kind === 'md-h1') {
+                lines.push(`  📑 ${r.mdName}  — H1 "${truncate(r.h1 || '', 60)}"`);
+                continue;
+            }
             lines.push(`  📑 ${r.mdName}`);
             const seen = new Set();
             for (const m of r.matches) {
@@ -936,7 +1055,13 @@ function main() {
     // --list-folders: print discovered folders and exit
     if (args.listFolders) {
         if (args.json) {
-            console.log(JSON.stringify({ folders: folderEntries }, null, 2));
+            // FR-SS-01: name (noteTitle 優先) と dirName (フォルダ名) を区別して機械可読に
+            const enriched = folderEntries.map(e => ({
+                ...e,
+                name: resolveNoteLabelFromDisk(e.path),
+                dirName: path.basename(e.path),
+            }));
+            console.log(JSON.stringify({ folders: enriched }, null, 2));
         } else {
             console.log(renderFoldersList(folderEntries));
         }
@@ -1036,6 +1161,16 @@ function main() {
 }
 
 // CLI 直接実行時のみ main（unit import 時に暴発しない・design §B5）
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// CLI 直接実行判定（TASK-B5 sprint 20260727-065214）: install.sh は claude/cursor/antigravity に
+// symlink 配置するが、Node は main entry の import.meta.url を realpath 解決するため、
+// argv[1]（symlink パス）との素の比較は不一致 → main() が走らない silent no-op になる。
+// argv[1] を realpathSync で解決してから比較する（解決失敗時は素の argv[1] に fallback）。
+function __isCliInvocation() {
+    if (!process.argv[1]) return false;
+    let entry = process.argv[1];
+    try { entry = fs.realpathSync(entry); } catch { /* 存在しない等 → 素の argv[1] で比較 */ }
+    return import.meta.url === pathToFileURL(entry).href;
+}
+if (__isCliInvocation()) {
     main();
 }
