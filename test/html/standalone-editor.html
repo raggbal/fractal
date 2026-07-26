@@ -4909,14 +4909,17 @@ class EditorInstance {
             src.startsWith('vscode-webview:')) {
             return src;
         }
-        // If absolute file path (starts with /)
-        if (src.startsWith('/')) {
+        // If absolute file path (mac/Linux: `/` 先頭＝従来判定そのまま。Windows: C:\ / C:/ ドライブレターも絶対扱い)
+        if (src.startsWith('/') || /^[A-Za-z]:[\\/]/.test(src)) {
+            // vscode-resource URI は `/C:/...` 形式（先頭スラッシュ + `/` 区切り）を要求する
+            var absNorm = src.replace(/\\/g, '/');
+            if (!absNorm.startsWith('/')) absNorm = '/' + absNorm;
             if (documentBaseUri && documentBaseUri.startsWith('file://')) {
                 // Electron: use file:// protocol directly
-                return 'file://' + src;
+                return 'file://' + absNorm;
             }
             // VSCode webview: use vscode-resource URI
-            return 'https://file+.vscode-resource.vscode-cdn.net' + src;
+            return 'https://file+.vscode-resource.vscode-cdn.net' + absNorm;
         }
         // Resolve relative path against document base URI
         if (documentBaseUri) {
@@ -18268,8 +18271,9 @@ class EditorInstance {
             var clean = (rel || '').split('?')[0].split('#')[0];
             // file://... → strip
             if (clean.startsWith('file://')) return clean.substring(7);
-            // /abs/path → そのまま
+            // /abs/path → そのまま（Windows: C:\ / C:/ ドライブレターも絶対扱い）
             if (clean.startsWith('/') && !clean.startsWith('//')) return clean;
+            if (/^[A-Za-z]:[\\/]/.test(clean)) return clean;
             // ./rel/ や rel/ → resolveImagePath + cleanImageSrc 経路
             try {
                 var resolved = (typeof resolveImagePath === 'function')
@@ -21341,14 +21345,33 @@ class EditorInstance {
         let filePath = null;
         let pathFileName = '';
 
+        // file:// URI → fs パス変換（cross-platform）。
+        // mac/Linux: 従来どおり `file://` を strip して decode（挙動不変）。
+        // Windows: `file:///C:/foo` の先頭 `/` を剥がし `\` 区切りにも対応（従来は /C:/foo の不正パスになっていた）。
+        function decodeFileUriToPath(uri) {
+            let p = decodeURIComponent(uri.replace('file://', ''));
+            // Windows drive letter: "/C:/..." → "C:/..."
+            if (/^\/[A-Za-z]:[\\/]/.test(p)) p = p.substring(1);
+            return p;
+        }
+        // basename 抽出（`/` と `\` の両区切り対応。mac は従来の split('/') と同結果）
+        function basenameOfPath(p) {
+            const parts = String(p || '').split(/[\\/]/);
+            return parts.pop();
+        }
+        // 素のテキストが絶対パスか（mac/Linux: 先頭 `/`＝従来判定そのまま。Windows: ドライブレター/UNC を追加許容）
+        function looksLikeAbsolutePath(p) {
+            return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
+        }
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    const decodedPath = decodeURIComponent(uri.replace('file://', ''));
+                    const decodedPath = decodeFileUriToPath(uri);
                     filePath = decodedPath;
-                    pathFileName = decodedPath.split('/').pop();
+                    pathFileName = basenameOfPath(decodedPath);
                     break;
                 }
             }
@@ -21357,13 +21380,13 @@ class EditorInstance {
         if (!filePath && plainText) {
             // Sometimes the path is in plain text
             if (plainText.startsWith('file://')) {
-                const decodedPath = decodeURIComponent(plainText.replace('file://', ''));
+                const decodedPath = decodeFileUriToPath(plainText);
                 filePath = decodedPath;
-                pathFileName = decodedPath.split('/').pop();
-            } else if (plainText.startsWith('/')) {
+                pathFileName = basenameOfPath(decodedPath);
+            } else if (looksLikeAbsolutePath(plainText)) {
                 // Direct file path
                 filePath = plainText;
-                pathFileName = plainText.split('/').pop();
+                pathFileName = basenameOfPath(plainText);
             }
         }
 

@@ -443,7 +443,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     return match;
                 }
                 // Convert absolute path to webview URI
-                if (src.startsWith('/')) {
+                // path.isAbsolute: mac/Linux では startsWith('/') と同値（挙動不変）。Windows では C:\ / UNC も絶対と判定
+                if (path.isAbsolute(src)) {
                     const fileUri = vscode.Uri.file(src);
                     const webviewUri = webviewPanel.webview.asWebviewUri(fileUri).toString();
                     return `![${alt}](${webviewUri})`;
@@ -1129,7 +1130,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             anchor: linkHref.substring(1)
                         });
                     } else {
-                        const resolvedUri = linkHref.startsWith('/')
+                        const resolvedUri = path.isAbsolute(linkHref)
                             ? vscode.Uri.file(linkHref)
                             : vscode.Uri.joinPath(document.uri, '..', linkHref);
                         const resolvedPath = resolvedUri.fsPath.toLowerCase();

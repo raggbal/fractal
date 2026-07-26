@@ -1299,7 +1299,7 @@ export class NotesEditorProvider {
                 }
                 // 相対 / 絶対 file path
                 const baseDir = currentMdFilePath ? path.dirname(currentMdFilePath) : fileManager.getMdRootDirPath();
-                const resolvedUri = href.startsWith('/')
+                const resolvedUri = path.isAbsolute(href)
                     ? vscode.Uri.file(href)
                     : vscode.Uri.joinPath(vscode.Uri.file(baseDir), href);
                 const lower = resolvedUri.fsPath.toLowerCase();
@@ -1342,7 +1342,7 @@ export class NotesEditorProvider {
                     return;
                 }
                 const baseDir = currentMdFilePath ? path.dirname(currentMdFilePath) : fileManager.getMdRootDirPath();
-                const resolvedUri = href.startsWith('/')
+                const resolvedUri = path.isAbsolute(href)
                     ? vscode.Uri.file(href)
                     : vscode.Uri.joinPath(vscode.Uri.file(baseDir), href);
                 const lower = resolvedUri.fsPath.toLowerCase();

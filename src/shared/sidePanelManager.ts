@@ -324,7 +324,7 @@ export class SidePanelManager {
             });
         } else {
             const spBaseUri = vscode.Uri.file(sidePanelFilePath);
-            const resolvedUri = href.startsWith('/')
+            const resolvedUri = path.isAbsolute(href)
                 ? vscode.Uri.file(href)
                 : vscode.Uri.joinPath(spBaseUri, '..', href);
             const resolvedPath = resolvedUri.fsPath.toLowerCase();
