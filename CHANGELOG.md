@@ -5,6 +5,29 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-07-26
+
+最初のメジャーリリース 🎉 — Markdown・Outliner・Database・Mindmap を Notion のようにひとつの場所で管理する、というコアコンセプトが一通り揃ったため 1.0.0 としました。
+
+### Added
+- **設定 `fractal.showOpenInTextEditor`**（default: true）: Open in Text Editor ボタン（md toolbar / sidepanel header / outliner 右クリックメニュー）の表示を切替（Electron 化準備）。
+- **drawio 画像の Open ボタンを 2 つに分離**: **Open in VS Code**（VS Code タブで開く。Draw.io Integration 拡張があればタブ内で draw.io エディタが開く）と **Open in External**（draw.io Desktop を優先起動 — mac は `open -a`、Windows は標準インストール先探索、Linux は PATH の `drawio`。無ければ OS デフォルトにフォールバック）。
+- **Chrome 拡張 v0.3.0**: フラットレイアウト対応、保存先を「Note + Outliner/Markdown」で選択、**保存先プリセット**（複数登録 + ★default。popup は default 選択済みで即クリップ可、quick clip も default を使用）、**md への取込**（新規 `<uuid>.md` + 対象 md 末尾に subpage リンク追記）、Note 表示名は outline.note の noteTitle / md タイトルは本文 H1。
+- **AI スキル拡張**（`claude_skills/` → `ai_skills/` にリネーム。Claude Code / Cursor / Kiro / Antigravity 対応）:
+  - 新規 `fractal-doctor`（note 整合性チェック: 参照切れ・孤児・レイアウト検査。read-only）
+  - 新規 `fractal-summary`（outliner / md を subpage 再帰込みで 1 本の markdown に集約）
+  - `fractal-edit` に変更系 `fractal-modify.mjs`（text 書換 / check / 削除 / 移動）、`--create-md`（独立 md item 作成）、`--target-md`（md への subpage / 画像 / ファイル追加）
+  - `fractal-search` に `--tag` / `--checked` / `--note-name` / `--exclude-note` フィルタ
+- README を全面更新（4 モード別ショートカット表・draw.io 節・対応 OS 節）。
+
+### Fixed
+- **note を開いたとき、ツリー先頭が md だと空の outliner が表示される**バグを修正（md ペインで初期表示 + 初期タブ kind / 外部変更 watcher / テーマ変更リフレッシュ経路も対応）。
+- **タブの閉じるボタン**が短いタイトルでタブ中央に来る問題を修正（右端固定）。
+- **Windows パス互換**: 生ファイルドロップの `file:///C:/...` URI・`C:\` 絶対パスのリンク/画像解決を是正（macOS の挙動は不変）。
+
+### Notes
+- 動作確認は macOS のみ。Windows / Linux は実装済みだが未検証（Issues でのリクエスト歓迎）。
+
 ## [0.212.0] - 2026-07-25
 
 ### Added
