@@ -32,15 +32,21 @@ var MindmapLayout = (function() {
     /**
      * 折りたたみを考慮した children accessor を作る。
      * collapsed ノードの子は辿らない (描画されないため)。
+     * hidden(id)=true の子も辿らない (FR-MT-04: task filter 等の除外述語。ADRL-0002)。
      */
-    function makeChildrenAccessor(model) {
+    function makeChildrenAccessor(model, hidden) {
         return function(id) {
             var n = model.nodes[id];
             if (!n || n.collapsed) { return null; }
             var kids = n.children || [];
-            // 存在する子のみ (壊れた参照を除外)
-            return kids.filter(function(cid) { return !!model.nodes[cid]; });
+            // 存在する子のみ (壊れた参照を除外) + hidden 除外 (subtree ごと消える)
+            return kids.filter(function(cid) { return !!model.nodes[cid] && !hidden(cid); });
         };
+    }
+
+    /** hideNode 引数を正規化する (省略時は「隠さない」= 後方互換)。 */
+    function normalizeHidden(hideNode) {
+        return (typeof hideNode === 'function') ? hideNode : function() { return false; };
     }
 
     /**
@@ -48,8 +54,8 @@ var MindmapLayout = (function() {
      * 戻り値: d3.hierarchy の root ノード (各 node に x/y が入る)。
      * axis: x = 兄弟方向, y = 深さ方向 (flextree の nodeSize=[height,width])。
      */
-    function computeSubtree(d3, model, rootId, settings, measure) {
-        var childrenOf = makeChildrenAccessor(model);
+    function computeSubtree(d3, model, rootId, settings, measure, hidden) {
+        var childrenOf = makeChildrenAccessor(model, hidden);
         var root = d3.hierarchy(rootId, childrenOf);
 
         var useFlex = typeof d3.flextree === 'function';
@@ -131,7 +137,7 @@ var MindmapLayout = (function() {
     // 予約 ID: title 中心ノード (実 node ID は 'n' 始まりなので衝突しない)
     var TITLE_ID = '__title__';
 
-    function compute(model, settings, measure, titleText) {
+    function compute(model, settings, measure, titleText, hideNode) {
         var d3 = resolveD3();
         var positions = {};
         var links = [];
@@ -141,8 +147,11 @@ var MindmapLayout = (function() {
         if (typeof settings.siblingSpacing !== 'number') { settings.siblingSpacing = 16; }
         if (typeof settings.levelSpacing !== 'number') { settings.levelSpacing = 80; }
         var layout = settings.layout || 'right';
+        // FR-MT-04 (ADRL-0002): 除外述語。true のノードは subtree ごと positions に入らない
+        // (collapsed と同強度・AND 併存)。layout は述語の意味論 (task filter 等) を知らない。
+        var hidden = normalizeHidden(hideNode);
 
-        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id]; });
+        var rootIds = (model.rootIds || []).filter(function(id) { return !!model.nodes[id] && !hidden(id); });
 
         // title 中心ノード (FR-021-B6): title が非空なら __title__ を中心に、rootIds をその子として
         // 左右両側に展開する。model を汚さない一時ラッパで children accessor を拡張。
@@ -159,9 +168,9 @@ var MindmapLayout = (function() {
             // 食い違い、link 始点 (sx = cx ± 幅/2) が box エッジからズレて中央 title だけ線が離れた。
             // render 側 buildTitleNodeEl も measure(TITLE_ID) で box を描くので、両者を揃えれば一致する。
             emitBalanced(d3, wrapModel, TITLE_ID, settings, measure,
-                positions, links, 0, 0, sideMode);
+                positions, links, 0, 0, sideMode, hidden);
             // Floating Topic を追加してリターン
-            addFloatingTopics(model, rootIds, positions);
+            addFloatingTopics(model, rootIds, positions, hidden);
             return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
         }
 
@@ -172,11 +181,11 @@ var MindmapLayout = (function() {
                 if (layout === 'radial' || layout === 'balanced') {
                     // radial/balanced は「左右両側」。ブロック分割で安定化 (#2)。
                     // 視覚差 (radial=曲線/中心強調, balanced=直線寄り) は描画層 (linkStyle) で表現。
-                    emitBalanced(d3, model, rid, settings, measure, positions, links, 0, stackY, 'both');
-                    stackY += subtreeHeight(model, rid, measure, settings) + 60;
+                    emitBalanced(d3, model, rid, settings, measure, positions, links, 0, stackY, 'both', hidden);
+                    stackY += subtreeHeight(model, rid, measure, settings, hidden) + 60;
                 } else {
                     var dir = (layout === 'left') ? -1 : 1;
-                    var rootL = computeSubtree(d3, model, rid, settings, measure);
+                    var rootL = computeSubtree(d3, model, rid, settings, measure, hidden);
                     // 各 root サブツリーの縦オフセット (重ならないよう積む)
                     var minX = Infinity;
                     rootL.each(function(n) { if (n.x < minX) { minX = n.x; } });
@@ -186,15 +195,16 @@ var MindmapLayout = (function() {
             }
         }
 
-        addFloatingTopics(model, rootIds, positions);
+        addFloatingTopics(model, rootIds, positions, hidden);
 
         return { positions: positions, links: links, bounds: computeBounds(positions, measure) };
     }
 
-    /** Floating Topic: mindmap.x/y をそのまま positions に入れる (レイアウト対象外) */
-    function addFloatingTopics(model, rootIds, positions) {
+    /** Floating Topic: mindmap.x/y をそのまま positions に入れる (レイアウト対象外)。hidden は除外 */
+    function addFloatingTopics(model, rootIds, positions, hidden) {
         for (var id in model.nodes) {
             if (!model.nodes.hasOwnProperty(id)) { continue; }
+            if (hidden(id)) { continue; }
             var n = model.nodes[id];
             if (n.parentId == null && rootIds.indexOf(id) < 0 &&
                 n.mindmap && n.mindmap.x != null && n.mindmap.y != null) {
@@ -230,12 +240,16 @@ var MindmapLayout = (function() {
      * (前半 ceil(n/2) を右・後半を左)。子を末尾に追加しても既存子の side がほぼ保たれる
      * (parity 方式だと 1 個追加で全子の side が入れ替わり左右に飛ぶ)。
      */
-    function emitBalanced(d3, model, rootId, settings, measure, positions, links, centerX, centerY, sideMode) {
+    function emitBalanced(d3, model, rootId, settings, measure, positions, links, centerX, centerY, sideMode, hidden) {
         sideMode = sideMode || 'both';
+        hidden = normalizeHidden(hidden);
+        // FR-MT-04: hidden root は positions に一切入れない (代入 :positions[rootId] より前に弾く)。
+        // __title__ は実 node でないため述語対象外 (isHiddenByTaskFilter は未知 id に false を返す)。
+        if (rootId !== TITLE_ID && hidden(rootId)) { return; }
         var rootNode = model.nodes[rootId];
         positions[rootId] = { x: centerX, y: centerY };
         if (!rootNode || rootNode.collapsed) { return; }
-        var kids = (rootNode.children || []).filter(function(c) { return !!model.nodes[c]; });
+        var kids = (rootNode.children || []).filter(function(c) { return !!model.nodes[c] && !hidden(c); });
         var rightKids = [], leftKids = [];
         if (sideMode === 'right') {
             rightKids = kids.slice();
@@ -250,14 +264,14 @@ var MindmapLayout = (function() {
         // 中心ノードの半幅を子の起点オフセットに加味する (#1 title 中心ノードが子と重ならないように)
         var centerHalfW = (measure(rootId).width || 0) / 2;
         if (rightKids.length) {
-            emitBalancedSide(d3, model, rootId, rightKids, settings, measure, positions, links, +1, centerX, centerY, centerHalfW);
+            emitBalancedSide(d3, model, rootId, rightKids, settings, measure, positions, links, +1, centerX, centerY, centerHalfW, hidden);
         }
         if (leftKids.length) {
-            emitBalancedSide(d3, model, rootId, leftKids, settings, measure, positions, links, -1, centerX, centerY, centerHalfW);
+            emitBalancedSide(d3, model, rootId, leftKids, settings, measure, positions, links, -1, centerX, centerY, centerHalfW, hidden);
         }
     }
 
-    function emitBalancedSide(d3, model, rootId, kids, settings, measure, positions, links, dir, cx, cy, centerHalfW) {
+    function emitBalancedSide(d3, model, rootId, kids, settings, measure, positions, links, dir, cx, cy, centerHalfW, hidden) {
         centerHalfW = centerHalfW || 0;
         // 各子サブツリーを個別に配置し、実 measure 高さベースで縦に積む (#3 sync 2026-07-02)。
         // 固定 30/40px ではなく、各サブツリーの実 Y 範囲 + siblingSpacing で間隔を保つ。
@@ -267,7 +281,7 @@ var MindmapLayout = (function() {
         var subs = [];
         var totalH = 0;
         for (var i = 0; i < kids.length; i++) {
-            var sub = computeSubtree(d3, model, kids[i], settings, measure);
+            var sub = computeSubtree(d3, model, kids[i], settings, measure, hidden);
             var ext = subtreeYExtent(sub, measure); // {min,max,height} (screen-Y = flextree x 軸)
             subs.push({ root: sub, kid: kids[i], ext: ext });
             totalH += ext.height;
@@ -325,13 +339,15 @@ var MindmapLayout = (function() {
         return maxX - minX;
     }
 
-    function subtreeHeight(model, rootId, measure, settings) {
-        // 概算: leaf 数 × (nodeH + spacing)
+    function subtreeHeight(model, rootId, measure, settings, hidden) {
+        hidden = normalizeHidden(hidden);
+        // 概算: leaf 数 × (nodeH + spacing)。hidden subtree は数えない (FR-MT-04)
         var count = 0;
         (function walk(id) {
+            if (hidden(id)) { return; }
             var n = model.nodes[id];
             if (!n) { return; }
-            var kids = n.collapsed ? [] : (n.children || []);
+            var kids = n.collapsed ? [] : (n.children || []).filter(function(c) { return !hidden(c); });
             if (!kids.length) { count++; return; }
             kids.forEach(walk);
         })(rootId);

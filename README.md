@@ -87,7 +87,7 @@ Create and edit draw.io diagrams without leaving VS Code.
 - **Automatic re-render** — However you edited it, the diagram in your open document redraws itself the instant you save. A seamless edit loop — just bounce between editors
 
 ### Subpages
-- **`Cmd+/` → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
+- `Cmd+/`** → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
 - Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
 - `Cmd+click` to open it as a standalone document in a **new tab**
 - Pages within pages — build hierarchies as deep as you like
@@ -100,7 +100,7 @@ When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — m
 - `Cmd+L` — send the selected text to the AI chat. `Cmd+Shift+.` opens the file in the VS Code text editor
 
 ### Standalone mode
-- Set Fractal as your **default editor for `.md`** and edit any markdown on your machine — no Fractal note required
+- Set Fractal as your **default editor for **`.md` and edit any markdown on your machine — no Fractal note required
 - For standalone files you can **choose where images and attachments are saved** (stored in a hidden `.fractal.json` file next to the markdown — the markdown body itself is never touched, so other editors never see it)
 
 ---
@@ -133,7 +133,7 @@ Switch with the view toggle:
 - **Markdown subpages** — Turn any bullet into a page (`@page`) and edit it in the side panel's full WYSIWYG editor. Manage hierarchical markdown like a **Notion database**
 - **Images** — Paste with `Cmd+V`. Thumbnails appear under the node; drag to reorder, double-click to zoom
 - **Files** — Attach any file type to a node. 📎 nodes open in the OS default app
-- **`.md` import** — Import Notion / Obsidian exports as page nodes. Images are copied automatically and paths rewritten
+- `.md`** import** — Import Notion / Obsidian exports as page nodes. Images are copied automatically and paths rewritten
 
 ### Tasks
 - `- [ ]` / `- [x]` checkboxes with rich keyboard support (`Cmd+Shift+X` to toggle)
@@ -149,6 +149,7 @@ Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node mo
 ## 🗂 Notes — where everything connects
 
 Fractal organizes information into **notes**. Just register any folder from the activity bar.
+![assets/images/1785087018130.png](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out` and `.md` files in a **virtual folder/file tree** with drag & drop. Your data stays plain files
 - **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note. Streaming results, click to jump
@@ -344,11 +345,14 @@ The outliner column supports all of the outliner shortcuts above. In addition:
 | `Option+↑/↓` | Swap with sibling |
 | `Cmd+Shift+L` | Cycle layout (radial → right → left → balanced) |
 | `Cmd+Enter` | Open / create the page |
+| `Cmd+Shift+X` / `Cmd+Shift+Option+X` | Add / toggle checkbox — remove checkbox |
 | `Cmd+V` | Attach a pasted image to the node |
 | `Cmd+A` / `Cmd+Z` | Select all / undo |
 | `Cmd+wheel` | Zoom (toolbar ＋/−/Fit also available) |
 | Drag | Empty space: pan; node: re-parent (top ⅓ = previous sibling, bottom ⅓ = next sibling, middle = child) |
-| Right-click | Colors & shapes, create a group (boundary), create a relationship line |
+| Right-click | Colors & shapes, create a group (boundary), create a relationship line, add / remove checkbox |
+
+Task Mode works in Mindmap too: click checkboxes to toggle completion, and use the header's Task Mode / Filter / Archive buttons while in Mindmap view. With the completion filter on, completed nodes disappear from the map together with their subtrees and connector lines (same shared data as the Outliner view).
 
 ### Markdown syntax shortcuts
 
