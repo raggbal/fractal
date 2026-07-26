@@ -84,19 +84,55 @@
         return lines.join('\n\n');
     }
 
-    /** pageDir 値の正規化: data.pageDir or default './pages'。先頭 ./ を除去して subdir 名に */
+    /** @deprecated 旧 './pages' デフォルトは廃止。flat-layout-mirror.js の resolvePageDirRel を使うこと（ADRL-0018） */
     function resolvePageDir(outData) {
         const raw = (outData && outData.pageDir) || './pages';
         // './foo' or 'foo/' → 'foo'
         return raw.replace(/^\.\//, '').replace(/\/$/, '');
     }
 
-    global.FractalClipperCore = {
+    /**
+     * subpage リンクラベルのサニタイズ（FR-CL-05 / design-review MEDIUM⑤）。
+     * fractal の markdown-link-parser は [[label]] のラベル内 `]` 単体で切れるため、
+     * `]` を全数 全角 `］` に置換。`[` も対称に `［` へ。改行→空白。空 → '(untitled)'。
+     */
+    function sanitizeSubpageTitle(title) {
+        const t = String(title || '').replace(/[\r\n]+/g, ' ').trim();
+        if (!t) return '(untitled)';
+        return t.replace(/\]/g, '］').replace(/\[/g, '［');
+    }
+
+    /**
+     * md 取込（FR-CL-05）: 対象 md の末尾に subpage リンクを追記した本文を組み立てる（pure）。
+     * - 新規 md 名 = `<uuid>.md`（★ADRL-0018 decision 4: 対象 md と同じディレクトリに置く。
+     *   fractal の相対 .md リンク解決が dirname(現md) 基準のため、同 dir なら `<uuid>.md` で必ず届く）
+     * - 追記形式 = fractal 本体の serialize 形式 `[[label]](url)`（editor.js:7042）
+     * - 既存本文は不変（末尾空白のみ trimEnd で正規化）・空行 1 つ挟んで 1 行追記
+     */
+    function buildMdClipResult(options) {
+        const uuid = options.uuid || generatePageId();
+        const safeTitle = sanitizeSubpageTitle(options.title);
+        const newMdName = uuid + '.md';
+        const base = String(options.targetMdText || '').replace(/\s+$/, '');
+        const link = '[[' + safeTitle + ']](' + newMdName + ')';
+        const appendedTargetText = (base ? base + '\n\n' : '') + link + '\n';
+        return { newMdName: newMdName, uuid: uuid, appendedTargetText: appendedTargetText };
+    }
+
+    const api = {
         generateNodeId: generateNodeId,
         generatePageId: generatePageId,
         parseTags: parseTags,
         prependClipNode: prependClipNode,
         buildPageMd: buildPageMd,
-        resolvePageDir: resolvePageDir
+        resolvePageDir: resolvePageDir,
+        sanitizeSubpageTitle: sanitizeSubpageTitle,
+        buildMdClipResult: buildMdClipResult
     };
-})(typeof window !== 'undefined' ? window : this);
+
+    global.FractalClipperCore = api;
+    // node（unit テスト）から require できるように
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = api;
+    }
+})(typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : globalThis));

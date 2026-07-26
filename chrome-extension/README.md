@@ -1,15 +1,20 @@
 # Fractal Web Clipper (Chrome Extension)
 
-ブラウザで開いている Web ページを **Fractal Outliner (`.out`) の先頭ノード** として 1 クリックで保存する Chrome 拡張。
+ブラウザで開いている Web ページを **Fractal Outliner (`.out`) の先頭ノード**、または **Notes の Markdown の subpage** として 1 クリックで保存する Chrome 拡張。
 
-- ノードの text = Web ページタイトル
-- ノードは `isPage: true` + 新 `pageId` 発行
-- `<notesFolder>/<outlinerId>/<pageId>.md` にページ本文 (Markdown) を保存
+- **Outliner に保存**: ノードの text = ページタイトル、`isPage: true` + 新 `pageId` 発行、`<notesFolder>/<pageId>.md`（フラットレイアウト = note 直下）にページ本文を保存
+- **Markdown に保存**: `<uuid>.md` を対象 md と同じ場所に新規作成し、対象 md の**末尾に subpage リンク `[[タイトル]](<uuid>.md)` を追記**
 - 本文は **Mozilla Readability で記事抽出** + **Fractal の HTML→MD 変換ロジックそのまま** (Turndown + 独自 rule: table cell pipe escape / span cleanup / style-based bold/italic/strike / fenced code with lang / normalized link / compact list / post-process)
 
 VSCode と直接通信しません — ブラウザの **File System Access API** で `.out` を直接読み書きします。VSCode 起動不要、native host 不要、HTTP server 不要。
 
 ---
+
+## v0.3.0 で何が変わったか
+
+- **フラットレイアウト対応** — 本体のフラット化（page md = note 直下・画像 = 共有 `images/`）に追従。`.out` の `pageDir` ヒントを尊重し、本体と同じ判定順（note 直下に md があれば flat）で保存先を決める。未移行 note には従来位置に保存（混在を作らない）
+- **Markdown への取り込み** — 保存先に outline.note の md item も選べる。取込ページは新規 `<uuid>.md` になり、選んだ md の末尾に subpage リンクが付く
+- **保存先プリセット** — 「フォルダ + Outliner/Markdown」のペアを Options で複数登録し、★default を指定。popup は default が初期選択、quick clip（Alt+Shift+F）も default を使う
 
 ## v0.2.0 で何が変わったか
 
@@ -77,7 +82,7 @@ icon が出たら成功。
 | ノード位置 | `rootIds` の先頭に prepend (一番上) |
 | ノード id | `n + base36(timestamp) + random` (Fractal と同じスキーム) |
 | pageId | `crypto.randomUUID()` |
-| pageDir | `.out` の `pageDir` field を尊重、未指定なら `<outlinerId>` (Notes mode convention) |
+| pageDir | `.out` の `pageDir` field を尊重（`"."` = note 直下フラット）。未指定は本体 `flat-layout.ts` と同じ順（note 直下に md があれば flat → legacy `<outlinerId>/` に md 実在なら legacy → flat）で解決（`lib/flat-layout-mirror.js`） |
 | 既存ノード | 一切触らない |
 | 既存 page MD | 一切触らない |
 

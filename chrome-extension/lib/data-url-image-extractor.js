@@ -93,14 +93,16 @@
     }
 
     /**
-     * MD 内の data:image/... を <pageDir>/images/<ts>.<ext> として保存し、
-     * 相対 path (`images/<filename>`) に置換した MD を返す。
+     * MD 内の data:image/... を <pageDir>/<imagesSubdir>/<ts>.<ext> として保存し、
+     * 相対 path (`<imagesSubdir>/<filename>`) に置換した MD を返す。
      *
      * @param md MD 文字列
      * @param pageDirHandle FileSystemDirectoryHandle (page MD と同階層)
+     * @param imagesSubdir 画像 subdir 名（省略時 'images'。.out の imageDir ヒント尊重 = FR-CL-02。
+     *                     'a/b' のようなネストも可）
      * @returns { newMd: string, savedCount: number }
      */
-    async function processDataUrlsInMd(md, pageDirHandle) {
+    async function processDataUrlsInMd(md, pageDirHandle, imagesSubdir) {
         if (!md || md.indexOf('data:image/') < 0) {
             return { newMd: md, savedCount: 0 };
         }
@@ -111,7 +113,11 @@
             return { newMd: md, savedCount: 0 };
         }
 
-        const imagesHandle = await pageDirHandle.getDirectoryHandle('images', { create: true });
+        const subdir = (typeof imagesSubdir === 'string' && imagesSubdir) ? imagesSubdir : 'images';
+        let imagesHandle = pageDirHandle;
+        for (const part of subdir.split('/').filter((p) => p)) {
+            imagesHandle = await imagesHandle.getDirectoryHandle(part, { create: true });
+        }
 
         // 同一 data URL は 1 度だけ書き込み
         const seen = new Map(); // dataUrl → relativePath
@@ -128,7 +134,7 @@
                 const writable = await fh.createWritable();
                 await writable.write(parsed.bytes);
                 await writable.close();
-                seen.set(dataUrl, `images/${fileName}`);
+                seen.set(dataUrl, `${subdir}/${fileName}`);
                 savedCount++;
             } catch (e) {
                 console.warn('[data-url-extractor] save failed', fileName, e);

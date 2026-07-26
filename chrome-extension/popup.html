@@ -75,16 +75,23 @@
     <h1>📥 Clip to Fractal</h1>
 
     <div id="setupRequired" style="display:none">
-        <div class="empty">⚠️ Notes フォルダが未登録です</div>
+        <div class="empty">⚠️ Note が未登録です</div>
         <button id="openOptionsBtn" class="primary">⚙️ Open Settings</button>
     </div>
 
     <div id="picker" style="display:none">
-        <label for="folderSelect">Notes フォルダ</label>
-        <select id="folderSelect"></select>
+        <div id="presetRow" style="display:none">
+            <label for="presetSelect">保存先プリセット</label>
+            <select id="presetSelect"></select>
+        </div>
 
-        <label for="outSelect">Outliner</label>
-        <select id="outSelect"><option>(まず folder を選択)</option></select>
+        <div id="manualRows">
+            <label for="folderSelect">Note</label>
+            <select id="folderSelect"></select>
+
+            <label for="outSelect">保存先 (Outliner / Markdown)</label>
+            <select id="outSelect"><option>(まず Note を選択)</option></select>
+        </div>
 
         <button id="clipBtn" class="primary" disabled>📌 Bookmark</button>
         <div id="status" class="status info" style="display:none"></div>
@@ -94,6 +101,7 @@
     <!-- 重い lib (turndown / Readability / fractal-md) は popup ではなく対象 tab 側で
          chrome.scripting.executeScript で inject 実行する。 -->
     <script src="lib/idb.js"></script>
+    <script src="lib/flat-layout-mirror.js"></script>
     <script src="lib/folder-registry.js"></script>
     <script src="lib/clipper-core.js"></script>
     <script src="lib/data-url-image-extractor.js"></script>
