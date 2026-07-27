@@ -70,6 +70,10 @@ const { css: notesCss, html: notesHtml } = notesBodyHtml.generateNotesFilePanelH
 
 // --- スクリプト読み込み ---
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
+// harness gap fix (sprint 20260727-102631): production (webviewContent.ts:121-124) と同じく
+// html-md-converter bundle (turndown + GFM + Fractal rule) を inline。旧 vendor/turndown*.js は
+// bundle に含まれる (かつ test/html/vendor に実体が無く 404 だった) ため script src を置換。
+const htmlMdConverterScript = fs.readFileSync(path.join(__dirname, '../src/webview/html-md-converter.js'), 'utf-8');
 
 let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
 editorScript = editorScript
@@ -388,8 +392,9 @@ const html = `<!DOCTYPE html>
     </div>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false" style="display:none;"></div>
 
-    <script src="vendor/turndown.js"></script>
-    <script src="vendor/turndown-plugin-gfm.js"></script>
+    <script>
+    __HTML_MD_CONVERTER_SCRIPT__
+    </script>
     <script src="vendor/mermaid.min.js"></script>
 
     <script>
@@ -574,6 +579,7 @@ const html = `<!DOCTYPE html>
 
 var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
 var result = html;
+result = safeReplace(result, '__HTML_MD_CONVERTER_SCRIPT__', htmlMdConverterScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testNotesHostBridge);

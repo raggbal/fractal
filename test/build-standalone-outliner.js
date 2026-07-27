@@ -66,6 +66,10 @@ const outlinerCss = fs.readFileSync(outlinerCssPath, 'utf-8')
 
 // --- スクリプト読み込み ---
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
+// harness gap fix (sprint 20260727-102631): production (webviewContent.ts:121-124) と同じく
+// html-md-converter bundle (turndown + GFM + Fractal rule) を inline。旧 vendor/turndown*.js は
+// bundle に含まれる (かつ test/html/vendor に実体が無く 404 だった) ため script src を置換。
+const htmlMdConverterScript = fs.readFileSync(path.join(__dirname, '../src/webview/html-md-converter.js'), 'utf-8');
 // sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー
 const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
 const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
@@ -301,8 +305,9 @@ const html = `<!DOCTYPE html>
     </div>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false" style="display:none;"></div>
 
-    <script src="vendor/turndown.js"></script>
-    <script src="vendor/turndown-plugin-gfm.js"></script>
+    <script>
+    __HTML_MD_CONVERTER_SCRIPT__
+    </script>
     <script src="vendor/mermaid.min.js"></script>
     <script src="vendor/d3-hierarchy.min.js"></script>
     <script src="vendor/d3-flextree.min.js"></script>
@@ -395,6 +400,7 @@ const html = `<!DOCTYPE html>
 // Use function-based replace to avoid $ patterns in JS content being interpreted
 var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
 var result = html;
+result = safeReplace(result, '__HTML_MD_CONVERTER_SCRIPT__', htmlMdConverterScript);
 result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
 result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
