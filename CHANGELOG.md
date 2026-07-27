@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-07-27
+
+### Fixed
+- **Mindmap: Group が他要素と重なる問題** — レイアウトが Group の枠余白（padding + ラベル帯）を確保するように。Group 同士・Group と非メンバーノードが重ならない（Group なしのレイアウトは不変）
+- **Mindmap: title 中心ノードの幅が 80px に潰れる問題** — 実測再レイアウト（pass-2）が title のテキストを見ておらず下限幅に確定していた（長い title が縦に折り返されていた）
+
+### Changed
+- **Mindmap: Group ラベルの位置** — 右展開 Group は左上端（従来どおり）、左展開 Group は右上端（中心側）に表示
+
 ## [1.1.2] - 2026-07-27
 
 ### Added
