@@ -214,23 +214,28 @@ async function selectAndGroup(page: import('@playwright/test').Page, id: string)
     await page.waitForTimeout(180);
 }
 
-test('TC-M15 group 作成で固定ノードの screen 位置が不変 (scale≠1) (#C)', async ({ page }) => {
+// test_update (sprint 20260727-084500 / FR-GO): group が枠余白 (pad+label) をレイアウトで確保する
+// 仕様になったため、group 作成は「全ノード同一シフト」ではなく「操作対象の周囲に余白が開く」
+// 構造変更になった。screen 不変の期待は「group 外の固定ノード r0」→「操作対象 r2 (freeze の
+// anchor)」に変更。r0 は余白挿入ぶん正当に動く。
+test('TC-M15 group 作成で操作対象ノードの screen 位置が不変 (scale≠1) (#C)', async ({ page }) => {
     await setup(page);
     await toMindmap(page, wideModel(8));
     // scale≠1 にする (核心)。
     await page.locator('.mindmap-toolbar [data-mm-action="zoom-in"]').click();
     await page.waitForTimeout(120);
 
-    const beforeR0 = await nodeCenter(page, 'r0');
-    await selectAndGroup(page, 'r2'); // r2 を単一ノード group 化 (r0 は group 外の固定ノード)
-    const afterR0 = await nodeCenter(page, 'r0');
+    const beforeR2 = await nodeCenter(page, 'r2');
+    await selectAndGroup(page, 'r2'); // r2 を単一ノード group 化 (操作対象 = freeze anchor)
+    const afterR2 = await nodeCenter(page, 'r2');
 
-    // 固定ノード r0 の screen 中心が group 作成前後で不変。
-    expect(Math.abs(afterR0!.cx - beforeR0!.cx)).toBeLessThanOrEqual(4);
-    expect(Math.abs(afterR0!.cy - beforeR0!.cy)).toBeLessThanOrEqual(4);
+    // 操作対象 r2 の screen 中心が group 作成前後で不変 (視点が飛ばない)。
+    expect(Math.abs(afterR2!.cx - beforeR2!.cx)).toBeLessThanOrEqual(4);
+    expect(Math.abs(afterR2!.cy - beforeR2!.cy)).toBeLessThanOrEqual(4);
 });
 
-test('TC-M15 load-bearing: freeze を無効化すると scale≠1 で固定ノードが動く (#C)', async ({ page }) => {
+// test_update (sprint 20260727-084500): 検証対象を操作対象 r2 (freeze anchor) に変更 (上と対)。
+test('TC-M15 load-bearing: freeze を無効化すると scale≠1 で操作対象ノードが動く (#C)', async ({ page }) => {
     await setup(page);
     await toMindmap(page, wideModel(8));
     await page.locator('.mindmap-toolbar [data-mm-action="zoom-in"]').click();
@@ -238,11 +243,11 @@ test('TC-M15 load-bearing: freeze を無効化すると scale≠1 で固定ノ�
     // 反実仮想: viewport freeze/補償を無効化 (旧・未補償相当)。
     await page.evaluate(() => (window as any).MindmapInteractions._setFreezeViewportOnStructuralEdit(false));
 
-    const beforeR0 = await nodeCenter(page, 'r0');
+    const beforeR2 = await nodeCenter(page, 'r2');
     await selectAndGroup(page, 'r2');
-    const afterR0 = await nodeCenter(page, 'r0');
+    const afterR2 = await nodeCenter(page, 'r2');
 
-    // 補償なしでは bounds シフトにより固定ノードが動く (実測 ~10px)。
-    const moved = Math.abs(afterR0!.cx - beforeR0!.cx) + Math.abs(afterR0!.cy - beforeR0!.cy);
+    // 補償なしでは bounds/余白シフトにより操作対象も動く。
+    const moved = Math.abs(afterR2!.cx - beforeR2!.cx) + Math.abs(afterR2!.cy - beforeR2!.cy);
     expect(moved).toBeGreaterThan(4);
 });

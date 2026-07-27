@@ -456,7 +456,8 @@ var MindmapRender = (function() {
                 maxY = Math.max(maxY, p.y + m.height / 2);
             }
             if (count === 0) { continue; } // member 0 は描画しない
-            var pad = 14;
+            // FR-GO: pad は layout 側の定数を参照 (layout が確保する余白と同期。二重定義ドリフト防止)
+            var pad = (typeof MindmapLayout !== 'undefined' && MindmapLayout.GROUP_PAD) || 14;
             var groupCls = 'mindmap-group' + (grp.id === selectedGroupId ? ' is-selected' : '');
             var gEl = el('g', { 'class': groupCls, 'data-group-id': grp.id });
             var rect = el('rect', {
@@ -469,7 +470,16 @@ var MindmapRender = (function() {
             }
             gEl.appendChild(rect);
             if (grp.label) {
-                var lbl = el('text', { x: minX - pad + 6, y: minY - pad - 4, 'class': 'mindmap-group-label' });
+                // FR-GO-label (sprint 20260727-084500): label は「中心側」の上端に置く。
+                // 右展開 group (bbox が x>=0 側) = 左上端 / 左展開 group (bbox が x<0 側) = 右上端。
+                // 判定は枠の中心 x の符号 (positions.x は右側 +/左側 − — emitLinear の dir 由来)。
+                var isLeftSide = (minX + maxX) / 2 < 0;
+                var lbl = el('text', {
+                    x: isLeftSide ? (maxX + pad - 6) : (minX - pad + 6),
+                    y: minY - pad - 4,
+                    'class': 'mindmap-group-label'
+                });
+                if (isLeftSide) { lbl.setAttribute('style', 'text-anchor:end'); }
                 lbl.textContent = grp.label;
                 gEl.appendChild(lbl);
             }
@@ -553,7 +563,7 @@ var MindmapRender = (function() {
         // (outliner.js renderTree の ctx.isHiddenByTaskFilter。未注入なら undefined = 隠さない)。
         var hideNode = (ctx && typeof ctx.isHiddenByTaskFilter === 'function') ? ctx.isHiddenByTaskFilter : undefined;
         var layout = (typeof MindmapLayout !== 'undefined')
-            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode)
+            ? MindmapLayout.compute(model, settings, measure, titleText, hideNode, (settings && settings.groups) || [])
             : { positions: {}, links: [], bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
         var positions = layout.positions;
 
@@ -687,7 +697,12 @@ var MindmapRender = (function() {
                 if (r.width > 0 && r.height > 0) {
                     // iteration 14 (TASK-44): 幅は「最長行フィット・上限 280」だが、
                     // 測り方を char 推定 → 実 DOM の最長行実測にする (char 推定は全角過小 = Image #17)。
-                    var realW = measureRealWidth(boxes[bi], model.nodes[nid], ctx.fontSize);
+                    // ★title 修正 (sprint 20260727-084500): __title__ は model.nodes に居ないため
+                    // 従来 undefined = 空テキスト扱いで実測幅ゼロ → 下限 80px に潰れていた
+                    // (「Product Roadmap 2026」が 80px で縦折り返し)。title は titleText で測る
+                    // (measure() の pass-1 と同じ扱い :556-558)。
+                    var nodeForMeasure = (nid === '__title__') ? { text: titleText } : model.nodes[nid];
+                    var realW = measureRealWidth(boxes[bi], nodeForMeasure, ctx.fontSize);
                     // fallback は従来どおり pass-1 幅での高さ (realW リフローが測れない場合の保険)。
                     measured.push({ nid: nid, box: boxes[bi], fo: host2, realW: realW, fallbackH: r.height / viewport.scale });
                 }

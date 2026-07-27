@@ -142,6 +142,49 @@ test.describe('Mindmap Group context menu', () => {
         expect(await page.evaluate(() => !!document.querySelector('.mindmap-group'))).toBe(false);
     });
 
+    test('TC-GC-06 label 位置: 右展開 group は左上端 / 左展開 group は右上端（中心側）', async ({ page }) => {
+        await setup(page);
+        // balanced + title で r1(前半)=右側 / r2(後半)=左側 に展開させ、両側に group を張る
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner(JSON.parse(JSON.stringify({
+                version: 1, viewMode: 'mindmap', title: 'Center',
+                rootIds: ['r1', 'r2'],
+                nodes: {
+                    r1: { id: 'r1', parentId: null, children: [], text: 'right side', collapsed: false, subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] },
+                    r2: { id: 'r2', parentId: null, children: [], text: 'left side', collapsed: false, subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] },
+                },
+                mindmap: {
+                    layout: 'balanced',
+                    groups: [
+                        { id: 'gr', nodeIds: ['r1'], label: 'RIGHT-G', color: null },
+                        { id: 'gl', nodeIds: ['r2'], label: 'LEFT-G', color: null },
+                    ],
+                },
+            })));
+            (window as any).Outliner.setViewMode('mindmap');
+        });
+        await page.waitForTimeout(300);
+        const geom = await page.evaluate(() => {
+            const out: any = {};
+            for (const g of Array.from(document.querySelectorAll('.mindmap-group'))) {
+                const id = g.getAttribute('data-group-id')!;
+                const rect = (g.querySelector('.mindmap-group-rect') as SVGRectElement).getBoundingClientRect();
+                const lbl = (g.querySelector('.mindmap-group-label') as SVGTextElement).getBoundingClientRect();
+                out[id] = {
+                    rectCx: rect.left + rect.width / 2,
+                    lblCx: lbl.left + lbl.width / 2,
+                    distToLeft: Math.abs(lbl.left - rect.left),
+                    distToRight: Math.abs(rect.right - lbl.right),
+                };
+            }
+            return out;
+        });
+        // 右展開 group: label は枠の左端寄り（従来どおり）
+        expect(geom.gr.distToLeft).toBeLessThan(geom.gr.distToRight);
+        // 左展開 group: label は枠の右端寄り（中心側 — 本修正）
+        expect(geom.gl.distToRight).toBeLessThan(geom.gl.distToLeft);
+    });
+
     test('TC-GC-05 非回帰: ノード右クリック / 空白右クリック / group 選択 + Delete キー', async ({ page }) => {
         await setup(page);
         await toMindmapWithGroup(page);
@@ -178,5 +221,32 @@ test.describe('Mindmap Group context menu', () => {
         await page.keyboard.press('Delete');
         await page.waitForTimeout(200);
         expect((await groups(page)).length).toBe(0);
+    });
+});
+
+// sprint 20260727-084500 追補 (ユーザー報告): title 中心ノードの幅が pass-2 (実測再レイアウト) で
+// 80px に潰れるバグの番人。__title__ は model.nodes に居ないため measureRealWidth が
+// undefined = 空テキスト扱い → 実測ゼロ → 下限 80px、が旧挙動 (counterfactual)。
+test.describe('Mindmap title width (pass-2)', () => {
+    test('TC-TW-01 ★load-bearing: 長い title が pass-2 後も 80px に潰れない', async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner(JSON.parse(JSON.stringify({
+                version: 1, viewMode: 'mindmap', title: 'Product Roadmap 2026',
+                rootIds: ['r1'],
+                // r1 に \n を持たせて pass-2 (needsRealMeasure) を必ず発火させる
+                nodes: { r1: { id: 'r1', parentId: null, children: [], text: 'Milestones 🎯\nsecond line', collapsed: false, subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] } },
+            })));
+            (window as any).Outliner.setViewMode('mindmap');
+        });
+        await page.waitForTimeout(400); // pass-2 完了待ち
+        const w = await page.evaluate(() => {
+            const fo = document.querySelector('.mindmap-title-node') as SVGForeignObjectElement;
+            return fo.getBoundingClientRect().width;
+        });
+        // 旧挙動 (counterfactual): 実測ゼロ → Math.max(80, ...) の下限 80px に潰れて縦折り返し。
+        // 修正後: titleText で実測され自然幅 (~190px) になる。
+        expect(w).toBeGreaterThan(150);
     });
 });
