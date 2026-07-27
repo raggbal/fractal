@@ -746,6 +746,27 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         }
                         break;
 
+                    case 'pasteOutlinerNodesWithAssets': {
+                        // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
+                        if (message.sidePanelFilePath) {
+                            // eslint-disable-next-line @typescript-eslint/no-var-requires
+                            const { runOutlinerNodesPaste } = require('./shared/paste-asset-handler');
+                            const result = runOutlinerNodesPaste({
+                                plainText: message.plainText || '',
+                                fallbackNodes: message.nodes || [],
+                                destMdPath: message.sidePanelFilePath,
+                                getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
+                                destFilesDir: flatLayout.resolveFilesDirForMd(message.sidePanelFilePath),
+                                destImagesDir: flatLayout.resolveImagesDirForMd(message.sidePanelFilePath),
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'pasteWithAssetCopyResult',
+                                markdown: result.markdown
+                            });
+                        }
+                        break;
+                    }
+
                     case 'pasteWithAssetCopy': {
                         // v9: MD paste with asset copy (cross-outliner/cross-note paste)
                         if (message.sidePanelFilePath && message.markdown && message.sourceContext) {

@@ -176,6 +176,8 @@ export interface NotesPlatformActions {
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
     /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
     pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string): void;
+    /** outliner node paste の添付複製 (sprint 20260727-124904)。nodes は Store が真実 (message.nodes は Store miss 時の fallback リスト用) */
+    pasteOutlinerNodesWithAssets?(plainText: string, nodes: unknown[], sidePanelFilePath: string): void;
     /** HTML paste で MD に残った data:image/... を images/ に実体化し相対 path 化 */
     extractDataUrlsInPastedMd?(markdown: string, sidePanelFilePath: string): void;
     /** v10: Get workspace config (for translate AWS credentials) */
@@ -729,6 +731,24 @@ export async function handleNotesMessage(
         case 'pasteWithAssetCopy':
             if (message.sidePanelFilePath && message.markdown && message.sourceContext && platform.pasteWithAssetCopy) {
                 platform.pasteWithAssetCopy(message.markdown, message.sourceContext, message.sidePanelFilePath);
+            }
+            break;
+
+        // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+        // 宛先 = sidepanel の md (sidePanelFilePath)。nodes の真実は OutlinerClipboardStore
+        // (cmd+c 時に保存済み・ソース dir 込み) — message.nodes は検知用 (NFR-NP-03)。
+        case 'pasteOutlinerNodesWithAssets':
+            if (message.sidePanelFilePath && platform.pasteOutlinerNodesWithAssets) {
+                platform.pasteOutlinerNodesWithAssets(message.plainText || '', message.nodes || [], message.sidePanelFilePath);
+            } else {
+                // TASK-B5 防御: 宛先 md が特定できない場合でも paste 自体は成立させる
+                // (添付複製なしのリストのみ md を返す。silent no-op で「貼れない」にしない)
+                const fallbackLines = ((message.nodes || []) as Array<{ text?: string; level?: number }>).map(
+                    (n) => `${'  '.repeat(Math.max(0, n.level || 0))}- ${String(n.text || '').replace(/\n/g, ' ')}`);
+                sender.postMessage({
+                    type: 'pasteWithAssetCopyResult',
+                    markdown: fallbackLines.join('\n') + '\n',
+                });
             }
             break;
 

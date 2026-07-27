@@ -252,6 +252,18 @@
         // - plain click  → sidepanel で開く
         // - cmd/ctrl+click → 新タブ standalone editor で開く
         // で route する。http / fractal:// / # anchor 等の特殊 href は backend で個別処理。
+        // outliner node paste の添付複製 (sprint 20260727-124904 TASK-B5): factory shared 版は
+        // sidePanelFilePath 引数前提で、note md メインペインでは undefined になり
+        // notes-message-handler の guard で silent no-op だった (paste 不能バグ)。
+        // note md では自分の filePath を宛先として畳む (openLink 等と同型の override)。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+            api.postMessage({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
         openLink: function(href) {
             api.postMessage({
                 type: 'notesMdOpenLink',

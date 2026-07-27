@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2026-07-27
+
+### Added
+- **Outliner ノードリスト → md editor paste で添付を複製**: cmd+c した node リストを md editor（note md / sidepanel md / standalone）に cmd+v すると、page md は subpage リンク `[[title]](<id>.md)` として対象 md と同じフォルダに複製、ファイル添付は `[📎 title]` リンクとして files/ に複製、node 画像も複製。行はリンクのみ（nodetext の重複なし）
+
+### Fixed
+- **ファイルツリー D&D: md を outliner の上下（兄弟）にドロップできないバグ** — md→.out は全域が「取り込み」になっていた → 上 25%=兄 / 中央 50%=取り込み / 下 25%=弟 の 3 ゾーンに
+- **ファイルツリー D&D: 線が出ているのにドロップが失敗する** — item 間の谷間で drop が不発になっていた → 線が出ていればその位置に必ず drop
+- **ファイルツリー D&D: ネスト末尾の後ろに親の兄弟として置けない** — マウスの横位置（インデント）で「深い階層の後ろ ⇄ 親フォルダの後ろ」を選べるように（線が階層に追随）
+
 ## [1.1.3] - 2026-07-27
 
 ### Fixed

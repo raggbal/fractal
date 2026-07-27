@@ -1611,6 +1611,25 @@ export class NotesEditorProvider {
                 // FR-7: 手動クリーンアップコマンド (自ノート限定モード)
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInCurrentNote');
             },
+            // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
+            pasteOutlinerNodesWithAssets: (plainText: string, nodes: unknown[], sidePanelFilePath: string) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { runOutlinerNodesPaste } = require('./shared/paste-asset-handler');
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { OutlinerClipboardStore } = require('./shared/outliner-clipboard-store');
+                const result = runOutlinerNodesPaste({
+                    plainText,
+                    fallbackNodes: nodes as any[],
+                    destMdPath: sidePanelFilePath,
+                    getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
+                    destFilesDir: resolveFilesDirForMd(sidePanelFilePath),
+                    destImagesDir: resolveImagesDirForMd(sidePanelFilePath),
+                });
+                panel.webview.postMessage({
+                    type: 'pasteWithAssetCopyResult',
+                    markdown: result.markdown
+                });
+            },
             pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string) => {
                 // v9: MD paste with asset copy (cross-outliner/cross-note paste)
                 // FR: 貼り付け先は sidepanel で開いている md の場所を基準にする

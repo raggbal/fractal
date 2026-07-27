@@ -19,6 +19,11 @@ export interface HostBridge {
     syncContent(markdown: string): void;
     save(): void;
 
+    /** outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+     *  nodes は検知/fallback 用 — ソース dir の真実は host の OutlinerClipboardStore。
+     *  結果は pasteWithAssetCopyResult message で返る。 */
+    pasteOutlinerNodesWithAssets?(plainText: string, nodes: unknown[], sidePanelFilePath?: string): void;
+
     // フォーカス/編集状態
     reportEditingState(editing: boolean): void;
     reportFocus(): void;

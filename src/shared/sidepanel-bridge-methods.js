@@ -127,6 +127,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
 
         // MD paste asset copy (v9)
+        // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+        // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
+        // plainText キーで持つ (NFR-NP-03)。結果は pasteWithAssetCopyResult で返る。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath) {
+            postFn({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
             postFn({
                 type: 'pasteWithAssetCopy',
