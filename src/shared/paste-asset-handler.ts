@@ -1088,3 +1088,165 @@ export function copyMdPasteAssets(opts: {
 
     return { rewrittenMarkdown };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// outliner node リスト → md editor paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
+// FR-NP-02..04: nodes (OutlinerClipboardStore 由来) からインデント md リストを組み立て、
+//   - isPage node → page md を dirname(destMd) に複製 + 行末に subpage リンク [[title]](<id>.md)
+//   - filePath node → destFilesDir に複製 + 行末に [📎 name](<相対>)
+//   - images node → destImagesDir に複製 + 直後行に ![](<相対>)
+// 既存プリミティブ (handlePageAssets / handleFileAsset) を再利用。1:1 所有 (NFR-NP-04)。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** subpage リンクラベルのサニタイズ (markdown-link-parser の [[label]] は `]` 単体で切れる制約。
+ *  clipper-core.sanitizeSubpageTitle と同規約: `]`→`］` / `[`→`［` / 改行→空白 / 空→(untitled)) */
+export function sanitizeSubpageLabel(title: string): string {
+    const t = String(title || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!t) return '(untitled)';
+    return t.replace(/\]/g, '］').replace(/\[/g, '［');
+}
+
+export interface OutlinerPasteNode {
+    text: string;
+    level: number;
+    isPage?: boolean;
+    pageId?: string | null;
+    images?: string[];
+    filePath?: string | null;
+}
+
+export function buildOutlinerNodesPasteMd(opts: {
+    nodes: OutlinerPasteNode[];
+    srcOutDir: string;
+    srcPagesDir: string;
+    srcFileDir: string;
+    destMdPath: string;      // 貼り付け先 md の絶対パス (subpage md は dirname に置く)
+    destFilesDir: string;    // resolveFilesDirForMd(destMdPath)
+    destImagesDir: string;   // resolveImagesDirForMd(destMdPath)
+    generatePageId?: () => string; // テスト注入用 (default: crypto.randomUUID)
+}): { markdown: string } {
+    const destMdDir = path.dirname(opts.destMdPath);
+    const genId = opts.generatePageId
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        || (() => (require('crypto') as typeof import('crypto')).randomUUID());
+    const lines: string[] = [];
+
+    for (const node of opts.nodes || []) {
+        const indent = '  '.repeat(Math.max(0, node.level || 0));
+        const plainText = String(node.text || '').replace(/\n/g, ' ');
+        let line = `${indent}- ${plainText}`;
+
+        // (a) page md → 複製 + subpage リンク (FR-NP-02)
+        if (node.isPage && node.pageId) {
+            const srcMd = path.join(opts.srcPagesDir, `${node.pageId}.md`);
+            if (fs.existsSync(srcMd)) {
+                const newPageId = genId();
+                // handlePageAssets が md 複製 + 本文参照 images/files の再帰複製 + リンク書換を行う
+                // (destPagesDir = destMdDir: 新規 subpage md は「dirname(対象 md)」に置く —
+                //  ADRL-0018 decision 4。note 直下固定は禁止)
+                handlePageAssets({
+                    srcOutDir: opts.srcOutDir,
+                    srcPagesDir: opts.srcPagesDir,
+                    destOutDir: destMdDir,
+                    destPagesDir: destMdDir,
+                    pageId: node.pageId,
+                    newPageId: newPageId,
+                    nodeImages: node.images || [],
+                });
+                // 改善2 (手動検収): label = nodetext なので素の text を繰り返さずリンクのみにする
+                line = `${indent}- [[${sanitizeSubpageLabel(node.text)}]](${newPageId}.md)`;
+            } else {
+                // 参照切れ: リンクなしで行は残す (FR-NP-02。paste 全体は失敗させない)
+                console.warn(`[buildOutlinerNodesPasteMd] page md not found: ${srcMd}`);
+            }
+        }
+
+        // (b) ファイル添付 → 複製 + 📎 リンク (FR-NP-03)
+        if (node.filePath) {
+            const r = handleFileAsset({
+                srcOutDir: opts.srcOutDir,
+                srcFileDir: opts.srcFileDir,
+                destOutDir: destMdDir,
+                destFileDir: opts.destFilesDir,
+                filePath: node.filePath,
+                useCollisionSuffix: true,
+            });
+            if (r.newFilePath) {
+                const abs = path.isAbsolute(r.newFilePath)
+                    ? r.newFilePath
+                    : path.resolve(destMdDir, r.newFilePath);
+                const rel = path.relative(destMdDir, abs).replace(/\\/g, '/');
+                // 改善2: nodetext をリンクテキストに使い、素の text の繰り返しを避ける
+                // (page 添付と併存する場合は line が既にリンク化済みなので append)
+                if (node.isPage && node.pageId) {
+                    line += ` [📎 ${path.basename(abs)}](${rel})`;
+                } else {
+                    line = `${indent}- [📎 ${plainText || path.basename(abs)}](${rel})`;
+                }
+            } else {
+                console.warn(`[buildOutlinerNodesPasteMd] attached file not found: ${node.filePath}`);
+            }
+        }
+
+        lines.push(line);
+
+        // (c) node 直付き画像 (非 page) → 複製 + 画像行 (FR-NP-04)。
+        //     page node の images は handlePageAssets が処理済みなので対象外。
+        if (!node.isPage && node.images && node.images.length) {
+            ensureDir(opts.destImagesDir);
+            for (const ref of node.images) {
+                const srcImg = resolveSourceImage(ref, opts.srcOutDir, opts.srcPagesDir);
+                if (!srcImg) {
+                    console.warn(`[buildOutlinerNodesPasteMd] node image not found: ${ref}`);
+                    continue;
+                }
+                // 1:1 所有: 常に新実体 (衝突時 uniquify)
+                const destName = generateUniqueFileNamePreserving(opts.destImagesDir, path.basename(srcImg));
+                try { fs.copyFileSync(srcImg, path.join(opts.destImagesDir, destName)); } catch { continue; }
+                const rel = path.relative(destMdDir, path.join(opts.destImagesDir, destName)).replace(/\\/g, '/');
+                lines.push(`${indent}  ![](${rel})`);
+            }
+        }
+    }
+
+    return { markdown: lines.join('\n') + '\n' };
+}
+
+/**
+ * pasteOutlinerNodesWithAssets の host 側共通処理 (4 provider から呼ばれる)。
+ * OutlinerClipboardStore からソース dir + nodes を取得し、buildOutlinerNodesPasteMd で
+ * 複製 + md 組み立て。Store miss 時は fallbackNodes (webview 検知用 nodes) から
+ * リストのみ (添付リンクなし) を組む — エラーにしない (ADRL-0001 Consequences)。
+ * 戻り値の markdown を呼び出し側が pasteWithAssetCopyResult で postback する。
+ */
+export function runOutlinerNodesPaste(opts: {
+    plainText: string;
+    fallbackNodes: OutlinerPasteNode[];
+    destMdPath: string;
+    // 循環 import 回避のため Store は呼び出し側から関数注入
+    getClipboard: (plainText: string) => {
+        nodes: OutlinerPasteNode[];
+        sourcePagesDirPath: string;
+        sourceFileDirPath: string;
+        sourceOutDir: string;
+    } | null;
+    destFilesDir: string;
+    destImagesDir: string;
+}): { markdown: string } {
+    const store = opts.getClipboard(opts.plainText);
+    if (!store) {
+        // fallback: 添付なしリストのみ (複製はソース dir が不明なため不可)
+        const lines = (opts.fallbackNodes || []).map(n =>
+            `${'  '.repeat(Math.max(0, n.level || 0))}- ${String(n.text || '').replace(/\n/g, ' ')}`);
+        return { markdown: lines.join('\n') + '\n' };
+    }
+    return buildOutlinerNodesPasteMd({
+        nodes: store.nodes,
+        srcOutDir: store.sourceOutDir,
+        srcPagesDir: store.sourcePagesDirPath,
+        srcFileDir: store.sourceFileDirPath,
+        destMdPath: opts.destMdPath,
+        destFilesDir: opts.destFilesDir,
+        destImagesDir: opts.destImagesDir,
+    });
+}

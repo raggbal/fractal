@@ -1281,6 +1281,32 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 // REMOVED: 'getImageDir' handler (per-file directive feature removed)
 
+                case 'pasteOutlinerNodesWithAssets': {
+                    // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+                    // 宛先 = sidepanel md (sidePanelFilePath) — standalone editor の node paste は
+                    // sidepanel md でのみ発生 (メイン pane は md 自身)。
+                    const targetMd = message.sidePanelFilePath || document.uri.fsPath;
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { runOutlinerNodesPaste } = require('./shared/paste-asset-handler');
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { OutlinerClipboardStore } = require('./shared/outliner-clipboard-store');
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const flatLayout = require('./shared/flat-layout');
+                    const result = runOutlinerNodesPaste({
+                        plainText: message.plainText || '',
+                        fallbackNodes: message.nodes || [],
+                        destMdPath: targetMd,
+                        getClipboard: (pt: string) => OutlinerClipboardStore.get(pt),
+                        destFilesDir: flatLayout.resolveFilesDirForMd(targetMd),
+                        destImagesDir: flatLayout.resolveImagesDirForMd(targetMd),
+                    });
+                    webviewPanel.webview.postMessage({
+                        type: 'pasteWithAssetCopyResult',
+                        markdown: result.markdown
+                    });
+                    break;
+                }
+
                 case 'pasteWithAssetCopy': {
                     // v9: MD paste with asset copy (cross-file paste)
                     if (message.sidePanelFilePath && message.markdown && message.sourceContext) {

@@ -7865,6 +7865,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
 
         // MD paste asset copy (v9)
+        // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+        // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
+        // plainText キーで持つ (NFR-NP-03)。結果は pasteWithAssetCopyResult で返る。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath) {
+            postFn({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
             postFn({
                 type: 'pasteWithAssetCopy',
@@ -8998,6 +9009,14 @@ class SidePanelHostBridge {
     updatePageH1(path, h1) { this._mainHost.updatePageH1(path, h1); }
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
+    }
+    // outliner node paste の添付複製 (sprint 20260727-124904): 宛先 = sidepanel の md (this.filePath)。
+    // SidePanelHostBridge は共有 factory 非経由の手書きクラスなので個別追加が必要
+    // (designer_failures 2026-07-20)。
+    pasteOutlinerNodesWithAssets(plainText, nodes) {
+        if (typeof this._mainHost.pasteOutlinerNodesWithAssets === 'function') {
+            this._mainHost.pasteOutlinerNodesWithAssets(plainText, nodes, this.filePath);
+        }
     }
     // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
     exportBundle(options) {
@@ -26629,6 +26648,49 @@ class EditorInstance {
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
 
+        // outliner ノード paste (FR-NP-01 / sprint 20260727-124904): text/html の
+        // data-outliner-clipboard メタに添付 (page md / ファイル / 画像) を持つ node があれば
+        // 添付複製経路へ (host が OutlinerClipboardStore からソース dir を解決し、複製 +
+        // subpage/📎 リンク付き md を pasteWithAssetCopyResult で返す = ADRL-0001)。
+        // 添付ゼロなら従来経路 (HtmlMdConverter リスト化) に fall-through — 挙動不変。
+        if (html && html.indexOf('data-outliner-clipboard=') !== -1 &&
+            typeof host.pasteOutlinerNodesWithAssets === 'function') {
+            try {
+                const metaMatch = html.match(/data-outliner-clipboard="([^"]+)"/);
+                if (metaMatch) {
+                    const meta = JSON.parse(decodeURIComponent(metaMatch[1]));
+                    const nodes = (meta && meta.nodes) || [];
+                    const hasAssets = nodes.some(n =>
+                        (n.isPage && n.pageId) || n.filePath || (n.images && n.images.length));
+                    if (hasAssets) {
+                        // caret snapshot (TASK-B4 / review MED-2): 既存 pasteWithAssetCopy 経路
+                        // (:17726-17740) と同じ。無いと async 受信が editor.focus() フォール
+                        // バックで先頭挿入 + 直前 paste の stale snapshot 再利用リスク。
+                        try {
+                            const sel1 = window.getSelection();
+                            if (sel1 && sel1.rangeCount > 0) {
+                                const r1 = sel1.getRangeAt(0).cloneRange();
+                                self._pendingPasteSelection = {
+                                    startContainer: r1.startContainer,
+                                    startOffset: r1.startOffset,
+                                    endContainer: r1.endContainer,
+                                    endOffset: r1.endOffset,
+                                    plainText: text || ''
+                                };
+                            } else {
+                                self._pendingPasteSelection = null; // stale snapshot を持ち越さない
+                            }
+                        } catch (selErr) {
+                            logger.warn('outliner-paste selection snapshot failed:', selErr);
+                            self._pendingPasteSelection = null;
+                        }
+                        host.pasteOutlinerNodesWithAssets(text || '', nodes);
+                        return; // pasteWithAssetCopyResult を待つ (既存受信が挿入)
+                    }
+                }
+            } catch { /* meta 解析失敗 → 従来経路に fall-through */ }
+        }
+
         let pastedMd = '';
 
         // Priority: internal markdown > external HTML > plain text
@@ -39995,6 +40057,7 @@ var notesFilePanel = (function() {
             dragItemType = null;
             dragSourceFileExt = null;
             removeDropIndicator();
+            lastDropLine = null; // TASK-A2: 谷間フォールバック状態もリセット
             clearAllDragOver();
         });
     }
@@ -40027,29 +40090,34 @@ var notesFilePanel = (function() {
                 return;
             }
 
-            // Feature A: md ファイルを .out item にドロップ → import (中央のみ、黄色 highlight)
-            if (
-                !fromOutliner &&
-                dragSourceFileExt === 'md' &&
-                target.dataset.itemType === 'file' &&
-                target.dataset.fileExt === 'out'
-            ) {
-                target.classList.add('file-panel-drag-over-md-into-out');
-                return;
-            }
-
             // フォルダヘッダーの場合: 上半分=前に挿入、中央=中に入れる、下半分=後に挿入
             // ファイルの場合: 上半分=前に挿入、下半分=後に挿入
             var rect = target.getBoundingClientRect();
             var y = e.clientY - rect.top;
             var ratio = y / rect.height;
 
+            // Feature A: md ファイルを .out item にドロップ → import (中央のみ、黄色 highlight)。
+            // FR-DD-01 (sprint 20260727-124904): 従来は ratio を見ず item 全域が import 扱いになり
+            // 兄弟ドロップ (上/下) が不可能だったバグを、folder と同じ 0.25/0.75 の 3 ゾーンに是正
+            // (ADRL-0002)。上/下 25% は fall-through して既存 before/after (兄弟挿入) を使う。
+            if (
+                !fromOutliner &&
+                dragSourceFileExt === 'md' &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'out' &&
+                ratio >= 0.25 && ratio <= 0.75
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
+
             if (target.dataset.itemType === 'folder' || target.classList.contains('file-panel-folder-header')) {
                 var folderWrapper = target.closest('.file-panel-folder') || target;
                 if (ratio < 0.25) {
                     showDropLine(target, 'before');
                 } else if (ratio > 0.75) {
-                    showDropLine(target, 'after');
+                    // 改善1: 最終子なら X 座標で「この階層の後ろ / 親フォルダの後ろ」を選ぶ
+                    showDropLine(resolveAfterEscalation(target, e.clientX), 'after');
                 } else {
                     // フォルダの中にドロップ
                     target.classList.add('file-panel-drag-over');
@@ -40058,7 +40126,7 @@ var notesFilePanel = (function() {
                 if (ratio < 0.5) {
                     showDropLine(target, 'before');
                 } else {
-                    showDropLine(target, 'after');
+                    showDropLine(resolveAfterEscalation(target, e.clientX), 'after');
                 }
             }
         });
@@ -40126,21 +40194,25 @@ var notesFilePanel = (function() {
                 return;
             }
 
-            // Feature A: md ファイル → .out item ドロップ → import
+            var rect = target.getBoundingClientRect();
+            var y = e.clientY - rect.top;
+            var ratio = y / rect.height;
+
+            // Feature A: md ファイル → .out item ドロップ → import。
+            // FR-DD-01 (sprint 20260727-124904 / ADRL-0002): 中央 50% (ratio 0.25-0.75) のみ import。
+            // 上/下 25% は fall-through して既存の兄弟挿入 (bridge.moveItem) — dragover 側の
+            // 3 ゾーン表示と対で、従来「全域 import で兄弟ドロップ不可」だったバグの是正。
             if (
                 dragSourceFileExt === 'md' &&
                 targetType === 'file' &&
-                target.dataset.fileExt === 'out'
+                target.dataset.fileExt === 'out' &&
+                ratio >= 0.25 && ratio <= 0.75
             ) {
                 if (typeof bridge.notesImportMdIntoOut === 'function') {
                     bridge.notesImportMdIntoOut(dragItemId, targetId);
                 }
                 return;
             }
-
-            var rect = target.getBoundingClientRect();
-            var y = e.clientY - rect.top;
-            var ratio = y / rect.height;
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
             if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
@@ -40152,13 +40224,23 @@ var notesFilePanel = (function() {
             }
 
             // 前/後に挿入
+            var isBefore = (targetType === 'folder' || target.classList.contains('file-panel-folder-header')) ? ratio < 0.25 : ratio < 0.5;
+            // 改善1: after は dragover の線と同じ escalation を適用 (線 = 実 drop の一致)
+            if (!isBefore) {
+                var esc = resolveAfterEscalation(target, e.clientX);
+                if (esc !== target && esc.dataset && esc.dataset.itemId) {
+                    target = esc;
+                    targetId = esc.dataset.itemId;
+                    targetParentId = esc.dataset.parentId || null;
+                }
+            }
             var parentId = targetParentId;
             var siblingIds = getChildIdsOfParent(parentId);
             var targetIndex = siblingIds.indexOf(targetId);
             if (targetIndex === -1) targetIndex = siblingIds.length;
 
             var insertIndex;
-            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) ? ratio < 0.25 : ratio < 0.5) {
+            if (isBefore) {
                 insertIndex = targetIndex;
             } else {
                 insertIndex = targetIndex + 1;
@@ -40177,6 +40259,14 @@ var notesFilePanel = (function() {
         });
     }
 
+    /** children 内に drop-line 以外の要素があるか (空フォルダ判定) */
+    function childrenHasItems(childrenEl) {
+        for (var c = childrenEl.firstElementChild; c; c = c.nextElementSibling) {
+            if (!c.classList || !c.classList.contains('file-panel-drop-line')) return true;
+        }
+        return false;
+    }
+
     function setupFolderChildrenDrop(childrenEl, folderId) {
         childrenEl.addEventListener('dragover', function(e) {
             var fromOutliner = isOutNodePageDrag(e);
@@ -40186,6 +40276,14 @@ var notesFilePanel = (function() {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
                 clearAllDragOver();
+                // 改善1: 子を持つフォルダの隙間では「children 全域ハイライト → 末尾追加」を廃止
+                // (っっd+w が丸ごと選択される分かりづらい挙動)。直近の線を復元して線基準にする。
+                if (!fromOutliner && childrenHasItems(childrenEl)) {
+                    if (lastDropLine && lastDropLine.refItemId) {
+                        restoreDropLineAt(e.clientX); // after は escalation 再評価 (改善1)
+                    }
+                    return;
+                }
                 childrenEl.classList.add('file-panel-drag-over');
             }
         });
@@ -40198,6 +40296,7 @@ var notesFilePanel = (function() {
             e.preventDefault();
             if (!dragItemId && !outPayload) return;
             clearAllDragOver();
+            removeDropIndicator();
             var childIds = getChildIdsOfParent(folderId);
             if (outPayload) {
                 if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
@@ -40205,9 +40304,98 @@ var notesFilePanel = (function() {
                 }
                 return;
             }
-            // フォルダ末尾に追加
+            // 改善1: 子を持つフォルダの隙間 drop は直近の線位置に挿入 (listEl フォールバックと同じ)
+            if (childrenHasItems(childrenEl) && lastDropLine && lastDropLine.refItemId) {
+                var refEl3 = listEl.querySelector('[data-item-id="' + lastDropLine.refItemId + '"]');
+                if (refEl3 && refEl3.dataset.itemId !== dragItemId) {
+                    var parentId3 = refEl3.dataset.parentId || null;
+                    var sib3 = getChildIdsOfParent(parentId3);
+                    var tIdx3 = sib3.indexOf(refEl3.dataset.itemId);
+                    if (tIdx3 === -1) tIdx3 = sib3.length;
+                    var idx3 = lastDropLine.position === 'before' ? tIdx3 : tIdx3 + 1;
+                    var curParent3 = findParentIdOf(dragItemId);
+                    if (curParent3 === parentId3) {
+                        var curIdx3 = sib3.indexOf(dragItemId);
+                        if (curIdx3 !== -1 && curIdx3 < idx3) idx3--;
+                    }
+                    lastDropLine = null;
+                    bridge.moveItem(dragItemId, parentId3, idx3);
+                    return;
+                }
+            }
+            // 空フォルダ (or 線なし): フォルダ末尾に追加
+            lastDropLine = null;
             bridge.moveItem(dragItemId, folderId, childIds.length);
         });
+    }
+
+    // TASK-A2 (sprint 20260727-124904): 直近の drop-line 状態。item 間の谷間 (margin 1px +
+    // line 2px) では dragover の target が item から listEl に切り替わり、旧実装は
+    // e.target!==listEl guard で preventDefault されず drop 不発 (線は残るのに失敗する =
+    // 「線が嘘をつく」)。listEl 側のフォールバックがこの状態を参照して線どおりに drop させる。
+    var lastDropLine = null; // { refItemId, position: 'before'|'after' } | null
+
+    /** 谷間 (listEl / children の隙間) での線復元。after 線は X 座標の escalation を
+     *  毎回再評価する — 「D の下の左寄り」は item 矩形の外に落ちることが多く、
+     *  item 上の dragover を経由しないため、ここで評価しないと浅い階層 (B の後ろ) を
+     *  選べない (手動検収 2026-07-27)。showDropLine が lastDropLine も更新するので
+     *  drop は常に「表示中の線」どおりに落ちる。 */
+    function restoreDropLineAt(clientX) {
+        if (!lastDropLine || !lastDropLine.refItemId) return;
+        var refEl = listEl.querySelector('[data-item-id="' + lastDropLine.refItemId + '"]');
+        if (!refEl) return;
+        if (lastDropLine.position === 'after') {
+            refEl = resolveAfterEscalation(refEl, clientX);
+        }
+        showDropLine(refEl, lastDropLine.position);
+    }
+
+    // 改善1 (sprint 20260727-124904): 「フォルダ最終子の後ろ」と「フォルダ自身の後ろ (兄弟)」の
+    // 曖昧さを、マウス X 座標 = インデント階層で解決する (標準的なツリー D&D の UX)。
+    // hovered item がコンテナの最終子なら祖先フォルダへ escalate 候補を積み、
+    // clientX が浅いインデント (左) なら浅い階層の「後ろ」を選ぶ。
+    function lastRealChild(containerEl) {
+        for (var c = containerEl.lastElementChild; c; c = c.previousElementSibling) {
+            if (c.classList && c.classList.contains('file-panel-drop-line')) continue;
+            if (c.dataset && c.dataset.itemId) return c;
+        }
+        return null;
+    }
+
+    function resolveAfterEscalation(targetEl, clientX) {
+        // まず「展開中フォルダの最終子孫」まで下る (lastDropLine が浅い階層 = B を指した後、
+        // 右へ動かして深い階層 = D の後ろに戻れるように。チェーンを両方向に張る)
+        var deepest = targetEl;
+        while (deepest && deepest.classList && deepest.classList.contains('file-panel-folder') &&
+               !deepest.classList.contains('collapsed')) {
+            var childrenEl0 = deepest.querySelector(':scope > .file-panel-folder-children');
+            var lastChild = childrenEl0 ? lastRealChild(childrenEl0) : null;
+            if (!lastChild) break;
+            deepest = lastChild;
+        }
+        // deepest から祖先へ「最終子である限り」escalate 候補を積む
+        var chain = [deepest];
+        var cur = deepest;
+        while (true) {
+            // drop-line を無視して「コンテナの最終要素か」を判定
+            var next = cur.nextElementSibling;
+            while (next && next.classList && next.classList.contains('file-panel-drop-line')) {
+                next = next.nextElementSibling;
+            }
+            if (next) break; // 最終子でない → これ以上 escalate しない
+            var wrapper = cur.parentElement && cur.parentElement.closest
+                ? cur.parentElement.closest('.file-panel-folder') : null;
+            if (!wrapper || wrapper === cur || !wrapper.dataset || !wrapper.dataset.itemId) break;
+            chain.push(wrapper);
+            cur = wrapper;
+        }
+        if (chain.length === 1) return chain[0];
+        // 深い方 (インデント大 = left 大) から見て、cursor X がその左端以上なら採用。
+        // item は block 幅いっぱいなので左端 = children padding の開始位置 = 階層の視覚境界
+        for (var i = 0; i < chain.length; i++) {
+            if (clientX >= chain[i].getBoundingClientRect().left) return chain[i];
+        }
+        return chain[chain.length - 1]; // 最も左でも届かなければ最浅
     }
 
     function showDropLine(refEl, position) {
@@ -40219,6 +40407,8 @@ var notesFilePanel = (function() {
         } else {
             refEl.parentNode.insertBefore(dropIndicator, refEl.nextSibling);
         }
+        var refItem = refEl.closest ? (refEl.closest('[data-item-id]') || refEl) : refEl;
+        lastDropLine = refItem && refItem.dataset ? { refItemId: refItem.dataset.itemId, position: position } : null;
     }
 
     function removeDropIndicator() {
@@ -40226,6 +40416,7 @@ var notesFilePanel = (function() {
             dropIndicator.parentNode.removeChild(dropIndicator);
         }
         dropIndicator = null;
+        // lastDropLine は消さない (谷間フォールバックの参照用。dragend / 実 drop でリセット)
     }
 
     function clearAllDragOver() {
@@ -40921,7 +41112,11 @@ var notesFilePanel = (function() {
         }
 
         // ルートエリアへのD&D（アイテム間の空白部分）
-        if (listEl) {
+        // TASK-A2: init が複数回呼ばれる環境 (standalone harness は build 時 + spec で 2 回) で
+        // listEl リスナーが二重登録され moveItem が 2 発火するため冪等化 (要素フラグで 1 回だけ。
+        // v1.1.0 TASK-07 の task ボタン onclick 化と同族の対処)。
+        if (listEl && !listEl.__rootDropWired) {
+            listEl.__rootDropWired = true;
             listEl.addEventListener('dragover', function(e) {
                 var fromOutliner = isOutNodePageDrag(e);
                 if (!dragItemId && !fromOutliner) return;
@@ -40929,6 +41124,11 @@ var notesFilePanel = (function() {
                 if (e.target !== listEl) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
+                // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
+                // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
+                if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
+                    restoreDropLineAt(e.clientX);
+                }
             });
             listEl.addEventListener('drop', function(e) {
                 if (e.target !== listEl) return;
@@ -40944,6 +41144,26 @@ var notesFilePanel = (function() {
                     }
                     return;
                 }
+                // TASK-A2: 谷間 drop は「表示中だった線」の位置に挿入する (線と実 drop の一致)。
+                if (lastDropLine && lastDropLine.refItemId) {
+                    var refEl1 = listEl.querySelector('[data-item-id="' + lastDropLine.refItemId + '"]');
+                    if (refEl1 && refEl1.dataset.itemId !== dragItemId) {
+                        var parentId1 = refEl1.dataset.parentId || null;
+                        var sib1 = getChildIdsOfParent(parentId1);
+                        var tIdx1 = sib1.indexOf(refEl1.dataset.itemId);
+                        if (tIdx1 === -1) tIdx1 = sib1.length;
+                        var idx1 = lastDropLine.position === 'before' ? tIdx1 : tIdx1 + 1;
+                        var curParent1 = findParentIdOf(dragItemId);
+                        if (curParent1 === parentId1) {
+                            var curIdx1 = sib1.indexOf(dragItemId);
+                            if (curIdx1 !== -1 && curIdx1 < idx1) idx1--;
+                        }
+                        lastDropLine = null;
+                        bridge.moveItem(dragItemId, parentId1, idx1);
+                        return;
+                    }
+                }
+                lastDropLine = null;
                 // ルート末尾に追加
                 bridge.moveItem(dragItemId, null, rootIds.length);
             });

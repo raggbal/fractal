@@ -7974,6 +7974,14 @@ class SidePanelHostBridge {
     pasteWithAssetCopy(markdown, sourceContext) {
         this._mainHost.pasteWithAssetCopy(markdown, sourceContext, this.filePath);
     }
+    // outliner node paste の添付複製 (sprint 20260727-124904): 宛先 = sidepanel の md (this.filePath)。
+    // SidePanelHostBridge は共有 factory 非経由の手書きクラスなので個別追加が必要
+    // (designer_failures 2026-07-20)。
+    pasteOutlinerNodesWithAssets(plainText, nodes) {
+        if (typeof this._mainHost.pasteOutlinerNodesWithAssets === 'function') {
+            this._mainHost.pasteOutlinerNodesWithAssets(plainText, nodes, this.filePath);
+        }
+    }
     // md export bundle (FR-EX-01): sidepanel で開いている md (this.filePath) を root にする
     exportBundle(options) {
         if (typeof this._mainHost.exportBundle === 'function') {
@@ -25604,6 +25612,49 @@ class EditorInstance {
         logger.log('Internal MD:', internalMd ? 'yes' : 'no');
         logger.log('HTML length:', html ? html.length : 0);
 
+        // outliner ノード paste (FR-NP-01 / sprint 20260727-124904): text/html の
+        // data-outliner-clipboard メタに添付 (page md / ファイル / 画像) を持つ node があれば
+        // 添付複製経路へ (host が OutlinerClipboardStore からソース dir を解決し、複製 +
+        // subpage/📎 リンク付き md を pasteWithAssetCopyResult で返す = ADRL-0001)。
+        // 添付ゼロなら従来経路 (HtmlMdConverter リスト化) に fall-through — 挙動不変。
+        if (html && html.indexOf('data-outliner-clipboard=') !== -1 &&
+            typeof host.pasteOutlinerNodesWithAssets === 'function') {
+            try {
+                const metaMatch = html.match(/data-outliner-clipboard="([^"]+)"/);
+                if (metaMatch) {
+                    const meta = JSON.parse(decodeURIComponent(metaMatch[1]));
+                    const nodes = (meta && meta.nodes) || [];
+                    const hasAssets = nodes.some(n =>
+                        (n.isPage && n.pageId) || n.filePath || (n.images && n.images.length));
+                    if (hasAssets) {
+                        // caret snapshot (TASK-B4 / review MED-2): 既存 pasteWithAssetCopy 経路
+                        // (:17726-17740) と同じ。無いと async 受信が editor.focus() フォール
+                        // バックで先頭挿入 + 直前 paste の stale snapshot 再利用リスク。
+                        try {
+                            const sel1 = window.getSelection();
+                            if (sel1 && sel1.rangeCount > 0) {
+                                const r1 = sel1.getRangeAt(0).cloneRange();
+                                self._pendingPasteSelection = {
+                                    startContainer: r1.startContainer,
+                                    startOffset: r1.startOffset,
+                                    endContainer: r1.endContainer,
+                                    endOffset: r1.endOffset,
+                                    plainText: text || ''
+                                };
+                            } else {
+                                self._pendingPasteSelection = null; // stale snapshot を持ち越さない
+                            }
+                        } catch (selErr) {
+                            logger.warn('outliner-paste selection snapshot failed:', selErr);
+                            self._pendingPasteSelection = null;
+                        }
+                        host.pasteOutlinerNodesWithAssets(text || '', nodes);
+                        return; // pasteWithAssetCopyResult を待つ (既存受信が挿入)
+                    }
+                }
+            } catch { /* meta 解析失敗 → 従来経路に fall-through */ }
+        }
+
         let pastedMd = '';
 
         // Priority: internal markdown > external HTML > plain text
@@ -27271,6 +27322,17 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
 
         // MD paste asset copy (v9)
+        // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
+        // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
+        // plainText キーで持つ (NFR-NP-03)。結果は pasteWithAssetCopyResult で返る。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes, sidePanelFilePath) {
+            postFn({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
+                sidePanelFilePath: sidePanelFilePath
+            });
+        },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
             postFn({
                 type: 'pasteWithAssetCopy',
