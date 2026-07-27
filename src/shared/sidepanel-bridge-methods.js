@@ -55,6 +55,16 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // page アイコン cmd+click → page md を新規タブで開く (FR-CT-03)。パス解決は host
+        openPageInTab: function(nodeId, pageId) {
+            postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
+        },
+
+        // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
+        exportOutlinerNodesBundle: function(nodeId, nodes) {
+            postFn({ type: 'exportOutlinerNodesBundle', nodeId: nodeId, nodes: nodes });
+        },
+
         // 検索
         searchFiles: function(query) {
             postFn({ type: 'searchFiles', query: query });

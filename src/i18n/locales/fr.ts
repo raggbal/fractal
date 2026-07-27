@@ -187,6 +187,7 @@ export const webviewMessages = {
   outlinerCopyLlmsTxtMd: 'Copier le sous-arbre en llms.txt (pages MD)',
   outlinerCopyLlmsTxtFile: 'Copier le sous-arbre en llms.txt (fichiers)',
   outlinerCopyLlmsTxtBoth: 'Copier le sous-arbre en llms.txt (MD + fichiers)',
+  outlinerExportBundle: 'Exporter le bundle',
   outlinerAddToPinnedTags: 'Ajouter aux tags épinglés',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Insérer un diagramme Drawio',

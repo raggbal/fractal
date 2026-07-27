@@ -171,6 +171,7 @@ export const webviewMessages = {
   outlinerCopyLlmsTxtMd: 'llms.txt 風に配下の MD 構成をコピー',
   outlinerCopyLlmsTxtFile: 'llms.txt 風に配下のファイル構成をコピー',
   outlinerCopyLlmsTxtBoth: 'llms.txt 風に配下の MD + ファイル構成をコピー',
+  outlinerExportBundle: 'バンドルをエクスポート',
   outlinerAddToPinnedTags: '固定タグに追加',
   outlinerAddSibling: '兄弟ノードを追加',
   outlinerAddChild: '子ノードを追加',

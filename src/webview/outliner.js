@@ -3049,6 +3049,13 @@ var Outliner = (function() {
             pageIcon.textContent = '\uD83D\uDCC4'; // 📄
             pageIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // FR-CT-03: cmd/ctrl+click → 新規タブ（pageId のみ送る。パス解決は host）
+                if (e.metaKey || e.ctrlKey) {
+                    if (node.isPage && node.pageId && host.openPageInTab) {
+                        host.openPageInTab(node.id, node.pageId);
+                    }
+                    return;
+                }
                 openPage(node.id);
             });
             el.appendChild(pageIcon);
@@ -3723,6 +3730,37 @@ var Outliner = (function() {
                 collapsed: !!nd.collapsed,
                 // Phase F2: 列値も保持 (paste 時に同一 outliner なら復元)
                 columnValues: nd.columnValues ? JSON.parse(JSON.stringify(nd.columnValues)) : null
+            });
+        }
+        return nodes;
+    }
+
+    /** 右クリック node + 全子孫を OutlinerPasteNode[] で取得 (DFS 順, root=level 0)。Export bundle 用 (FR-EB-06) */
+    function getSubtreeNodesData(nodeId) {
+        var expandedSet = new Set([nodeId]);
+        var desc = model.getDescendantIds(nodeId);
+        for (var i = 0; i < desc.length; i++) { expandedSet.add(desc[i]); }
+        var flat = model.getFlattenedIds(false);
+        var minDepth = Infinity;
+        var selectedFlat = [];
+        for (var j = 0; j < flat.length; j++) {
+            if (expandedSet.has(flat[j])) {
+                var d = model.getDepth(flat[j]);
+                if (d < minDepth) { minDepth = d; }
+                selectedFlat.push(flat[j]);
+            }
+        }
+        var nodes = [];
+        for (var k = 0; k < selectedFlat.length; k++) {
+            var nd = model.getNode(selectedFlat[k]);
+            if (!nd) { continue; }
+            nodes.push({
+                text: nd.text,
+                level: model.getDepth(selectedFlat[k]) - minDepth,
+                isPage: nd.isPage || false,
+                pageId: nd.pageId || null,
+                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
+                filePath: nd.filePath || null
             });
         }
         return nodes;
@@ -6358,6 +6396,15 @@ var Outliner = (function() {
             var tree = buildLlmsTxtTree(nodeId);
             if (tree && host.copyLlmsTxtBothTree) {
                 host.copyLlmsTxtBothTree(tree);
+            }
+            hideContextMenu();
+        });
+
+        // --- Export bundle (FR-EB-01): node subtree を md リスト + 添付複製で出力 ---
+        addMenuItem(contextMenuEl, i18n.outlinerExportBundle || 'Export bundle', function() {
+            var nodes = getSubtreeNodesData(nodeId);
+            if (nodes.length && host.exportOutlinerNodesBundle) {
+                host.exportOutlinerNodesBundle(nodeId, nodes);
             }
             hideContextMenu();
         });

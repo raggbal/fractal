@@ -171,6 +171,7 @@ export const webviewMessages = {
   outlinerCopyLlmsTxtMd: 'Copy subtree as llms.txt (MD pages)',
   outlinerCopyLlmsTxtFile: 'Copy subtree as llms.txt (files)',
   outlinerCopyLlmsTxtBoth: 'Copy subtree as llms.txt (MD + files)',
+  outlinerExportBundle: 'Export bundle',
   outlinerAddToPinnedTags: 'Add to Pinned Tags',
   outlinerAddSibling: 'Add Sibling Node',
   outlinerAddChild: 'Add Child Node',

@@ -1250,3 +1250,54 @@ export function runOutlinerNodesPaste(opts: {
         destImagesDir: opts.destImagesDir,
     });
 }
+
+/**
+ * outliner node subtree の Export bundle core (FR-EB-03/04/05)。
+ * <dest>/<nodeId>/ を作成し <nodeId>.md + page md 複製 + files/ を出力。
+ * node 直付き画像 (node.images) はここで [] に強制して無視する (FR-EB-04 単一施行点。
+ * page md 本文参照画像は handlePageAssets が images/ に複製する = 「page md 添付」の一部)。
+ * dialog は呼び出し側 (export-bundle-host)。dest 確定後にのみ呼ぶこと (NFR-04)。
+ */
+export function runOutlinerNodesExportBundle(opts: {
+    nodeId: string;
+    nodes: OutlinerPasteNode[];
+    srcOutDir: string;
+    srcPagesDir: string;
+    srcFileDir: string;
+    dest: string;                      // ダイアログで選択済みの出力先フォルダ
+    generatePageId?: () => string;     // テスト注入
+}): { ok: boolean; bundleDir?: string; error?: string } {
+    try {
+        // nodeId は webview message 経由 (.out から verbatim ロード = 外部由来になりうる) で
+        // 信頼境界を越えるため、path に使う前に basename 化して traversal を遮断する
+        // (通常の node id 't...'/'n...' 形式には no-op)。空/./.. は generic 名にフォールバック。
+        const safeName = path.basename(String(opts.nodeId || ''));
+        const base = (!safeName || safeName === '.' || safeName === '..') ? 'export' : safeName;
+
+        // FR-EB-05: <dest>/<nodeId>/ 衝突時サフィックス (md-export-core uniqueDir と同パターン)
+        let cand = base;
+        let i = 1;
+        while (fs.existsSync(path.join(opts.dest, cand))) { cand = `${base}-${i++}`; }
+        const bundleDir = path.join(opts.dest, cand);
+        fs.mkdirSync(bundleDir, { recursive: true });
+
+        // FR-EB-04: node 直付き画像は無視 (単一施行点)
+        const stripped = (opts.nodes || []).map(n => ({ ...n, images: [] as string[] }));
+
+        const destMdPath = path.join(bundleDir, `${base}.md`);
+        const r = buildOutlinerNodesPasteMd({
+            nodes: stripped,
+            srcOutDir: opts.srcOutDir,
+            srcPagesDir: opts.srcPagesDir,
+            srcFileDir: opts.srcFileDir,
+            destMdPath: destMdPath,                         // dirname = bundleDir → page md は bundleDir 直下 (FR-EB-03)
+            destFilesDir: path.join(bundleDir, 'files'),    // file 添付 → files/
+            destImagesDir: path.join(bundleDir, 'images'),  // 非 page 画像は stripped で不発。page 本文画像は handlePageAssets 側
+            generatePageId: opts.generatePageId,
+        });
+        fs.writeFileSync(destMdPath, r.markdown);
+        return { ok: true, bundleDir };
+    } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+}

@@ -112,6 +112,8 @@ export interface NotesPlatformActions {
     restoreSidePanelForTab?(filePath: string): void;
     /** sprint 20260723-233506: サイドパネル「Open in tab」等から .md を webview 内タブで開く（FR-TAB-02）。 */
     openFileInWebviewTab?(filePath: string): void;
+    /** outliner node subtree の Export bundle（FR-EB）。dialog + 出力は export-bundle-host */
+    exportOutlinerNodesBundle?(args: { nodeId: string; nodes: unknown[]; srcOutDir: string; srcPagesDir: string; srcFileDir: string }): void;
     /** サイドパネルの sendToChat を処理（テキストエディタで開いて行選択） */
     sendToChatFromSidePanel?(sidePanelFilePath: string, startLine: number, endLine: number, selectedMarkdown: string): Promise<void>;
     /** .outファイルをテキストエディタで開く */
@@ -276,6 +278,22 @@ export async function handleNotesMessage(
             if (rootMd && message.options) {
                 platform.exportBundle?.(rootMd, message.options as ExportOptions);
             }
+            break;
+        }
+
+        // FR-EB: outliner node subtree の Export bundle。src dir 解決は saveOutlinerClipboard と同一。
+        // dialog + fs 書き出しは VS Code 依存なので platform に委譲。
+        case 'exportOutlinerNodesBundle': {
+            if (typeof message.nodeId !== 'string' || !message.nodeId || !Array.isArray(message.nodes)) break;
+            const ebPagesDir = fileManager.getPagesDirPath();
+            const ebCur = fileManager.getCurrentFilePath();
+            platform.exportOutlinerNodesBundle?.({
+                nodeId: message.nodeId,
+                nodes: message.nodes as unknown[],
+                srcOutDir: ebCur ? path.dirname(ebCur) : ebPagesDir,
+                srcPagesDir: ebPagesDir,
+                srcFileDir: fileManager.getFileDirPath(),
+            });
             break;
         }
 
@@ -624,6 +642,19 @@ export async function handleNotesMessage(
                 //   ここで記録すると二重記録になるため呼ばない。
                 platform.openPageInSidePanel(pagePath);
                 sendFileListWithStructure(fileManager, sender);
+            }
+            break;
+        }
+
+        // FR-CT-03: page アイコン cmd+click → page md を webview 内タブで開く
+        case 'openPageInTab': {
+            const pagePath = fileManager.getPageFilePath(message.pageId);
+            if (fs.existsSync(pagePath)) {
+                if (platform.openFileInWebviewTab) {
+                    platform.openFileInWebviewTab(pagePath);
+                } else {
+                    platform.openPageInSidePanel(pagePath); // タブ非対応環境フォールバック
+                }
             }
             break;
         }
