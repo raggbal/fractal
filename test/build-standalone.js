@@ -50,6 +50,10 @@ const stylesContent = fs.readFileSync(stylesPath, 'utf-8')
 
 // editor-utils.js を読み込み（editor.jsより前にロードされる）
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
+// harness gap fix (sprint 20260727-102631): production (webviewContent.ts:121-124) と同じく
+// html-md-converter bundle (turndown + GFM + Fractal rule) を inline。旧 vendor/turndown*.js は
+// bundle に含まれる (かつ test/html/vendor に実体が無く 404 だった) ため script src を置換。
+const htmlMdConverterScript = fs.readFileSync(path.join(__dirname, '../src/webview/html-md-converter.js'), 'utf-8');
 // sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー（editor.js より前）
 const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
 const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
@@ -238,8 +242,9 @@ const html = `<!DOCTYPE html>
         <button class="rrf-open-settings" data-action="openResourceRootsSettings">Change allowed folders</button>
     </div>
 
-    <script src="vendor/turndown.js"></script>
-    <script src="vendor/turndown-plugin-gfm.js"></script>
+    <script>
+    __HTML_MD_CONVERTER_SCRIPT__
+    </script>
     <script src="vendor/mermaid.min.js"></script>
     <script>
     __LINK_PARSER_SCRIPT__
@@ -270,6 +275,7 @@ const html = `<!DOCTYPE html>
 
 var safeReplace = function(str, token, value) { return str.replace(token, function() { return value; }); };
 var result = html;
+result = safeReplace(result, '__HTML_MD_CONVERTER_SCRIPT__', htmlMdConverterScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testHostBridgeScript);

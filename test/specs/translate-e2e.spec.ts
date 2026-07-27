@@ -6,6 +6,10 @@
 import { test, expect } from '@playwright/test';
 import { EditorTestHelper } from '../utils/editor-test-helper';
 
+// test_remove (sprint 20260727-102631): DOD-T1/T4/T5 は translateLang ボタン依存。
+// translateLang は sprint 20260724-160000 で撤廃済み（dead button 削除）のため期待値残骸を削除。
+// 残る DOD-T2/T3/T9〜T12/T14 の red は standalone toolbar が空 stub という別の harness gap
+// （designer_failures 2026-07-25 記録）— toolbar 実 DOM 化の別 sprint で解消する。
 test.describe('Translation Toolbar Buttons', () => {
     let editor: EditorTestHelper;
 
@@ -15,21 +19,6 @@ test.describe('Translation Toolbar Buttons', () => {
         editor = new EditorTestHelper(page);
     });
 
-    // DOD-T1: Standalone MD toolbar has translate button and translate language button
-    test('DOD-T1: Toolbar has translate and translateLang buttons', async ({ page }) => {
-        // Wait for editor to be initialized (toolbar is inside EditorInstance container)
-        await page.waitForSelector('#editor');
-
-        const translateBtn = page.locator('button[data-action="translate"]');
-        const translateLangBtn = page.locator('button[data-action="translateLang"]');
-
-        await expect(translateBtn).toBeVisible();
-        await expect(translateLangBtn).toBeVisible();
-
-        // Check initial label
-        const initialLabel = await translateLangBtn.textContent();
-        expect(initialLabel).toBe('ja → en');
-    });
 
     // DOD-T2: Translate button sends translateContent message with markdown text
     test('DOD-T2: Translate button sends translateContent message', async ({ page }) => {
@@ -94,45 +83,7 @@ test.describe('Translation Toolbar Buttons', () => {
         expect(message.markdown).not.toContain('Second paragraph');
     });
 
-    // DOD-T4: Language selection button sends translateSelectLang message
-    test('DOD-T4: TranslateLang button sends translateSelectLang message', async ({ page }) => {
-        await page.evaluate(() => {
-            (window as any).__translateSelectLangMessage = null;
-            (window as any).hostBridge.translateSelectLang = function(currentSource: string, currentTarget: string) {
-                (window as any).__translateSelectLangMessage = { currentSource, currentTarget };
-            };
-        });
 
-        await page.click('button[data-action="translateLang"]');
-
-        const message = await page.evaluate(() => (window as any).__translateSelectLangMessage);
-        expect(message).not.toBeNull();
-        expect(message.currentSource).toBe('ja');
-        expect(message.currentTarget).toBe('en');
-    });
-
-    // DOD-T5: translateLangSelected updates button label and session state
-    test('DOD-T5: translateLangSelected updates button label', async ({ page }) => {
-        const translateLangBtn = page.locator('button[data-action="translateLang"]');
-
-        // Initial label
-        await expect(translateLangBtn).toHaveText('ja → en');
-
-        // Simulate translateLangSelected message
-        await page.evaluate(() => {
-            const event = new MessageEvent('message', {
-                data: {
-                    type: 'translateLangSelected',
-                    sourceLang: 'en',
-                    targetLang: 'fr'
-                }
-            });
-            window.dispatchEvent(event);
-        });
-
-        // Check updated label
-        await expect(translateLangBtn).toHaveText('en → fr');
-    });
 
     // DOD-T14: Existing toolbar buttons still work after translate buttons added
     test('DOD-T14: Existing toolbar buttons regression check', async ({ page }) => {
