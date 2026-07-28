@@ -5,6 +5,14 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.10] - 2026-07-28
+
+### Fixed
+- **md editor: リスト cut（cmd+x）の空マーカー残り** — ネストリストを範囲選択して切り取ると空の •/○/▪ 殻が残っていた → 選択内の空 li を掃除（画像・チェックボックス付き bullet は保全）
+- **md editor: cut→paste でネスト構造が崩れる** — cut のクリップボード変換が「先頭テキスト+子リスト」を連結した壊れた markdown を生成していた → copy と共通化し、空 li への paste で相対ネストごと正しく接ぎ木されるように
+- **md editor: タスク行のテキスト全選択 cut でチェックボックスだけ残る** — 行ごと消えるように（部分選択では checkbox 維持）
+- **md editor: cut 直後の cmd+z でチェックボックスが消えた状態に戻る（約50%）** — cut だけ undo スナップショットが無く、古い状態に戻っていた → cut 前の状態を確実に記録
+
 ## [1.1.9] - 2026-07-28
 
 ### Fixed

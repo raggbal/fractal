@@ -25534,6 +25534,11 @@ class EditorInstance {
 
         e.preventDefault();
         markAsEdited();
+        // undo 用に cut 前の状態を必ず積む（paste :saveSnapshot / Backspace :7591 と同格。
+        // 従来 cut だけ欠けており、cmd+z が「cut 前」でなく直前スナップショット時点に戻っていた。
+        // markdown 変数は rAF 同期で遅延しうるため、DOM から取り直して正確な pre-cut を捕捉する）
+        markdown = htmlToMarkdown();
+        undoManager.saveSnapshot();
 
         const range = sel.getRangeAt(0);
         try {
@@ -25581,28 +25586,45 @@ class EditorInstance {
         // Delete the selection
         range.deleteContents();
 
+        // 「真に空」判定: text も img/checkbox 等の実コンテンツも無い（nested list / br は殻とみなす）。
+        // img/input は textContent が空でも real content（editor.js 既存規約・asset 1:1 ownership）。
+        function isTrulyEmptyShell(el) {
+            if (!el) return true;
+            if (el.textContent && el.textContent.trim()) return false;
+            if (el.querySelector && el.querySelector('img, input, table, pre, hr')) return false;
+            return true;
+        }
+
         // 空になった li 殻を掃除（子リストの昇格 + li 除去 + 空になった親 list 除去）
         for (const li of affectedLis) {
             if (!li || !li.isConnected) continue;
+            // 直下に text / img 等の実コンテンツが残っていれば殻ではない。
+            // checkbox(input) は「cut でテキストが全部消えた task li」では残しても空タスク殻
+            // （Backspace :7699 の empty 規約 = br/checkbox/nested list のみなら空、と同じ）なので
+            // content とみなさない。選択に触れていない子 li の checkbox は昇格側（isTrulyEmptyShell）が守る。
             let hasContent = false;
             for (const child of li.childNodes) {
                 if (child.nodeType === 3 && child.textContent.trim()) { hasContent = true; break; }
                 if (child.nodeType === 1) {
                     const tag = child.tagName ? child.tagName.toLowerCase() : '';
                     if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
-                    if (child.textContent.trim()) { hasContent = true; break; }
+                    // img は textContent 空でも content（TASK-03 / asset 1:1 ownership）
+                    if (tag === 'img') { hasContent = true; break; }
+                    if (child.textContent.trim() || (child.querySelector && child.querySelector('img'))) { hasContent = true; break; }
                 }
             }
             if (hasContent) continue;
             const parentList = li.parentNode;
             const nestedLists = Array.from(li.querySelectorAll(':scope > ul, :scope > ol'));
             for (const nl of nestedLists) {
-                // 空殻でない子だけ昇格（空殻ごと昇格すると殻が残る）
+                // 真に空の殻だけ捨て、実コンテンツ（text/img/checkbox）を持つ子は昇格
+                // （Backspace baseline :7679 は無条件昇格 = 子を落とさない。殻回避のため
+                //   「真に空」のみ破棄に限定 — TASK-03: 旧 textContent 条件は img-only 子を落としていた）
                 while (nl.firstChild) {
-                    if (nl.firstChild.textContent && nl.firstChild.textContent.trim()) {
-                        parentList.insertBefore(nl.firstChild, li);
-                    } else {
+                    if (isTrulyEmptyShell(nl.firstChild)) {
                         nl.removeChild(nl.firstChild);
+                    } else {
+                        parentList.insertBefore(nl.firstChild, li);
                     }
                 }
                 nl.remove();
@@ -25613,7 +25635,7 @@ class EditorInstance {
             while (pl && pl.isConnected && pl !== editor &&
                    (pl.tagName === 'UL' || pl.tagName === 'OL' || pl.tagName === 'LI')) {
                 const isList = pl.tagName === 'UL' || pl.tagName === 'OL';
-                const empty = isList ? pl.children.length === 0 : !(pl.textContent && pl.textContent.trim()) && !pl.querySelector('ul, ol, input, img');
+                const empty = isList ? pl.children.length === 0 : isTrulyEmptyShell(pl) && !pl.querySelector('ul, ol');
                 if (!empty) break;
                 const next = pl.parentNode;
                 pl.remove();
