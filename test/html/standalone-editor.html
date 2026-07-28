@@ -23326,16 +23326,10 @@ class EditorInstance {
     }
 
     // Copy handler - convert selection to Markdown and set to clipboard
-    editor.addEventListener('copy', function(e) {
-        if (isSourceMode) return;
-        
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
-        e.preventDefault();
-        
-        // Get the selected HTML
-        const range = sel.getRangeAt(0);
+    // 選択範囲 → markdown/HTML シリアライズ（copy/cut 共通 — sprint 20260728-135515）。
+    // 従来 cut は mdProcessNode の単純ループを独自に持ち、「先頭テキスト + ネストリスト」の
+    // li ラップ（下記 else 分岐）が効かず `text- child` 連結の壊れた md が clipboard に入っていた。
+    function serializeSelectionToMd(range, sel) {
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
@@ -23393,8 +23387,7 @@ class EditorInstance {
         logger.log('Copy - selected HTML:', selectedHtml.substring(0, 500));
         logger.log('Copy - tempDiv children count:', tempDiv.childNodes.length);
         logger.log('Copy - tempDiv children:', Array.from(tempDiv.childNodes).map(n => n.nodeName + '(' + (n.textContent || '').substring(0, 30) + ')').join(', '));
-        
-        try {
+
             let md = '';
             
             // Check if the selection is just text (no block elements)
@@ -23640,7 +23633,23 @@ class EditorInstance {
                 }
                 md = md.trim();
             }
-            
+        return { md: md, selectedHtml: selectedHtml };
+    }
+
+    editor.addEventListener('copy', function(e) {
+        if (isSourceMode) return;
+        
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+        
+        e.preventDefault();
+        
+        // Get the selected HTML
+        const range = sel.getRangeAt(0);
+        try {
+            const _ser = serializeSelectionToMd(range, sel);
+            const md = _ser.md;
+            const selectedHtml = _ser.selectedHtml;
             logger.log('Copy - converted markdown:', md.substring(0, 200));
             
             // Set clipboard data
@@ -23661,33 +23670,24 @@ class EditorInstance {
     });
 
     // Cut handler - same as copy but also delete selection
+    // sprint 20260728-135515: シリアライズを copy と共通化（serializeSelectionToMd）+
+    // 削除後の空 li 殻掃除（Backspace 範囲選択と同型）を追加。従来は mdProcessNode 単純ループで
+    // 「text- child」連結 md を吐き、deleteContents の空 li 殻（•/○/▪）が残っていた。
     editor.addEventListener('cut', function(e) {
         if (isSourceMode) return;
-        
+
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
+
         e.preventDefault();
         markAsEdited();
-        
-        // Get the selected HTML
+
         const range = sel.getRangeAt(0);
-        const fragment = range.cloneContents();
-        const tempDiv = document.createElement('div');
-        tempDiv.appendChild(fragment);
-        const selectedHtml = tempDiv.innerHTML;
-        
-        // Convert to Markdown using the same logic as htmlToMarkdown()
         try {
-            let md = '';
-            for (const child of tempDiv.childNodes) {
-                md += mdProcessNode(child);
-            }
-            md = md.trim();
-            
-            e.clipboardData.setData('text/plain', md);
-            e.clipboardData.setData('text/html', selectedHtml);
-            e.clipboardData.setData('text/x-any-md', md);
+            const _ser = serializeSelectionToMd(range, sel);
+            e.clipboardData.setData('text/plain', _ser.md);
+            e.clipboardData.setData('text/html', _ser.selectedHtml);
+            e.clipboardData.setData('text/x-any-md', _ser.md);
 
             // v9: Asset context for cross-MD paste (side panel only)
             if (host._assetContext) {
@@ -23699,8 +23699,74 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', sel.toString());
         }
 
+        // 選択内の li を削除前に収集（Backspace 範囲選択 :7622 と同じ手順。掃除対象を選択内に限定）
+        let startLi = null;
+        let n = range.startContainer;
+        while (n && n !== editor) {
+            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { startLi = n; break; }
+            n = n.parentNode;
+        }
+        let endLi = null;
+        n = range.endContainer;
+        while (n && n !== editor) {
+            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { endLi = n; break; }
+            n = n.parentNode;
+        }
+        const affectedLis = [];
+        if (startLi) affectedLis.push(startLi);
+        if (endLi && endLi !== startLi) {
+            const allLis = Array.from(editor.querySelectorAll('li'));
+            const startIdx = allLis.indexOf(startLi);
+            const endIdx = allLis.indexOf(endLi);
+            if (startIdx !== -1 && endIdx !== -1) {
+                const minIdx = Math.min(startIdx, endIdx);
+                const maxIdx = Math.max(startIdx, endIdx);
+                for (let i = minIdx + 1; i <= maxIdx; i++) affectedLis.push(allLis[i]);
+            }
+        }
+
         // Delete the selection
         range.deleteContents();
+
+        // 空になった li 殻を掃除（子リストの昇格 + li 除去 + 空になった親 list 除去）
+        for (const li of affectedLis) {
+            if (!li || !li.isConnected) continue;
+            let hasContent = false;
+            for (const child of li.childNodes) {
+                if (child.nodeType === 3 && child.textContent.trim()) { hasContent = true; break; }
+                if (child.nodeType === 1) {
+                    const tag = child.tagName ? child.tagName.toLowerCase() : '';
+                    if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
+                    if (child.textContent.trim()) { hasContent = true; break; }
+                }
+            }
+            if (hasContent) continue;
+            const parentList = li.parentNode;
+            const nestedLists = Array.from(li.querySelectorAll(':scope > ul, :scope > ol'));
+            for (const nl of nestedLists) {
+                // 空殻でない子だけ昇格（空殻ごと昇格すると殻が残る）
+                while (nl.firstChild) {
+                    if (nl.firstChild.textContent && nl.firstChild.textContent.trim()) {
+                        parentList.insertBefore(nl.firstChild, li);
+                    } else {
+                        nl.removeChild(nl.firstChild);
+                    }
+                }
+                nl.remove();
+            }
+            li.remove();
+            // 空になった祖先 list を editor まで遡って除去
+            let pl = parentList;
+            while (pl && pl.isConnected && pl !== editor &&
+                   (pl.tagName === 'UL' || pl.tagName === 'OL' || pl.tagName === 'LI')) {
+                const isList = pl.tagName === 'UL' || pl.tagName === 'OL';
+                const empty = isList ? pl.children.length === 0 : !(pl.textContent && pl.textContent.trim()) && !pl.querySelector('ul, ol, input, img');
+                if (!empty) break;
+                const next = pl.parentNode;
+                pl.remove();
+                pl = next;
+            }
+        }
         syncMarkdown();
     });
 
