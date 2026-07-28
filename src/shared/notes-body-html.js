@@ -293,6 +293,14 @@ function generateNotesFilePanelHtml(options) {
             color: inherit;
         }
         .notes-tab-bar .notes-tab-add:hover { opacity: 1; }
+        /* FR-TB-03 (sprint 20260728-100501): タブ D&D 並べ替えの挿入位置インジケータ */
+        .notes-tab-bar .notes-tab-drop-line {
+            flex: 0 0 auto;
+            width: 2px;
+            align-self: stretch;
+            background: var(--vscode-focusBorder, #007acc);
+            pointer-events: none;
+        }
         /* v0.207.88: notes md メインペインの toolbar アイコンを sidepanel md / outliner header
            の色味と揃える。standalone editor の color: var(--text-color) は #1A1B1F の真っ黒で
            outliner-search-bar/side-panel-header-btn の opacity: 0.5-0.6 軽減と乖離するため、

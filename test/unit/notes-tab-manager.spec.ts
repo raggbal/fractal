@@ -318,8 +318,9 @@ test.describe('FR-TAB — Notes Tab Manager 純ロジック', () => {
         expect(r).toBe('New Title');
     });
 
-    // TC-TP-06（右クリック→openInVscodeTab・md のみ・FR-TP-06）★load-bearing・counterfactual
-    test('TC-TP-06 md タブ右クリックで Open in VS Code Tab → openInVscodeTab / out タブはメニュー無し', async ({ page }) => {
+    // TC-TP-06 → TC-TB-01/10 に改訂（sprint 20260728-100501 FR-TB-01/06・許可: test_update）:
+    //   ラベルは 'Open in Standalone'、out タブもメニューが出る（Duplicate/Close Other の 2 項目）。
+    test('TC-TB-01 md タブ右クリックで Open in Standalone → openInVscodeTab / TC-TB-10 out タブは 2 項目メニュー', async ({ page }) => {
         await setupTabManager(page);
         const r = await page.evaluate(() => {
             const tm = (window as any).__tm;
@@ -331,26 +332,229 @@ test.describe('FR-TAB — Notes Tab Manager 純ロジック', () => {
                 for (var i = 0; i < els.length; i++) { if ((els[i] as HTMLElement).dataset.tabId === id) return els[i] as HTMLElement; }
                 return null;
             }
-            // out タブに contextmenu → メニュー出ない
+            function menuLabels() {
+                const m = document.querySelector('.file-panel-context-menu');
+                if (!m) return null;
+                return Array.from(m.querySelectorAll('.file-panel-context-item')).map((el) => el.textContent);
+            }
+            // out タブに contextmenu → メニューが出る（FR-TB-06。Standalone は無い = md 限定）
             (window as any).__calls.length = 0;
             tabEl(idOut)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
-            const outMenu = document.querySelector('.file-panel-context-menu');
-            // md タブに contextmenu → メニュー出る → 項目 click → openInVscodeTab
+            const outLabels = menuLabels();
+            // md タブに contextmenu → 3 項目 → Open in Standalone click → openInVscodeTab
             tabEl(idMd)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 }));
+            const mdLabels = menuLabels();
             const mdMenu = document.querySelector('.file-panel-context-menu');
             const item = mdMenu ? mdMenu.querySelector('.file-panel-context-item') as HTMLElement : null;
             if (item) item.click();
             const calls = (window as any).__calls.map((c: any) => c.m + ':' + (c.fp || ''));
             return {
-                outMenuShown: !!outMenu,
-                mdMenuShown: !!mdMenu,
+                outLabels, mdLabels,
                 itemLabel: item ? item.textContent : null,
                 openInVscodeTabCalled: calls.filter((s: string) => s === 'openInVscodeTab:/note/b.md').length,
             };
         });
-        expect(r.outMenuShown).toBe(false);   // ★ out タブはメニュー出ない
-        expect(r.mdMenuShown).toBe(true);      // md タブはメニュー出る
-        expect(r.itemLabel).toBe('Open in VS Code Tab');
+        expect(r.outLabels).toEqual(['Duplicate Tab', 'Close Other Tabs']);   // ★ out は 2 項目（Standalone なし）
+        expect(r.mdLabels).toEqual(['Open in Standalone', 'Duplicate Tab', 'Close Other Tabs']);
+        expect(r.itemLabel).toBe('Open in Standalone');
         expect(r.openInVscodeTabCalled).toBe(1);  // ★ 項目 click で openInVscodeTab(filePath)
+    });
+
+    // ── sprint 20260728-100501: cmd+w（FR-TB-02） ──
+    test('TC-TB-02 ★ 複数タブで cmd+w → アクティブタブが閉じる + preventDefault', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            tm.openInNewTab('/note/b.md', 'md');
+            tm.openInNewTab('/note/c.md', 'md');
+            const ev = new KeyboardEvent('keydown', { key: 'w', metaKey: true, cancelable: true, bubbles: true });
+            document.dispatchEvent(ev);
+            return { tabs: tm.getTabs().length, prevented: ev.defaultPrevented };
+        });
+        // counterfactual: 実装前は tabs=3 のまま prevented=false = RED
+        expect(r.tabs).toBe(2);
+        expect(r.prevented).toBe(true);
+    });
+
+    test('TC-TB-03 ★番人: 1 タブで cmd+w → 素通し（defaultPrevented=false・VS Code に流れる）', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            const ev = new KeyboardEvent('keydown', { key: 'w', metaKey: true, cancelable: true, bubbles: true });
+            document.dispatchEvent(ev);
+            return { tabs: tm.getTabs().length, prevented: ev.defaultPrevented };
+        });
+        // counterfactual: length ガードを欠くと prevented=true = RED（NFR-TB-01 違反）
+        expect(r.tabs).toBe(1);
+        expect(r.prevented).toBe(false);
+    });
+
+    test('TC-TB-04 shift/alt 付き・isComposing の cmd+w は奪わない', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            tm.openInNewTab('/note/b.md', 'md');
+            const mk = (init: any) => {
+                const ev = new KeyboardEvent('keydown', Object.assign({ key: 'w', cancelable: true, bubbles: true }, init));
+                document.dispatchEvent(ev);
+                return ev.defaultPrevented;
+            };
+            return {
+                shift: mk({ metaKey: true, shiftKey: true }),
+                alt: mk({ metaKey: true, altKey: true }),
+                composing: mk({ metaKey: true, isComposing: true }),
+                tabs: tm.getTabs().length,
+            };
+        });
+        expect(r.shift).toBe(false);
+        expect(r.alt).toBe(false);
+        expect(r.composing).toBe(false);
+        expect(r.tabs).toBe(2);   // どれもタブを閉じていない
+    });
+
+    // ── sprint 20260728-100501: タブ D&D 並べ替え（FR-TB-03） ──
+    test('TC-TB-05 ★ moveTab: 順序変更・activeId/state 不変', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            const idA = tm.initFirstTab('/note/a.out', 'out');
+            const idB = tm.openInNewTab('/note/b.md', 'md');
+            const idC = tm.openInNewTab('/note/c.md', 'md');
+            // C の scroll state を作る（並べ替えで壊れないことの確認用）
+            tm.getTabs();
+            const activeBefore = tm.getActiveId();
+            tm.moveTab(idC, idA, true);   // C を A の前へ
+            const order = tm.getTabs().map((t: any) => t.filePath);
+            return { order, activeSame: tm.getActiveId() === activeBefore, ids: [idA, idB, idC] };
+        });
+        expect(r.order).toEqual(['/note/c.md', '/note/a.out', '/note/b.md']);
+        expect(r.activeSame).toBe(true);
+    });
+
+    test('TC-TB-06 DOM D&D: dragstart→dragover(右半分)→drop で並び替わり drop-line 表示', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            tm.openInNewTab('/note/b.md', 'md');
+            tm.openInNewTab('/note/c.md', 'md');
+            const bar = document.getElementById('notesTabBar')!;
+            const els = bar.querySelectorAll('.notes-tab');
+            const first = els[0] as HTMLElement;   // a.out
+            const last = els[2] as HTMLElement;    // c.md
+            const dt = new DataTransfer();
+            first.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+            const lr = last.getBoundingClientRect();
+            last.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, dataTransfer: dt, clientX: lr.right - 1, clientY: lr.top + 2,
+            }));
+            const lineShown = !!bar.querySelector('.notes-tab-drop-line');
+            last.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, dataTransfer: dt, clientX: lr.right - 1, clientY: lr.top + 2,
+            }));
+            first.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+            const order = tm.getTabs().map((t: any) => t.filePath);
+            const lineGone = !bar.querySelector('.notes-tab-drop-line');
+            return { lineShown, lineGone, order };
+        });
+        expect(r.lineShown).toBe(true);
+        expect(r.lineGone).toBe(true);
+        expect(r.order).toEqual(['/note/b.md', '/note/c.md', '/note/a.out']);  // a が c の後ろへ
+    });
+
+    test('TC-TB-07 自分自身への moveTab は no-op', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            const idA = tm.initFirstTab('/note/a.out', 'out');
+            tm.openInNewTab('/note/b.md', 'md');
+            tm.moveTab(idA, idA, true);
+            return tm.getTabs().map((t: any) => t.filePath);
+        });
+        expect(r).toEqual(['/note/a.out', '/note/b.md']);
+    });
+
+    // ── sprint 20260728-100501: Close Other Tabs / Duplicate Tab（FR-TB-04/05） ──
+    test('TC-TB-08 ★ Close Other Tabs: 右クリックタブだけ残る・openFile は activateTab の 1 回', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            const idB = tm.openInNewTab('/note/b.md', 'md');
+            tm.openInNewTab('/note/c.md', 'md');   // アクティブ = c
+            const bar = document.getElementById('notesTabBar')!;
+            function tabEl(id: string) {
+                var els = bar.querySelectorAll('.notes-tab');
+                for (var i = 0; i < els.length; i++) { if ((els[i] as HTMLElement).dataset.tabId === id) return els[i] as HTMLElement; }
+                return null;
+            }
+            (window as any).__calls.length = 0;
+            tabEl(idB)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+            const menu = document.querySelector('.file-panel-context-menu')!;
+            const items = Array.from(menu.querySelectorAll('.file-panel-context-item')) as HTMLElement[];
+            const closeOther = items.find((el) => el.textContent === 'Close Other Tabs')!;
+            closeOther.click();
+            const calls = (window as any).__calls.map((c: any) => c.m);
+            return {
+                tabs: tm.getTabs().map((t: any) => t.filePath),
+                activeIsB: tm.getActiveId() === idB,
+                openFileCount: calls.filter((m: string) => m === 'openFile').length,
+            };
+        });
+        expect(r.tabs).toEqual(['/note/b.md']);
+        expect(r.activeIsB).toBe(true);
+        // counterfactual: closeTab ループ実装なら閉じるたびに loadTab が走り openFile 複数回 = RED
+        expect(r.openFileCount).toBe(1);
+    });
+
+    test('TC-TB-09 Duplicate Tab: 同 filePath/kind の完全独立な新タブ', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            tm.initFirstTab('/note/a.out', 'out');
+            const idB = tm.openInNewTab('/note/b.md', 'md');
+            // B の scroll state を作る
+            (window as any).__mockScrollEl.scrollTop = 123;
+            const bar = document.getElementById('notesTabBar')!;
+            function tabEl(id: string) {
+                var els = bar.querySelectorAll('.notes-tab');
+                for (var i = 0; i < els.length; i++) { if ((els[i] as HTMLElement).dataset.tabId === id) return els[i] as HTMLElement; }
+                return null;
+            }
+            tabEl(idB)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
+            const menu = document.querySelector('.file-panel-context-menu')!;
+            const items = Array.from(menu.querySelectorAll('.file-panel-context-item')) as HTMLElement[];
+            const dup = items.find((el) => el.textContent === 'Duplicate Tab')!;
+            dup.click();
+            const tabs = tm.getTabs();
+            const newTab = tabs[tabs.length - 1];
+            return {
+                count: tabs.length,
+                newFp: newTab.filePath, newKind: newTab.kind,
+                newIsActive: tm.getActiveId() === newTab.id,
+                distinctId: newTab.id !== idB,
+                newScroll: newTab.mainScrollTop,   // 独立 state（複製元の 123 を引き継がない）
+            };
+        });
+        expect(r.count).toBe(3);
+        expect(r.newFp).toBe('/note/b.md');
+        expect(r.newKind).toBe('md');
+        expect(r.newIsActive).toBe(true);
+        expect(r.distinctId).toBe(true);
+        expect(r.newScroll).toBe(0);
+    });
+
+    test('TC-TB-11 1 タブで closeOtherTabs → no-op', async ({ page }) => {
+        await setupTabManager(page);
+        const r = await page.evaluate(() => {
+            const tm = (window as any).__tm;
+            const idA = tm.initFirstTab('/note/a.out', 'out');
+            tm.closeOtherTabs(idA);
+            return tm.getTabs().length;
+        });
+        expect(r).toBe(1);
     });
 });
