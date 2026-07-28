@@ -3,7 +3,8 @@ import * as path from 'path';
 import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets } from './paste-asset-handler';
+import * as crypto from 'crypto';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
@@ -535,6 +536,19 @@ export async function handleNotesMessage(
         case 'handlePageAssetsCross': {
             const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!clipData) break;
+            // sprint 20260728-200503: stale cut メタ矯正（Store の isCut が真実）
+            const pgCut = resolveCrossPasteCut(!!message.isCut, clipData.isCut);
+            let effNewPageId = message.newPageId as string | null;
+            if (pgCut.staleCutCorrected && !effNewPageId && message.pageId) {
+                // webview は cut 分岐で旧 pageId を保持している → copy として新 id を発行し postback
+                effNewPageId = crypto.randomUUID();
+                console.warn('[NotesMessageHandler] stale cut meta corrected to copy (pageId re-issued):', message.pageId, '->', effNewPageId);
+                sender.postMessage({
+                    type: 'updateNodePageId',
+                    nodeId: message.targetNodeId,
+                    newPageId: effNewPageId
+                });
+            }
             const currentFilePath = fileManager.getCurrentFilePath();
             const destPagesDir = fileManager.getPagesDirPath();
             const result = handlePageAssets({
@@ -543,27 +557,26 @@ export async function handleNotesMessage(
                 destOutDir: currentFilePath ? path.dirname(currentFilePath) : destPagesDir,
                 destPagesDir,
                 pageId: message.pageId,
-                newPageId: message.newPageId,
+                newPageId: pgCut.effectiveIsCut ? null : effNewPageId,
                 nodeImages: message.nodeImages || [],
-                sameDirSkip: message.isCut
+                sameDirSkip: pgCut.effectiveIsCut
             });
             sender.postMessage({
                 type: 'updateNodeImages',
                 nodeId: message.targetNodeId,
                 newImages: result.newNodeImages
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 
         case 'copyImagesCross': {
             const imgClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!imgClipData || !message.images) break;
+            const imgCut = resolveCrossPasteCut(!!message.isCut, imgClipData.isCut);
+            if (imgCut.staleCutCorrected) console.warn('[NotesMessageHandler] stale cut meta corrected to copy (images)');
             const currentFilePath = fileManager.getCurrentFilePath();
             const destPagesDir = fileManager.getPagesDirPath();
-            const result = message.isCut
+            const result = imgCut.effectiveIsCut
                 ? moveImageAssets({
                     srcOutDir: imgClipData.sourceOutDir,
                     srcPagesDir: imgClipData.sourcePagesDirPath,
@@ -584,15 +597,14 @@ export async function handleNotesMessage(
                 nodeId: message.targetNodeId,
                 newImages: result.newNodeImages
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 
         case 'handleFileAssetCross': {
             const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!fileClipData || !message.filePath) break;
+            const faCut = resolveCrossPasteCut(!!message.isCut, fileClipData.isCut);
+            if (faCut.staleCutCorrected) console.warn('[NotesMessageHandler] stale cut meta corrected to copy (file)');
             const currentFilePathFA = fileManager.getCurrentFilePath();
             const destFileDirFA = fileManager.getFileDirPath();
             const resultFA = handleFileAsset({
@@ -601,17 +613,14 @@ export async function handleNotesMessage(
                 destOutDir: currentFilePathFA ? path.dirname(currentFilePathFA) : destFileDirFA,
                 destFileDir: destFileDirFA,
                 filePath: message.filePath,
-                useCollisionSuffix: !message.isCut,
-                sameDirSkip: message.isCut
+                useCollisionSuffix: !faCut.effectiveIsCut,
+                sameDirSkip: faCut.effectiveIsCut
             });
             sender.postMessage({
                 type: 'updateNodeFilePath',
                 nodeId: message.nodeId,
                 newFilePath: resultFA.newFilePath
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 

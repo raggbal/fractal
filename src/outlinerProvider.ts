@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
@@ -10,7 +11,7 @@ import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets } from './shared/paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets, resolveCrossPasteCut } from './shared/paste-asset-handler';
 import { setFirstH1, writeFileIfChanged } from './shared/md-h1-utils';
 import { safeResolveUnderDir } from './shared/path-safety';
 import * as flatLayout from './shared/flat-layout';
@@ -536,6 +537,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'handlePageAssetsCross': {
                         const clipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (clipData) {
+                            // sprint 20260728-200503: stale cut メタ矯正（Store の isCut が真実）
+                            const pgCut = resolveCrossPasteCut(!!message.isCut, clipData.isCut);
+                            let effNewPageId = message.newPageId as string | null;
+                            if (pgCut.staleCutCorrected && !effNewPageId && message.pageId) {
+                                effNewPageId = crypto.randomUUID();
+                                console.warn('[Outliner] stale cut meta corrected to copy (pageId re-issued):', message.pageId, '->', effNewPageId);
+                                webviewPanel.webview.postMessage({
+                                    type: 'updateNodePageId',
+                                    nodeId: message.targetNodeId,
+                                    newPageId: effNewPageId
+                                });
+                            }
                             await this.ensurePagesDir(document);
                             const result = handlePageAssets({
                                 srcOutDir: clipData.sourceOutDir,
@@ -543,18 +556,15 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 destOutDir: path.dirname(document.uri.fsPath),
                                 destPagesDir: this.getPagesDirPath(document),
                                 pageId: message.pageId,
-                                newPageId: message.newPageId,
+                                newPageId: pgCut.effectiveIsCut ? null : effNewPageId,
                                 nodeImages: message.nodeImages || [],
-                                sameDirSkip: message.isCut
+                                sameDirSkip: pgCut.effectiveIsCut
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeImages',
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }
@@ -562,8 +572,10 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'copyImagesCross': {
                         const imgClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (imgClipData && message.images) {
+                            const imgCut = resolveCrossPasteCut(!!message.isCut, imgClipData.isCut);
+                            if (imgCut.staleCutCorrected) console.warn('[Outliner] stale cut meta corrected to copy (images)');
                             await this.ensurePagesDir(document);
-                            const result = message.isCut
+                            const result = imgCut.effectiveIsCut
                                 ? moveImageAssets({
                                     srcOutDir: imgClipData.sourceOutDir,
                                     srcPagesDir: imgClipData.sourcePagesDirPath,
@@ -584,9 +596,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }
@@ -594,23 +603,22 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'handleFileAssetCross': {
                         const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
                         if (fileClipData && message.filePath) {
+                            const faCut = resolveCrossPasteCut(!!message.isCut, fileClipData.isCut);
+                            if (faCut.staleCutCorrected) console.warn('[Outliner] stale cut meta corrected to copy (file)');
                             const result = handleFileAsset({
                                 srcOutDir: fileClipData.sourceOutDir,
                                 srcFileDir: fileClipData.sourceFileDirPath || path.join(fileClipData.sourceOutDir, 'files'),
                                 destOutDir: path.dirname(document.uri.fsPath),
                                 destFileDir: this.getFileDirPath(document),
                                 filePath: message.filePath,
-                                useCollisionSuffix: !message.isCut,
-                                sameDirSkip: message.isCut
+                                useCollisionSuffix: !faCut.effectiveIsCut,
+                                sameDirSkip: faCut.effectiveIsCut
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'updateNodeFilePath',
                                 nodeId: message.nodeId,
                                 newFilePath: result.newFilePath
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }

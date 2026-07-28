@@ -212,32 +212,131 @@ test.describe('handleImageAssets', () => {
     });
 });
 
-test.describe('ClipboardStore consumption (DOD-R12)', () => {
-    test('host handler calls consumeIfCut only when isCut=true', async ({ page }) => {
-        // This is a source-code verification test
-        // Read the outlinerProvider.ts to verify the pattern
+test.describe('ClipboardStore non-consumption (sprint 20260728-200503 — 旧 DOD-R12 を改訂)', () => {
+    // 旧 DOD-R12 は「cut の cross message 処理後に consumeIfCut でストアを消す」ことを契約に
+    // していたが、paste は node ごとに 1 message のため、1 個目の処理でストアを消すと
+    // 2 個目以降の全 asset が store miss → silent no-op になるデータ整合バグ（cross-note
+    // 全選択 paste で 1 個目の md だけ複製され以降全滅）を生んでいた。
+    // 新契約: cross handler はストアを消費しない（次の copy/cut の save で上書き）。
+    test('host handlers do NOT consume the store (multi-node paste keeps store alive)', async ({ page }) => {
         const fs = require('fs');
         const path = require('path');
-        const providerPath = path.join(__dirname, '../../src/outlinerProvider.ts');
-        const providerContent = fs.readFileSync(providerPath, 'utf-8');
+        for (const rel of ['../../src/outlinerProvider.ts', '../../src/shared/notes-message-handler.ts']) {
+            const content = fs.readFileSync(path.join(__dirname, rel), 'utf-8');
+            // counterfactual: consumeIfCut 呼び出しが復活したら RED
+            expect(content).not.toContain('consumeIfCut(');
+        }
+        // Store 本体からも one-shot 消費 API が消えている（コメント内の言及は許容）
+        const storeSrc = fs.readFileSync(
+            path.join(__dirname, '../../src/shared/outliner-clipboard-store.ts'), 'utf-8');
+        expect(storeSrc).not.toMatch(/static\s+consumeIfCut/);
+    });
 
-        // Verify handlePageAssetsCross handler
-        const handlePageAssetsCrossMatch = providerContent.match(
-            /case\s+'handlePageAssetsCross'[\s\S]*?if\s*\(\s*message\.isCut\s*\)\s*\{[\s\S]*?consumeIfCut\s*\(\s*message\.clipboardPlainText\s*\)/
-        );
-        expect(handlePageAssetsCrossMatch).toBeTruthy();
+    // ── sprint 20260728-200503 追加: stale cut メタ矯正（resolveCrossPasteCut） ──
+    //   webview の message.isCut は OS クリップボード HTML メタ由来で、clipboard.write 失敗で
+    //   過去の cut メタが残ると copy 操作が cut として届く。Store の isCut（copy/cut 時に
+    //   OS クリップボード非経由で保存される真実）との AND で実効値を決める。
+    test('resolveCrossPasteCut: stale cut meta is corrected to copy (Store isCut is truth)', async ({ page }) => {
+        const path = require('path');
+        const ROOT = path.resolve(__dirname, '../..');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { resolveCrossPasteCut } = require(path.join(ROOT, 'out/shared/paste-asset-handler.js'));
+        // 誤判定ケース: webview=cut / Store=copy → copy に矯正 + 矯正フラグ
+        expect(resolveCrossPasteCut(true, false)).toEqual({ effectiveIsCut: false, staleCutCorrected: true });
+        // 正常ケース
+        expect(resolveCrossPasteCut(true, true)).toEqual({ effectiveIsCut: true, staleCutCorrected: false });
+        expect(resolveCrossPasteCut(false, false)).toEqual({ effectiveIsCut: false, staleCutCorrected: false });
+        // webview=copy / Store=cut → copy のまま（新 id 複製は常に安全）
+        expect(resolveCrossPasteCut(false, true)).toEqual({ effectiveIsCut: false, staleCutCorrected: false });
+    });
 
-        // Verify handleFileAssetCross handler
-        const handleFileAssetCrossMatch = providerContent.match(
-            /case\s+'handleFileAssetCross'[\s\S]*?if\s*\(\s*message\.isCut\s*\)\s*\{[\s\S]*?consumeIfCut\s*\(\s*message\.clipboardPlainText\s*\)/
-        );
-        expect(handleFileAssetCrossMatch).toBeTruthy();
+    test('host handlers route isCut through resolveCrossPasteCut (source-contract, both providers)', async ({ page }) => {
+        const fs = require('fs');
+        const path = require('path');
+        for (const rel of ['../../src/outlinerProvider.ts', '../../src/shared/notes-message-handler.ts']) {
+            const content = fs.readFileSync(path.join(__dirname, rel), 'utf-8');
+            // 3 つの cross case すべてが resolveCrossPasteCut を通す（生 message.isCut を
+            // sameDirSkip / move-copy 分岐 / useCollisionSuffix に直接使わない）
+            for (const caseName of ['handlePageAssetsCross', 'copyImagesCross', 'handleFileAssetCross']) {
+                const idx = content.indexOf(`case '${caseName}'`);
+                expect(idx).toBeGreaterThan(-1);
+                // 次の case までを対象（`if (!clipData) break;` の early-return で切らない）
+                const nextCase = content.indexOf("case '", idx + 10);
+                const block = content.slice(idx, nextCase > 0 ? nextCase : idx + 3000);
+                expect(block).toContain('resolveCrossPasteCut');
+            }
+            // stale 矯正時に新 pageId を postback する（旧 id 共有 = 1:1 所有違反の防止）
+            expect(content).toContain("type: 'updateNodePageId'");
+        }
+        // webview 側に受信 handler が存在
+        const outlinerJs = fs.readFileSync(path.join(__dirname, '../../src/webview/outliner.js'), 'utf-8');
+        expect(outlinerJs).toContain("case 'updateNodePageId'");
+    });
 
-        // Verify copyImagesCross handler (should also have the same pattern)
-        const copyImagesCrossMatch = providerContent.match(
-            /case\s+'copyImagesCross'[\s\S]*?if\s*\(\s*message\.isCut\s*\)\s*\{[\s\S]*?consumeIfCut\s*\(\s*message\.clipboardPlainText\s*\)/
-        );
-        expect(copyImagesCrossMatch).toBeTruthy();
+    // ★番人（実挙動）: 「asset を持つ node 2 個以上」の cross paste 相当の連続 handler 呼び出しで
+    //   2 個目以降も store が生きて実体コピーされる。counterfactual: one-shot 消費があると
+    //   2 個目が store miss で dest に実体が作られず RED（今回の実バグの最小再現）。
+    test('multi-asset cross paste: 2nd+ assets are copied (store survives 1st message)', async ({ page }) => {
+        const fs = require('fs');
+        const os = require('os');
+        const path = require('path');
+        const ROOT = path.resolve(__dirname, '../..');
+        // out/ の compiled store + handler 相当を直接駆動（vscode 非依存の純部分）
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { OutlinerClipboardStore } = require(path.join(ROOT, 'out/shared/outliner-clipboard-store.js'));
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const pah = require(path.join(ROOT, 'out/shared/paste-asset-handler.js'));
+
+        const src = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-cnp-src-'));
+        const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-cnp-dest-'));
+        try {
+            fs.mkdirSync(path.join(src, 'images'));
+            fs.writeFileSync(path.join(src, 'p1.md'), '# One\n');
+            fs.writeFileSync(path.join(src, 'p2.md'), '# Two\n');
+            fs.writeFileSync(path.join(src, 'images', 'pic.png'), 'PNG');
+
+            OutlinerClipboardStore.save({
+                plainText: 'n1\nn2\nn3', isCut: true,
+                nodes: [], sourcePagesDirPath: src, sourceImagesDirPath: path.join(src, 'images'),
+                sourceFileDirPath: path.join(src, 'files'), sourceOutDir: src,
+            });
+
+            // message[0]: page md（cut 経路 = 同名コピー）
+            const clip1 = OutlinerClipboardStore.get('n1\nn2\nn3');
+            expect(clip1).toBeTruthy();
+            pah.handlePageAssets({
+                srcOutDir: clip1.sourceOutDir, srcPagesDir: clip1.sourcePagesDirPath,
+                destOutDir: dest, destPagesDir: dest,
+                pageId: 'p1', newPageId: null, nodeImages: [], sameDirSkip: true,
+            });
+            // （旧実装はここで consumeIfCut → store null 化していた）
+
+            // message[1]: 2 個目の page md — store が生きていること
+            const clip2 = OutlinerClipboardStore.get('n1\nn2\nn3');
+            expect(clip2).toBeTruthy();   // ★ counterfactual: 旧実装なら null = RED
+            pah.handlePageAssets({
+                srcOutDir: clip2.sourceOutDir, srcPagesDir: clip2.sourcePagesDirPath,
+                destOutDir: dest, destPagesDir: dest,
+                pageId: 'p2', newPageId: null, nodeImages: [], sameDirSkip: true,
+            });
+
+            // message[2]: 画像
+            const clip3 = OutlinerClipboardStore.get('n1\nn2\nn3');
+            expect(clip3).toBeTruthy();
+            pah.moveImageAssets({
+                srcOutDir: clip3.sourceOutDir, srcPagesDir: clip3.sourcePagesDirPath,
+                destOutDir: dest, destPagesDir: dest,
+                nodeImages: ['images/pic.png'],
+            });
+
+            // 全 asset が dest に実体化されている（今回の実バグでは p2/pic が欠落していた）
+            expect(fs.existsSync(path.join(dest, 'p1.md'))).toBe(true);
+            expect(fs.existsSync(path.join(dest, 'p2.md'))).toBe(true);
+            expect(fs.existsSync(path.join(dest, 'images', 'pic.png'))).toBe(true);
+        } finally {
+            fs.rmSync(src, { recursive: true, force: true });
+            fs.rmSync(dest, { recursive: true, force: true });
+        }
     });
 });
 

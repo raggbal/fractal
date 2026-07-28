@@ -278,6 +278,24 @@ function copyAssetsAndRewriteForMd(
  * - newPageId set: copy with rename prefix (copy behavior)
  * - sameDirSkip=true + same dir: no-op
  */
+/**
+ * cross paste の cut/copy セマンティクス確定（sprint 20260728-200503 — 両 provider の単一施行点）。
+ * webview の message.isCut は OS クリップボードの HTML メタ由来で、clipboard.write 失敗等で
+ * **過去の cut 操作の stale メタ**を拾いうる。host の Store には copy/cut 時に OS クリップボードと
+ * 無関係の直接 message で真実の isCut が保存されているため、両者の AND を実効値とする:
+ * - webview=cut / Store=copy → stale cut メタ確定 → copy に矯正（staleCutCorrected=true。
+ *   呼び出し側は新 pageId を発行し updateNodePageId で webview に postback する）
+ * - webview=copy / Store=cut → copy のまま（新 id での複製は常に安全。cut の元削除は
+ *   ソース webview が実施済みで、残 md は orphan として cleanup が回収）
+ */
+export function resolveCrossPasteCut(messageIsCut: boolean, storeIsCut: boolean): {
+    effectiveIsCut: boolean;
+    staleCutCorrected: boolean;
+} {
+    const effectiveIsCut = !!messageIsCut && !!storeIsCut;
+    return { effectiveIsCut, staleCutCorrected: !!messageIsCut && !storeIsCut };
+}
+
 export function handlePageAssets(opts: {
     srcOutDir: string;
     srcPagesDir: string;

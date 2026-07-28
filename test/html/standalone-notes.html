@@ -34037,13 +34037,21 @@ var Outliner = (function() {
         // メタデータをHTMLに埋め込み (cross-webview paste用)。copyId(nonce) で同一コピー操作を識別。
         var metaJson = JSON.stringify({ nodes: nodesData, sourceOutFileKey: currentOutFileKey, isCut: !!isCut, copyId: copyId });
         htmlText = htmlText.replace(/^<ul>/, '<ul data-outliner-clipboard="' + encodeURIComponent(metaJson) + '">');
+        // sprint 20260728-200503: write() は async — 従来の try/catch は同期例外しか捕まえず、
+        // 書き込み失敗時に OS クリップボードへ「過去の cut/copy の HTML メタ」が残り、
+        // 次の paste が stale メタ（isCut 等）を拾う誤判定源になっていた。
+        // reject 時は writeText（プレーンのみ = メタ無し）へフォールバックし、
+        // 「新メタ付き」か「新テキストのみ」のどちらかを必ず OS クリップボードに置く。
         try {
             navigator.clipboard.write([
                 new ClipboardItem({
                     'text/plain': new Blob([plainText], { type: 'text/plain' }),
                     'text/html': new Blob([htmlText], { type: 'text/html' })
                 })
-            ]);
+            ]).catch(function(err) {
+                console.warn('[Outliner] clipboard.write failed, falling back to plain text:', err);
+                try { navigator.clipboard.writeText(plainText); } catch (e2) { /* ignore */ }
+            });
         } catch (err) {
             navigator.clipboard.writeText(plainText);
         }
@@ -38381,6 +38389,19 @@ var Outliner = (function() {
                     var tNode = model.getNode(msg.nodeId);
                     if (!tNode) break;
                     tNode.images = Array.isArray(msg.newImages) ? msg.newImages.slice() : [];
+                    renderTree();
+                    scheduleSyncToHost();
+                    break;
+                }
+
+                case 'updateNodePageId': {
+                    // sprint 20260728-200503: host が stale cut メタを copy に矯正して
+                    // 新 pageId を発行した際の postback（旧 pageId のままだとソース md を共有してしまう）
+                    if (!msg.nodeId || !msg.newPageId) break;
+                    var pgNode = model.getNode(msg.nodeId);
+                    if (!pgNode) break;
+                    pgNode.isPage = true;
+                    pgNode.pageId = msg.newPageId;
                     renderTree();
                     scheduleSyncToHost();
                     break;

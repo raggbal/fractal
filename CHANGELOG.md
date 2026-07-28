@@ -5,6 +5,12 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.11] - 2026-07-28
+
+### Fixed
+- **outliner: note 間の node コピーで 2 個目以降の添付（page md / 画像 / ファイル）が複製されないバグ** — 内部クリップボード store の one-shot 消費が最初の複製処理後に store を消し、以降の複製が silent no-op になっていた（cut では構造的に必ず発生）→ 消費を廃止し全 node の添付が確実に複製されるように
+- **outliner: cmd+c が cut として扱われる誤判定の防御** — クリップボード書き込みの async 失敗で古い cut メタが OS クリップボードに残留し、次の copy 操作を cut と誤判定していた → 失敗時フォールバック + host 側で copy/cut を突き合わせて矯正（誤判定時は新 pageId を発行し、2 つの node が同じ page md を共有する事故を防止）
+
 ## [1.1.10] - 2026-07-28
 
 ### Fixed

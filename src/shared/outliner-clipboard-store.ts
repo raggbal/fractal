@@ -44,13 +44,13 @@ export class OutlinerClipboardStore {
         return this.data;
     }
 
-    static consumeIfCut(plainText: string): void {
-        if (!this.data) return;
-        if (
-            this.data.plainText === plainText ||
-            this.data.plainText.trim() === (plainText || '').trim()
-        ) {
-            if (this.data.isCut) this.data = null;
-        }
-    }
+    /**
+     * sprint 20260728-200503: 旧 consumeIfCut（cut の最初の cross message 処理後に Store を
+     * null 化する one-shot 消費）は廃止。paste は node ごとに 1 message
+     * （handlePageAssetsCross / copyImagesCross / handleFileAssetCross）を送るため、
+     * 1 個目の処理でストアを消すと 2 個目以降の全 asset が store miss → silent no-op になり
+     * 「複数 asset node の cut/copy→paste で 1 個目しか複製されない」データ整合バグを生んでいた。
+     * cut の「元を消す」処理は webview 側 deleteSelectedNodes() が担っており、Store の消費は
+     * 不要（次の copy/cut の save で自然に上書きされる）。
+     */
 }
