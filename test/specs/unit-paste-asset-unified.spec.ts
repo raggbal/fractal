@@ -232,6 +232,47 @@ test.describe('ClipboardStore non-consumption (sprint 20260728-200503 — 旧 DO
         expect(storeSrc).not.toMatch(/static\s+consumeIfCut/);
     });
 
+    // ── sprint 20260728-200503 追加: stale cut メタ矯正（resolveCrossPasteCut） ──
+    //   webview の message.isCut は OS クリップボード HTML メタ由来で、clipboard.write 失敗で
+    //   過去の cut メタが残ると copy 操作が cut として届く。Store の isCut（copy/cut 時に
+    //   OS クリップボード非経由で保存される真実）との AND で実効値を決める。
+    test('resolveCrossPasteCut: stale cut meta is corrected to copy (Store isCut is truth)', async ({ page }) => {
+        const path = require('path');
+        const ROOT = path.resolve(__dirname, '../..');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { resolveCrossPasteCut } = require(path.join(ROOT, 'out/shared/paste-asset-handler.js'));
+        // 誤判定ケース: webview=cut / Store=copy → copy に矯正 + 矯正フラグ
+        expect(resolveCrossPasteCut(true, false)).toEqual({ effectiveIsCut: false, staleCutCorrected: true });
+        // 正常ケース
+        expect(resolveCrossPasteCut(true, true)).toEqual({ effectiveIsCut: true, staleCutCorrected: false });
+        expect(resolveCrossPasteCut(false, false)).toEqual({ effectiveIsCut: false, staleCutCorrected: false });
+        // webview=copy / Store=cut → copy のまま（新 id 複製は常に安全）
+        expect(resolveCrossPasteCut(false, true)).toEqual({ effectiveIsCut: false, staleCutCorrected: false });
+    });
+
+    test('host handlers route isCut through resolveCrossPasteCut (source-contract, both providers)', async ({ page }) => {
+        const fs = require('fs');
+        const path = require('path');
+        for (const rel of ['../../src/outlinerProvider.ts', '../../src/shared/notes-message-handler.ts']) {
+            const content = fs.readFileSync(path.join(__dirname, rel), 'utf-8');
+            // 3 つの cross case すべてが resolveCrossPasteCut を通す（生 message.isCut を
+            // sameDirSkip / move-copy 分岐 / useCollisionSuffix に直接使わない）
+            for (const caseName of ['handlePageAssetsCross', 'copyImagesCross', 'handleFileAssetCross']) {
+                const idx = content.indexOf(`case '${caseName}'`);
+                expect(idx).toBeGreaterThan(-1);
+                // 次の case までを対象（`if (!clipData) break;` の early-return で切らない）
+                const nextCase = content.indexOf("case '", idx + 10);
+                const block = content.slice(idx, nextCase > 0 ? nextCase : idx + 3000);
+                expect(block).toContain('resolveCrossPasteCut');
+            }
+            // stale 矯正時に新 pageId を postback する（旧 id 共有 = 1:1 所有違反の防止）
+            expect(content).toContain("type: 'updateNodePageId'");
+        }
+        // webview 側に受信 handler が存在
+        const outlinerJs = fs.readFileSync(path.join(__dirname, '../../src/webview/outliner.js'), 'utf-8');
+        expect(outlinerJs).toContain("case 'updateNodePageId'");
+    });
+
     // ★番人（実挙動）: 「asset を持つ node 2 個以上」の cross paste 相当の連続 handler 呼び出しで
     //   2 個目以降も store が生きて実体コピーされる。counterfactual: one-shot 消費があると
     //   2 個目が store miss で dest に実体が作られず RED（今回の実バグの最小再現）。
