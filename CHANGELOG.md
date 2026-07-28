@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.8] - 2026-07-28
+
+### Added
+- **Notes タブ: cmd+w でタブを閉じる** — 複数タブのときアクティブタブを閉じる。タブが 1 つのときは VS Code に流れて VS Code タブが閉じる
+- **Notes タブ: D&D 並べ替え** — タブをドラッグして並び替え（挿入位置インジケータ付き。スクロール位置・サイドパネル状態は維持）
+- **Notes タブ: 右クリックメニュー拡充** — 「Close Other Tabs」（そのタブだけ残す）「Duplicate Tab」(同じファイルを完全独立の新タブで開く)。outliner タブでもメニューが出るように
+
+### Changed
+- **タブ右クリック「Open in VS Code Tab」→「Open in Standalone」にリネーム**（機能は不変）
+
 ## [1.1.7] - 2026-07-27
 
 ### Added
