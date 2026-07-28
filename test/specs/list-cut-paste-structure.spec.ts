@@ -222,6 +222,85 @@ test.describe('リスト cut: 空マーカー残り + シリアライズ（sprin
         expect(r.html).toContain('second');
     });
 
+    test('TC-CX-09 ★再オープン: task 行のテキスト全選択 cut → checkbox ごと行が消える', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML =
+                '<ul><li>before</li>' +
+                '<li><input type="checkbox">Welcome to the team guide text</li>' +
+                '<li>after</li></ul>';
+            const taskLi = editor.querySelectorAll('li')[1]!;
+            const textNode = Array.from(taskLi.childNodes).find((n) => n.nodeType === 3)!;
+            const r = document.createRange();
+            r.setStart(textNode, 0);
+            r.setEnd(textNode, (textNode.textContent || '').length);  // テキストのみ全選択（checkbox 選択外）
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        const r = await dispatchCut(page);
+        // counterfactual: checkbox を content 扱いすると空タスク殻（checkbox だけの行）が残る = RED
+        expect(r.html).not.toContain('type="checkbox"');
+        expect(r.html).toContain('before');
+        expect(r.html).toContain('after');
+        // 部分 cut（テキストが残る task 行）は checkbox ごと残る（過剰削除しない）
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li><input type="checkbox">keep some text</li></ul>';
+            const li = editor.querySelector('li')!;
+            const textNode = Array.from(li.childNodes).find((n) => n.nodeType === 3)!;
+            const rr = document.createRange();
+            rr.setStart(textNode, 0);
+            rr.setEnd(textNode, 4);   // "keep" のみ
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(rr);
+        });
+        const r2 = await dispatchCut(page);
+        expect(r2.html).toContain('type="checkbox"');
+        expect(r2.html).toContain('some text');
+    });
+
+    test('TC-CX-10 ★再オープン: cut 直後の undo で cut 前の状態（checkbox 込み）に戻る', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML =
+                '<ul><li>before</li>' +
+                '<li><input type="checkbox">Welcome text</li>' +
+                '<li>after</li></ul>';
+            // 実運用の「直前に編集していた」状態を模す: input を発火させ debounced snapshot を積む
+            // （このとき capture される markdown 変数は rAF 未反映で stale になりうる = 50% バグの機序）
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await page.waitForTimeout(50); // rAF 前後の中途半端なタイミングを許容
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            const taskLi = editor.querySelectorAll('li')[1]!;
+            const textNode = Array.from(taskLi.childNodes).find((n) => n.nodeType === 3)!;
+            const r = document.createRange();
+            r.setStart(textNode, 0);
+            r.setEnd(textNode, (textNode.textContent || '').length);
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await dispatchCut(page);
+        // cut で行ごと消えた
+        let html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        expect(html).not.toContain('type="checkbox"');
+        // undo → cut 前（checkbox + テキスト）に戻る
+        await page.evaluate(() => (window as any).__testApi.undo
+            ? (window as any).__testApi.undo()
+            : (window as any).__hostMessageHandler({ type: 'performUndo' }));
+        await page.waitForTimeout(200);
+        html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        // counterfactual: cut が snapshot を積まないと「cut 前」でなく古い状態に戻り checkbox 消失 = RED
+        expect(html).toContain('type="checkbox"');
+        expect(html).toContain('Welcome text');
+        expect(html).toContain('before');
+        expect(html).toContain('after');
+    });
+
     test('TC-CX-06 regression: 単一 li 内の部分テキスト cut は従来どおり（li は残る・掃除は空 li のみ）', async ({ page }) => {
         await page.evaluate(() => {
             const editor = document.getElementById('editor')!;

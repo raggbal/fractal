@@ -23681,6 +23681,11 @@ class EditorInstance {
 
         e.preventDefault();
         markAsEdited();
+        // undo 用に cut 前の状態を必ず積む（paste :saveSnapshot / Backspace :7591 と同格。
+        // 従来 cut だけ欠けており、cmd+z が「cut 前」でなく直前スナップショット時点に戻っていた。
+        // markdown 変数は rAF 同期で遅延しうるため、DOM から取り直して正確な pre-cut を捕捉する）
+        markdown = htmlToMarkdown();
+        undoManager.saveSnapshot();
 
         const range = sel.getRangeAt(0);
         try {
@@ -23740,16 +23745,19 @@ class EditorInstance {
         // 空になった li 殻を掃除（子リストの昇格 + li 除去 + 空になった親 list 除去）
         for (const li of affectedLis) {
             if (!li || !li.isConnected) continue;
-            // 直下に text / img / checkbox 等の実コンテンツが残っていれば殻ではない
+            // 直下に text / img 等の実コンテンツが残っていれば殻ではない。
+            // checkbox(input) は「cut でテキストが全部消えた task li」では残しても空タスク殻
+            // （Backspace :7699 の empty 規約 = br/checkbox/nested list のみなら空、と同じ）なので
+            // content とみなさない。選択に触れていない子 li の checkbox は昇格側（isTrulyEmptyShell）が守る。
             let hasContent = false;
             for (const child of li.childNodes) {
                 if (child.nodeType === 3 && child.textContent.trim()) { hasContent = true; break; }
                 if (child.nodeType === 1) {
                     const tag = child.tagName ? child.tagName.toLowerCase() : '';
-                    if (tag === 'ul' || tag === 'ol' || tag === 'br') continue;
-                    // img/input(checkbox) は textContent 空でも content（TASK-03: 旧判定は落としていた）
-                    if (tag === 'img' || tag === 'input') { hasContent = true; break; }
-                    if (child.textContent.trim() || (child.querySelector && child.querySelector('img, input'))) { hasContent = true; break; }
+                    if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
+                    // img は textContent 空でも content（TASK-03 / asset 1:1 ownership）
+                    if (tag === 'img') { hasContent = true; break; }
+                    if (child.textContent.trim() || (child.querySelector && child.querySelector('img'))) { hasContent = true; break; }
                 }
             }
             if (hasContent) continue;
