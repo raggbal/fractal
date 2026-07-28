@@ -5032,6 +5032,14 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             color: inherit;
         }
         .notes-tab-bar .notes-tab-add:hover { opacity: 1; }
+        /* FR-TB-03 (sprint 20260728-100501): タブ D&D 並べ替えの挿入位置インジケータ */
+        .notes-tab-bar .notes-tab-drop-line {
+            flex: 0 0 auto;
+            width: 2px;
+            align-self: stretch;
+            background: var(--vscode-focusBorder, #007acc);
+            pointer-events: none;
+        }
         /* v0.207.88: notes md メインペインの toolbar アイコンを sidepanel md / outliner header
            の色味と揃える。standalone editor の color: var(--text-color) は #1A1B1F の真っ黒で
            outliner-search-bar/side-panel-header-btn の opacity: 0.5-0.6 軽減と乖離するため、
@@ -41838,7 +41846,7 @@ if (typeof module !== 'undefined' && module.exports) {
             if (typeof bridge.openFile === 'function') bridge.openFile(tab.filePath);
         }
 
-        // ── sprint 20260724-063158 (FR-TP-06): タブ右クリックメニュー「Open in VS Code Tab」（md のみ） ──
+        // ── タブ右クリックメニュー（sprint 20260724-063158 FR-TP-06 → 20260728-100501 FR-TB-04/05/06 で複数項目化） ──
         //   notes-file-panel.js の showFileContextMenu は IIFE-private で import 不可 → 自前で最小メニュー DOM を
         //   組む（.file-panel-context-menu / .file-panel-context-item CSS は document-global で流用可）。
         var _tabContextMenuEl = null;
@@ -41852,6 +41860,16 @@ if (typeof module !== 'undefined' && module.exports) {
         function _tabMenuOutside(ev) {
             if (_tabContextMenuEl && !_tabContextMenuEl.contains(ev.target)) closeTabContextMenu();
         }
+        function addTabMenuItem(menu, label, onClick) {
+            var item = document.createElement('div');
+            item.className = 'file-panel-context-item';
+            item.textContent = label;
+            item.addEventListener('click', function() {
+                onClick();
+                closeTabContextMenu();
+            });
+            menu.appendChild(item);
+        }
         function showTabContextMenu(ev, tab) {
             closeTabContextMenu();
             var menu = document.createElement('div');
@@ -41859,20 +41877,54 @@ if (typeof module !== 'undefined' && module.exports) {
             menu.style.position = 'fixed';
             menu.style.left = ev.clientX + 'px';
             menu.style.top = ev.clientY + 'px';
-            var item = document.createElement('div');
-            item.className = 'file-panel-context-item';
-            item.textContent = 'Open in VS Code Tab';
-            item.addEventListener('click', function() {
-                if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
-                closeTabContextMenu();
+            // FR-TB-01: standalone（fractal.editor の VS Code タブ）で開く。md のみ
+            if (tab.kind === 'md') {
+                addTabMenuItem(menu, 'Open in Standalone', function() {
+                    if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
+                });
+            }
+            // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）
+            addTabMenuItem(menu, 'Duplicate Tab', function() {
+                openInNewTab(tab.filePath, tab.kind);
             });
-            menu.appendChild(item);
+            // FR-TB-04: このタブだけ残して他を全部閉じる
+            addTabMenuItem(menu, 'Close Other Tabs', function() {
+                closeOtherTabs(tab.id);
+            });
             document.body.appendChild(menu);
             _tabContextMenuEl = menu;
             // 次フレームで outside click 監視（この contextmenu イベント自身で閉じないように）
             requestAnimationFrame(function() {
                 document.addEventListener('mousedown', _tabMenuOutside, true);
             });
+        }
+
+        // ── タブ D&D 並べ替え（FR-TB-03） ──
+        var _dragTabId = null;
+        var _tabDropLineEl = null;
+        function removeTabDropLine() {
+            if (_tabDropLineEl && _tabDropLineEl.parentNode) _tabDropLineEl.parentNode.removeChild(_tabDropLineEl);
+            _tabDropLineEl = null;
+        }
+        function showTabDropLine(targetEl, before) {
+            removeTabDropLine();
+            var line = document.createElement('div');
+            line.className = 'notes-tab-drop-line';
+            var parent = targetEl.parentNode;
+            if (!parent) return;
+            parent.insertBefore(line, before ? targetEl : targetEl.nextSibling);
+            _tabDropLineEl = line;
+        }
+        // tabs 配列の splice のみ（state は要素ごと保持されるので scroll/sidepanel は不変・NFR-TB-02）
+        function moveTab(dragId, targetId, before) {
+            if (dragId === targetId) return;
+            var from = findIndex(dragId);
+            if (from < 0) return;
+            var moved = tabs.splice(from, 1)[0];
+            var to = findIndex(targetId);   // splice 後に再計算
+            if (to < 0) { tabs.splice(from, 0, moved); return; }
+            tabs.splice(before ? to : to + 1, 0, moved);
+            renderTabBar();
         }
 
         // ── tab bar 描画（tabs>=2 で表示・FR-TAB-01/05） ──
@@ -41922,13 +41974,39 @@ if (typeof module !== 'undefined' && module.exports) {
                         ev.stopPropagation();
                         closeTab(tab.id);
                     });
-                    // sprint 20260724-063158 (FR-TP-06): md タブのみ右クリックで「Open in VS Code Tab」
-                    if (tab.kind === 'md') {
-                        el.addEventListener('contextmenu', function(ev) {
-                            ev.preventDefault();
-                            showTabContextMenu(ev, tab);
-                        });
-                    }
+                    // FR-TB-06: 全タブで右クリックメニュー（Open in Standalone は menu 内で md 限定）
+                    el.addEventListener('contextmenu', function(ev) {
+                        ev.preventDefault();
+                        showTabContextMenu(ev, tab);
+                    });
+                    // FR-TB-03: タブ D&D 並べ替え
+                    el.draggable = true;
+                    el.addEventListener('dragstart', function(dev) {
+                        _dragTabId = tab.id;
+                        if (dev.dataTransfer) {
+                            dev.dataTransfer.effectAllowed = 'move';
+                            try { dev.dataTransfer.setData('text/plain', tab.id); } catch (e) {}
+                        }
+                    });
+                    el.addEventListener('dragover', function(dev) {
+                        if (!_dragTabId || _dragTabId === tab.id) return;
+                        dev.preventDefault();
+                        if (dev.dataTransfer) dev.dataTransfer.dropEffect = 'move';
+                        var r = el.getBoundingClientRect();
+                        showTabDropLine(el, dev.clientX < r.left + r.width / 2);
+                    });
+                    el.addEventListener('drop', function(dev) {
+                        if (!_dragTabId || _dragTabId === tab.id) return;
+                        dev.preventDefault();
+                        var r = el.getBoundingClientRect();
+                        moveTab(_dragTabId, tab.id, dev.clientX < r.left + r.width / 2);
+                        _dragTabId = null;
+                        removeTabDropLine();
+                    });
+                    el.addEventListener('dragend', function() {
+                        _dragTabId = null;
+                        removeTabDropLine();
+                    });
                     scrollEl.appendChild(el);
                 })(tabs[i]);
             }
@@ -41997,6 +42075,34 @@ if (typeof module !== 'undefined' && module.exports) {
                 loadTab(tabs[nextIdx]);
             }
             renderTabBar();
+        }
+
+        // ── 公開: このタブだけ残して他を全部閉じる（FR-TB-04） ──
+        //   残すタブが非アクティブなら activateTab で正規経路（capture + flush 二段 + load）を通してから
+        //   絞る。closeTab ループは「閉じるたびに隣へ切替 → loadTab」で無駄な host load が多発するため不可。
+        function closeOtherTabs(id) {
+            if (tabs.length <= 1) return;
+            var idx = findIndex(id);
+            if (idx < 0) return;
+            if (id !== activeId) activateTab(id);
+            tabs = [tabs[findIndex(id)]];
+            renderTabBar();   // 1 タブ → tab bar 非表示
+        }
+
+        // ── cmd/ctrl+W: アクティブタブを閉じる（FR-TB-02） ──
+        //   タブ 1 つのときは preventDefault しない = VS Code に流れて VS Code タブが閉じる（NFR-TB-01。
+        //   webview keydown は preventDefault しなければ workbench keybinding に転送される — cmd+shift+x 先例）。
+        if (!window.__notesTabCmdWWired) {
+            window.__notesTabCmdWWired = true;
+            document.addEventListener('keydown', function(e) {
+                if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+                if (e.key !== 'w' && e.key !== 'W') return;
+                if (e.isComposing) return;
+                if (tabs.length <= 1) return;   // 素通し（VS Code が閉じる）
+                e.preventDefault();
+                e.stopPropagation();
+                closeTab(activeId);
+            });
         }
 
         // ── 公開: 現タブで開く（Recent・FR-TAB-07。新タブを増やさない） ──
@@ -42092,6 +42198,8 @@ if (typeof module !== 'undefined' && module.exports) {
             openInNewTab: openInNewTab,
             activateTab: activateTab,
             closeTab: closeTab,
+            closeOtherTabs: closeOtherTabs,
+            moveTab: moveTab,
             openInActiveTab: openInActiveTab,
             initFirstTab: initFirstTab,
             getTabs: function() { return tabs.slice(); },
