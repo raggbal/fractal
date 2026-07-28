@@ -1,0 +1,414 @@
+{
+ "note": "pre-existing red baseline. Regenerate with scripts/check-known-red.sh --update <json>",
+ "count": 102,
+ "tests": [
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "トップレベル: 空項目でBackspace×2 → 段落変換後、リスト統合"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "ネストリスト: 空項目でBackspace×2 → 段落変換後、リスト統合"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "中間の項目: 前後に兄弟あり → リストを分割し段落を中間に挿入"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "最初の項目: 後ろに兄弟あり → 段落をリストの前に挿入"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "最後の項目: 前に兄弟あり → 段落をリストの後に挿入"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "深いネスト: 空項目でBackspace×3 → 段落変換→統合→段落変換（バグ再現防止）"
+  },
+  {
+   "file": "specs/backspace-list.spec.ts",
+   "title": "深いネスト: 連続Backspaceでリスト構造が維持される"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "タスクリスト: チェックボックス前カーソルでBackspace → 兄弟リストの末尾に統合"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "タスクリスト: チェックボックス直後カーソルでBackspace → 兄弟リストの末尾に統合"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "バレット→タスク: ul>li \"b\" の後に ul(task)>li \"|c\" でBackspace → \"b\"に統合"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "数字→タスク: ol>li \"b\" の後に ul(task)>li \"|c\" でBackspace → \"b\"に統合"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "深いネスト ol→task: bの子cがある場合、taskのdはcの末尾に統合"
+  },
+  {
+   "file": "specs/backspace-mixed-nested-list.spec.ts",
+   "title": "深いネスト ul→task: bの子cがある場合、taskのdはcの末尾に統合"
+  },
+  {
+   "file": "specs/backspace-nested-li-children.spec.ts",
+   "title": "混在 task→ol: b(task) の子 c(ul), 兄弟 d(ol)"
+  },
+  {
+   "file": "specs/backspace-nested-li-children.spec.ts",
+   "title": "混在 task→ul: b(task) の子 c(ul), 兄弟 d(ul)"
+  },
+  {
+   "file": "specs/blockquote-backspace-multiline.spec.ts",
+   "title": "1行の引用ブロック先頭でBackspace → 1つの段落に変換"
+  },
+  {
+   "file": "specs/blockquote-backspace-multiline.spec.ts",
+   "title": "2行の引用ブロック先頭でBackspace → 2つの段落に変換"
+  },
+  {
+   "file": "specs/blockquote-backspace-multiline.spec.ts",
+   "title": "Backspace後カーソルが最初の段落の先頭にある"
+  },
+  {
+   "file": "specs/blockquote-backspace-multiline.spec.ts",
+   "title": "空の引用ブロック先頭でBackspace → 空段落に変換"
+  },
+  {
+   "file": "specs/blockquote-backspace-multiline.spec.ts",
+   "title": "複数行の引用ブロック先頭でBackspace → 各行が個別の段落に変換"
+  },
+  {
+   "file": "specs/blockquote-codeblock-backspace-fix.spec.ts",
+   "title": "1行の引用ブロックで先頭Backspace → 1つの段落に変換"
+  },
+  {
+   "file": "specs/blockquote-codeblock-backspace-fix.spec.ts",
+   "title": "2行の引用ブロックで先頭Backspace → 2つの段落に変換"
+  },
+  {
+   "file": "specs/blockquote-codeblock-backspace-fix.spec.ts",
+   "title": "3行の引用ブロックで先頭Backspace → 3つの段落に変換"
+  },
+  {
+   "file": "specs/blockquote-codeblock-operations.spec.ts",
+   "title": "空の引用でBackspace → 段落に変換"
+  },
+  {
+   "file": "specs/codeblock-display-edit-mode.spec.ts",
+   "title": "コピーボタンをクリックしても編集モードにならない"
+  },
+  {
+   "file": "specs/codeblock-display-edit-mode.spec.ts",
+   "title": "描画モードで言語を変更するとハイライトが更新される"
+  },
+  {
+   "file": "specs/codeblock-display-edit-mode.spec.ts",
+   "title": "言語タグをクリックしても編集モードにならない（言語選択が開く）"
+  },
+  {
+   "file": "specs/codeblock-edit-features.spec.ts",
+   "title": "編集モード中にコピーボタンをクリックすると描画モードに切り替わる"
+  },
+  {
+   "file": "specs/codeblock-edit-features.spec.ts",
+   "title": "編集モード中に言語ボタンをクリックすると描画モードに切り替わる"
+  },
+  {
+   "file": "specs/codeblock-edit-features.spec.ts",
+   "title": "言語セレクターがコードブロックの外にフロート表示される"
+  },
+  {
+   "file": "specs/codeblock-edit-features.spec.ts",
+   "title": "言語セレクターがビューポート内に収まる"
+  },
+  {
+   "file": "specs/codeblock-lang-to-special-wrapper.spec.ts",
+   "title": "math wrapper converted from code block enters edit mode on click"
+  },
+  {
+   "file": "specs/codeblock-lang-to-special-wrapper.spec.ts",
+   "title": "mermaid wrapper converted from code block enters edit mode on click"
+  },
+  {
+   "file": "specs/codeblock-lang-to-special-wrapper.spec.ts",
+   "title": "mermaid wrapper converted from code block exits edit mode on focusout"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "コピーボタンクリックでコードがクリップボードにコピーされる"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "コピー後にボタンテキストが変わる"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "言語セレクターから別の言語を選択できる"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "言語タグクリックで言語セレクターが表示される"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "言語変更後にdata-lang属性が更新される"
+  },
+  {
+   "file": "specs/codeblock-ui.spec.ts",
+   "title": "言語変更後にハイライトが更新される"
+  },
+  {
+   "file": "specs/command-palette.spec.ts",
+   "title": "フィルタ入力でアイテムが絞り込まれる"
+  },
+  {
+   "file": "specs/debug-empty-li.spec.ts",
+   "title": "Empty li with siblings - should convert to paragraph"
+  },
+  {
+   "file": "specs/integration-copy-file-assets.spec.ts",
+   "title": "DOD-21: moveFileAsset moves file from src to dest"
+  },
+  {
+   "file": "specs/integration-image-max-width.spec.ts",
+   "title": "drawio.svg も同じ rule で 600px に制約される"
+  },
+  {
+   "file": "specs/integration-image-max-width.spec.ts",
+   "title": "side panel <img> は max-width 600px (default) が computed style に入る"
+  },
+  {
+   "file": "specs/integration-md-cmd-x-paste-semantics.spec.ts",
+   "title": "md-link cross-cut: dest pagesDir にコピー + source 残る"
+  },
+  {
+   "file": "specs/integration-md-paste-cross-outliner.spec.ts",
+   "title": "[link](*.md) も dest に複製、相対パス書き換え"
+  },
+  {
+   "file": "specs/integration-md-paste-cross-outliner.spec.ts",
+   "title": "[link](*.md) 衝突時は memo-1.md"
+  },
+  {
+   "file": "specs/integration-md-paste-cross-outliner.spec.ts",
+   "title": "isPage=true の page node copy で page MD 内 [](*.md) も destPagesDir に複製"
+  },
+  {
+   "file": "specs/integration-md-paste-location-matrix.spec.ts",
+   "title": "M-L1 same MD: destMdDir に複製、collision suffix"
+  },
+  {
+   "file": "specs/integration-md-paste-location-matrix.spec.ts",
+   "title": "M-L3 cross-outliner: dest pagesDir に複製 (元名 or suffix)"
+  },
+  {
+   "file": "specs/integration-md-paste-location-matrix.spec.ts",
+   "title": "M-L4 cross-note: 同上"
+  },
+  {
+   "file": "specs/integration-minimal-foundation.spec.ts",
+   "title": "TC-05a: light theme uses pastel cream bg"
+  },
+  {
+   "file": "specs/integration-minimal-foundation.spec.ts",
+   "title": "TC-05b: dark theme uses deep navy bg"
+  },
+  {
+   "file": "specs/integration-minimal-foundation.spec.ts",
+   "title": "TC-06: data-fr-theme=\"auto\" + colorScheme=dark → dark tokens"
+  },
+  {
+   "file": "specs/integration-minimal-foundation.spec.ts",
+   "title": "TC-08a: file-panel-btn border-radius uses --fr-radius-sm (=6px)"
+  },
+  {
+   "file": "specs/integration-minimal-foundation.spec.ts",
+   "title": "TC-09: file-panel-tab.active border-bottom uses --fr-color-primary"
+  },
+  {
+   "file": "specs/integration-pinned-tag-context-menu.spec.ts",
+   "title": "@tag (@mention) も同様に追加できる"
+  },
+  {
+   "file": "specs/integration-pinned-tag-context-menu.spec.ts",
+   "title": "クリックで pinnedTags に追加され、固定タグバーに表示される"
+  },
+  {
+   "file": "specs/integration-pinned-tag-context-menu.spec.ts",
+   "title": "既に pinned 済タグは disabled で表示される (トグル解除しない)"
+  },
+  {
+   "file": "specs/key-operations.spec.ts",
+   "title": "《引用》先頭でBackspace → 《段落》変換"
+  },
+  {
+   "file": "specs/key-operations.spec.ts",
+   "title": "トップレベルの空リスト項目（子ネストリストあり）でBackspace→Backspace → ネストリストが前のリストに統合"
+  },
+  {
+   "file": "specs/key-operations.spec.ts",
+   "title": "ネストリスト内の空項目でBackspace→Backspace → 段落削除してbbbの末尾にカーソル"
+  },
+  {
+   "file": "specs/key-operations.spec.ts",
+   "title": "複数項目リストの空リスト項目（子ネストリストあり）でBackspace → 段落に変換、ネストリスト保持"
+  },
+  {
+   "file": "specs/markdown-link-parser.spec.ts",
+   "title": "単純な image を parse できる"
+  },
+  {
+   "file": "specs/md-paste-asset-copy.spec.ts",
+   "title": "DOD-3, DOD-4, DOD-12, DOD-13: Paste handler checks directory equality"
+  },
+  {
+   "file": "specs/mindmap-iteration23.spec.ts",
+   "title": "TC-M10 group 作成で viewport translate と固定ノード画面位置が不変 (#7)"
+  },
+  {
+   "file": "specs/mindmap-iteration24.spec.ts",
+   "title": "TC-M13 Ctrl+wheel でも active node が画面中心へ寄る (#A)"
+  },
+  {
+   "file": "specs/mindmap-iteration24.spec.ts",
+   "title": "TC-M13 toolbar + で active node が画面中心へ寄る (#A)"
+  },
+  {
+   "file": "specs/notes-folder-indent.spec.ts",
+   "title": "folder-children の padding-left が 28px"
+  },
+  {
+   "file": "specs/notes-folder-indent.spec.ts",
+   "title": "ルート直下のフォルダ/ファイルの位置が変わらない + CSS 衝突なし"
+  },
+  {
+   "file": "specs/notes-undo-scope.spec.ts",
+   "title": "sidepanel が閉じている時は outliner の Cmd+Z が動作する"
+  },
+  {
+   "file": "specs/notes-undo-scope.spec.ts",
+   "title": "sidepanel を閉じた後は outliner の Cmd+Z が正常に動作する"
+  },
+  {
+   "file": "specs/outliner-cross-paste.spec.ts",
+   "title": "copy in file A, switch to file B, paste triggers cross-file messages"
+  },
+  {
+   "file": "specs/outliner-drop-import.spec.ts",
+   "title": "DOD-12-24: handleFilesDrop has MAX_FILE_SIZE check for 50MB"
+  },
+  {
+   "file": "specs/outliner-drop-import.spec.ts",
+   "title": "DOD-12-26: handleFilesDrop uses readFileByKind (FileReader) and passes processed data to host"
+  },
+  {
+   "file": "specs/outliner-features.spec.ts",
+   "title": "14. pinnedTags付きデータで初期化 → 固定タグバーにボタン表示"
+  },
+  {
+   "file": "specs/outliner-features.spec.ts",
+   "title": "15. 固定タグボタンクリック → 検索テキストにタグ追加+検索実行"
+  },
+  {
+   "file": "specs/outliner-features.spec.ts",
+   "title": "16. もう一度クリック → タグ除去（トグル）"
+  },
+  {
+   "file": "specs/shortcuts.spec.ts",
+   "title": "Ctrl+Shift+S → 《取り消し線》解除"
+  },
+  {
+   "file": "specs/shortcuts.spec.ts",
+   "title": "Ctrl+Shift+S → 《取り消し線》（選択テキスト）"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "<del>タグ全体を選択して解除"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "<del>タグ内の一部を選択して解除 → タグ全体が解除される"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "<s>タグを選択して解除できる"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "<strike>タグを選択して解除できる"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "テキストを選択して取り消し線を適用"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "取り消し線内にカーソルを置いて解除"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "複合書式: 太字+取り消し線"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "複数行にまたがる選択で取り消し線適用"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "適用 → 解除 → 再適用のサイクル"
+  },
+  {
+   "file": "specs/strikethrough-toggle.spec.ts",
+   "title": "適用時は常に<del>タグを使用"
+  },
+  {
+   "file": "specs/table-cell-operations.spec.ts",
+   "title": "テーブルにリサイズハンドルが追加される"
+  },
+  {
+   "file": "specs/table-cell-operations.spec.ts",
+   "title": "列追加後もリサイズハンドルが追加される"
+  },
+  {
+   "file": "specs/toolbar-translate-toggle.spec.ts",
+   "title": "TC-TRTOG-1c: side panel header の translate ボタンは既存通り維持される (regression)"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T10: Copy button copies text to clipboard"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T11: Close button hides translation panel"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T12: Side panel header has translate buttons"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T14: Existing toolbar buttons regression check"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T2: Translate button sends translateContent message"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T3: Selection-only translation"
+  },
+  {
+   "file": "specs/translate-e2e.spec.ts",
+   "title": "DOD-T9: translateResult opens readonly translation panel"
+  },
+  {
+   "file": "specs/unit-cleanup-logic.spec.ts",
+   "title": "DOD-24: src/ has no immediate delete APIs (unlinkSync, rmSync, rmdirSync)"
+  }
+ ]
+}
