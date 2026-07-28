@@ -187,6 +187,7 @@ export const webviewMessages = {
   outlinerCopyLlmsTxtMd: '以 llms.txt 风格复制子树 (MD 页面)',
   outlinerCopyLlmsTxtFile: '以 llms.txt 风格复制子树 (文件)',
   outlinerCopyLlmsTxtBoth: '以 llms.txt 风格复制子树 (MD + 文件)',
+  outlinerExportBundle: '导出捆绑包',
   outlinerAddToPinnedTags: '添加到固定标签',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: '插入 Drawio 图表',

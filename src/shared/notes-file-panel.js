@@ -228,7 +228,12 @@ var notesFilePanel = (function() {
         var icon = isMd ? ICON_FILE_MD : ICON_FILE;
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
-        item.addEventListener('click', function() {
+        item.addEventListener('click', function(e) {
+            // FR-CT-01: cmd/ctrl+click → webview 内タブ（右クリック Open in new tab と同経路）
+            if (e && (e.metaKey || e.ctrlKey)) {
+                if (bridge.openFileInTab) bridge.openFileInTab(f.filePath);
+                return; // FR-CT-02: openFile は発火させない（currentFile も変えない）
+            }
             if (f.filePath !== currentFile) {
                 currentFile = f.filePath;  // 即時更新で二重送信防止
                 bridge.openFile(f.filePath);

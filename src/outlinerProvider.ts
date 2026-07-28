@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getOutlinerWebviewContent } from './outlinerWebviewContent';
-import { runExportBundle } from './shared/export-bundle-host';
+import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots } from './shared/resource-roots';
@@ -504,6 +504,19 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await this.handleOpenPage(document, webviewPanel, message);
                         break;
 
+                    // FR-EB: outliner node subtree の Export bundle（src dir 解決は saveOutlinerClipboard と同一）
+                    case 'exportOutlinerNodesBundle': {
+                        if (typeof message.nodeId !== 'string' || !message.nodeId || !Array.isArray(message.nodes)) break;
+                        await runExportOutlinerNodesBundle({
+                            nodeId: message.nodeId,
+                            nodes: message.nodes,
+                            srcOutDir: path.dirname(document.uri.fsPath),
+                            srcPagesDir: this.getPagesDirPath(document),
+                            srcFileDir: this.getFileDirPath(document),
+                        });
+                        break;
+                    }
+
                     case 'saveOutlinerClipboard': {
                         const clipPagesDir = this.getPagesDirPath(document);
                         const clipImagesDir = this.getOutlinerImageDirPath(document);
@@ -667,6 +680,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             break;
                         }
                         await sidePanel.openFile(filePath, true /* freshOpen — clear nav history */);
+                        break;
+                    }
+
+                    // FR-CT-03: page アイコン cmd+click。webview 内タブは Notes 限定（ADRL-0008）
+                    // のため Single では VS Code タブ（openLinkInTab と同形）
+                    case 'openPageInTab': {
+                        const filePath = this.getPageFilePath(document, message.pageId);
+                        if (!fs.existsSync(filePath)) {
+                            vscode.window.showWarningMessage(`Page file not found: ${filePath}`);
+                            break;
+                        }
+                        await vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(filePath), 'fractal.editor');
                         break;
                     }
 

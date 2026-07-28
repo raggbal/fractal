@@ -7793,6 +7793,16 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // page アイコン cmd+click → page md を新規タブで開く (FR-CT-03)。パス解決は host
+        openPageInTab: function(nodeId, pageId) {
+            postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });
+        },
+
+        // outliner node subtree の Export bundle (FR-EB)。dialog/出力は host
+        exportOutlinerNodesBundle: function(nodeId, nodes) {
+            postFn({ type: 'exportOutlinerNodesBundle', nodeId: nodeId, nodes: nodes });
+        },
+
         // 検索
         searchFiles: function(query) {
             postFn({ type: 'searchFiles', query: query });
@@ -33085,6 +33095,13 @@ var Outliner = (function() {
             pageIcon.textContent = '\uD83D\uDCC4'; // 📄
             pageIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
+                // FR-CT-03: cmd/ctrl+click → 新規タブ（pageId のみ送る。パス解決は host）
+                if (e.metaKey || e.ctrlKey) {
+                    if (node.isPage && node.pageId && host.openPageInTab) {
+                        host.openPageInTab(node.id, node.pageId);
+                    }
+                    return;
+                }
                 openPage(node.id);
             });
             el.appendChild(pageIcon);
@@ -33759,6 +33776,37 @@ var Outliner = (function() {
                 collapsed: !!nd.collapsed,
                 // Phase F2: 列値も保持 (paste 時に同一 outliner なら復元)
                 columnValues: nd.columnValues ? JSON.parse(JSON.stringify(nd.columnValues)) : null
+            });
+        }
+        return nodes;
+    }
+
+    /** 右クリック node + 全子孫を OutlinerPasteNode[] で取得 (DFS 順, root=level 0)。Export bundle 用 (FR-EB-06) */
+    function getSubtreeNodesData(nodeId) {
+        var expandedSet = new Set([nodeId]);
+        var desc = model.getDescendantIds(nodeId);
+        for (var i = 0; i < desc.length; i++) { expandedSet.add(desc[i]); }
+        var flat = model.getFlattenedIds(false);
+        var minDepth = Infinity;
+        var selectedFlat = [];
+        for (var j = 0; j < flat.length; j++) {
+            if (expandedSet.has(flat[j])) {
+                var d = model.getDepth(flat[j]);
+                if (d < minDepth) { minDepth = d; }
+                selectedFlat.push(flat[j]);
+            }
+        }
+        var nodes = [];
+        for (var k = 0; k < selectedFlat.length; k++) {
+            var nd = model.getNode(selectedFlat[k]);
+            if (!nd) { continue; }
+            nodes.push({
+                text: nd.text,
+                level: model.getDepth(selectedFlat[k]) - minDepth,
+                isPage: nd.isPage || false,
+                pageId: nd.pageId || null,
+                images: (nd.images && nd.images.length > 0) ? nd.images.slice() : [],
+                filePath: nd.filePath || null
             });
         }
         return nodes;
@@ -36394,6 +36442,15 @@ var Outliner = (function() {
             var tree = buildLlmsTxtTree(nodeId);
             if (tree && host.copyLlmsTxtBothTree) {
                 host.copyLlmsTxtBothTree(tree);
+            }
+            hideContextMenu();
+        });
+
+        // --- Export bundle (FR-EB-01): node subtree を md リスト + 添付複製で出力 ---
+        addMenuItem(contextMenuEl, i18n.outlinerExportBundle || 'Export bundle', function() {
+            var nodes = getSubtreeNodesData(nodeId);
+            if (nodes.length && host.exportOutlinerNodesBundle) {
+                host.exportOutlinerNodesBundle(nodeId, nodes);
             }
             hideContextMenu();
         });
@@ -39613,7 +39670,12 @@ var notesFilePanel = (function() {
         var icon = isMd ? ICON_FILE_MD : ICON_FILE;
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
-        item.addEventListener('click', function() {
+        item.addEventListener('click', function(e) {
+            // FR-CT-01: cmd/ctrl+click → webview 内タブ（右クリック Open in new tab と同経路）
+            if (e && (e.metaKey || e.ctrlKey)) {
+                if (bridge.openFileInTab) bridge.openFileInTab(f.filePath);
+                return; // FR-CT-02: openFile は発火させない（currentFile も変えない）
+            }
             if (f.filePath !== currentFile) {
                 currentFile = f.filePath;  // 即時更新で二重送信防止
                 bridge.openFile(f.filePath);

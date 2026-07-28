@@ -5,6 +5,12 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2026-07-27
+
+### Added
+- **cmd+click で新規タブ**: note ファイルツリーの md / outliner を cmd（ctrl）+click すると webview 内タブで開く（通常 click はメインペイン差替のまま）。outliner の 📄 page アイコンを cmd+click すると page md を新規タブで開く（Notes=webview 内タブ / Single Outliner=VS Code タブ）
+- **Outliner node の Export bundle**: node 右クリック →「Export bundle」→ フォルダ選択（Export here）→ `<nodeId>/` フォルダに node ツリーの md リスト（`<nodeId>.md`、cmd+c→cmd+v と同じ見た目）+ page md 複製（本文画像込み）+ ファイル添付（`files/`）を出力。node 直付き画像は対象外。キャンセル時は何も作らない
+
 ## [1.1.6] - 2026-07-27
 
 ### Added

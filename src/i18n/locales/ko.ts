@@ -187,6 +187,7 @@ export const webviewMessages = {
   outlinerCopyLlmsTxtMd: '하위 트리를 llms.txt 스타일로 복사 (MD 페이지)',
   outlinerCopyLlmsTxtFile: '하위 트리를 llms.txt 스타일로 복사 (파일)',
   outlinerCopyLlmsTxtBoth: '하위 트리를 llms.txt 스타일로 복사 (MD + 파일)',
+  outlinerExportBundle: '번들 내보내기',
   outlinerAddToPinnedTags: '고정 태그에 추가',
   // MD-47: Insert Drawio Diagram (Cmd+/ palette)
   insertDrawioDiagram: 'Drawio 다이어그램 삽입',
