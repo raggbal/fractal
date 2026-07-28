@@ -49,14 +49,16 @@ test.describe('《順序付きリスト》正規化', () => {
         await editor.focus();
     });
 
-    test('番号が1から連番に正規化', async ({ page }) => {
+    // sprint 20260729-000358 (TU-OL-01, 許可: test_update): 開始番号保持の導入により
+    // 「常に 1 起点へ再採番」から「先頭番号を保持し以降は連番正規化」（CommonMark 準拠）へ仕様変更
+    test('番号が先頭起点の連番に正規化', async ({ page }) => {
         await editor.setMarkdown('3. 項目A\n5. 項目B\n7. 項目C');
         await page.waitForTimeout(200);
-        
+
         const md = await editor.getMarkdown();
-        expect(md).toContain('1. 項目A');
-        expect(md).toContain('2. 項目B');
-        expect(md).toContain('3. 項目C');
+        expect(md).toContain('3. 項目A');
+        expect(md).toContain('4. 項目B');
+        expect(md).toContain('5. 項目C');
     });
 });
 

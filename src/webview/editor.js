@@ -2016,6 +2016,12 @@ class EditorInstance {
 
     // ========== MARKDOWN TO HTML ==========
 
+    // sprint 20260729-000358: <ol start> に採用する値の allowlist（1〜9 桁の正整数のみ）。
+    // CommonMark は ordered list marker を 9 桁までと定める。blacklist でなく閉じた判定にする。
+    function isValidOlStart(n) {
+        return Number.isInteger(n) && n >= 1 && n <= 999999999;
+    }
+
     function parseMarkdownLine(text) {
         // Heading
         const headingMatch = text.match(REGEX.heading);
@@ -2056,8 +2062,11 @@ class EditorInstance {
         if (olMatch) {
             const indent = olMatch[1].length;
             const content = parseInline(olMatch[3]);
+            // sprint 20260729-000358: 先頭項目の番号が <ol start> を決める（CommonMark）。
+            // number は buildListOpenTag が「リストを新規に開くとき」のみ参照する。
             // Use <br> for empty list items to make them visible and editable
-            return { tag: 'li', listType: 'ol', html: content || '<br>', consumed: true, indent: indent };
+            return { tag: 'li', listType: 'ol', html: content || '<br>', consumed: true, indent: indent,
+                     number: parseInt(olMatch[2], 10) };
         }
 
         // Blockquote
@@ -2344,6 +2353,9 @@ class EditorInstance {
         if (a.tagName === 'HR' && b.tagName === 'HR') return true;
         if (a.getAttribute('data-lang') !== b.getAttribute('data-lang')) return false;
         if (a.className !== b.className) return false;
+        // sprint 20260729-000358: start だけ違う ol（innerHTML 同一）を「等しい」と
+        // 誤判定すると updateFromMarkdown が replace をスキップし start 変更が DOM に届かない
+        if (a.tagName === 'OL' && (a.getAttribute('start') || '') !== (b.getAttribute('start') || '')) return false;
         return normalizeBlockHtml(a.innerHTML) === normalizeBlockHtml(b.innerHTML);
     }
 
@@ -2524,6 +2536,17 @@ class EditorInstance {
         
         // Stack to track list nesting: [{type: 'ul'|'ol', indent: number}]
         let listStack = [];
+
+        // sprint 20260729-000358: ol の開始番号保持。リストを新規に開くとき（= 先頭 li）のみ
+        // parsed.number を参照し、valid（1〜9桁の正整数）かつ 1 以外なら <ol start="N"> を出す。
+        // N=1 は属性省略（既存 DOM と同一 = 既存挙動非破壊）。継続 li では参照しない =
+        // 「先頭項目のみが start を決める」（CommonMark）が構造で成立する。
+        function buildListOpenTag(parsed) {
+            if (parsed.listType === 'ol' && isValidOlStart(parsed.number) && parsed.number !== 1) {
+                return '<ol start="' + parsed.number + '"><li>' + parsed.html;
+            }
+            return '<' + parsed.listType + '><li>' + parsed.html;
+        }
 
         function closeListsToLevel(targetIndent) {
             let result = '';
@@ -2825,14 +2848,14 @@ class EditorInstance {
                 
                 if (listStack.length === 0) {
                     // Start a new top-level list
-                    html += '<' + parsed.listType + '><li>' + parsed.html;
+                    html += buildListOpenTag(parsed);
                     listStack.push({ type: parsed.listType, indent: indentLevel });
                 } else {
                     const currentLevel = listStack.length - 1;
 
                     if (indentLevel > currentLevel) {
                         // Nest deeper - create nested list inside current li
-                        html += '<' + parsed.listType + '><li>' + parsed.html;
+                        html += buildListOpenTag(parsed);
                         listStack.push({ type: parsed.listType, indent: indentLevel });
                     } else if (indentLevel < listStack.length) {
                         // Go back up - close lists until we reach the right level
@@ -2845,7 +2868,7 @@ class EditorInstance {
                             // of different type under the same parent li.
                             // (Do NOT close all lists - that would collapse nested type changes to top level)
                             html += '</li></' + listStack.pop().type + '>';
-                            html += '<' + parsed.listType + '><li>' + parsed.html;
+                            html += buildListOpenTag(parsed);
                             listStack.push({ type: parsed.listType, indent: indentLevel });
                         } else if (listStack.length > 0) {
                             html += '</li><li>' + parsed.html;
@@ -2857,7 +2880,7 @@ class EditorInstance {
                             // of different type under the same parent li.
                             // (Do NOT close all lists - that would collapse nested type changes to top level)
                             html += '</li></' + listStack.pop().type + '>';
-                            html += '<' + parsed.listType + '><li>' + parsed.html;
+                            html += buildListOpenTag(parsed);
                             listStack.push({ type: parsed.listType, indent: indentLevel });
                         } else {
                             html += '</li><li>' + parsed.html;
@@ -5749,20 +5772,41 @@ class EditorInstance {
             }
             
             // Check for adjacent ol to merge with
+            // sprint 20260729-000358 (ADRL-OLS-2): 打った番号 n が隣接 ol の連番に続くとき、
+            // または n===1（惰性の継続マーカー。従来 UX = list-merge.spec.ts が契約）のとき merge。
+            // それ以外（例: 1. a の直後に 5.）は独立した <ol start="n"> を作る（番号を無言で捨てない）。
+            const typedNum = parseInt(olMatch[1], 10);
             const nextSibling = node.nextElementSibling;
             const prevSibling = node.previousElementSibling;
-            
-            if (nextSibling && nextSibling.tagName?.toLowerCase() === 'ol') {
-                // Merge with next ol - prepend new item
+
+            const nextIsOl = nextSibling && nextSibling.tagName?.toLowerCase() === 'ol';
+            const prevIsOl = prevSibling && prevSibling.tagName?.toLowerCase() === 'ol';
+            const prevContinues = prevIsOl && (typedNum === 1 ||
+                typedNum === getEffectiveOlStart(prevSibling) + prevSibling.querySelectorAll(':scope > li').length);
+            // next への prepend は「明示的に next の start-1 を打った」か「n===1 かつ next も 1 始まり」のみ
+            //（n===1 で start 付き next に prepend すると next の開始番号が消えるため除外）
+            const nextContinues = nextIsOl && (typedNum === getEffectiveOlStart(nextSibling) - 1 ||
+                (typedNum === 1 && nextSibling.getAttribute('start') === null));
+
+            if (nextContinues) {
+                // Merge with next ol - prepend new item（次リストの先頭番号が n+1 → n を先頭に）
                 nextSibling.insertBefore(li, nextSibling.firstChild);
+                if (isValidOlStart(typedNum) && typedNum !== 1) {
+                    nextSibling.setAttribute('start', String(typedNum));
+                } else {
+                    nextSibling.removeAttribute('start');
+                }
                 node.remove();
-            } else if (prevSibling && prevSibling.tagName?.toLowerCase() === 'ol') {
-                // Merge with previous ol - append new item
+            } else if (prevContinues) {
+                // Merge with previous ol - append new item（前リストの連番に続く n）
                 prevSibling.appendChild(li);
                 node.remove();
             } else {
-                // Create new ol
+                // Create new ol（隣接なし or 番号が連続しない）
                 const ol = document.createElement('ol');
+                if (isValidOlStart(typedNum) && typedNum !== 1) {
+                    ol.setAttribute('start', String(typedNum));
+                }
                 ol.appendChild(li);
                 node.replaceWith(ol);
             }
@@ -6822,7 +6866,20 @@ class EditorInstance {
                 return ulContent;
             case 'ol':
                 let olContent = '';
-                let num = 1;
+                // sprint 20260729-000358: 直前の兄弟も ol なら境界の blank line を md に出す。
+                // 出さないと "1. a" + "5. b" が再パースで 1 本に融合し 2 個目の開始番号が消える
+                // （fractal md はブロック間の空行がリスト境界）。ネスト内は空行が collapse
+                // されるためトップレベル（listPrefix なし）のみ。
+                if (!listPrefix && node.previousElementSibling &&
+                    node.previousElementSibling.tagName === 'OL') {
+                    olContent += '\n';
+                }
+                // <ol start="N"> は N 起点の連番で md 化する
+                // （html-md-converter.js の listItem ルールと同セマンティクス）。
+                // 属性値は /^\d{1,9}$/ の allowlist（"3abc"・"0"・10桁以上は 1 にフォールバック）。
+                const olStartAttr = node.getAttribute('start');
+                let num = (olStartAttr && /^\d{1,9}$/.test(olStartAttr) && Number(olStartAttr) >= 1)
+                    ? Number(olStartAttr) : 1;
                 for (const li of node.children) {
                     if (li.tagName.toLowerCase() === 'li') {
                         olContent += mdProcessListItem(li, listPrefix, num + '.');
@@ -12419,8 +12476,15 @@ class EditorInstance {
         }
     }
 
+    // sprint 20260729-000358: ol の実効 start（start 属性の valid 値、無ければ 1）
+    function getEffectiveOlStart(ol) {
+        var s = ol.getAttribute('start');
+        return (s && /^\d{1,9}$/.test(s) && Number(s) >= 1) ? Number(s) : 1;
+    }
+
     // Check if two list elements are compatible for merging
     // Regular ul and task ul are NOT compatible
+    // a が先行・b が後続の隣接リストであること（呼び出し側の並び順で渡す）
     function areListsCompatible(a, b) {
         if (!a || !b) return false;
         if (a.tagName !== b.tagName) return false;
@@ -12432,7 +12496,15 @@ class EditorInstance {
             // Only merge if both are task or both are non-task
             return aHasCheckbox === bHasCheckbox;
         }
-        return true; // ol lists are always compatible with other ol
+        // sprint 20260729-000358: 後続 b に明示 start があるとき、その番号が a の連番に
+        // 続かないなら別リスト（merge すると番号が消える）。b に start が無ければ番号は
+        // auto（a の連番を継ぐ意図）なので従来どおり merge 可 — 属性なし ol 同士の
+        // 既存 merge 挙動を壊さない。
+        var bAttr = b.getAttribute('start');
+        if (bAttr === null) return true;
+        var bStart = getEffectiveOlStart(b);
+        var aCount = a.querySelectorAll(':scope > li').length;
+        return bStart === getEffectiveOlStart(a) + aCount;
     }
 
     // Merge targetList with its adjacent compatible siblings
@@ -19151,6 +19223,12 @@ class EditorInstance {
         window.__testApi.setMarkdown = (md) => {
             markdown = md;
             renderFromMarkdown();
+        };
+        // sprint 20260729-000358 (TC-OL-14): cursor-preserving 差分更新経路（updateFromMarkdown）を
+        // 直接駆動する。blocksAreEqual が start 差分を検知して DOM に反映するかの番人用。
+        window.__testApi.updateMarkdown = (md) => {
+            markdown = md;
+            updateFromMarkdown();
         };
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
