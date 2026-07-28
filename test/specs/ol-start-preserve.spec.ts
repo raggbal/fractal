@@ -428,5 +428,67 @@ test.describe('《数字リスト》開始番号の保持', () => {
         expect(md).toContain('c'); // c は残る（cut の空 li 掃除仕様により番号は 4. に詰まる）
         expect(md).not.toContain('1. a');
     });
+
+    // TC-OL-18 ★load-bearing・counterfactual（test_add / review iteration 1）:
+    // convertToList('ol')（段落→ol、Ctrl+Shift+O の convertListToType false フォールバック）の
+    // 隣接 merge が raw tagName 判定（areListsCompatible を通さない旧実装）だと、
+    // 入力 A で段落 x が <ol start="5"> に prepend され a の表示番号が 6 にシフト（x が 5 を奪う）→ RED
+    test('TC-OL-18: convertToList(ol) は隣接 start≠1 ol に無言 merge しない', async ({ page }) => {
+        // 入力 A（prepend 側・非連続）: 段落 x の直後に <ol start="5">。
+        // 期待: x は独立した素の <ol> になり、<ol start="5"> は不変（ol 2 個）
+        const prependCase = await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<p>x</p><ol start="5"><li>a</li></ol>';
+            const p = editor.querySelector('p')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            (window as any).__testApi.convertToList('ol');
+            const ols = editor.querySelectorAll('ol');
+            return {
+                count: ols.length,
+                firstStart: ols[0]?.getAttribute('start'),
+                firstLiCount: ols[0]?.querySelectorAll(':scope > li').length,
+                secondStart: ols[1]?.getAttribute('start'),
+                secondLiCount: ols[1]?.querySelectorAll(':scope > li').length,
+            };
+        });
+        expect(prependCase.count).toBe(2);
+        expect(prependCase.firstStart).toBeNull();   // x は独立の素の <ol>
+        expect(prependCase.firstLiCount).toBe(1);
+        expect(prependCase.secondStart).toBe('5');   // 既存 ol は不変（a は依然 5 番始まり）
+        expect(prependCase.secondLiCount).toBe(1);
+
+        // 入力 B（append 側）: <ol start="3"> の直後に段落 y。
+        // 期待: y は prev に append され連番を継ぐ（従来どおり merge・start="3" 保持）
+        const appendCase = await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ol start="3"><li>a</li></ol><p>y</p>';
+            const p = editor.querySelector('p')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            (window as any).__testApi.convertToList('ol');
+            const ols = editor.querySelectorAll('ol');
+            return {
+                count: ols.length,
+                start: ols[0]?.getAttribute('start'),
+                liCount: ols[0]?.querySelectorAll(':scope > li').length,
+            };
+        });
+        expect(appendCase.count).toBe(1);
+        expect(appendCase.start).toBe('3');
+        expect(appendCase.liCount).toBe(2);
+
+        const md = await editor.getMarkdown();
+        expect(md).toContain('3. a');
+        expect(md).toContain('4. y');
+    });
 });
 

@@ -21038,8 +21038,20 @@ class EditorInstance {
         
         const nextSibling = node.nextElementSibling;
 
+        // sprint 20260729-000358 (TASK-04): 新規項目は start を持たない = 実効 start 1・li 数 1 の
+        // 暫定リストとして areListsCompatible の連続性判定を通す。
+        // prepend（新項目が先頭になる）: next に明示 start があると getEffectiveOlStart(next) !== 2 で
+        // 非互換 → 独立 ol を作り、隣接 ol の開始番号を無言でシフトさせない（NFR-OLS-01/03）。
+        // append（prev の連番を継ぐ）: 新項目側に start は無いので従来どおり常に merge 可。
+        const canMergeAsFirstItem = (nextList) => {
+            if (type !== 'ol') return true;
+            const probe = document.createElement('ol');
+            probe.appendChild(document.createElement('li'));
+            return areListsCompatible(probe, nextList);
+        };
+
         // Check if the next sibling is the same type of list
-        if (nextSibling && nextSibling.tagName.toLowerCase() === type) {
+        if (nextSibling && nextSibling.tagName.toLowerCase() === type && canMergeAsFirstItem(nextSibling)) {
             // Merge with existing list - prepend new item
             const li = document.createElement('li');
             fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持（sprint 20260728-121645）
@@ -21051,6 +21063,8 @@ class EditorInstance {
         }
 
         // Check if the previous sibling is the same type of list
+        // （append は新項目が prev の連番を継ぐだけで start 破壊が起きないため連続性チェック不要 =
+        //   areListsCompatible(prev, 暫定ol) は b 側 start 無しで常に true。raw 判定と等価）
         const prevSibling = node.previousElementSibling;
         if (prevSibling && prevSibling.tagName.toLowerCase() === type) {
             // Merge with existing list - append new item
