@@ -552,9 +552,6 @@ export async function handleNotesMessage(
                 nodeId: message.targetNodeId,
                 newImages: result.newNodeImages
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 
@@ -584,9 +581,6 @@ export async function handleNotesMessage(
                 nodeId: message.targetNodeId,
                 newImages: result.newNodeImages
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 
@@ -609,9 +603,6 @@ export async function handleNotesMessage(
                 nodeId: message.nodeId,
                 newFilePath: resultFA.newFilePath
             });
-            if (message.isCut) {
-                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-            }
             break;
         }
 

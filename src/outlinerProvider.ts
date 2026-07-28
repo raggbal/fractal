@@ -552,9 +552,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }
@@ -584,9 +581,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }
@@ -608,9 +602,6 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 nodeId: message.nodeId,
                                 newFilePath: result.newFilePath
                             });
-                            if (message.isCut) {
-                                OutlinerClipboardStore.consumeIfCut(message.clipboardPlainText);
-                            }
                         }
                         break;
                     }
