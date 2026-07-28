@@ -17720,28 +17720,42 @@ class EditorInstance {
         // Delete the selection
         range.deleteContents();
 
+        // 「真に空」判定: text も img/checkbox 等の実コンテンツも無い（nested list / br は殻とみなす）。
+        // img/input は textContent が空でも real content（editor.js 既存規約・asset 1:1 ownership）。
+        function isTrulyEmptyShell(el) {
+            if (!el) return true;
+            if (el.textContent && el.textContent.trim()) return false;
+            if (el.querySelector && el.querySelector('img, input, table, pre, hr')) return false;
+            return true;
+        }
+
         // 空になった li 殻を掃除（子リストの昇格 + li 除去 + 空になった親 list 除去）
         for (const li of affectedLis) {
             if (!li || !li.isConnected) continue;
+            // 直下に text / img / checkbox 等の実コンテンツが残っていれば殻ではない
             let hasContent = false;
             for (const child of li.childNodes) {
                 if (child.nodeType === 3 && child.textContent.trim()) { hasContent = true; break; }
                 if (child.nodeType === 1) {
                     const tag = child.tagName ? child.tagName.toLowerCase() : '';
-                    if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
-                    if (child.textContent.trim()) { hasContent = true; break; }
+                    if (tag === 'ul' || tag === 'ol' || tag === 'br') continue;
+                    // img/input(checkbox) は textContent 空でも content（TASK-03: 旧判定は落としていた）
+                    if (tag === 'img' || tag === 'input') { hasContent = true; break; }
+                    if (child.textContent.trim() || (child.querySelector && child.querySelector('img, input'))) { hasContent = true; break; }
                 }
             }
             if (hasContent) continue;
             const parentList = li.parentNode;
             const nestedLists = Array.from(li.querySelectorAll(':scope > ul, :scope > ol'));
             for (const nl of nestedLists) {
-                // 空殻でない子だけ昇格（空殻ごと昇格すると殻が残る）
+                // 真に空の殻だけ捨て、実コンテンツ（text/img/checkbox）を持つ子は昇格
+                // （Backspace baseline :7679 は無条件昇格 = 子を落とさない。殻回避のため
+                //   「真に空」のみ破棄に限定 — TASK-03: 旧 textContent 条件は img-only 子を落としていた）
                 while (nl.firstChild) {
-                    if (nl.firstChild.textContent && nl.firstChild.textContent.trim()) {
-                        parentList.insertBefore(nl.firstChild, li);
-                    } else {
+                    if (isTrulyEmptyShell(nl.firstChild)) {
                         nl.removeChild(nl.firstChild);
+                    } else {
+                        parentList.insertBefore(nl.firstChild, li);
                     }
                 }
                 nl.remove();
@@ -17752,7 +17766,7 @@ class EditorInstance {
             while (pl && pl.isConnected && pl !== editor &&
                    (pl.tagName === 'UL' || pl.tagName === 'OL' || pl.tagName === 'LI')) {
                 const isList = pl.tagName === 'UL' || pl.tagName === 'OL';
-                const empty = isList ? pl.children.length === 0 : !(pl.textContent && pl.textContent.trim()) && !pl.querySelector('ul, ol, input, img');
+                const empty = isList ? pl.children.length === 0 : isTrulyEmptyShell(pl) && !pl.querySelector('ul, ol');
                 if (!empty) break;
                 const next = pl.parentNode;
                 pl.remove();

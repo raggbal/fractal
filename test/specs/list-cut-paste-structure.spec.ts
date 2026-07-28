@@ -179,6 +179,49 @@ test.describe('リスト cut: 空マーカー残り + シリアライズ（sprin
         expect(r.html).toContain('AWS investments');
     });
 
+    test('TC-CX-07 ★asset 番人: 親 text cut で img-only / checkbox-only の nested 子 li が昇格生存（TASK-03）', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML =
+                '<ul><li>parenttext' +
+                '<ul><li><img src="images/pic.png"></li>' +
+                '<li><input type="checkbox"></li>' +
+                '<li>keepchild</li></ul>' +
+                '</li><li>other</li></ul>';
+            const li = editor.querySelector('li')!;
+            const r = document.createRange();
+            r.setStart(li.firstChild!, 0);
+            r.setEnd(li.firstChild!, 'parenttext'.length);   // 親テキストのみ選択
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        const r = await dispatchCut(page);
+        // counterfactual: 旧 textContent 条件昇格だと img/checkbox 子が破棄され RED
+        expect(r.html).toContain('images/pic.png');
+        expect(r.html).toContain('type="checkbox"');
+        expect(r.html).toContain('keepchild');
+        expect(r.html).toContain('other');
+    });
+
+    test('TC-CX-08 ★asset 番人: affected li 直下の img は cut 掃除後も生存（TASK-03）', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>bbb<img src="images/keep.png"></li><li>second</li></ul>';
+            const li = editor.querySelector('li')!;
+            const r = document.createRange();
+            r.setStart(li.firstChild!, 0);
+            r.setEnd(li.firstChild!, 3);   // "bbb" のみ選択（img は選択外）
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        const r = await dispatchCut(page);
+        // counterfactual: img を content 扱いしない旧判定だと li ごと消え img 消失 = RED
+        expect(r.html).toContain('images/keep.png');
+        expect(r.html).toContain('second');
+    });
+
     test('TC-CX-06 regression: 単一 li 内の部分テキスト cut は従来どおり（li は残る・掃除は空 li のみ）', async ({ page }) => {
         await page.evaluate(() => {
             const editor = document.getElementById('editor')!;

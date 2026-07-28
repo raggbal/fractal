@@ -14224,6 +14224,69 @@ class EditorInstance {
     // ========== LIVE CONVERSION ==========
 
     // Check all patterns (called on Space or Enter)
+    /**
+     * 行頭マーカー（"- " "1. " "# " "> " "[x] " 等）ぶんのテキストだけを削り、残りの childNodes
+     * （anchor / subpage リンク / 画像 / 装飾等の inline 要素を含む）を clone した fragment を返す。
+     * 変換系が textContent で行を再構築すると inline 要素が全て脱落するバグ
+     * （sprint 20260728-121645）の共通修正。markerLen はマーカーの文字数
+     * （= textContent 長 − マーカー後残テキスト長）。
+     * opts.skipNestedLists: li 内変換用（nested ul/ol は collect/restore 側が別途温存）
+     * opts.skipCheckbox: li 内変換用（先頭 checkbox を持ち込まない）
+     */
+    function extractContentAfterMarker(node, markerLen, opts) {
+        opts = opts || {};
+        var frag = document.createDocumentFragment();
+        var remaining = markerLen;
+        for (var i = 0; i < node.childNodes.length; i++) {
+            var child = node.childNodes[i];
+            if (child.nodeType === 1) {
+                var tag = child.tagName.toLowerCase();
+                if (opts.skipNestedLists && (tag === 'ul' || tag === 'ol')) continue;
+                if (opts.skipCheckbox && child.tagName === 'INPUT') continue;
+                if (tag === 'br') continue; // 空行プレースホルダは持ち込まない
+            }
+            if (remaining > 0) {
+                var t = child.textContent || '';
+                if (child.nodeType === 3) {
+                    if (t.length <= remaining) { remaining -= t.length; continue; }
+                    frag.appendChild(document.createTextNode(t.slice(remaining)));
+                    remaining = 0;
+                    continue;
+                }
+                // マーカーが要素内で終わることは通常ない（マーカーは行頭の生テキスト）が、
+                // 要素の text 長ぶんは消費して安全側に倒す
+                if (t.length <= remaining) { remaining -= t.length; continue; }
+                frag.appendChild(child.cloneNode(true));
+                remaining = 0;
+                continue;
+            }
+            frag.appendChild(child.cloneNode(true));
+        }
+        return frag;
+    }
+
+    /** extractContentAfterMarker の結果を el に流し込む（空なら <br>）。 */
+    function fillWithExtracted(el, frag) {
+        if (frag && frag.hasChildNodes()) {
+            el.appendChild(frag);
+        } else if (!el.hasChildNodes()) {
+            el.innerHTML = '<br>';
+        }
+    }
+
+    /** toolbar 変換用: node の inline 内容（link/subpage 等ごと）を clone した fragment を返す。
+     *  node が UL/OL のときは従来どおり textContent に縮退（リスト全体の 1 行化は既存挙動を維持）。 */
+    function cloneInlineFromNode(node) {
+        var tag = node && node.tagName ? node.tagName.toLowerCase() : '';
+        if (tag === 'ul' || tag === 'ol') {
+            var frag = document.createDocumentFragment();
+            var t = node.textContent || '';
+            if (t) frag.appendChild(document.createTextNode(t));
+            return frag;
+        }
+        return extractContentAfterMarker(node, 0);
+    }
+
     function checkAllPatterns(trigger) {
         // First check inline patterns
         if (checkInlinePatterns(trigger)) return true;
@@ -14346,6 +14409,11 @@ class EditorInstance {
                 const existingText = taskInListMatch[2] || '';
                 const checked = taskInListMatch[1].toLowerCase() === 'x';
                 const nestedLists = collectNestedLists();
+                // inline 要素保持（sprint 20260728-121645）: innerHTML='' の前に退避
+                const inlineFrag = existingText
+                    ? extractContentAfterMarker(liNode, liDirectText.length - existingText.length,
+                        { skipNestedLists: true, skipCheckbox: true })
+                    : null;
 
                 liNode.innerHTML = '';
                 const checkbox = document.createElement('input');
@@ -14353,9 +14421,9 @@ class EditorInstance {
                 checkbox.checked = checked;
                 liNode.appendChild(checkbox);
                 let textNode = null;
-                if (existingText) {
-                    textNode = document.createTextNode(existingText);
-                    liNode.appendChild(textNode);
+                if (inlineFrag) {
+                    textNode = inlineFrag.firstChild && inlineFrag.firstChild.nodeType === 3 ? inlineFrag.firstChild : null;
+                    liNode.appendChild(inlineFrag);
                 }
                 restoreNestedLists(nestedLists);
 
@@ -14389,10 +14457,15 @@ class EditorInstance {
 
                 const existingText = bulletMatch[1] || '';
                 const nestedLists = collectNestedLists();
+                // inline 要素保持（sprint 20260728-121645）: innerHTML='' の前に退避
+                const inlineFrag = existingText
+                    ? extractContentAfterMarker(liNode, liDirectText.length - existingText.length,
+                        { skipNestedLists: true, skipCheckbox: true })
+                    : null;
 
                 liNode.innerHTML = '';
-                if (existingText) {
-                    liNode.appendChild(document.createTextNode(existingText));
+                if (inlineFrag) {
+                    liNode.appendChild(inlineFrag);
                 } else {
                     liNode.innerHTML = '<br>';
                 }
@@ -14416,10 +14489,15 @@ class EditorInstance {
 
                 const existingText = orderedMatch[2] || '';
                 const nestedLists = collectNestedLists();
+                // inline 要素保持（sprint 20260728-121645）: innerHTML='' の前に退避
+                const inlineFrag = existingText
+                    ? extractContentAfterMarker(liNode, liDirectText.length - existingText.length,
+                        { skipNestedLists: true, skipCheckbox: true })
+                    : null;
 
                 liNode.innerHTML = '';
-                if (existingText) {
-                    liNode.appendChild(document.createTextNode(existingText));
+                if (inlineFrag) {
+                    liNode.appendChild(inlineFrag);
                 } else {
                     liNode.innerHTML = '<br>';
                 }
@@ -14451,7 +14529,8 @@ class EditorInstance {
             const existingText = headingMatch[2] || '';
             const heading = document.createElement('h' + level);
             if (existingText) {
-                heading.textContent = existingText;
+                // inline 要素（link/subpage 等）を保持したままマーカーだけ剥がす（sprint 20260728-121645）
+                fillWithExtracted(heading, extractContentAfterMarker(node, text.length - existingText.length));
             } else {
                 heading.innerHTML = '<br>';
             }
@@ -14480,7 +14559,8 @@ class EditorInstance {
             checkbox.checked = taskMatch[1].toLowerCase() === 'x';
             li.appendChild(checkbox);
             if (existingText) {
-                li.appendChild(document.createTextNode(existingText));
+                // inline 要素保持（sprint 20260728-121645）
+                li.appendChild(extractContentAfterMarker(node, text.length - existingText.length));
             }
             
             // Check for adjacent task list to merge with
@@ -14533,7 +14613,8 @@ class EditorInstance {
             const existingText = ulMatch[1] || '';
             const li = document.createElement('li');
             if (existingText) {
-                li.textContent = existingText;
+                // inline 要素（link/subpage 等）を保持（sprint 20260728-121645 バグ修正）
+                fillWithExtracted(li, extractContentAfterMarker(node, text.length - existingText.length));
             } else {
                 li.innerHTML = '<br>';
             }
@@ -14576,7 +14657,8 @@ class EditorInstance {
             const existingText = olMatch[2] || '';
             const li = document.createElement('li');
             if (existingText) {
-                li.textContent = existingText;
+                // inline 要素保持（sprint 20260728-121645）
+                fillWithExtracted(li, extractContentAfterMarker(node, text.length - existingText.length));
             } else {
                 li.innerHTML = '<br>';
             }
@@ -14611,7 +14693,8 @@ class EditorInstance {
             const existingText = bqMatch[1] || '';
             const blockquote = document.createElement('blockquote');
             if (existingText) {
-                blockquote.textContent = existingText;
+                // inline 要素保持（sprint 20260728-121645）
+                fillWithExtracted(blockquote, extractContentAfterMarker(node, text.length - existingText.length));
             } else {
                 blockquote.innerHTML = '<br>';
             }
@@ -23752,10 +23835,9 @@ class EditorInstance {
         }
         if (!node || node === editor) return;
         
-        const text = node.textContent || '';
         const heading = document.createElement('h' + level);
-        heading.textContent = text || '';
-        if (!heading.textContent) heading.innerHTML = '<br>';
+        // inline 要素（link/subpage 等）保持（sprint 20260728-121645）
+        fillWithExtracted(heading, cloneInlineFromNode(node));
         node.replaceWith(heading);
         setCursorToEnd(heading);
         syncMarkdown();
@@ -23771,10 +23853,9 @@ class EditorInstance {
         }
         if (!node || node === editor) return;
         
-        const text = node.textContent || '';
         const p = document.createElement('p');
-        p.textContent = text || '';
-        if (!p.textContent) p.innerHTML = '<br>';
+        // inline 要素保持（sprint 20260728-121645）
+        fillWithExtracted(p, cloneInlineFromNode(node));
         node.replaceWith(p);
         setCursorToEnd(p);
         syncMarkdown();
@@ -23790,41 +23871,37 @@ class EditorInstance {
         }
         if (!node || node === editor) return;
         
-        const text = node.textContent || '';
         const nextSibling = node.nextElementSibling;
-        
+
         // Check if the next sibling is the same type of list
         if (nextSibling && nextSibling.tagName.toLowerCase() === type) {
             // Merge with existing list - prepend new item
             const li = document.createElement('li');
-            li.textContent = text || '';
-            if (!li.textContent) li.innerHTML = '<br>';
+            fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持（sprint 20260728-121645）
             nextSibling.insertBefore(li, nextSibling.firstChild);
             node.remove();
             setCursorToEnd(li);
             syncMarkdown();
             return;
         }
-        
+
         // Check if the previous sibling is the same type of list
         const prevSibling = node.previousElementSibling;
         if (prevSibling && prevSibling.tagName.toLowerCase() === type) {
             // Merge with existing list - append new item
             const li = document.createElement('li');
-            li.textContent = text || '';
-            if (!li.textContent) li.innerHTML = '<br>';
+            fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持
             prevSibling.appendChild(li);
             node.remove();
             setCursorToEnd(li);
             syncMarkdown();
             return;
         }
-        
+
         // No adjacent list of same type - create new list
         const list = document.createElement(type);
         const li = document.createElement('li');
-        li.textContent = text || '';
-        if (!li.textContent) li.innerHTML = '<br>';
+        fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持
         list.appendChild(li);
         node.replaceWith(list);
         setCursorToEnd(li);
@@ -23853,7 +23930,7 @@ class EditorInstance {
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 li.appendChild(checkbox);
-                li.appendChild(document.createTextNode(text));
+                li.appendChild(cloneInlineFromNode(node)); // inline 保持（sprint 20260728-121645）
                 nextSibling.insertBefore(li, nextSibling.firstChild);
                 node.remove();
                 setCursorToEnd(li);
@@ -23872,7 +23949,7 @@ class EditorInstance {
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 li.appendChild(checkbox);
-                li.appendChild(document.createTextNode(text));
+                li.appendChild(cloneInlineFromNode(node)); // inline 保持
                 prevSibling.appendChild(li);
                 node.remove();
                 setCursorToEnd(li);
@@ -23887,7 +23964,7 @@ class EditorInstance {
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         li.appendChild(checkbox);
-        li.appendChild(document.createTextNode(text));
+        li.appendChild(cloneInlineFromNode(node)); // inline 保持
         ul.appendChild(li);
         node.replaceWith(ul);
         setCursorToEnd(li);
@@ -24073,10 +24150,9 @@ class EditorInstance {
         }
         if (!node || node === editor) return;
         
-        const text = node.textContent || '';
         const blockquote = document.createElement('blockquote');
-        blockquote.textContent = text || '';
-        if (!blockquote.textContent) blockquote.innerHTML = '<br>';
+        // inline 要素保持（sprint 20260728-121645）
+        fillWithExtracted(blockquote, cloneInlineFromNode(node));
         node.replaceWith(blockquote);
         setCursorToEnd(blockquote);
         syncMarkdown();
@@ -26157,16 +26233,10 @@ class EditorInstance {
     }
 
     // Copy handler - convert selection to Markdown and set to clipboard
-    editor.addEventListener('copy', function(e) {
-        if (isSourceMode) return;
-        
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
-        e.preventDefault();
-        
-        // Get the selected HTML
-        const range = sel.getRangeAt(0);
+    // 選択範囲 → markdown/HTML シリアライズ（copy/cut 共通 — sprint 20260728-135515）。
+    // 従来 cut は mdProcessNode の単純ループを独自に持ち、「先頭テキスト + ネストリスト」の
+    // li ラップ（下記 else 分岐）が効かず `text- child` 連結の壊れた md が clipboard に入っていた。
+    function serializeSelectionToMd(range, sel) {
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
@@ -26224,8 +26294,7 @@ class EditorInstance {
         logger.log('Copy - selected HTML:', selectedHtml.substring(0, 500));
         logger.log('Copy - tempDiv children count:', tempDiv.childNodes.length);
         logger.log('Copy - tempDiv children:', Array.from(tempDiv.childNodes).map(n => n.nodeName + '(' + (n.textContent || '').substring(0, 30) + ')').join(', '));
-        
-        try {
+
             let md = '';
             
             // Check if the selection is just text (no block elements)
@@ -26471,7 +26540,23 @@ class EditorInstance {
                 }
                 md = md.trim();
             }
-            
+        return { md: md, selectedHtml: selectedHtml };
+    }
+
+    editor.addEventListener('copy', function(e) {
+        if (isSourceMode) return;
+        
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+        
+        e.preventDefault();
+        
+        // Get the selected HTML
+        const range = sel.getRangeAt(0);
+        try {
+            const _ser = serializeSelectionToMd(range, sel);
+            const md = _ser.md;
+            const selectedHtml = _ser.selectedHtml;
             logger.log('Copy - converted markdown:', md.substring(0, 200));
             
             // Set clipboard data
@@ -26492,33 +26577,24 @@ class EditorInstance {
     });
 
     // Cut handler - same as copy but also delete selection
+    // sprint 20260728-135515: シリアライズを copy と共通化（serializeSelectionToMd）+
+    // 削除後の空 li 殻掃除（Backspace 範囲選択と同型）を追加。従来は mdProcessNode 単純ループで
+    // 「text- child」連結 md を吐き、deleteContents の空 li 殻（•/○/▪）が残っていた。
     editor.addEventListener('cut', function(e) {
         if (isSourceMode) return;
-        
+
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
+
         e.preventDefault();
         markAsEdited();
-        
-        // Get the selected HTML
+
         const range = sel.getRangeAt(0);
-        const fragment = range.cloneContents();
-        const tempDiv = document.createElement('div');
-        tempDiv.appendChild(fragment);
-        const selectedHtml = tempDiv.innerHTML;
-        
-        // Convert to Markdown using the same logic as htmlToMarkdown()
         try {
-            let md = '';
-            for (const child of tempDiv.childNodes) {
-                md += mdProcessNode(child);
-            }
-            md = md.trim();
-            
-            e.clipboardData.setData('text/plain', md);
-            e.clipboardData.setData('text/html', selectedHtml);
-            e.clipboardData.setData('text/x-any-md', md);
+            const _ser = serializeSelectionToMd(range, sel);
+            e.clipboardData.setData('text/plain', _ser.md);
+            e.clipboardData.setData('text/html', _ser.selectedHtml);
+            e.clipboardData.setData('text/x-any-md', _ser.md);
 
             // v9: Asset context for cross-MD paste (side panel only)
             if (host._assetContext) {
@@ -26530,8 +26606,74 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', sel.toString());
         }
 
+        // 選択内の li を削除前に収集（Backspace 範囲選択 :7622 と同じ手順。掃除対象を選択内に限定）
+        let startLi = null;
+        let n = range.startContainer;
+        while (n && n !== editor) {
+            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { startLi = n; break; }
+            n = n.parentNode;
+        }
+        let endLi = null;
+        n = range.endContainer;
+        while (n && n !== editor) {
+            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { endLi = n; break; }
+            n = n.parentNode;
+        }
+        const affectedLis = [];
+        if (startLi) affectedLis.push(startLi);
+        if (endLi && endLi !== startLi) {
+            const allLis = Array.from(editor.querySelectorAll('li'));
+            const startIdx = allLis.indexOf(startLi);
+            const endIdx = allLis.indexOf(endLi);
+            if (startIdx !== -1 && endIdx !== -1) {
+                const minIdx = Math.min(startIdx, endIdx);
+                const maxIdx = Math.max(startIdx, endIdx);
+                for (let i = minIdx + 1; i <= maxIdx; i++) affectedLis.push(allLis[i]);
+            }
+        }
+
         // Delete the selection
         range.deleteContents();
+
+        // 空になった li 殻を掃除（子リストの昇格 + li 除去 + 空になった親 list 除去）
+        for (const li of affectedLis) {
+            if (!li || !li.isConnected) continue;
+            let hasContent = false;
+            for (const child of li.childNodes) {
+                if (child.nodeType === 3 && child.textContent.trim()) { hasContent = true; break; }
+                if (child.nodeType === 1) {
+                    const tag = child.tagName ? child.tagName.toLowerCase() : '';
+                    if (tag === 'ul' || tag === 'ol' || tag === 'br' || tag === 'input') continue;
+                    if (child.textContent.trim()) { hasContent = true; break; }
+                }
+            }
+            if (hasContent) continue;
+            const parentList = li.parentNode;
+            const nestedLists = Array.from(li.querySelectorAll(':scope > ul, :scope > ol'));
+            for (const nl of nestedLists) {
+                // 空殻でない子だけ昇格（空殻ごと昇格すると殻が残る）
+                while (nl.firstChild) {
+                    if (nl.firstChild.textContent && nl.firstChild.textContent.trim()) {
+                        parentList.insertBefore(nl.firstChild, li);
+                    } else {
+                        nl.removeChild(nl.firstChild);
+                    }
+                }
+                nl.remove();
+            }
+            li.remove();
+            // 空になった祖先 list を editor まで遡って除去
+            let pl = parentList;
+            while (pl && pl.isConnected && pl !== editor &&
+                   (pl.tagName === 'UL' || pl.tagName === 'OL' || pl.tagName === 'LI')) {
+                const isList = pl.tagName === 'UL' || pl.tagName === 'OL';
+                const empty = isList ? pl.children.length === 0 : !(pl.textContent && pl.textContent.trim()) && !pl.querySelector('ul, ol, input, img');
+                if (!empty) break;
+                const next = pl.parentNode;
+                pl.remove();
+                pl = next;
+            }
+        }
         syncMarkdown();
     });
 
