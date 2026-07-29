@@ -5,6 +5,12 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.12] - 2026-07-30
+
+### Added
+- **md editor: 数字リストの開始番号を保持（CommonMark 準拠）** — 段落を挟んで分断された数字リストの 2 個目を「3. c」と書けば 3, 4, … と続けられるように（従来は常に 1 に振り直し）。「4. + space」のオートフォーマットも 4 起点のリストを作る。先頭項目の番号がリストの開始番号（`<ol start>`）を決め、2 個目以降の飛び番は連番に正規化。1 始まりのリストは従来と完全に同一動作
+- **md editor: 開始番号の異なる隣接リストは無言統合しない** — 明示的な開始番号を持つリストは番号が連続する場合のみ統合され、打った番号・保持した番号が黙って消えない（段落→リスト変換の Ctrl+Shift+O 経路含む）
+
 ## [1.1.11] - 2026-07-28
 
 ### Fixed
