@@ -190,10 +190,17 @@ test.describe('Backspace: ネスト li マージ時の子リスト行順序保�
         });
         await page.waitForTimeout(100);
         await setCursorToLiStart(page, 'b');
+        // sprint 20260730-071730 (TU-LST-01, 許可: test_update): b は ol li なので
+        // 1 回目はバレット格下げ（行順序不変）、2 回目で従来の統合（ab）
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(200);
+        let order = await getVisualOrder(page);
+        expect(order).toEqual(['a', 'b', 'c', 'd']);
 
-        const order = await getVisualOrder(page);
+        await setCursorToLiStart(page, 'b');
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        order = await getVisualOrder(page);
         expect(order).toEqual(['ab', 'c', 'd']);
     });
 
@@ -244,10 +251,17 @@ test.describe('Backspace: ネスト li マージ時の子リスト行順序保�
         });
         await page.waitForTimeout(100);
         await setCursorToLiStart(page, 'b');
+        // sprint 20260730-071730 (TU-LST-01, 許可: test_update): b は ol li なので
+        // 1 回目はバレット格下げ（行順序不変）、2 回目で従来の統合（ab）
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(200);
+        let order = await getVisualOrder(page);
+        expect(order).toEqual(['a', 'b', 'c', 'd']);
 
-        const order = await getVisualOrder(page);
+        await setCursorToLiStart(page, 'b');
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        order = await getVisualOrder(page);
         expect(order).toEqual(['ab', 'c', 'd']);
     });
 

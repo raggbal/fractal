@@ -46,7 +46,9 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         expect(html).toContain('a');
     });
 
-    test('バレット→数字: ul>li "b" の後に ol>li "|c" でBackspace → "b"に統合', async ({ page }) => {
+    // sprint 20260730-071730 (TU-LST-01, 許可: test_update): ol li 行頭 backspace は
+    // 2 段階化により 1 回目でバレット格下げ（統合は 2 回目）。FR-OLB-01 / ADRL-LST-1。
+    test('バレット→数字: ol>li "|c" でBackspace → c がバレット格下げ（1回目）、2回目で "b" に統合', async ({ page }) => {
         // DOM: <ol><li>a<ul><li>b</li></ul><ol><li>c</li></ol></li></ol>
         await page.evaluate(() => {
             const editor = document.getElementById('editor')!;
@@ -66,7 +68,16 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(100);
 
-        const html = await editor.getHtml();
+        // 1 回目: c は ul li に格下げ（ol が消える）・統合はまだ
+        let html = await editor.getHtml();
+        expect(html).not.toContain('bc');
+        expect(html).not.toMatch(/<ol><li>c/);
+        expect(html).toMatch(/<ul><li>c<\/li><\/ul>/);
+
+        // 2 回目: 従来の統合（b の末尾へ）
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(100);
+        html = await editor.getHtml();
         expect(html).toContain('bc');
         expect(html).toMatch(/<ul>.*bc.*<\/ul>/s);
         expect(html).toContain('a');
@@ -159,7 +170,8 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         expect(html).toContain('a');
     });
 
-    test('タスク→数字: ul(task)>li "b" の後に ol>li "|c" でBackspace → "b"に統合', async ({ page }) => {
+    // sprint 20260730-071730 (TU-LST-01, 許可: test_update): 2 段階化（1回目格下げ→2回目統合）
+    test('タスク→数字: ol>li "|c" でBackspace → c がバレット格下げ（1回目）、2回目で "b" に統合', async ({ page }) => {
         // DOM: <ul><li>a<ul><li><input type="checkbox">b</li></ul><ol><li>c</li></ol></li></ul>
         await page.evaluate(() => {
             const editor = document.getElementById('editor')!;
@@ -179,7 +191,15 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(100);
 
-        const html = await editor.getHtml();
+        // 1 回目: c は ul li に格下げ・統合はまだ
+        let html = await editor.getHtml();
+        expect(html).not.toContain('bc');
+        expect(html).not.toMatch(/<ol><li>c/);
+
+        // 2 回目: 従来の統合
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(100);
+        html = await editor.getHtml();
         expect(html).toContain('bc');
         // チェックボックスは保持（タスクリスト側のもの）
         expect(html).toContain('type="checkbox"');
@@ -331,7 +351,14 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(100);
 
-        const html = await editor.getHtml();
+        // sprint 20260730-071730 (TU-LST-01, 許可: test_update): d は ol li なので
+        // 1 回目はバレット格下げ、2 回目で従来の統合（cd）
+        let html = await editor.getHtml();
+        expect(html).not.toContain('cd');
+
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(100);
+        html = await editor.getHtml();
         // cとdが統合（最深のliに統合）
         expect(html).toContain('cd');
         // bは保持
@@ -426,7 +453,14 @@ test.describe('ネストされた異種リスト間のBackspace統合', () => {
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(100);
 
-        const html = await editor.getHtml();
+        // sprint 20260730-071730 (TU-LST-01, 許可: test_update): d は ol li なので
+        // 1 回目はバレット格下げ、2 回目で従来の統合（cd）
+        let html = await editor.getHtml();
+        expect(html).not.toContain('cd');
+
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(100);
+        html = await editor.getHtml();
         expect(html).toContain('cd');
         expect(html).toContain('b');
         expect(html).toContain('a');
