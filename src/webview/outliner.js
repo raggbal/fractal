@@ -20,6 +20,45 @@ var Outliner = (function() {
     var pageTitleEl;     // .outliner-page-title container
     var pageTitleInput;  // .outliner-page-title-input element
 
+    // sprint 20260801-232943 (TASK-01): drop highlight（水色枠）の解除を 1 ヘルパに集約。
+    // shift なし D&D では drop が VS Code に横取りされ webview に届かず、従来の
+    // 「drop or target===treeEl の dragleave」だけでは枠が残留した（症状 A）。
+    // 全解除経路（treeEl drop / 関与判定 dragleave / node drop / window dragend / window drop capture）から呼ぶ。
+    // sprint 20260802-010347 (FR-DII, TASK-04): indent 幅の単一真実。
+    // renderTree の実 indent 幅と D&D インジケータの left の両方がこれを参照する
+    //（リテラル 24 の二重化を禁止 — 値変更時に表示と実描画がズレるため）。
+    var INDENT_PX = 24;
+    // sprint 20260802-010347 再オープン (TASK-05): node の可視開始オフセット。
+    // indentEl（depth×24）の直後に scope-btn（outliner.css .outliner-scope-btn width:18px）が
+    // あり、bullet 列はその後から始まる。挿入バーの左端をこの位置に揃えることで
+    // 「線の左端 = その depth の node の bullet」となり階層の誤認を防ぐ。
+    var CONTENT_OFFSET = 18;
+
+    function clearDropZoneHighlight() {
+        if (treeEl) { treeEl.classList.remove('outliner-tree-drop-zone-active'); }
+    }
+
+    // sprint 20260801-232943 (TASK-04): drag 終了の安全網用 — highlight（水色枠）と
+    // dropIndicator（node dragover が出す挿入位置インジケータ）の**両系統**を消す。
+    // 片系統だけ消す安全網は「解除経路の片系統漏れ」（failure DB 頻出クラス）。
+    function clearAllDropVisuals() {
+        clearDropZoneHighlight();
+        if (typeof removeDropIndicator === 'function') { removeDropIndicator(); }
+    }
+
+    // dragover で最後に解決した結果（drop が消費。ADRL-DII-1 の一致担保）。
+    // reset 契機: consume / dragend（clearAllDropVisualsAndResolution）。
+    var lastDropResolution = null;
+
+    // sprint 20260802-010347: dragend（drop が来ない drag 終了）用 — visuals に加えて
+    // depth 解決結果（lastDropResolution）も破棄する。window の drop capture では破棄しない
+    //（in-tree drop の consume が後段の treeEl capture で走るため。targetId 一致チェックが
+    // stale 消費を防ぐ二重ガード = TC-DII-06）。
+    function clearAllDropVisualsAndResolution() {
+        clearAllDropVisuals();
+        lastDropResolution = null;
+    }
+
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
     // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
@@ -940,6 +979,67 @@ var Outliner = (function() {
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
 
+        // sprint 20260801-232943 (TASK-01): drag セッション終了の安全網。drop が webview に
+        // 届かない終わり方（shift なし D&D・webview 外への drop・ESC キャンセル）でも
+        // highlight を必ず解除する（clearDropZoneHighlight はモジュールスコープに定義）。
+        // 冪等配線: init() が複数回呼ばれる環境（standalone harness）で二重登録しない
+        //（taskModeToggleBtn の onclick 冪等化と同じ理由。production は init 1 回で挙動不変）。
+        if (!window.__fractalDropSafetyWired) {
+            window.__fractalDropSafetyWired = true;
+            // TASK-04: highlight + dropIndicator の両系統を消す（片系統漏れの対称化）
+            window.addEventListener('dragend', clearAllDropVisualsAndResolution);
+            window.addEventListener('drop', clearAllDropVisuals, true);
+        }
+
+        // sprint 20260801-232943 (TASK-02, 症状 B): files drop の capture 先取り。
+        // node 内の contenteditable テキスト要素上に drop すると、ブラウザの contenteditable
+        // 既定処理や stopPropagation 系のリスナーに吸われて node/tree の bubble drop handler に
+        // 届かないことがある（shift+D&D の低成功率の一因）。capture phase で files drop を
+        // 一元処理し、最も近い node（.outliner-node）を target として handleFilesDrop へ委譲する。
+        // 既存 node reorder（dragState あり）と非 files drop は従来経路のまま（ここでは触らない）。
+        // 冪等配線（element フラグ）: 二重登録すると 1 drop で import が 2 回飛ぶ。
+        if (!treeEl.__fractalDropCaptureWired) {
+            treeEl.__fractalDropCaptureWired = true;
+            treeEl.addEventListener('drop', function(e) {
+                if (VIEW_MODE === 'mindmap') { return; }
+                if (dragState) { return; } // node reorder は既存経路
+                if (!isAnyFilesDragEvent(e)) { return; }
+                e.preventDefault();
+                e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
+                clearDropZoneHighlight();
+                // 注: removeDropIndicator は lastDropResolution も破棄するため、
+                // resolution の consume（下）より後に呼ぶ（順序契約）
+                var nodeEl = e.target && e.target.closest ? e.target.closest('.outliner-node') : null;
+                var targetId = null;
+                var pos = 'root-end';
+                if (nodeEl && nodeEl.dataset && nodeEl.dataset.id) {
+                    targetId = nodeEl.dataset.id;
+                    var rect = nodeEl.getBoundingClientRect();
+                    var y = e.clientY - rect.top;
+                    var h = rect.height;
+                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                    // sprint 20260802-010347 (FR-DII-02/03): after の depth 選択結果を
+                    // targetNodeId/position へ射影（bridge/host シグネチャ不変）。
+                    // 例: 祖先 anc の直後 = targetId=anc, pos='after' / target の子 = pos='child'
+                    if (pos === 'after') {
+                        var resolvedF = consumeDropResolution(targetId, 'after');
+                        if (resolvedF && resolvedF.asChildOfTarget) {
+                            pos = 'child';
+                        } else if (resolvedF && resolvedF.beforeId) {
+                            targetId = resolvedF.beforeId;
+                            pos = 'after';
+                        }
+                    }
+                }
+                removeDropIndicator();
+                if (isFilesDragEvent(e)) {
+                    handleFilesDrop(e, targetId, pos);
+                } else {
+                    handleVscodeUrisDrop(e, targetId, pos);
+                }
+            }, true);
+        }
+
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
             // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
@@ -963,7 +1063,7 @@ var Outliner = (function() {
             if (isFilesDragEvent(e)) {
                 // Finder path
                 e.preventDefault();
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 removeDropIndicator();
                 handleFilesDrop(e, null, 'root-end');
                 return;
@@ -971,7 +1071,7 @@ var Outliner = (function() {
             if (isVscodeUriDragEvent(e)) {
                 // VSCode Explorer path (v12 拡張)
                 e.preventDefault();
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 removeDropIndicator();
                 handleVscodeUrisDrop(e, null, 'root-end');
                 return;
@@ -993,8 +1093,11 @@ var Outliner = (function() {
             }
         });
         treeEl.addEventListener('dragleave', function(e) {
-            if (e.target === treeEl) {
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+            // sprint 20260801-232943 (TASK-01): 旧 `e.target === treeEl` 限定だと、カーソルが
+            // node 子要素上にあるまま tree 外へ出たとき解除されない（症状 A の一因）。
+            // 「tree の外に出た」= relatedTarget が tree に含まれない（null = webview 外も含む）で判定。
+            if (!e.relatedTarget || !treeEl.contains(e.relatedTarget)) {
+                clearDropZoneHighlight();
             }
         });
 
@@ -1041,7 +1144,12 @@ var Outliner = (function() {
 
     /** Check if drag event contains Files (OS file drop / Finder) */
     function isFilesDragEvent(e) {
-        return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+        if (!e.dataTransfer) { return false; }
+        if (Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0) { return true; }
+        // sprint 20260801-232943 (TASK-02): drop 時は環境により types に 'Files' が
+        // 乗らないことがある（症状 B の一因）→ files 実体でフォールバック判定。
+        // dragover 中は files が空のため従来どおり types 判定が効く（挙動不変）。
+        return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
     }
 
     /** Check if drag event contains VSCode Explorer URI list (v12 拡張) */
@@ -1317,7 +1425,64 @@ var Outliner = (function() {
         host.dropVscodeUrisImport(uris, targetNodeId, position);
     }
 
-    function showDropIndicator(targetEl, position) {
+    // sprint 20260802-010347 (ADRL-DII-1): D&D 挿入 depth 解決の単一真実（純関数）。
+    // dragover（表示）と drop（挿入）の両方がこれを使い、表示と挿入の一致（FR-DII-03）を
+    // 構造で担保する。after のみ複数の親候補がありうる（ファイルツリー型 escalation）。
+    // 返り値: { depth, parentId, beforeId } — 挿入に必要な完全な解決結果。
+    function resolveDropDepth(targetEl, position, clientX) {
+        var targetId = targetEl.dataset.id;
+        var targetDepth = parseInt(targetEl.dataset.depth || '0', 10);
+        var targetNode = model.getNode(targetId);
+        if (!targetNode) { return null; }
+
+        if (position === 'before') {
+            var infoB = model._getSiblingInfo(targetId);
+            var afterIdB = infoB && infoB.index > 0 ? infoB.siblings[infoB.index - 1] : null;
+            return { depth: targetDepth, parentId: targetNode.parentId, beforeId: afterIdB };
+        }
+        if (position === 'child') {
+            return { depth: targetDepth + 1, parentId: targetId, beforeId: null };
+        }
+
+        // after: depth 範囲 = [次の表示 node の depth（無ければ 0）, targetDepth]
+        // sprint 20260802-010347 再オープン (TASK-05): 上限は target と同階層まで。
+        // 「対象の子（depth+1）」は範囲から除外 — 子への drop は node 本体 hover の
+        // child position（青点線囲み）に一本化（after 線からの子選択は 1 段ズレ誤認の温床）。
+        // 対象に可視の子がいる場合は minDepth = d+1 > maxDepth となるため、その隙間の
+        // 自然な意味（先頭の子の位置）へ minDepth 側に収束させる。
+        var flat = model.getFlattenedIds(true); // 表示順（collapsed 考慮）
+        var idx = flat.indexOf(targetId);
+        var minDepth = 0;
+        if (idx >= 0 && idx + 1 < flat.length) {
+            minDepth = model.getDepth(flat[idx + 1]);
+        }
+        var maxDepth = Math.max(minDepth, targetDepth);
+
+        // clientX → 希望 depth。CONTENT_OFFSET を引いて bullet 列の真下 = その depth に対応
+        //（indent 境界基準だと 1 段浅い bullet に揃って見える視覚ズレ = TASK-05 気付き）
+        var treeLeft = treeEl.getBoundingClientRect().left;
+        var wanted = Math.floor((clientX - treeLeft - CONTENT_OFFSET) / INDENT_PX);
+        var depth = Math.max(minDepth, Math.min(maxDepth, wanted));
+
+        if (depth === targetDepth + 1) {
+            // 対象に可視の子がいて minDepth=d+1 に収束したケース = 先頭の子の位置
+            return { depth: depth, parentId: targetId, beforeId: null, asChildOfTarget: true };
+        }
+        // depth d に入る = target から祖先を遡り depth d の祖先 anc を特定し「anc の直後の兄弟」
+        var anc = targetId;
+        var ancDepth = targetDepth;
+        while (ancDepth > depth) {
+            var ancNode = model.getNode(anc);
+            if (!ancNode || !ancNode.parentId) { ancDepth = 0; break; }
+            anc = ancNode.parentId;
+            ancDepth = model.getDepth(anc);
+        }
+        var ancNode2 = model.getNode(anc);
+        return { depth: depth, parentId: ancNode2 ? ancNode2.parentId : null, beforeId: anc };
+    }
+
+
+    function showDropIndicator(targetEl, position, clientX) {
         removeDropIndicator();
         dropIndicator = document.createElement('div');
         dropIndicator.className = 'outliner-drop-indicator';
@@ -1326,17 +1491,28 @@ var Outliner = (function() {
         var treeRect = treeEl.getBoundingClientRect();
 
         dropIndicator.style.position = 'absolute';
-        dropIndicator.style.left = '0';
         dropIndicator.style.right = '0';
 
+        // sprint 20260802-010347 (FR-DII-01/02): before/after バーは挿入先 depth の位置から描く。
+        // clientX 未指定（旧呼び出し互換）は target depth ベースの一意解決。
+        var resolution = resolveDropDepth(targetEl, position,
+            typeof clientX === 'number' ? clientX : targetEl.getBoundingClientRect().left);
+        lastDropResolution = resolution ? {
+            targetId: targetEl.dataset.id, position: position, resolution: resolution
+        } : null;
+        var indentLeft = resolution ? (resolution.depth * INDENT_PX + CONTENT_OFFSET) : 0;
+
         if (position === 'before') {
+            dropIndicator.style.left = indentLeft + 'px';
             dropIndicator.style.top = (rect.top - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = '2px';
         } else if (position === 'after') {
+            dropIndicator.style.left = indentLeft + 'px';
             dropIndicator.style.top = (rect.bottom - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = '2px';
         } else {
-            // child: ターゲット全体をハイライト
+            // child: ターゲット全体をハイライト（従来どおり全幅）
+            dropIndicator.style.left = '0';
             dropIndicator.style.top = (rect.top - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = rect.height + 'px';
             dropIndicator.style.background = 'rgba(0, 120, 212, 0.1)';
@@ -1353,6 +1529,19 @@ var Outliner = (function() {
             dropIndicator.remove();
             dropIndicator = null;
         }
+        // 注意: lastDropResolution はここでは破棄しない。window の drop capture 安全網
+        // （clearAllDropVisuals）は treeEl の capture handler より先に走るため、ここで
+        // 破棄すると in-tree drop の消費（consumeDropResolution）が常に空振りする。
+        // 破棄は clearAllDropVisuals（dragend / tree 外 drop）と consume が担う。
+    }
+
+    // drop 時に lastDropResolution を消費する（targetId/position が一致するときのみ有効。
+    // null や不一致なら null を返し、呼び出し側は従来ロジックにフォールバック）
+    function consumeDropResolution(targetId, position) {
+        var r = lastDropResolution;
+        lastDropResolution = null;
+        if (r && r.targetId === targetId && r.position === position) { return r.resolution; }
+        return null;
     }
 
     // --- レンダリング ---
@@ -2942,7 +3131,7 @@ var Outliner = (function() {
         // インデント
         var indentEl = document.createElement('div');
         indentEl.className = 'outliner-node-indent';
-        indentEl.style.width = (depth * 24) + 'px';
+        indentEl.style.width = (depth * INDENT_PX) + 'px';
         el.appendChild(indentEl);
 
         // Scope Inボタン（ホバー時に表示）
@@ -3269,9 +3458,9 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                if (y < h * 0.25) showDropIndicator(el, 'before');
-                else if (y > h * 0.75) showDropIndicator(el, 'after');
-                else showDropIndicator(el, 'child');
+                if (y < h * 0.25) showDropIndicator(el, 'before', e.clientX);
+                else if (y > h * 0.75) showDropIndicator(el, 'after', e.clientX);
+                else showDropIndicator(el, 'child', e.clientX);
                 return;
             }
             // Existing node reorder D&D
@@ -3290,11 +3479,11 @@ var Outliner = (function() {
             var y = e.clientY - rect.top;
             var h = rect.height;
             if (y < h * 0.25) {
-                showDropIndicator(el, 'before');
+                showDropIndicator(el, 'before', e.clientX);
             } else if (y > h * 0.75) {
-                showDropIndicator(el, 'after');
+                showDropIndicator(el, 'after', e.clientX);
             } else {
-                showDropIndicator(el, 'child');
+                showDropIndicator(el, 'child', e.clientX);
             }
         });
         el.addEventListener('dragleave', function(e) {
@@ -3307,7 +3496,7 @@ var Outliner = (function() {
             // Files D&D: distinguish Finder vs VSCode Explorer
             if (isFilesDragEvent(e)) {
                 // Finder path
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
@@ -3319,7 +3508,7 @@ var Outliner = (function() {
             }
             if (isVscodeUriDragEvent(e)) {
                 // VSCode Explorer path (v12 拡張)
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
@@ -3352,8 +3541,17 @@ var Outliner = (function() {
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
                 model.moveNode(movedNodeId, targetNode.parentId, afterId);
             } else if (y > h * 0.75) {
-                // after: targetの後に兄弟として挿入
-                model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
+                // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
+                var resolved = consumeDropResolution(targetId, 'after');
+                if (resolved && resolved.asChildOfTarget) {
+                    model.moveNode(movedNodeId, targetId, null);
+                    targetNode.collapsed = false;
+                } else if (resolved) {
+                    model.moveNode(movedNodeId, resolved.parentId, resolved.beforeId);
+                } else {
+                    model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                }
             } else {
                 // child: targetの子の先頭に挿入
                 model.moveNode(movedNodeId, targetId, null);
@@ -6409,10 +6607,25 @@ var Outliner = (function() {
         });
 
         // --- Export bundle (FR-EB-01): node subtree を md リスト + 添付複製で出力 ---
+        // sprint 20260801-200307 (FR-EBM-01/03, ADRL-EBM-1): 複数選択中は copy/cut と同じ
+        // 収集器 getSelectedNodesData()（Set 重複排除 + 最浅基準相対 level）で全選択 node を
+        // 1 bundle に。右クリック対象が選択集合外でも選択集合を優先（確定裁定）。
+        // bundle 名の種 = document order（flattened 順）先頭の選択 nodeId。
         addMenuItem(contextMenuEl, i18n.outlinerExportBundle || 'Export bundle', function() {
-            var nodes = getSubtreeNodesData(nodeId);
+            var nodes, baseNodeId;
+            if (selectedNodeIds.size > 0) {
+                nodes = getSelectedNodesData();
+                var flatIds = model.getFlattenedIds(false);
+                baseNodeId = nodeId;
+                for (var ei = 0; ei < flatIds.length; ei++) {
+                    if (selectedNodeIds.has(flatIds[ei])) { baseNodeId = flatIds[ei]; break; }
+                }
+            } else {
+                nodes = getSubtreeNodesData(nodeId);
+                baseNodeId = nodeId;
+            }
             if (nodes.length && host.exportOutlinerNodesBundle) {
-                host.exportOutlinerNodesBundle(nodeId, nodes);
+                host.exportOutlinerNodesBundle(baseNodeId, nodes);
             }
             hideContextMenu();
         });

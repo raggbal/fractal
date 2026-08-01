@@ -113,9 +113,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         readAndInsertDrawio: function(filePath, sidePanelFilePath) {
             postFn({ type: 'readAndInsertDrawio', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
-        notifyUnsupportedDrawioXml: function(droppedPath, fileName, sidePanelFilePath) {
-            postFn({ type: 'notifyUnsupportedDrawioXml', droppedPath: droppedPath, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
-        },
         requestCreateDrawio: function(sidePanelFilePath) {
             postFn({ type: 'requestCreateDrawio', sidePanelFilePath: sidePanelFilePath });
         },

@@ -799,8 +799,15 @@ export function moveFileAsset(opts: {
 /**
  * Generate unique filename preserving original name with collision suffix.
  * Examples: report.pdf, report-1.pdf, report-2.pdf
+ * sprint 20260801-200307 (FR-DDX-02, TASK-04): 入口で basename 化 + 厳密名 `.`/`..` ガード。
+ * 共有 export 版に防御を置くことで全 caller（editorProvider / notesEditorProvider の
+ * Notes md 面 4 経路）が一律に守られる。global な `..` replace は正当な連続ドット名
+ * （archive..tar.gz 等）を破壊するため使わない — path.basename() がディレクトリ成分を
+ * 除去済みで、残る危険は厳密名 `.`/`..` のみ。
  */
 export function generateUniqueFileNamePreserving(targetDir: string, originalName: string): string {
+    originalName = path.basename(String(originalName || 'file'));
+    if (!originalName || originalName === '.' || originalName === '..') originalName = 'file';
     const ext = path.extname(originalName);
     const baseName = path.basename(originalName, ext);
 

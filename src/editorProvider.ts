@@ -131,8 +131,14 @@ export function generateUniqueFileName(dir: string, extension: string): string {
 /**
  * Generate unique file name preserving the original name.
  * On collision: report.pdf → report-1.pdf → report-2.pdf
+ * sprint 20260801-200307 (FR-DDX-02, TASK-04): basename 化 + 厳密名 `.`/`..` ガード。
+ * global な `..` replace は正当な連続ドット名（archive..tar.gz）を破壊するため使わない
+ * （path.basename がディレクトリ成分を除去済み。危険は厳密名 `.`/`..` のみ）。
+ * 同じ防御が shared 版（paste-asset-handler.ts の export 版 = Notes md 面が使用）にもある。
  */
 function generateUniqueFileNamePreserving(dir: string, originalName: string): string {
+    originalName = path.basename(String(originalName || 'file'));
+    if (!originalName || originalName === '.' || originalName === '..') originalName = 'file';
     const destPath = path.join(dir, originalName);
     if (!fs.existsSync(destPath)) {
         return originalName;
@@ -1069,25 +1075,6 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     break;
                 }
 
-                case 'notifyUnsupportedDrawioXml': {
-                    // MD-46: .drawio (XML) D&D 棄却ダイアログ
-                    const droppedPath: string = message.droppedPath || '';
-                    const fileNameForXml: string = message.fileName || (droppedPath ? path.basename(droppedPath) : '');
-                    const noticeMsg = t('unsupportedDrawioXmlNotice');
-                    const openBtn = t('openInDrawioDesktopButton');
-                    // 第二引数は modal なし、ボタンを並べる
-                    const action = await vscode.window.showWarningMessage(noticeMsg, openBtn);
-                    if (action === openBtn && droppedPath) {
-                        try {
-                            await vscode.env.openExternal(vscode.Uri.file(droppedPath));
-                        } catch (err) {
-                            console.error('[Any MD] Failed to open drawio file externally:', err);
-                        }
-                    }
-                    // ファイルコピー / insertText は一切行わない（仕様）
-                    void fileNameForXml; // 未使用警告抑止
-                    break;
-                }
 
                 case 'requestCreateDrawio': {
                     // MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入

@@ -32,8 +32,6 @@ export const messages = {
   // v12 拡張: VSCode Explorer D&D
   dropRemoteUriUnsupported: 'Los archivos remotos no son compatibles (solo archivos locales)',
   // MD-45/46/47: drawio
-  unsupportedDrawioXmlNotice: 'Los archivos .drawio (XML) no son compatibles. Ábralos en drawio Desktop, guárdelos como .drawio.svg y vuelva a soltarlos.',
-  openInDrawioDesktopButton: 'Abrir en drawio Desktop',
   drawioFilenamePromptTitle: 'Ingrese el nombre del diagrama drawio',
   drawioFilenamePromptPlaceholder: 'diagram (se añade .drawio.svg automáticamente)',
 };

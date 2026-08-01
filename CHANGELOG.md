@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.14] - 2026-08-02
+
+### Added
+- **outliner: 複数 node 選択の Export bundle** — 複数 node を選択して Export bundle すると、選択した全 node（+ 子孫）が 1 つの md にリストとして出力され、全 node 分の添付（画像・ファイル・page md）も bundle に含まれる。親子を跨ぐ選択も copy/cut と同じ扱い（重複なし）
+- **outliner: D&D 挿入インジケータの indent 対応** — node 並べ替え・外部ファイル drop の挿入線が「落ちる先の階層の bullet 位置」から描かれ、どの親の子になるかが見た目で分かる。マウスの水平位置で挿入先の階層を調整可能（ファイルツリーと同じ操作感）。子にしたいときは node 本体に重ねる（青点線囲み）
+- **md editor: .drawio ファイルの D&D 受理** — 素の .drawio を「drawio Desktop で変換して」ダイアログで弾かず、他の任意拡張子と同じ添付リンクとして取り込む（outliner と対称）。`.drawio.svg/.png` の画像表示 + drawio 連携は従来どおり
+
+### Fixed
+- **outliner: shift なし D&D で水色枠が残留するバグ** — drop が VS Code に横取りされる終わり方でも drop highlight・挿入インジケータが必ず解除されるように（drag 終了の安全網 + 解除条件の是正）
+- **outliner: shift+D&D でファイル添付 node が作られないことがあるバグ** — node のテキスト部分への drop が吸収される問題（capture 先取りで解消）+ 環境により drop が認識されない問題（判定フォールバック）
+- **md editor: 数字リスト格下げ後の行頭 backspace が段落化するバグ** — 上にリスト行がある場合は上のリスト末尾にテキストが結合されるように（v1.1.13 の 2 段階 backspace の後続修正）
+- **md editor: 添付ファイル名の防御を Notes 内 md にも適用** — ファイル名 sanitize を共有関数に移設（連続ドットを含む正当なファイル名の破壊も修正）
+
 ## [1.1.13] - 2026-07-30
 
 ### Added

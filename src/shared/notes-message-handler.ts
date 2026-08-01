@@ -90,8 +90,6 @@ export interface NotesPlatformActions {
     saveDrawioToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** MD-45 (URI 経路): drawio ファイルを fileDir にコピーして `![]()` 挿入 */
     readAndInsertDrawio?(filePath: string, sidePanelFilePath: string): void;
-    /** MD-46: .drawio (XML) D&D 棄却ダイアログ + drawio Desktop で開く */
-    notifyUnsupportedDrawioXml?(droppedPath: string, fileName: string, sidePanelFilePath: string): void;
     /** MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入 */
     requestCreateDrawio?(sidePanelFilePath: string): void;
     createPageAutoForSidePanel?(sidePanelFilePath: string): void;
@@ -899,16 +897,6 @@ export async function handleNotesMessage(
         case 'readAndInsertDrawio':
             if (message.sidePanelFilePath && message.filePath && platform.readAndInsertDrawio) {
                 platform.readAndInsertDrawio(message.filePath, message.sidePanelFilePath);
-            }
-            break;
-
-        case 'notifyUnsupportedDrawioXml':
-            if (platform.notifyUnsupportedDrawioXml) {
-                platform.notifyUnsupportedDrawioXml(
-                    message.droppedPath || '',
-                    message.fileName || '',
-                    message.sidePanelFilePath || ''
-                );
             }
             break;
 
