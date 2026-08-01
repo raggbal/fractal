@@ -36,6 +36,19 @@ var Outliner = (function() {
         if (typeof removeDropIndicator === 'function') { removeDropIndicator(); }
     }
 
+    // dragover で最後に解決した結果（drop が消費。ADRL-DII-1 の一致担保）。
+    // reset 契機: consume / dragend（clearAllDropVisualsAndResolution）。
+    var lastDropResolution = null;
+
+    // sprint 20260802-010347: dragend（drop が来ない drag 終了）用 — visuals に加えて
+    // depth 解決結果（lastDropResolution）も破棄する。window の drop capture では破棄しない
+    //（in-tree drop の consume が後段の treeEl capture で走るため。targetId 一致チェックが
+    // stale 消費を防ぐ二重ガード = TC-DII-06）。
+    function clearAllDropVisualsAndResolution() {
+        clearAllDropVisuals();
+        lastDropResolution = null;
+    }
+
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
     // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
@@ -964,7 +977,7 @@ var Outliner = (function() {
         if (!window.__fractalDropSafetyWired) {
             window.__fractalDropSafetyWired = true;
             // TASK-04: highlight + dropIndicator の両系統を消す（片系統漏れの対称化）
-            window.addEventListener('dragend', clearAllDropVisuals);
+            window.addEventListener('dragend', clearAllDropVisualsAndResolution);
             window.addEventListener('drop', clearAllDropVisuals, true);
         }
 
@@ -984,7 +997,8 @@ var Outliner = (function() {
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
-                removeDropIndicator();
+                // 注: removeDropIndicator は lastDropResolution も破棄するため、
+                // resolution の consume（下）より後に呼ぶ（順序契約）
                 var nodeEl = e.target && e.target.closest ? e.target.closest('.outliner-node') : null;
                 var targetId = null;
                 var pos = 'root-end';
@@ -994,7 +1008,20 @@ var Outliner = (function() {
                     var y = e.clientY - rect.top;
                     var h = rect.height;
                     pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                    // sprint 20260802-010347 (FR-DII-02/03): after の depth 選択結果を
+                    // targetNodeId/position へ射影（bridge/host シグネチャ不変）。
+                    // 例: 祖先 anc の直後 = targetId=anc, pos='after' / target の子 = pos='child'
+                    if (pos === 'after') {
+                        var resolvedF = consumeDropResolution(targetId, 'after');
+                        if (resolvedF && resolvedF.asChildOfTarget) {
+                            pos = 'child';
+                        } else if (resolvedF && resolvedF.beforeId) {
+                            targetId = resolvedF.beforeId;
+                            pos = 'after';
+                        }
+                    }
                 }
+                removeDropIndicator();
                 if (isFilesDragEvent(e)) {
                     handleFilesDrop(e, targetId, pos);
                 } else {
@@ -1388,7 +1415,62 @@ var Outliner = (function() {
         host.dropVscodeUrisImport(uris, targetNodeId, position);
     }
 
-    function showDropIndicator(targetEl, position) {
+    // sprint 20260802-010347 (FR-DII): indent 幅の実効値（renderTree の depth*24 inline と共有）
+    var INDENT_PX = 24;
+
+    // sprint 20260802-010347 (ADRL-DII-1): D&D 挿入 depth 解決の単一真実（純関数）。
+    // dragover（表示）と drop（挿入）の両方がこれを使い、表示と挿入の一致（FR-DII-03）を
+    // 構造で担保する。after のみ複数の親候補がありうる（ファイルツリー型 escalation）。
+    // 返り値: { depth, parentId, beforeId } — 挿入に必要な完全な解決結果。
+    function resolveDropDepth(targetEl, position, clientX) {
+        var targetId = targetEl.dataset.id;
+        var targetDepth = parseInt(targetEl.dataset.depth || '0', 10);
+        var targetNode = model.getNode(targetId);
+        if (!targetNode) { return null; }
+
+        if (position === 'before') {
+            var infoB = model._getSiblingInfo(targetId);
+            var afterIdB = infoB && infoB.index > 0 ? infoB.siblings[infoB.index - 1] : null;
+            return { depth: targetDepth, parentId: targetNode.parentId, beforeId: afterIdB };
+        }
+        if (position === 'child') {
+            return { depth: targetDepth + 1, parentId: targetId, beforeId: null };
+        }
+
+        // after: depth 範囲 = [次の表示 node の depth（無ければ 0）, targetDepth + 1]
+        var flat = model.getFlattenedIds(true); // 表示順（collapsed 考慮）
+        var idx = flat.indexOf(targetId);
+        var minDepth = 0;
+        if (idx >= 0 && idx + 1 < flat.length) {
+            minDepth = model.getDepth(flat[idx + 1]);
+        }
+        var maxDepth = targetDepth + 1;
+        if (minDepth > maxDepth) { minDepth = maxDepth; } // 不変条件の保険（通常成立しない）
+
+        // clientX → 希望 depth（tree 左端 + bullet offset 基準）→ clamp
+        var treeLeft = treeEl.getBoundingClientRect().left;
+        var wanted = Math.floor((clientX - treeLeft) / INDENT_PX);
+        var depth = Math.max(minDepth, Math.min(maxDepth, wanted));
+
+        if (depth === maxDepth) {
+            // target の子の先頭（既存 child drop と同じ扱い = collapsed でも子先頭・展開は drop 側）
+            return { depth: depth, parentId: targetId, beforeId: null, asChildOfTarget: true };
+        }
+        // depth d に入る = target から祖先を遡り depth d の祖先 anc を特定し「anc の直後の兄弟」
+        var anc = targetId;
+        var ancDepth = targetDepth;
+        while (ancDepth > depth) {
+            var ancNode = model.getNode(anc);
+            if (!ancNode || !ancNode.parentId) { ancDepth = 0; break; }
+            anc = ancNode.parentId;
+            ancDepth = model.getDepth(anc);
+        }
+        var ancNode2 = model.getNode(anc);
+        return { depth: depth, parentId: ancNode2 ? ancNode2.parentId : null, beforeId: anc };
+    }
+
+
+    function showDropIndicator(targetEl, position, clientX) {
         removeDropIndicator();
         dropIndicator = document.createElement('div');
         dropIndicator.className = 'outliner-drop-indicator';
@@ -1397,17 +1479,28 @@ var Outliner = (function() {
         var treeRect = treeEl.getBoundingClientRect();
 
         dropIndicator.style.position = 'absolute';
-        dropIndicator.style.left = '0';
         dropIndicator.style.right = '0';
 
+        // sprint 20260802-010347 (FR-DII-01/02): before/after バーは挿入先 depth の位置から描く。
+        // clientX 未指定（旧呼び出し互換）は target depth ベースの一意解決。
+        var resolution = resolveDropDepth(targetEl, position,
+            typeof clientX === 'number' ? clientX : targetEl.getBoundingClientRect().left);
+        lastDropResolution = resolution ? {
+            targetId: targetEl.dataset.id, position: position, resolution: resolution
+        } : null;
+        var indentLeft = resolution ? (resolution.depth * INDENT_PX) : 0;
+
         if (position === 'before') {
+            dropIndicator.style.left = indentLeft + 'px';
             dropIndicator.style.top = (rect.top - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = '2px';
         } else if (position === 'after') {
+            dropIndicator.style.left = indentLeft + 'px';
             dropIndicator.style.top = (rect.bottom - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = '2px';
         } else {
-            // child: ターゲット全体をハイライト
+            // child: ターゲット全体をハイライト（従来どおり全幅）
+            dropIndicator.style.left = '0';
             dropIndicator.style.top = (rect.top - treeRect.top + treeEl.scrollTop) + 'px';
             dropIndicator.style.height = rect.height + 'px';
             dropIndicator.style.background = 'rgba(0, 120, 212, 0.1)';
@@ -1424,6 +1517,19 @@ var Outliner = (function() {
             dropIndicator.remove();
             dropIndicator = null;
         }
+        // 注意: lastDropResolution はここでは破棄しない。window の drop capture 安全網
+        // （clearAllDropVisuals）は treeEl の capture handler より先に走るため、ここで
+        // 破棄すると in-tree drop の消費（consumeDropResolution）が常に空振りする。
+        // 破棄は clearAllDropVisuals（dragend / tree 外 drop）と consume が担う。
+    }
+
+    // drop 時に lastDropResolution を消費する（targetId/position が一致するときのみ有効。
+    // null や不一致なら null を返し、呼び出し側は従来ロジックにフォールバック）
+    function consumeDropResolution(targetId, position) {
+        var r = lastDropResolution;
+        lastDropResolution = null;
+        if (r && r.targetId === targetId && r.position === position) { return r.resolution; }
+        return null;
     }
 
     // --- レンダリング ---
@@ -3340,9 +3446,9 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                if (y < h * 0.25) showDropIndicator(el, 'before');
-                else if (y > h * 0.75) showDropIndicator(el, 'after');
-                else showDropIndicator(el, 'child');
+                if (y < h * 0.25) showDropIndicator(el, 'before', e.clientX);
+                else if (y > h * 0.75) showDropIndicator(el, 'after', e.clientX);
+                else showDropIndicator(el, 'child', e.clientX);
                 return;
             }
             // Existing node reorder D&D
@@ -3361,11 +3467,11 @@ var Outliner = (function() {
             var y = e.clientY - rect.top;
             var h = rect.height;
             if (y < h * 0.25) {
-                showDropIndicator(el, 'before');
+                showDropIndicator(el, 'before', e.clientX);
             } else if (y > h * 0.75) {
-                showDropIndicator(el, 'after');
+                showDropIndicator(el, 'after', e.clientX);
             } else {
-                showDropIndicator(el, 'child');
+                showDropIndicator(el, 'child', e.clientX);
             }
         });
         el.addEventListener('dragleave', function(e) {
@@ -3423,8 +3529,17 @@ var Outliner = (function() {
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
                 model.moveNode(movedNodeId, targetNode.parentId, afterId);
             } else if (y > h * 0.75) {
-                // after: targetの後に兄弟として挿入
-                model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
+                // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
+                var resolved = consumeDropResolution(targetId, 'after');
+                if (resolved && resolved.asChildOfTarget) {
+                    model.moveNode(movedNodeId, targetId, null);
+                    targetNode.collapsed = false;
+                } else if (resolved) {
+                    model.moveNode(movedNodeId, resolved.parentId, resolved.beforeId);
+                } else {
+                    model.moveNode(movedNodeId, targetNode.parentId, targetId);
+                }
             } else {
                 // child: targetの子の先頭に挿入
                 model.moveNode(movedNodeId, targetId, null);

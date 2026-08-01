@@ -69,21 +69,120 @@ test.describe('ol 行頭 backspace の 2 段階化', () => {
         expect(md).toContain('Xb');
     });
 
-    // TC-OB-02: 2 回目の backspace で従来の結合（FR-OLB-02 = 既存経路に落ちる）
-    test('TC-OB-02: 2 回目 backspace で結合（従来挙動）', async ({ page }) => {
+    // TC-OB-02: 2 回目の backspace で前の ol 末尾に結合（FR-OLB-02）
+    // sprint 20260802-010347 (TU-OBM-01, 許可: test_update): 旧 assert は negative-only
+    //（段落化しても green の tautology）だったため、「上のリストへ結合」を positive に強化。
+    // = TC-OBM-01 ★load-bearing・counterfactual: findVisuallyPreviousElement の
+    //   crossTopLevelList 分岐を外すと段落化して RED
+    test('TC-OB-02: 2 回目 backspace で前の ol 末尾に結合（TC-OBM-01）', async ({ page }) => {
         await editor.setMarkdown('1. a\n2. b\n3. c');
         await page.waitForTimeout(200);
         await cursorAtLiStart(page, 1);
         await page.keyboard.press('Backspace'); // 1 回目: demote
         await page.waitForTimeout(200);
-        await page.keyboard.press('Backspace'); // 2 回目: 既存の ul li 行頭挙動
+        await page.keyboard.press('Backspace'); // 2 回目: 前の ol 末尾へ結合
         await page.waitForTimeout(300);
 
         const md = await editor.getMarkdown();
-        // b が独立 ul li でなくなっている（上に結合 or リスト脱出 = 従来挙動の範囲）
+        expect(md).toContain('1. ab'); // b が a の末尾に結合（positive assert）
+        expect(md).not.toMatch(/^- b$/m); // 独立バレットが消える
+        // 段落化していない（<p>b</p> が無い）
+        const html = await editor.getHtml();
+        expect(html).not.toMatch(/<p>b<\/p>/);
+        expect(md).toContain('c'); // c は残る
+    });
+
+    // TC-OBM-02: 手書きの「ol 直後の ul 先頭 li」でも結合（demote 経路に限らない一般ケース）
+    test('TC-OBM-02: ol 直後の ul 先頭 li の行頭 backspace → ol 末尾へ結合', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>a</li></ol><ul><li>b</li></ul>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+
+        const md = await editor.getMarkdown();
+        expect(md).toContain('1. ab');
         expect(md).not.toMatch(/^- b$/m);
-        expect(md).toContain('b'); // テキスト自体は消えない
-        expect(md).toContain('3. c'); // c の番号は維持されたまま
+    });
+
+    // TC-OBM-03: 前が段落なら従来どおり（結合しない = 不変の番人）
+    test('TC-OBM-03: 前が段落のリスト先頭 li は従来どおり（結合しない）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<p>para</p><ul><li>b</li></ul>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+
+        const md = await editor.getMarkdown();
+        // para の末尾に結合されない（従来挙動 = リスト解除等。少なくとも "parab" にならない）
+        expect(md).not.toContain('parab');
+        expect(md).toContain('para');
+        expect(md).toContain('b');
+    });
+
+    // TC-OBM-05: nested の cross-merge は不変（前段 :7960 経路の回帰番人。
+    // backspace-mixed-nested-list.spec の green 維持と重ねての明示 1 本）
+    test('TC-OBM-05: ネスト内の前兄弟リストへの cross-merge は従来どおり', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            // 親 li 内: ul[b] の後に ul[c]（nested 先頭 li の cross-merge 構成）
+            ed.innerHTML = '<ul><li>a<ul><li>b</li></ul><ul><li>c</li></ul></li></ul>';
+            const lis = ed.querySelectorAll('li li');
+            const li = lis[1]!; // c
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+
+        const html = await editor.getHtml();
+        expect(html).toContain('bc'); // 前兄弟リスト末尾へ統合（従来どおり）
+    });
+
+    // TC-OBM-04 ★load-bearing: 空 li は opt-in 対象外（段落化の既存仕様不変）
+    // counterfactual: opt-in でなく無条件分岐にすると空 li が前の ol に結合され RED
+    test('TC-OBM-04: 前が ol でも空 li の行頭 backspace は従来どおり（結合しない）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>a</li></ol><ul><li><br></li></ul>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+
+        // 空 li のテキストが a に結合される事象は起きない（a は不変）
+        const md = await editor.getMarkdown();
+        expect(md).toMatch(/1\. a$|1\. a\n/);
+        // ol の li 数が増えていない（結合で空テキストが足されてもいない）
+        const liCount = await page.evaluate(() =>
+            document.querySelectorAll('#editor ol > li').length);
+        expect(liCount).toBe(1);
     });
 
     // TC-OB-03: 先頭行のバレット化（シナリオ i / ii）
