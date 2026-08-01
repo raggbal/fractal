@@ -18,9 +18,11 @@ const EDITOR_CASES: Array<{ name: string; expected: string }> = [
     { name: 'FOO.DRAWIO.PNG', expected: 'drawio-file' },
     { name: 'sub/dir/diagram.drawio.svg', expected: 'drawio-file' },
     { name: 'a.b.drawio.svg', expected: 'drawio-file' },
-    { name: 'foo.drawio', expected: 'drawio-xml' },
-    { name: 'FOO.DRAWIO', expected: 'drawio-xml' },
-    { name: 'a.b.drawio', expected: 'drawio-xml' },
+    // sprint 20260801-200307 (TU-DDX-01, 許可: test_update): ADRL-DDX-1 で drawio-xml 棄却を
+    // 廃止し素の .drawio は 'file'（添付）に。TC-DDX-01 の counterfactual: 棄却分岐を戻すと RED
+    { name: 'foo.drawio', expected: 'file' },
+    { name: 'FOO.DRAWIO', expected: 'file' },
+    { name: 'a.b.drawio', expected: 'file' },
     { name: 'plain.svg', expected: 'image' },
     { name: 'plain.png', expected: 'image' },
     { name: 'plain.jpg', expected: 'image' },

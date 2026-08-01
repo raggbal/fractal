@@ -7930,11 +7930,6 @@ class SidePanelHostBridge {
             this._mainHost.readAndInsertFile(filePath, this.filePath);
         }
     }
-    notifyUnsupportedDrawioXml(droppedPath, fileName) {
-        if (typeof this._mainHost.notifyUnsupportedDrawioXml === 'function') {
-            this._mainHost.notifyUnsupportedDrawioXml(droppedPath, fileName, this.filePath);
-        }
-    }
     requestCreateDrawio() {
         // BUG-FIX: side panel cmd+/ → drawio insertion 失敗の根本原因。
         // _onImageRequest() を呼ばないと sidePanelImagePending が true にならず、
@@ -25091,7 +25086,8 @@ class EditorInstance {
         if (!fileName) return 'file';
         var lower = String(fileName).toLowerCase();
         if (lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png')) return 'drawio-file';
-        if (lower.endsWith('.drawio')) return 'drawio-xml';
+        // sprint 20260801-200307 (ADRL-DDX-1): 素の .drawio は棄却（drawio-xml + 変換ダイアログ）せず
+        // 他の任意拡張子と同じ 'file'（添付）に落とす。outliner の受理挙動（OL-19B）と対称。
         var dot = lower.lastIndexOf('.');
         if (dot >= 0) {
             var ext = lower.slice(dot + 1);
@@ -25176,15 +25172,6 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
-        // MD-46: .drawio (XML) 棄却の通知
-        function notifyUnsupportedDrawioXmlViaHost(droppedPath, fileName, h) {
-            if (typeof h.notifyUnsupportedDrawioXml === 'function') {
-                h.notifyUnsupportedDrawioXml(droppedPath, fileName);
-            } else {
-                logger.warn('host has no notifyUnsupportedDrawioXml; ignoring drop');
-            }
-        }
-
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -25192,14 +25179,11 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            // MD-45/MD-46/MD-13拡張: classifyDroppedFile による switch 分岐
+            // MD-45/MD-13拡張: classifyDroppedFile による switch 分岐
+            //（MD-46 の drawio-xml 棄却は sprint 20260801-200307 / ADRL-DDX-1 で廃止 — 'file' に落ちる）
             const cls = classifyDroppedFile(file.name);
             if (cls === 'drawio-file') {
                 readAndInsertDrawioViaHost(file, targetHost);
-                return;
-            } else if (cls === 'drawio-xml') {
-                // ファイルコピーはせず、警告ダイアログだけ要求（Files 経路では .path がない事が多い）
-                notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
                 return;
             } else if (cls === 'image' || file.type.startsWith('image/')) {
                 readAndInsertImageViaHost(file, targetHost);
@@ -25220,18 +25204,22 @@ class EditorInstance {
                 if (item.kind === 'file') {
                     const file = item.getAsFile();
                     if (!file) continue;
-                    // MD-45/MD-46: drawio classifier first
+                    // MD-45: drawio classifier first
                     const itemCls = classifyDroppedFile(file.name);
                     if (itemCls === 'drawio-file') {
                         logger.log('Got drawio file from items:', file.name, file.size);
                         readAndInsertDrawioViaHost(file, targetHost);
                         return;
-                    } else if (itemCls === 'drawio-xml') {
-                        notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
-                        return;
                     } else if (item.type.startsWith('image/') || itemCls === 'image') {
                         logger.log('Got image file from items:', file.name, file.size);
                         readAndInsertImageViaHost(file, targetHost);
+                        return;
+                    } else {
+                        // sprint 20260801-200307 (FR-DDX-01): items 経路の file 添付 handler。
+                        // 従来は image/drawio しか捌かず非画像ファイルが素通りしていた
+                        //（classify が単一でも handler は経路ごと = designer_failures 2026-08-01）。
+                        logger.log('Got non-image file from items:', file.name, file.size);
+                        readAndInsertFileViaHost(file, targetHost);
                         return;
                     }
                 }
@@ -25304,9 +25292,6 @@ class EditorInstance {
                     // fallback to file path
                     targetHost.readAndInsertFile(filePath);
                 }
-            } else if (pathCls === 'drawio-xml') {
-                logger.log('Found .drawio (XML) path, rejecting:', filePath);
-                notifyUnsupportedDrawioXmlViaHost(filePath, pathFileName, targetHost);
             } else if (pathCls === 'image') {
                 logger.log('Found image file path:', filePath);
                 targetHost.readAndInsertImage(filePath);
@@ -27658,9 +27643,6 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         readAndInsertDrawio: function(filePath, sidePanelFilePath) {
             postFn({ type: 'readAndInsertDrawio', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
-        },
-        notifyUnsupportedDrawioXml: function(droppedPath, fileName, sidePanelFilePath) {
-            postFn({ type: 'notifyUnsupportedDrawioXml', droppedPath: droppedPath, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
         },
         requestCreateDrawio: function(sidePanelFilePath) {
             postFn({ type: 'requestCreateDrawio', sidePanelFilePath: sidePanelFilePath });
@@ -40506,10 +40488,25 @@ var Outliner = (function() {
         });
 
         // --- Export bundle (FR-EB-01): node subtree を md リスト + 添付複製で出力 ---
+        // sprint 20260801-200307 (FR-EBM-01/03, ADRL-EBM-1): 複数選択中は copy/cut と同じ
+        // 収集器 getSelectedNodesData()（Set 重複排除 + 最浅基準相対 level）で全選択 node を
+        // 1 bundle に。右クリック対象が選択集合外でも選択集合を優先（確定裁定）。
+        // bundle 名の種 = document order（flattened 順）先頭の選択 nodeId。
         addMenuItem(contextMenuEl, i18n.outlinerExportBundle || 'Export bundle', function() {
-            var nodes = getSubtreeNodesData(nodeId);
+            var nodes, baseNodeId;
+            if (selectedNodeIds.size > 0) {
+                nodes = getSelectedNodesData();
+                var flatIds = model.getFlattenedIds(false);
+                baseNodeId = nodeId;
+                for (var ei = 0; ei < flatIds.length; ei++) {
+                    if (selectedNodeIds.has(flatIds[ei])) { baseNodeId = flatIds[ei]; break; }
+                }
+            } else {
+                nodes = getSubtreeNodesData(nodeId);
+                baseNodeId = nodeId;
+            }
             if (nodes.length && host.exportOutlinerNodesBundle) {
-                host.exportOutlinerNodesBundle(nodeId, nodes);
+                host.exportOutlinerNodesBundle(baseNodeId, nodes);
             }
             hideContextMenu();
         });

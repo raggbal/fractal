@@ -69,11 +69,6 @@ class SidePanelHostBridge {
             this._mainHost.readAndInsertFile(filePath, this.filePath);
         }
     }
-    notifyUnsupportedDrawioXml(droppedPath, fileName) {
-        if (typeof this._mainHost.notifyUnsupportedDrawioXml === 'function') {
-            this._mainHost.notifyUnsupportedDrawioXml(droppedPath, fileName, this.filePath);
-        }
-    }
     requestCreateDrawio() {
         // BUG-FIX: side panel cmd+/ → drawio insertion 失敗の根本原因。
         // _onImageRequest() を呼ばないと sidePanelImagePending が true にならず、
@@ -17230,7 +17225,8 @@ class EditorInstance {
         if (!fileName) return 'file';
         var lower = String(fileName).toLowerCase();
         if (lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png')) return 'drawio-file';
-        if (lower.endsWith('.drawio')) return 'drawio-xml';
+        // sprint 20260801-200307 (ADRL-DDX-1): 素の .drawio は棄却（drawio-xml + 変換ダイアログ）せず
+        // 他の任意拡張子と同じ 'file'（添付）に落とす。outliner の受理挙動（OL-19B）と対称。
         var dot = lower.lastIndexOf('.');
         if (dot >= 0) {
             var ext = lower.slice(dot + 1);
@@ -17315,15 +17311,6 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
-        // MD-46: .drawio (XML) 棄却の通知
-        function notifyUnsupportedDrawioXmlViaHost(droppedPath, fileName, h) {
-            if (typeof h.notifyUnsupportedDrawioXml === 'function') {
-                h.notifyUnsupportedDrawioXml(droppedPath, fileName);
-            } else {
-                logger.warn('host has no notifyUnsupportedDrawioXml; ignoring drop');
-            }
-        }
-
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -17331,14 +17318,11 @@ class EditorInstance {
             const file = files[0];
             logger.log('Dropped file from files:', file.name, file.type, file.size);
 
-            // MD-45/MD-46/MD-13拡張: classifyDroppedFile による switch 分岐
+            // MD-45/MD-13拡張: classifyDroppedFile による switch 分岐
+            //（MD-46 の drawio-xml 棄却は sprint 20260801-200307 / ADRL-DDX-1 で廃止 — 'file' に落ちる）
             const cls = classifyDroppedFile(file.name);
             if (cls === 'drawio-file') {
                 readAndInsertDrawioViaHost(file, targetHost);
-                return;
-            } else if (cls === 'drawio-xml') {
-                // ファイルコピーはせず、警告ダイアログだけ要求（Files 経路では .path がない事が多い）
-                notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
                 return;
             } else if (cls === 'image' || file.type.startsWith('image/')) {
                 readAndInsertImageViaHost(file, targetHost);
@@ -17359,18 +17343,22 @@ class EditorInstance {
                 if (item.kind === 'file') {
                     const file = item.getAsFile();
                     if (!file) continue;
-                    // MD-45/MD-46: drawio classifier first
+                    // MD-45: drawio classifier first
                     const itemCls = classifyDroppedFile(file.name);
                     if (itemCls === 'drawio-file') {
                         logger.log('Got drawio file from items:', file.name, file.size);
                         readAndInsertDrawioViaHost(file, targetHost);
                         return;
-                    } else if (itemCls === 'drawio-xml') {
-                        notifyUnsupportedDrawioXmlViaHost(file.path || '', file.name, targetHost);
-                        return;
                     } else if (item.type.startsWith('image/') || itemCls === 'image') {
                         logger.log('Got image file from items:', file.name, file.size);
                         readAndInsertImageViaHost(file, targetHost);
+                        return;
+                    } else {
+                        // sprint 20260801-200307 (FR-DDX-01): items 経路の file 添付 handler。
+                        // 従来は image/drawio しか捌かず非画像ファイルが素通りしていた
+                        //（classify が単一でも handler は経路ごと = designer_failures 2026-08-01）。
+                        logger.log('Got non-image file from items:', file.name, file.size);
+                        readAndInsertFileViaHost(file, targetHost);
                         return;
                     }
                 }
@@ -17443,9 +17431,6 @@ class EditorInstance {
                     // fallback to file path
                     targetHost.readAndInsertFile(filePath);
                 }
-            } else if (pathCls === 'drawio-xml') {
-                logger.log('Found .drawio (XML) path, rejecting:', filePath);
-                notifyUnsupportedDrawioXmlViaHost(filePath, pathFileName, targetHost);
             } else if (pathCls === 'image') {
                 logger.log('Found image file path:', filePath);
                 targetHost.readAndInsertImage(filePath);

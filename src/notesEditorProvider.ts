@@ -1436,19 +1436,6 @@ export class NotesEditorProvider {
                     console.error('[Notes] readAndInsertDrawio error:', e);
                 }
             },
-            notifyUnsupportedDrawioXml: async (droppedPath: string, fileName: string, _sidePanelFilePath: string) => {
-                const noticeMsg = t('unsupportedDrawioXmlNotice');
-                const openBtn = t('openInDrawioDesktopButton');
-                const action = await vscode.window.showWarningMessage(noticeMsg, openBtn);
-                if (action === openBtn && droppedPath) {
-                    try {
-                        await vscode.env.openExternal(vscode.Uri.file(droppedPath));
-                    } catch (err) {
-                        console.error('[Notes] open drawio externally error:', err);
-                    }
-                }
-                void fileName; // unused
-            },
             requestCreateDrawio: async (sidePanelFilePath: string) => {
                 // v15+ で InputBox 廃止 → diagram.drawio.svg を自動命名で生成
                 // BUG-FIX (iter2): sidePanelFilePath の有無で要求元を判定（メイン自身の cmd+/ は空 → getMdFilesDirPath）。

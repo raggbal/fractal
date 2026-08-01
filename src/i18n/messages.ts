@@ -50,8 +50,6 @@ export interface Messages {
   dropFileTooLarge: string;
   dropImportFailed: string;
   // MD-45/46/47: drawio
-  unsupportedDrawioXmlNotice: string;
-  openInDrawioDesktopButton: string;
   drawioFilenamePromptTitle: string;
   drawioFilenamePromptPlaceholder: string;
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)

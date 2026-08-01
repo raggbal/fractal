@@ -6409,10 +6409,25 @@ var Outliner = (function() {
         });
 
         // --- Export bundle (FR-EB-01): node subtree を md リスト + 添付複製で出力 ---
+        // sprint 20260801-200307 (FR-EBM-01/03, ADRL-EBM-1): 複数選択中は copy/cut と同じ
+        // 収集器 getSelectedNodesData()（Set 重複排除 + 最浅基準相対 level）で全選択 node を
+        // 1 bundle に。右クリック対象が選択集合外でも選択集合を優先（確定裁定）。
+        // bundle 名の種 = document order（flattened 順）先頭の選択 nodeId。
         addMenuItem(contextMenuEl, i18n.outlinerExportBundle || 'Export bundle', function() {
-            var nodes = getSubtreeNodesData(nodeId);
+            var nodes, baseNodeId;
+            if (selectedNodeIds.size > 0) {
+                nodes = getSelectedNodesData();
+                var flatIds = model.getFlattenedIds(false);
+                baseNodeId = nodeId;
+                for (var ei = 0; ei < flatIds.length; ei++) {
+                    if (selectedNodeIds.has(flatIds[ei])) { baseNodeId = flatIds[ei]; break; }
+                }
+            } else {
+                nodes = getSubtreeNodesData(nodeId);
+                baseNodeId = nodeId;
+            }
             if (nodes.length && host.exportOutlinerNodesBundle) {
-                host.exportOutlinerNodesBundle(nodeId, nodes);
+                host.exportOutlinerNodesBundle(baseNodeId, nodes);
             }
             hideContextMenu();
         });

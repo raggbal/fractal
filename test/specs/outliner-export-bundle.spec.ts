@@ -195,7 +195,10 @@ test.describe('Export bundle menu (E2E)', () => {
         }, nodeId);
     }
 
-    test('TC-EB-10 ★load-bearing: 右クリック → Export bundle → exportOutlinerNodesBundle 送出', async ({ page }) => {
+    // sprint 20260801-200307 (TU-EBM-01, 許可: test_update): 複数選択 export（FR-EBM-01）導入に伴い、
+    // 本 TC は「選択なし時は従来の単一 node + 子孫送出」の番人として前提を明確化（initTree 直後は
+    // selectedNodeIds 空 = 選択なし経路）。複数選択時の挙動は TC-EBM-01〜06 が担う。期待値は不変。
+    test('TC-EB-10 ★load-bearing: 選択なしの右クリック → Export bundle → subtree 送出（従来経路）', async ({ page }) => {
         await initTree(page);
         const r = await exportViaMenu(page, 'root');
         // counterfactual: メニュー未実装なら項目不在 = RED
@@ -215,6 +218,158 @@ test.describe('Export bundle menu (E2E)', () => {
         expect(hit.length).toBe(1);
         expect(hit[0].nodes.map((n: any) => n.text)).toEqual(['child node', 'grandchild']);
         expect(hit[0].nodes.map((n: any) => n.level)).toEqual([0, 1]);
+    });
+});
+
+// ============ E2E: 複数選択 export（TC-EBM-01〜06 / sprint 20260801-200307） ============
+
+test.describe('Export bundle multi-select (E2E)', () => {
+    // 兄弟 3 root（各に子 1）のツリー
+    async function initSiblingTree(page: import('@playwright/test').Page) {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.initOutliner !== undefined);
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1', 'n2', 'n3'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, text: 'alpha', children: ['n1c'] },
+                    n1c: { id: 'n1c', parentId: 'n1', text: 'alpha child', children: [] },
+                    n2: { id: 'n2', parentId: null, text: 'beta', children: ['n2c'] },
+                    n2c: { id: 'n2c', parentId: 'n2', text: 'beta child', children: [] },
+                    n3: { id: 'n3', parentId: null, text: 'gamma', children: [] },
+                },
+            });
+        });
+        await page.waitForSelector('.outliner-node[data-id="n1"]');
+        await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
+    }
+
+    // click + Shift+ArrowDown で範囲選択（integration-outliner-cmd-cut-copy-children.spec の先例）
+    async function selectRangeByKeys(page: import('@playwright/test').Page, fromId: string, downs: number) {
+        await page.locator(`.outliner-node[data-id="${fromId}"] .outliner-text`).click();
+        for (let i = 0; i < downs; i++) {
+            await page.keyboard.press('Shift+ArrowDown');
+        }
+        await page.waitForTimeout(50);
+    }
+
+    async function clickExportOnNode(page: import('@playwright/test').Page, nodeId: string) {
+        return page.evaluate((nodeId) => {
+            (window as any).__testApi.messages.length = 0;
+            const el = document.querySelector(`.outliner-node[data-id="${nodeId}"] .outliner-text`) as HTMLElement;
+            el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 30, clientY: 30 }));
+            const items = Array.from(document.querySelectorAll('.outliner-context-menu-item'));
+            const target = items.find((it) => (it.textContent || '').includes('Export bundle')) as HTMLElement;
+            if (target) target.click();
+            return JSON.parse(JSON.stringify((window as any).__testApi.messages));
+        }, nodeId);
+    }
+
+    // TC-EBM-01 ★load-bearing・counterfactual:
+    // 収集分岐を getSubtreeNodesData 固定（旧実装）に戻すと先頭 node + 子孫のみになり RED
+    test('TC-EBM-01: 複数兄弟選択 → 全選択 node + 子孫が 1 bundle に送出', async ({ page }) => {
+        await initSiblingTree(page);
+        // n1 から Shift+Down ×5 = n1, n1c, n2, n2c, n3 の全選択（k 回押下 = 先頭 k node 選択）
+        await selectRangeByKeys(page, 'n1', 5);
+        const msgs = await clickExportOnNode(page, 'n1');
+        const hit = msgs.filter((m: any) => m.type === 'exportOutlinerNodesBundle');
+        expect(hit.length).toBe(1);
+        expect(hit[0].nodes.map((n: any) => n.text)).toEqual(
+            ['alpha', 'alpha child', 'beta', 'beta child', 'gamma']);
+        expect(hit[0].nodes.map((n: any) => n.level)).toEqual([0, 1, 0, 1, 0]);
+    });
+
+    // TC-EBM-03: 親子跨ぎ選択は Set 重複排除（copy/cut と同じ = ADRL-EBM-1）
+    test('TC-EBM-03: 親子跨ぎ選択でも子は 1 回だけ出力', async ({ page }) => {
+        await initSiblingTree(page);
+        // n1（親）と n1c（子）を範囲選択（Shift+Down ×1）→ 子孫展開で n1c が重複しないこと
+        await selectRangeByKeys(page, 'n1', 1);
+        const msgs = await clickExportOnNode(page, 'n1');
+        const hit = msgs.filter((m: any) => m.type === 'exportOutlinerNodesBundle');
+        expect(hit.length).toBe(1);
+        expect(hit[0].nodes.map((n: any) => n.text)).toEqual(['alpha', 'alpha child']);
+    });
+
+    // TC-EBM-04: 選択なし右クリックは従来経路（NFR-EBM-01 の番人 = TC-EB-10 と同義）
+    test('TC-EBM-04: 選択なしの右クリック export は従来どおり subtree のみ', async ({ page }) => {
+        await initSiblingTree(page);
+        const msgs = await clickExportOnNode(page, 'n2');
+        const hit = msgs.filter((m: any) => m.type === 'exportOutlinerNodesBundle');
+        expect(hit.length).toBe(1);
+        expect(hit[0].nodeId).toBe('n2');
+        expect(hit[0].nodes.map((n: any) => n.text)).toEqual(['beta', 'beta child']);
+    });
+
+    // TC-EBM-05: bundle 名 = document order 先頭の選択 nodeId（FR-EBM-03）
+    // TC-EBM-06 を兼ねる: 右クリック対象（n3）が選択集合（n1,n1c,n2）外でも選択集合を優先
+    test('TC-EBM-05+06: baseNodeId は document order 先頭・右クリック対象が選択外でも選択優先', async ({ page }) => {
+        await initSiblingTree(page);
+        // n1〜n2 を選択（Shift+Down ×3 = n1, n1c, n2。子孫展開で n2c も収集される）
+        await selectRangeByKeys(page, 'n1', 3);
+        // 選択集合外の n3 を右クリックして export
+        const msgs = await clickExportOnNode(page, 'n3');
+        const hit = msgs.filter((m: any) => m.type === 'exportOutlinerNodesBundle');
+        expect(hit.length).toBe(1);
+        // 選択集合を優先（n3 は含まれない）
+        expect(hit[0].nodes.map((n: any) => n.text)).toEqual(['alpha', 'alpha child', 'beta', 'beta child']);
+        // baseNodeId は document order 先頭の選択 node = n1
+        expect(hit[0].nodeId).toBe('n1');
+    });
+});
+
+// ============ unit: 複数兄弟 nodes 配列の core 出力（TC-EBM-02） ============
+
+test.describe('runOutlinerNodesExportBundle multi-sibling (unit)', () => {
+    let src2: string, dest2: string;
+    test.beforeEach(() => {
+        src2 = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-ebm-src-'));
+        fs.mkdirSync(path.join(src2, 'images'));
+        fs.mkdirSync(path.join(src2, 'files'));
+        // page md 本文が画像を参照（node 直付き images は core が無視する = FR-EB-04 既存仕様）
+        fs.writeFileSync(path.join(src2, 'p1.md'), '# Page One\n\n![](images/pic.png)\n');
+        fs.writeFileSync(path.join(src2, 'images', 'pic.png'), 'PNGDATA');
+        fs.writeFileSync(path.join(src2, 'files', 'doc.pdf'), 'PDFDATA');
+    });
+    test.afterEach(() => {
+        fs.rmSync(src2, { recursive: true, force: true });
+        fs.rmSync(dest2, { recursive: true, force: true });
+    });
+
+    // TC-EBM-02 ★load-bearing: 複数兄弟（level 0 が複数）でも 1 md + 全 node 分の添付が出力される
+    //（画像は page 本文参照経由・ファイルは filePath 経由 = 既存仕様 FR-EB-03/04 の複数兄弟版）
+    test('TC-EBM-02: 複数兄弟配列 → 1 md にトップレベル項目が並び全添付複製', () => {
+        dest2 = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-ebm-dest-'));
+        const r = pah.runOutlinerNodesExportBundle({
+            nodeId: 'nTop',
+            nodes: [
+                { text: 'first', level: 0 },
+                { text: 'second', level: 0, isPage: true, pageId: 'p1', images: [] },
+                { text: 'second child', level: 1, filePath: 'files/doc.pdf' },
+                { text: 'third', level: 0 },
+            ],
+            srcOutDir: src2,
+            srcPagesDir: src2,
+            srcFileDir: path.join(src2, 'files'),
+            dest: dest2,
+            generatePageId: () => 'new-p1',
+        });
+        expect(r.ok).toBe(true);
+        const bundleDir = path.join(dest2, 'nTop');
+        const md = fs.readFileSync(path.join(bundleDir, 'nTop.md'), 'utf-8');
+        // 3 つのトップレベルリスト項目（インデントなしの "- "）
+        const topItems = md.split('\n').filter((l: string) => /^- /.test(l));
+        expect(topItems.length).toBe(3);
+        expect(md).toContain('first');
+        expect(md).toContain('second');
+        expect(md).toContain('third');
+        // 添付: page md 複製 + その本文参照画像 + filePath のファイルがすべて複製される
+        expect(fs.existsSync(path.join(bundleDir, 'new-p1.md'))).toBe(true);
+        const body = fs.readFileSync(path.join(bundleDir, 'new-p1.md'), 'utf-8');
+        const imgRef = body.match(/!\[\]\(([^)]+)\)/)?.[1];
+        expect(imgRef).toBeTruthy();
+        expect(fs.existsSync(path.resolve(bundleDir, imgRef!))).toBe(true);
+        expect(fs.existsSync(path.join(bundleDir, 'files', 'doc.pdf'))).toBe(true);
     });
 });
 
