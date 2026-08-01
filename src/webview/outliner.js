@@ -20,6 +20,14 @@ var Outliner = (function() {
     var pageTitleEl;     // .outliner-page-title container
     var pageTitleInput;  // .outliner-page-title-input element
 
+    // sprint 20260801-232943 (TASK-01): drop highlight（水色枠）の解除を 1 ヘルパに集約。
+    // shift なし D&D では drop が VS Code に横取りされ webview に届かず、従来の
+    // 「drop or target===treeEl の dragleave」だけでは枠が残留した（症状 A）。
+    // 全解除経路（treeEl drop / 関与判定 dragleave / node drop / window dragend / window drop capture）から呼ぶ。
+    function clearDropZoneHighlight() {
+        if (treeEl) { treeEl.classList.remove('outliner-tree-drop-zone-active'); }
+    }
+
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
     // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
@@ -940,6 +948,52 @@ var Outliner = (function() {
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
 
+        // sprint 20260801-232943 (TASK-01): drag セッション終了の安全網。drop が webview に
+        // 届かない終わり方（shift なし D&D・webview 外への drop・ESC キャンセル）でも
+        // highlight を必ず解除する（clearDropZoneHighlight はモジュールスコープに定義）。
+        // 冪等配線: init() が複数回呼ばれる環境（standalone harness）で二重登録しない
+        //（taskModeToggleBtn の onclick 冪等化と同じ理由。production は init 1 回で挙動不変）。
+        if (!window.__fractalDropSafetyWired) {
+            window.__fractalDropSafetyWired = true;
+            window.addEventListener('dragend', clearDropZoneHighlight);
+            window.addEventListener('drop', clearDropZoneHighlight, true);
+        }
+
+        // sprint 20260801-232943 (TASK-02, 症状 B): files drop の capture 先取り。
+        // node 内の contenteditable テキスト要素上に drop すると、ブラウザの contenteditable
+        // 既定処理や stopPropagation 系のリスナーに吸われて node/tree の bubble drop handler に
+        // 届かないことがある（shift+D&D の低成功率の一因）。capture phase で files drop を
+        // 一元処理し、最も近い node（.outliner-node）を target として handleFilesDrop へ委譲する。
+        // 既存 node reorder（dragState あり）と非 files drop は従来経路のまま（ここでは触らない）。
+        // 冪等配線（element フラグ）: 二重登録すると 1 drop で import が 2 回飛ぶ。
+        if (!treeEl.__fractalDropCaptureWired) {
+            treeEl.__fractalDropCaptureWired = true;
+            treeEl.addEventListener('drop', function(e) {
+                if (VIEW_MODE === 'mindmap') { return; }
+                if (dragState) { return; } // node reorder は既存経路
+                if (!isAnyFilesDragEvent(e)) { return; }
+                e.preventDefault();
+                e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
+                clearDropZoneHighlight();
+                removeDropIndicator();
+                var nodeEl = e.target && e.target.closest ? e.target.closest('.outliner-node') : null;
+                var targetId = null;
+                var pos = 'root-end';
+                if (nodeEl && nodeEl.dataset && nodeEl.dataset.id) {
+                    targetId = nodeEl.dataset.id;
+                    var rect = nodeEl.getBoundingClientRect();
+                    var y = e.clientY - rect.top;
+                    var h = rect.height;
+                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                }
+                if (isFilesDragEvent(e)) {
+                    handleFilesDrop(e, targetId, pos);
+                } else {
+                    handleVscodeUrisDrop(e, targetId, pos);
+                }
+            }, true);
+        }
+
         // D&D: treeEl全体のdragover/drop（空エリアへのドロップ対応）
         treeEl.addEventListener('dragover', function(e) {
             // FR-MM-FD: mindmap モードでは同じ treeEl に mindmap-interactions の drop リスナーが付き、
@@ -963,7 +1017,7 @@ var Outliner = (function() {
             if (isFilesDragEvent(e)) {
                 // Finder path
                 e.preventDefault();
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 removeDropIndicator();
                 handleFilesDrop(e, null, 'root-end');
                 return;
@@ -971,7 +1025,7 @@ var Outliner = (function() {
             if (isVscodeUriDragEvent(e)) {
                 // VSCode Explorer path (v12 拡張)
                 e.preventDefault();
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 removeDropIndicator();
                 handleVscodeUrisDrop(e, null, 'root-end');
                 return;
@@ -993,8 +1047,11 @@ var Outliner = (function() {
             }
         });
         treeEl.addEventListener('dragleave', function(e) {
-            if (e.target === treeEl) {
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+            // sprint 20260801-232943 (TASK-01): 旧 `e.target === treeEl` 限定だと、カーソルが
+            // node 子要素上にあるまま tree 外へ出たとき解除されない（症状 A の一因）。
+            // 「tree の外に出た」= relatedTarget が tree に含まれない（null = webview 外も含む）で判定。
+            if (!e.relatedTarget || !treeEl.contains(e.relatedTarget)) {
+                clearDropZoneHighlight();
             }
         });
 
@@ -1041,7 +1098,12 @@ var Outliner = (function() {
 
     /** Check if drag event contains Files (OS file drop / Finder) */
     function isFilesDragEvent(e) {
-        return e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+        if (!e.dataTransfer) { return false; }
+        if (Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0) { return true; }
+        // sprint 20260801-232943 (TASK-02): drop 時は環境により types に 'Files' が
+        // 乗らないことがある（症状 B の一因）→ files 実体でフォールバック判定。
+        // dragover 中は files が空のため従来どおり types 判定が効く（挙動不変）。
+        return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
     }
 
     /** Check if drag event contains VSCode Explorer URI list (v12 拡張) */
@@ -3307,7 +3369,7 @@ var Outliner = (function() {
             // Files D&D: distinguish Finder vs VSCode Explorer
             if (isFilesDragEvent(e)) {
                 // Finder path
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
@@ -3319,7 +3381,7 @@ var Outliner = (function() {
             }
             if (isVscodeUriDragEvent(e)) {
                 // VSCode Explorer path (v12 拡張)
-                treeEl.classList.remove('outliner-tree-drop-zone-active');
+                clearDropZoneHighlight();
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;

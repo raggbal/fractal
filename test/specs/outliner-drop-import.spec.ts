@@ -551,21 +551,26 @@ test.describe.serial('DOD-12-9: 25/50/25 dropIndicator position transitions', ()
 });
 
 test.describe.serial('DOD-12-24: 50MB+ file rejection in webview', () => {
-    test('DOD-12-24: handleFilesDrop has MAX_FILE_SIZE check for 50MB', async () => {
-        // Static code analysis test - verify the 50MB limit is implemented
+    // sprint 20260801-232943 (TU-DH-01, 許可: test_update): 実装健在のまま識別子リネーム
+    // （MAX_FILE_SIZE→BUFFER_THRESHOLD = 50MB 境界は buffered/streaming の分岐に変質、
+    //  上限は MAX_PER_FILE=1GB）でテキストマッチが陳腐化した false-red を現実装へ追随。
+    test('DOD-12-24: handleFilesDrop has 50MB buffered/streaming boundary and 1GB cap', async () => {
+        // Static code analysis test - verify the size limits are implemented
         const fs = await import('fs');
         const path = await import('path');
 
         const srcPath = path.join(process.cwd(), 'src/webview/outliner.js');
         const src = fs.readFileSync(srcPath, 'utf-8');
 
-        // Verify MAX_FILE_SIZE constant exists with correct value
-        expect(src).toMatch(/MAX_FILE_SIZE\s*=\s*50\s*\*\s*1024\s*\*\s*1024/);
+        // Verify 50MB boundary constant exists with correct value
+        expect(src).toMatch(/BUFFER_THRESHOLD\s*=\s*50\s*\*\s*1024\s*\*\s*1024/);
 
-        // Verify the size check exists
-        expect(src).toMatch(/file\.size\s*>\s*MAX_FILE_SIZE/);
+        // Verify the boundary check exists (≤50MB → buffered path)
+        expect(src).toMatch(/file\.size\s*<=\s*BUFFER_THRESHOLD/);
 
-        // Verify notifyDropFileTooLarge is called for oversized files
+        // Verify 1GB hard cap and rejection notify
+        expect(src).toMatch(/MAX_PER_FILE\s*=\s*1024\s*\*\s*1024\s*\*\s*1024/);
+        expect(src).toMatch(/file\.size\s*>\s*MAX_PER_FILE/);
         expect(src).toMatch(/host\.notifyDropFileTooLarge\s*\(/);
     });
 });
@@ -587,12 +592,14 @@ test.describe.serial('DOD-12-26: FileReader usage - no File direct to postMessag
         expect(src).toMatch(/reader\.readAsArrayBuffer/);
 
         // Verify handleFilesDrop calls readFileByKind to process files
-        expect(src).toMatch(/await readFileByKind\(f, kind\)/);
+        // sprint 20260801-232943 (TU-DH-01, 許可: test_update): buffered path のループ変数が
+        // f→bf にリネームされた false-red を現実装に追随（実装は健在）
+        expect(src).toMatch(/await readFileByKind\(bf, kind\)/);
 
         // Verify the imports array is built from processed content, not File objects
-        // The pattern: content = await readFileByKind(f, kind)
-        //              imports.push({ kind: kind, name: f.name, ...content })
-        expect(src).toMatch(/imports\.push\(\s*\{\s*kind:\s*kind,\s*name:\s*f\.name,\s*\.\.\.content\s*\}/);
+        // The pattern: content = await readFileByKind(bf, kind)
+        //              imports.push({ kind: kind, name: bf.name, ...content })
+        expect(src).toMatch(/imports\.push\(\s*\{\s*kind:\s*kind,\s*name:\s*bf\.name,\s*\.\.\.content\s*\}/);
 
         // Verify host.dropFilesImport receives the processed imports array
         expect(src).toMatch(/host\.dropFilesImport\(imports,\s*targetNodeId,\s*position\)/);
