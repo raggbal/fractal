@@ -63,17 +63,26 @@ test.describe('outliner D&D highlight ライフサイクル（症状 A）', () =
     test.beforeEach(async ({ page }) => { await initTree(page); });
 
     // TC-DH-01 ★load-bearing・counterfactual:
-    // フォールバック解除（window dragend / 関与判定 dragleave）を外すと残留で RED
-    test('TC-DH-01: drop が来ない drag セッション終了で highlight が解除される', async ({ page }) => {
-        // node 子要素（テキスト）上で dragover → highlight 点灯
+    // フォールバック解除（window dragend / 関与判定 dragleave）を外すと残留で RED。
+    // TASK-04 拡張: dropIndicator（node dragover が出す挿入位置インジケータ）も
+    // 安全網で消えること（片系統漏れの counterfactual: removeDropIndicator を
+    // 安全網から外すと dropIndicator が残留し RED）。
+    test('TC-DH-01: drop が来ない drag セッション終了で highlight + dropIndicator が解除される', async ({ page }) => {
+        // node 子要素（テキスト）上で dragover → highlight 点灯 + node dragover が dropIndicator 生成
         await fireDragEvent(page, 'dragover', '.outliner-node[data-id="a"] .outliner-text');
         expect(await hasHighlight(page)).toBe(true);
+        const hasIndicatorBefore = await page.evaluate(
+            () => !!document.querySelector('.outliner-drop-indicator'));
+        expect(hasIndicatorBefore).toBe(true);
 
-        // drop は発火させず dragend（shift なし D&D の終わり方）→ 解除
+        // drop は発火させず dragend（shift なし D&D の終わり方）→ 両系統とも解除
         await page.evaluate(() => {
             window.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
         });
         expect(await hasHighlight(page)).toBe(false);
+        const hasIndicatorAfter = await page.evaluate(
+            () => !!document.querySelector('.outliner-drop-indicator'));
+        expect(hasIndicatorAfter).toBe(false);
     });
 
     test('TC-DH-01b: node 子要素上のまま tree 外へ dragleave しても解除される', async ({ page }) => {

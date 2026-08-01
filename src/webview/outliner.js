@@ -28,6 +28,14 @@ var Outliner = (function() {
         if (treeEl) { treeEl.classList.remove('outliner-tree-drop-zone-active'); }
     }
 
+    // sprint 20260801-232943 (TASK-04): drag 終了の安全網用 — highlight（水色枠）と
+    // dropIndicator（node dragover が出す挿入位置インジケータ）の**両系統**を消す。
+    // 片系統だけ消す安全網は「解除経路の片系統漏れ」（failure DB 頻出クラス）。
+    function clearAllDropVisuals() {
+        clearDropZoneHighlight();
+        if (typeof removeDropIndicator === 'function') { removeDropIndicator(); }
+    }
+
     var focusedNodeId = null;
     var currentScope = { type: 'document' };
     // sprint 20260723-233506: タブ復帰の scroll 復元中は focusNode の自動スクロールを抑止（ADRL-TABS-SCROLL）。
@@ -955,8 +963,9 @@ var Outliner = (function() {
         //（taskModeToggleBtn の onclick 冪等化と同じ理由。production は init 1 回で挙動不変）。
         if (!window.__fractalDropSafetyWired) {
             window.__fractalDropSafetyWired = true;
-            window.addEventListener('dragend', clearDropZoneHighlight);
-            window.addEventListener('drop', clearDropZoneHighlight, true);
+            // TASK-04: highlight + dropIndicator の両系統を消す（片系統漏れの対称化）
+            window.addEventListener('dragend', clearAllDropVisuals);
+            window.addEventListener('drop', clearAllDropVisuals, true);
         }
 
         // sprint 20260801-232943 (TASK-02, 症状 B): files drop の capture 先取り。
