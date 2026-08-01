@@ -108,15 +108,47 @@ test.describe('uri-list チャネル（source-contract）', () => {
     });
 });
 
-// TC-DDX-06: md host の添付ファイル名 sanitize（FR-DDX-02・source-contract + 実挙動）
+// TC-DDX-06: md host の添付ファイル名 sanitize（FR-DDX-02・source-contract）
+// sprint 20260801-200307 (TASK-04, 許可: test_update): global `..` replace の廃止
+// （正当名破壊バグ）に伴い、期待を「basename + 厳密名ガード・global replace 不在」へ更新。
 test.describe('md host sanitize（TC-DDX-06）', () => {
-    test('TC-DDX-06: generateUniqueFileNamePreserving が basename 化 + .. 除去を持つ', () => {
+    test('TC-DDX-06: local/shared 両版が basename + 厳密名ガードを持ち global .. replace が無い', () => {
         const fs = require('fs');
-        const src = fs.readFileSync(path.join(ROOT, 'src/editorProvider.ts'), 'utf-8');
-        const fnIdx = src.indexOf('function generateUniqueFileNamePreserving');
-        expect(fnIdx).toBeGreaterThan(-1);
-        const block = src.slice(fnIdx, fnIdx + 800);
-        expect(block).toContain('path.basename');
-        expect(block).toContain("replace(/\\.\\./g, '')");
+        for (const file of ['src/editorProvider.ts', 'src/shared/paste-asset-handler.ts']) {
+            const src = fs.readFileSync(path.join(ROOT, file), 'utf-8');
+            const fnIdx = src.indexOf('function generateUniqueFileNamePreserving');
+            expect(fnIdx, file).toBeGreaterThan(-1);
+            const block = src.slice(fnIdx, fnIdx + 900);
+            expect(block, file).toContain('path.basename');
+            expect(block, file).toContain("=== '..'"); // 厳密名ガード
+            expect(block.includes("replace(/\\.\\./g"), file).toBe(false); // 正当名破壊の global replace 不在
+        }
+    });
+});
+
+// TC-DDX-07 ★load-bearing・counterfactual（TASK-04 test_add）:
+// shared 版（Notes md 面の実使用実装）を直接 require した behavioral 番人。
+// counterfactual: 厳密名ガードを旧 global /\.\./g replace に戻すと (a) が archivetar.gz になり RED
+test.describe('shared sanitize behavioral（TC-DDX-07）', () => {
+    test('TC-DDX-07: 連続ドット名保持・厳密名 .. フォールバック・正常名 no-op', () => {
+        const fs = require('fs');
+        const os = require('os');
+        // shared 版は vscode 非依存で require 可（flat-pathbuilder.spec.ts の先例）
+        const pah = require(path.join(ROOT, 'out/shared/paste-asset-handler.js'));
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fr-ddx07-'));
+        try {
+            // (a) 正当な連続ドット名は保持（global replace だと archivetar.gz に化けて RED）
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, 'archive..tar.gz')).toBe('archive..tar.gz');
+            // (b) traversal / 厳密名は basename 化 + フォールバックで dir 外に書かれない
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, '../evil.drawio')).toBe('evil.drawio');
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, '..')).toBe('file');
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, 'a/b/c.pdf')).toBe('c.pdf');
+            // (c) 正常名は no-op・collision 時は既存 suffix 挙動
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, 'report.pdf')).toBe('report.pdf');
+            fs.writeFileSync(path.join(tmpDir, 'report.pdf'), 'x');
+            expect(pah.generateUniqueFileNamePreserving(tmpDir, 'report.pdf')).toBe('report-1.pdf');
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
     });
 });

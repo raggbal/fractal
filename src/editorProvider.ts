@@ -131,13 +131,14 @@ export function generateUniqueFileName(dir: string, extension: string): string {
 /**
  * Generate unique file name preserving the original name.
  * On collision: report.pdf → report-1.pdf → report-2.pdf
- * sprint 20260801-200307 (FR-DDX-02): basename 化 + `..` 除去で dir 外への書き込みを構造的に防ぐ
- * （outliner 側 file-import.ts の traversal 防御と対称の defense-in-depth。実経路では既に
- * basename が来るため正常系は no-op）。
+ * sprint 20260801-200307 (FR-DDX-02, TASK-04): basename 化 + 厳密名 `.`/`..` ガード。
+ * global な `..` replace は正当な連続ドット名（archive..tar.gz）を破壊するため使わない
+ * （path.basename がディレクトリ成分を除去済み。危険は厳密名 `.`/`..` のみ）。
+ * 同じ防御が shared 版（paste-asset-handler.ts の export 版 = Notes md 面が使用）にもある。
  */
 function generateUniqueFileNamePreserving(dir: string, originalName: string): string {
-    originalName = path.basename(String(originalName || 'file')).replace(/\.\./g, '');
-    if (!originalName || originalName === '.') originalName = 'file';
+    originalName = path.basename(String(originalName || 'file'));
+    if (!originalName || originalName === '.' || originalName === '..') originalName = 'file';
     const destPath = path.join(dir, originalName);
     if (!fs.existsSync(destPath)) {
         return originalName;
