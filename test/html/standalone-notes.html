@@ -16830,6 +16830,17 @@ class EditorInstance {
                 // Check if there's a previous sibling list (e.g. ol before ul in mixed nested lists)
                 // If so, merge with the last li of that sibling list instead of parent li
                 // Note: Empty li items are handled by the existing logic (convert to paragraph)
+                // sprint 20260730-071730 (FR-OLB-01): ol li の行頭 backspace 1 回目はバレット格下げ
+                // （タスクリストの checkbox 剥がしと同型の 2 段階）。ネスト/top-level を問わず
+                // parentList.tagName==='OL' のみで判定（Backspace の行頭 ol li は 3 状態あり、
+                // nested 判定を足すと第 3 状態=ネスト非先頭が取りこぼされる。designer_failures 2026-07-30）。
+                // 空 li は既存の段落変換/削除経路のまま（demote しない）。
+                if (isAtBeginning && !isEmptyItem && list.tagName === 'OL') {
+                    e.preventDefault();
+                    demoteOlLiToBullet(liElement, sel);
+                    return;
+                }
+
                 if (isAtBeginning && isNestedList && !liElement.previousElementSibling && !isEmptyItem) {
                     // Task list special case: if the current li has a checkbox and the cursor
                     // is right after it, backspace should strip the checkbox (convert task→bullet),
@@ -17518,19 +17529,70 @@ class EditorInstance {
                 // Opt+Enter: 子インデント (=現在 LI の nested list 先頭) に新規 LI を追加
                 if (e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
+                    // sprint 20260730-071730 (FR-LOE-01): カーソルが行途中なら、カーソル以降の
+                    // テキスト（inline 要素を fragment ごと = link/色 span/img 保持）を子 LI へ折り返す。
+                    // 通常 Enter split (:8815 付近) と同方式: nested ul/ol の手前までを range 化して extract。
+                    // カーソルが行末なら afterFrag が空 = 従来どおり空の子（FR-LOE-02 挙動不変）。
+                    let afterFrag = null;
+                    let hasAfter = false;
+                    if (sel.isCollapsed && sel.rangeCount) {
+                        const curRange = sel.getRangeAt(0);
+                        const afterRange = document.createRange();
+                        let endNode = listItem;
+                        let endOffset = listItem.childNodes.length;
+                        for (let i = listItem.childNodes.length - 1; i >= 0; i--) {
+                            const child = listItem.childNodes[i];
+                            if (child.nodeType === 1 && (child.tagName === 'UL' || child.tagName === 'OL')) {
+                                continue; // nested list は折り返し対象外
+                            }
+                            endNode = listItem;
+                            endOffset = i + 1;
+                            break;
+                        }
+                        try {
+                            afterRange.setStart(curRange.endContainer, curRange.endOffset);
+                            afterRange.setEnd(endNode, endOffset);
+                            afterFrag = afterRange.extractContents();
+                            // img/checkbox は textContent が空でも real content（editor.js:8662 の規約）
+                            hasAfter = afterFrag.textContent.trim() !== '' ||
+                                afterFrag.querySelector('img, input') !== null;
+                        } catch (ex) {
+                            afterFrag = null;
+                            hasAfter = false;
+                        }
+                        // 折り返し後、LI テキスト部の末尾に残った空 text/br を掃除（nested list は温存）
+                        if (hasAfter) {
+                            for (let i = listItem.childNodes.length - 1; i >= 0; i--) {
+                                const child = listItem.childNodes[i];
+                                if (child.nodeType === 1 && (child.tagName === 'UL' || child.tagName === 'OL')) {
+                                    continue;
+                                }
+                                if (child.nodeType === 3 && child.textContent.trim() === '') {
+                                    child.remove();
+                                } else if (child.nodeType === 1 && child.tagName.toLowerCase() === 'br') {
+                                    child.remove();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     // 既存 nested list を探す。無ければ同じタグ (ul/ol) で新規作成
                     let nestedList = listItem.querySelector(':scope > ul, :scope > ol');
                     if (!nestedList) {
                         nestedList = document.createElement(list.tagName);
                         listItem.appendChild(nestedList);
                     }
-                    // 新規 child LI を作成 (空、checkbox あれば継承)
+                    // 新規 child LI を作成 (折り返しあり=fragment / なし=空、checkbox あれば継承)
                     const childLi = document.createElement('li');
                     if (checkbox) {
                         const newCb = document.createElement('input');
                         newCb.type = 'checkbox';
                         childLi.appendChild(newCb);
-                    } else {
+                    }
+                    if (hasAfter) {
+                        childLi.appendChild(afterFrag);
+                    } else if (!checkbox) {
                         childLi.innerHTML = '<br>';
                     }
                     // nested list の先頭に挿入 (= 現在 LI のすぐ下に来る)
@@ -21332,6 +21394,28 @@ class EditorInstance {
 
     // ========== LIST TYPE CHANGE ==========
 
+    // sprint 20260730-071730 (FR-OLB-01): ol li の行頭 backspace 1 回目のバレット格下げ。
+    // changeParentListType が ol を分割し（after 側に start 焼き = ADRL-LST-2）、
+    // カーソルは li テキスト先頭に維持。2 回目の backspace は ul li として既存経路に落ちる。
+    // sync はここで 1 回のみ（呼び出し側は preventDefault + return で二重発火させない）。
+    function demoteOlLiToBullet(liElement, sel) {
+        changeParentListType(liElement, 'ul');
+        // カーソルを li テキスト先頭に置き直す（DOM 移動で selection が飛ぶことがあるため）
+        var r = document.createRange();
+        var target = liElement.firstChild;
+        if (target && target.nodeType === 3) {
+            r.setStart(target, 0);
+        } else if (target) {
+            r.setStartBefore(target);
+        } else {
+            r.setStart(liElement, 0);
+        }
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        syncMarkdownSync();
+    }
+
     // Change the parent list type of a given li element.
     // If the li is the only child, just swap the tag.
     // If there are siblings, split into up to 3 lists: before (original), target (new), after (original).
@@ -21351,6 +21435,8 @@ class EditorInstance {
             // Copy attributes if any
             for (var i = 0; i < parentList.attributes.length; i++) {
                 var attr = parentList.attributes[i];
+                // sprint 20260730-071730 (ADRL-LST-2): ol の start を ul/非 ol に持ち込まない（stale 属性防止）
+                if (attr.name === 'start' && targetTag !== 'ol') continue;
                 newList.setAttribute(attr.name, attr.value);
             }
             newList.appendChild(li);
@@ -21365,6 +21451,15 @@ class EditorInstance {
             var afterList = null;
             if (afterItems.length > 0) {
                 afterList = document.createElement(currentTag);
+                // sprint 20260730-071730 (ADRL-LST-2): ol を分割したとき、after 側の表示番号を
+                // 変えない（開始番号を無言で変えない = ADRL-0023 の思想）。after の先頭項目の
+                // 元表示番号 = 実効 start + 抜けた li の index + 1。値 1 は属性省略（ADRL-0022 規約）。
+                if (currentTag === 'ol') {
+                    var afterStart = getEffectiveOlStart(parentList) + liIndex + 1;
+                    if (isValidOlStart(afterStart) && afterStart !== 1) {
+                        afterList.setAttribute('start', String(afterStart));
+                    }
+                }
                 for (var j = 0; j < afterItems.length; j++) {
                     afterList.appendChild(afterItems[j]);
                 }

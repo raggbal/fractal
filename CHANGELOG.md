@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.13] - 2026-07-30
+
+### Added
+- **md editor: opt+enter でカーソル以降を子ノードに折り返し** — リスト項目の途中にカーソルを置いて opt+enter すると、カーソル以降のテキスト（リンク・太字・画像も構造ごと）が新しい子リスト項目に移る。行末なら従来どおり空の子を作る
+- **md editor: 数字リスト行頭の backspace が 2 段階に** — 1 回目で通常バレットに格下げ（タスクリストのチェックボックス剥がしと同じ抜け方）、2 回目で従来どおり上の行に結合。格下げしても残りの数字リストの表示番号は変わらない
+
+### Fixed
+- **md editor: リスト型変換で以降の数字が 1 に振り直される既往バグ** — 数字リストの途中の行を `- ` などで型変換すると、以降の項目の表示番号が 1 起点に化けていた → 分割後のリストに開始番号を引き継ぐように（backspace 格下げと共通経路の修正）
+
 ## [1.1.12] - 2026-07-30
 
 ### Added
