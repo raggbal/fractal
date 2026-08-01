@@ -24,6 +24,11 @@ var Outliner = (function() {
     // shift なし D&D では drop が VS Code に横取りされ webview に届かず、従来の
     // 「drop or target===treeEl の dragleave」だけでは枠が残留した（症状 A）。
     // 全解除経路（treeEl drop / 関与判定 dragleave / node drop / window dragend / window drop capture）から呼ぶ。
+    // sprint 20260802-010347 (FR-DII, TASK-04): indent 幅の単一真実。
+    // renderTree の実 indent 幅と D&D インジケータの left の両方がこれを参照する
+    //（リテラル 24 の二重化を禁止 — 値変更時に表示と実描画がズレるため）。
+    var INDENT_PX = 24;
+
     function clearDropZoneHighlight() {
         if (treeEl) { treeEl.classList.remove('outliner-tree-drop-zone-active'); }
     }
@@ -1414,9 +1419,6 @@ var Outliner = (function() {
         if (uris.length === 0) return;
         host.dropVscodeUrisImport(uris, targetNodeId, position);
     }
-
-    // sprint 20260802-010347 (FR-DII): indent 幅の実効値（renderTree の depth*24 inline と共有）
-    var INDENT_PX = 24;
 
     // sprint 20260802-010347 (ADRL-DII-1): D&D 挿入 depth 解決の単一真実（純関数）。
     // dragover（表示）と drop（挿入）の両方がこれを使い、表示と挿入の一致（FR-DII-03）を
@@ -3119,7 +3121,7 @@ var Outliner = (function() {
         // インデント
         var indentEl = document.createElement('div');
         indentEl.className = 'outliner-node-indent';
-        indentEl.style.width = (depth * 24) + 'px';
+        indentEl.style.width = (depth * INDENT_PX) + 'px';
         el.appendChild(indentEl);
 
         // Scope Inボタン（ホバー時に表示）

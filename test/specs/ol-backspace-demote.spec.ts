@@ -183,6 +183,15 @@ test.describe('ol 行頭 backspace の 2 段階化', () => {
         const liCount = await page.evaluate(() =>
             document.querySelectorAll('#editor ol > li').length);
         expect(liCount).toBe(1);
+        // sprint 20260802-010347 (TASK-04, 許可: test_update): 段落化の実挙動を番人化。
+        // 正しい実装は handleEmptyLi の "No previous element" 分岐が <p><br></p> を生成する。
+        // counterfactual（opt-in を無条件分岐にする）だと空 li が ol へ結合され <p> が生成されず RED
+        //（旧 assert 2 本は両実装で同一結果の tautology だった）。
+        const hasParagraph = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            return !!ed.querySelector('ol + p, ol ~ p');
+        });
+        expect(hasParagraph).toBe(true);
     });
 
     // TC-OB-03: 先頭行のバレット化（シナリオ i / ii）
