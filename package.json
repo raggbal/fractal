@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal — Markdown & Outliner (Database & Mindmap)",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "1.1.13",
+  "version": "1.1.14-rc.1",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
