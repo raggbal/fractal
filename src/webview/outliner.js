@@ -28,6 +28,11 @@ var Outliner = (function() {
     // renderTree の実 indent 幅と D&D インジケータの left の両方がこれを参照する
     //（リテラル 24 の二重化を禁止 — 値変更時に表示と実描画がズレるため）。
     var INDENT_PX = 24;
+    // sprint 20260802-010347 再オープン (TASK-05): node の可視開始オフセット。
+    // indentEl（depth×24）の直後に scope-btn（outliner.css .outliner-scope-btn width:18px）が
+    // あり、bullet 列はその後から始まる。挿入バーの左端をこの位置に揃えることで
+    // 「線の左端 = その depth の node の bullet」となり階層の誤認を防ぐ。
+    var CONTENT_OFFSET = 18;
 
     function clearDropZoneHighlight() {
         if (treeEl) { treeEl.classList.remove('outliner-tree-drop-zone-active'); }
@@ -1439,23 +1444,28 @@ var Outliner = (function() {
             return { depth: targetDepth + 1, parentId: targetId, beforeId: null };
         }
 
-        // after: depth 範囲 = [次の表示 node の depth（無ければ 0）, targetDepth + 1]
+        // after: depth 範囲 = [次の表示 node の depth（無ければ 0）, targetDepth]
+        // sprint 20260802-010347 再オープン (TASK-05): 上限は target と同階層まで。
+        // 「対象の子（depth+1）」は範囲から除外 — 子への drop は node 本体 hover の
+        // child position（青点線囲み）に一本化（after 線からの子選択は 1 段ズレ誤認の温床）。
+        // 対象に可視の子がいる場合は minDepth = d+1 > maxDepth となるため、その隙間の
+        // 自然な意味（先頭の子の位置）へ minDepth 側に収束させる。
         var flat = model.getFlattenedIds(true); // 表示順（collapsed 考慮）
         var idx = flat.indexOf(targetId);
         var minDepth = 0;
         if (idx >= 0 && idx + 1 < flat.length) {
             minDepth = model.getDepth(flat[idx + 1]);
         }
-        var maxDepth = targetDepth + 1;
-        if (minDepth > maxDepth) { minDepth = maxDepth; } // 不変条件の保険（通常成立しない）
+        var maxDepth = Math.max(minDepth, targetDepth);
 
-        // clientX → 希望 depth（tree 左端 + bullet offset 基準）→ clamp
+        // clientX → 希望 depth。CONTENT_OFFSET を引いて bullet 列の真下 = その depth に対応
+        //（indent 境界基準だと 1 段浅い bullet に揃って見える視覚ズレ = TASK-05 気付き）
         var treeLeft = treeEl.getBoundingClientRect().left;
-        var wanted = Math.floor((clientX - treeLeft) / INDENT_PX);
+        var wanted = Math.floor((clientX - treeLeft - CONTENT_OFFSET) / INDENT_PX);
         var depth = Math.max(minDepth, Math.min(maxDepth, wanted));
 
-        if (depth === maxDepth) {
-            // target の子の先頭（既存 child drop と同じ扱い = collapsed でも子先頭・展開は drop 側）
+        if (depth === targetDepth + 1) {
+            // 対象に可視の子がいて minDepth=d+1 に収束したケース = 先頭の子の位置
             return { depth: depth, parentId: targetId, beforeId: null, asChildOfTarget: true };
         }
         // depth d に入る = target から祖先を遡り depth d の祖先 anc を特定し「anc の直後の兄弟」
@@ -1490,7 +1500,7 @@ var Outliner = (function() {
         lastDropResolution = resolution ? {
             targetId: targetEl.dataset.id, position: position, resolution: resolution
         } : null;
-        var indentLeft = resolution ? (resolution.depth * INDENT_PX) : 0;
+        var indentLeft = resolution ? (resolution.depth * INDENT_PX + CONTENT_OFFSET) : 0;
 
         if (position === 'before') {
             dropIndicator.style.left = indentLeft + 'px';

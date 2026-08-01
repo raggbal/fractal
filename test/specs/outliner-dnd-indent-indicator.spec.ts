@@ -68,34 +68,33 @@ test.describe('D&D indent インジケータ', () => {
         await dragoverAfter(page, 'b', left + 24 * 1 + 12);
         const l = await indicatorLeft(page);
         expect(l).not.toBeNull();
-        // b の次の表示 node は c(d2)。範囲 [2, 2]（次 d2 〜 b.depth+1=2）→ depth2 固定
-        expect(l).toBe(24 * 2);
+        // b の次の表示 node は c(d2)。範囲 [2,2]（収束）→ depth2 固定。
+        // TASK-05: left は bullet 列整列（depth*24 + CONTENT_OFFSET 18）
+        expect(l).toBe(24 * 2 + 18);
     });
 
     // TC-DII-02 ★load-bearing・counterfactual: clientX 無視（旧実装）だと 3 点同一で RED
     test('TC-DII-02: 境界 after で clientX により depth が切り替わる', async ({ page }) => {
         const left = await treeLeft(page);
-        // c(d2) の after = 境界（次の表示 node は d(d0)）。範囲 [0, 3]
-        await dragoverAfter(page, 'c', left + 2);           // depth0 相当
-        expect(await indicatorLeft(page)).toBe(0);
+        // c(d2) の after = 境界（次の表示 node は d(d0)）。
+        // TASK-05 改訂: 範囲 [0, 2]（対象と同階層まで。子 d3 は除外）。left は bullet 整列（+18）
+        await dragoverAfter(page, 'c', left + 18 + 2);            // depth0 相当（bullet 列基準）
+        expect(await indicatorLeft(page)).toBe(0 + 18);
 
-        await dragoverAfter(page, 'c', left + 24 * 2 + 12); // depth2 相当
-        expect(await indicatorLeft(page)).toBe(24 * 2);
+        await dragoverAfter(page, 'c', left + 18 + 24 * 2 + 12);  // depth2 相当
+        expect(await indicatorLeft(page)).toBe(24 * 2 + 18);
 
-        await dragoverAfter(page, 'c', left + 24 * 3 + 12); // depth3 相当（c の子）
-        expect(await indicatorLeft(page)).toBe(24 * 3);
-
-        // 範囲外は clamp（過大 → maxDepth=3）
+        // 範囲外は clamp（過大 → maxDepth=2 = 対象と同階層。子 d3 にはならない）
         await dragoverAfter(page, 'c', left + 24 * 10);
-        expect(await indicatorLeft(page)).toBe(24 * 3);
+        expect(await indicatorLeft(page)).toBe(24 * 2 + 18);
     });
 
     // TC-DII-03 ★load-bearing: 表示 depth と files drop の挿入射影が一致（FR-DII-03）
     test('TC-DII-03: drop の挿入結果が表示 depth と一致（files 経路の射影）', async ({ page }) => {
         const left = await treeLeft(page);
-        // c の after で depth0 を選択（インジケータは depth0 位置）
+        // c の after で depth0 を選択（インジケータは depth0 の bullet 位置）
         await dragoverAfter(page, 'c', left + 2);
-        expect(await indicatorLeft(page)).toBe(0);
+        expect(await indicatorLeft(page)).toBe(0 + 18);
 
         // そのまま drop（同 clientX）→ depth0 = 祖先 a の直後 → targetId='a', pos='after' に射影
         await page.evaluate(({ left }) => {
@@ -135,7 +134,8 @@ test.describe('D&D indent インジケータ', () => {
             return true;
         });
         expect(dragStarted).toBe(true);
-        // c の after 帯で depth3（c の子）を選択して dragover → drop
+        // c の after 帯で depth2（c と同階層 = b の子）を選択して dragover → drop
+        // TASK-05 改訂: depth3（c の子）は範囲外。同階層挿入で検証
         await page.evaluate(({ left }) => {
             const el = document.querySelector('.outliner-node[data-id="c"]') as HTMLElement;
             const rect = el.getBoundingClientRect();
@@ -144,7 +144,7 @@ test.describe('D&D indent インジケータ', () => {
                 dt.setData('text/plain', 'd');
                 const ev = new DragEvent(type, {
                     bubbles: true, cancelable: true,
-                    clientX: left + 24 * 3 + 12, clientY: rect.y + rect.height * 0.9,
+                    clientX: left + 18 + 24 * 2 + 12, clientY: rect.y + rect.height * 0.9,
                 });
                 Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true });
                 el.dispatchEvent(ev);
@@ -159,17 +159,48 @@ test.describe('D&D indent インジケータ', () => {
             const el = document.querySelector('.outliner-node[data-id="d"]') as HTMLElement | null;
             return el ? parseInt(el.dataset.depth || '-1', 10) : -1;
         });
-        expect(depth).toBe(3); // depth3 = c の子として挿入された
+        expect(depth).toBe(2); // depth2 = c の兄弟（b の子）として挿入された
+    });
+
+    // TC-DII-07（TASK-05 新規）: after 線から対象の子（depth+1）にはならない ★load-bearing・counterfactual
+    // counterfactual: maxDepth を targetDepth+1 に戻すと depth3 に入り RED
+    test('TC-DII-07: after 線からは対象の子に drop できない（child は青点線経由のみ）', async ({ page }) => {
+        const left = await treeLeft(page);
+        // c(d2・子なし) の after で clientX を極端に大きく → clamp は depth2（子 d3 にならない）
+        await dragoverAfter(page, 'c', left + 24 * 10);
+        expect(await indicatorLeft(page)).toBe(24 * 2 + 18);
+
+        // そのまま drop（files）→ 射影は c の after（同階層）であり child ではない
+        await page.evaluate(({ left }) => {
+            (window as any).__testApi.messages.length = 0;
+            const el = document.querySelector('.outliner-node[data-id="c"]') as HTMLElement;
+            const rect = el.getBoundingClientRect();
+            const dt = new DataTransfer();
+            dt.items.add(new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' }));
+            const ev = new DragEvent('drop', {
+                bubbles: true, cancelable: true,
+                clientX: left + 24 * 10, clientY: rect.y + rect.height * 0.9,
+            });
+            Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true });
+            el.dispatchEvent(ev);
+        }, { left });
+        await page.waitForTimeout(300);
+
+        const msgs = await page.evaluate(() => JSON.parse(JSON.stringify((window as any).__testApi.messages)));
+        const imp = msgs.filter((m: any) => m.type === 'dropFilesImport');
+        expect(imp.length).toBe(1);
+        expect(imp[0].targetNodeId).toBe('c');
+        expect(imp[0].position).toBe('after'); // child でない
     });
 
     // TC-DII-04: 一意な after は従来挙動に縮退
     test('TC-DII-04: 同 depth が続く after は従来同等（範囲 1 に縮退）', async ({ page }) => {
         const left = await treeLeft(page);
-        // a(d0) の after: 次の表示 node は b(d1)。範囲 [1, 1] → depth1 固定
+        // a(d0) の after: 次の表示 node は b(d1)。範囲 [1,1] 収束 → depth1（先頭の子の位置）固定
         await dragoverAfter(page, 'a', left + 2);        // 小さい clientX でも
-        expect(await indicatorLeft(page)).toBe(24 * 1);
+        expect(await indicatorLeft(page)).toBe(24 * 1 + 18);
         await dragoverAfter(page, 'a', left + 24 * 5);   // 大きい clientX でも
-        expect(await indicatorLeft(page)).toBe(24 * 1);
+        expect(await indicatorLeft(page)).toBe(24 * 1 + 18);
     });
 
     // TC-DII-05: before / child は不変（回帰）
@@ -187,7 +218,7 @@ test.describe('D&D indent インジケータ', () => {
             Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true });
             el.dispatchEvent(ev);
         });
-        expect(await indicatorLeft(page)).toBe(24 * 1);
+        expect(await indicatorLeft(page)).toBe(24 * 1 + 18);
 
         // child 帯（y=50%）: 従来の破線箱（left:0・border あり）
         await page.evaluate(() => {
@@ -213,9 +244,9 @@ test.describe('D&D indent インジケータ', () => {
     // TC-DII-06: lastDropResolution のリセット（stale 防止）
     test('TC-DII-06: dragend 後の素の drop は stale 解決を使わない', async ({ page }) => {
         const left = await treeLeft(page);
-        // c の after で depth3 を解決させる
-        await dragoverAfter(page, 'c', left + 24 * 3 + 12);
-        expect(await indicatorLeft(page)).toBe(24 * 3);
+        // c の after で depth2（改訂後の maxDepth）を解決させる
+        await dragoverAfter(page, 'c', left + 24 * 5);
+        expect(await indicatorLeft(page)).toBe(24 * 2 + 18);
         // drop せず dragend（安全網が removeDropIndicator → resolution 破棄）
         await page.evaluate(() => {
             window.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
