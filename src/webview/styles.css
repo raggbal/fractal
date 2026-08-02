@@ -1724,6 +1724,13 @@ body {
 .side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
+/* wrapper は gap:4px で並べるため、ボタン個別の margin-right(4px) が gap と二重加算されて
+   app link の左右だけ広く見えていた → wrapper 内では margin を殺して gap に一本化。
+   sprint 20260803-013547 TASK-03 */
+.side-panel-header-scroll > .side-panel-copy-path,
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
+    margin-right: 0;
+}
 .side-panel-filename {
     font-size: 12px;
     font-weight: 600;
