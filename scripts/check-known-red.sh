@@ -49,6 +49,33 @@ import json, sys
 json_path, baseline_path, update = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 d = json.load(open(json_path))
 
+# --- collection 成功 gate (TC-SDK-40 主番人) ---------------------------------
+# esbuild 移行のビルド回帰で TS 由来 out/shared/*.js が消えると、それを module-scope
+# で require する spec が collection 段階で throw し、Playwright が全収集を中断する
+# （Total: 0 tests in 0 files）。この JSON は top-level errors[] に収集エラーを載せ、
+# suites は空（= current fail 集合も空）になるため、素朴に diff すると
+# `NEW FAILS 0` / `FIXED N`(=baseline 全件) の false-green を出してしまう。
+# → 収集エラー(errors[]) 非空 or 収集テスト総数が閾値未満なら COLLECTION FAILED で exit 2。
+COLLECTION_MIN = 2500  # 診断ラン実数 collected 2558+ の下限
+errors = d.get('errors', []) or []
+collected_total = 0
+def count_collected(suites):
+    global collected_total
+    for s in suites:
+        for spec in s.get('specs', []):
+            collected_total += len(spec.get('tests', []))
+        count_collected(s.get('suites', []))
+count_collected(d.get('suites', []))
+
+if not update and (len(errors) > 0 or collected_total < COLLECTION_MIN):
+    print(f"COLLECTION FAILED — errors: {len(errors)}, collected tests: {collected_total} (min {COLLECTION_MIN})")
+    print("  Playwright が全 spec を収集できていない可能性（module-scope require throw 等の collection abort）。")
+    print("  NEW FAILS / FIXED は算出しない（false-green を防ぐ）。npm run compile で out/shared の emit を確認せよ。")
+    for e in errors[:5]:
+        msg = e.get('message') or e.get('value') or str(e)
+        print(f"    error: {str(msg).splitlines()[0][:200]}")
+    sys.exit(2)
+
 current = set()
 def walk(suites):
     for s in suites:

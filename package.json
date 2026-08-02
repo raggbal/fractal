@@ -447,7 +447,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ --noEmit && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js",
+    "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js",
     "watch": "node esbuild.js --watch",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",

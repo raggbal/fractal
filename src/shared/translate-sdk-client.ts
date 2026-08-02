@@ -1,7 +1,7 @@
 /**
  * translate-sdk-client.ts — AWS Translate の I/O 層を AWS SDK v3 でラップする
  *
- * 旧実装の aws CLI 子プロセス起動を廃し、@aws-sdk/client-translate の
+ * 旧実装の子プロセス起動（コマンドライン経由）を廃し、@aws-sdk/client-translate の
  * client.send(Command) に差し替えた薄いラッパ。
  *
  * 現行 CLI 実装（src/shared/aws-translate.ts）との 1:1 対応:
