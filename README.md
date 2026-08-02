@@ -70,6 +70,12 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open in the OS default app
 - **Attachments panel** — Lists every image and file referenced in the document, with Open / Copy Path
 
+### PDF export
+- **One click to PDF** — Toolbar / side-panel button (or `Fractal: Export to PDF`) turns the current markdown into a print-ready PDF, rendered exactly like the editor (Mermaid, math, colors, checkboxes included)
+- **Smart page breaks** — Breaks before `h1`/`h2` by default, but not before the first `h1` or the first `h2` right after an `h1` — chapters flow naturally
+- **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) overrides the built-in print style; set `fractal.pdfIncludeDefaultStyles: false` to replace it entirely. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
+- **Local & dependency-free** — Uses your installed Chrome/Edge headlessly; no network access during export, nothing added to the extension bundle
+
 ### Diagrams & math
 - **Mermaid** — Rendered inline; click to edit the source
 - **KaTeX math** — Display-mode formulas re-render live
