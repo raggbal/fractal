@@ -1691,7 +1691,10 @@ export async function handleNotesMessage(
                 if (!accessKeyId || !secretAccessKey) {
                     sender.postMessage({
                         type: 'translateError',
-                        message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.'
+                        message: 'AWS credentials not configured. Set fractal.transAccessKeyId and transSecretAccessKey in settings.',
+                        // FR-TR-02 (sprint 20260803-013547): 要求元識別を透過エコーバック
+                        // （sidepanel md 要求なら sidePanelFilePath 付き / main 要求なら undefined）。
+                        sidePanelFilePath: message.sidePanelFilePath
                     });
                     break;
                 }
@@ -1709,14 +1712,18 @@ export async function handleNotesMessage(
                         type: 'translateResult',
                         translatedMarkdown: result.translatedText,
                         sourceLang: result.sourceLang,
-                        targetLang: result.targetLang
+                        targetLang: result.targetLang,
+                        // FR-TR-02: 要求元識別を透過エコーバック。
+                        sidePanelFilePath: message.sidePanelFilePath
                     });
                 } catch (err: any) {
                     const errMsg = err?.message || String(err);
                     console.error('[Translate] Error:', errMsg, err?.stack || '');
                     sender.postMessage({
                         type: 'translateError',
-                        message: errMsg
+                        message: errMsg,
+                        // FR-TR-02: 要求元識別を透過エコーバック。
+                        sidePanelFilePath: message.sidePanelFilePath
                     });
                 }
             }

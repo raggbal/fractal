@@ -98,6 +98,13 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
                         <button data-action="bold">b</button>
                     </div>
                 </div>
+                <!-- sprint 20260803-013547 FR-TR-01: 翻訳導線は fixed ボタンに一本化 -->
+                <div class="toolbar-fixed toolbar-fixed--right">
+                    <div class="toolbar-group" data-group="utility">
+                        <button data-action="translate" class="toolbar-translate-fixed">t</button>
+                        <button data-action="exportPdf">p</button>
+                    </div>
+                </div>
             </div>
             <div class="side-panel">
                 <div class="side-panel-header">
@@ -135,15 +142,25 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
         expect(inlineDisplay).not.toBe('none');
     });
 
-    test('TC-TRTOG-3: フラグ ON で toolbar-inner 内 translate group が表示される', async ({ page }) => {
+    // sprint 20260803-013547 FR-TR-01 (test_update): 翻訳導線を toolbar-fixed--right の fixed ボタン
+    //   (.toolbar-translate-fixed) に一本化し、二重表示回避のため toolbar-inner の translate group は
+    //   常時非表示に統一した。テスト意図（「ON で翻訳導線が見える」）は保存し、見え先を inner → fixed に付替え。
+    test('TC-TRTOG-3: フラグ ON で翻訳導線（fixed ボタン）が表示される（inner group は一本化で非表示）', async ({ page }) => {
         await page.setContent(buildFixture('true'));
         await page.addStyleTag({ path: stylesCssPath });
 
         const display = await page.evaluate(() => {
-            const el = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
-            return el ? getComputedStyle(el).display : null;
+            const inner = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
+            const fixed = document.querySelector('.toolbar-translate-fixed') as HTMLElement;
+            return {
+                inner: inner ? getComputedStyle(inner).display : null,
+                fixed: fixed ? getComputedStyle(fixed).display : null,
+            };
         });
-        expect(display).not.toBe('none');
+        // ON でも inner translate group は非表示（一本化・二重表示回避）
+        expect(display.inner).toBe('none');
+        // ON では fixed 翻訳ボタンが翻訳導線として可視
+        expect(display.fixed).not.toBe('none');
     });
 
     test('TC-TRTOG-4: フラグ OFF で side-panel-header-actions 内の translate / translateLang が非表示', async ({ page }) => {
@@ -182,13 +199,16 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
         expect(result.translateLang).not.toBe('none');
     });
 
-    test('TC-TRTOG-5: 動的切替で表示/非表示が連動する', async ({ page }) => {
+    // sprint 20260803-013547 FR-TR-01 (test_update): 翻訳導線が fixed ボタンに一本化されたため、
+    //   動的切替の対象を toolbar-inner group → fixed 翻訳ボタン(.toolbar-translate-fixed) に付替え。
+    //   テスト意図（フラグ ON/OFF で翻訳導線の表示が連動する）は保存。
+    test('TC-TRTOG-5: 動的切替で翻訳導線（fixed ボタン）の表示/非表示が連動する', async ({ page }) => {
         await page.setContent(buildFixture('false'));
         await page.addStyleTag({ path: stylesCssPath });
 
-        // 初期: 非表示
+        // 初期(OFF): fixed 翻訳ボタン非表示
         let display = await page.evaluate(() => {
-            const el = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
+            const el = document.querySelector('.toolbar-translate-fixed') as HTMLElement;
             return el ? getComputedStyle(el).display : null;
         });
         expect(display).toBe('none');
@@ -198,7 +218,7 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
             document.documentElement.setAttribute('data-show-translate-buttons', 'true');
         });
         display = await page.evaluate(() => {
-            const el = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
+            const el = document.querySelector('.toolbar-translate-fixed') as HTMLElement;
             return el ? getComputedStyle(el).display : null;
         });
         expect(display).not.toBe('none');
@@ -208,7 +228,7 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
             document.documentElement.setAttribute('data-show-translate-buttons', 'false');
         });
         display = await page.evaluate(() => {
-            const el = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
+            const el = document.querySelector('.toolbar-translate-fixed') as HTMLElement;
             return el ? getComputedStyle(el).display : null;
         });
         expect(display).toBe('none');
@@ -216,6 +236,10 @@ test.describe('FR-TRTOG-3: data-show-translate-buttons 属性で表示制御', (
 });
 
 test.describe('NFR-TRTOG-2: toolbarMode との整合', () => {
+    // sprint 20260803-013547 FR-TR-01 (test_update): 翻訳導線を toolbar-fixed--right の fixed ボタン
+    //   (.toolbar-translate-fixed) に一本化。toolbar-fixed--right は simple モードでも表示されるため、
+    //   従来「simple では toolbar 翻訳導線が hidden」だったのが「fixed ボタンは full/simple 両方で ON なら visible」
+    //   に変わる（FR-TR-01 の主目的 = simple でも翻訳ボタンを出す）。inner group は常時非表示に統一。
     const buildFixture = (showFlag: 'true' | 'false', toolbarMode: 'full' | 'simple') => `
         <!DOCTYPE html>
         <html data-show-translate-buttons="${showFlag}" data-toolbar-mode="${toolbarMode}">
@@ -225,6 +249,12 @@ test.describe('NFR-TRTOG-2: toolbarMode との整合', () => {
                 <div class="toolbar-inner">
                     <div class="toolbar-group" data-group="translate">
                         <button data-action="translateLang">ja</button>
+                    </div>
+                </div>
+                <div class="toolbar-fixed toolbar-fixed--right">
+                    <div class="toolbar-group" data-group="utility">
+                        <button data-action="translate" class="toolbar-translate-fixed">t</button>
+                        <button data-action="exportPdf">p</button>
                     </div>
                 </div>
             </div>
@@ -239,11 +269,12 @@ test.describe('NFR-TRTOG-2: toolbarMode との整合', () => {
         </html>
     `;
 
-    test('TC-TRTOG-MATRIX-1: 4 組合せで期待挙動', async ({ page }) => {
+    test('TC-TRTOG-MATRIX-1: 4 組合せで期待挙動（翻訳導線は fixed ボタン・simple でも ON なら可視）', async ({ page }) => {
         const cases = [
+            // fixed 翻訳ボタンは ON なら full/simple 両方で可視（FR-TR-01）。OFF なら常に非表示。
             { mode: 'full' as const, flag: 'true' as const, toolbarTranslate: 'visible', sidePanelTranslate: 'visible' },
             { mode: 'full' as const, flag: 'false' as const, toolbarTranslate: 'hidden', sidePanelTranslate: 'hidden' },
-            { mode: 'simple' as const, flag: 'true' as const, toolbarTranslate: 'hidden', sidePanelTranslate: 'visible' },
+            { mode: 'simple' as const, flag: 'true' as const, toolbarTranslate: 'visible', sidePanelTranslate: 'visible' },
             { mode: 'simple' as const, flag: 'false' as const, toolbarTranslate: 'hidden', sidePanelTranslate: 'hidden' },
         ];
 
@@ -252,24 +283,29 @@ test.describe('NFR-TRTOG-2: toolbarMode との整合', () => {
             await page.addStyleTag({ path: stylesCssPath });
 
             const result = await page.evaluate(() => {
+                const fixed = document.querySelector('.toolbar-translate-fixed') as HTMLElement;
                 const tInner = document.querySelector('.toolbar-inner [data-group="translate"]') as HTMLElement;
                 const sp = document.querySelector('.side-panel-header-actions [data-action="translate"]') as HTMLElement;
-                const inner = document.querySelector('.toolbar-inner') as HTMLElement;
                 return {
-                    toolbarInnerDisplay: inner ? getComputedStyle(inner).display : null,
-                    translateGroupDisplay: tInner ? getComputedStyle(tInner).display : null,
+                    fixedTranslateDisplay: fixed ? getComputedStyle(fixed).display : null,
+                    innerTranslateGroupDisplay: tInner ? getComputedStyle(tInner).display : null,
                     sidePanelTranslateDisplay: sp ? getComputedStyle(sp).display : null,
                 };
             });
 
-            // toolbar-inner translate group は flag=true && mode=full のみ visible
-            const toolbarVisible = (result.toolbarInnerDisplay !== 'none')
-                && (result.translateGroupDisplay !== 'none');
+            // 翻訳導線 = fixed 翻訳ボタン。flag に従い、mode(full/simple) の影響を受けない。
+            const toolbarVisible = result.fixedTranslateDisplay !== 'none';
             const expectedToolbar = c.toolbarTranslate === 'visible';
             expect(
                 toolbarVisible,
-                `toolbar translate (mode=${c.mode}, flag=${c.flag}) expected ${c.toolbarTranslate}`
+                `fixed translate button (mode=${c.mode}, flag=${c.flag}) expected ${c.toolbarTranslate}`
             ).toBe(expectedToolbar);
+
+            // 一本化: inner translate group は全組合せで非表示。
+            expect(
+                result.innerTranslateGroupDisplay,
+                `inner translate group (mode=${c.mode}, flag=${c.flag}) は一本化で常に非表示`
+            ).toBe('none');
 
             // side panel translate は flag に従う (mode の影響を受けない)
             const sidePanelVisible = result.sidePanelTranslateDisplay !== 'none';

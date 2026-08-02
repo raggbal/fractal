@@ -16124,12 +16124,40 @@ class EditorInstance {
             translateTargetLang = message.targetLang || 'ja';
             updateTranslateLangButton();
         } else if (message.type === 'translateResult') {
-            // v10: Open translation panel with result
+            // FR-TR-02 (sprint 20260803-013547): sidepanel md 要求の応答は sidepanel instance に委譲。
+            // message.sidePanelFilePath があり、この instance が該当 sidepanel を管理している（filePath 一致）なら、
+            // sidePanelFilePath を外した translateResult を sidepanel instance の handler へ再送する
+            // （insertImageHtml の cross-instance routing と同型 editor.js:15790）。再送された message は
+            // sidepanel instance 自身の closure handler に届き（sidePanelFilePath 無し）、その instance 自身の
+            // openTranslationPanel が sidepanel editor を翻訳ビュー化する。main の translateLoading /
+            // openTranslationPanel は触らない（main の翻訳 UI 状態を汚さない）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelInstance && sidePanelHostBridge && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'translateResult',
+                        translatedMarkdown: message.translatedMarkdown,
+                        sourceLang: message.sourceLang,
+                        targetLang: message.targetLang
+                    });
+                }
+                return; // ★ sidepanel 宛は main の openTranslationPanel を呼ばない
+            }
+            // v10: main 要求（従来どおり）→ main の editor を翻訳ビュー化。
             translateLoading = false;
             hideTranslateLoading();
             openTranslationPanel(message.translatedMarkdown, message.sourceLang, message.targetLang);
         } else if (message.type === 'translateError') {
-            // v10: Show error and hide loading
+            // FR-TR-02: sidepanel 要求のエラーは sidepanel instance に委譲（main の翻訳 UI を汚さない）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelInstance && sidePanelHostBridge && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'translateError',
+                        message: message.message
+                    });
+                }
+                return; // ★ sidepanel 宛は main の translateLoading を触らない
+            }
+            // v10: main 要求（従来どおり）→ main のエラー表示。
             translateLoading = false;
             hideTranslateLoading();
             showTranslateError(message.message || 'Translation failed');

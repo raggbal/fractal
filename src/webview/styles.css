@@ -409,9 +409,17 @@ body {
    Hides standalone toolbar's translate group AND side panel header's translate / translateLang.
    The fractal.translate command (Cmd+/) is unaffected. */
 [data-show-translate-buttons="false"] .toolbar-group[data-group="translate"],
+[data-show-translate-buttons="false"] .toolbar-translate-fixed,
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translate"],
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
     display: none !important;
+}
+/* sprint 20260803-013547 FR-TR-01: 翻訳ボタンを toolbar-fixed--right（exportPdf の左）に一本化。
+   full/simple 両モードで toolbar-fixed--right は表示されるため、simple でも翻訳導線が出る。
+   toolbar-inner の従来 translate group は二重表示回避のため常時非表示に統一
+   （sidepanel header の translate は .side-panel-header-actions セレクタで別管理 = 影響なし）。 */
+.toolbar-inner .toolbar-group[data-group="translate"] {
+    display: none;
 }
 /* Open in Text Editor toggle (fractal.showOpenInTextEditor setting, default on).
    VS Code の組込テキストエディタで開く操作。Electron 化で無意味になるため opt-out。
