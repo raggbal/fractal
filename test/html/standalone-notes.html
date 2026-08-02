@@ -31460,7 +31460,7 @@ var Outliner = (function() {
                     var rect = nodeEl.getBoundingClientRect();
                     var y = e.clientY - rect.top;
                     var h = rect.height;
-                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                     // sprint 20260802-010347 (FR-DII-02/03): after の depth 選択結果を
                     // targetNodeId/position へ射影（bridge/host シグネチャ不変）。
                     // 例: 祖先 anc の直後 = targetId=anc, pos='after' / target の子 = pos='child'
@@ -33901,8 +33901,12 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
+                // sprint 20260802-010347 再オープン② (TASK-06): clientX による depth 選択が効く
+                // after 帯を「下端 25%」→「下端 40%」(y>h*0.60) に拡大。純粋な左右移動で薄い帯から
+                // 外れ clientX が無視される反応性問題を緩和。before(<0.25)/child は帯境界のみ移動。
+                // dragover と drop で同じしきい値（0.60）を全経路対称に使う（表示=挿入の一致）。
                 if (y < h * 0.25) showDropIndicator(el, 'before', e.clientX);
-                else if (y > h * 0.75) showDropIndicator(el, 'after', e.clientX);
+                else if (y > h * 0.60) showDropIndicator(el, 'after', e.clientX);
                 else showDropIndicator(el, 'child', e.clientX);
                 return;
             }
@@ -33923,7 +33927,7 @@ var Outliner = (function() {
             var h = rect.height;
             if (y < h * 0.25) {
                 showDropIndicator(el, 'before', e.clientX);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 showDropIndicator(el, 'after', e.clientX);
             } else {
                 showDropIndicator(el, 'child', e.clientX);
@@ -33943,7 +33947,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleFilesDrop(e, targetId, pos);
@@ -33955,7 +33959,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleVscodeUrisDrop(e, targetId, pos);
@@ -33983,7 +33987,7 @@ var Outliner = (function() {
                 var info = model._getSiblingInfo(targetId);
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
                 model.moveNode(movedNodeId, targetNode.parentId, afterId);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
                 // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
                 var resolved = consumeDropResolution(targetId, 'after');
@@ -40815,9 +40819,13 @@ var notesFilePanel = (function() {
 
             if (target.dataset.itemType === 'folder' || target.classList.contains('file-panel-folder-header')) {
                 var folderWrapper = target.closest('.file-panel-folder') || target;
+                // sprint 20260802-010347 再オープン② (TASK-06): フォルダ行の after 帯を
+                // 「下端 25%」→「下端 40%」(ratio>0.60) に拡大（outliner と対称）。純粋な左右移動で
+                // clientX escalation が効く帯を広げ反応性を改善。before(<0.25)/into-folder は帯境界のみ移動。
+                // ファイル行（下記 else）は child 概念が無く after 帯が既に 50% と広いため 0.5 のまま。
                 if (ratio < 0.25) {
                     showDropLine(target, 'before');
-                } else if (ratio > 0.75) {
+                } else if (ratio > 0.60) {
                     // 改善1: 最終子なら X 座標で「この階層の後ろ / 親フォルダの後ろ」を選ぶ
                     showDropLine(resolveAfterEscalation(target, e.clientX), 'after');
                 } else {
@@ -40876,8 +40884,9 @@ var notesFilePanel = (function() {
                 var ratioB = yB / rectB.height;
                 var insertParentB = null;
                 var insertIndexB = 0;
-                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.75) {
+                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.60) {
                     // フォルダ中央 → フォルダ内先頭
+                    // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称。
                     insertParentB = target.dataset.folderId || targetId;
                     insertIndexB = 0;
                 } else {
@@ -40917,7 +40926,9 @@ var notesFilePanel = (function() {
             }
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
-            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
+            // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称に
+            // into-folder 帯を 0.25–0.60 に。下端 40% は after（兄弟挿入）へ fall-through。
+            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.60) {
                 var folderId = target.dataset.folderId || targetId;
                 // 循環チェック: 自分自身のフォルダの中にはドロップしない
                 if (dragItemType === 'folder' && folderId === dragItemId) return;

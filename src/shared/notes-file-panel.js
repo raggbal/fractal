@@ -733,9 +733,13 @@ var notesFilePanel = (function() {
 
             if (target.dataset.itemType === 'folder' || target.classList.contains('file-panel-folder-header')) {
                 var folderWrapper = target.closest('.file-panel-folder') || target;
+                // sprint 20260802-010347 再オープン② (TASK-06): フォルダ行の after 帯を
+                // 「下端 25%」→「下端 40%」(ratio>0.60) に拡大（outliner と対称）。純粋な左右移動で
+                // clientX escalation が効く帯を広げ反応性を改善。before(<0.25)/into-folder は帯境界のみ移動。
+                // ファイル行（下記 else）は child 概念が無く after 帯が既に 50% と広いため 0.5 のまま。
                 if (ratio < 0.25) {
                     showDropLine(target, 'before');
-                } else if (ratio > 0.75) {
+                } else if (ratio > 0.60) {
                     // 改善1: 最終子なら X 座標で「この階層の後ろ / 親フォルダの後ろ」を選ぶ
                     showDropLine(resolveAfterEscalation(target, e.clientX), 'after');
                 } else {
@@ -794,8 +798,9 @@ var notesFilePanel = (function() {
                 var ratioB = yB / rectB.height;
                 var insertParentB = null;
                 var insertIndexB = 0;
-                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.75) {
+                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.60) {
                     // フォルダ中央 → フォルダ内先頭
+                    // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称。
                     insertParentB = target.dataset.folderId || targetId;
                     insertIndexB = 0;
                 } else {
@@ -835,7 +840,9 @@ var notesFilePanel = (function() {
             }
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
-            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
+            // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称に
+            // into-folder 帯を 0.25–0.60 に。下端 40% は after（兄弟挿入）へ fall-through。
+            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.60) {
                 var folderId = target.dataset.folderId || targetId;
                 // 循環チェック: 自分自身のフォルダの中にはドロップしない
                 if (dragItemType === 'folder' && folderId === dragItemId) return;
