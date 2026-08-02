@@ -70,8 +70,9 @@ export interface PdfFsDeps {
 export interface PdfExportDeps {
     /** 3 provider getter の返り値配列。最初の truthy（active panel）を採用する。 */
     getTargets: () => Array<PdfTarget | undefined>;
-    /** HTML 回収（既定 = 実 postMessage 往復・10s timeout。テストは即 resolve）。 */
-    requestHtml?: (panel: PdfPanelLike) => Promise<PdfHtmlResult>;
+    /** HTML 回収（既定 = 実 postMessage 往復・10s timeout。テストは即 resolve）。
+     *  target は requestPdfHtml に流す surface ヒント（'auto'/'main-md'/'sidepanel-md'）。 */
+    requestHtml?: (panel: PdfPanelLike, target?: string) => Promise<PdfHtmlResult>;
     /** 保存ダイアログ。undefined = キャンセル。 */
     showSaveDialog: (opts: {
         defaultPath?: string;
@@ -126,7 +127,7 @@ function defaultFs(): PdfFsDeps {
  * panel に requestPdfHtml を投げて pdfHtmlResult を待つ。requestId 相関・10s timeout。
  * 一時購読は必ず dispose する（既存 handler と重複受信しても requestId 不一致は無視）。
  */
-export function requestPdfHtmlFromPanel(panel: PdfPanelLike): Promise<PdfHtmlResult> {
+export function requestPdfHtmlFromPanel(panel: PdfPanelLike, target: string = 'auto'): Promise<PdfHtmlResult> {
     return new Promise<PdfHtmlResult>((resolve, reject) => {
         const requestId = 'pdf-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
         let settled = false;
@@ -147,7 +148,7 @@ export function requestPdfHtmlFromPanel(panel: PdfPanelLike): Promise<PdfHtmlRes
             resolve({ html: m.html, filePath: m.filePath, baseDir: m.baseDir, error: m.error });
         });
 
-        panel.webview.postMessage({ type: 'requestPdfHtml', requestId, target: 'auto' });
+        panel.webview.postMessage({ type: 'requestPdfHtml', requestId, target });
     });
 }
 
@@ -166,24 +167,39 @@ function summarizeStderr(stderr: string, lines = 4): string {
  *   4. withProgress 内: config 読み → core 合成 → mkdtemp → findChromium → execFile → 通知
  *   5. finally: tmp を作った場合のみ rmSync（全経路掃除）
  */
-export async function runExportMdToPdf(deps: PdfExportDeps): Promise<void> {
+export async function runExportMdToPdf(
+    deps: PdfExportDeps,
+    opts?: { panel?: PdfPanelLike; targetHint?: string }
+): Promise<void> {
     const t = deps.t;
     const fs = deps.fs || defaultFs();
     const findChromium = deps.findChromium || ((explicit?: string) => findChromiumExecutable(explicit));
     const requestHtml = deps.requestHtml || requestPdfHtmlFromPanel;
 
-    // 1. 対象解決 — getTargets の返り値から最初の truthy（active panel）
-    const targets = deps.getTargets() || [];
-    const target = targets.find((x): x is PdfTarget => !!x);
-    if (!target) {
-        deps.notify.info(t('pdfExportNoTarget'));
-        return; // 副作用ゼロ
+    // 1. 対象解決 —
+    //  (a) opts.panel 既知（ボタン経路 = メッセージを受けた自 panel）: getTargets 走査をスキップし
+    //      その panel を使う。requestPdfHtml の target には opts.targetHint（'main-md'/'sidepanel-md'）。
+    //  (b) opts なし（コマンドパレット経路）: 従来どおり getTargets の最初の truthy を採用・target='auto'。
+    let target: PdfTarget;
+    let requestTarget: string;
+    if (opts && opts.panel) {
+        target = { panel: opts.panel, filePath: '' };
+        requestTarget = opts.targetHint || 'auto';
+    } else {
+        const targets = deps.getTargets() || [];
+        const resolved = targets.find((x): x is PdfTarget => !!x);
+        if (!resolved) {
+            deps.notify.info(t('pdfExportNoTarget'));
+            return; // 副作用ゼロ
+        }
+        target = resolved;
+        requestTarget = 'auto';
     }
 
     // 2. HTML 回収
     let collected: PdfHtmlResult;
     try {
-        collected = await requestHtml(target.panel);
+        collected = await requestHtml(target.panel, requestTarget);
     } catch (err: any) {
         deps.notify.error(t('pdfExportFailed') + (err?.message || String(err)));
         return;

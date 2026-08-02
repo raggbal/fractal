@@ -34,6 +34,9 @@ export interface NotesPlatformActions {
 
     // FR-EX-01/03: md export bundle。フォルダ選択ダイアログ + fs 書き出し（VS Code 依存）。
     exportBundle?(rootMdAbs: string, options: ExportOptions): void;
+    // FR-PDF-08: md → PDF export。VS Code 依存（deps 生成 + panel 供給）は provider 実装側。
+    // optional（exportBundle と同型）: 未実装 provider では case で no-op になり落ちない。
+    exportPdf?(targetHint?: string): void;
     /** FR-RR-04: notes 本体 md open 時、その md の画像に許可範囲外があればフッター案内を送る */
     sendResourceAccessStatus?(filePath: string, mdBody: string): void;
     /** .md ファイルをエディタで開く (Electron: createWindow, VSCode: vscode.openWith) */
@@ -277,6 +280,14 @@ export async function handleNotesMessage(
             if (rootMd && message.options) {
                 platform.exportBundle?.(rootMd, message.options as ExportOptions);
             }
+            break;
+        }
+
+        // FR-PDF-08: md → PDF export。deps 生成 + 対象 panel の供給は VS Code 依存なので
+        // platform に委譲（未実装 provider では no-op = 落ちない）。targetHint は
+        // Notes md タブ='main-md' / .out タブ + sidepanel='sidepanel-md'（webview 側で付与）。
+        case 'exportPdf': {
+            platform.exportPdf?.(message.targetHint as string | undefined);
             break;
         }
 

@@ -257,4 +257,95 @@ test.describe('PDF エクスポート webview 清書 (window.PdfExport)', () => 
         // (B) 可視化すると同 .editor が採用される（隠す以外の理由で弾いていない load-bearing 証明）
         expect(r.visibleAdopted).toBe(true);
     });
+
+    // TC-PDF-61: main toolbar の [data-action="exportPdf"] クリック → host.exportPdf が 1 回呼ばれる。
+    //  FR-PDF-08 / design §8.2。standalone toolbar は空 stub のため、ボタンを注入して既存の
+    //  data-action dispatcher（editor.js:12901 の toolbar delegated click）を駆動する。
+    //  host bridge は mock（window.hostBridge.exportPdf を spy に差し替え = TC 定義「host bridge は mock」）。
+    //  ★load-bearing・counterfactual: dispatcher に case 'exportPdf' が無いとクリックしても spy が
+    //   呼ばれず count===0（RED）。case 追加後に count===1（GREEN）。
+    //  回帰: exportBundle ボタンの動作は不変（クリックで export dialog が開く・exportPdf は呼ばれない）。
+    test('TC-PDF-61 main toolbar exportPdf クリックで host.exportPdf が 1 回呼ばれる（exportBundle 不変）', async ({ page }) => {
+        await boot(page);
+        const r = await page.evaluate(() => {
+            var toolbar = document.querySelector('.toolbar') as HTMLElement;
+            // 空 stub の toolbar に exportPdf / exportBundle ボタンを注入（本番 DOM 相当・順序も Export bundle の左）
+            toolbar.innerHTML =
+                '<div class="toolbar-group" data-group="utility">' +
+                '<button data-action="exportPdf" title="Export to PDF"></button>' +
+                '<button data-action="exportBundle" title="Export bundle"></button>' +
+                '</div>';
+            toolbar.style.display = '';
+
+            // host bridge の exportPdf を spy に差し替え（mock）。host === window.hostBridge（同一参照）。
+            var calls = 0;
+            (window as any).hostBridge.exportPdf = function () { calls++; };
+
+            // exportPdf をクリック → dispatcher case 'exportPdf' → host.exportPdf()
+            var pdfBtn = toolbar.querySelector('[data-action="exportPdf"]') as HTMLElement;
+            pdfBtn.click();
+            var afterPdfClick = calls;
+
+            // 回帰: exportBundle をクリック → export dialog が開く（openExportDialog）・exportPdf は呼ばれない
+            var bundleBtn = toolbar.querySelector('[data-action="exportBundle"]') as HTMLElement;
+            bundleBtn.click();
+            var dialogOpened = !!document.querySelector('.md-export-dialog-overlay');
+            var afterBundleClick = calls;
+
+            return { afterPdfClick, dialogOpened, afterBundleClick };
+        });
+        // dispatcher の case 'exportPdf' が host.exportPdf を 1 回呼ぶ（case 無しなら 0 = RED）
+        expect(r.afterPdfClick).toBe(1);
+        // 回帰: exportBundle は従来どおり export dialog を開く
+        expect(r.dialogOpened).toBe(true);
+        // exportBundle クリックで exportPdf は増えない（別経路）
+        expect(r.afterBundleClick).toBe(1);
+    });
+
+    // TC-PDF-63: resolvePdfTarget(targetHint) が surface 別に解決する（design §8.3）。
+    //  main .editor と .side-panel .editor の両方に内容がある状態で:
+    //   - 'sidepanel-md' → sidepanel の editorEl を返す（'auto' だと解決順で main が勝つ状態を明示上書き）
+    //   - 'main-md'      → main の editorEl を返す
+    //  ★counterfactual: hint 無視実装（従来 'auto' 相当）だと 'sidepanel-md' でも main を返す = RED。
+    //   本 TC は「'auto' なら main が勝つ」を先に実測し、hint がその既定を覆すことで load-bearing を示す。
+    test('TC-PDF-63 resolvePdfTarget(targetHint) が sidepanel-md / main-md を surface 別に解決する', async ({ page }) => {
+        await boot(page);
+        const r = await page.evaluate(() => {
+            // 権威 getter を除去し DOM フォールバック経路（surface 別ガード）を確実に踏む
+            try { delete (window as any).__pdfExportSources; } catch (_e) { (window as any).__pdfExportSources = undefined; }
+
+            // main .editor に内容を入れる（可視・非空）
+            var mainEd = document.querySelector('.editor') as HTMLElement;
+            mainEd.innerHTML = '<p>main markdown</p>';
+
+            // .side-panel .editor を可視・非空で構築。
+            // 本番の styles.css は `.side-panel { display:none }` / `.side-panel.open { display:flex }`
+            // なので、sidepanel exportPdf ボタンを押せる = パネルが開いている状態を再現するため
+            // 'open' を付ける（付けないと display:none で _isVisible=false になり解決対象外 = TC-PDF-44 のガード）。
+            var sp = document.createElement('div');
+            sp.className = 'side-panel open';
+            var spEd = document.createElement('div');
+            spEd.className = 'editor';
+            spEd.innerHTML = '<p>sidepanel markdown</p>';
+            sp.appendChild(spEd);
+            document.body.appendChild(sp);
+
+            var PdfExport = (window as any).PdfExport;
+            var autoT = PdfExport.resolvePdfTarget();            // 既定（'auto' 相当）
+            var spT = PdfExport.resolvePdfTarget('sidepanel-md'); // sidepanel 明示
+            var mainT = PdfExport.resolvePdfTarget('main-md');    // main 明示
+
+            return {
+                autoIsMain: !!(autoT && autoT.editorEl === mainEd),   // 既定では main が勝つ
+                sidepanelResolved: !!(spT && spT.editorEl === spEd),  // hint で sidepanel を明示解決
+                mainResolved: !!(mainT && mainT.editorEl === mainEd), // hint で main を明示解決
+            };
+        });
+        // 既定（auto）では解決順で main が勝つ（この前提が counterfactual の土台）
+        expect(r.autoIsMain).toBe(true);
+        // 'sidepanel-md' は main が勝つ状態でも sidepanel を返す（hint 無視だと main = RED）
+        expect(r.sidepanelResolved).toBe(true);
+        // 'main-md' は main を返す
+        expect(r.mainResolved).toBe(true);
+    });
 });

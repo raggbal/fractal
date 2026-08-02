@@ -268,4 +268,85 @@ test.describe('runExportMdToPdf 編成順序・掃除（TC-PDF-24〜27）', () =
         expect(state.mkdtempCalls).toBe(0);
         expect(state.notifyInfo.some(m => m.includes('pdfExportNoTarget'))).toBe(true);
     });
+
+    test('TC-PDF-62: runExportMdToPdf(deps, {panel, targetHint:sidepanel-md}) → getTargets skip・渡した panel 使用・target=sidepanel-md 送信', async () => {
+        // FR-PDF-08 / design §8.3。opts.panel があれば getTargets 走査をスキップし、
+        // requestPdfHtml の target には opts.targetHint を送る。opts なしは従来 'auto'（回帰）。
+        const state = freshState();
+        let getTargetsCalled = 0;
+        // requestHtml を差し替えて「渡された panel」と「target 引数」を記録する。
+        const requestedTargets: string[] = [];
+        const usedPanels: unknown[] = [];
+        // sidepanel 専用の panel（getTargets の panel とは別物と識別できるようにする）。
+        const sidepanelPanel = {
+            active: true,
+            webview: {
+                postMessage: () => {},
+                onDidReceiveMessage: () => ({ dispose: () => {} }),
+            },
+        };
+        const deps = makeDeps(
+            {
+                getTargets: () => {
+                    getTargetsCalled++;
+                    return [
+                        {
+                            panel: {
+                                active: true,
+                                webview: {
+                                    postMessage: () => {},
+                                    onDidReceiveMessage: () => ({ dispose: () => {} }),
+                                },
+                            },
+                            filePath: '/notes/main.md',
+                        },
+                    ];
+                },
+                requestHtml: async (panel: any, target?: string) => {
+                    usedPanels.push(panel);
+                    requestedTargets.push(target === undefined ? '<undefined>' : target);
+                    return { html: '<h1>sp</h1>', filePath: '/notes/side.md' };
+                },
+            },
+            state
+        );
+
+        // (1) opts.panel + targetHint 指定: getTargets はスキップ・渡した panel を使う・target=sidepanel-md
+        await runExportMdToPdf(deps, { panel: sidepanelPanel as any, targetHint: 'sidepanel-md' });
+        expect(getTargetsCalled).toBe(0); // 対象解決スキップ
+        expect(usedPanels[0]).toBe(sidepanelPanel); // 渡した panel をそのまま使用
+        expect(requestedTargets[0]).toBe('sidepanel-md'); // targetHint が requestHtml に流れる
+
+        // (2) opts なし: 従来経路（getTargets 走査 + target='auto' 相当）で回帰
+        const state2 = freshState();
+        let getTargetsCalled2 = 0;
+        const requestedTargets2: string[] = [];
+        const deps2 = makeDeps(
+            {
+                getTargets: () => {
+                    getTargetsCalled2++;
+                    return [
+                        {
+                            panel: {
+                                active: true,
+                                webview: {
+                                    postMessage: () => {},
+                                    onDidReceiveMessage: () => ({ dispose: () => {} }),
+                                },
+                            },
+                            filePath: '/notes/main.md',
+                        },
+                    ];
+                },
+                requestHtml: async (_panel: any, target?: string) => {
+                    requestedTargets2.push(target === undefined ? 'auto' : target);
+                    return { html: '<h1>m</h1>', filePath: '/notes/main.md' };
+                },
+            },
+            state2
+        );
+        await runExportMdToPdf(deps2);
+        expect(getTargetsCalled2).toBe(1); // 対象解決を実行
+        expect(requestedTargets2[0]).toBe('auto'); // opts なしは 'auto'
+    });
 });

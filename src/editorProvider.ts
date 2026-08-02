@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { getWebviewContent, getNonce } from './webviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
-import { OutlinerProvider } from './outlinerProvider';
+import { OutlinerProvider, buildPdfExportDeps } from './outlinerProvider';
+import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
 import { SidePanelManager } from './shared/sidePanelManager';
 import {
     extractImageDir,
@@ -1017,6 +1018,18 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     if (rootMd && message.options) {
                         await runExportBundle(rootMd, message.options);
                     }
+                    break;
+                }
+
+                // FR-PDF-08: standalone / Notes md pane の PDF export。メッセージを受けた
+                // 自 panel を opts.panel で渡し getTargets 走査を省く。targetHint は
+                // main toolbar='main-md' / sidepanel header='sidepanel-md'（webview 側で付与）。
+                case 'exportPdf': {
+                    const deps = buildPdfExportDeps(() => [], (k) => t(k as any));
+                    await runExportMdToPdf(deps, {
+                        panel: webviewPanel as unknown as PdfPanelLike,
+                        targetHint: message.targetHint || 'main-md',
+                    });
                     break;
                 }
 

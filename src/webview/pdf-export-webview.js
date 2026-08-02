@@ -131,7 +131,13 @@
 
     // ── §2.1 対象解決 resolvePdfTarget（解決順が仕様）──────────────────────────
     // return: { editorEl, filePath } | null
-    // 解決順:
+    // targetHint（design §8.3・FR-PDF-08）:
+    //   'auto'（既定 / undefined）: 従来の全順序（main → sidepanel → solo）
+    //   'main-md'      : main 系のみ解決（sidepanel を見ない）
+    //   'sidepanel-md' : sidepanel 系のみ解決（main を見ない）
+    // targetHint はボタン経路が「md タブ + sidepanel 同時オープン時に押した surface」を指定する。
+    // 'auto' だと解決順で main が勝ってしまうため、sidepanel ボタンは 'sidepanel-md' を渡して覆す。
+    // 解決順（'auto'）:
     //   (1) Notes アクティブタブの md instance（window.__pdfExportSources.mainMd）
     //       無ければ document 上の可視な main `.editor`（outliner モードでない場合）
     //   (2) sidePanelInstance（window.__pdfExportSources.sidePanel）
@@ -139,29 +145,30 @@
     //   (3) standalone の唯一 instance（document.querySelector('.editor')）
     //   (4) いずれも実要素なし / 空 → null
     // 実装は防御的に（存在しないグローバル参照で throw しない・optional chaining 徹底）。
-    function resolvePdfTarget() {
+    // 可視性ガード（_isVisible）は全 targetHint・全経路で維持する（TC-PDF-44）。
+    function resolvePdfTarget(targetHint) {
         var sources = (typeof window !== 'undefined' && window.__pdfExportSources) || null;
 
-        // ---- (1) Notes アクティブタブの md instance ----
-        var t1 = _tryResolveSource(sources && sources.mainMd);
-        if (t1) { return t1; }
-        // fallback: document 上の main .editor（outliner モードでなく、可視・実体があり空でない）
-        if (!_isOutlinerMode()) {
-            var mainEl = _queryMainEditor();
-            if (_isVisible(mainEl) && _hasContent(mainEl)) {
-                return { editorEl: mainEl, filePath: _resolveFilePath(null) };
-            }
+        // ---- 'sidepanel-md': sidepanel 系のみ（main を見ない）----
+        if (targetHint === 'sidepanel-md') {
+            return _resolveSidePanel(sources);
         }
 
-        // ---- (2) sidePanelInstance ----
-        var t2 = _tryResolveSource(sources && sources.sidePanel);
-        if (t2) { return t2; }
-        var spEl = _safeQuery('.side-panel .editor');
-        if (_isVisible(spEl) && _hasContent(spEl)) {
-            return { editorEl: spEl, filePath: _resolveFilePath(null) };
+        // ---- 'main-md': main 系のみ（sidepanel を見ない）----
+        if (targetHint === 'main-md') {
+            return _resolveMain(sources);
         }
 
-        // ---- (3) standalone の唯一 instance ----
+        // ---- 'auto'（既定）: 従来の全順序 ----
+        // (1) main 系
+        var main = _resolveMain(sources);
+        if (main) { return main; }
+
+        // (2) sidepanel 系
+        var sp = _resolveSidePanel(sources);
+        if (sp) { return sp; }
+
+        // (3) standalone の唯一 instance ----
         // 可視性ガードは solo 経路にも課す。standalone では _queryMainEditor()（1）と
         // _safeQuery('.editor')（3）が同一要素になりうるため、main だけガードして solo を素通しにすると
         // 隠し stale md が (3) で再採用され FR-PDF-01（対象なし・副作用ゼロ）の穴が残る。
@@ -171,7 +178,32 @@
             return { editorEl: soloEl, filePath: _resolveFilePath(null) };
         }
 
-        // ---- (4) 該当なし ----
+        // (4) 該当なし ----
+        return null;
+    }
+
+    // main 系 md 対象を解決（権威 getter → DOM フォールバック。可視性ガード必須）。無ければ null。
+    function _resolveMain(sources) {
+        var t1 = _tryResolveSource(sources && sources.mainMd);
+        if (t1) { return t1; }
+        // fallback: document 上の main .editor（outliner モードでなく、可視・実体があり空でない）
+        if (!_isOutlinerMode()) {
+            var mainEl = _queryMainEditor();
+            if (_isVisible(mainEl) && _hasContent(mainEl)) {
+                return { editorEl: mainEl, filePath: _resolveFilePath(null) };
+            }
+        }
+        return null;
+    }
+
+    // sidepanel 系 md 対象を解決（権威 getter → DOM フォールバック。可視性ガード必須）。無ければ null。
+    function _resolveSidePanel(sources) {
+        var t2 = _tryResolveSource(sources && sources.sidePanel);
+        if (t2) { return t2; }
+        var spEl = _safeQuery('.side-panel .editor');
+        if (_isVisible(spEl) && _hasContent(spEl)) {
+            return { editorEl: spEl, filePath: _resolveFilePath(null) };
+        }
         return null;
     }
 
@@ -308,7 +340,8 @@
             var post = _getPost();
 
             var target = null;
-            try { target = resolvePdfTarget(); } catch (_e) { target = null; }
+            // host が送る target（'auto'/'main-md'/'sidepanel-md'）を surface ヒントとして渡す。
+            try { target = resolvePdfTarget(m.target); } catch (_e) { target = null; }
 
             if (!target) {
                 if (post) { post({ type: 'pdfHtmlResult', requestId: m.requestId, error: 'no-target' }); }

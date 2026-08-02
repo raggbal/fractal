@@ -35,6 +35,13 @@
             api.postMessage({ type: 'copyFilePath' });
         },
 
+        // FR-PDF-08: main md pane の PDF export。既定 targetHint 'main-md'（shared factory の
+        // 'sidepanel-md' を override）。sidepanel header 経路は host.exportPdf('sidepanel-md') で
+        // 明示上書きするため、引数があればそれを優先（design §8.2）。
+        exportPdf: function(targetHint) {
+            api.postMessage({ type: 'exportPdf', targetHint: targetHint || 'main-md' });
+        },
+
         // ページ管理
         createPageAtPath: function(relativePath) {
             api.postMessage({ type: 'createPageAtPath', relativePath: relativePath });
