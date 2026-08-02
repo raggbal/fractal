@@ -5,6 +5,13 @@ export const messages = {
   numberOfColumns: '列数',
   enterValidNumber: '有効な数値を入力してください',
   pdfExportComingSoon: 'PDF出力機能は近日公開予定です！',
+  // PDF export (sprint 20260802-075012-md-pdf-export)
+  pdfExportNoTarget: 'エクスポート対象の md がありません。md ファイル（またはサイドパネルのページ）を開いてから実行してください。',
+  pdfExportBrowserNotFound: 'PDF エクスポートには Google Chrome または Microsoft Edge が必要です。インストールするか、設定 "fractal.pdfBrowserPath" で実行ファイルを指定してください。',
+  pdfExportProgress: 'PDF にエクスポート中...',
+  pdfExportDone: 'PDF を書き出しました: ',
+  pdfExportFailed: 'PDF エクスポートに失敗しました: ',
+  pdfExportCssSkipped: '一部の PDF 用 CSS を読み込めずスキップしました: ',
   imageDirChanged: 'IMAGE_DIRが変更されました。新しい設定を適用するにはファイルを再読み込みしてください。',
   fileModifiedExternally: '編集中にファイルが外部で変更されました。再読み込みしますか？',
   reload: '再読み込み',
