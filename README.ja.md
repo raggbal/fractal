@@ -176,7 +176,7 @@ AWS アカウントがあれば、note を S3 に同期できます:
 ### 🌍 翻訳
 選択範囲またはドキュメント全体を **Amazon Translate** で翻訳。カスタム用語集（Custom Terminology）による精度向上にも対応。
 
-> S3 同期と翻訳には AWS CLI が必要です。それ以外の機能は AWS なしで動作します。
+> S3 同期と翻訳は設定に AWS 認証情報を入れるだけで動きます（AWS CLI のインストールは不要）。それ以外の機能は AWS なしで動作します。
 
 ---
 
@@ -252,8 +252,8 @@ npm run compile
 # F5 でデバッグモードで起動
 ```
 
-### オプション: AWS CLI（S3 同期 & 翻訳）
-コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、[AWS CLI](https://aws.amazon.com/cli/) をインストールし、VS Code の設定で認証情報を設定してください:
+### オプション: AWS 認証情報（S3 同期 & 翻訳）
+コア機能は AWS なしで動作します。S3 同期と Amazon Translate を使うには、VS Code の設定で認証情報を設定するだけです（AWS SDK を内蔵しており、CLI のインストールは不要）。なお、HTTP(S) プロキシ経由の接続には現在対応していません:
 
 - S3 同期: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
 - 翻訳: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`

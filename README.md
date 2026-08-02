@@ -174,7 +174,7 @@ With an AWS account, you can sync your notes to S3:
 ### 🌍 Translation
 Translate a selection or the whole document with **Amazon Translate**, including Custom Terminology support for better accuracy.
 
-> S3 sync and translation require the AWS CLI. Everything else works without AWS.
+> S3 sync and translation only need AWS credentials in settings — no AWS CLI installation required. Everything else works without AWS.
 
 ---
 
@@ -250,8 +250,8 @@ npm run compile
 # press F5 to launch in debug mode
 ```
 
-### Optional: AWS CLI (S3 sync & translation)
-Core features work without AWS. To use S3 sync and Amazon Translate, install the [AWS CLI](https://aws.amazon.com/cli/) and configure credentials in VS Code settings:
+### Optional: AWS credentials (S3 sync & translation)
+Core features work without AWS. To use S3 sync and Amazon Translate, just configure credentials in VS Code settings — the extension talks to AWS directly (built-in AWS SDK; no CLI installation needed). Note: connections through an HTTP(S) proxy are not currently supported for these features:
 
 - S3 sync: `fractal.s3AccessKeyId`, `fractal.s3SecretAccessKey`, `fractal.s3Region`
 - Translation: `fractal.transAccessKeyId`, `fractal.transSecretAccessKey`, `fractal.transRegion`
