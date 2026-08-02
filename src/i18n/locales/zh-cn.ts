@@ -4,7 +4,6 @@ export const messages = {
   numberOfRows: '行数',
   numberOfColumns: '列数',
   enterValidNumber: '请输入有效的数字',
-  pdfExportComingSoon: 'PDF 导出功能即将推出！',
   // PDF export (sprint 20260802-075012-md-pdf-export)
   pdfExportNoTarget: '没有可导出的 Markdown。请打开 Markdown 文件（或侧边栏中的页面）后重试。',
   pdfExportBrowserNotFound: 'PDF 导出需要 Google Chrome 或 Microsoft Edge。请安装其一，或在设置 "fractal.pdfBrowserPath" 中指定可执行文件。',

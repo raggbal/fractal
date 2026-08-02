@@ -4,7 +4,6 @@ export const messages = {
   numberOfRows: '행 수',
   numberOfColumns: '열 수',
   enterValidNumber: '유효한 숫자를 입력하세요',
-  pdfExportComingSoon: 'PDF 내보내기 기능이 곧 출시됩니다!',
   // PDF export (sprint 20260802-075012-md-pdf-export)
   pdfExportNoTarget: '내보낼 Markdown이 없습니다. Markdown 파일(또는 사이드 패널의 페이지)을 열고 다시 시도하세요.',
   pdfExportBrowserNotFound: 'PDF 내보내기에는 Google Chrome 또는 Microsoft Edge가 필요합니다. 설치하거나 "fractal.pdfBrowserPath" 설정에서 실행 파일을 지정하세요.',

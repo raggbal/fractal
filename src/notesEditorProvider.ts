@@ -56,6 +56,20 @@ export class NotesEditorProvider {
         }
     }
 
+    /**
+     * FR-PDF-01: PDF エクスポートの対象 panel（Notes）。
+     * openPanels 走査で active な panel を返す。アクティブタブ md / sidepanel md の
+     * どちらか・filePath は webview 返信を正とする（design §2）ため filePath は返さない。
+     */
+    public getActivePanelForPdf(): { panel: vscode.WebviewPanel; filePath?: string } | undefined {
+        for (const entry of this.openPanels.values()) {
+            if (entry.panel.active) {
+                return { panel: entry.panel };
+            }
+        }
+        return undefined;
+    }
+
     // FR-NT-03 / FR-MV-01: Notes Folder ツリー provider への参照 (ツリー更新 + 移動先一覧に使う)
     private folderProvider?: { refresh(): void; getFolders(): string[] };
     public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {

@@ -351,6 +351,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
     // Track the currently active webview panel for undo/redo command forwarding
     private activeWebviewPanel: vscode.WebviewPanel | undefined;
+    // FR-PDF-01: PDF エクスポートの保存ダイアログ初期値に使う、アクティブ panel の md fsPath。
+    // filePath の正は webview 返信（design §2）だが、初期値の fallback に持たせる。
+    private activeDocumentFsPath: string | undefined;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -390,6 +393,18 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
     public sendToggleSidebar(): void {
         this.activeWebviewPanel?.webview.postMessage({ type: 'toggleSidebar' });
+    }
+
+    /**
+     * FR-PDF-01: PDF エクスポートの対象 panel（standalone md）。
+     * activeWebviewPanel が truthy かつ .active ならその panel を返す。
+     * filePath は保存ダイアログ初期値の fallback（正は webview 返信）。
+     */
+    public getActivePanelForPdf(): { panel: vscode.WebviewPanel; filePath?: string } | undefined {
+        if (this.activeWebviewPanel && this.activeWebviewPanel.active) {
+            return { panel: this.activeWebviewPanel, filePath: this.activeDocumentFsPath };
+        }
+        return undefined;
     }
 
     /**
@@ -1590,18 +1605,22 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // Track active webview panel for undo/redo command forwarding
         if (webviewPanel.active) {
             this.activeWebviewPanel = webviewPanel;
+            this.activeDocumentFsPath = document.uri.fsPath;
         }
         webviewPanel.onDidChangeViewState(() => {
             if (webviewPanel.active) {
                 this.activeWebviewPanel = webviewPanel;
+                this.activeDocumentFsPath = document.uri.fsPath;
             } else if (this.activeWebviewPanel === webviewPanel) {
                 this.activeWebviewPanel = undefined;
+                this.activeDocumentFsPath = undefined;
             }
         });
 
         webviewPanel.onDidDispose(() => {
             if (this.activeWebviewPanel === webviewPanel) {
                 this.activeWebviewPanel = undefined;
+                this.activeDocumentFsPath = undefined;
             }
             // outlinerページ追跡をクリーンアップ
             OutlinerProvider.outlinerPagePaths.delete(document.uri.fsPath);

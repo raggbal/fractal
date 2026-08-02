@@ -4,7 +4,6 @@ export const messages = {
   numberOfRows: 'Número de filas',
   numberOfColumns: 'Número de columnas',
   enterValidNumber: 'Por favor, introduzca un número válido',
-  pdfExportComingSoon: '¡La función de exportación a PDF estará disponible pronto!',
   // PDF export (sprint 20260802-075012-md-pdf-export)
   pdfExportNoTarget: 'No hay Markdown para exportar. Abra un archivo Markdown (o una página en el panel lateral) e inténtelo de nuevo.',
   pdfExportBrowserNotFound: 'La exportación a PDF requiere Google Chrome o Microsoft Edge. Instale uno o configure "fractal.pdfBrowserPath".',
