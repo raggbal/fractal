@@ -200,4 +200,61 @@ test.describe('PDF エクスポート webview 清書 (window.PdfExport)', () => 
         expect(r.buildThrew).toBe(false);
         expect(r.nullBuild).toEqual({ html: '' });
     });
+
+    // TC-PDF-44: 隠し stale md（.out タブ表示中 + sidepanel 閉）を resolvePdfTarget が対象にしない
+    //  = FR-PDF-01 受け入れ 4 行目「対象なし・副作用ゼロ」の DOM フォールバック番人（review iteration 1 追加）。
+    //
+    //  機序: Notes dispatcher の md→.out タブ切替（notes-md-dispatcher.js:112-118 の else）は
+    //   showOutliner() で markdownContainer.style.display='none' にするだけで innerHTML を消さないため、
+    //   直前に見ていた md の .editor DOM が display:none 配下に stale 残留する。権威 getter
+    //   __pdfExportSources.mainMd（dispatcher:132-137）は display==='none' を見て null を返すが、
+    //   resolvePdfTarget の DOM フォールバックには可視性ガードが無かった → 隠れた stale md を採用していた。
+    //
+    //  ★load-bearing・counterfactual（2 系統で担保）:
+    //   (1) 同一 .editor を可視化すると採用され非 null（visibility 軸だけが採否を分ける = ガードが load-bearing）。
+    //   (2) 【fix 無効時の実測 = RED 確認済み】可視性ガード未導入コード（build-standalone.js で fix 前の
+    //       pdf-export-webview.js を inline した状態）で同 setup を走らせると、resolvePdfTarget が
+    //       隠れた stale md を採用し target={editorEl:<div.editor>, filePath:null}（非 null）を返した。
+    //       → 本コミットの可視性ガード導入後は null を返す（RED → GREEN 遷移を実測）。
+    test('TC-PDF-44 隠し stale md（.out タブ + sidepanel 閉）を resolvePdfTarget が対象にしない', async ({ page }) => {
+        await boot(page);
+        const r = await page.evaluate(() => {
+            // 権威 getter（__pdfExportSources）を除去し DOM フォールバック経路を確実に踏む
+            try { delete (window as any).__pdfExportSources; } catch (_e) { (window as any).__pdfExportSources = undefined; }
+
+            // .out タブ表示中を模す: outliner-tree を実在させる
+            const tree = document.createElement('div');
+            tree.className = 'outliner-tree';
+            tree.textContent = 'outline node';
+            document.body.appendChild(tree);
+
+            // 直前に見ていた md の .editor が display:none コンテナ配下に stale 残留（showOutliner 相当）
+            const ed = document.querySelector('.editor') as HTMLElement;
+            ed.innerHTML = '<p>stale markdown content</p>';   // stale 内容（_hasContent=true）
+            const hidden = document.createElement('div');
+            hidden.className = 'markdown-container';
+            hidden.style.display = 'none';
+            ed.parentNode!.insertBefore(hidden, ed);
+            hidden.appendChild(ed);   // .editor を display:none 祖先配下へ移動（自身は display 指定なし）
+
+            // sidepanel は開いていない（.side-panel .editor は存在しない）
+
+            // (A) 隠れている間: resolvePdfTarget は null（隠れた stale md を対象にしない）
+            const hiddenTarget = (window as any).PdfExport.resolvePdfTarget();
+
+            // (B) counterfactual: 同一 .editor を可視化すると採用され非 null になる
+            //     （visibility 以外の理由では弾かれていない = ガードが visibility 軸で load-bearing である証明）
+            hidden.style.display = '';
+            const visibleTarget = (window as any).PdfExport.resolvePdfTarget();
+
+            return {
+                hiddenIsNull: hiddenTarget === null,
+                visibleAdopted: !!(visibleTarget && visibleTarget.editorEl === ed),
+            };
+        });
+        // (A) display:none 配下の stale md は対象にしない（ガードを外すと非 null = RED）
+        expect(r.hiddenIsNull).toBe(true);
+        // (B) 可視化すると同 .editor が採用される（隠す以外の理由で弾いていない load-bearing 証明）
+        expect(r.visibleAdopted).toBe(true);
+    });
 });

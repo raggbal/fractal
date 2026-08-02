@@ -145,10 +145,10 @@
         // ---- (1) Notes アクティブタブの md instance ----
         var t1 = _tryResolveSource(sources && sources.mainMd);
         if (t1) { return t1; }
-        // fallback: document 上の main .editor（outliner モードでなく、実体があり空でない）
+        // fallback: document 上の main .editor（outliner モードでなく、可視・実体があり空でない）
         if (!_isOutlinerMode()) {
             var mainEl = _queryMainEditor();
-            if (_hasContent(mainEl)) {
+            if (_isVisible(mainEl) && _hasContent(mainEl)) {
                 return { editorEl: mainEl, filePath: _resolveFilePath(null) };
             }
         }
@@ -157,13 +157,17 @@
         var t2 = _tryResolveSource(sources && sources.sidePanel);
         if (t2) { return t2; }
         var spEl = _safeQuery('.side-panel .editor');
-        if (_hasContent(spEl)) {
+        if (_isVisible(spEl) && _hasContent(spEl)) {
             return { editorEl: spEl, filePath: _resolveFilePath(null) };
         }
 
         // ---- (3) standalone の唯一 instance ----
+        // 可視性ガードは solo 経路にも課す。standalone では _queryMainEditor()（1）と
+        // _safeQuery('.editor')（3）が同一要素になりうるため、main だけガードして solo を素通しにすると
+        // 隠し stale md が (3) で再採用され FR-PDF-01（対象なし・副作用ゼロ）の穴が残る。
+        // standalone の唯一 editor は常時可視なので非破壊（隠れているのは .out タブ表示中の stale のみ）。
         var soloEl = _safeQuery('.editor');
-        if (_hasContent(soloEl)) {
+        if (_isVisible(soloEl) && _hasContent(soloEl)) {
             return { editorEl: soloEl, filePath: _resolveFilePath(null) };
         }
 
@@ -214,6 +218,29 @@
 
     function _safeQuery(sel) {
         try { return document.querySelector(sel); } catch (_e) { return null; }
+    }
+
+    // 要素が可視か（自身 or 祖先が display:none 配下でない）。
+    // .out タブ表示中に showOutliner() が markdownContainer.style.display='none' にするだけで
+    // innerHTML を消さないため、隠れた md の .editor が stale 残留する（review iteration 1 の穴）。
+    // 権威 getter（__pdfExportSources.mainMd）と同じ可視性ガードを DOM フォールバックにも課す。
+    //
+    // 判定方式: 自身から祖先を辿って getComputedStyle(a).display === 'none' を検出する。
+    //   （offsetParent === null は position:fixed で例外があるため、display の直接検出を採る。
+    //     visibility:hidden は「見えないが領域を占める」で PDF 対象としては採用してよいため見ない。）
+    function _isVisible(el) {
+        if (!el) { return false; }
+        try {
+            var win = (el.ownerDocument && el.ownerDocument.defaultView) || (typeof window !== 'undefined' ? window : null);
+            if (!win || typeof win.getComputedStyle !== 'function') { return true; } // 判定不能なら採用（既存挙動維持）
+            var a = el;
+            while (a && a.nodeType === 1) {
+                var cs = win.getComputedStyle(a);
+                if (cs && cs.display === 'none') { return false; }
+                a = a.parentElement;
+            }
+            return true;
+        } catch (_e) { return true; } // 例外時は採用側に倒す（NFR-PDF-06: 例外死しない）
     }
 
     // 要素が実在し、内容が空でない（textContent trim or 子要素あり）
