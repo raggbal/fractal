@@ -1,8 +1,9 @@
 // pdf-export-host — md → PDF export の VS Code 依存 host（対象解決→HTML 回収→
 // dialog→core→spawn→progress→掃除の編成）。
 //
-// design/system.md §5 / TASK-04。deps 注入型（export-bundle-host.ts と同型 =
-// test 容易化）。vscode API・node fs / child_process はすべて deps 経由で差し替え可能に
+// design/system.md §5 / TASK-04。deps 注入型（drop-stream-host.ts の deps 注入パターンと
+// 同型 = test 容易化。export-bundle-host は vscode 直呼びのため precedent ではない）。
+// vscode API・node fs / child_process はすべて deps 経由で差し替え可能に
 // して、unit テストは spawn 抜き・全 mock で編成順序と全経路掃除を検証する。
 //
 // 対応 FR/NFR: FR-PDF-01（対象解決）・FR-PDF-05（キャンセル副作用ゼロ）・
@@ -269,6 +270,14 @@ export async function runExportMdToPdf(deps: PdfExportDeps): Promise<void> {
                         onChild
                     );
                     if (result.code !== 0 || !fs.existsSync(dest)) {
+                        // cancel 再チェック（FR-PDF-05 副作用ゼロ）。
+                        // onCancellationRequested（:260）は one-shot で第 1 プロセスの kill に
+                        // 既に消費済みのため、リトライ経路では isCancellationRequested の明示確認が
+                        // 唯一の防御。cancel 済みなら第 2 Chromium を起動せず静かに return
+                        // （save-dialog キャンセル :204 と同じく通知なし。finally で tmp 掃除される）。
+                        if (token.isCancellationRequested) {
+                            return; // finally で掃除
+                        }
                         // legacyHeadless で 1 回だけリトライ
                         result = await execFile(
                             browser,

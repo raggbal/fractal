@@ -3,7 +3,8 @@
  *
  * TASK-04 / FR-PDF-01/05/07 / NFR-PDF-03/04。
  * deps 全 mock・spawn 抜き（execFile / mkdtemp / rmSync / findChromiumExecutable
- * を注入で差し替え）。export-bundle-host.ts と同型の deps 注入。
+ * を注入で差し替え）。drop-stream-host.ts の deps 注入パターンと同型
+ * （export-bundle-host は vscode 直呼びのため precedent ではない）。
  *
  * 番人方針:
  *  - TC-PDF-24: showSaveDialog=undefined（キャンセル）→ mkdtemp / execFile が未呼出
@@ -200,6 +201,58 @@ test.describe('runExportMdToPdf 編成順序・掃除（TC-PDF-24〜27）', () =
         };
         walk(srcRoot);
         expect(hits).toEqual([]);
+    });
+
+    test('TC-PDF-28: 第 1 execFile 実行中に cancel → legacyHeadless リトライ（第 2 execFile）が呼ばれない（FR-PDF-05 / counterfactual）', async () => {
+        // onCancellationRequested は one-shot（第 1 プロセス kill で消費済み）なので、
+        // リトライ経路では token.isCancellationRequested の明示確認が唯一の防御。
+        // 第 1 execFile 内で cancel をセット + code!==0（失敗）を返し、
+        // ガードが無いと第 2 execFile（legacyHeadless リトライ）が呼ばれる。
+        //
+        // counterfactual 実測（開発時）: pdf-export-host.ts の
+        //   `if (token.isCancellationRequested) { return; }`（リトライ前ガード）を
+        // コメントアウトすると execFileCalls===2 になり本 TC は RED。ガードを戻すと 1 で green。
+        const state = freshState();
+        // withProgress / execFile 間で共有する可変トークン。
+        const token = {
+            isCancellationRequested: false,
+            onCancellationRequested: () => ({ dispose: () => {} }),
+        };
+        const deps = makeDeps(
+            {
+                withProgress: async (_opts, task) => {
+                    return task({ report: () => {} }, token);
+                },
+                // dest 未生成扱い（code!==0 かつ existsSync=false でリトライ経路へ）。
+                fs: {
+                    mkdtemp: (_prefix: string) => {
+                        state.trace.push('mkdtemp');
+                        state.mkdtempCalls++;
+                        return '/tmp/fractal-pdf-mock';
+                    },
+                    writeFile: (_p: string, _data: string) => {
+                        state.writeFileCalls++;
+                    },
+                    existsSync: (_p: string) => false, // dest 未生成 → 本来ならリトライ判定に入る
+                    rmSync: (_p: string) => {
+                        state.rmSyncCalls++;
+                    },
+                },
+                execFile: async () => {
+                    state.trace.push('execFile');
+                    state.execFileCalls++;
+                    // 第 1 execFile 実行中に cancel（onCancellationRequested は消費済みの想定）。
+                    token.isCancellationRequested = true;
+                    return { code: 1, stderr: 'cancelled' }; // code!==0 = 失敗
+                },
+            },
+            state
+        );
+        await runExportMdToPdf(deps);
+        // ガードにより第 2 execFile（リトライ）は呼ばれない。
+        expect(state.execFileCalls).toBe(1);
+        // tmp を作っているので finally 掃除は走る（全経路掃除・NFR-PDF-03）。
+        expect(state.rmSyncCalls).toBeGreaterThanOrEqual(1);
     });
 
     test('TC-PDF-24b: target 無し（getTargets が空）→ pdfExportNoTarget 通知・副作用ゼロ', async () => {
