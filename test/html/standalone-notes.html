@@ -2499,6 +2499,25 @@ body {
     opacity: 1;
     background: var(--hover-bg, rgba(128,128,128,0.15));
 }
+/* app link ボタン: copy-path と同じフラットな見た目（専用スタイルが無くブラウザ既定の
+   border が角丸枠として見えていた → リセットして揃える）。sprint 20260803-013547 TASK-03 */
+.side-panel-copy-inapp-link {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    opacity: 0.6;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
+}
+.side-panel-copy-inapp-link:hover {
+    opacity: 1;
+    background: var(--hover-bg, rgba(128,128,128,0.15));
+}
 /* Side panel expand button */
 .side-panel-open-tab {
     background: none;
@@ -37904,6 +37923,13 @@ var Outliner = (function() {
             sidePanelFilename.textContent = 'Translation (' + sourceLang + ' → ' + targetLang + ')';
         }
 
+        // 翻訳結果は read-only の一時ビューなので、app link / Open in new tab は非表示にする
+        // （復元は ← Back の openSidePanel 経路 / close 経路の両方で明示的に行う）。
+        var trInAppBtn = document.querySelector('.side-panel-copy-inapp-link');
+        var trOpenTabBtn = document.querySelector('.side-panel-open-tab');
+        if (trInAppBtn) { trInAppBtn.style.display = 'none'; }
+        if (trOpenTabBtn) { trOpenTabBtn.style.display = 'none'; }
+
         // Inject "← Back" button into header, replacing action buttons (read-only panel).
         // Save original actions HTML so openSidePanel on restore can rebuild default buttons.
         if (sidePanelEl) {
@@ -38016,6 +38042,14 @@ var Outliner = (function() {
             closeSidePanelImmediate(true /* isSwitch */);
         }
         sidePanelFilePath = filePath;
+        // 翻訳結果ビュー（showTranslationInSidePanel）が非表示にした app link / open-tab を復元する。
+        // app link は Notes モード限定表示（初期 setup :7121 の判定と同じ条件で戻す）。
+        var spInAppBtnRestore = document.querySelector('.side-panel-copy-inapp-link');
+        if (spInAppBtnRestore) {
+            spInAppBtnRestore.style.display = document.querySelector('.notes-layout') ? '' : 'none';
+        }
+        var spOpenTabBtnRestore = document.querySelector('.side-panel-open-tab');
+        if (spOpenTabBtnRestore) { spOpenTabBtnRestore.style.display = ''; }
         // FR-TH-05: 別 md に切り替わったら H1 前回値をリセット（新 md の初回 H1 を stale 値で抑止しない）。
         // 開いた時点では反映しない（FR: 編集時のみ）ため、現在の先頭 H1 で初期化して差分検知の基準にする。
         _lastSidePanelH1 = (function() {
@@ -38242,6 +38276,14 @@ var Outliner = (function() {
     // buttons (undo/redo/translateLang/...) before the panel is destroyed. Otherwise the
     // next openSidePanel() would reuse the same DOM with only the "← Back" button left.
     function restoreHeaderActionsFromTranslation() {
+        // TASK-03 (sprint 20260803-013547): 翻訳ビューが隠した app link / open-tab を close 経路でも復元する。
+        // pre-translation state の有無に依存させない（translateResult 直接受信で state 無しの翻訳ビューもある）。
+        var inAppBtn = document.querySelector('.side-panel-copy-inapp-link');
+        if (inAppBtn) {
+            inAppBtn.style.display = document.querySelector('.notes-layout') ? '' : 'none';
+        }
+        var openTabBtn = document.querySelector('.side-panel-open-tab');
+        if (openTabBtn) { openTabBtn.style.display = ''; }
         if (!sidePanelPreTranslationState || !sidePanelPreTranslationState.actionsHtml) return;
         if (!sidePanelEl) return;
         var header = sidePanelEl.querySelector('.side-panel-header');

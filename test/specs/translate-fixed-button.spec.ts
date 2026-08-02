@@ -420,3 +420,89 @@ test.describe('FR-TR-02: reverse-case guard — main 翻訳が sidepanel を汚�
         expect(afterSpBound.spText).toContain('side translated text');
     });
 });
+
+test.describe('TASK-03: sidepanel UI polish（翻訳ビューの app link / open-tab 非表示 + 復元）', () => {
+    const DOC = 'http://localhost:3000/note1/';
+
+    // TC-TR-06: 翻訳結果画面（read-only 一時ビュー）では app link / Open in new tab を非表示にし、
+    //   ← Back（openSidePanel 復元経路）で表示が戻る。
+    //   counterfactual: showTranslationInSidePanel の display:none 2 行を外すと翻訳ビュー中も
+    //   両ボタンが可視のまま = (A) の非表示 assert が RED（実装前に本 TC を先行実行して RED を確認済み）。
+    test('TC-TR-06: 翻訳ビュー中は app link / open-tab 非表示・Back 復元で再表示', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+
+        const SP_FP = '/notes/side.md';
+
+        // sidepanel を開く（Notes モード = app link は本来可視）。
+        await page.evaluate(({ md, fp, doc }) => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel', markdown: md, filePath: fp, fileName: 'side.md', toc: [], documentBaseUri: doc,
+            });
+        }, { md: '# Side\n\nside body text\n', fp: SP_FP, doc: DOC });
+        await page.waitForTimeout(400);
+
+        const visible = (el: Element | null) =>
+            !!el && (el as HTMLElement).style.display !== 'none';
+
+        // 事前: Notes モードでは app link・open-tab とも表示（display が none でない）。
+        const before = await page.evaluate(() => ({
+            inApp: (document.querySelector('.side-panel-copy-inapp-link') as HTMLElement | null)?.style.display ?? null,
+            openTab: (document.querySelector('.side-panel-open-tab') as HTMLElement | null)?.style.display ?? null,
+        }));
+        expect(before.inApp).not.toBe('none');
+        expect(before.openTab).not.toBe('none');
+
+        // 翻訳ビューを開く（sidepanel 宛 translateResult）。
+        await page.evaluate(({ fp }) => {
+            (window as any).__hostMessageHandler({
+                type: 'translateResult',
+                translatedMarkdown: '# S\n\nside translated text\n',
+                sourceLang: 'en', targetLang: 'ja',
+                sidePanelFilePath: fp,
+            });
+        }, { fp: SP_FP });
+        await page.waitForTimeout(300);
+
+        // (A) 翻訳ビュー中: 両ボタン非表示（counterfactual: display:none 2 行を外すと RED）。
+        const during = await page.evaluate(() => ({
+            translateBack: !!document.querySelector('.side-panel [data-action="translateBack"]'),
+            inApp: (document.querySelector('.side-panel-copy-inapp-link') as HTMLElement | null)?.style.display ?? null,
+            openTab: (document.querySelector('.side-panel-open-tab') as HTMLElement | null)?.style.display ?? null,
+        }));
+        expect(during.translateBack).toBe(true);
+        expect(during.inApp).toBe('none');
+        expect(during.openTab).toBe('none');
+
+        // (B) ← Back で翻訳ビューを抜ける。pre-translation state が無い直接受信ケースでは
+        //     Back は close 経路（closeSidePanel）に落ちる — パネルは閉じ、restoreHeaderActionsFromTranslation
+        //     が app link / open-tab の表示を「次回 open に備えて」復元する（本 TC の主眼）。
+        await page.click('.side-panel [data-action="translateBack"]');
+        await page.waitForTimeout(400);
+
+        const after = await page.evaluate(() => ({
+            panelOpen: !!document.querySelector('.side-panel')?.classList.contains('open'),
+            inApp: (document.querySelector('.side-panel-copy-inapp-link') as HTMLElement | null)?.style.display ?? null,
+            openTab: (document.querySelector('.side-panel-open-tab') as HTMLElement | null)?.style.display ?? null,
+        }));
+        expect(after.panelOpen).toBe(false);
+        expect(after.inApp).not.toBe('none');
+        expect(after.openTab).not.toBe('none');
+
+        // (C) 再度 sidepanel を開く（openSidePanel 復元経路）→ 通常表示で両ボタン可視。
+        await page.evaluate(({ md, fp, doc }) => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel', markdown: md, filePath: fp, fileName: 'side.md', toc: [], documentBaseUri: doc,
+            });
+        }, { md: '# Side\n\nside body text\n', fp: SP_FP, doc: DOC });
+        await page.waitForTimeout(400);
+
+        const reopened = await page.evaluate(() => ({
+            translateBackVisible: !!document.querySelector('.side-panel [data-action="translateBack"]'),
+            inApp: (document.querySelector('.side-panel-copy-inapp-link') as HTMLElement | null)?.style.display ?? null,
+            openTab: (document.querySelector('.side-panel-open-tab') as HTMLElement | null)?.style.display ?? null,
+        }));
+        expect(reopened.inApp).not.toBe('none');
+        expect(reopened.openTab).not.toBe('none');
+    });
+});
