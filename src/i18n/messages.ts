@@ -7,7 +7,6 @@ export interface Messages {
   numberOfRows: string;
   numberOfColumns: string;
   enterValidNumber: string;
-  pdfExportComingSoon: string;
   // PDF export (sprint 20260802-075012-md-pdf-export). Interpolated messages
   // (Done/Failed/CssSkipped) は trailing-separator 方式で末尾に `+ value` 連結する
   // (既存 messages の imageDirSet 等と同じ / design system.md: toast(pdfExportDone + dest))。

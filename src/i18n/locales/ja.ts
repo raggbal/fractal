@@ -4,7 +4,6 @@ export const messages = {
   numberOfRows: '行数',
   numberOfColumns: '列数',
   enterValidNumber: '有効な数値を入力してください',
-  pdfExportComingSoon: 'PDF出力機能は近日公開予定です！',
   // PDF export (sprint 20260802-075012-md-pdf-export)
   pdfExportNoTarget: 'エクスポート対象の md がありません。md ファイル（またはサイドパネルのページ）を開いてから実行してください。',
   pdfExportBrowserNotFound: 'PDF エクスポートには Google Chrome または Microsoft Edge が必要です。インストールするか、設定 "fractal.pdfBrowserPath" で実行ファイルを指定してください。',

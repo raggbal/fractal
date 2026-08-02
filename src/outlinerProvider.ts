@@ -56,6 +56,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
         this.activeWebviewPanel?.webview.postMessage({ type: 'toggleSidebar' });
     }
 
+    /**
+     * FR-PDF-01: PDF エクスポートの対象 panel（Single Outliner + sidepanel md）。
+     * activeWebviewPanel が truthy かつ .active ならその panel を返す。
+     * sidepanel md の filePath は webview 返信を正とする（design §2）ため返さない。
+     */
+    public getActivePanelForPdf(): { panel: vscode.WebviewPanel; filePath?: string } | undefined {
+        if (this.activeWebviewPanel && this.activeWebviewPanel.active) {
+            return { panel: this.activeWebviewPanel };
+        }
+        return undefined;
+    }
+
     public async resolveCustomTextEditor(
         document: vscode.TextDocument,
         webviewPanel: vscode.WebviewPanel,

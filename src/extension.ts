@@ -7,6 +7,8 @@ import { NotesEditorProvider } from './notesEditorProvider';
 import { initLocale, t } from './i18n/messages';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { importTerminology, resolveTerminologyPath } from './shared/aws-translate';
+import { execFile as cpExecFile } from 'child_process';
+import { runExportMdToPdf, PdfExportDeps, ExecResult } from './shared/pdf-export-host';
 
 interface FractalLinkParams {
     noteFolderName: string;
@@ -137,11 +139,8 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fractal.exportToPdf', () => {
-            vscode.window.showInformationMessage(t('pdfExportComingSoon'));
-        })
-    );
+    // fractal.exportToPdf は notesEditorProvider / outlinerProvider が構築済みになる
+    // 位置（Notes セクションの後）で登録する（3 provider の getActivePanelForPdf を deps 注入）。
 
     // Undo/Redo commands - forwarded to webview to bypass VSCode's native undo
     context.subscriptions.push(
@@ -221,6 +220,69 @@ export function activate(context: vscode.ExtensionContext) {
     const notesEditorProvider = new NotesEditorProvider(context);
     // FR-NT-03 / FR-MV-01: editor provider が Notes Folder ツリーを更新・列挙できるよう配線
     notesEditorProvider.setFolderProvider(notesFolderProvider);
+
+    // FR-PDF-01/05/07: md → PDF エクスポート（design/system.md §5）。
+    // 3 provider の getActivePanelForPdf を thunk で deps 注入し、対象解決→HTML 回収
+    // →dialog→core→spawn→掃除の編成は runExportMdToPdf に委譲。
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fractal.exportToPdf', () => {
+            const deps: PdfExportDeps = {
+                getTargets: () => [
+                    provider.getActivePanelForPdf(),
+                    notesEditorProvider.getActivePanelForPdf(),
+                    outlinerProvider.getActivePanelForPdf(),
+                ],
+                showSaveDialog: async (opts) => {
+                    const uri = await vscode.window.showSaveDialog({
+                        defaultUri: opts.defaultPath ? vscode.Uri.file(opts.defaultPath) : undefined,
+                        filters: opts.filters,
+                    });
+                    return uri ? { fsPath: uri.fsPath } : undefined;
+                },
+                withProgress: (opts, task) =>
+                    vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: opts.title,
+                            cancellable: opts.cancellable,
+                        },
+                        (progress, token) =>
+                            task(progress as any, {
+                                get isCancellationRequested() {
+                                    return token.isCancellationRequested;
+                                },
+                                onCancellationRequested: (cb: () => void) =>
+                                    token.onCancellationRequested(cb),
+                            })
+                    ),
+                getConfig: (key) => vscode.workspace.getConfiguration('fractal').get(key),
+                notify: {
+                    info: (m) => vscode.window.showInformationMessage(m),
+                    warn: (m) => vscode.window.showWarningMessage(m),
+                    error: (m) => vscode.window.showErrorMessage(m),
+                },
+                t: (key) => t(key as any),
+                execFile: (file, args, execOpts, onChild) =>
+                    new Promise<ExecResult>((resolve) => {
+                        const child = cpExecFile(
+                            file,
+                            args,
+                            { timeout: execOpts.timeout },
+                            (err, _stdout, stderr) => {
+                                resolve({
+                                    code: err && typeof (err as any).code === 'number' ? (err as any).code : err ? 1 : 0,
+                                    stderr: stderr ? String(stderr) : (err ? String((err as any).message || err) : ''),
+                                });
+                            }
+                        );
+                        if (onChild) onChild(() => child.kill());
+                    }),
+                workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                debugLog: (s) => console.log('[PDF export]', s),
+            };
+            void runExportMdToPdf(deps);
+        })
+    );
 
     context.subscriptions.push(
         vscode.window.createTreeView('notesExplorer', {
