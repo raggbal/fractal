@@ -58,6 +58,8 @@ const htmlMdConverterScript = fs.readFileSync(path.join(__dirname, '../src/webvi
 const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
 const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
+// sprint 20260802-075012: PDF エクスポート webview 清書（window.PdfExport seam を露出。editor.js より前にロード）
+const pdfExportScript = fs.readFileSync(path.join(__dirname, '../src/webview/pdf-export-webview.js'), 'utf-8');
 
 // editor.jsを読み込み
 let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
@@ -268,6 +270,9 @@ const html = `<!DOCTYPE html>
     __INLINE_COLOR_PICKER_SCRIPT__
     </script>
     <script>
+    __PDF_EXPORT_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
 </body>
@@ -283,6 +288,7 @@ result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
 result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
+result = safeReplace(result, '__PDF_EXPORT_SCRIPT__', pdfExportScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 fs.writeFileSync(outputPath, result);
 console.log('Generated:', outputPath);
