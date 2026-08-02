@@ -46,6 +46,22 @@ async function dragoverAfter(page: import('@playwright/test').Page, nodeId: stri
     }, { nodeId, clientX });
 }
 
+// TASK-06: 任意の縦比率（ratio）で Files 型 dragover を clientX 指定で発火
+async function dragoverAtRatio(page: import('@playwright/test').Page, nodeId: string, clientX: number, ratio: number) {
+    await page.evaluate(({ nodeId, clientX, ratio }) => {
+        const el = document.querySelector(`.outliner-node[data-id="${nodeId}"]`) as HTMLElement;
+        const rect = el.getBoundingClientRect();
+        const dt = new DataTransfer();
+        dt.items.add(new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' }));
+        const ev = new DragEvent('dragover', {
+            bubbles: true, cancelable: true,
+            clientX, clientY: rect.y + rect.height * ratio,
+        });
+        Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true });
+        el.dispatchEvent(ev);
+    }, { nodeId, clientX, ratio });
+}
+
 async function indicatorLeft(page: import('@playwright/test').Page): Promise<number | null> {
     return page.evaluate(() => {
         const ind = document.querySelector('.outliner-drop-indicator') as HTMLElement | null;
@@ -272,5 +288,54 @@ test.describe('D&D indent インジケータ', () => {
         expect(imp.length).toBe(1);
         // stale（target=c の depth3 = child of c）が使われず、target=a のまま
         expect(imp[0].targetNodeId).toBe('a');
+    });
+
+    // TC-DII-08（TASK-06 新規）: after 帯拡大で下端 40% でも clientX 量子化が効く ★load-bearing・counterfactual
+    // 真因: clientX による depth 選択は position==='after' でのみ効き、旧実装では after 帯が
+    //   「下端 25%（y>h*0.75）」と薄く、純粋な左右移動で帯から外れ clientX が無視されていた。
+    // 修正: after 帯を「下端 40%（y>h*0.60）」に拡大。ratio=0.65（旧 0.75 帯の外・新 0.60 帯の内）で
+    //   after が発火し clientX で depth が切り替わることを assert。
+    // counterfactual（実測済み）: しきい値を 0.75 に戻すと ratio=0.65 は child 帯に落ち、
+    //   indicator が破線箱（left:0px・border あり・clientX 無視）になり、2 座標で同じ left になって RED。
+    test('TC-DII-08: 下端 40% 帯（ratio 0.65）でも clientX により depth が切り替わる', async ({ page }) => {
+        const left = await treeLeft(page);
+        // c(d2) の after = 境界（次の表示 node は d(d0)・範囲 [0,2]）。ratio=0.65 で after を発火。
+        // depth0 相当の clientX
+        await dragoverAtRatio(page, 'c', left + 18 + 2, 0.65);
+        const shallow = await page.evaluate(() => {
+            const ind = document.querySelector('.outliner-drop-indicator') as HTMLElement | null;
+            return ind ? { left: ind.style.left, hasBorder: !!ind.style.border } : null;
+        });
+        expect(shallow).not.toBeNull();
+        // after 線（破線箱でない）= depth0 の bullet 位置
+        expect(shallow!.hasBorder).toBe(false);
+        expect(shallow!.left).toBe(0 + 18 + 'px');
+
+        // depth2 相当の clientX（同じ ratio=0.65）→ 線が depth2 位置へ = 横移動が帯内で効く
+        await dragoverAtRatio(page, 'c', left + 18 + 24 * 2 + 12, 0.65);
+        const deep = await page.evaluate(() => {
+            const ind = document.querySelector('.outliner-drop-indicator') as HTMLElement | null;
+            return ind ? { left: ind.style.left, hasBorder: !!ind.style.border } : null;
+        });
+        expect(deep).not.toBeNull();
+        expect(deep!.hasBorder).toBe(false);
+        expect(deep!.left).toBe(24 * 2 + 18 + 'px');
+
+        // 2 座標で left が異なる = clientX 量子化が新帯で機能している（旧 0.75 帯なら両方 child 箱 left:0）
+        expect(shallow!.left).not.toBe(deep!.left);
+    });
+
+    // TC-DII-09（TASK-06 回帰）: child 帯の中央（ratio 0.5）は不変 = 従来の破線箱
+    // 帯境界の移動で child が中央 50%→40% に縮むが、中央 0.5 は依然 child であることの番人。
+    test('TC-DII-09: child 帯中央（ratio 0.5）は従来どおり破線箱（帯縮小の回帰）', async ({ page }) => {
+        const left = await treeLeft(page);
+        // b(d1) の中央 ratio=0.5 は 0.25–0.60 の child 帯内
+        await dragoverAtRatio(page, 'b', left + 30, 0.5);
+        const box = await page.evaluate(() => {
+            const ind = document.querySelector('.outliner-drop-indicator') as HTMLElement;
+            return { left: ind.style.left, hasBorder: !!ind.style.border };
+        });
+        expect(box.left).toBe('0px');    // child は全幅箱（left:0）
+        expect(box.hasBorder).toBe(true); // 破線 border あり
     });
 });
