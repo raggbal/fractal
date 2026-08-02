@@ -231,12 +231,16 @@ test('TC-PDF-23 buildPrintArgs が必須フラグを含む・legacyHeadless で 
     expect(args).toContain(url);
     // ネットワーク全遮断フラグ単独 assert (外すと RED = NFR-PDF-02 番人)
     expect(args).toContain('--host-resolver-rules=MAP * ~NOTFOUND');
+    // JS 実行遮断フラグ単独 assert (防御 in depth / NFR-PDF-02・ADRL-0037 強化。外すと RED)
+    expect(args).toContain('--disable-javascript');
     // legacyHeadless
     const legacy = buildPrintArgs(dest, url, { legacyHeadless: true });
     expect(legacy).toContain('--headless');
     expect(legacy).not.toContain('--headless=new');
     // 遮断フラグは legacy でも残る
     expect(legacy).toContain('--host-resolver-rules=MAP * ~NOTFOUND');
+    // JS 実行遮断フラグも legacy でも残る (両経路一律)
+    expect(legacy).toContain('--disable-javascript');
 });
 
 test('TC-PDF-30 explicit 実在 → それを返す', () => {

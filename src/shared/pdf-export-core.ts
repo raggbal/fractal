@@ -252,6 +252,10 @@ function escapeHtmlText(s: string): string {
  * headless Chromium の print-to-pdf 引数を構築する。
  * `--host-resolver-rules=MAP * ~NOTFOUND` はネットワーク全遮断
  * (NFR-PDF-02 番人 / ADRL-0037) で必須。
+ * `--disable-javascript` は防御 in depth (NFR-PDF-02 / ADRL-0037 強化):
+ * 入力 HTML は描画済み DOM の静的 clone (mermaid/KaTeX は SVG/HTML 化済み) で
+ * JS 実行は不要。web clipper 由来の外部コンテンツ混入に対する防御。
+ * 両経路 (--headless=new / legacy --headless) で一律に付与する。
  */
 export function buildPrintArgs(
     destPdfPath: string,
@@ -264,6 +268,7 @@ export function buildPrintArgs(
         '--disable-gpu',
         '--no-pdf-header-footer',
         '--host-resolver-rules=MAP * ~NOTFOUND',
+        '--disable-javascript',
         '--print-to-pdf=' + destPdfPath,
         inputFileUrl,
     ];
