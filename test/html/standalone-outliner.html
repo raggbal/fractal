@@ -5271,6 +5271,9 @@ body.mm-dragging, body.mm-dragging * {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportPdf" title="Export to PDF">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
@@ -20812,6 +20815,10 @@ class EditorInstance {
                     host.openInNewTab();
                 }
                 break;
+            case 'exportPdf':
+                // FR-PDF-08 / design §8.2: main pane の PDF export。host.exportPdf()（main bridge = targetHint 'main-md'）。
+                if (typeof host.exportPdf === 'function') host.exportPdf();
+                break;
             case 'exportBundle':
                 openExportDialog(function (options) {
                     if (typeof host.exportBundle === 'function') host.exportBundle(options);
@@ -24185,8 +24192,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportPdfBtn = freshButton('exportPdf');
         var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        // FR-PDF-08 / design §8.2: sidepanel の PDF export は targetHint 'sidepanel-md' で送る。
+        // exportBundle と同型（setupSidePanelHeaderButtons で main host closure を直接使う）だが、
+        // this._mainHost.exportPdf（= 'main-md' 送信）は使わず、targetHint を明示引数で渡して
+        // sidepanel md を対象にする（md タブ + sidepanel 同時オープン時に main が勝つのを覆す）。
+        if (exportPdfBtn) exportPdfBtn.addEventListener('click', function() {
+            if (typeof host.exportPdf === 'function') host.exportPdf('sidepanel-md');
+        });
 
         if (exportBtn) exportBtn.addEventListener('click', function() {
             openExportDialog(function (options) {
@@ -27616,6 +27632,13 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
         exportBundle: function(options, sidePanelFilePath) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // md → PDF export (FR-PDF-08)。共有 factory 既定は sidepanel-md（sidepanel header 経路）。
+        // main pane 側 bridge は main-md に override する（design §8.2）。呼び出し側が明示 targetHint
+        // を渡した場合はそれを優先（sidepanel header は host.exportPdf('sidepanel-md') で明示）。
+        exportPdf: function(targetHint) {
+            postFn({ type: 'exportPdf', targetHint: targetHint || 'sidepanel-md' });
         },
 
         // page アイコン cmd+click → page md を新規タブで開く (FR-CT-03)。パス解決は host
@@ -41703,6 +41726,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportPdfBtn = freshSpHeaderBtn('exportPdf');
                 var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
@@ -41722,6 +41746,14 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md → PDF export (FR-PDF-08 / TASK-11): notes モードの sidepanel header は
+                // outliner.js 所有なので exportBundle と同じくここで配線する。
+                // host=window.outlinerHostBridge の exportPdf は共有 factory 既定（targetHint 'sidepanel-md'）。
+                if (exportPdfBtn) {
+                    exportPdfBtn.addEventListener('click', function() {
+                        if (typeof host.exportPdf === 'function') host.exportPdf();
+                    });
+                }
                 // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
                 // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
                 if (exportBtn) {

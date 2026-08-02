@@ -255,6 +255,78 @@ test.describe('runExportMdToPdf 編成順序・掃除（TC-PDF-24〜27）', () =
         expect(state.rmSyncCalls).toBeGreaterThanOrEqual(1);
     });
 
+    test('TC-PDF-64: notes-message-handler case exportPdf は platform.exportPdf を targetHint 付きで 1 回呼ぶ / 未実装でも throw しない（FR-PDF-08・TASK-11 委譲契約）', async () => {
+        // TASK-11(C): Notes provider 経路の PDF export は notes-message-handler の
+        //   case 'exportPdf' → platform.exportPdf?.(targetHint) 委譲に載る。
+        // 実 handler を behavioral に検証する（mirror ではなく実コード実行）。
+        //   notes-message-handler.ts は mindmap-export-host / notes-file-manager 経由で
+        //   `vscode` を transitive import するが、いずれも module-load 時ではなく関数内で
+        //   vscode を触るため、`require('vscode')` を stub すれば実 handler を require して
+        //   直接呼べる（top-level vscode 呼び出しは無い）。
+        const Module = require('module');
+        const origLoad = Module._load;
+        Module._load = function (request: string) {
+            if (request === 'vscode') {
+                // handler の case 'exportPdf' 経路は vscode を一切触らないため空 stub で足りる。
+                return {
+                    workspace: { getConfiguration: () => ({ get: () => undefined }) },
+                    Uri: { file: (p: string) => ({ fsPath: p }) },
+                    commands: { executeCommand: () => {} },
+                    window: {},
+                    env: {},
+                    ViewColumn: {},
+                };
+            }
+            // eslint-disable-next-line prefer-rest-params
+            return origLoad.apply(this, arguments as any);
+        };
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { handleNotesMessage } = require('../../src/shared/notes-message-handler');
+            const noopSender = { postMessage: () => {} };
+
+            // (1) platform.exportPdf 実装あり: targetHint を 1 回だけそのまま受け取る。
+            const calls: Array<string | undefined> = [];
+            const platform: any = { exportPdf: (hint?: string) => { calls.push(hint); } };
+            await handleNotesMessage(
+                { type: 'exportPdf', targetHint: 'main-md' },
+                {} as any,
+                noopSender as any,
+                platform
+            );
+            expect(calls.length).toBe(1);
+            expect(calls[0]).toBe('main-md'); // targetHint がそのまま委譲される
+
+            // targetHint 省略時は undefined が渡る（webview 側が付与する前提・handler は素通し）。
+            const calls2: Array<string | undefined> = [];
+            const platform2: any = { exportPdf: (hint?: string) => { calls2.push(hint); } };
+            await handleNotesMessage(
+                { type: 'exportPdf' },
+                {} as any,
+                noopSender as any,
+                platform2
+            );
+            expect(calls2.length).toBe(1);
+            expect(calls2[0]).toBeUndefined();
+
+            // (2) platform.exportPdf 未定義（optional）: no-op = throw しない（exportBundle と同型）。
+            let threw = false;
+            try {
+                await handleNotesMessage(
+                    { type: 'exportPdf', targetHint: 'sidepanel-md' },
+                    {} as any,
+                    noopSender as any,
+                    {} as any // exportPdf 未実装 platform
+                );
+            } catch {
+                threw = true;
+            }
+            expect(threw).toBe(false);
+        } finally {
+            Module._load = origLoad;
+        }
+    });
+
     test('TC-PDF-24b: target 無し（getTargets が空）→ pdfExportNoTarget 通知・副作用ゼロ', async () => {
         const state = freshState();
         const deps = makeDeps(
