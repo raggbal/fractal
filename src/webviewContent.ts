@@ -112,6 +112,9 @@ export function getWebviewContent(
         path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
     const inlineColorPickerScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
+    // sprint 20260802-075012: md → PDF エクスポートの webview 側清書（editor.js より前に window.PdfExport を用意）
+    const pdfExportScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
 
     // Vendor library URIs (local instead of CDN)
     const vendorDir = path.join(__dirname, '..', 'vendor');
@@ -178,6 +181,9 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${inlineColorPickerScript}
+    </script>
+    <script nonce="${nonce}">
+        ${pdfExportScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

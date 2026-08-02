@@ -9,6 +9,7 @@
 (function() {
     var api = acquireVsCodeApi();
     var postFn = function(msg) { api.postMessage(msg); };
+    window.__pdfExportPost = postFn;   // pdf-export-webview.js が pdfHtmlResult 返信に使う
 
     // ファイル切替カウンター: stale syncData を防止
     var currentFileChangeId = window.__initialFileChangeId || 0;

@@ -8,6 +8,7 @@
 (function() {
     const api = acquireVsCodeApi();
     var postFn = function(msg) { api.postMessage(msg); };
+    window.__pdfExportPost = postFn;   // pdf-export-webview.js が pdfHtmlResult 返信に使う
 
     // 共通メソッド（サイドパネル・画像・リンク・フォーカス等）
     var shared = window.__createSidePanelBridgeMethods(postFn);

@@ -16238,6 +16238,21 @@ class EditorInstance {
             isSidePanel: true
         });
 
+        // sprint 20260802-075012: PDF export の対象解決に sidePanel md instance を権威登録。
+        // getter は class-scoped の sidePanelInstance / sidePanelFilePath（close で null 化）を
+        // 都度参照するので、sidepanel close 後は getEditorEl が null を返す（stale 回避）。
+        window.__pdfExportSources = window.__pdfExportSources || {};
+        window.__pdfExportSources.sidePanel = {
+            getEditorEl: function() {
+                return (sidePanelInstance && sidePanelInstance.container)
+                    ? sidePanelInstance.container.querySelector('.editor') : null;
+            },
+            getFilePath: function() {
+                return sidePanelFilePath
+                    || (sidePanelHostBridge && sidePanelHostBridge.filePath) || null;
+            }
+        };
+
         // Setup header bar buttons (undo/redo/source)
         setupSidePanelHeaderButtons();
 

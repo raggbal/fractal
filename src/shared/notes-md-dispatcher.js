@@ -122,6 +122,25 @@
         // 初期状態は outliner 表示 (initData は .out を前提に渡されている)
         showOutliner();
 
+        // sprint 20260802-075012: PDF export の対象解決に Notes アクティブタブ md instance を権威登録。
+        // getter は closure の mdInstance / bridge.filePath を都度参照する。
+        // md ペイン表示中のみ mdInstance が非 null → getEditorEl が .editor を返す。
+        // outliner タブ表示中は mdInstance=null → null を返す（.out は PDF 対象外・stale 回避）。
+        if (typeof window !== 'undefined') {
+            window.__pdfExportSources = window.__pdfExportSources || {};
+            window.__pdfExportSources.mainMd = {
+                getEditorEl: function() {
+                    if (!mdInstance || !markdownContainer) { return null; }
+                    // md ペインが表示中（display!=='none'）かつ .editor が存在するときのみ返す
+                    if (markdownContainer.style && markdownContainer.style.display === 'none') { return null; }
+                    return markdownContainer.querySelector('.editor');
+                },
+                getFilePath: function() {
+                    return (bridge && bridge.filePath) || null;
+                }
+            };
+        }
+
         return {
             getMdInstance: function() { return mdInstance; },
             loadMarkdown: loadMarkdown,
