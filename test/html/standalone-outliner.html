@@ -43059,13 +43059,25 @@ var Outliner = (function() {
                 case 'translateResult':
                     // v10: Show translation result by replacing side panel MD content in readonly mode.
                     // Re-opens side panel with translated markdown, but in readonly display.
-                    hideTranslateLoading();
-                    showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    // FR-TR-02 reverse-case guard (sprint 20260803-013547): この outliner が所有する
+                    //   sidepanel md の翻訳応答（msg.sidePanelFilePath = 現 sidePanelFilePath と一致）だけを
+                    //   翻訳ビュー化する。main md 由来（sidePanelFilePath 無し）は editor.js の main 経路が
+                    //   処理するので outliner は無視（sidepanel を汚染しない）。別ファイル宛（不一致）も無視。
+                    //   insertImageHtml(:8828)/insertFileLink(:8850) と同じ宛先判定パターン。
+                    if (msg.sidePanelFilePath && sidePanelInstance && sidePanelFilePath === msg.sidePanelFilePath) {
+                        hideTranslateLoading();
+                        showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    }
                     break;
 
                 case 'translateError':
-                    hideTranslateLoading();
-                    alert('Translation Error: ' + (msg.message || 'Failed'));
+                    // FR-TR-02 reverse-case guard: translateResult と同じ宛先判定。sidepanel 要求の
+                    //   エラーだけ sidepanel 側で処理し、main 宛（sidePanelFilePath 無し）は無視して
+                    //   main の翻訳 UI 状態を汚さない。
+                    if (msg.sidePanelFilePath && sidePanelInstance && sidePanelFilePath === msg.sidePanelFilePath) {
+                        hideTranslateLoading();
+                        alert('Translation Error: ' + (msg.message || 'Failed'));
+                    }
                     break;
 
                 case 'translateLangSelected':

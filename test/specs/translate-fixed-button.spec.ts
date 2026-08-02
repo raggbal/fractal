@@ -315,3 +315,108 @@ test.describe('FR-TR-01/02: 実 md ペインでの click・応答ルーティン
         expect(afterMain.mainHeader).toBe(true);
     });
 });
+
+test.describe('FR-TR-02: reverse-case guard — main 翻訳が sidepanel を汚染しない（standalone-notes / TASK-02）', () => {
+    const DOC = 'http://localhost:3000/note1/';
+
+    // TC-TR-05: reverse-case（main 要求の応答が sidepanel を汚染する経路）の遮断。
+    //   Notes の sidepanel md は outliner.js が所有し、outliner.js:8889 case 'translateResult'
+    //   → showTranslationInSidePanel が sidepanel を翻訳ビュー化する（signal =
+    //   [data-action="translateBack"] + filename "Translation (…)"）。
+    //   要求元ガード（msg.sidePanelFilePath が outliner の現 sidePanelFilePath と一致する場合のみ適用）が
+    //   無いと、main md 由来の translateResult（sidePanelFilePath 無し）でも sidepanel が翻訳ビュー化する。
+    //
+    // counterfactual 実測（TASK-02 worker, 2026-08-03）:
+    //   ガード実装前（committed 6106a44 の outliner.js = 無条件 showTranslationInSidePanel）で本 TC を実行 →
+    //   (A) main 宛 translateResult 受信で sidepanel に [data-action="translateBack"] が出現し
+    //   spText に 'main translated text' が混入 = 期待 false に対し RED（実測: afterMainBound.spTranslateBack=true）。
+    //   ガード追加後（sidePanelFilePath 一致判定）→ (A) sidepanel 不変で GREEN、(B) 一致時のみ翻訳ビュー化で GREEN。
+    test('TC-TR-05: main 宛 translateResult（sidePanelFilePath なし）は sidepanel を翻訳ビュー化しない / 一致時のみ適用（counterfactual）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+
+        const SP_FP = '/notes/side.md';
+
+        // main md ペインを開く。
+        await page.evaluate(({ md, doc }) => {
+            (window as any).__hostMessageHandler({
+                type: 'updateData', kind: 'md', markdown: md, filePath: '/notes/main.md', documentBaseUri: doc,
+            });
+        }, { md: '# Main\n\nmain body text\n', doc: DOC });
+        await page.waitForTimeout(300);
+
+        // sidepanel を content 付きで開く（outliner.js が所有）。
+        await page.evaluate(({ md, fp, doc }) => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel', markdown: md, filePath: fp, fileName: 'side.md', toc: [], documentBaseUri: doc,
+            });
+        }, { md: '# Side\n\nside body text\n', fp: SP_FP, doc: DOC });
+        await page.waitForTimeout(400);
+
+        // 事前: sidepanel は通常 md editor（翻訳ビューでない）。
+        const before = await page.evaluate(() => {
+            const sp = document.querySelector('.side-panel');
+            const spEd: any = sp?.querySelector('.editor');
+            return {
+                spTranslateBack: !!sp?.querySelector('[data-action="translateBack"]'),
+                spFilename: (sp?.querySelector('#sidePanelFilename') as HTMLElement | null)?.textContent || '',
+                spText: spEd?.textContent || '',
+            };
+        });
+        expect(before.spTranslateBack).toBe(false);
+        expect(before.spText).toContain('side body text');
+
+        // (A) ★ reverse-case guard: main md 由来の応答（sidePanelFilePath 無し）。
+        //     → sidepanel は翻訳ビュー化してはならない（translateBack 非出現・翻訳文が sidepanel に出ない）。
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'translateResult',
+                translatedMarkdown: '# T\n\nmain translated text\n',
+                sourceLang: 'en', targetLang: 'ja',
+                // sidePanelFilePath 無し = main md 由来（editor.js の main 経路が処理する）
+            });
+        });
+        await page.waitForTimeout(300);
+
+        const afterMainBound = await page.evaluate(() => {
+            const sp = document.querySelector('.side-panel');
+            const spEd: any = sp?.querySelector('.editor');
+            return {
+                spTranslateBack: !!sp?.querySelector('[data-action="translateBack"]'),
+                spFilename: (sp?.querySelector('#sidePanelFilename') as HTMLElement | null)?.textContent || '',
+                spText: spEd?.textContent || '',
+            };
+        });
+        // sidepanel は不変（outliner.js のガードで main 宛は無視）。
+        expect(afterMainBound.spTranslateBack).toBe(false);
+        expect(afterMainBound.spFilename).not.toContain('Translation');
+        expect(afterMainBound.spText).toContain('side body text');
+        expect(afterMainBound.spText).not.toContain('main translated text');
+
+        // (B) 正常系: sidepanel 要求の応答（sidePanelFilePath = 現 sidepanel path で一致）。
+        //     → sidepanel が翻訳ビュー化する（従来挙動維持）。
+        await page.evaluate(({ fp }) => {
+            (window as any).__hostMessageHandler({
+                type: 'translateResult',
+                translatedMarkdown: '# S\n\nside translated text\n',
+                sourceLang: 'en', targetLang: 'ja',
+                sidePanelFilePath: fp,
+            });
+        }, { fp: SP_FP });
+        await page.waitForTimeout(300);
+
+        const afterSpBound = await page.evaluate(() => {
+            const sp = document.querySelector('.side-panel');
+            const spEd: any = sp?.querySelector('.editor');
+            return {
+                spTranslateBack: !!sp?.querySelector('[data-action="translateBack"]'),
+                spFilename: (sp?.querySelector('#sidePanelFilename') as HTMLElement | null)?.textContent || '',
+                spText: spEd?.textContent || '',
+            };
+        });
+        // 一致時のみ sidepanel が翻訳ビュー化（正常系）。
+        expect(afterSpBound.spTranslateBack).toBe(true);
+        expect(afterSpBound.spFilename).toContain('Translation');
+        expect(afterSpBound.spText).toContain('side translated text');
+    });
+});
