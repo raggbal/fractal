@@ -22,7 +22,76 @@ import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { DropStreamHost } from './shared/drop-stream-host';
+import { runExportMdToPdf, PdfExportDeps, ExecResult, PdfPanelLike } from './shared/pdf-export-host';
+import { execFile as cpExecFile } from 'child_process';
 
+/**
+ * FR-PDF-08: md → PDF export の VS Code 依存 deps を組み立てる共有ビルダ。
+ *
+ * extension.ts のコマンドパレット経路（fractal.exportToPdf）と 3 provider の
+ * webview ボタン経路（case 'exportPdf'）で同一の deps 生成を使うため、ここに集約する。
+ * pdf-export-host.ts は vscode-free に保つ必要があるため deps 生成はここ（vscode を import
+ * する provider ファイル）に置く。extension.ts のコマンド登録は不変のまま、この関数を
+ * import して deps を得る（design/system.md §8）。
+ *
+ * getTargets は呼び出し側が渡す（コマンドパレット経路は 3 provider の getActivePanelForPdf、
+ * ボタン経路は opts.panel を使うため未使用でも空でよい）。
+ */
+export function buildPdfExportDeps(
+    getTargets: () => Array<{ panel: PdfPanelLike; filePath?: string } | undefined>,
+    tFn: (key: string) => string
+): PdfExportDeps {
+    return {
+        getTargets,
+        showSaveDialog: async (opts) => {
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: opts.defaultPath ? vscode.Uri.file(opts.defaultPath) : undefined,
+                filters: opts.filters,
+            });
+            return uri ? { fsPath: uri.fsPath } : undefined;
+        },
+        withProgress: (opts, task) =>
+            vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: opts.title,
+                    cancellable: opts.cancellable,
+                },
+                (progress, token) =>
+                    task(progress as any, {
+                        get isCancellationRequested() {
+                            return token.isCancellationRequested;
+                        },
+                        onCancellationRequested: (cb: () => void) =>
+                            token.onCancellationRequested(cb),
+                    })
+            ),
+        getConfig: (key) => vscode.workspace.getConfiguration('fractal').get(key),
+        notify: {
+            info: (m) => vscode.window.showInformationMessage(m),
+            warn: (m) => vscode.window.showWarningMessage(m),
+            error: (m) => vscode.window.showErrorMessage(m),
+        },
+        t: tFn,
+        execFile: (file, args, execOpts, onChild) =>
+            new Promise<ExecResult>((resolve) => {
+                const child = cpExecFile(
+                    file,
+                    args,
+                    { timeout: execOpts.timeout },
+                    (err, _stdout, stderr) => {
+                        resolve({
+                            code: err && typeof (err as any).code === 'number' ? (err as any).code : err ? 1 : 0,
+                            stderr: stderr ? String(stderr) : (err ? String((err as any).message || err) : ''),
+                        });
+                    }
+                );
+                if (onChild) onChild(() => child.kill());
+            }),
+        workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        debugLog: (s) => console.log('[PDF export]', s),
+    };
+}
 
 /**
  * OutlinerProvider — .out ファイル用 Custom Text Editor Provider
@@ -54,6 +123,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
     public sendToggleSidebar(): void {
         this.activeWebviewPanel?.webview.postMessage({ type: 'toggleSidebar' });
+    }
+
+    /**
+     * FR-PDF-01: PDF エクスポートの対象 panel（Single Outliner + sidepanel md）。
+     * activeWebviewPanel が truthy かつ .active ならその panel を返す。
+     * sidepanel md の filePath は webview 返信を正とする（design §2）ため返さない。
+     */
+    public getActivePanelForPdf(): { panel: vscode.WebviewPanel; filePath?: string } | undefined {
+        if (this.activeWebviewPanel && this.activeWebviewPanel.active) {
+            return { panel: this.activeWebviewPanel };
+        }
+        return undefined;
     }
 
     public async resolveCustomTextEditor(
@@ -233,6 +314,18 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         if (message.sidePanelFilePath && message.options) {
                             await runExportBundle(message.sidePanelFilePath, message.options);
                         }
+                        break;
+                    }
+
+                    // FR-PDF-08: sidepanel md の PDF export。outliner には main md pane が
+                    // 無いため targetHint は常に 'sidepanel-md'（既定でも sidepanel を解決）。
+                    // メッセージを受けた自 panel を opts.panel で渡す（getTargets 走査不要）。
+                    case 'exportPdf': {
+                        const deps = buildPdfExportDeps(() => [], (k) => t(k as any));
+                        await runExportMdToPdf(deps, {
+                            panel: webviewPanel as unknown as PdfPanelLike,
+                            targetHint: message.targetHint || 'sidepanel-md',
+                        });
                         break;
                     }
 

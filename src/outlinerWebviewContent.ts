@@ -78,6 +78,9 @@ export function getOutlinerWebviewContent(
         path.join(__dirname, 'shared', 'notes-color-palette.js'), 'utf8');
     const inlineColorPickerScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'inline-color-picker.js'), 'utf8');
+    // sprint 20260802-075012: md → PDF エクスポートの webview 側清書（editor.js/outliner.js より前）
+    const pdfExportScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
 
     const editorScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor.js'), 'utf8')
@@ -202,6 +205,9 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${inlineColorPickerScript}
+    </script>
+    <script nonce="${nonce}">
+        ${pdfExportScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

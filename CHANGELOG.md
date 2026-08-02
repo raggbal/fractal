@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.15] - 2026-08-02
+
+### Added
+- **md editor: PDF エクスポート** — 開いている md を CSS を適用したデザインで PDF に変換（`Fractal: Export to PDF` コマンド + toolbar / sidepanel header の PDF ボタン〔Export bundle の左〕）。standalone md / Notes md タブ / sidepanel md（Notes・Single Outliner）すべて対応。エディタ表示と同じレンダリング結果（mermaid・数式・文字色・チェックボックス込み）がそのまま PDF になる。生成はローカルの Chrome/Edge を利用（拡張への依存追加なし・外部通信なし）
+- **md editor: PDF のデフォルト改ページ** — h1 と h2 の前で改ページ。ただし最初の h1 の前と、各 h1 直後の最初の h2 の前には入れない（章扉が自然に組まれる）。印刷向けクリーンスタイル（A4・白背景）を同梱
+- **md editor: PDF 用 CSS のユーザー設定** — `fractal.pdfStyles`（CSS ファイルパスの配列・後勝ち）+ `fractal.pdfIncludeDefaultStyles`（false で完全差し替え）。改ページの全廃・h3 追加などデザインと改ページ規則を CSS だけでカスタマイズ可能。`fractal.pdfBrowserPath` でブラウザ実行ファイルの明示指定も可
+
+### Fixed
+- **outliner / note ファイルツリー: D&D 挿入線が左右移動に反応しないことがある問題** — 挿入先の階層をマウスの水平位置で選ぶ操作が、上下に少し動かさないと効かないことが多かった → 判定帯を行の下端 25% から 40% に拡大し、純粋な左右移動でスムーズに線の長さ（挿入先の階層）が変わるように（outliner の node 境界・note 左サイドのファイルツリーのフォルダ境界の両方）
+
 ## [1.1.14] - 2026-08-02
 
 ### Added

@@ -97,6 +97,7 @@ function generateEditorBodyHtml(messages, platform, options) {
                         <button data-action="attachments" title="${m('attachments') || 'Attachments'}"></button>
                         <button data-action="openInTextEditor" title="${m('openInTextEditor')} (${mod}+Shift+.)"></button>
                         <button data-action="source" title="${m('toggleSourceMode')} (${mod}+.)"></button>
+                        <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                         <button data-action="copyPath" title="${m('copyPath')}"></button>
                         ${openInNewTabBtn}
@@ -187,6 +188,9 @@ function generateSidePanelHtml(messages) {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportPdf" title="Export to PDF">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>

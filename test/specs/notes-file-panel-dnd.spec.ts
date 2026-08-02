@@ -276,6 +276,107 @@ test.describe('Notes ファイルパネル D&D (md → out 3 ゾーン)', () => 
         expect(move[0].index).toBe(1); // A(0) が抜けて B(元1→0) の後ろ = 1
     });
 
+    test('TC-DD-09 ★TASK-06 counterfactual: フォルダ行の after 帯拡大（ratio 0.65）で after 線（旧実装は into-folder）', async ({ page }) => {
+        // 真因: フォルダ行の after 帯（clientX escalation が効く帯）が旧 25%（ratio>0.75）と薄く、
+        //   ratio 0.65 は into-folder（黄色扱いはないが drop=フォルダ内先頭）に落ちていた。
+        //   TASK-06 で after 帯を下端 40%（ratio>0.60）に拡大 → 0.65 は after（兄弟挿入）になる。
+        // counterfactual（実測）: しきい値を 0.75 に戻すと ratio 0.65 は into-folder となり
+        //   dragover で after 線が出ず（file-panel-drag-over class）、drop が moveItem(folderId, 0) = RED。
+        await page.evaluate(() => {
+            const fileList = [
+                { filePath: '/test/A.md', title: 'A', id: 'A' },
+                { filePath: '/test/C.out', title: 'C', id: 'C' },
+            ];
+            const structure = {
+                version: 1,
+                rootIds: ['A', 'B'],
+                items: {
+                    A: { type: 'file', id: 'A', title: 'A', ext: 'md' },
+                    // 空フォルダ B（子なし = resolveAfterEscalation は B 自身を返す → B の後ろ = root 兄弟）
+                    B: { type: 'folder', id: 'B', title: 'B', childIds: [], collapsed: false },
+                },
+            };
+            (window as any).__testApi.initNotesPanel(fileList, '/test/A.md', structure);
+        });
+        await page.waitForTimeout(150);
+        const result = await page.evaluate(() => {
+            (window as any).__testApi.notesMessages.length = 0;
+            const src = document.querySelector('[data-item-id="A"]') as HTMLElement;
+            const bWrapper = document.querySelector('[data-item-id="B"]') as HTMLElement;
+            const header = bWrapper.querySelector('.file-panel-folder-header') as HTMLElement;
+            const dt = new DataTransfer();
+            src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+            const r = header.getBoundingClientRect();
+            // ratio 0.65: 旧 0.75 帯の外（into-folder）・新 0.60 帯の内（after）
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height * 0.65;
+            header.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt, clientX: x, clientY: y }));
+            // dragover 表示: after 線が出る（into-folder の黄色 highlight class ではない）
+            const afterLine = !!document.querySelector('.file-panel-drop-line');
+            const intoFolder = header.classList.contains('file-panel-drag-over') ||
+                bWrapper.classList.contains('file-panel-drag-over');
+            header.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt, clientX: x, clientY: y }));
+            src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+            return {
+                afterLine, intoFolder,
+                msgs: JSON.parse(JSON.stringify((window as any).__testApi.notesMessages)),
+            };
+        });
+        await page.waitForTimeout(100);
+        // dragover: after 線が出て into-folder highlight ではない（旧 0.75 帯なら逆 = RED）
+        expect(result.afterLine).toBe(true);
+        expect(result.intoFolder).toBe(false);
+        // drop: B の後ろ（root 兄弟）に挿入（旧挙動 = moveItem(B, 0) = フォルダ内先頭 なら RED）
+        const move = result.msgs.filter((m: any) => m.type === 'moveItem');
+        expect(move.length).toBe(1);
+        expect(move[0].targetParentId).toBe(null); // root 兄弟（B の中ではない）
+        // A(index0) が抜けて B(元1→0) の後ろ = 1
+        expect(move[0].index).toBe(1);
+    });
+
+    test('TC-DD-10 ★TASK-06 回帰: フォルダ行中央（ratio 0.4）は依然 into-folder（帯縮小の番人）', async ({ page }) => {
+        // 帯境界の移動で into-folder が 0.25–0.75 → 0.25–0.60 に縮むが、中央寄り 0.4 は依然 into-folder。
+        await page.evaluate(() => {
+            const fileList = [{ filePath: '/test/A.md', title: 'A', id: 'A' }];
+            const structure = {
+                version: 1,
+                rootIds: ['A', 'B'],
+                items: {
+                    A: { type: 'file', id: 'A', title: 'A', ext: 'md' },
+                    B: { type: 'folder', id: 'B', title: 'B', childIds: [], collapsed: false },
+                },
+            };
+            (window as any).__testApi.initNotesPanel(fileList, '/test/A.md', structure);
+        });
+        await page.waitForTimeout(150);
+        const result = await page.evaluate(() => {
+            (window as any).__testApi.notesMessages.length = 0;
+            const src = document.querySelector('[data-item-id="A"]') as HTMLElement;
+            const bWrapper = document.querySelector('[data-item-id="B"]') as HTMLElement;
+            const header = bWrapper.querySelector('.file-panel-folder-header') as HTMLElement;
+            const dt = new DataTransfer();
+            src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+            const r = header.getBoundingClientRect();
+            const x = r.left + r.width / 2;
+            const y = r.top + r.height * 0.4; // 0.25–0.60 の into-folder 帯内
+            header.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt, clientX: x, clientY: y }));
+            const intoFolder = header.classList.contains('file-panel-drag-over') ||
+                bWrapper.classList.contains('file-panel-drag-over');
+            header.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt, clientX: x, clientY: y }));
+            src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+            return {
+                intoFolder,
+                msgs: JSON.parse(JSON.stringify((window as any).__testApi.notesMessages)),
+            };
+        });
+        await page.waitForTimeout(100);
+        expect(result.intoFolder).toBe(true); // 中央帯は into-folder のまま
+        const move = result.msgs.filter((m: any) => m.type === 'moveItem');
+        expect(move.length).toBe(1);
+        expect(move[0].targetParentId).toBe('B'); // フォルダ内（B の中）
+        expect(move[0].index).toBe(0);
+    });
+
     test('TC-DD-05 非回帰: md→md (0.5 境界 2 分割) / out→out / out→md が従来どおり兄弟可', async ({ page }) => {
         // md → md: 上半分 = before
         let msgs = await dragTo(page, 'mdDoc', 'outLog', 0.4); // out 相手中央寄り上… まず md→md

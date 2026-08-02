@@ -55,6 +55,13 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // md → PDF export (FR-PDF-08)。共有 factory 既定は sidepanel-md（sidepanel header 経路）。
+        // main pane 側 bridge は main-md に override する（design §8.2）。呼び出し側が明示 targetHint
+        // を渡した場合はそれを優先（sidepanel header は host.exportPdf('sidepanel-md') で明示）。
+        exportPdf: function(targetHint) {
+            postFn({ type: 'exportPdf', targetHint: targetHint || 'sidepanel-md' });
+        },
+
         // page アイコン cmd+click → page md を新規タブで開く (FR-CT-03)。パス解決は host
         openPageInTab: function(nodeId, pageId) {
             postFn({ type: 'openPageInTab', nodeId: nodeId, pageId: pageId });

@@ -8,6 +8,7 @@
 (function() {
     const api = acquireVsCodeApi();
     var postFn = function(msg) { api.postMessage(msg); };
+    window.__pdfExportPost = postFn;   // pdf-export-webview.js が pdfHtmlResult 返信に使う
 
     // 共通メソッド（サイドパネル・画像・リンク・フォーカス等）
     var shared = window.__createSidePanelBridgeMethods(postFn);
@@ -32,6 +33,13 @@
         },
         copyFilePath: function() {
             api.postMessage({ type: 'copyFilePath' });
+        },
+
+        // FR-PDF-08: main md pane の PDF export。既定 targetHint 'main-md'（shared factory の
+        // 'sidepanel-md' を override）。sidepanel header 経路は host.exportPdf('sidepanel-md') で
+        // 明示上書きするため、引数があればそれを優先（design §8.2）。
+        exportPdf: function(targetHint) {
+            api.postMessage({ type: 'exportPdf', targetHint: targetHint || 'main-md' });
         },
 
         // ページ管理

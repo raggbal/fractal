@@ -5589,6 +5589,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                         <button data-action="attachments" title="Attachments"></button>
                         <button data-action="openInTextEditor" title=" (Cmd+Shift+.)"></button>
                         <button data-action="source" title=" (Cmd+.)"></button>
+                        <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                         <button data-action="copyPath" title=""></button>
                         
@@ -5671,6 +5672,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                         <button class="side-panel-header-btn" data-action="translate" title="Translate"></button>
                         <button class="side-panel-header-btn" data-action="attachments" title="Attachments"></button>
                         <button class="side-panel-header-btn" data-action="openInTextEditor" title="Open in Text Editor"></button>
+                        <button class="side-panel-header-btn" data-action="exportPdf" title="Export to PDF">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+                        </button>
                         <button class="side-panel-header-btn" data-action="exportBundle" title="Export bundle">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
@@ -7799,6 +7803,13 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // md export bundle (FR-EX-01)。sidePanelFilePath があれば sidepanel の md を root にする
         exportBundle: function(options, sidePanelFilePath) {
             postFn({ type: 'exportBundle', options: options, sidePanelFilePath: sidePanelFilePath });
+        },
+
+        // md → PDF export (FR-PDF-08)。共有 factory 既定は sidepanel-md（sidepanel header 経路）。
+        // main pane 側 bridge は main-md に override する（design §8.2）。呼び出し側が明示 targetHint
+        // を渡した場合はそれを優先（sidepanel header は host.exportPdf('sidepanel-md') で明示）。
+        exportPdf: function(targetHint) {
+            postFn({ type: 'exportPdf', targetHint: targetHint || 'sidepanel-md' });
         },
 
         // page アイコン cmd+click → page md を新規タブで開く (FR-CT-03)。パス解決は host
@@ -21863,6 +21874,10 @@ class EditorInstance {
                     host.openInNewTab();
                 }
                 break;
+            case 'exportPdf':
+                // FR-PDF-08 / design §8.2: main pane の PDF export。host.exportPdf()（main bridge = targetHint 'main-md'）。
+                if (typeof host.exportPdf === 'function') host.exportPdf();
+                break;
             case 'exportBundle':
                 openExportDialog(function (options) {
                     if (typeof host.exportBundle === 'function') host.exportBundle(options);
@@ -25150,6 +25165,21 @@ class EditorInstance {
             isSidePanel: true
         });
 
+        // sprint 20260802-075012: PDF export の対象解決に sidePanel md instance を権威登録。
+        // getter は class-scoped の sidePanelInstance / sidePanelFilePath（close で null 化）を
+        // 都度参照するので、sidepanel close 後は getEditorEl が null を返す（stale 回避）。
+        window.__pdfExportSources = window.__pdfExportSources || {};
+        window.__pdfExportSources.sidePanel = {
+            getEditorEl: function() {
+                return (sidePanelInstance && sidePanelInstance.container)
+                    ? sidePanelInstance.container.querySelector('.editor') : null;
+            },
+            getFilePath: function() {
+                return sidePanelFilePath
+                    || (sidePanelHostBridge && sidePanelHostBridge.filePath) || null;
+            }
+        };
+
         // Setup header bar buttons (undo/redo/source)
         setupSidePanelHeaderButtons();
 
@@ -25221,8 +25251,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportPdfBtn = freshButton('exportPdf');
         var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        // FR-PDF-08 / design §8.2: sidepanel の PDF export は targetHint 'sidepanel-md' で送る。
+        // exportBundle と同型（setupSidePanelHeaderButtons で main host closure を直接使う）だが、
+        // this._mainHost.exportPdf（= 'main-md' 送信）は使わず、targetHint を明示引数で渡して
+        // sidepanel md を対象にする（md タブ + sidepanel 同時オープン時に main が勝つのを覆す）。
+        if (exportPdfBtn) exportPdfBtn.addEventListener('click', function() {
+            if (typeof host.exportPdf === 'function') host.exportPdf('sidepanel-md');
+        });
 
         if (exportBtn) exportBtn.addEventListener('click', function() {
             openExportDialog(function (options) {
@@ -31421,7 +31460,7 @@ var Outliner = (function() {
                     var rect = nodeEl.getBoundingClientRect();
                     var y = e.clientY - rect.top;
                     var h = rect.height;
-                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                     // sprint 20260802-010347 (FR-DII-02/03): after の depth 選択結果を
                     // targetNodeId/position へ射影（bridge/host シグネチャ不変）。
                     // 例: 祖先 anc の直後 = targetId=anc, pos='after' / target の子 = pos='child'
@@ -33862,8 +33901,12 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
+                // sprint 20260802-010347 再オープン② (TASK-06): clientX による depth 選択が効く
+                // after 帯を「下端 25%」→「下端 40%」(y>h*0.60) に拡大。純粋な左右移動で薄い帯から
+                // 外れ clientX が無視される反応性問題を緩和。before(<0.25)/child は帯境界のみ移動。
+                // dragover と drop で同じしきい値（0.60）を全経路対称に使う（表示=挿入の一致）。
                 if (y < h * 0.25) showDropIndicator(el, 'before', e.clientX);
-                else if (y > h * 0.75) showDropIndicator(el, 'after', e.clientX);
+                else if (y > h * 0.60) showDropIndicator(el, 'after', e.clientX);
                 else showDropIndicator(el, 'child', e.clientX);
                 return;
             }
@@ -33884,7 +33927,7 @@ var Outliner = (function() {
             var h = rect.height;
             if (y < h * 0.25) {
                 showDropIndicator(el, 'before', e.clientX);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 showDropIndicator(el, 'after', e.clientX);
             } else {
                 showDropIndicator(el, 'child', e.clientX);
@@ -33904,7 +33947,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleFilesDrop(e, targetId, pos);
@@ -33916,7 +33959,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleVscodeUrisDrop(e, targetId, pos);
@@ -33944,7 +33987,7 @@ var Outliner = (function() {
                 var info = model._getSiblingInfo(targetId);
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
                 model.moveNode(movedNodeId, targetNode.parentId, afterId);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
                 // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
                 var resolved = consumeDropResolution(targetId, 'after');
@@ -37996,6 +38039,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportPdfBtn = freshSpHeaderBtn('exportPdf');
                 var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
@@ -38015,6 +38059,14 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md → PDF export (FR-PDF-08 / TASK-11): notes モードの sidepanel header は
+                // outliner.js 所有なので exportBundle と同じくここで配線する。
+                // host=window.outlinerHostBridge の exportPdf は共有 factory 既定（targetHint 'sidepanel-md'）。
+                if (exportPdfBtn) {
+                    exportPdfBtn.addEventListener('click', function() {
+                        if (typeof host.exportPdf === 'function') host.exportPdf();
+                    });
+                }
                 // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
                 // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
                 if (exportBtn) {
@@ -40767,9 +40819,13 @@ var notesFilePanel = (function() {
 
             if (target.dataset.itemType === 'folder' || target.classList.contains('file-panel-folder-header')) {
                 var folderWrapper = target.closest('.file-panel-folder') || target;
+                // sprint 20260802-010347 再オープン② (TASK-06): フォルダ行の after 帯を
+                // 「下端 25%」→「下端 40%」(ratio>0.60) に拡大（outliner と対称）。純粋な左右移動で
+                // clientX escalation が効く帯を広げ反応性を改善。before(<0.25)/into-folder は帯境界のみ移動。
+                // ファイル行（下記 else）は child 概念が無く after 帯が既に 50% と広いため 0.5 のまま。
                 if (ratio < 0.25) {
                     showDropLine(target, 'before');
-                } else if (ratio > 0.75) {
+                } else if (ratio > 0.60) {
                     // 改善1: 最終子なら X 座標で「この階層の後ろ / 親フォルダの後ろ」を選ぶ
                     showDropLine(resolveAfterEscalation(target, e.clientX), 'after');
                 } else {
@@ -40828,8 +40884,9 @@ var notesFilePanel = (function() {
                 var ratioB = yB / rectB.height;
                 var insertParentB = null;
                 var insertIndexB = 0;
-                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.75) {
+                if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratioB >= 0.25 && ratioB <= 0.60) {
                     // フォルダ中央 → フォルダ内先頭
+                    // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称。
                     insertParentB = target.dataset.folderId || targetId;
                     insertIndexB = 0;
                 } else {
@@ -40869,7 +40926,9 @@ var notesFilePanel = (function() {
             }
 
             // フォルダヘッダーの中央にドロップ → フォルダ内に移動
-            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.75) {
+            // sprint 20260802-010347 再オープン② (TASK-06): dragover の after 帯拡大(>0.60)と対称に
+            // into-folder 帯を 0.25–0.60 に。下端 40% は after（兄弟挿入）へ fall-through。
+            if ((targetType === 'folder' || target.classList.contains('file-panel-folder-header')) && ratio >= 0.25 && ratio <= 0.60) {
                 var folderId = target.dataset.folderId || targetId;
                 // 循環チェック: 自分自身のフォルダの中にはドロップしない
                 if (dragItemType === 'folder' && folderId === dragItemId) return;
@@ -42186,6 +42245,25 @@ if (typeof module !== 'undefined' && module.exports) {
 
         // 初期状態は outliner 表示 (initData は .out を前提に渡されている)
         showOutliner();
+
+        // sprint 20260802-075012: PDF export の対象解決に Notes アクティブタブ md instance を権威登録。
+        // getter は closure の mdInstance / bridge.filePath を都度参照する。
+        // md ペイン表示中のみ mdInstance が非 null → getEditorEl が .editor を返す。
+        // outliner タブ表示中は mdInstance=null → null を返す（.out は PDF 対象外・stale 回避）。
+        if (typeof window !== 'undefined') {
+            window.__pdfExportSources = window.__pdfExportSources || {};
+            window.__pdfExportSources.mainMd = {
+                getEditorEl: function() {
+                    if (!mdInstance || !markdownContainer) { return null; }
+                    // md ペインが表示中（display!=='none'）かつ .editor が存在するときのみ返す
+                    if (markdownContainer.style && markdownContainer.style.display === 'none') { return null; }
+                    return markdownContainer.querySelector('.editor');
+                },
+                getFilePath: function() {
+                    return (bridge && bridge.filePath) || null;
+                }
+            };
+        }
 
         return {
             getMdInstance: function() { return mdInstance; },

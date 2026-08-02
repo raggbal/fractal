@@ -12951,6 +12951,10 @@ class EditorInstance {
                     host.openInNewTab();
                 }
                 break;
+            case 'exportPdf':
+                // FR-PDF-08 / design §8.2: main pane の PDF export。host.exportPdf()（main bridge = targetHint 'main-md'）。
+                if (typeof host.exportPdf === 'function') host.exportPdf();
+                break;
             case 'exportBundle':
                 openExportDialog(function (options) {
                     if (typeof host.exportBundle === 'function') host.exportBundle(options);
@@ -16238,6 +16242,21 @@ class EditorInstance {
             isSidePanel: true
         });
 
+        // sprint 20260802-075012: PDF export の対象解決に sidePanel md instance を権威登録。
+        // getter は class-scoped の sidePanelInstance / sidePanelFilePath（close で null 化）を
+        // 都度参照するので、sidepanel close 後は getEditorEl が null を返す（stale 回避）。
+        window.__pdfExportSources = window.__pdfExportSources || {};
+        window.__pdfExportSources.sidePanel = {
+            getEditorEl: function() {
+                return (sidePanelInstance && sidePanelInstance.container)
+                    ? sidePanelInstance.container.querySelector('.editor') : null;
+            },
+            getFilePath: function() {
+                return sidePanelFilePath
+                    || (sidePanelHostBridge && sidePanelHostBridge.filePath) || null;
+            }
+        };
+
         // Setup header bar buttons (undo/redo/source)
         setupSidePanelHeaderButtons();
 
@@ -16309,8 +16328,17 @@ class EditorInstance {
         var redoBtn = freshButton('redo');
         var attachmentsBtn = freshButton('attachments');
         var openTextEditorBtn = freshButton('openInTextEditor');
+        var exportPdfBtn = freshButton('exportPdf');
         var exportBtn = freshButton('exportBundle');
         var sourceBtn = freshButton('source');
+
+        // FR-PDF-08 / design §8.2: sidepanel の PDF export は targetHint 'sidepanel-md' で送る。
+        // exportBundle と同型（setupSidePanelHeaderButtons で main host closure を直接使う）だが、
+        // this._mainHost.exportPdf（= 'main-md' 送信）は使わず、targetHint を明示引数で渡して
+        // sidepanel md を対象にする（md タブ + sidepanel 同時オープン時に main が勝つのを覆す）。
+        if (exportPdfBtn) exportPdfBtn.addEventListener('click', function() {
+            if (typeof host.exportPdf === 'function') host.exportPdf('sidepanel-md');
+        });
 
         if (exportBtn) exportBtn.addEventListener('click', function() {
             openExportDialog(function (options) {

@@ -9,6 +9,7 @@
 (function() {
     var api = acquireVsCodeApi();
     var postFn = function(msg) { api.postMessage(msg); };
+    window.__pdfExportPost = postFn;   // pdf-export-webview.js が pdfHtmlResult 返信に使う
 
     // ファイル切替カウンター: stale syncData を防止
     var currentFileChangeId = window.__initialFileChangeId || 0;
@@ -225,6 +226,11 @@
         },
         copyFilePath: function() {
             api.postMessage({ type: 'copyFilePath' });
+        },
+        // FR-PDF-08: Notes メインペイン md の PDF export。既定 targetHint 'main-md'（shared factory の
+        // 'sidepanel-md' を override）。sidepanel header 経路は host.exportPdf('sidepanel-md') で明示上書き。
+        exportPdf: function(targetHint) {
+            api.postMessage({ type: 'exportPdf', targetHint: targetHint || 'main-md' });
         },
         // v0.207.86: cmd+/ → Add Page を Notes 内 .md でも有効化。
         // standalone editor の createPageAuto と同じ semantics で

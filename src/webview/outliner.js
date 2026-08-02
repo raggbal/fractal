@@ -1017,7 +1017,7 @@ var Outliner = (function() {
                     var rect = nodeEl.getBoundingClientRect();
                     var y = e.clientY - rect.top;
                     var h = rect.height;
-                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                    pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                     // sprint 20260802-010347 (FR-DII-02/03): after の depth 選択結果を
                     // targetNodeId/position へ射影（bridge/host シグネチャ不変）。
                     // 例: 祖先 anc の直後 = targetId=anc, pos='after' / target の子 = pos='child'
@@ -3458,8 +3458,12 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
+                // sprint 20260802-010347 再オープン② (TASK-06): clientX による depth 選択が効く
+                // after 帯を「下端 25%」→「下端 40%」(y>h*0.60) に拡大。純粋な左右移動で薄い帯から
+                // 外れ clientX が無視される反応性問題を緩和。before(<0.25)/child は帯境界のみ移動。
+                // dragover と drop で同じしきい値（0.60）を全経路対称に使う（表示=挿入の一致）。
                 if (y < h * 0.25) showDropIndicator(el, 'before', e.clientX);
-                else if (y > h * 0.75) showDropIndicator(el, 'after', e.clientX);
+                else if (y > h * 0.60) showDropIndicator(el, 'after', e.clientX);
                 else showDropIndicator(el, 'child', e.clientX);
                 return;
             }
@@ -3480,7 +3484,7 @@ var Outliner = (function() {
             var h = rect.height;
             if (y < h * 0.25) {
                 showDropIndicator(el, 'before', e.clientX);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 showDropIndicator(el, 'after', e.clientX);
             } else {
                 showDropIndicator(el, 'child', e.clientX);
@@ -3500,7 +3504,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleFilesDrop(e, targetId, pos);
@@ -3512,7 +3516,7 @@ var Outliner = (function() {
                 var rect = el.getBoundingClientRect();
                 var y = e.clientY - rect.top;
                 var h = rect.height;
-                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.75) ? 'after' : 'child';
+                var pos = (y < h * 0.25) ? 'before' : (y > h * 0.60) ? 'after' : 'child';
                 var targetId = el.dataset.id;
                 removeDropIndicator();
                 handleVscodeUrisDrop(e, targetId, pos);
@@ -3540,7 +3544,7 @@ var Outliner = (function() {
                 var info = model._getSiblingInfo(targetId);
                 var afterId = info && info.index > 0 ? info.siblings[info.index - 1] : null;
                 model.moveNode(movedNodeId, targetNode.parentId, afterId);
-            } else if (y > h * 0.75) {
+            } else if (y > h * 0.60) {
                 // after: sprint 20260802-010347 (FR-DII-02/03): dragover で解決済みの
                 // depth 選択結果（lastDropResolution）を消費。null なら従来の一意解決。
                 var resolved = consumeDropResolution(targetId, 'after');
@@ -7592,6 +7596,7 @@ var Outliner = (function() {
                 var undoBtn = freshSpHeaderBtn('undo');
                 var redoBtn = freshSpHeaderBtn('redo');
                 var openTextEditorBtn = freshSpHeaderBtn('openInTextEditor');
+                var exportPdfBtn = freshSpHeaderBtn('exportPdf');
                 var exportBtn = freshSpHeaderBtn('exportBundle');
                 var sourceBtn = freshSpHeaderBtn('source');
                 var translateLangBtn = freshSpHeaderBtn('translateLang');
@@ -7611,6 +7616,14 @@ var Outliner = (function() {
                 if (undoBtn) { undoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._undo(); }); }
                 if (redoBtn) { redoBtn.addEventListener('click', function() { if (sidePanelInstance) sidePanelInstance._redo(); }); }
                 if (openTextEditorBtn) { openTextEditorBtn.addEventListener('click', function() { if (sidePanelFilePath) host.sidePanelOpenInTextEditor(sidePanelFilePath); }); }
+                // md → PDF export (FR-PDF-08 / TASK-11): notes モードの sidepanel header は
+                // outliner.js 所有なので exportBundle と同じくここで配線する。
+                // host=window.outlinerHostBridge の exportPdf は共有 factory 既定（targetHint 'sidepanel-md'）。
+                if (exportPdfBtn) {
+                    exportPdfBtn.addEventListener('click', function() {
+                        if (typeof host.exportPdf === 'function') host.exportPdf();
+                    });
+                }
                 // md export bundle (FR-EX-01): notes モードの sidepanel は outliner.js 所有なのでここで配線する。
                 // ダイアログは editor.js が window.openExportDialog で公開（同一 document ロード）。
                 if (exportBtn) {

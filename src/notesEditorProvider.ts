@@ -19,6 +19,10 @@ import { safeResolveUnderDir } from './shared/path-safety';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
+// FR-PDF-08 / TASK-11: md → PDF export の VS Code 依存 deps 生成は outlinerProvider に集約済み。
+// editorProvider が既に同 import を使う先例に倣う（outlinerProvider は notes/editor を import し返さないため新規循環なし）。
+import { buildPdfExportDeps } from './outlinerProvider';
+import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
 import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
@@ -54,6 +58,20 @@ export class NotesEditorProvider {
                 return;
             }
         }
+    }
+
+    /**
+     * FR-PDF-01: PDF エクスポートの対象 panel（Notes）。
+     * openPanels 走査で active な panel を返す。アクティブタブ md / sidepanel md の
+     * どちらか・filePath は webview 返信を正とする（design §2）ため filePath は返さない。
+     */
+    public getActivePanelForPdf(): { panel: vscode.WebviewPanel; filePath?: string } | undefined {
+        for (const entry of this.openPanels.values()) {
+            if (entry.panel.active) {
+                return { panel: entry.panel };
+            }
+        }
+        return undefined;
     }
 
     // FR-NT-03 / FR-MV-01: Notes Folder ツリー provider への参照 (ツリー更新 + 移動先一覧に使う)
@@ -577,6 +595,18 @@ export class NotesEditorProvider {
             },
             exportBundle: (rootMdAbs: string, options) => {
                 void runExportBundle(rootMdAbs, options);
+            },
+            // FR-PDF-08 / TASK-11: Notes panel の PDF export。メッセージを受けた自 panel を
+            // opts.panel で渡し getTargets 走査を省く（editorProvider / outlinerProvider の
+            // case 'exportPdf' と同型）。targetHint は webview 側が付与:
+            //   Notes md タブ（main pane bridge）='main-md' / .out タブ + sidepanel header='sidepanel-md'。
+            // pdf-export-webview 側の resolvePdfTarget が hint に従って main/sidepanel md を解決する。
+            exportPdf: (targetHint?: string) => {
+                const deps = buildPdfExportDeps(() => [], (k) => t(k as any));
+                void runExportMdToPdf(deps, {
+                    panel: panel as unknown as PdfPanelLike,
+                    targetHint: targetHint || 'main-md',
+                });
             },
             exportOutlinerNodesBundle: (args) => {
                 void runExportOutlinerNodesBundle(args as Parameters<typeof runExportOutlinerNodesBundle>[0]);
