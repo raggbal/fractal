@@ -314,6 +314,25 @@
           "type": "boolean",
           "default": true,
           "description": "Show the \"Open in Text Editor\" button (opens the current file in VS Code's built-in text editor). Turn off if you don't use it."
+        },
+        "fractal.pdfStyles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "PDF export: additional CSS file paths (absolute, ~, or workspace-relative). Applied after the default stylesheet in order (later wins). Local files only."
+        },
+        "fractal.pdfIncludeDefaultStyles": {
+          "type": "boolean",
+          "default": true,
+          "description": "PDF export: include the built-in print stylesheet (page size, fonts, default page breaks before h1/h2). Set false to fully replace with your own CSS."
+        },
+        "fractal.pdfBrowserPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "PDF export: explicit path to a Chromium-based browser executable (Chrome/Edge/Chromium/Brave). Leave empty to auto-detect. Machine scope: cannot be overridden per-workspace."
         }
       }
     },

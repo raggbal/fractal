@@ -5,6 +5,13 @@ export const messages = {
   numberOfColumns: '欄數',
   enterValidNumber: '請輸入有效的數字',
   pdfExportComingSoon: 'PDF 匯出功能即將推出！',
+  // PDF export (sprint 20260802-075012-md-pdf-export)
+  pdfExportNoTarget: '沒有可匯出的 Markdown。請開啟 Markdown 檔案（或側邊欄中的頁面）後重試。',
+  pdfExportBrowserNotFound: 'PDF 匯出需要 Google Chrome 或 Microsoft Edge。請安裝其一，或在設定 "fractal.pdfBrowserPath" 中指定執行檔。',
+  pdfExportProgress: '正在匯出為 PDF...',
+  pdfExportDone: '已匯出 PDF: ',
+  pdfExportFailed: 'PDF 匯出失敗: ',
+  pdfExportCssSkipped: '部分 PDF 樣式表無法載入已略過: ',
   imageDirChanged: 'IMAGE_DIR 已變更。請重新載入檔案以套用新設定。',
   fileModifiedExternally: '編輯時檔案已被外部修改。是否重新載入？',
   reload: '重新載入',
