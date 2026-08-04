@@ -6178,6 +6178,29 @@ var Outliner = (function() {
         });
         dropdown.appendChild(importFileItem);
 
+        // FR-B05: アプリ内リンクをコピー (Notes mode のみ)。
+        // OUT link = fractal://note/{folder}/{outFileId}（nodeId なし・md/page セグメントなし）を
+        // src/shared/inapp-link-utils.js（唯一の生成元）で組み立て、表示テキストは outliner タイトル
+        // （model.title）。title の [] は markdown link ラベルを壊さないよう除去する。
+        var menuNotesLayoutEl = document.querySelector('.notes-layout');
+        if (menuNotesLayoutEl && typeof window.InAppLinkUtils !== 'undefined') {
+            var copyInAppItem = document.createElement('button');
+            copyInAppItem.className = 'menu-item';
+            copyInAppItem.textContent = i18n.copyInAppLink || 'Copy In-App Link';
+            copyInAppItem.addEventListener('click', function() {
+                dropdown.remove();
+                var folderName = menuNotesLayoutEl.dataset.noteFolderName;
+                var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+                    ? notesFilePanel.getCurrentOutFileId() : null;
+                if (!folderName || !outFileId) { return; }
+                var title = (model && model.title ? model.title : '') || 'Untitled';
+                var link = window.InAppLinkUtils.buildOutLink(folderName, outFileId);
+                var mdLink = '[' + title.replace(/[\[\]]/g, '') + '](' + link + ')';
+                navigator.clipboard.writeText(mdLink);
+            });
+            dropdown.appendChild(copyInAppItem);
+        }
+
         // 検索バーを基準に配置（メニューボタンの直下に表示）
         var searchBar = document.querySelector('.outliner-search-bar');
         searchBar.style.position = 'relative';
