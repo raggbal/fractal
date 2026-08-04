@@ -1,16 +1,18 @@
 /**
- * aws-translate.ts — AWS CLI を使った翻訳エンジン
+ * aws-translate.ts — Amazon Translate を使った翻訳エンジン
  *
- * child_process.spawn で aws translate translate-text を実行する。
- * AWS SDK v3 を使わない理由: optional peer dependency 問題で VSCode extension 環境では
- * 特定バージョンの middleware が解決できない (@aws/lambda-invoke-store 等)。
- * 既存の notes-s3-sync と同じ CLI 方式で統一。
+ * I/O 層は translate-sdk-client（AWS SDK v3 の薄いラッパ）に委譲する。
+ * このファイルはチャンク分割・segment protection（コードブロック保護）・
+ * Custom Terminology のファイル解決/形式判定/サイズ上限といった編成ロジックを担う。
+ * credentials は SDK client 生成時に渡す（実行時の env 注入なし）。
  */
 
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createTranslate, translateTextSdk, importTerminologySdk } from './translate-sdk-client';
+
+type TranslateClient = ReturnType<typeof createTranslate>;
 
 export interface TranslateOptions {
     text: string;
@@ -144,63 +146,21 @@ function splitTextByParagraphs(text: string): string[] {
 }
 
 /**
- * AWS CLI が利用可能か確認
- */
-export async function checkAwsCli(): Promise<boolean> {
-    return new Promise((resolve) => {
-        const proc = spawn('aws', ['--version'], { stdio: 'pipe' });
-        proc.on('error', () => resolve(false));
-        proc.on('close', (code) => resolve(code === 0));
-    });
-}
-
-/**
- * aws translate translate-text を実行して単一チャンクを翻訳
+ * Amazon Translate で単一チャンクを翻訳（SDK client 経由）。
+ * segment protection・チャンク分割の編成は呼び出し側（translateText / translateSegmentText）に残す。
  */
 async function translateChunk(
+    client: TranslateClient,
     chunk: string,
     sourceLang: string,
     targetLang: string,
-    env: NodeJS.ProcessEnv,
     terminologyName?: string
 ): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const args = [
-            'translate', 'translate-text',
-            '--source-language-code', sourceLang,
-            '--target-language-code', targetLang,
-            '--text', chunk,
-            '--output', 'json',
-        ];
-        // v0.207.25: terminology name 指定で Custom Terminology を使う
-        if (terminologyName) {
-            args.push('--terminology-names', terminologyName);
-        }
-
-        const proc = spawn('aws', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
-
-        let stdout = '';
-        let stderr = '';
-
-        proc.stdout.on('data', (data) => { stdout += data.toString(); });
-        proc.stderr.on('data', (data) => { stderr += data.toString(); });
-
-        proc.on('error', (err) => {
-            reject(new Error(`Failed to spawn aws CLI: ${err.message}. Is AWS CLI installed? https://aws.amazon.com/cli/`));
-        });
-
-        proc.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(`aws translate failed (exit ${code}): ${stderr.trim() || stdout.trim()}`));
-                return;
-            }
-            try {
-                const result = JSON.parse(stdout);
-                resolve(result.TranslatedText || '');
-            } catch (err: any) {
-                reject(new Error(`Failed to parse aws translate output: ${err.message}`));
-            }
-        });
+    return await translateTextSdk(client, {
+        text: chunk,
+        sourceLang,
+        targetLang,
+        terminologyName,
     });
 }
 
@@ -211,17 +171,7 @@ export async function translateText(opts: TranslateOptions): Promise<TranslateRe
         throw new Error('AWS credentials are required');
     }
 
-    const hasCli = await checkAwsCli();
-    if (!hasCli) {
-        throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
-    }
-
-    const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        AWS_ACCESS_KEY_ID: accessKeyId,
-        AWS_SECRET_ACCESS_KEY: secretAccessKey,
-        AWS_DEFAULT_REGION: region,
-    };
+    const client = createTranslate({ accessKeyId, secretAccessKey, region });
 
     // v0.207.31: コードブロックを segment 単位で翻訳経路から完全分離
     const segments = splitProtectedSegments(text);
@@ -231,12 +181,12 @@ export async function translateText(opts: TranslateOptions): Promise<TranslateRe
             out.push(seg.content);
             continue;
         }
-        // 空白のみは翻訳しない (AWS が余計な変換するのを防ぐ)
+        // 空白のみは翻訳しない (Amazon Translate が余計な変換するのを防ぐ)
         if (!seg.content.trim()) {
             out.push(seg.content);
             continue;
         }
-        out.push(await translateSegmentText(seg.content, sourceLang, targetLang, env, terminologyName));
+        out.push(await translateSegmentText(client, seg.content, sourceLang, targetLang, terminologyName));
     }
     return { translatedText: out.join(''), sourceLang, targetLang };
 }
@@ -245,19 +195,19 @@ export async function translateText(opts: TranslateOptions): Promise<TranslateRe
  * 1 segment の text を翻訳。MAX_BYTES を超えたら paragraph 分割。
  */
 async function translateSegmentText(
+    client: TranslateClient,
     text: string,
     sourceLang: string,
     targetLang: string,
-    env: NodeJS.ProcessEnv,
     terminologyName?: string
 ): Promise<string> {
     if (getByteLength(text) <= MAX_BYTES_PER_REQUEST) {
-        return await translateChunk(text, sourceLang, targetLang, env, terminologyName);
+        return await translateChunk(client, text, sourceLang, targetLang, terminologyName);
     }
     const chunks = splitTextByParagraphs(text);
     const translatedChunks: string[] = [];
     for (const chunk of chunks) {
-        translatedChunks.push(await translateChunk(chunk, sourceLang, targetLang, env, terminologyName));
+        translatedChunks.push(await translateChunk(client, chunk, sourceLang, targetLang, terminologyName));
     }
     return translatedChunks.join('\n\n');
 }
@@ -290,10 +240,12 @@ export interface ImportTerminologyOptions {
 }
 
 /**
- * v0.207.25: aws translate import-terminology を実行
+ * v0.207.25: Amazon Translate に Custom Terminology を import する
  *
  * 既存名と同じ name を渡すと Amazon Translate 上で merge OVERWRITE され上書き更新される。
  * format は拡張子で判定 (.csv → CSV、.tmx / .xml → TMX)。
+ * ファイル存在チェック・10MB 上限・CSV/TMX 判定は本関数（呼び出し側）に残し、
+ * 生バイト（Uint8Array）を translate-sdk-client の importTerminologySdk に渡す。
  */
 export async function importTerminology(opts: ImportTerminologyOptions): Promise<{ name: string; termCount?: number }> {
     const { name, filePath, accessKeyId, secretAccessKey, region } = opts;
@@ -317,48 +269,7 @@ export async function importTerminology(opts: ImportTerminologyOptions): Promise
         throw new Error('AWS credentials are required');
     }
 
-    const hasCli = await checkAwsCli();
-    if (!hasCli) {
-        throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
-    }
-
-    const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        AWS_ACCESS_KEY_ID: accessKeyId,
-        AWS_SECRET_ACCESS_KEY: secretAccessKey,
-        AWS_DEFAULT_REGION: region,
-    };
-
-    return new Promise((resolve, reject) => {
-        const args = [
-            'translate', 'import-terminology',
-            '--name', name,
-            '--merge-strategy', 'OVERWRITE',
-            '--terminology-data', `Format=${format}`,
-            '--data-file', `fileb://${filePath}`,
-            '--output', 'json',
-        ];
-
-        const proc = spawn('aws', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
-        let stdout = '';
-        let stderr = '';
-        proc.stdout.on('data', (d) => { stdout += d.toString(); });
-        proc.stderr.on('data', (d) => { stderr += d.toString(); });
-        proc.on('error', (err) => {
-            reject(new Error(`Failed to spawn aws CLI: ${err.message}`));
-        });
-        proc.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(`aws translate import-terminology failed (exit ${code}): ${stderr.trim() || stdout.trim()}`));
-                return;
-            }
-            try {
-                const result = JSON.parse(stdout);
-                const tp = result?.TerminologyProperties;
-                resolve({ name: tp?.Name || name, termCount: tp?.TermCount });
-            } catch (err: any) {
-                resolve({ name }); // parse 失敗でも import 自体は OK だったので成功扱い
-            }
-        });
-    });
+    const fileBytes = new Uint8Array(fs.readFileSync(filePath));
+    const client = createTranslate({ accessKeyId, secretAccessKey, region });
+    return await importTerminologySdk(client, { name, fileBytes, format });
 }

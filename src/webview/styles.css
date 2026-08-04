@@ -409,9 +409,17 @@ body {
    Hides standalone toolbar's translate group AND side panel header's translate / translateLang.
    The fractal.translate command (Cmd+/) is unaffected. */
 [data-show-translate-buttons="false"] .toolbar-group[data-group="translate"],
+[data-show-translate-buttons="false"] .toolbar-translate-fixed,
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translate"],
 [data-show-translate-buttons="false"] .side-panel-header-actions [data-action="translateLang"] {
     display: none !important;
+}
+/* sprint 20260803-013547 FR-TR-01: 翻訳ボタンを toolbar-fixed--right（exportPdf の左）に一本化。
+   full/simple 両モードで toolbar-fixed--right は表示されるため、simple でも翻訳導線が出る。
+   toolbar-inner の従来 translate group は二重表示回避のため常時非表示に統一
+   （sidepanel header の translate は .side-panel-header-actions セレクタで別管理 = 影響なし）。 */
+.toolbar-inner .toolbar-group[data-group="translate"] {
+    display: none;
 }
 /* Open in Text Editor toggle (fractal.showOpenInTextEditor setting, default on).
    VS Code の組込テキストエディタで開く操作。Electron 化で無意味になるため opt-out。
@@ -1716,6 +1724,13 @@ body {
 .side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
+/* wrapper は gap:4px で並べるため、ボタン個別の margin-right(4px) が gap と二重加算されて
+   app link の左右だけ広く見えていた → wrapper 内では margin を殺して gap に一本化。
+   sprint 20260803-013547 TASK-03 */
+.side-panel-header-scroll > .side-panel-copy-path,
+.side-panel-header-scroll > .side-panel-copy-inapp-link {
+    margin-right: 0;
+}
 .side-panel-filename {
     font-size: 12px;
     font-weight: 600;
@@ -1846,6 +1861,25 @@ body {
     align-items: center;
 }
 .side-panel-copy-path:hover {
+    opacity: 1;
+    background: var(--hover-bg, rgba(128,128,128,0.15));
+}
+/* app link ボタン: copy-path と同じフラットな見た目（専用スタイルが無くブラウザ既定の
+   border が角丸枠として見えていた → リセットして揃える）。sprint 20260803-013547 TASK-03 */
+.side-panel-copy-inapp-link {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    opacity: 0.6;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
+}
+.side-panel-copy-inapp-link:hover {
     opacity: 1;
     background: var(--hover-bg, rgba(128,128,128,0.15));
 }

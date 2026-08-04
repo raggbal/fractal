@@ -1,16 +1,19 @@
 /**
- * notes-s3-sync.ts — AWS CLI を使った S3 同期エンジン
+ * notes-s3-sync.ts — S3 同期エンジン (@aws-sdk/client-s3 v3)
  *
- * VSCode固有（src/ 配置）。child_process.spawn で aws cli を実行し、
- * 進捗をコールバックで返す。認証情報は環境変数で渡す。
+ * VSCode固有（src/ 配置）。I/O 層は s3-sdk-client ラッパに委譲し、進捗を
+ * コールバックで返す。認証情報は client 生成時に渡す。
  */
-import { spawn } from 'child_process';
-import * as fs from 'fs';
 import * as path from 'path';
-import { getAwsEnv as utilsGetAwsEnv, parseBucketPath } from './outliner-s3-sync-utils';
-import { syncDirectoryBidirectional, SyncDirectoryProgress } from './s3-per-file-sync';
+import * as fs from 'fs';
+import { parseBucketPath } from './outliner-s3-sync-utils';
+import { syncDirectoryBidirectional, SyncDirectoryProgress, walkLocalDir } from './s3-per-file-sync';
+import { createS3, listAllObjects, uploadFile, downloadToFile, deleteAllUnderPrefix, runWithConcurrency } from './shared/s3-sdk-client';
 
 export { getAwsEnv } from './outliner-s3-sync-utils';
+
+/** 全消し再アップ / 全消しダウンロードの転送並列上限。 */
+const TRANSFER_CONCURRENCY = 8;
 
 export interface S3SyncProgress {
     phase: 'checking' | 'syncing' | 'uploading' | 'downloading' | 'deleting' | 'complete' | 'error';
@@ -29,7 +32,6 @@ export interface S3SyncConfig {
 
 /**
  * AWS credentials のサブセット（bucketPath / localPath を含まない）
- * outliner-s3-sync.ts / s3-per-file-sync.ts 等から runAwsCommand を流用する際に使う
  */
 export interface AwsCredentials {
     accessKeyId: string;
@@ -39,100 +41,22 @@ export interface AwsCredentials {
 
 export function s3Uri(config: S3SyncConfig): string {
     // bucketPath を parseBucketPath と同じ正規化に揃える:
-    // `s3://` スキームを除去（付いたまま `s3://${bp}/` にすると二重スキームで aws が失敗する）+ 末尾スラッシュ除去。
-    // 末尾スラッシュは最後に付け直してフォルダ全体の sync を確実にする。
+    // `s3://` スキームを除去 + 末尾スラッシュ除去。末尾スラッシュは最後に付け直して
+    // フォルダ全体の対象を確実にする。
     const bp = config.bucketPath.trim().replace(/^s3:\/\//, '').replace(/\/+$/, '');
     return `s3://${bp}/`;
-}
-
-function localDir(config: S3SyncConfig): string {
-    // 末尾スラッシュを確保
-    return config.localPath.replace(/\/+$/, '') + '/';
-}
-
-/**
- * AWS CLI が利用可能か確認
- */
-export async function checkAwsCli(): Promise<boolean> {
-    return new Promise((resolve) => {
-        const proc = spawn('aws', ['--version'], { stdio: 'pipe' });
-        proc.on('error', () => resolve(false));
-        proc.on('close', (code) => resolve(code === 0));
-    });
-}
-
-/**
- * spawn した aws プロセスの stdout/stderr を行単位でパースし、進捗を報告する
- *
- * env は呼び出し側で getAwsEnv(creds) で生成して渡す。
- * phase は string 緩和（outliner-s3-sync 等の独自 phase からも渡せるように）。
- */
-export function runAwsCommand(
-    args: string[],
-    env: NodeJS.ProcessEnv,
-    phase: string,
-    onProgress: (p: S3SyncProgress) => void,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const proc = spawn('aws', args, {
-            env,
-            stdio: 'pipe',
-        });
-
-        let stderr = '';
-        let filesProcessed = 0;
-
-        proc.stdout.on('data', (data: Buffer) => {
-            const lines = data.toString().split('\n').filter(l => l.trim());
-            for (const line of lines) {
-                filesProcessed++;
-                // aws s3 sync/cp/rm の出力: "upload: ./file.out to s3://..." or "delete: s3://..."
-                const match = line.match(/^(upload|download|delete|copy):\s+(.+)/i);
-                const currentFile = match ? match[2].split(' to ')[0].split(' from ')[0].trim() : line.trim();
-                onProgress({
-                    phase: phase as S3SyncProgress['phase'],
-                    message: `${phase}... (${filesProcessed} files)`,
-                    currentFile,
-                    filesProcessed,
-                });
-            }
-        });
-
-        proc.stderr.on('data', (data: Buffer) => {
-            stderr += data.toString();
-        });
-
-        proc.on('error', (err) => {
-            reject(new Error(`Failed to run aws command: ${err.message}`));
-        });
-
-        proc.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-            } else {
-                reject(new Error(`aws command failed (exit ${code}): ${stderr.trim()}`));
-            }
-        });
-    });
 }
 
 /**
  * Sync (双方向): per-file mtime newer-wins、`--delete` 不使用
  *
- * 旧実装は `aws s3 sync local s3://... --delete` で local→S3 片方向だったが、
- * outliner-toolbar-s3-sync と同じ per-file mtime 比較に統一して、別マシンの編集も
- * 取り込めるようにした (2026-05-08)。
+ * per-file mtime 比較で別マシンの編集も取り込む (2026-05-08)。転送は s3-per-file-sync の
+ * SDK エンジンに委譲する (編成ロジック不変)。
  */
 export async function s3Sync(
     config: S3SyncConfig,
     onProgress: (p: S3SyncProgress) => void,
 ): Promise<void> {
-    onProgress({ phase: 'checking', message: 'Checking AWS CLI...' });
-
-    if (!(await checkAwsCli())) {
-        throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
-    }
-
     const { bucket, prefix } = parseBucketPath(config.bucketPath);
     const creds = { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey, region: config.region };
 
@@ -167,29 +91,29 @@ export async function s3RemoteDeleteAndUpload(
     config: S3SyncConfig,
     onProgress: (p: S3SyncProgress) => void,
 ): Promise<void> {
-    onProgress({ phase: 'checking', message: 'Checking AWS CLI...' });
+    const { bucket, prefix } = parseBucketPath(config.bucketPath);
+    const s3 = createS3(config);
 
-    if (!(await checkAwsCli())) {
-        throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
-    }
-
-    // Phase 1: リモート全削除
+    // Phase 1: リモート全削除 (prefix 配下)
     onProgress({ phase: 'deleting', message: 'Deleting remote files...' });
-    await runAwsCommand(
-        ['s3', 'rm', s3Uri(config), '--recursive'],
-        utilsGetAwsEnv(config),
-        'deleting',
-        onProgress,
-    );
+    await deleteAllUnderPrefix(s3, bucket, prefix);
 
-    // Phase 2: ローカルをアップロード
+    // Phase 2: ローカルをアップロード (per-file 進捗を保つ)
     onProgress({ phase: 'uploading', message: 'Uploading local files...' });
-    await runAwsCommand(
-        ['s3', 'cp', localDir(config), s3Uri(config), '--recursive'],
-        utilsGetAwsEnv(config),
-        'uploading',
-        onProgress,
-    );
+    const localFiles = Array.from(walkLocalDir(config.localPath).keys());
+    let uploaded = 0;
+    await runWithConcurrency(localFiles, TRANSFER_CONCURRENCY, async (relPath) => {
+        const key = prefix + relPath;
+        const localPath = path.join(config.localPath, relPath);
+        await uploadFile(s3, bucket, key, localPath);
+        uploaded++;
+        onProgress({
+            phase: 'uploading',
+            message: `uploading... (${uploaded} files)`,
+            currentFile: relPath,
+            filesProcessed: uploaded,
+        });
+    });
 
     onProgress({ phase: 'complete', message: 'Remote delete & upload complete.' });
 }
@@ -201,24 +125,36 @@ export async function s3LocalDeleteAndDownload(
     config: S3SyncConfig,
     onProgress: (p: S3SyncProgress) => void,
 ): Promise<void> {
-    onProgress({ phase: 'checking', message: 'Checking AWS CLI...' });
-
-    if (!(await checkAwsCli())) {
-        throw new Error('AWS CLI is not installed. Please install it from https://aws.amazon.com/cli/');
-    }
+    const { bucket, prefix } = parseBucketPath(config.bucketPath);
+    const s3 = createS3(config);
 
     // Phase 1: ローカルファイルを全削除（フォルダ自体は残す）
     onProgress({ phase: 'deleting', message: 'Deleting local files...' });
     deleteLocalFiles(config.localPath);
 
-    // Phase 2: S3からダウンロード
+    // Phase 2: S3からダウンロード (per-file 進捗を保つ)
     onProgress({ phase: 'downloading', message: 'Downloading from S3...' });
-    await runAwsCommand(
-        ['s3', 'cp', s3Uri(config), localDir(config), '--recursive'],
-        utilsGetAwsEnv(config),
-        'downloading',
-        onProgress,
-    );
+    const objects = await listAllObjects(s3, bucket, prefix);
+    const toDownload: string[] = [];
+    for (const obj of objects) {
+        if (!obj.key.startsWith(prefix)) continue;
+        const relPath = obj.key.substring(prefix.length);
+        if (!relPath) continue;  // prefix 自体 (folder marker) はスキップ
+        toDownload.push(relPath);
+    }
+    let downloaded = 0;
+    await runWithConcurrency(toDownload, TRANSFER_CONCURRENCY, async (relPath) => {
+        const key = prefix + relPath;
+        const localPath = path.join(config.localPath, relPath);
+        await downloadToFile(s3, bucket, key, localPath);
+        downloaded++;
+        onProgress({
+            phase: 'downloading',
+            message: `downloading... (${downloaded} files)`,
+            currentFile: relPath,
+            filesProcessed: downloaded,
+        });
+    });
 
     onProgress({ phase: 'complete', message: 'Local delete & download complete.' });
 }

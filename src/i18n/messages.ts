@@ -1,5 +1,16 @@
-// Internationalization support - Dynamic loading version
-import * as path from 'path';
+// Internationalization support - Static require map version
+//
+// esbuild バンドル対応（sprint 20260802-212934-aws-sdk-migration / R-1）:
+//   旧実装は `require(path.join(__dirname, '..', 'locales', `${locale}.js`))` の
+//   variable require で out/locales/*.js を実行時 disk 読みしていた。esbuild で
+//   src/extension.ts → out/extension.js に一本化すると messages.ts も畳み込まれ
+//   __dirname が out/ になり `../locales` が repo 直下の存在しない locales/ を指して
+//   ロケール全滅（英語 fallback）になる。→ 静的 require マップ（LOCALE_LOADERS）に
+//   置換し、esbuild が locale モジュールをバンドルに畳み込むようにする。
+//   相対パスは src/i18n/messages.ts から src/i18n/locales/*.ts への TS ソース相対
+//   （`./locales/<locale>`）。build-locales.js は src/i18n/locales/*.ts を
+//   out/locales/*.js にコンパイルする（非バンドル経路の互換のため据え置き）が、
+//   バンドル経路はこの静的 require で解決される。
 
 // Type definitions
 export interface Messages {
@@ -247,24 +258,38 @@ function resolveEffectiveLanguage(configLang: string, systemLang: string): strin
   return configLang;
 }
 
+// Static require map（R-2/R-1 対策）: locale ごとにモジュールを丸ごと返す静的 loader。
+// esbuild は静的文字列 require を辿ってバンドルに畳み込むため、実行時 disk 読み
+// （旧 variable require）と違いバンドル環境でも locale が解決される。
+// 返り値契約 `{ messages, webviewMessages }`（2 フィールド）は不変。
+// SUPPORTED_LOCALES と 1:1（en/ja/zh-tw/zh-cn/ko/es/fr を全列挙）。
+const LOCALE_LOADERS: Record<string, () => { messages: Messages; webviewMessages: WebviewMessages }> = {
+  'en': () => require('./locales/en'),
+  'ja': () => require('./locales/ja'),
+  'zh-tw': () => require('./locales/zh-tw'),
+  'zh-cn': () => require('./locales/zh-cn'),
+  'ko': () => require('./locales/ko'),
+  'es': () => require('./locales/es'),
+  'fr': () => require('./locales/fr'),
+};
+
 /**
- * Load locale file dynamically
+ * Load locale from the static require map.
+ *
+ * 旧実装の require.cache 削除（hot-reload 用）は除去した。静的 require はバンドルに
+ * 畳み込まれ require.cache 操作が効かない（削除しても同一モジュールが再解決される）。
+ * 設定変更時（initLocale 再呼び出し）は LOCALE_LOADERS を再度呼ぶだけで同一モジュール
+ * 参照が返り、locale データは不変なので挙動は同等（旧 hot-reload は「同じ locale ファイルを
+ * 再読込」するだけで、実データが動的に変わることはないため機能欠落なし）。
  */
 function loadLocale(locale: string): { messages: Messages; webviewMessages: WebviewMessages } | null {
   try {
-    // __dirname points to out/i18n/
-    // Locale files are in out/locales/
-    const localePath = path.join(__dirname, '..', 'locales', `${locale}.js`);
-    
-    // Clear cache for hot reload on settings change
-    try {
-      delete require.cache[require.resolve(localePath)];
-    } catch {
-      // Ignore if not in cache
+    const loader = LOCALE_LOADERS[locale];
+    if (!loader) {
+      console.error(`[Any MD] Unknown locale '${locale}' (not in LOCALE_LOADERS)`);
+      return null;
     }
-    
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const localeModule = require(localePath);
+    const localeModule = loader();
     return {
       messages: localeModule.messages,
       webviewMessages: localeModule.webviewMessages,

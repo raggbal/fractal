@@ -1,0 +1,30 @@
+{
+  // Scoped emit for test-facing out/shared/*.js.
+  //
+  // Sprint 20260802-212934-aws-sdk-migration / TASK-07 (review iteration 1, code_fix).
+  //
+  // 背景: esbuild 移行で compile が `tsc -p ./`（全 src → out 個別 emit）から
+  //   `tsc -p ./ --noEmit && node esbuild.js`（型チェックのみ + 単一バンドル）へ変わり、
+  //   旧 tsc が副産物として出していた test-facing な out/shared/*.js（paste-asset-handler /
+  //   drop-import / outliner-clipboard-store / md-h1-utils とその TS 由来 transitive dep）が
+  //   生成されなくなった。これらをモジュールスコープで require する spec が collection abort し
+  //   Playwright 全収集が中断 → false-green（Total: 0 tests in 0 files）になっていた。
+  //
+  // この tsconfig は src/shared/**/*.ts を out/shared/*.js に emit するだけの scoped emit。
+  //   extension バンドル（out/extension.js 単一・esbuild）は不変 = design §4「out/ 一本化」意図を保存。
+  //   src/shared 42 本の TS と 手書き src/shared/*.js 15 本は basename disjoint（clobber なし）。
+  //   4 ファイルだけに絞ると TS 由来 transitive dep（markdown-image-utils / drawioTemplate /
+  //   file-import / markdown-import / data-url-image-extractor）が再度モジュール解決失敗するため、
+  //   src/shared 全 TS を emit する。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "out",
+    "rootDir": "src",
+    "declaration": false,
+    "sourceMap": false,
+    "composite": false
+  },
+  "include": ["src/shared/**/*.ts"],
+  "exclude": ["node_modules", ".vscode-test", "media", "test", "playwright.config.ts", "samples", "electron"]
+}

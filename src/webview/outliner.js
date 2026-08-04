@@ -7424,6 +7424,13 @@ var Outliner = (function() {
             sidePanelFilename.textContent = 'Translation (' + sourceLang + ' → ' + targetLang + ')';
         }
 
+        // 翻訳結果は read-only の一時ビューなので、app link / Open in new tab は非表示にする
+        // （復元は ← Back の openSidePanel 経路 / close 経路の両方で明示的に行う）。
+        var trInAppBtn = document.querySelector('.side-panel-copy-inapp-link');
+        var trOpenTabBtn = document.querySelector('.side-panel-open-tab');
+        if (trInAppBtn) { trInAppBtn.style.display = 'none'; }
+        if (trOpenTabBtn) { trOpenTabBtn.style.display = 'none'; }
+
         // Inject "← Back" button into header, replacing action buttons (read-only panel).
         // Save original actions HTML so openSidePanel on restore can rebuild default buttons.
         if (sidePanelEl) {
@@ -7536,6 +7543,14 @@ var Outliner = (function() {
             closeSidePanelImmediate(true /* isSwitch */);
         }
         sidePanelFilePath = filePath;
+        // 翻訳結果ビュー（showTranslationInSidePanel）が非表示にした app link / open-tab を復元する。
+        // app link は Notes モード限定表示（初期 setup :7121 の判定と同じ条件で戻す）。
+        var spInAppBtnRestore = document.querySelector('.side-panel-copy-inapp-link');
+        if (spInAppBtnRestore) {
+            spInAppBtnRestore.style.display = document.querySelector('.notes-layout') ? '' : 'none';
+        }
+        var spOpenTabBtnRestore = document.querySelector('.side-panel-open-tab');
+        if (spOpenTabBtnRestore) { spOpenTabBtnRestore.style.display = ''; }
         // FR-TH-05: 別 md に切り替わったら H1 前回値をリセット（新 md の初回 H1 を stale 値で抑止しない）。
         // 開いた時点では反映しない（FR: 編集時のみ）ため、現在の先頭 H1 で初期化して差分検知の基準にする。
         _lastSidePanelH1 = (function() {
@@ -7762,6 +7777,14 @@ var Outliner = (function() {
     // buttons (undo/redo/translateLang/...) before the panel is destroyed. Otherwise the
     // next openSidePanel() would reuse the same DOM with only the "← Back" button left.
     function restoreHeaderActionsFromTranslation() {
+        // TASK-03 (sprint 20260803-013547): 翻訳ビューが隠した app link / open-tab を close 経路でも復元する。
+        // pre-translation state の有無に依存させない（translateResult 直接受信で state 無しの翻訳ビューもある）。
+        var inAppBtn = document.querySelector('.side-panel-copy-inapp-link');
+        if (inAppBtn) {
+            inAppBtn.style.display = document.querySelector('.notes-layout') ? '' : 'none';
+        }
+        var openTabBtn = document.querySelector('.side-panel-open-tab');
+        if (openTabBtn) { openTabBtn.style.display = ''; }
         if (!sidePanelPreTranslationState || !sidePanelPreTranslationState.actionsHtml) return;
         if (!sidePanelEl) return;
         var header = sidePanelEl.querySelector('.side-panel-header');
@@ -8889,13 +8912,25 @@ var Outliner = (function() {
                 case 'translateResult':
                     // v10: Show translation result by replacing side panel MD content in readonly mode.
                     // Re-opens side panel with translated markdown, but in readonly display.
-                    hideTranslateLoading();
-                    showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    // FR-TR-02 reverse-case guard (sprint 20260803-013547): この outliner が所有する
+                    //   sidepanel md の翻訳応答（msg.sidePanelFilePath = 現 sidePanelFilePath と一致）だけを
+                    //   翻訳ビュー化する。main md 由来（sidePanelFilePath 無し）は editor.js の main 経路が
+                    //   処理するので outliner は無視（sidepanel を汚染しない）。別ファイル宛（不一致）も無視。
+                    //   insertImageHtml(:8828)/insertFileLink(:8850) と同じ宛先判定パターン。
+                    if (msg.sidePanelFilePath && sidePanelInstance && sidePanelFilePath === msg.sidePanelFilePath) {
+                        hideTranslateLoading();
+                        showTranslationInSidePanel(msg.translatedMarkdown, msg.sourceLang, msg.targetLang);
+                    }
                     break;
 
                 case 'translateError':
-                    hideTranslateLoading();
-                    alert('Translation Error: ' + (msg.message || 'Failed'));
+                    // FR-TR-02 reverse-case guard: translateResult と同じ宛先判定。sidepanel 要求の
+                    //   エラーだけ sidepanel 側で処理し、main 宛（sidePanelFilePath 無し）は無視して
+                    //   main の翻訳 UI 状態を汚さない。
+                    if (msg.sidePanelFilePath && sidePanelInstance && sidePanelFilePath === msg.sidePanelFilePath) {
+                        hideTranslateLoading();
+                        alert('Translation Error: ' + (msg.message || 'Failed'));
+                    }
                     break;
 
                 case 'translateLangSelected':
