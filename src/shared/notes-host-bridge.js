@@ -24,6 +24,10 @@
 
     // ── outliner.js 用ブリッジ (既存 outliner-host-bridge.js と同一インターフェース) ──
     window.outlinerHostBridge = Object.assign(shared, {
+        // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge.linkMdAsSubpage の _mainHost 経由）
+        linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null, sidePanelFilePath: sidePanelFilePath });
+        },
         // データ同期
         syncData: function(jsonString) {
             api.postMessage({ type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId });
@@ -431,6 +435,11 @@
         // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
         notesImportMdIntoOut: function(mdFileId, targetOutId) {
             api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D（host が href を sourceMd 基準で解決）
+        notesRegisterSubpageFromMd: function(payload, parentId, index) {
+            api.postMessage({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
 
         // v0.207.77: D&D — outliner page-node を Notes panel にドロップして .md として登録

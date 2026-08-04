@@ -641,6 +641,23 @@ var notesFilePanel = (function() {
         return types.indexOf(OUT_NODE_PAGE_MIME) !== -1;
     }
 
+    // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → ツリー D&D。
+    // editor.js の dragstart（a[data-subpage] のみ）が setData する。Link は積まれない。
+    var MD_SUBPAGE_MIME = 'application/x-fractal-md-subpage';
+    function isMdSubpageDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(MD_SUBPAGE_MIME) !== -1;
+    }
+    function readMdSubpagePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(MD_SUBPAGE_MIME);
+            if (!raw) return null;
+            var p = JSON.parse(raw);
+            return (p && p.href && p.sourceMdPath) ? p : null;
+        } catch (err) { return null; }
+    }
+
     function readOutNodePagePayload(e) {
         try {
             var raw = e.dataTransfer.getData(OUT_NODE_PAGE_MIME);
@@ -716,6 +733,13 @@ var notesFilePanel = (function() {
             // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
             // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
             var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
+            // TASK-19: md editor 内 subpage リンクからの drag も受理
+            var fromMdSubpage = isMdSubpageDrag(e);
+            if (fromMdSubpage && !fromOutliner && !fromOutlinerSubtree && !dragItemId) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                return;
+            }
             if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
@@ -793,7 +817,24 @@ var notesFilePanel = (function() {
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             // node-move-to-other-outliner: サブツリー move payload（notes 全 node に載る）
             var subtreePayload = isOutNodeSubtreeDrag(e) ? readOutNodeSubtreePayload(e) : null;
+            // TASK-19: md editor 内 subpage リンク → ツリー item 上に drop（挿入位置 = target の前後）
+            var mdSubpagePayload = (!outPayload && !subtreePayload) && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
             e.preventDefault();
+            if (mdSubpagePayload && !dragItemId) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetSp = el.closest('[data-item-id]') || el;
+                var rectSp = targetSp.getBoundingClientRect();
+                var ratioSp = (e.clientY - rectSp.top) / rectSp.height;
+                var parentSp = targetSp.dataset.parentId || null;
+                var sibSp = getChildIdsOfParent(parentSp);
+                var idxSp = sibSp.indexOf(targetSp.dataset.itemId);
+                if (idxSp === -1) idxSp = sibSp.length;
+                if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, parentSp, ratioSp < 0.5 ? idxSp : idxSp + 1);
+                }
+                return;
+            }
             if (!dragItemId && !outPayload && !subtreePayload) return;
 
             clearAllDragOver();
@@ -1773,11 +1814,12 @@ var notesFilePanel = (function() {
             listEl.__rootDropWired = true;
             listEl.addEventListener('dragover', function(e) {
                 var fromOutliner = isOutNodePageDrag(e);
-                if (!dragItemId && !fromOutliner) return;
+                var fromMdSubpageR = isMdSubpageDrag(e);
+                if (!dragItemId && !fromOutliner && !fromMdSubpageR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR) ? 'copy' : 'move';
                 // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
                 // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
                 if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
@@ -1787,14 +1829,22 @@ var notesFilePanel = (function() {
             listEl.addEventListener('drop', function(e) {
                 if (e.target !== listEl) return;
                 var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+                var mdSubpagePayloadR = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
                 e.preventDefault();
-                if (!dragItemId && !outPayload) return;
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;
                 clearAllDragOver();
                 removeDropIndicator();
                 var rootIds = structure ? structure.rootIds : [];
                 if (outPayload) {
                     if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
                         bridge.notesImportOutPageNodeAsMd(outPayload, null, rootIds.length);
+                    }
+                    return;
+                }
+                // TASK-19: subpage → ルート末尾へ
+                if (mdSubpagePayloadR && !dragItemId) {
+                    if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                        bridge.notesRegisterSubpageFromMd(mdSubpagePayloadR, null, rootIds.length);
                     }
                     return;
                 }

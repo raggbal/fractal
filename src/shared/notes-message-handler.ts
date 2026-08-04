@@ -76,6 +76,8 @@ export interface NotesPlatformActions {
     /** FR-B09: ファイルツリー md → md editor D&D（コピーせず既存 md への subpage リンクを返信。
      *  US-09: mdFileId 指定時はツリーから md エントリを除去 = 真の subpage 化） */
     linkMdAsSubpageForNotesMd?(filePath: string, mdFileId?: string | null): void;
+    /** TASK-17: ツリー md → sidepanel md D&D（同一 note = リンク+除去 / 別 note = 複製） */
+    linkMdAsSubpageForSidePanel?(filePath: string, mdFileId: string | null, sidePanelFilePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
     readAndInsertMdFile?(filePath: string): void;
     /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
@@ -222,6 +224,8 @@ export interface NotesPlatformActions {
     showErrorMessage?(text: string): void;
     /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
     notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
+    notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
     notesImportOutPageNodeAsMd?(
         payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
@@ -910,6 +914,13 @@ export async function handleNotesMessage(
             }
             break;
 
+        // TASK-17: ファイルツリー md → sidepanel md D&D（同一 note 判定は host 側）
+        case 'linkMdAsSubpage':
+            if (message.filePath && message.sidePanelFilePath && platform.linkMdAsSubpageForSidePanel) {
+                platform.linkMdAsSubpageForSidePanel(message.filePath, message.mdFileId || null, message.sidePanelFilePath);
+            }
+            break;
+
         // v0.207.86: Notes 内 .md メインペインの cmd+/ → Add Page
         case 'notesMdCreatePageAuto':
             if (platform.notesMdCreatePageAuto) {
@@ -1228,6 +1239,13 @@ export async function handleNotesMessage(
         }
 
         // v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D
+        case 'notesRegisterSubpageFromMd':
+            if (message.payload && platform.notesRegisterSubpageFromMd) {
+                await platform.notesRegisterSubpageFromMd(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+
         case 'notesImportMdIntoOut': {
             if (typeof platform.notesImportMdIntoOut === 'function') {
                 await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender);

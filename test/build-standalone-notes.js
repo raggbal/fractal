@@ -134,6 +134,10 @@ const testNotesHostBridge = `
 
     // outliner.js 用ブリッジ
     window.outlinerHostBridge = Object.assign(shared, {
+        // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge の _mainHost = このブリッジ）
+        linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId, sidePanelFilePath: sidePanelFilePath });
+        },
         syncData: function(jsonString) {
             var msg = { type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId };
             window.__testApi.messages.push(msg);
@@ -251,6 +255,10 @@ const testNotesHostBridge = `
         },
         notesImportMdIntoOut: function(mdFileId, targetOutId) {
             window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D
+        notesRegisterSubpageFromMd: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
         notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
             window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });

@@ -1213,6 +1213,20 @@ export class NotesEditorProvider {
                 if (path.resolve(filePath) === path.resolve(cur)) return; // 自分自身へのリンクは無意味
                 try {
                     const content = fs.readFileSync(filePath, 'utf8');
+                    // TASK-16 (US-09 cross-note): main pane は Recent 履歴経由で別 note / note 外の
+                    // md を開きうる。cur が this-note（mainFolder）外なら、リンク + ツリー除去でなく
+                    // **cur の隣へ複製**する（相手側に実体を渡す。this-note のツリーは触らない = 所有不変）
+                    const mainFolder = fileManager.getMainFolderPath();
+                    const curInThisNote = !path.relative(mainFolder, path.resolve(cur)).startsWith('..');
+                    if (!curInThisNote) {
+                        const r = saveDroppedMdAsSubpage(cur, content, path.basename(filePath));
+                        panel.webview.postMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: r.relPath,
+                            title: r.title,
+                        });
+                        return;
+                    }
                     const relPath = path.relative(path.dirname(cur), filePath).replace(/\\/g, '/');
                     panel.webview.postMessage({
                         type: 'insertSubpageLink',
@@ -1232,6 +1246,47 @@ export class NotesEditorProvider {
                     }
                 } catch (e) {
                     console.error('[Notes] linkMdAsSubpageForNotesMd error:', e);
+                }
+            },
+            // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md への D&D。
+            // sidepanel は別 note の md を開きうる（page link 遷移・Recent）ので同一 note 判定が必須:
+            //   同一 note → コピーせずリンク + ツリー除去 / 別 note → sidepanel md の隣へ複製（除去なし）
+            linkMdAsSubpageForSidePanel: (filePath: string, mdFileId: string | null, sidePanelFilePath: string) => {
+                if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) return;
+                if (!fs.existsSync(filePath)) return;
+                if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) return;
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const mainFolder = fileManager.getMainFolderPath();
+                    const spInThisNote = !path.relative(mainFolder, path.resolve(sidePanelFilePath)).startsWith('..');
+                    if (!spInThisNote) {
+                        const r = saveDroppedMdAsSubpage(sidePanelFilePath, content, path.basename(filePath));
+                        panel.webview.postMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: r.relPath,
+                            title: r.title,
+                            sidePanelFilePath,
+                        });
+                        return;
+                    }
+                    const relPath = path.relative(path.dirname(sidePanelFilePath), filePath).replace(/\\/g, '/');
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: relPath,
+                        title: resolveSubpageTitle(content, path.basename(filePath)),
+                        sidePanelFilePath,
+                    });
+                    if (mdFileId) {
+                        fileManager.unregisterMdFromStructureOnly(mdFileId);
+                        panel.webview.postMessage({
+                            type: 'notesFileListChanged',
+                            fileList: fileManager.listFiles(),
+                            structure: fileManager.getStructureForWebview(),
+                            currentFile: fileManager.getCurrentFilePath(),
+                        });
+                    }
+                } catch (e) {
+                    console.error('[Notes] linkMdAsSubpageForSidePanel error:', e);
                 }
             },
             // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
@@ -2011,6 +2066,42 @@ export class NotesEditorProvider {
                 }
             },
 
+            // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → Notes ツリー D&D。
+            // href を dirname(sourceMd) 基準で解決（本体リンク解決と同じ）。
+            //   同一 note（mainFolder 直下 flat）→ 既存ファイルをそのまま登録（コピー・リネームなし）
+            //   別 note / note 外 → mainFolder 直下へ複製登録（元は不変）
+            // どちらも元 md 本文のアンカーは触らない（リンクは生きたまま = 参照 + ツリー掲載の両立。
+            // subpage の「所有」はツリーへ移る）。
+            notesRegisterSubpageFromMd: (payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
+                try {
+                    if (!payload || !payload.href || !payload.sourceMdPath) return;
+                    if (!/\.md$/i.test(payload.href)) return;
+                    // href は相対（dirname(sourceMd) 基準）または絶対
+                    const srcDir = path.dirname(payload.sourceMdPath);
+                    const abs = path.isAbsolute(payload.href)
+                        ? payload.href
+                        : path.resolve(srcDir, decodeURIComponent(payload.href));
+                    if (!fs.existsSync(abs)) return;
+                    const content = fs.readFileSync(abs, 'utf8');
+                    const title = resolveSubpageTitle(content, path.basename(abs));
+                    const mainFolder = fileManager.getMainFolderPath();
+                    const isFlatInNote = path.resolve(path.dirname(abs)) === path.resolve(mainFolder);
+                    if (isFlatInNote) {
+                        fileManager.registerExistingMdFile(path.basename(abs, '.md'), title, parentId, index);
+                    } else {
+                        fileManager.registerMarkdownFile(content, title, parentId, index);
+                    }
+                    senderRef.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructureForWebview(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                    });
+                } catch (e) {
+                    console.error('[Notes] notesRegisterSubpageFromMd error:', e);
+                }
+            },
+
             // v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ →
             // 当該 page の .md を _notes_md/<newId>.md (v0.207.82: フラット) に複製し、独立 .md として構造へ登録
             notesImportOutPageNodeAsMd: async (
@@ -2025,18 +2116,16 @@ export class NotesEditorProvider {
                     if (!srcOutPath.endsWith('.out')) return;
                     if (!fs.existsSync(srcOutPath)) return;
 
-                    // 1. 元 .out の pageDir を解決 (target が currentFile でない場合も自前で読む)
+                    // 1. 元 .out の pageDir を解決。
+                    // (3) 2026-08-05: 自前計算（legacy <outDir>/<stem>/ default）を正典
+                    // flat-layout.resolvePagesDir に置換（flat note では note 直下を返す）。
                     const outRaw = fs.readFileSync(srcOutPath, 'utf8');
                     const outData = JSON.parse(outRaw);
-                    let srcPageDir: string;
-                    if (outData.pageDir) {
-                        srcPageDir = path.isAbsolute(outData.pageDir)
-                            ? outData.pageDir
-                            : path.resolve(path.dirname(srcOutPath), outData.pageDir);
-                    } else {
-                        const id = path.basename(srcOutPath, '.out');
-                        srcPageDir = path.resolve(path.dirname(srcOutPath), id);
-                    }
+                    const srcPageDir = resolvePagesDir(srcOutPath, fileManager.getMainFolderPath(), {
+                        pageDir: outData.pageDir,
+                        imageDir: outData.imageDir,
+                        fileDir: outData.fileDir,
+                    });
 
                     // 2. 安全に <pageDir>/<pageId>.md を解決
                     const srcMdPath = safeResolveUnderDir(srcPageDir, `${payload.pageId}.md`);
@@ -2049,8 +2138,16 @@ export class NotesEditorProvider {
                     const fallback = (payload.title || '').trim();
                     const title = h1 || fallback || 'Untitled';
 
-                    // 4. _notes_md/<newId>.md として登録 (v0.207.82: フラット。内容そのままコピー、画像参照は元ディレクトリのまま)
-                    fileManager.registerMarkdownFile(mdContent, title, parentId, index);
+                    // 4. ツリーへ登録。
+                    // (3) 2026-08-05: 同一 note 内（page md が mainFolder 直下 = flat）なら
+                    // コピー・リネームせず既存ファイルをそのまま登録（id = pageId・ファイル名不変）。
+                    // legacy 配置（サブフォルダ pageDir）のみ従来どおり複製登録。
+                    const isFlatInNote = path.resolve(path.dirname(srcMdPath)) === path.resolve(fileManager.getMainFolderPath());
+                    if (isFlatInNote) {
+                        fileManager.registerExistingMdFile(payload.pageId, title, parentId, index);
+                    } else {
+                        fileManager.registerMarkdownFile(mdContent, title, parentId, index);
+                    }
 
                     // 5. v0.207.78: outliner cmd+x 単一ノードと同じく「画面上のデータは消す、
                     // 物理ファイルは消さない」方針。元の page-node の isPage/pageId/text/images

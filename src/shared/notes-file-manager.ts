@@ -1498,6 +1498,31 @@ export class NotesFileManager {
      * parentId=null → rootIds、parentId=folder → folder.childIds の `index` 位置に挿入。
      * @returns 新しく採番した id (= ファイル名)
      */
+    /**
+     * TASK-18 (sprint 20260804-145603): mainFolder 直下に既に実在する md を、
+     * コピー・リネームせず**そのまま**ツリー構造に登録する（id = ファイル名 stem）。
+     * 既に構造に居る id なら何もしない（冪等）。
+     */
+    registerExistingMdFile(
+        id: string,
+        title: string,
+        parentId: string | null,
+        index: number
+    ): boolean {
+        const filePath = path.join(this.mainFolderPath, `${id}.md`);
+        if (!fs.existsSync(filePath)) return false;
+        const structure = this.getStructure();
+        if (structure.items[id]) return false; // 既登録（冪等）
+        structure.items[id] = { type: 'file', id, title: title || 'Untitled', ext: 'md' };
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        const safeIndex = Math.max(0, Math.min(index, siblings.length));
+        siblings.splice(safeIndex, 0, id);
+        this.saveStructure();
+        return true;
+    }
+
     registerMarkdownFile(
         content: string,
         title: string,

@@ -7102,6 +7102,14 @@ class SidePanelHostBridge {
             this._mainHost.readAndInsertFile(filePath, this.filePath);
         }
     }
+    // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md D&D。host が同一 note 判定
+    //（同一 = リンク + ツリー除去 / 別 note = sidepanel md の隣へ複製）
+    linkMdAsSubpage(filePath, mdFileId) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.linkMdAsSubpageForSidePanel === 'function') {
+            this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -24399,6 +24407,29 @@ class EditorInstance {
         }
         return null;
     }
+
+    // TASK-19 (sprint 20260804-145603): md editor 内の subpage リンクを Notes ツリーへ D&D。
+    // a[data-subpage="true"] のみ（通常 Link は対象外）。payload には解決用の基準
+    //（この editor の md 絶対パス）と相対 href を積み、host が実体を解決する。
+    // 受け側 = notes-file-panel.js（application/x-fractal-md-subpage）。
+    if (isMainInstance) document.addEventListener('dragstart', function(e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[data-subpage="true"]') : null;
+        if (!a) { return; }
+        var t = findTargetEditor(e.target);
+        if (!t) { return; }
+        var srcMdPath = (t.instance.host && t.instance.host.filePath) ||
+            (t.instance.options && t.instance.options.filePath) || '';
+        var href = a.dataset.markdownPath || a.getAttribute('href') || '';
+        if (!href || !e.dataTransfer) { return; }
+        try {
+            e.dataTransfer.setData('application/x-fractal-md-subpage', JSON.stringify({
+                href: href,
+                sourceMdPath: srcMdPath,
+                title: (a.textContent || '').trim(),
+            }));
+            e.dataTransfer.effectAllowed = 'copyMove';
+        } catch (err) { /* ignore */ }
+    });
 
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
         var t = findTargetEditor(e.target);
