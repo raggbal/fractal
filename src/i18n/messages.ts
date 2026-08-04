@@ -211,6 +211,10 @@ export interface WebviewMessages {
   taskScopeTopOnly?: string;
   taskScopeAll?: string;
   // FR-B06b: cmd 長押しショートカット HUD のカテゴリ見出し（本体リストは英語固定・見出しのみ i18n）
+  shortcutHudTitleMd?: string;
+  shortcutHudTitleOutliner?: string;
+  shortcutHudTitleMindmap?: string;
+  shortcutHudTitleTable?: string;
   shortcutCatEditing?: string;
   shortcutCatNavigation?: string;
   shortcutCatSearch?: string;

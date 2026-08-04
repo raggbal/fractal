@@ -1157,6 +1157,21 @@ var Outliner = (function() {
         if (typeof ShortcutHud !== 'undefined') {
             ShortcutHud.init(document, 'outliner');
         }
+        // US-6b (TASK-12): HUD の mode を表示時に動的解決する resolver。
+        // 優先順: sidepanel md open / notes md main pane 可視 → md、mindmap / table ビュー、
+        // それ以外 → outliner。resolver は showHud() のたびに呼ばれる（切替に追随）。
+        if (typeof window !== 'undefined') {
+            window.__shortcutHudModeResolver = function() {
+                try {
+                    if (sidePanelEl && sidePanelEl.classList.contains('open')) { return 'md'; }
+                    var mdPane = document.querySelector('.markdown-container');
+                    if (mdPane && mdPane.style.display !== 'none' && mdPane.offsetParent !== null) { return 'md'; }
+                    if (VIEW_MODE === 'mindmap') { return 'mindmap'; }
+                    if (VIEW_MODE === 'table') { return 'table'; }
+                } catch (err) { /* fallthrough */ }
+                return 'outliner';
+            };
+        }
 
         // sprint 20260801-232943 (TASK-01): drag セッション終了の安全網。drop が webview に
         // 届かない終わり方（shift なし D&D・webview 外への drop・ESC キャンセル）でも

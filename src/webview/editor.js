@@ -17530,7 +17530,8 @@ class EditorInstance {
                 try { treeMdPayload = JSON.parse(treeMdRaw); } catch (err) { /* ignore */ }
                 if (treeMdPayload && treeMdPayload.filePath &&
                     typeof targetHost.linkMdAsSubpage === 'function') {
-                    targetHost.linkMdAsSubpage(treeMdPayload.filePath);
+                    // US-09: id も渡す（host がツリーから md エントリを除去して真の subpage 化する）
+                    targetHost.linkMdAsSubpage(treeMdPayload.filePath, treeMdPayload.id || null);
                 }
                 return;
             }

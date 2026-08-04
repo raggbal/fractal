@@ -11,6 +11,14 @@
 
 'use strict';
 
+// HUD タイトル（US-6b: どのモード用の一覧か明示）。i18n キー + 英語 fallback。
+var MODE_TITLES = {
+    md:       { i18nKey: 'shortcutHudTitleMd',      fallback: 'Markdown Shortcuts' },
+    outliner: { i18nKey: 'shortcutHudTitleOutliner', fallback: 'Outliner Shortcuts' },
+    mindmap:  { i18nKey: 'shortcutHudTitleMindmap',  fallback: 'Mindmap Shortcuts' },
+    table:    { i18nKey: 'shortcutHudTitleTable',    fallback: 'Database (Table) Shortcuts' },
+};
+
 // カテゴリ描画順 + i18n キー + 英語 fallback（i18n 未注入の standalone では英語）。
 var CATEGORIES = [
     { key: 'editing',    i18nKey: 'shortcutCatEditing',    fallback: 'Editing' },
@@ -113,9 +121,63 @@ function formatKeys(keys, isMac) {
         .replace(/Opt/g, 'Alt');
 }
 
-// mode ('md' | 'outliner') に対応する静的リストを返す。
+// mindmap ビュー用（README「Mindmap mode」章より）。
+var SHORTCUTS_MINDMAP = [
+    { category: 'editing', items: [
+        { keys: 'Enter / Shift+Enter', desc: 'Add younger / elder sibling' },
+        { keys: 'Tab', desc: 'Add child node' },
+        { keys: 'Space / F2 / type', desc: 'Start editing (typing appends)' },
+        { keys: 'Enter / Tab / Esc', desc: 'Commit edit' },
+        { keys: 'Delete / Backspace', desc: 'Delete node (or group)' },
+        { keys: 'Option+↑/↓', desc: 'Swap with sibling' },
+        { keys: 'Cmd+V', desc: 'Paste image onto node' },
+    ] },
+    { category: 'navigation', items: [
+        { keys: '↑↓←→', desc: 'Move between nodes (spatial)' },
+        { keys: 'Cmd+Shift+L', desc: 'Cycle layout (radial → right → left → balanced)' },
+        { keys: 'Cmd+Enter', desc: 'Open / create the page' },
+        { keys: 'Cmd+Wheel', desc: 'Zoom (toolbar +/−/Fit too)' },
+        { keys: 'Drag', desc: 'Blank: pan / node: reparent (top=elder, bottom=younger, middle=child)' },
+    ] },
+    { category: 'task', items: [
+        { keys: 'Cmd+Shift+X', desc: 'Add / toggle checkbox' },
+        { keys: 'Cmd+Shift+Option+X', desc: 'Remove checkbox' },
+    ] },
+    { category: 'other', items: [
+        { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
+        { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },
+    ] },
+];
+
+// database (table) ビュー用（README「Database view」章より。outliner 列は outliner と同じ）。
+var SHORTCUTS_TABLE = [
+    { category: 'editing', items: [
+        { keys: 'Cmd+B / Cmd+I / Cmd+E', desc: 'Inline format in text columns' },
+        { keys: 'Enter / Space', desc: 'Open tag dropdown / date picker' },
+        { keys: '↑↓ + Enter', desc: 'Choose in dropdown' },
+    ] },
+    { category: 'navigation', items: [
+        { keys: 'Cmd+←/→/↑/↓', desc: 'Move between cells (all columns)' },
+        { keys: 'Tab / Shift+Tab', desc: 'Next / previous cell (text columns)' },
+    ] },
+    { category: 'other', items: [
+        { keys: '(Outliner column)', desc: 'All outliner shortcuts work as-is' },
+    ] },
+];
+
+// mode ('md' | 'outliner' | 'mindmap' | 'table') に対応する静的リストを返す。
 function getList(mode) {
-    return mode === 'outliner' ? SHORTCUTS_OUTLINER : SHORTCUTS_MD;
+    if (mode === 'outliner') { return SHORTCUTS_OUTLINER; }
+    if (mode === 'mindmap') { return SHORTCUTS_MINDMAP; }
+    if (mode === 'table') { return SHORTCUTS_TABLE; }
+    return SHORTCUTS_MD;
+}
+
+// mode の HUD タイトルを messages（i18n）から解決。未注入なら英語 fallback。
+function modeTitle(mode, messages) {
+    var t = MODE_TITLES[mode] || MODE_TITLES.md;
+    var m = messages && messages[t.i18nKey];
+    return (typeof m === 'string' && m) ? m : t.fallback;
 }
 
 // category key ('editing' 等) の見出しラベルを messages（i18n）から解決。
@@ -133,11 +195,15 @@ function categoryLabel(categoryKey, messages) {
 
 var _api = {
     CATEGORIES: CATEGORIES,
+    MODE_TITLES: MODE_TITLES,
     SHORTCUTS_MD: SHORTCUTS_MD,
     SHORTCUTS_OUTLINER: SHORTCUTS_OUTLINER,
+    SHORTCUTS_MINDMAP: SHORTCUTS_MINDMAP,
+    SHORTCUTS_TABLE: SHORTCUTS_TABLE,
     formatKeys: formatKeys,
     getList: getList,
     categoryLabel: categoryLabel,
+    modeTitle: modeTitle,
 };
 
 // CommonJS + global 両対応（webview では window.ShortcutList として使用）

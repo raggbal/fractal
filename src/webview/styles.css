@@ -1118,6 +1118,15 @@ body {
     white-space: pre;
     word-wrap: normal;
 }
+/* FR-B10 (US-10): 折り返し ON の pre を全画面ポップアップに拡大した場合も引き継ぐ。
+   clone は .code-block-wrap を保持するが overlay は .editor 外のため
+   `.editor pre.code-block-wrap` が届かない → fullscreen 用に同値を定義 */
+.block-fullscreen-pre.code-block-wrap,
+.block-fullscreen-pre.code-block-wrap code {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
 
 /* Mermaid / Math diagrams in fullscreen: scale to fit. */
 .block-fullscreen-mermaid-diagram,
@@ -2253,6 +2262,14 @@ body {
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
     font-size: 13px;
     line-height: 1.5;
+}
+/* US-6b: HUD タイトル（どのモード用の一覧か明示） */
+.fractal-shortcut-hud-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent-color, #4a9eff);
 }
 .fractal-shortcut-hud-grid {
     display: flex;

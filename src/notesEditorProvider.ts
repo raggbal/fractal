@@ -1206,7 +1206,7 @@ export class NotesEditorProvider {
             },
             // FR-B09 (TASK-08): ファイルツリー md → md editor D&D。ファイルは note 内に既存
             //（1:1 所有はツリー item が保持）なのでコピーせず、既存 md への subpage リンクのみ挿入
-            linkMdAsSubpageForNotesMd: (filePath: string) => {
+            linkMdAsSubpageForNotesMd: (filePath: string, mdFileId?: string | null) => {
                 const cur = fileManager.getCurrentFilePath();
                 if (!cur || !cur.endsWith('.md')) return;
                 if (!fs.existsSync(filePath)) return;
@@ -1219,6 +1219,17 @@ export class NotesEditorProvider {
                         markdownPath: relPath,
                         title: resolveSubpageTitle(content, path.basename(filePath)),
                     });
+                    // US-09: subpage 化したらツリーから md エントリを除去（ファイル実体・ファイル名は不変。
+                    // notesImportMdIntoOut の「画面のエントリは消す・物理は消さない」と同じ方針）
+                    if (mdFileId) {
+                        fileManager.unregisterMdFromStructureOnly(mdFileId);
+                        panel.webview.postMessage({
+                            type: 'notesFileListChanged',
+                            fileList: fileManager.listFiles(),
+                            structure: fileManager.getStructureForWebview(),
+                            currentFile: fileManager.getCurrentFilePath(),
+                        });
+                    }
                 } catch (e) {
                     console.error('[Notes] linkMdAsSubpageForNotesMd error:', e);
                 }
@@ -1917,24 +1928,36 @@ export class NotesEditorProvider {
                     if (!fs.existsSync(mdSourcePath) || !fs.existsSync(outFilePath)) return;
                     if (!outFilePath.endsWith('.out')) return;
 
-                    // 1. 対象 .out の json 読込 + pageDir 解決 (target が currentFile でなくても解決するため自前計算)
+                    // 1. 対象 .out の json 読込 + pageDir 解決 (target が currentFile でなくても解決できる)
+                    // US-08 (sprint 20260804-145603): 自前計算（legacy <outDir>/<stem>/ default）を
+                    // 正典 flat-layout.resolvePagesDir に置換（flat note では note 直下を返す =
+                    // 本体の page 読み取りと同じ解決。ミラー実装乖離の教訓 designer_failures 2026-07-26）。
                     const outRaw = fs.readFileSync(outFilePath, 'utf8');
                     const outData = JSON.parse(outRaw);
-                    let pagesDir: string;
-                    if (outData.pageDir) {
-                        pagesDir = path.isAbsolute(outData.pageDir)
-                            ? outData.pageDir
-                            : path.resolve(path.dirname(outFilePath), outData.pageDir);
-                    } else {
-                        const outlinerId = path.basename(outFilePath, '.out');
-                        pagesDir = path.resolve(path.dirname(outFilePath), outlinerId);
-                    }
+                    const pagesDir = resolvePagesDir(outFilePath, fileManager.getMainFolderPath(), {
+                        pageDir: outData.pageDir,
+                        imageDir: outData.imageDir,
+                        fileDir: outData.fileDir,
+                    });
                     const imagesDir = fileManager.getOutlinerImageDirPath();
 
-                    // 2. md を pagesDir に import (新 pageId 採番 + 画像コピー)
-                    const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
-                    if (!imported || imported.length === 0) return;
-                    const r = imported[0];
+                    // 2. md を page 化する。
+                    // US-08 (sprint 20260804-145603): note 内 D&D で pagesDir が md の現在地と同じ
+                    //（flat 構成の通常ケース）なら、コピー・リネームせず**既存ファイルをそのまま**
+                    // page として参照する（pageId = 既存ファイル名 stem・ファイル名不変）。
+                    // pagesDir が別の場所（legacy pageDir 指定の .out）のときだけ従来どおり import コピー。
+                    let r: { title: string; pageId: string };
+                    if (path.resolve(path.dirname(mdSourcePath)) === path.resolve(pagesDir)) {
+                        const content = fs.readFileSync(mdSourcePath, 'utf8');
+                        r = {
+                            title: resolveSubpageTitle(content, path.basename(mdSourcePath)),
+                            pageId: path.basename(mdSourcePath, '.md'),
+                        };
+                    } else {
+                        const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
+                        if (!imported || imported.length === 0) return;
+                        r = imported[0];
+                    }
 
                     // 3. .out の先頭に page-node を追加
                     // outliner-model.js と一致するノード構造 (children / parentId / isPage / pageId / 等)

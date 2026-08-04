@@ -77,6 +77,12 @@ function _buildHudEl(doc, mode) {
     panel.className = 'fractal-shortcut-hud-panel';
     overlay.appendChild(panel);
 
+    // US-6b: どのモード用の一覧か明示するタイトル（Markdown / Outliner / Mindmap / Table）
+    var titleEl = doc.createElement('div');
+    titleEl.className = 'fractal-shortcut-hud-title';
+    titleEl.textContent = SL ? SL.modeTitle(mode, messages) : mode;
+    panel.appendChild(titleEl);
+
     var grid = doc.createElement('div');
     grid.className = 'fractal-shortcut-hud-grid';
     panel.appendChild(grid);
@@ -138,7 +144,19 @@ function init(doc, mode) {
 
     function showHud() {
         if (hudEl) { return; }
-        hudEl = _buildHudEl(doc, mode);
+        // US-6b: mode は表示時に動的解決する。ホスト面（notes 等）が実表示状態
+        //（sidepanel md open / md main pane / mindmap / table）を知っているので、
+        // window.__shortcutHudModeResolver があればそれを優先（返り値が不正なら init 時の mode）。
+        var effectiveMode = mode;
+        if (typeof window !== 'undefined' && typeof window.__shortcutHudModeResolver === 'function') {
+            try {
+                var resolved = window.__shortcutHudModeResolver();
+                if (resolved === 'md' || resolved === 'outliner' || resolved === 'mindmap' || resolved === 'table') {
+                    effectiveMode = resolved;
+                }
+            } catch (err) { /* resolver 失敗時は init 時の mode */ }
+        }
+        hudEl = _buildHudEl(doc, effectiveMode);
         (doc.body || doc.documentElement).appendChild(hudEl);
     }
 

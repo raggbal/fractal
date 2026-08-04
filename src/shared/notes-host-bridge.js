@@ -323,9 +323,10 @@
         readAndInsertMdAsSubpage: function(filePath) {
             api.postMessage({ type: 'notesMdReadMdAsSubpage', filePath: filePath });
         },
-        // FR-B09 (TASK-08): ファイルツリー md item → md editor D&D。既存 md へコピーせずリンクのみ
-        linkMdAsSubpage: function(filePath) {
-            api.postMessage({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
+        // FR-B09 (TASK-08): ファイルツリー md item → md editor D&D。既存 md へコピーせずリンクのみ。
+        // US-09: mdFileId も渡し、host がツリーから md エントリを除去（真の subpage 化・ファイル実体不変）
+        linkMdAsSubpage: function(filePath, mdFileId) {
+            api.postMessage({ type: 'notesMdLinkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null });
         },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
