@@ -29609,6 +29609,11 @@ var OutlinerModel = (function() {
             if (!this.nodes[id].images) {
                 this.nodes[id].images = [];
             }
+            // tags は text から常に再計算する（text が単一真実）。
+            // 保存値頼みだと、tags フィールドを持たない旧 .out や外部編集で
+            // stale になった node の #tag がサジェスト/検索に出ない
+            // （TASK-03: 未編集 node のタグ欠落バグの修正）。
+            this.nodes[id].tags = parseTags(this.nodes[id].text || '');
         }
     };
 

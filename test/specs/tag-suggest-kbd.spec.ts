@@ -220,3 +220,55 @@ test.describe('FR-TK-01: tag suggest bar keyboard roving', () => {
         expect(await activeCount(page)).toBe(0);
     });
 });
+
+test.describe('TASK-03: ロード時の tags 再計算（未編集 node のタグ欠落バグ）', () => {
+    // TC-TK-06: node.tags は編集確定（updateText）時にのみ保存されるため、
+    //   tags フィールドを持たない .out（旧形式・外部ツール由来・未編集 node）を
+    //   ロードすると #tag がサジェストにも #tag 検索にも出なかった。
+    //   修正 = constructor（_ensureChildren）で全 node の tags を text から常に再計算。
+    //   counterfactual: 再計算を外す（修正前）と missing/stale の 2 tag が出ず
+    //   suggest item は 1 個だけ = 本 TC の期待 3 個に対し RED（実装前に実測済み）。
+    test('TC-TK-06: tags フィールド欠落/stale の .out でも全 #tag がサジェストされる', async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['m1', 'm2', 'm3'],
+                nodes: {
+                    // tags フィールド欠落（未編集 node / 旧 .out 相当）
+                    m1: { id: 'm1', parentId: null, children: [], text: 'db choice #db' },
+                    // tags が stale（外部編集で text は変わったが tags は旧値のまま）
+                    m2: { id: 'm2', parentId: null, children: [], text: 'event bus #async', tags: ['#old-stale'] },
+                    // tags 正常保存済み
+                    m3: { id: 'm3', parentId: null, children: [], text: 'api #backend', tags: ['#backend'] },
+                },
+            });
+        });
+        await page.locator('.outliner-search-input').focus();
+        await page.waitForFunction(() => {
+            const bar = document.querySelector('.outliner-tag-suggest-bar') as HTMLElement;
+            return bar && bar.style.display !== 'none';
+        });
+
+        const suggested = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.outliner-tag-suggest-item')).map((el) => el.textContent)
+        );
+        // 欠落分（#db）・stale の実 text 分（#async）・正常分（#backend）がすべて出る。
+        // stale の旧値（#old-stale）は text に無いので出ない（text が単一真実）。
+        expect(suggested).toContain('#db');
+        expect(suggested).toContain('#async');
+        expect(suggested).toContain('#backend');
+        expect(suggested).not.toContain('#old-stale');
+
+        // #tag 検索も同じ tags を使うため、欠落していた tag で検索がヒットする。
+        await page.locator('.outliner-search-input').fill('#db');
+        await page.waitForTimeout(300);
+        const visibleTexts = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.outliner-node:not([style*="display: none"]) .outliner-text'))
+                .map((el) => el.textContent || '')
+        );
+        expect(visibleTexts.some((t) => t.includes('db choice'))).toBe(true);
+    });
+});
