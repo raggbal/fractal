@@ -96,6 +96,9 @@ const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/in
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 // FR-B04 / FR-B06: In-App link 生成の共有純関数（window.InAppLinkUtils）。notes-file-panel / editor / outliner が消費するため前に注入。
 const inAppLinkUtilsScript = fs.readFileSync(path.join(__dirname, '../src/shared/inapp-link-utils.js'), 'utf-8');
+// FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js/outliner.js より前）
+const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
+const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
@@ -429,6 +432,12 @@ const html = `<!DOCTYPE html>
     __INAPP_LINK_UTILS_SCRIPT__
     </script>
     <script>
+    __SHORTCUT_LIST_SCRIPT__
+    </script>
+    <script>
+    __SHORTCUT_HUD_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -605,6 +614,8 @@ result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPalette
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript);
+result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
+result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);

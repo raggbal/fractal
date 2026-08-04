@@ -19546,4 +19546,10 @@ window.SidePanelHostBridge = SidePanelHostBridge;
 // Auto-create main instance (skipped when loaded as library in outliner webview)
 if (!window.__SKIP_EDITOR_AUTO_INIT__) {
     new EditorInstance(document.body, window.hostBridge);
+    // FR-B06b: cmd 長押しショートカット HUD（md editor 面）。__SKIP_EDITOR_AUTO_INIT__ が
+    // 立っていない = standalone/production の md editor が主体の webview なので 'md' リストで初期化。
+    // outliner/notes は outliner.js 側が 'outliner' で init する（ShortcutHud 内の二重 init ガードで 1 個）。
+    if (typeof ShortcutHud !== 'undefined') {
+        ShortcutHud.init(document, 'md');
+    }
 }

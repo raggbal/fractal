@@ -1150,6 +1150,14 @@ var Outliner = (function() {
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
 
+        // FR-B06b: cmd 長押しショートカット HUD（outliner 面）。init() が複数回呼ばれても
+        // ShortcutHud.init 内の window.__shortcutHudInitialized ガードで 1 個だけ。
+        // notes は editor.js も 'md' で init を試みるが、二重 init ガードで先勝ちの 1 個になる
+        //（outliner.js が先に init される順序なので notes/outliner では 'outliner' リストが出る）。
+        if (typeof ShortcutHud !== 'undefined') {
+            ShortcutHud.init(document, 'outliner');
+        }
+
         // sprint 20260801-232943 (TASK-01): drag セッション終了の安全網。drop が webview に
         // 届かない終わり方（shift なし D&D・webview 外への drop・ESC キャンセル）でも
         // highlight を必ず解除する（clearDropZoneHighlight はモジュールスコープに定義）。

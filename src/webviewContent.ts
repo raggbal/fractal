@@ -115,6 +115,11 @@ export function getWebviewContent(
     // sprint 20260802-075012: md → PDF エクスポートの webview 側清書（editor.js より前に window.PdfExport を用意）
     const pdfExportScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
+    // FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js より前に window.ShortcutList / ShortcutHud を用意）
+    const shortcutListScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'shortcut-list.js'), 'utf8');
+    const shortcutHudScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'shortcut-hud.js'), 'utf8');
 
     // Vendor library URIs (local instead of CDN)
     const vendorDir = path.join(__dirname, '..', 'vendor');
@@ -184,6 +189,12 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${pdfExportScript}
+    </script>
+    <script nonce="${nonce}">
+        ${shortcutListScript}
+    </script>
+    <script nonce="${nonce}">
+        ${shortcutHudScript}
     </script>
     <script nonce="${nonce}">
         ${editorScript}

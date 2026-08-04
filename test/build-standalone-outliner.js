@@ -74,6 +74,9 @@ const htmlMdConverterScript = fs.readFileSync(path.join(__dirname, '../src/webvi
 const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
 const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-color-palette.js'), 'utf-8');
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
+// FR-B06b: cmd 長押しショートカット HUD（editor.js/outliner.js より前にロード）
+const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
+const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
 
 let editorScript = fs.readFileSync(editorJsPath, 'utf-8');
 editorScript = editorScript
@@ -331,6 +334,12 @@ const html = `<!DOCTYPE html>
     __INLINE_COLOR_PICKER_SCRIPT__
     </script>
     <script>
+    __SHORTCUT_LIST_SCRIPT__
+    </script>
+    <script>
+    __SHORTCUT_HUD_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -406,6 +415,8 @@ result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
 result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
+result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
+result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
