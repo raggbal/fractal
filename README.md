@@ -1,7 +1,7 @@
-<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal — Markdown & Outliner (Database & Mindmap) for VS Code
+<img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — Markdown & Outliner (Database & Mindmap) for VS Code
 =
 
-**A complete note-taking environment inside VS Code.** Fractal combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. Organize everything into **Notes**, search across all of it, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
+**A complete note-taking environment inside VS Code.** Fractal Note combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. Organize everything into **Notes**, search across all of it, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
 ![Open VSX](https://img.shields.io/open-vsx/v/imaken/fractal?label=Open%20VSX)
@@ -10,7 +10,7 @@
 
 ---
 
-## Why Fractal
+## Why Fractal Note
 
 - ✍️ **WYSIWYG Markdown** — Edit and read at the same time. No split preview, no raw markup. Tables, code blocks, Mermaid, math, draw.io — all rendered live.
 - 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
@@ -18,9 +18,9 @@
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
 - 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen. Cross-file full-text search, tabs and history, Daily Notes.
 - ☁️ **S3 backup & restore** — One-click backup to your own AWS S3 bucket, and restore from it.
-- 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your Fractal notes (use Fractal instead of Obsidian).
+- 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your notes in Fractal Note (use Fractal Note instead of Obsidian).
 
-`.md` and `.out` files work standalone, but Fractal shines when everything is connected in the **Notes manager**.
+`.md` and `.out` files work standalone, but Fractal Note shines when everything is connected in the **Notes manager**.
 
 ---
 
@@ -39,7 +39,7 @@ A Dynalist-class outliner. Folders, tags, and full-text search across both outli
 
 ## ✨ Core concept
 
-**Manage Markdown, Outliner, Database, and Mindmap in one place — like Notion.** In Fractal these four kinds of content aren't separate tools; they connect inside the same note — hang markdown pages off outline nodes, view the same outline as a database or a mindmap, and search across all of it. And your data stays plain `.md` files and JSON.
+**Manage Markdown, Outliner, Database, and Mindmap in one place — like Notion.** In Fractal Note these four kinds of content aren't separate tools; they connect inside the same note — hang markdown pages off outline nodes, view the same outline as a database or a mindmap, and search across all of it. And your data stays plain `.md` files and JSON.
 
 | Content | Storage | Summary |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **Attachments panel** — Lists every image and file referenced in the document, with Open / Copy Path
 
 ### PDF export
-- **One click to PDF** — Toolbar / side-panel button (or `Fractal: Export to PDF`) turns the current markdown into a print-ready PDF, rendered exactly like the editor (Mermaid, math, colors, checkboxes included)
+- **One click to PDF** — Toolbar / side-panel button (or `Fractal Note: Export to PDF`) turns the current markdown into a print-ready PDF, rendered exactly like the editor (Mermaid, math, colors, checkboxes included)
 - **Smart page breaks** — Breaks before `h1`/`h2` by default, but not before the first `h1` or the first `h2` right after an `h1` — chapters flow naturally
 - **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) overrides the built-in print style; set `fractal.pdfIncludeDefaultStyles: false` to replace it entirely. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
 - **Local & dependency-free** — Uses your installed Chrome/Edge headlessly; no network access during export, nothing added to the extension bundle
@@ -106,7 +106,7 @@ When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — m
 - `Cmd+L` — send the selected text to the AI chat. `Cmd+Shift+.` opens the file in the VS Code text editor
 
 ### Standalone mode
-- Set Fractal as your **default editor for **`.md` and edit any markdown on your machine — no Fractal note required
+- Set Fractal Note as your **default editor for **`.md` and edit any markdown on your machine — no note workspace required
 - For standalone files you can **choose where images and attachments are saved** (stored in a hidden `.fractal.json` file next to the markdown — the markdown body itself is never touched, so other editors never see it)
 
 ---
@@ -154,7 +154,7 @@ Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node mo
 
 ## 🗂 Notes — where everything connects
 
-Fractal organizes information into **notes**. Just register any folder from the activity bar.
+Fractal Note organizes information into **notes**. Just register any folder from the activity bar.
 ![assets/images/1785087018130.png](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out` and `.md` files in a **virtual folder/file tree** with drag & drop. Your data stays plain files
@@ -162,7 +162,7 @@ Fractal organizes information into **notes**. Just register any folder from the 
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
-- **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal. Click to jump
+- **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal Note. Click to jump
 - **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
 
 ### ☁️ S3 backup & restore
@@ -178,9 +178,9 @@ Translate a selection or the whole document with **Amazon Translate**, including
 
 ---
 
-## 🤖 AI skills — make Fractal your agent's notebook
+## 🤖 AI skills — make Fractal Note your agent's notebook
 
-Fractal publishes **AI skills** (`ai_skills/`) that teach AI agents the Fractal data model so they can search, read, and write your notes directly:
+Fractal Note publishes **AI skills** (`ai_skills/`) that teach AI agents the Fractal Note data model so they can search, read, and write your notes directly:
 
 - `fractal-structure` — Reference for the Notes / Outliner / Page data model
 - `fractal-search` — Auto-discovers notes folders, full-text search across notes, tag and task-state filters (`--tag` / `--checked`), filtering by note name
@@ -194,7 +194,7 @@ ai_skills/install.sh         # install into every detected AI IDE (Claude Code /
 ./install-skills.sh          # Claude Code only, with rules
 ```
 
-With the skills installed, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal — a practical **Obsidian alternative** with an AI-native workflow.
+With the skills installed, agents like Claude Code can organize research, summarize clips, and build knowledge bases by writing straight into Fractal Note — a practical **Obsidian alternative** with an AI-native workflow.
 
 ---
 
@@ -203,7 +203,7 @@ With the skills installed, agents like Claude Code can organize research, summar
 Save any web page into a Fractal Note — straight from Chrome, without launching VS Code.
 
 - Lives in `chrome-extension/` in this repository (load it as an unpacked extension)
-- Click the icon (or `Alt+Shift+F` for a quick clip) → the page is extracted with **Mozilla Readability** and converted through **Fractal's own HTML→MD pipeline** (tables, GFM, Medium / dev.to code blocks, and more)
+- Click the icon (or `Alt+Shift+F` for a quick clip) → the page is extracted with **Mozilla Readability** and converted through **Fractal Note's own HTML→MD pipeline** (tables, GFM, Medium / dev.to code blocks, and more)
 - Save to an **outliner** (added as a page node) or to **markdown** (a new md is created and a subpage link is appended to the md you picked) — both are supported
 - **Destination presets** — Register multiple "Note + destination" pairs and mark a ★default. The popup opens with the default pre-selected, ready to save immediately
 - Writes directly to disk via the File System Access API — no communication with VS Code needed
@@ -229,7 +229,7 @@ The Windows / Linux implementations (path handling, clipboard, launching externa
 
 ### VS Code Marketplace
 1. Open Extensions (`Ctrl+Shift+X`)
-2. Search **"Fractal"** → Install
+2. Search **"Fractal Note"** → Install
 
 Or directly: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
 
@@ -261,22 +261,22 @@ Core features work without AWS. To use S3 sync and Amazon Translate, just config
 ## 🚀 Getting started
 
 ### Notes (recommended)
-1. Click the **Fractal Notes** icon in the activity bar
+1. Click the **Fractal Note** icon in the activity bar
 2. Add any folder to register it as a note
 3. Click the note to open the three-pane UI — outliners, pages, and folders are all created from there
 
 ### Markdown editor
-1. Right-click any `.md` → **"Open with Fractal"**
-2. Or make it the default: right-click a `.md` → **Open With…** → **Configure default editor** → **Fractal**
+1. Right-click any `.md` → **"Open with Fractal Note"**
+2. Or make it the default: right-click a `.md` → **Open With…** → **Configure default editor** → **Fractal Note**
 
 ### Outliner
-- `.out` files open in Fractal automatically
-- Create one from the command palette: `Fractal: New Outliner File`
+- `.out` files open in Fractal Note automatically
+- Create one from the command palette: `Fractal Note: New Outliner File`
 
 ### In-app links
 - Right-click an outliner node → **Copy In-App Link**
 - Use 🔗 in the side-panel header to create a link to the current page
-- Paste it anywhere in Fractal — click to jump
+- Paste it anywhere in Fractal Note — click to jump
 
 ---
 
