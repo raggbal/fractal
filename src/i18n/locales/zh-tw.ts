@@ -65,6 +65,7 @@ export const webviewMessages = {
   textColor: '文字顏色',
   textColorNone: '無',
   codeBlock: '程式碼區塊 (Ctrl+Shift+K)',
+  codeBlockWrap: '自動換行',
   insertLink: '插入連結 (Ctrl+K)',
   insertImage: '插入圖片 (Ctrl+Shift+I)',
   setImageDir: '設定圖片目錄',

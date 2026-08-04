@@ -98,6 +98,8 @@ export interface WebviewMessages {
   textColor: string;
   textColorNone: string;
   codeBlock: string;
+  // FR-B10: codeblock 折り返しトグルボタンの tooltip
+  codeBlockWrap?: string;
   insertLink: string;
   insertImage: string;
   setImageDir: string;

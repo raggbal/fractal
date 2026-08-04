@@ -82,6 +82,7 @@ export const webviewMessages = {
   textColor: 'Text Color',
   textColorNone: 'None',
   codeBlock: 'Code Block (Ctrl+Shift+K)',
+  codeBlockWrap: 'Wrap',
   insertLink: 'Insert Link (Ctrl+K)',
   insertImage: 'Insert Image (Ctrl+Shift+I)',
   setImageDir: 'Set Image Directory',

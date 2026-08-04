@@ -82,6 +82,7 @@ export const webviewMessages = {
   textColor: '文字色',
   textColorNone: 'なし',
   codeBlock: 'コードブロック (Ctrl+Shift+K)',
+  codeBlockWrap: '折り返し',
   insertLink: 'リンク挿入 (Ctrl+K)',
   insertImage: '画像挿入 (Ctrl+Shift+I)',
   setImageDir: '画像ディレクトリ設定',

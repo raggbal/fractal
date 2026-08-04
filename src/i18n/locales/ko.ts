@@ -65,6 +65,7 @@ export const webviewMessages = {
   textColor: '글자 색',
   textColorNone: '없음',
   codeBlock: '코드 블록 (Ctrl+Shift+K)',
+  codeBlockWrap: '줄 바꿈',
   insertLink: '링크 삽입 (Ctrl+K)',
   insertImage: '이미지 삽입 (Ctrl+Shift+I)',
   setImageDir: '이미지 디렉토리 설정',
