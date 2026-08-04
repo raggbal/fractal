@@ -167,6 +167,7 @@ export const webviewMessages = {
   notesNewFolder: '新建文件夹',
   notesOpenInNewTab: '在新标签页打开',
   notesNewOutline: '新建大纲',
+  notesAddOutliner: '添加大纲 (.out)',
   notesToday: '今天',
   notesCollapsePanel: '折叠面板',
   notesSearchPlaceholder: '搜索...',

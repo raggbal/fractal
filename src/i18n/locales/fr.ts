@@ -167,6 +167,7 @@ export const webviewMessages = {
   notesNewFolder: 'Nouveau dossier',
   notesOpenInNewTab: 'Ouvrir dans un nouvel onglet',
   notesNewOutline: 'Nouveau plan',
+  notesAddOutliner: 'Ajouter un plan (.out)',
   notesToday: 'Aujourd\'hui',
   notesCollapsePanel: 'Réduire le panneau',
   notesSearchPlaceholder: 'Rechercher...',

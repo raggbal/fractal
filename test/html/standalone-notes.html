@@ -5417,7 +5417,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     </style>
 </head>
 <body>
-    <div class="notes-layout">
+    <div class="notes-layout" data-note-folder-name="">
         <aside class="notes-file-panel" id="notesFilePanel">
             <div class="file-panel-header">
                 <span class="file-panel-title" id="notesTitleLabel" title="Click to rename this note"></span>
@@ -5660,6 +5660,7 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                         <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
                         <button data-action="copyPath" title=""></button>
+                        <button data-action="copyInAppLink" class="toolbar-copy-inapp-link" title="Copy In-App Link" style="display:none"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(12 12) scale(0.8) translate(-12 -12)" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></g></svg></button>
                         
                     </div>
                 </div>
@@ -8989,6 +8990,103 @@ if (typeof window !== 'undefined') {
 
     </script>
     <script>
+    // In-App link (fractal://) の生成・解析の共有純関数（FR-B11 / sprint 20260804-145603）
+//
+// 文法の単一真実（生成と parse を同一ファイルに置き 2 実装非対称を防ぐ）:
+//   page link: fractal://note/{folder}/{outFileId}/page/{pageId}
+//   md   link: fractal://note/{folder}/md/{mdFileId}          （FR-B11 追加）
+//   node link: fractal://note/{folder}/{outFileId}/{nodeId}
+//   out  link: fractal://note/{folder}/{outFileId}            （FR-B11 追加・2 セグメント）
+//
+// parse は最長一致順 page → md → node → out。md link は node link と同じ 3 セグメント形
+// （outFileId 位置がリテラル 'md'）なので、md を node より先に判定する（この順を崩すと
+// md link が outFileId='md' の node link に誤解釈される）。outFileId は生成 id なので
+// 'md' と衝突する現実的リンクは存在しない（FR-B11 で許容済み）。
+//
+// encode 規則: セグメントごとの encodeURIComponent（outliner.js:7054/:7427 の既存生成と同一）。
+
+function buildNodeLink(folderName, outFileId, nodeId) {
+    return 'fractal://note/' +
+        encodeURIComponent(folderName) + '/' +
+        encodeURIComponent(outFileId) + '/' +
+        encodeURIComponent(nodeId);
+}
+
+function buildPageLink(folderName, outFileId, pageId) {
+    return 'fractal://note/' +
+        encodeURIComponent(folderName) + '/' +
+        encodeURIComponent(outFileId) + '/page/' +
+        encodeURIComponent(pageId);
+}
+
+function buildOutLink(folderName, outFileId) {
+    return 'fractal://note/' +
+        encodeURIComponent(folderName) + '/' +
+        encodeURIComponent(outFileId);
+}
+
+function buildMdLink(folderName, mdFileId) {
+    return 'fractal://note/' +
+        encodeURIComponent(folderName) + '/md/' +
+        encodeURIComponent(mdFileId);
+}
+
+function parseFractalLink(url) {
+    // Page link: fractal://note/{folder}/{outFileId}/page/{pageId}
+    var pageMatch = url.match(/^fractal:\/\/note\/([^/]+)\/([^/]+)\/page\/([^/?]+)$/);
+    if (pageMatch) {
+        return {
+            noteFolderName: decodeURIComponent(pageMatch[1]),
+            outFileId: decodeURIComponent(pageMatch[2]),
+            pageId: decodeURIComponent(pageMatch[3]),
+        };
+    }
+    // Md link: fractal://note/{folder}/md/{mdFileId}（node link より先に判定）
+    var mdMatch = url.match(/^fractal:\/\/note\/([^/]+)\/md\/([^/?]+)$/);
+    if (mdMatch) {
+        return {
+            noteFolderName: decodeURIComponent(mdMatch[1]),
+            mdFileId: decodeURIComponent(mdMatch[2]),
+        };
+    }
+    // Node link: fractal://note/{folder}/{outFileId}/{nodeId}
+    var nodeMatch = url.match(/^fractal:\/\/note\/([^/]+)\/([^/]+)\/([^/?]+)$/);
+    if (nodeMatch) {
+        return {
+            noteFolderName: decodeURIComponent(nodeMatch[1]),
+            outFileId: decodeURIComponent(nodeMatch[2]),
+            nodeId: decodeURIComponent(nodeMatch[3]),
+        };
+    }
+    // Out link: fractal://note/{folder}/{outFileId}（2 セグメント・jump なし）
+    var outMatch = url.match(/^fractal:\/\/note\/([^/]+)\/([^/?]+)$/);
+    if (outMatch) {
+        return {
+            noteFolderName: decodeURIComponent(outMatch[1]),
+            outFileId: decodeURIComponent(outMatch[2]),
+        };
+    }
+    return null;
+}
+
+var _api = {
+    buildNodeLink: buildNodeLink,
+    buildPageLink: buildPageLink,
+    buildOutLink: buildOutLink,
+    buildMdLink: buildMdLink,
+    parseFractalLink: parseFractalLink,
+};
+
+// CommonJS + global 両対応（webview では window.InAppLinkUtils として使用）
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = _api;
+}
+if (typeof window !== 'undefined') {
+    window.InAppLinkUtils = _api;
+}
+
+    </script>
+    <script>
     // SidePanelHostBridge — delegates side panel editor's host calls to the main host bridge
 class SidePanelHostBridge {
     constructor(mainHost, filePath, callbacks) {
@@ -9418,6 +9516,40 @@ class EditorInstance {
             var title = toolbarTitleMap[btn.dataset.action];
             if (title && !btn.title) btn.title = title;
         });
+    }
+
+    // FR-B06: Notes 内 md メインペインでのみ「アプリ内リンクをコピー」ボタンを表示。
+    // 生成器（editor-body-html.js）は standalone md editor と共有のため、button は HTML で
+    // display:none。ここで .notes-layout かつ この instance の md filePath が note md のときだけ現す
+    // （standalone md editor には .notes-layout が無いので隠れたまま）。
+    var copyInAppLinkBtn = container.querySelector('[data-action="copyInAppLink"]');
+    if (copyInAppLinkBtn) {
+        var notesLayoutForInAppReveal = document.querySelector('.notes-layout');
+        var mdFpForReveal = self.options.filePath || '';
+        if (notesLayoutForInAppReveal && /\.md$/i.test(mdFpForReveal)) {
+            copyInAppLinkBtn.style.display = '';
+        }
+    }
+
+    // FR-B06: 「アプリ内リンクをコピー」クリック時のハンドラ。
+    // md link = InAppLinkUtils.buildMdLink(folder, mdFileId)、clipboard は [title](link)（title の [] 除去）。
+    // outliner.js の node/sidepanel copy-inapp と同じ markdown 形式。
+    function copyInAppLinkForMainMd() {
+        if (typeof window === 'undefined' || !window.InAppLinkUtils) return;
+        var notesLayoutEl = document.querySelector('.notes-layout');
+        if (!notesLayoutEl) return;
+        var folderName = notesLayoutEl.dataset.noteFolderName;
+        var mdFp = self.options.filePath || '';
+        if (!folderName || !/\.md$/i.test(mdFp)) return;
+        var mdFileId = mdFp.replace(/^.*[/\\]/, '').replace(/\.md$/i, '');
+        var link = window.InAppLinkUtils.buildMdLink(folderName, mdFileId);
+        // 表示テキスト: 先頭 H1 を優先、無ければ mdFileId
+        var displayText = '';
+        var h1 = editor ? editor.querySelector('h1') : null;
+        if (h1) { displayText = (h1.textContent || '').trim(); }
+        if (!displayText) { displayText = mdFileId; }
+        var mdLink = '[' + displayText.replace(/[\[\]]/g, '') + '](' + link + ')';
+        try { navigator.clipboard.writeText(mdLink); } catch (err) { /* ignore */ }
     }
 
     // Toolbar horizontal scroll navigation
@@ -21936,6 +22068,9 @@ class EditorInstance {
                 break;
             case 'copyPath':
                 host.copyFilePath();
+                break;
+            case 'copyInAppLink':
+                copyInAppLinkForMainMd();
                 break;
             case 'openInNewTab':
                 if (typeof host.openInNewTab === 'function') {
@@ -39619,14 +39754,19 @@ var Outliner = (function() {
                     break;
 
                 case 'notesNavigateInAppLink':
-                    // Node link navigation: close sidepanel + jump to node
+                    // Node/out link: close sidepanel + jump（out link は nodeId なし = 開くだけ）
+                    // FR-B11 md link: mdFilePath（host 解決済み絶対パス）を notesOpenFile 経路で開く
                     var notesBridge = window.notesHostBridge;
                     if (notesBridge) {
                         // Close sidepanel immediately if open
                         if (sidePanelEl && sidePanelEl.classList.contains('open')) {
                             closeSidePanelImmediate();
                         }
-                        notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        if (msg.mdFilePath) {
+                            notesBridge.openFile(msg.mdFilePath);
+                        } else {
+                            notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        }
                     }
                     break;
 
@@ -40979,6 +41119,22 @@ var notesFilePanel = (function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
         });
+        // FR-B04: アプリ内リンクをコピー（file item = .out / .md のみ。folder は showFolderContextMenu で別扱い）。
+        // out → InAppLinkUtils.buildOutLink(folder, id) / md → InAppLinkUtils.buildMdLink(folder, id)。
+        // clipboard は outliner.js:7054 / :7427 と同じ [title](link) markdown（title の [] を除去）。
+        if (typeof window !== 'undefined' && window.InAppLinkUtils) {
+            var isMdFileForLink = /\.md$/i.test(file.filePath);
+            var linkFileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/i, '');
+            addContextItem(contextMenu, i18n.copyInAppLink || 'Copy In-App Link', function() {
+                closeContextMenu();
+                if (!noteFolderName) return;
+                var link = isMdFileForLink
+                    ? window.InAppLinkUtils.buildMdLink(noteFolderName, linkFileId)
+                    : window.InAppLinkUtils.buildOutLink(noteFolderName, linkFileId);
+                var title = (file.title || 'Untitled').replace(/[\[\]]/g, '');
+                try { navigator.clipboard.writeText('[' + title + '](' + link + ')'); } catch (err) { /* ignore */ }
+            });
+        }
         // FR-MV-01: 別 Note へ移動 (QuickPick は host 側)。file item のみ (outliner/md)。
         addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
             closeContextMenu();
@@ -43314,13 +43470,19 @@ if (typeof module !== 'undefined' && module.exports) {
         Outliner.init(data || defaultData);
         window.__testApi.ready = true;
     };
-    window.__testApi.initNotesPanel = function(fileList, currentFile, structure, panelWidth) {
+    window.__testApi.initNotesPanel = function(fileList, currentFile, structure, panelWidth, noteFolderName) {
+        // FR-B04/FR-B06: 本番 notesWebviewContent と同じく noteFolderName を file-panel と
+        // .notes-layout dataset の双方へ渡す（両者とも path.basename(folderPath) = 同値）。
+        var folderName = noteFolderName || '';
+        var layoutEl = document.querySelector('.notes-layout');
+        if (layoutEl) layoutEl.dataset.noteFolderName = folderName;
         notesFilePanel.init(
             window.notesHostBridge,
             fileList || [],
             currentFile || null,
             structure || null,
-            panelWidth || null
+            panelWidth || null,
+            folderName
         );
     };
     window.__testApi.getSerializedData = function() {
