@@ -2614,9 +2614,18 @@ export class NotesEditorProvider {
             // FR-B11 md link: host 側で絶対パスに解決して渡す（webview は id → path を解決できない）。
             // webview 側で sidepanel を閉じてから notesOpenFile 経路（md は JSON.parse に流れない）で開く
             const mdFileId = params.mdFileId.replace(/\.md$/i, '');
+            // TASK-09: mdFileId は外部入力（手貼りリンク）。note フォルダ外への traversal は
+            // resolveMdFilePath 側で basename に clamp されるが、二重防御でここでも検証し
+            // note 外に解決されたら開かない（belt-and-suspenders）。
+            const mdFilePath = entry.fileManager.getMdFilePath(mdFileId);
+            const mainFolder = entry.fileManager.getMainFolderPath();
+            if (safeResolveUnderDir(mainFolder, path.relative(mainFolder, mdFilePath)) === null) {
+                vscode.window.showWarningMessage('Invalid in-app link (path outside note folder)');
+                return;
+            }
             entry.postMessage({
                 type: 'notesNavigateInAppLink',
-                mdFilePath: entry.fileManager.getMdFilePath(mdFileId),
+                mdFilePath,
             });
             return;
         }

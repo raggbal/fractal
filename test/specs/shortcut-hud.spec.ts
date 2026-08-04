@@ -107,4 +107,25 @@ test.describe('cmd 長押しショートカット HUD (FR-B06b)', () => {
         await expect(page.locator(HUD_SEL)).toHaveCount(0);
         await page.keyboard.up('Meta');
     });
+
+    // TC-B6B-07 (TASK-10 / review iteration 1): 純 standalone md editor 相当の i18n 経路 —
+    // __outlinerMessages が無い環境でも __shortcutHudMessages（webviewContent.ts が注入）から
+    // カテゴリ見出しが localize される。HUD は showHud() のたびに _buildHudEl で再構築されるため
+    // 表示前に global を差し込めば効く。
+    test('TC-B6B-07 __shortcutHudMessages fallback でカテゴリ見出しが localize される', async ({ page }) => {
+        await bootEditor(page);
+        // standalone-editor には __outlinerMessages が無いことが前提（純 standalone md 相当）
+        const hasOutlinerMsgs = await page.evaluate(() => !!(window as any).__outlinerMessages);
+        expect(hasOutlinerMsgs, 'standalone-editor は __outlinerMessages 非注入').toBe(false);
+        await page.evaluate(() => {
+            (window as any).__shortcutHudMessages = { shortcutCatEditing: '編集テスト見出し' };
+        });
+        await page.keyboard.down('Meta');
+        await page.waitForTimeout(150);
+        const text = await page.locator(HUD_SEL).textContent();
+        // counterfactual: _resolveMessages が __shortcutHudMessages を見ないと英語 fallback
+        //（'Editing'）になり RED
+        expect(text || '').toContain('編集テスト見出し');
+        await page.keyboard.up('Meta');
+    });
 });

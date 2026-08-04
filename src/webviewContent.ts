@@ -194,6 +194,12 @@ export function getWebviewContent(
         ${shortcutListScript}
     </script>
     <script nonce="${nonce}">
+        // TASK-10 (sprint 20260804-145603): 純 standalone md editor は __outlinerMessages を
+        // 注入しないため、HUD カテゴリ見出し用の i18n を専用 global で渡す（shortcut-hud.js の
+        // _resolveMessages が fallback として参照）。
+        window.__shortcutHudMessages = ${JSON.stringify(msg)};
+    </script>
+    <script nonce="${nonce}">
         ${shortcutHudScript}
     </script>
     <script nonce="${nonce}">

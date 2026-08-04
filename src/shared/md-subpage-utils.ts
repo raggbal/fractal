@@ -22,11 +22,6 @@ export function resolveSubpageTitle(content: string, fileName: string): string {
     return safe || 'untitled';
 }
 
-/** D&D されたファイル名が .md か（classifyDroppedFile は md を 'file' に落とすため別判定） */
-export function isMdDropFileName(fileName: string): boolean {
-    return /\.md$/i.test(String(fileName || ''));
-}
-
 /**
  * D&D された md を「対象 md と同じフォルダ」に一意名で保存し、subpage リンク情報を返す。
  *

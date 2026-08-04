@@ -16,6 +16,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { safeResolveUnderDir } from './path-safety';
 
 /** .out の JSON ヘッダ（pageDir/imageDir/fileDir）だけ渡す薄い型 */
 export interface OutDirHints {
@@ -175,6 +176,13 @@ export function resolveMdFilesDir(mainFolder: string): string {
 }
 /** md ファイルのフルパス（新 wins: 新が実在すれば新、無く legacy が実在すれば legacy、既定は新） */
 export function resolveMdFilePath(mainFolder: string, id: string): string {
+    // TASK-09 (sprint 20260804-145603): id は外部入力（fractal:// md link の decode 済みセグメント）
+    // でもあるため、traversal（`../../etc/x` 等）を mainFolder 配下に clamp する。
+    // safeResolveUnderDir が null（絶対パス / .. escape）なら basename に落とす —
+    // 生成 id（1 セグメント）は無影響で、悪意入力だけが note 内の無害なパスに縮退する。
+    if (safeResolveUnderDir(mainFolder, `${id}.md`) === null) {
+        id = path.basename(id);
+    }
     const flat = path.join(mainFolder, `${id}.md`);
     if (existsAny(flat)) return flat;
     const legacy = path.join(mainFolder, LEGACY_MD_DIR, `${id}.md`);
