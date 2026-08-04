@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.16] - 2026-08-03
+
+### Changed
+- **S3 sync / 翻訳が AWS CLI 不要に** — aws CLI の子プロセス呼び出しを AWS SDK（JavaScript v3）内蔵に完全移植。CLI のインストール・PATH 設定なしで、設定に認証キーを入れるだけで S3 sync と Amazon Translate が動く。newer-wins 同期・`--delete` 不使用などの動作は従来と同一。注意: HTTP(S) プロキシ経由の接続は現在非対応（既知制約）
+- **翻訳ボタンをツールバー右側（PDF ボタンの左）に移設** — `fractal.showTranslateButtons` が ON なら、note markdown / standalone markdown の両方で、toolbar が simple モードでも翻訳ボタンが見えるように（従来は full モードのツールバー内のみで、simple では隠れていた）。押すと従来どおりの翻訳結果画面が開く
+
+### Fixed
+- **sidepanel の翻訳がメイン画面も翻訳画面にしてしまうバグ** — note md + sidepanel md を開いて sidepanel で翻訳すると、メインの note md まで翻訳画面に切り替わっていた → 翻訳結果は要求した側（sidepanel / メイン）にだけ届くように。逆方向（メインで翻訳 → sidepanel が汚染される潜在バグ）も同時に修正
+- **sidepanel 翻訳結果画面の不要ボタンを非表示** — read-only の翻訳結果画面から app link / Open in new tab ボタンを除去（閉じる・戻る・開き直しで復元）
+- **sidepanel の app link ボタンの見た目** — ブラウザ既定の枠線が角丸枠として見えていたのを他ボタンと同じフラットな見た目に統一。ヘッダボタンの間隔ズレ（margin と gap の二重加算）も解消
+
+### Internal
+- 拡張本体を esbuild で単一バンドル化（SDK 同梱のため。webview/共有 JS の配布は従来どおり）。テストハーネスの collection 失敗を検出する gate を追加
+
 ## [1.1.15] - 2026-08-02
 
 ### Added

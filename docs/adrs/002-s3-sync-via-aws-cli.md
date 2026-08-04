@@ -1,6 +1,6 @@
 # ADR-002: S3 Sync via AWS CLI (not SDK)
 
-## Status: Accepted
+## Status: Superseded by ADR-0009 (.harness/adr/ADR-0009-aws-sdk-v3-esbuild.md, v1.1.16 — AWS SDK v3 + esbuild へ移植)
 
 Scope: fractal
 
