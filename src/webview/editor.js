@@ -3530,10 +3530,29 @@ class EditorInstance {
             }
             openBlockFullscreen({ kind: 'code', source: pre });
         });
-        
+
+        // FR-B10: 折り返しトグル。pre に .code-block-wrap を付け外しして
+        // white-space: pre ⇄ pre-wrap を切替える（表示状態のみ・md には保存しない）。
+        // class トグルだけなので copy（getCodePlainText）や serialize（mdProcessNode）に一切影響しない。
+        const wrapBtn = document.createElement('button');
+        wrapBtn.className = 'code-wrap-btn';
+        wrapBtn.textContent = '↩';
+        wrapBtn.title = i18n.codeBlockWrap || 'Wrap';
+        wrapBtn.setAttribute('contenteditable', 'false');
+        // 既に折り返し ON 状態の pre を再セットアップした場合（display/edit 往復）に active 見た目を復元
+        if (pre.classList.contains('code-block-wrap')) {
+            wrapBtn.classList.add('is-active');
+        }
+        wrapBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const on = pre.classList.toggle('code-block-wrap');
+            wrapBtn.classList.toggle('is-active', on);
+        });
+
         header.appendChild(expandBtn);
         header.appendChild(langTag);
         header.appendChild(copyBtn);
+        header.appendChild(wrapBtn);
         pre.insertBefore(header, pre.firstChild);
         
         // Apply syntax highlighting for display mode

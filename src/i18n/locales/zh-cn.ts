@@ -65,6 +65,7 @@ export const webviewMessages = {
   textColor: '文字颜色',
   textColorNone: '无',
   codeBlock: '代码块 (Ctrl+Shift+K)',
+  codeBlockWrap: '自动换行',
   insertLink: '插入链接 (Ctrl+K)',
   insertImage: '插入图片 (Ctrl+Shift+I)',
   setImageDir: '设置图片目录',
