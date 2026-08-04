@@ -2069,9 +2069,9 @@ export class NotesEditorProvider {
             // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → Notes ツリー D&D。
             // href を dirname(sourceMd) 基準で解決（本体リンク解決と同じ）。
             //   同一 note（mainFolder 直下 flat）→ 既存ファイルをそのまま登録（コピー・リネームなし）
-            //   別 note / note 外 → mainFolder 直下へ複製登録（元は不変）
-            // どちらも元 md 本文のアンカーは触らない（リンクは生きたまま = 参照 + ツリー掲載の両立。
-            // subpage の「所有」はツリーへ移る）。
+            //   別 note / note 外 → mainFolder 直下へ複製登録（元ファイルは不変）
+            // 登録成功後、元 md のアンカーを除去（removeSubpageLink → webview が該当 <a> を削除
+            // して serialize。「所有」がツリーへ移る = 中途半端な二重参照を残さない）。
             notesRegisterSubpageFromMd: (payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
                 try {
                     if (!payload || !payload.href || !payload.sourceMdPath) return;
@@ -2096,6 +2096,12 @@ export class NotesEditorProvider {
                         fileList: fileManager.listFiles(),
                         structure: fileManager.getStructureForWebview(),
                         currentFile: fileManager.getCurrentFilePath(),
+                    });
+                    // 元 md からアンカー除去（webview 側が sourceMdPath 一致の editor 内 <a> を削除して sync）
+                    senderRef.postMessage({
+                        type: 'removeSubpageLink',
+                        href: payload.href,
+                        sourceMdPath: payload.sourceMdPath,
                     });
                 } catch (e) {
                     console.error('[Notes] notesRegisterSubpageFromMd error:', e);

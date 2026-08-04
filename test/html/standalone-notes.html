@@ -1323,7 +1323,11 @@ body {
 /* subpage [[]](x.md): 角折れドキュメント（矢印なし・子ページ）。link-internal-md より後に置き後勝ちで上書き */
 .editor a.link-subpage::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%236c6c6c' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%236c6c6c' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%236c6c6c' stroke-width='1'/%3E%3C/svg%3E");
+    /* TASK-19: subpage はアイコンを掴んでツリーへ D&D できる（掴める場所を明示） */
+    cursor: grab;
 }
+.editor a.link-subpage:active::before { cursor: grabbing; }
+.editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
@@ -11870,7 +11874,8 @@ class EditorInstance {
                     var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
-                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
@@ -23700,6 +23705,7 @@ class EditorInstance {
         if (!isExistingFile) {
             a.dataset.subpage = 'true';
             a.className = 'link-internal-md link-subpage';
+            a.draggable = true; // TASK-19: subpage はツリーへ D&D 可
         }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
@@ -23858,6 +23864,7 @@ class EditorInstance {
                 pcA.dataset.markdownPath = relativePath;
                 // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
                 pcA.dataset.subpage = 'true';
+                pcA.draggable = true; // TASK-19
                 pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
@@ -25717,6 +25724,29 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'removeSubpageLink') {
+            // TASK-19: subpage をツリーへ D&D 登録した後、元 md からアンカーを除去する。
+            // insertFileLink と同じ宛先パターン: 自分（この instance の md）なら editor から除去 +
+            // syncMarkdown / 自分が管理する sidepanel の md なら中継（sidepanel instance が処理）。
+            var rmOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (rmOwnFp === message.sourceMdPath) {
+                var rmAnchors = editor.querySelectorAll('a[data-subpage="true"]');
+                for (var rmJ = 0; rmJ < rmAnchors.length; rmJ++) {
+                    var rmA = rmAnchors[rmJ];
+                    var rmHref = rmA.dataset.markdownPath || rmA.getAttribute('href') || '';
+                    if (rmHref === message.href) {
+                        rmA.parentNode.removeChild(rmA);
+                        syncMarkdown();
+                        break; // 最初の一致 1 個だけ（同一 href 複数は先頭を除去）
+                    }
+                }
+            } else if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sourceMdPath) {
+                sidePanelHostBridge._sendMessage({
+                    type: 'removeSubpageLink',
+                    href: message.href,
+                    sourceMdPath: message.sourceMdPath
+                });
+            }
         } else if (message.type === 'insertSubpageLink') {
             // FR-B07 (sprint 20260804-145603): .md D&D の subpage 登録。host が md を保存して
             // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
@@ -25737,6 +25767,7 @@ class EditorInstance {
             spA.textContent = message.title || 'untitled';
             spA.dataset.markdownPath = message.markdownPath;
             spA.dataset.subpage = 'true';
+            spA.draggable = true; // TASK-19
             spA.className = 'link-internal-md link-subpage';
 
             editor.focus();
@@ -28489,6 +28520,10 @@ class EditorInstance {
                     const a = document.createElement('a');
                     a.href = pathInfo.path;
                     a.textContent = selText;
+                    // bug-fix 2026-08-05: 再読込（markdownToHtml :2204）と同じ class を貼付時にも
+                    // 付ける（.md パスのリンクアイコンが親 md 再読込まで出ない問題）
+                    a.className = classifyLinkHref(pathInfo.path, false);
+                    a.dataset.markdownPath = pathInfo.path;
                     range.deleteContents();
                     range.insertNode(a);
                     const nr = document.createRange();
@@ -28516,6 +28551,9 @@ class EditorInstance {
                         const a = document.createElement('a');
                         a.href = pathInfo.path;
                         a.textContent = pathInfo.base;
+                        // bug-fix 2026-08-05: 貼付直後もリンクアイコンを出す（上の選択あり分岐と同じ）
+                        a.className = classifyLinkHref(pathInfo.path, false);
+                        a.dataset.markdownPath = pathInfo.path;
                         range.deleteContents();
                         range.insertNode(a);
                         const nr = document.createRange();
@@ -40697,6 +40735,18 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'removeSubpageLink':
+                    // TASK-19: subpage → ツリー D&D 登録後の元アンカー除去。
+                    // sidepanel md が発生源なら sidepanel instance に中継（editor.js 側が除去 + sync）。
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sourceMdPath && sidePanelHostBridge.filePath === msg.sourceMdPath) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'removeSubpageLink',
+                            href: msg.href,
+                            sourceMdPath: msg.sourceMdPath
+                        });
+                    }
+                    break;
+
                 case 'sidePanelAssetContext':
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._assetContext = {
@@ -42231,14 +42281,12 @@ var notesFilePanel = (function() {
             // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
             // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
             var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
-            // TASK-19: md editor 内 subpage リンクからの drag も受理
+            // TASK-19: md editor 内 subpage リンクからの drag も受理。
+            // 早期 return せず通常の line 表示ロジック（下の before/after/into-folder）へ流す
+            //（Outliner page → ツリーと同じ補助線 UX。md-into-out 分岐は dragSourceFileExt
+            //  が null なので発火しない = 誤 highlight なし）
             var fromMdSubpage = isMdSubpageDrag(e);
-            if (fromMdSubpage && !fromOutliner && !fromOutlinerSubtree && !dragItemId) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-                return;
-            }
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 

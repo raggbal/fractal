@@ -733,14 +733,12 @@ var notesFilePanel = (function() {
             // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
             // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
             var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
-            // TASK-19: md editor 内 subpage リンクからの drag も受理
+            // TASK-19: md editor 内 subpage リンクからの drag も受理。
+            // 早期 return せず通常の line 表示ロジック（下の before/after/into-folder）へ流す
+            //（Outliner page → ツリーと同じ補助線 UX。md-into-out 分岐は dragSourceFileExt
+            //  が null なので発火しない = 誤 highlight なし）
             var fromMdSubpage = isMdSubpageDrag(e);
-            if (fromMdSubpage && !fromOutliner && !fromOutlinerSubtree && !dragItemId) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'copy';
-                return;
-            }
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 

@@ -9262,6 +9262,18 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'removeSubpageLink':
+                    // TASK-19: subpage → ツリー D&D 登録後の元アンカー除去。
+                    // sidepanel md が発生源なら sidepanel instance に中継（editor.js 側が除去 + sync）。
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sourceMdPath && sidePanelHostBridge.filePath === msg.sourceMdPath) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'removeSubpageLink',
+                            href: msg.href,
+                            sourceMdPath: msg.sourceMdPath
+                        });
+                    }
+                    break;
+
                 case 'sidePanelAssetContext':
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._assetContext = {

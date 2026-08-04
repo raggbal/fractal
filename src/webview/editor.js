@@ -2204,7 +2204,8 @@ class EditorInstance {
                     var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
-                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
@@ -14034,6 +14035,7 @@ class EditorInstance {
         if (!isExistingFile) {
             a.dataset.subpage = 'true';
             a.className = 'link-internal-md link-subpage';
+            a.draggable = true; // TASK-19: subpage はツリーへ D&D 可
         }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
@@ -14192,6 +14194,7 @@ class EditorInstance {
                 pcA.dataset.markdownPath = relativePath;
                 // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
                 pcA.dataset.subpage = 'true';
+                pcA.draggable = true; // TASK-19
                 pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
@@ -16051,6 +16054,29 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'removeSubpageLink') {
+            // TASK-19: subpage をツリーへ D&D 登録した後、元 md からアンカーを除去する。
+            // insertFileLink と同じ宛先パターン: 自分（この instance の md）なら editor から除去 +
+            // syncMarkdown / 自分が管理する sidepanel の md なら中継（sidepanel instance が処理）。
+            var rmOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (rmOwnFp === message.sourceMdPath) {
+                var rmAnchors = editor.querySelectorAll('a[data-subpage="true"]');
+                for (var rmJ = 0; rmJ < rmAnchors.length; rmJ++) {
+                    var rmA = rmAnchors[rmJ];
+                    var rmHref = rmA.dataset.markdownPath || rmA.getAttribute('href') || '';
+                    if (rmHref === message.href) {
+                        rmA.parentNode.removeChild(rmA);
+                        syncMarkdown();
+                        break; // 最初の一致 1 個だけ（同一 href 複数は先頭を除去）
+                    }
+                }
+            } else if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sourceMdPath) {
+                sidePanelHostBridge._sendMessage({
+                    type: 'removeSubpageLink',
+                    href: message.href,
+                    sourceMdPath: message.sourceMdPath
+                });
+            }
         } else if (message.type === 'insertSubpageLink') {
             // FR-B07 (sprint 20260804-145603): .md D&D の subpage 登録。host が md を保存して
             // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
@@ -16071,6 +16097,7 @@ class EditorInstance {
             spA.textContent = message.title || 'untitled';
             spA.dataset.markdownPath = message.markdownPath;
             spA.dataset.subpage = 'true';
+            spA.draggable = true; // TASK-19
             spA.className = 'link-internal-md link-subpage';
 
             editor.focus();
@@ -18823,6 +18850,10 @@ class EditorInstance {
                     const a = document.createElement('a');
                     a.href = pathInfo.path;
                     a.textContent = selText;
+                    // bug-fix 2026-08-05: 再読込（markdownToHtml :2204）と同じ class を貼付時にも
+                    // 付ける（.md パスのリンクアイコンが親 md 再読込まで出ない問題）
+                    a.className = classifyLinkHref(pathInfo.path, false);
+                    a.dataset.markdownPath = pathInfo.path;
                     range.deleteContents();
                     range.insertNode(a);
                     const nr = document.createRange();
@@ -18850,6 +18881,9 @@ class EditorInstance {
                         const a = document.createElement('a');
                         a.href = pathInfo.path;
                         a.textContent = pathInfo.base;
+                        // bug-fix 2026-08-05: 貼付直後もリンクアイコンを出す（上の選択あり分岐と同じ）
+                        a.className = classifyLinkHref(pathInfo.path, false);
+                        a.dataset.markdownPath = pathInfo.path;
                         range.deleteContents();
                         range.insertNode(a);
                         const nr = document.createRange();
