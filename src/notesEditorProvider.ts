@@ -36,7 +36,7 @@ import {
     generateUniqueFileName,
 } from './editorProvider';
 import { generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
-import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
+import { saveDroppedMdAsSubpage, dataUrlToUtf8, resolveSubpageTitle } from './shared/md-subpage-utils';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -1202,6 +1202,25 @@ export class NotesEditorProvider {
                     });
                 } catch (e) {
                     console.error('[Notes] readMdAsSubpageForNotesMd error:', e);
+                }
+            },
+            // FR-B09 (TASK-08): ファイルツリー md → md editor D&D。ファイルは note 内に既存
+            //（1:1 所有はツリー item が保持）なのでコピーせず、既存 md への subpage リンクのみ挿入
+            linkMdAsSubpageForNotesMd: (filePath: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                if (!fs.existsSync(filePath)) return;
+                if (path.resolve(filePath) === path.resolve(cur)) return; // 自分自身へのリンクは無意味
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const relPath = path.relative(path.dirname(cur), filePath).replace(/\\/g, '/');
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: relPath,
+                        title: resolveSubpageTitle(content, path.basename(filePath)),
+                    });
+                } catch (e) {
+                    console.error('[Notes] linkMdAsSubpageForNotesMd error:', e);
                 }
             },
             // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）

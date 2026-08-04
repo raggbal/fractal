@@ -323,6 +323,10 @@
         readAndInsertMdAsSubpage: function(filePath) {
             api.postMessage({ type: 'notesMdReadMdAsSubpage', filePath: filePath });
         },
+        // FR-B09 (TASK-08): ファイルツリー md item → md editor D&D。既存 md へコピーせずリンクのみ
+        linkMdAsSubpage: function(filePath) {
+            api.postMessage({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
+        },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
         // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび

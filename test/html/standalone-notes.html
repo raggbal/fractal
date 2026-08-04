@@ -27076,6 +27076,23 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
+        // FR-B09 (sprint 20260804-145603): Notes ファイルツリーの md item drop（TASK-08）。
+        // ファイルは既に note 内にあるためコピーせず、既存 md への subpage リンクを挿入する
+        //（host が title/相対パスを解決して insertSubpageLink を返す = FR-B07 と同じ受信経路）。
+        // linkMdAsSubpage を持つ host（Notes md メインペイン）でのみ動作、他は no-op（添付に落とさない）。
+        try {
+            var treeMdRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-tree-md') : '';
+            if (treeMdRaw) {
+                var treeMdPayload = null;
+                try { treeMdPayload = JSON.parse(treeMdRaw); } catch (err) { /* ignore */ }
+                if (treeMdPayload && treeMdPayload.filePath &&
+                    typeof targetHost.linkMdAsSubpage === 'function') {
+                    targetHost.linkMdAsSubpage(treeMdPayload.filePath);
+                }
+                return;
+            }
+        } catch (err) { /* ignore */ }
+
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -44200,6 +44217,10 @@ if (typeof module !== 'undefined' && module.exports) {
         save: function() { window.__testApi.messages.push({ type: 'save' }); },
         reportEditingState: function(editing) {
             window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
+        },
+        // FR-B09 (TASK-08): ツリー md → md editor D&D（本番 notes-host-bridge.js と同名メソッド）
+        linkMdAsSubpage: function(filePath) {
+            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
         },
     });
     window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({

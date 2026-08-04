@@ -524,6 +524,10 @@ const html = `<!DOCTYPE html>
         reportEditingState: function(editing) {
             window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
         },
+        // FR-B09 (TASK-08): ツリー md → md editor D&D（本番 notes-host-bridge.js と同名メソッド）
+        linkMdAsSubpage: function(filePath) {
+            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
+        },
     });
     window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({
         outlinerContainer: document.querySelector('.outliner-container'),

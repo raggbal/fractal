@@ -73,6 +73,8 @@ export interface NotesPlatformActions {
     /** FR-B07: Notes md メインペインの .md D&D → subpage 登録（同階層コピー + insertSubpageLink 返信） */
     saveMdAsSubpageForNotesMd?(dataUrl: string, fileName: string): void;
     readMdAsSubpageForNotesMd?(filePath: string): void;
+    /** FR-B09: ファイルツリー md → md editor D&D（コピーせず既存 md への subpage リンクを返信） */
+    linkMdAsSubpageForNotesMd?(filePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
     readAndInsertMdFile?(filePath: string): void;
     /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
@@ -897,6 +899,13 @@ export async function handleNotesMessage(
         case 'notesMdReadMdAsSubpage':
             if (message.filePath && platform.readMdAsSubpageForNotesMd) {
                 platform.readMdAsSubpageForNotesMd(message.filePath);
+            }
+            break;
+
+        // FR-B09 (TASK-08): ファイルツリー md → md editor D&D（コピーせず既存 md へ subpage リンク）
+        case 'notesMdLinkMdAsSubpage':
+            if (message.filePath && platform.linkMdAsSubpageForNotesMd) {
+                platform.linkMdAsSubpageForNotesMd(message.filePath);
             }
             break;
 
