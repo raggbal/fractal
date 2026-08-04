@@ -465,6 +465,22 @@ var notesFilePanel = (function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
         });
+        // FR-B04: アプリ内リンクをコピー（file item = .out / .md のみ。folder は showFolderContextMenu で別扱い）。
+        // out → InAppLinkUtils.buildOutLink(folder, id) / md → InAppLinkUtils.buildMdLink(folder, id)。
+        // clipboard は outliner.js:7054 / :7427 と同じ [title](link) markdown（title の [] を除去）。
+        if (typeof window !== 'undefined' && window.InAppLinkUtils) {
+            var isMdFileForLink = /\.md$/i.test(file.filePath);
+            var linkFileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/i, '');
+            addContextItem(contextMenu, i18n.copyInAppLink || 'Copy In-App Link', function() {
+                closeContextMenu();
+                if (!noteFolderName) return;
+                var link = isMdFileForLink
+                    ? window.InAppLinkUtils.buildMdLink(noteFolderName, linkFileId)
+                    : window.InAppLinkUtils.buildOutLink(noteFolderName, linkFileId);
+                var title = (file.title || 'Untitled').replace(/[\[\]]/g, '');
+                try { navigator.clipboard.writeText('[' + title + '](' + link + ')'); } catch (err) { /* ignore */ }
+            });
+        }
         // FR-MV-01: 別 Note へ移動 (QuickPick は host 側)。file item のみ (outliner/md)。
         addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
             closeContextMenu();

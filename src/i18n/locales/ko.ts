@@ -168,6 +168,7 @@ export const webviewMessages = {
   notesNewFolder: '새 폴더',
   notesOpenInNewTab: '새 탭에서 열기',
   notesNewOutline: '새 아웃라인',
+  notesAddOutliner: '아웃라이너 추가 (.out)',
   notesToday: '오늘',
   notesCollapsePanel: '패널 접기',
   notesSearchPlaceholder: '검색...',

@@ -89,6 +89,11 @@ export function getNotesWebviewContent(
     const notesFilePanelScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-file-panel.js'), 'utf8');
 
+    // FR-B04 / FR-B06: In-App link (fractal://) 生成の共有純関数（window.InAppLinkUtils）。
+    // notes-file-panel.js / editor.js / outliner.js が消費するため、それらより前に注入する。
+    const inAppLinkUtilsScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'inapp-link-utils.js'), 'utf8');
+
     // Load shared markdown link parser (used by outliner.js and editor.js)
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
@@ -285,6 +290,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${notesColorPaletteScript}</script>
     <script nonce="${nonce}">${inlineColorScript}</script>
     <script nonce="${nonce}">${inlineColorPickerScript}</script>
+    <script nonce="${nonce}">${inAppLinkUtilsScript}</script>
     <script nonce="${nonce}">${pdfExportScript}</script>
     <script nonce="${nonce}">${editorScript}</script>
     <script nonce="${nonce}">${outlinerCellScript}</script>

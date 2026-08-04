@@ -214,6 +214,7 @@ export const webviewMessages = {
   notesNewFolder: '新規フォルダ',
   notesOpenInNewTab: '新しいタブで開く',
   notesNewOutline: '新規アウトライン',
+  notesAddOutliner: 'アウトライナを追加 (.out)',
   notesToday: '今日',
   notesCollapsePanel: 'パネルを折りたたむ',
   notesSearchPlaceholder: '検索...',

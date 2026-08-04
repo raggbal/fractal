@@ -429,6 +429,40 @@ class EditorInstance {
         });
     }
 
+    // FR-B06: Notes 内 md メインペインでのみ「アプリ内リンクをコピー」ボタンを表示。
+    // 生成器（editor-body-html.js）は standalone md editor と共有のため、button は HTML で
+    // display:none。ここで .notes-layout かつ この instance の md filePath が note md のときだけ現す
+    // （standalone md editor には .notes-layout が無いので隠れたまま）。
+    var copyInAppLinkBtn = container.querySelector('[data-action="copyInAppLink"]');
+    if (copyInAppLinkBtn) {
+        var notesLayoutForInAppReveal = document.querySelector('.notes-layout');
+        var mdFpForReveal = self.options.filePath || '';
+        if (notesLayoutForInAppReveal && /\.md$/i.test(mdFpForReveal)) {
+            copyInAppLinkBtn.style.display = '';
+        }
+    }
+
+    // FR-B06: 「アプリ内リンクをコピー」クリック時のハンドラ。
+    // md link = InAppLinkUtils.buildMdLink(folder, mdFileId)、clipboard は [title](link)（title の [] 除去）。
+    // outliner.js の node/sidepanel copy-inapp と同じ markdown 形式。
+    function copyInAppLinkForMainMd() {
+        if (typeof window === 'undefined' || !window.InAppLinkUtils) return;
+        var notesLayoutEl = document.querySelector('.notes-layout');
+        if (!notesLayoutEl) return;
+        var folderName = notesLayoutEl.dataset.noteFolderName;
+        var mdFp = self.options.filePath || '';
+        if (!folderName || !/\.md$/i.test(mdFp)) return;
+        var mdFileId = mdFp.replace(/^.*[/\\]/, '').replace(/\.md$/i, '');
+        var link = window.InAppLinkUtils.buildMdLink(folderName, mdFileId);
+        // 表示テキスト: 先頭 H1 を優先、無ければ mdFileId
+        var displayText = '';
+        var h1 = editor ? editor.querySelector('h1') : null;
+        if (h1) { displayText = (h1.textContent || '').trim(); }
+        if (!displayText) { displayText = mdFileId; }
+        var mdLink = '[' + displayText.replace(/[\[\]]/g, '') + '](' + link + ')';
+        try { navigator.clipboard.writeText(mdLink); } catch (err) { /* ignore */ }
+    }
+
     // Toolbar horizontal scroll navigation
     var toolbarScrollLeftBtn = container.querySelector('.toolbar-scroll-btn--left');
     var toolbarScrollRightBtn = container.querySelector('.toolbar-scroll-btn--right');
@@ -12964,6 +12998,9 @@ class EditorInstance {
                 break;
             case 'copyPath':
                 host.copyFilePath();
+                break;
+            case 'copyInAppLink':
+                copyInAppLinkForMainMd();
                 break;
             case 'openInNewTab':
                 if (typeof host.openInNewTab === 'function') {
