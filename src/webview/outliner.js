@@ -5609,9 +5609,60 @@ var Outliner = (function() {
     }
 
     var tagSuggestBar = null;
+    // FR-TK-01: tag サジェストのキーボード roving。-1 = 非選択。
+    // one-shot state: renderTagSuggestBar 再描画 / hideTagSuggestBar / input blur で必ず -1 にリセット。
+    var tagSuggestKbdIndex = -1;
+
+    /**
+     * FR-TK-01: 選択中の tag を Search box へ反映する共通処理（click と Enter で共有・二重実装禁止）。
+     * 既存 click と同じ規則 = 既存値に空白区切りで追記 + executeSearch。
+     */
+    function applyTagToSearch(tag) {
+        if (!searchInput || !tag) return;
+        var current = (searchInput.value || '').trim();
+        var newVal = current ? (current + ' ' + tag) : tag;
+        searchInput.value = newVal;
+        if (typeof executeSearch === 'function') executeSearch();
+        if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+        searchInput.focus();
+    }
+
+    /** roving ハイライトを DOM に反映（.kbd-active 付け替え + scrollIntoView）。 */
+    function updateTagSuggestKbdHighlight() {
+        if (!tagSuggestBar) return;
+        var items = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+        for (var i = 0; i < items.length; i++) {
+            if (i === tagSuggestKbdIndex) {
+                items[i].classList.add('kbd-active');
+                if (typeof items[i].scrollIntoView === 'function') {
+                    items[i].scrollIntoView({ inline: 'nearest', block: 'nearest' });
+                }
+            } else {
+                items[i].classList.remove('kbd-active');
+            }
+        }
+    }
+
+    /** roving 選択を解除（index=-1 + ハイライト消去）。 */
+    function resetTagSuggestKbd() {
+        tagSuggestKbdIndex = -1;
+        if (tagSuggestBar) {
+            var items = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item.kbd-active');
+            for (var i = 0; i < items.length; i++) items[i].classList.remove('kbd-active');
+        }
+    }
+
+    /** サジェストバーが現在表示中か（roving の前提）。 */
+    function isTagSuggestBarVisible() {
+        return !!(tagSuggestBar && tagSuggestBar.style.display !== 'none' &&
+            tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item').length > 0);
+    }
+
     function renderTagSuggestBar() {
         if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
         if (!tagSuggestBar) return;
+        // 再描画は roving state をリセット（stale ハイライト防止・one-shot clear 契機）
+        tagSuggestKbdIndex = -1;
         var tags = computeAllTagsSorted();
         if (tags.length === 0) {
             tagSuggestBar.innerHTML = '';
@@ -5632,12 +5683,8 @@ var Outliner = (function() {
                 btn.addEventListener('click', function (ev) {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    var current = (searchInput.value || '').trim();
-                    var newVal = current ? (current + ' ' + t.tag) : t.tag;
-                    searchInput.value = newVal;
-                    if (typeof executeSearch === 'function') executeSearch();
-                    if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
-                    searchInput.focus();
+                    applyTagToSearch(t.tag);
+                    resetTagSuggestKbd();
                 });
                 tagSuggestBar.appendChild(btn);
             })(tags[i]);
@@ -5647,6 +5694,8 @@ var Outliner = (function() {
 
     function hideTagSuggestBar() {
         if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
+        // one-shot clear 契機: バー非表示時に roving state を必ずリセット
+        tagSuggestKbdIndex = -1;
         if (tagSuggestBar) tagSuggestBar.style.display = 'none';
     }
 
@@ -5712,6 +5761,9 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('input', function() {
+            // FR-TK-01: ユーザー入力で roving 選択をリセット（stale ハイライト防止・one-shot clear 契機）。
+            // ※ applyTagToSearch の value 代入は input event を発火しないので、ここは実ユーザー入力のみ通る。
+            resetTagSuggestKbd();
             if (isSearchComposing) return;
             updatePinnedTagBar();
             updateSearchClearButton();
@@ -5722,6 +5774,64 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('keydown', function(e) {
+            // FR-TK-01: tag サジェストのキーボード roving。フォーカスは input のまま・視覚ハイライトのみ。
+            // 3 view 共通ヘッダなので mindmap 分岐より前に処理し全 view で効かせる（NFR-TK/TS-01）。
+            // handler が二重登録された環境でも同一イベントで roving を 2 回進めないよう dedup
+            // （既存 __mmSearchNextHandled と同型。ArrowRight/Enter は非冪等なので必須）。
+            if (e.__tagRovingHandled) { e.preventDefault(); return; }
+            var barVisible = isTagSuggestBarVisible();
+            if (e.key === 'ArrowDown') {
+                // バー表示中 && 未選択 → 1 個目を選択。表示中でなければ素通し。
+                if (barVisible && tagSuggestKbdIndex === -1) {
+                    var itemsD = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    if (itemsD.length > 0) {
+                        tagSuggestKbdIndex = 0;
+                        updateTagSuggestKbdHighlight();
+                        e.__tagRovingHandled = true;
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                // roving 選択中のみ移動（端で停止・循環しない）+ preventDefault。
+                // index=-1 は素通し（input 内カーソル移動・Opt+Arrow の既存挙動も維持）。
+                if (barVisible && tagSuggestKbdIndex >= 0 && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                    var itemsLR = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    var last = itemsLR.length - 1;
+                    if (e.key === 'ArrowRight') {
+                        if (tagSuggestKbdIndex < last) tagSuggestKbdIndex++;
+                    } else {
+                        if (tagSuggestKbdIndex > 0) tagSuggestKbdIndex--;
+                    }
+                    updateTagSuggestKbdHighlight();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+            } else if (e.key === 'Enter') {
+                // roving 選択中 → 該当 tag を反映（click と同規則）+ 選択解除。
+                if (barVisible && tagSuggestKbdIndex >= 0) {
+                    var itemsE = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    if (tagSuggestKbdIndex < itemsE.length) {
+                        applyTagToSearch(itemsE[tagSuggestKbdIndex].textContent);
+                    }
+                    resetTagSuggestKbd();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+                // index=-1 → 従来（検索実行）へ落ちる
+            } else if (e.key === 'ArrowUp' || e.key === 'Escape') {
+                // roving 選択中 → 選択解除のみ（Esc の既存挙動は横取りせず、選択中のみ抜ける）。
+                if (tagSuggestKbdIndex >= 0) {
+                    resetTagSuggestKbd();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+                // index=-1 → Esc は従来（検索クリア）へ落ちる
+            }
+
             // [M] iteration 29 / TASK-79: mindmap モードの検索は「Enter で次の一致へ巡回中央化」。
             // Escape でハイライト解除。絞り込み系 (currentSearchResult) は使わない。
             if (VIEW_MODE === 'mindmap') {

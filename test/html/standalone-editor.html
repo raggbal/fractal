@@ -2927,6 +2927,15 @@ body {
 }
 .inline-color-popover .file-panel-color-none:hover { opacity: 1; }
 
+/* FR-TK-01: tag サジェストのキーボード roving ハイライト。
+   :hover と同系の見た目（--outliner-tag-hover-bg）+ 選択枠で識別性を上げる。
+   styles.css は outliner.css の後にロードされるため、この 2-class ルールが基本 item スタイルに優先する。 */
+.outliner-tag-suggest-item.kbd-active {
+    background: var(--outliner-tag-hover-bg);
+    outline: 1px solid var(--outliner-tag-color);
+    outline-offset: -1px;
+}
+
     </style>
 </head>
 <body>

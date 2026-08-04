@@ -253,6 +253,7 @@ const html = `<!DOCTYPE html>
             <div class="outliner-search-input-wrapper">
                 <input type="text" class="outliner-search-input" placeholder="Search..." />
                 <button class="outliner-search-clear-btn" style="display:none" title="Clear search"></button>
+                <div class="outliner-tag-suggest-bar" style="display:none"></div>
             </div>
             <button class="outliner-undo-btn" title="Undo" disabled></button>
             <button class="outliner-redo-btn" title="Redo" disabled></button>
