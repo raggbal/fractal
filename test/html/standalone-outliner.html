@@ -35948,6 +35948,16 @@ var Outliner = (function() {
             treeEl.addEventListener('drop', function(e) {
                 if (VIEW_MODE === 'mindmap') { return; }
                 if (dragState) { return; } // node reorder は既存経路
+                // FR-B08: ファイルツリー md item → tree drop（挿入位置は notesImportMdIntoOut の
+                // 既存仕様 = rootIds 先頭固定なので position 解決は不要）
+                if (isTreeMdDragEvent(e)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearDropZoneHighlight();
+                    removeDropIndicator();
+                    handleTreeMdDrop(e);
+                    return;
+                }
                 if (!isAnyFilesDragEvent(e)) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
@@ -35991,6 +36001,13 @@ var Outliner = (function() {
             //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
             //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
             if (VIEW_MODE === 'mindmap') { return; }
+            // FR-B08: ファイルツリー md item のドラッグを受理（preventDefault しないと drop が発火しない）
+            if (isTreeMdDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -36105,6 +36122,29 @@ var Outliner = (function() {
     /** Check if drag event is any file drop (Finder OR VSCode Explorer) */
     function isAnyFilesDragEvent(e) {
         return isFilesDragEvent(e) || isVscodeUriDragEvent(e);
+    }
+
+    /** FR-B08 (sprint 20260804-145603): Notes ファイルツリーの md item ドラッグ
+     *  （notes-file-panel.js dragstart が application/x-fractal-tree-md を setData）。
+     *  drop 受理は notesImportMdIntoOut（既存 v0.207.77 経路 = h1→node text・page 添付・
+     *  ツリーから md エントリ除去）へ委譲する。 */
+    var TREE_MD_MIME = 'application/x-fractal-tree-md';
+    function isTreeMdDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_MD_MIME) >= 0);
+    }
+    function handleTreeMdDrop(e) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(TREE_MD_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.id) return;
+        var notesBridgeForMd = window.notesHostBridge;
+        var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
+        if (payload.id === outFileId) return; // 自分自身へは無意味
+        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId);
     }
 
     /** Classify dropped file by extension */

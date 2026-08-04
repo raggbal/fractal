@@ -682,6 +682,17 @@ var notesFilePanel = (function() {
             e.dataTransfer.effectAllowed = 'copyMove';
             // テキストを設定（VSCode webview互換）
             try { e.dataTransfer.setData('text/plain', dragItemId); } catch(err) { /* ignore */ }
+            // FR-B08 (sprint 20260804-145603): md item は Note Outliner tree へも drop できるよう
+            // 内部 MIME を積む（受け側 = outliner.js の isTreeMdDragEvent → notesImportMdIntoOut）。
+            // panel 内 D&D は module 変数（dragItemId 等）で動くため setData 追加は既存挙動に非干渉。
+            if (dragSourceFileExt === 'md') {
+                try {
+                    e.dataTransfer.setData('application/x-fractal-tree-md', JSON.stringify({
+                        id: dragItemId,
+                        filePath: target.dataset.filePath || null,
+                    }));
+                } catch(err) { /* ignore */ }
+            }
             // ドラッグ中のスタイル
             setTimeout(function() { target.style.opacity = '0.4'; }, 0);
         });
