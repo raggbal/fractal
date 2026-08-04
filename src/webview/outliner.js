@@ -9066,14 +9066,19 @@ var Outliner = (function() {
                     break;
 
                 case 'notesNavigateInAppLink':
-                    // Node link navigation: close sidepanel + jump to node
+                    // Node/out link: close sidepanel + jump（out link は nodeId なし = 開くだけ）
+                    // FR-B11 md link: mdFilePath（host 解決済み絶対パス）を notesOpenFile 経路で開く
                     var notesBridge = window.notesHostBridge;
                     if (notesBridge) {
                         // Close sidepanel immediately if open
                         if (sidePanelEl && sidePanelEl.classList.contains('open')) {
                             closeSidePanelImmediate();
                         }
-                        notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        if (msg.mdFilePath) {
+                            notesBridge.openFile(msg.mdFilePath);
+                        } else {
+                            notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        }
                     }
                     break;
 

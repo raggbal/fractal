@@ -1635,10 +1635,13 @@ export async function handleNotesMessage(
         }
 
         case 'notesNavigateInAppLink': {
-            // Node link only — navigate to note + outliner + node
+            // Node/out link — navigate to note + outliner (+ node if nodeId)
             fileManager.flushSave();
             const navFilePath = fileManager.getFilePathById(message.outFileId);
             if (!navFilePath) break;
+            // FR-B11: md link は navigateToLink が mdFilePath 解決 → webview の notesOpenFile 経路で
+            // 開くためここには来ない。万一 md id が流れても JSON.parse に落とさないガード
+            if (navFilePath.endsWith('.md')) break;
             const navContent = fileManager.openFile(navFilePath);
             if (navContent === null) break;
             fileManager.recordFileHistory(navFilePath); // FR-HP-03（アプリ内リンク）

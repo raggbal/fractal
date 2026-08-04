@@ -2526,10 +2526,20 @@ export class NotesEditorProvider {
         }
     }
 
-    async navigateToLink(folderPath: string, params: { outFileId?: string; nodeId?: string; pageId?: string }): Promise<void> {
+    async navigateToLink(folderPath: string, params: { outFileId?: string; nodeId?: string; pageId?: string; mdFileId?: string }): Promise<void> {
         const entry = this.openPanels.get(folderPath);
         if (!entry) return;
         entry.panel.reveal(vscode.ViewColumn.One);
+        if (params.mdFileId) {
+            // FR-B11 md link: host 側で絶対パスに解決して渡す（webview は id → path を解決できない）。
+            // webview 側で sidepanel を閉じてから notesOpenFile 経路（md は JSON.parse に流れない）で開く
+            const mdFileId = params.mdFileId.replace(/\.md$/i, '');
+            entry.postMessage({
+                type: 'notesNavigateInAppLink',
+                mdFilePath: entry.fileManager.getMdFilePath(mdFileId),
+            });
+            return;
+        }
         entry.postMessage({
             type: 'notesNavigateInAppLink',
             outFileId: params.outFileId,
