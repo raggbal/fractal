@@ -2936,6 +2936,20 @@ body {
     outline-offset: -1px;
 }
 
+/* FR-TS-01: taskScope ポップアップ。add-col-dialog の慣例を踏襲（outliner.css）しつつ、
+   2 ボタンを横並びで均等に。フォーカスされたボタンを枠で明示（Enter 一発確定の可視化）。 */
+.outliner-task-scope-buttons {
+    justify-content: stretch;
+}
+.outliner-task-scope-buttons button {
+    flex: 1 1 0;
+}
+.outliner-task-scope-buttons button:focus-visible,
+.outliner-task-scope-buttons button:focus {
+    outline: 2px solid var(--outliner-tag-color, #2196F3);
+    outline-offset: 1px;
+}
+
     </style>
 </head>
 <body>

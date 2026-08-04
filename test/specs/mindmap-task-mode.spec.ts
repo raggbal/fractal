@@ -283,6 +283,10 @@ test.describe('Mindmap Task Mode', () => {
             nodes: { r1: node('r1', 'a', []), r2: node('r2', 'b', []) }
         });
         await page.locator('.outliner-task-mode-toggle-btn').click();
+        await page.waitForTimeout(120);
+        // FR-TS-01: ON はポップアップ経由。mindmap view でも fixed 中央で出る（§3.3）。
+        // 「トップレベルのみ」= 従来の root backfill 相当を確定。
+        await page.locator('.outliner-task-scope-dialog .outliner-task-scope-top').click();
         await page.waitForTimeout(250);
         const m = await page.evaluate(() => {
             const mm = (window as any).Outliner.getModel();

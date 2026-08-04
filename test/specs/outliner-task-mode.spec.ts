@@ -28,6 +28,29 @@ async function clickToggleBtn(page, selector) {
     await page.waitForTimeout(150);
 }
 
+/**
+ * FR-TS-01: task mode ON はポップアップで scope を選ばせる仕様に変更された。
+ * 既存テストは「ON で root backfill・filter active」を検証するので、
+ * 従来の「トップレベルのみ」= root backfill 相当を選んで確定する（意味論不変）。
+ * ポップアップが出なければ（= OFF への toggle 等）何もしない。
+ */
+async function enableTaskMode(page, scope = 'top') {
+    await page.evaluate(() => {
+        const b = document.querySelector('.outliner-task-mode-toggle-btn') as HTMLElement | null;
+        if (b) b.click();
+    });
+    await page.waitForTimeout(80);
+    const opened = await page.evaluate((sc) => {
+        const dlg = document.querySelector('.outliner-task-scope-dialog');
+        if (!dlg) return false;
+        const btn = dlg.querySelector('.outliner-task-scope-' + sc) as HTMLElement | null;
+        if (btn) btn.click();
+        return true;
+    }, scope);
+    await page.waitForTimeout(150);
+    return opened;
+}
+
 test.describe('Outliner タスクモード', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto(HTML);
@@ -40,7 +63,8 @@ test.describe('Outliner タスクモード', () => {
         // checkbox なしの状態は data-checked = undefined
         // (タスクモード OFF で初期化されているはず)
 
-        await clickToggleBtn(page, '.outliner-task-mode-toggle-btn');
+        // FR-TS-01: ON はポップアップ経由。「トップレベルのみ」= 従来の root backfill 相当。
+        await enableTaskMode(page, 'top');
 
         const afterChecked = await getCheckedAttrs(page);
         // root node に checkbox 付与されるので "false" になる
@@ -59,7 +83,8 @@ test.describe('Outliner タスクモード', () => {
     });
 
     test('タスクモード ON + checked=true → filter active で非表示', async ({ page }) => {
-        await clickToggleBtn(page, '.outliner-task-mode-toggle-btn');
+        // FR-TS-01: ON はポップアップ経由（「トップレベルのみ」で確定 = 従来の root backfill）。
+        await enableTaskMode(page, 'top');
         // 全 root に checked=false 付与される
         await page.waitForTimeout(100);
 

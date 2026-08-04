@@ -198,13 +198,195 @@ var Outliner = (function() {
         }
     }
 
-    /** タスクモードを toggle */
+    /**
+     * タスクモード ON 時の scope 選択ポップアップ (FR-TS-01)。
+     * 2 ボタン (「トップレベルのみ」「全てのノード」) の fixed 中央 dialog。
+     * add-col-dialog の慣例を踏襲。3 view 共有ヘッダから開くので座標非依存 (fixed 中央) で
+     * mindmap view 中でも同じ位置に出る (FR-TS-01 / §3.3)。
+     *
+     * @param {string} defaultScope - autofocus するボタン ('top' | 'all')。前回の taskScope。
+     * @param {function(string)} onConfirm - 選択 scope ('top'|'all') で呼ばれる。
+     * @param {function()} onCancel - Esc / 外側クリック / キャンセルで呼ばれる。
+     */
+    function showTaskScopePopup(defaultScope, onConfirm, onCancel) {
+        var i18n = window.__outlinerMessages || {};
+        // 二重表示防止
+        var existing = document.querySelector('.outliner-task-scope-dialog');
+        if (existing) { existing.remove(); }
+
+        var settled = false; // onConfirm / onCancel は一度だけ
+        var dialog = document.createElement('div');
+        // add-col-dialog のスタイル慣例を共有しつつ、専用 class で識別可能に
+        dialog.className = 'outliner-add-col-dialog outliner-task-scope-dialog';
+        dialog.style.position = 'fixed';
+        dialog.style.left = '50%';
+        dialog.style.top = '40%';
+        dialog.style.transform = 'translate(-50%, -50%)';
+        dialog.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+
+        var label = document.createElement('div');
+        label.className = 'outliner-add-col-label';
+        label.textContent = i18n.taskScopePopupTitle || 'Enable Task Mode for…';
+        dialog.appendChild(label);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'outliner-add-col-buttons outliner-task-scope-buttons';
+
+        var topBtn = document.createElement('button');
+        topBtn.type = 'button';
+        topBtn.className = 'outliner-task-scope-top';
+        topBtn.setAttribute('data-scope', 'top');
+        topBtn.textContent = i18n.taskScopeTopOnly || 'Top-level only';
+
+        var allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = 'outliner-task-scope-all';
+        allBtn.setAttribute('data-scope', 'all');
+        allBtn.textContent = i18n.taskScopeAll || 'All nodes';
+
+        btnRow.appendChild(topBtn);
+        btnRow.appendChild(allBtn);
+        dialog.appendChild(btnRow);
+
+        function cleanup() {
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKeydown, true);
+            if (dialog.parentNode) { dialog.parentNode.removeChild(dialog); }
+        }
+        function confirm(scope) {
+            if (settled) { return; }
+            settled = true;
+            cleanup();
+            if (typeof onConfirm === 'function') { onConfirm(scope); }
+        }
+        function cancel() {
+            if (settled) { return; }
+            settled = true;
+            cleanup();
+            if (typeof onCancel === 'function') { onCancel(); }
+        }
+
+        topBtn.addEventListener('click', function () { confirm('top'); });
+        allBtn.addEventListener('click', function () { confirm('all'); });
+
+        // ←→ / Tab で 2 ボタン間を移動、Enter で確定、Esc でキャンセル。
+        // document capture で拾う: 開いている間はモーダルとして全キーを横取りし、
+        // フォーカスが（init の focusFirstVisibleNode 等で）ドリフトしても確実に効く。
+        function onKeydown(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault(); e.stopPropagation();
+                cancel();
+            } else if (e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation();
+                // フォーカスが allBtn ならそれ、それ以外は既定ボタン (defaultScope)
+                if (document.activeElement === allBtn) { confirm('all'); }
+                else if (document.activeElement === topBtn) { confirm('top'); }
+                else { confirm(defaultScope === 'all' ? 'all' : 'top'); }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault(); e.stopPropagation();
+                topBtn.focus();
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault(); e.stopPropagation();
+                allBtn.focus();
+            } else if (e.key === 'Tab') {
+                // 2 ボタン間でトラップ
+                e.preventDefault(); e.stopPropagation();
+                if (document.activeElement === topBtn) { allBtn.focus(); }
+                else { topBtn.focus(); }
+            }
+        }
+
+        // 外側クリックでキャンセル (capture で dialog 内クリックを除外)
+        function onOutside(ev) {
+            if (!dialog.contains(ev.target)) {
+                cancel();
+            }
+        }
+
+        document.body.appendChild(dialog);
+        document.addEventListener('keydown', onKeydown, true);
+        // 前回 scope のボタンに autofocus (Enter 一発確定) — FR-TS-01 / TC-TS-07。
+        // init の setTimeout(100) focusFirstVisibleNode がフォーカスを奪いうるので、
+        // それより後 (120ms) に focus し直して確実にボタンへ乗せる。
+        var focusTarget = (defaultScope === 'all') ? allBtn : topBtn;
+        setTimeout(function () {
+            if (settled) { return; }
+            focusTarget.focus();
+            document.addEventListener('mousedown', onOutside, true);
+        }, 0);
+        setTimeout(function () {
+            if (settled) { return; }
+            if (document.activeElement !== topBtn && document.activeElement !== allBtn) {
+                focusTarget.focus();
+            }
+        }, 130);
+
+        return dialog;
+    }
+
+    /** タスクモードを toggle。ON 時は scope 選択ポップアップ経由 (FR-TS-01)。 */
     function toggleTaskMode() {
         if (!model) return;
+        if (!model.taskMode) {
+            // ON: ポップアップで scope を選ばせる。確定するまで taskMode は変えず
+            // saveSnapshot も呼ばない (キャンセル時に undo を汚染しない — TC-TS-01)。
+            var prevScope = (model.taskScope === 'all') ? 'all' : 'top';
+            showTaskScopePopup(prevScope, function (scope) {
+                enableTaskModeWithScope(scope);
+            }, function () {
+                // キャンセル: model 不変・OFF のまま。何もしない。
+            });
+        } else {
+            // OFF: scope 準拠で checkbox を解除 (FR-TS-03)。
+            saveSnapshot();
+            model.taskMode = false;
+            if (model.taskScope === 'all') {
+                // 全 node の checkbox を削除
+                for (var nid in model.nodes) {
+                    if (!Object.prototype.hasOwnProperty.call(model.nodes, nid)) { continue; }
+                    var nn = model.nodes[nid];
+                    if (nn && (nn.checked === false || nn.checked === true)) {
+                        nn.checked = null;
+                    }
+                }
+            } else {
+                // 'top': 全 root node の checkbox のみ削除 (手動で付けた子 checkbox は温存)
+                if (model.rootIds && model.rootIds.length > 0) {
+                    for (var ri = 0; ri < model.rootIds.length; ri++) {
+                        var rn2 = model.getNode(model.rootIds[ri]);
+                        if (rn2 && (rn2.checked === false || rn2.checked === true)) {
+                            rn2.checked = null;
+                        }
+                    }
+                }
+            }
+            updateTaskModeButtons();
+            renderTree();
+            scheduleSyncToHost();
+        }
+    }
+
+    /**
+     * scope 確定後にタスクモードを ON にする (ポップアップ confirm から呼ぶ)。
+     * ここで初めて saveSnapshot する (キャンセル時に undo 汚染しない — TC-TS-01)。
+     * backfill: 'top' = root のみ / 'all' = 全 node。既に checked が bool の node は不変。
+     */
+    function enableTaskModeWithScope(scope) {
+        if (!model) return;
         saveSnapshot();
-        model.taskMode = !model.taskMode;
-        if (model.taskMode) {
-            // 既存ルートノードに checkbox を backfill (既に checkbox があれば触らない)
+        model.taskScope = (scope === 'all') ? 'all' : 'top';
+        model.taskMode = true;
+        if (model.taskScope === 'all') {
+            // 全 node に checkbox backfill (既に bool の node は触らない)
+            for (var nid in model.nodes) {
+                if (!Object.prototype.hasOwnProperty.call(model.nodes, nid)) { continue; }
+                var nn = model.nodes[nid];
+                if (nn && (nn.checked === null || nn.checked === undefined)) {
+                    nn.checked = false;
+                }
+            }
+        } else {
+            // 'top': root のみ backfill
             if (model.rootIds && model.rootIds.length > 0) {
                 for (var i = 0; i < model.rootIds.length; i++) {
                     var rn = model.getNode(model.rootIds[i]);
@@ -213,20 +395,9 @@ var Outliner = (function() {
                     }
                 }
             }
-            // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
-            model.taskFilter = 'active';
         }
-        else {
-            // OFF: 全 root node の checkbox を削除 (子は触らない)
-            if (model.rootIds && model.rootIds.length > 0) {
-                for (var ri = 0; ri < model.rootIds.length; ri++) {
-                    var rn2 = model.getNode(model.rootIds[ri]);
-                    if (rn2 && (rn2.checked === false || rn2.checked === true)) {
-                        rn2.checked = null;
-                    }
-                }
-            }
-        }
+        // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
+        model.taskFilter = 'active';
         updateTaskModeButtons();
         renderTree();
         scheduleSyncToHost();
@@ -9781,5 +9952,7 @@ var Outliner = (function() {
         __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
         // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
         __setSidePanelResizeObserverDisabledForTest: function(v) { _sidePanelResizeObserverDisabled = !!v; },
+        // TC-TS-* テスト用: scope 確定後の ON 経路を直接叩く（ポップアップの confirm 相当）。
+        __enableTaskModeWithScopeForTest: function(scope) { enableTaskModeWithScope(scope); },
     };
 })();
