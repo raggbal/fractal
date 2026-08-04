@@ -41584,6 +41584,15 @@ var notesFilePanel = (function() {
     var dragItemType = null; // 'file' or 'folder'
     var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     var dropIndicator = null;
+    // bug-fix 2026-08-05: renderTree の全再構築が click 合成を殺すのを補う pointerup 保険の状態
+    var _pointerDownItemId = null;
+
+    // click / pointerup の両経路から呼ぶ単一の開閉口（currentFile ガードで二重送信防止）
+    function openItemFile(filePath) {
+        if (filePath === currentFile) return;
+        currentFile = filePath;  // 即時更新で二重送信防止
+        bridge.openFile(filePath);
+    }
 
     // Resize state
     var resizeHandle = null;
@@ -41782,10 +41791,24 @@ var notesFilePanel = (function() {
                 if (bridge.openFileInTab) bridge.openFileInTab(f.filePath);
                 return; // FR-CT-02: openFile は発火させない（currentFile も変えない）
             }
-            if (f.filePath !== currentFile) {
-                currentFile = f.filePath;  // 即時更新で二重送信防止
-                bridge.openFile(f.filePath);
-            }
+            openItemFile(f.filePath);
+        });
+        // bug-fix 2026-08-05: D&D 直後の 1 回目 click が無視される件。
+        // D&D 応答の notesFileListChanged → renderTree() が item を全再構築するため、
+        // ユーザーの mousedown〜mouseup の間に要素が差し替わると click 合成イベントが
+        // 発火しない（mousedown/mouseup が別要素）。pointerup ベースの保険を張り、
+        // 「直近の pointerdown と同じ item 上で pointerup」なら click 相当として openFile する。
+        // click も発火した場合は openItemFile 内の currentFile ガードで二重送信されない。
+        item.addEventListener('pointerdown', function(e) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey) { _pointerDownItemId = null; return; }
+            _pointerDownItemId = f.id || f.filePath;
+        });
+        item.addEventListener('pointerup', function(e) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey) { return; }
+            if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
+            _pointerDownItemId = null;
+            if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
+            openItemFile(f.filePath);
         });
         item.addEventListener('dblclick', function(e) {
             e.stopPropagation();
