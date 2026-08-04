@@ -2228,3 +2228,69 @@ body {
     outline: 2px solid var(--outliner-tag-color, #2196F3);
     outline-offset: 1px;
 }
+
+/* ===== FR-B06b: cmd 長押しショートカット一覧 HUD ===== */
+/* position:fixed オーバーレイ・pointer-events:none で下の UI を邪魔しない・既存モーダル(z 10002)より上 */
+.fractal-shortcut-hud {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 20000;
+}
+.fractal-shortcut-hud-panel {
+    pointer-events: none;
+    max-width: 90vw;
+    max-height: 86vh;
+    overflow: auto;
+    padding: 20px 24px;
+    border-radius: 12px;
+    background: var(--bg-color, #ffffff);
+    color: var(--text-color, #24292f);
+    border: 1px solid var(--border-color, #d0d7de);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
+    font-size: 13px;
+    line-height: 1.5;
+}
+.fractal-shortcut-hud-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    align-items: flex-start;
+}
+.fractal-shortcut-hud-cat {
+    min-width: 220px;
+    flex: 1 1 220px;
+    margin-bottom: 8px;
+}
+.fractal-shortcut-hud-cat-title {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--border-color, #d0d7de);
+}
+.fractal-shortcut-hud-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 2px 0;
+}
+.fractal-shortcut-hud-keys {
+    font-family: var(--font-mono, 'SF Mono', Consolas, monospace);
+    background: var(--code-bg, #f6f8fa);
+    color: var(--text-color, #24292f);
+    padding: 1px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-size: 12px;
+}
+.fractal-shortcut-hud-desc {
+    text-align: right;
+    opacity: 0.85;
+}
