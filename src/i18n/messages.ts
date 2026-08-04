@@ -204,6 +204,10 @@ export interface WebviewMessages {
   archiveCompleted?: string;
   archiveNoneFound?: string;
   archiveNotSupported?: string;
+  // Task scope popup (shown when enabling task mode)
+  taskScopePopupTitle?: string;
+  taskScopeTopOnly?: string;
+  taskScopeAll?: string;
 }
 
 // Supported locales

@@ -198,13 +198,195 @@ var Outliner = (function() {
         }
     }
 
-    /** タスクモードを toggle */
+    /**
+     * タスクモード ON 時の scope 選択ポップアップ (FR-TS-01)。
+     * 2 ボタン (「トップレベルのみ」「全てのノード」) の fixed 中央 dialog。
+     * add-col-dialog の慣例を踏襲。3 view 共有ヘッダから開くので座標非依存 (fixed 中央) で
+     * mindmap view 中でも同じ位置に出る (FR-TS-01 / §3.3)。
+     *
+     * @param {string} defaultScope - autofocus するボタン ('top' | 'all')。前回の taskScope。
+     * @param {function(string)} onConfirm - 選択 scope ('top'|'all') で呼ばれる。
+     * @param {function()} onCancel - Esc / 外側クリック / キャンセルで呼ばれる。
+     */
+    function showTaskScopePopup(defaultScope, onConfirm, onCancel) {
+        var i18n = window.__outlinerMessages || {};
+        // 二重表示防止
+        var existing = document.querySelector('.outliner-task-scope-dialog');
+        if (existing) { existing.remove(); }
+
+        var settled = false; // onConfirm / onCancel は一度だけ
+        var dialog = document.createElement('div');
+        // add-col-dialog のスタイル慣例を共有しつつ、専用 class で識別可能に
+        dialog.className = 'outliner-add-col-dialog outliner-task-scope-dialog';
+        dialog.style.position = 'fixed';
+        dialog.style.left = '50%';
+        dialog.style.top = '40%';
+        dialog.style.transform = 'translate(-50%, -50%)';
+        dialog.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+
+        var label = document.createElement('div');
+        label.className = 'outliner-add-col-label';
+        label.textContent = i18n.taskScopePopupTitle || 'Enable Task Mode for…';
+        dialog.appendChild(label);
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'outliner-add-col-buttons outliner-task-scope-buttons';
+
+        var topBtn = document.createElement('button');
+        topBtn.type = 'button';
+        topBtn.className = 'outliner-task-scope-top';
+        topBtn.setAttribute('data-scope', 'top');
+        topBtn.textContent = i18n.taskScopeTopOnly || 'Top-level only';
+
+        var allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = 'outliner-task-scope-all';
+        allBtn.setAttribute('data-scope', 'all');
+        allBtn.textContent = i18n.taskScopeAll || 'All nodes';
+
+        btnRow.appendChild(topBtn);
+        btnRow.appendChild(allBtn);
+        dialog.appendChild(btnRow);
+
+        function cleanup() {
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('keydown', onKeydown, true);
+            if (dialog.parentNode) { dialog.parentNode.removeChild(dialog); }
+        }
+        function confirm(scope) {
+            if (settled) { return; }
+            settled = true;
+            cleanup();
+            if (typeof onConfirm === 'function') { onConfirm(scope); }
+        }
+        function cancel() {
+            if (settled) { return; }
+            settled = true;
+            cleanup();
+            if (typeof onCancel === 'function') { onCancel(); }
+        }
+
+        topBtn.addEventListener('click', function () { confirm('top'); });
+        allBtn.addEventListener('click', function () { confirm('all'); });
+
+        // ←→ / Tab で 2 ボタン間を移動、Enter で確定、Esc でキャンセル。
+        // document capture で拾う: 開いている間はモーダルとして全キーを横取りし、
+        // フォーカスが（init の focusFirstVisibleNode 等で）ドリフトしても確実に効く。
+        function onKeydown(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault(); e.stopPropagation();
+                cancel();
+            } else if (e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation();
+                // フォーカスが allBtn ならそれ、それ以外は既定ボタン (defaultScope)
+                if (document.activeElement === allBtn) { confirm('all'); }
+                else if (document.activeElement === topBtn) { confirm('top'); }
+                else { confirm(defaultScope === 'all' ? 'all' : 'top'); }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault(); e.stopPropagation();
+                topBtn.focus();
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault(); e.stopPropagation();
+                allBtn.focus();
+            } else if (e.key === 'Tab') {
+                // 2 ボタン間でトラップ
+                e.preventDefault(); e.stopPropagation();
+                if (document.activeElement === topBtn) { allBtn.focus(); }
+                else { topBtn.focus(); }
+            }
+        }
+
+        // 外側クリックでキャンセル (capture で dialog 内クリックを除外)
+        function onOutside(ev) {
+            if (!dialog.contains(ev.target)) {
+                cancel();
+            }
+        }
+
+        document.body.appendChild(dialog);
+        document.addEventListener('keydown', onKeydown, true);
+        // 前回 scope のボタンに autofocus (Enter 一発確定) — FR-TS-01 / TC-TS-07。
+        // init の setTimeout(100) focusFirstVisibleNode がフォーカスを奪いうるので、
+        // それより後 (120ms) に focus し直して確実にボタンへ乗せる。
+        var focusTarget = (defaultScope === 'all') ? allBtn : topBtn;
+        setTimeout(function () {
+            if (settled) { return; }
+            focusTarget.focus();
+            document.addEventListener('mousedown', onOutside, true);
+        }, 0);
+        setTimeout(function () {
+            if (settled) { return; }
+            if (document.activeElement !== topBtn && document.activeElement !== allBtn) {
+                focusTarget.focus();
+            }
+        }, 130);
+
+        return dialog;
+    }
+
+    /** タスクモードを toggle。ON 時は scope 選択ポップアップ経由 (FR-TS-01)。 */
     function toggleTaskMode() {
         if (!model) return;
+        if (!model.taskMode) {
+            // ON: ポップアップで scope を選ばせる。確定するまで taskMode は変えず
+            // saveSnapshot も呼ばない (キャンセル時に undo を汚染しない — TC-TS-01)。
+            var prevScope = (model.taskScope === 'all') ? 'all' : 'top';
+            showTaskScopePopup(prevScope, function (scope) {
+                enableTaskModeWithScope(scope);
+            }, function () {
+                // キャンセル: model 不変・OFF のまま。何もしない。
+            });
+        } else {
+            // OFF: scope 準拠で checkbox を解除 (FR-TS-03)。
+            saveSnapshot();
+            model.taskMode = false;
+            if (model.taskScope === 'all') {
+                // 全 node の checkbox を削除
+                for (var nid in model.nodes) {
+                    if (!Object.prototype.hasOwnProperty.call(model.nodes, nid)) { continue; }
+                    var nn = model.nodes[nid];
+                    if (nn && (nn.checked === false || nn.checked === true)) {
+                        nn.checked = null;
+                    }
+                }
+            } else {
+                // 'top': 全 root node の checkbox のみ削除 (手動で付けた子 checkbox は温存)
+                if (model.rootIds && model.rootIds.length > 0) {
+                    for (var ri = 0; ri < model.rootIds.length; ri++) {
+                        var rn2 = model.getNode(model.rootIds[ri]);
+                        if (rn2 && (rn2.checked === false || rn2.checked === true)) {
+                            rn2.checked = null;
+                        }
+                    }
+                }
+            }
+            updateTaskModeButtons();
+            renderTree();
+            scheduleSyncToHost();
+        }
+    }
+
+    /**
+     * scope 確定後にタスクモードを ON にする (ポップアップ confirm から呼ぶ)。
+     * ここで初めて saveSnapshot する (キャンセル時に undo 汚染しない — TC-TS-01)。
+     * backfill: 'top' = root のみ / 'all' = 全 node。既に checked が bool の node は不変。
+     */
+    function enableTaskModeWithScope(scope) {
+        if (!model) return;
         saveSnapshot();
-        model.taskMode = !model.taskMode;
-        if (model.taskMode) {
-            // 既存ルートノードに checkbox を backfill (既に checkbox があれば触らない)
+        model.taskScope = (scope === 'all') ? 'all' : 'top';
+        model.taskMode = true;
+        if (model.taskScope === 'all') {
+            // 全 node に checkbox backfill (既に bool の node は触らない)
+            for (var nid in model.nodes) {
+                if (!Object.prototype.hasOwnProperty.call(model.nodes, nid)) { continue; }
+                var nn = model.nodes[nid];
+                if (nn && (nn.checked === null || nn.checked === undefined)) {
+                    nn.checked = false;
+                }
+            }
+        } else {
+            // 'top': root のみ backfill
             if (model.rootIds && model.rootIds.length > 0) {
                 for (var i = 0; i < model.rootIds.length; i++) {
                     var rn = model.getNode(model.rootIds[i]);
@@ -213,20 +395,9 @@ var Outliner = (function() {
                     }
                 }
             }
-            // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
-            model.taskFilter = 'active';
         }
-        else {
-            // OFF: 全 root node の checkbox を削除 (子は触らない)
-            if (model.rootIds && model.rootIds.length > 0) {
-                for (var ri = 0; ri < model.rootIds.length; ri++) {
-                    var rn2 = model.getNode(model.rootIds[ri]);
-                    if (rn2 && (rn2.checked === false || rn2.checked === true)) {
-                        rn2.checked = null;
-                    }
-                }
-            }
-        }
+        // タスクモード ON 時はフィルタを 'active' に (未完了のみ表示)
+        model.taskFilter = 'active';
         updateTaskModeButtons();
         renderTree();
         scheduleSyncToHost();
@@ -5609,9 +5780,60 @@ var Outliner = (function() {
     }
 
     var tagSuggestBar = null;
+    // FR-TK-01: tag サジェストのキーボード roving。-1 = 非選択。
+    // one-shot state: renderTagSuggestBar 再描画 / hideTagSuggestBar / input blur で必ず -1 にリセット。
+    var tagSuggestKbdIndex = -1;
+
+    /**
+     * FR-TK-01: 選択中の tag を Search box へ反映する共通処理（click と Enter で共有・二重実装禁止）。
+     * 既存 click と同じ規則 = 既存値に空白区切りで追記 + executeSearch。
+     */
+    function applyTagToSearch(tag) {
+        if (!searchInput || !tag) return;
+        var current = (searchInput.value || '').trim();
+        var newVal = current ? (current + ' ' + tag) : tag;
+        searchInput.value = newVal;
+        if (typeof executeSearch === 'function') executeSearch();
+        if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
+        searchInput.focus();
+    }
+
+    /** roving ハイライトを DOM に反映（.kbd-active 付け替え + scrollIntoView）。 */
+    function updateTagSuggestKbdHighlight() {
+        if (!tagSuggestBar) return;
+        var items = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+        for (var i = 0; i < items.length; i++) {
+            if (i === tagSuggestKbdIndex) {
+                items[i].classList.add('kbd-active');
+                if (typeof items[i].scrollIntoView === 'function') {
+                    items[i].scrollIntoView({ inline: 'nearest', block: 'nearest' });
+                }
+            } else {
+                items[i].classList.remove('kbd-active');
+            }
+        }
+    }
+
+    /** roving 選択を解除（index=-1 + ハイライト消去）。 */
+    function resetTagSuggestKbd() {
+        tagSuggestKbdIndex = -1;
+        if (tagSuggestBar) {
+            var items = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item.kbd-active');
+            for (var i = 0; i < items.length; i++) items[i].classList.remove('kbd-active');
+        }
+    }
+
+    /** サジェストバーが現在表示中か（roving の前提）。 */
+    function isTagSuggestBarVisible() {
+        return !!(tagSuggestBar && tagSuggestBar.style.display !== 'none' &&
+            tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item').length > 0);
+    }
+
     function renderTagSuggestBar() {
         if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
         if (!tagSuggestBar) return;
+        // 再描画は roving state をリセット（stale ハイライト防止・one-shot clear 契機）
+        tagSuggestKbdIndex = -1;
         var tags = computeAllTagsSorted();
         if (tags.length === 0) {
             tagSuggestBar.innerHTML = '';
@@ -5632,12 +5854,8 @@ var Outliner = (function() {
                 btn.addEventListener('click', function (ev) {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    var current = (searchInput.value || '').trim();
-                    var newVal = current ? (current + ' ' + t.tag) : t.tag;
-                    searchInput.value = newVal;
-                    if (typeof executeSearch === 'function') executeSearch();
-                    if (typeof updateSearchClearButton === 'function') updateSearchClearButton();
-                    searchInput.focus();
+                    applyTagToSearch(t.tag);
+                    resetTagSuggestKbd();
                 });
                 tagSuggestBar.appendChild(btn);
             })(tags[i]);
@@ -5647,6 +5865,8 @@ var Outliner = (function() {
 
     function hideTagSuggestBar() {
         if (!tagSuggestBar) tagSuggestBar = document.querySelector('.outliner-tag-suggest-bar');
+        // one-shot clear 契機: バー非表示時に roving state を必ずリセット
+        tagSuggestKbdIndex = -1;
         if (tagSuggestBar) tagSuggestBar.style.display = 'none';
     }
 
@@ -5712,6 +5932,9 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('input', function() {
+            // FR-TK-01: ユーザー入力で roving 選択をリセット（stale ハイライト防止・one-shot clear 契機）。
+            // ※ applyTagToSearch の value 代入は input event を発火しないので、ここは実ユーザー入力のみ通る。
+            resetTagSuggestKbd();
             if (isSearchComposing) return;
             updatePinnedTagBar();
             updateSearchClearButton();
@@ -5722,6 +5945,64 @@ var Outliner = (function() {
         });
 
         searchInput.addEventListener('keydown', function(e) {
+            // FR-TK-01: tag サジェストのキーボード roving。フォーカスは input のまま・視覚ハイライトのみ。
+            // 3 view 共通ヘッダなので mindmap 分岐より前に処理し全 view で効かせる（NFR-TK/TS-01）。
+            // handler が二重登録された環境でも同一イベントで roving を 2 回進めないよう dedup
+            // （既存 __mmSearchNextHandled と同型。ArrowRight/Enter は非冪等なので必須）。
+            if (e.__tagRovingHandled) { e.preventDefault(); return; }
+            var barVisible = isTagSuggestBarVisible();
+            if (e.key === 'ArrowDown') {
+                // バー表示中 && 未選択 → 1 個目を選択。表示中でなければ素通し。
+                if (barVisible && tagSuggestKbdIndex === -1) {
+                    var itemsD = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    if (itemsD.length > 0) {
+                        tagSuggestKbdIndex = 0;
+                        updateTagSuggestKbdHighlight();
+                        e.__tagRovingHandled = true;
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                // roving 選択中のみ移動（端で停止・循環しない）+ preventDefault。
+                // index=-1 は素通し（input 内カーソル移動・Opt+Arrow の既存挙動も維持）。
+                if (barVisible && tagSuggestKbdIndex >= 0 && !e.altKey && !e.metaKey && !e.ctrlKey) {
+                    var itemsLR = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    var last = itemsLR.length - 1;
+                    if (e.key === 'ArrowRight') {
+                        if (tagSuggestKbdIndex < last) tagSuggestKbdIndex++;
+                    } else {
+                        if (tagSuggestKbdIndex > 0) tagSuggestKbdIndex--;
+                    }
+                    updateTagSuggestKbdHighlight();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+            } else if (e.key === 'Enter') {
+                // roving 選択中 → 該当 tag を反映（click と同規則）+ 選択解除。
+                if (barVisible && tagSuggestKbdIndex >= 0) {
+                    var itemsE = tagSuggestBar.querySelectorAll('.outliner-tag-suggest-item');
+                    if (tagSuggestKbdIndex < itemsE.length) {
+                        applyTagToSearch(itemsE[tagSuggestKbdIndex].textContent);
+                    }
+                    resetTagSuggestKbd();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+                // index=-1 → 従来（検索実行）へ落ちる
+            } else if (e.key === 'ArrowUp' || e.key === 'Escape') {
+                // roving 選択中 → 選択解除のみ（Esc の既存挙動は横取りせず、選択中のみ抜ける）。
+                if (tagSuggestKbdIndex >= 0) {
+                    resetTagSuggestKbd();
+                    e.__tagRovingHandled = true;
+                    e.preventDefault();
+                    return;
+                }
+                // index=-1 → Esc は従来（検索クリア）へ落ちる
+            }
+
             // [M] iteration 29 / TASK-79: mindmap モードの検索は「Enter で次の一致へ巡回中央化」。
             // Escape でハイライト解除。絞り込み系 (currentSearchResult) は使わない。
             if (VIEW_MODE === 'mindmap') {
@@ -9671,5 +9952,7 @@ var Outliner = (function() {
         __applySidePanelWidthClampedForTest: function() { applySidePanelWidthClamped(); },
         // counterfactual: RO を無効化すると再クランプが起きず px 据え置き（→ wrapper 縮小ではみ出す = RED）。
         __setSidePanelResizeObserverDisabledForTest: function(v) { _sidePanelResizeObserverDisabled = !!v; },
+        // TC-TS-* テスト用: scope 確定後の ON 経路を直接叩く（ポップアップの confirm 相当）。
+        __enableTaskModeWithScopeForTest: function(scope) { enableTaskModeWithScope(scope); },
     };
 })();

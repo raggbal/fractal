@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.17] - 2026-08-04
+
+### Added
+- **outliner: tag サジェストのキーボード選択** — Search box で ↓ を押すとサジェストに入り、← → で選択（端で停止）、Enter で検索ボックスに反映して即検索。↑ / Esc で選択を抜ける。outliner / table / mindmap の全 view で利用可
+- **outliner: タスクモードの適用範囲を選択可能に** — ON 時にポップアップで「トップレベルのみ / 全てのノード」を選択（前回の選択がデフォルト・Enter 一発確定・Esc でキャンセル）。選択は .out に記録され、OFF 時はその範囲だけ解除（トップのみ選択なら手動で子に付けたチェックボックスは残る）。ON 中に追加した新規ノードにも選択範囲に従ってチェックボックスが付く。既存の .out は「トップレベルのみ」扱いで従来と同一動作
+
+### Fixed
+- **outliner: 未編集ノードの #tag がサジェスト・検索に出ないバグ** — タグはノードを編集した時にしか抽出されず、外部ツール由来・旧ファイル・外部編集されたノードのタグが検索ボックスのサジェストにも #tag 検索にも出なかった → ファイルを開くたびに全ノードのタグを本文から再計算するように（開いた瞬間に自己修復）
+
 ## [1.1.16] - 2026-08-03
 
 ### Changed

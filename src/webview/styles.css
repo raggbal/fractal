@@ -2172,3 +2172,36 @@ body {
     cursor: pointer;
 }
 .inline-color-popover .file-panel-color-none:hover { opacity: 1; }
+
+/* FR-TK-01: tag サジェストのキーボード roving ハイライト。
+   :hover と同系の見た目（--outliner-tag-hover-bg）+ 選択枠で識別性を上げる。
+   styles.css は outliner.css の後にロードされるため、この 2-class ルールが基本 item スタイルに優先する。 */
+.outliner-tag-suggest-item.kbd-active {
+    background: var(--outliner-tag-hover-bg);
+    outline: 1px solid var(--outliner-tag-color);
+    outline-offset: -1px;
+}
+
+/* FR-TS-01: taskScope ポップアップ。add-col-dialog の慣例を踏襲（outliner.css）しつつ、
+   2 ボタンを横並びで均等に。フォーカスされたボタンを枠で明示（Enter 一発確定の可視化）。
+   どちらも同格の選択肢なので両方 primary 色（add-col の :first-child/:last-child 非対称を上書き）。 */
+.outliner-task-scope-buttons {
+    justify-content: stretch;
+}
+.outliner-task-scope-buttons button,
+.outliner-task-scope-buttons button:first-child,
+.outliner-task-scope-buttons button:last-child {
+    flex: 1 1 0;
+    background: var(--outliner-tag-color, #2196F3);
+    color: #ffffff;
+    font-weight: 600;
+    border-color: var(--outliner-tag-color, #2196F3);
+}
+.outliner-task-scope-buttons button:hover {
+    filter: brightness(1.08);
+}
+.outliner-task-scope-buttons button:focus-visible,
+.outliner-task-scope-buttons button:focus {
+    outline: 2px solid var(--outliner-tag-color, #2196F3);
+    outline-offset: 1px;
+}

@@ -89,6 +89,10 @@ var OutlinerModel = (function() {
         this.columns = (data.columns && Array.isArray(data.columns)) ? data.columns.slice() : [];
         // タスクモード: ルート node に自動 checkbox 付与 + 完了タスク filter
         this.taskMode = !!data.taskMode;
+        // taskScope: タスクモードで checkbox を付与する範囲。
+        //   'top' = トップレベル(root)のみ / 'all' = 全 node。
+        //   不正値・欠落は 'top' (旧 .out 後方互換・NFR-TS-02)。
+        this.taskScope = (data.taskScope === 'all') ? 'all' : 'top';
         // タスクモード時のフィルタ: 'active' (未完了のみ) | 'all'
         // デフォルトは 'all' (フィルタなし)。taskMode 有効化で 'active' に切替。
         this.taskFilter = (data.taskFilter === 'active') ? 'active' : 'all';
@@ -136,6 +140,11 @@ var OutlinerModel = (function() {
             if (!this.nodes[id].images) {
                 this.nodes[id].images = [];
             }
+            // tags は text から常に再計算する（text が単一真実）。
+            // 保存値頼みだと、tags フィールドを持たない旧 .out や外部編集で
+            // stale になった node の #tag がサジェスト/検索に出ない
+            // （TASK-03: 未編集 node のタグ欠落バグの修正）。
+            this.nodes[id].tags = parseTags(this.nodes[id].text || '');
         }
     };
 
@@ -171,7 +180,7 @@ var OutlinerModel = (function() {
             pageId: null,
             collapsed: false,
             // タスクモード ON のとき root node に自動 checkbox 付与 (子は付与しない)
-            checked: (this.taskMode && isRoot) ? false : null,
+            checked: (this.taskMode && (this.taskScope === 'all' || isRoot)) ? false : null,
             subtext: '',
             images: [],
             filePath: null
@@ -210,7 +219,7 @@ var OutlinerModel = (function() {
             isPage: false,
             pageId: null,
             collapsed: false,
-            checked: (this.taskMode && isRoot) ? false : null,
+            checked: (this.taskMode && (this.taskScope === 'all' || isRoot)) ? false : null,
             subtext: '',
             images: [],
             filePath: null
@@ -245,7 +254,7 @@ var OutlinerModel = (function() {
             isPage: false,
             pageId: null,
             collapsed: false,
-            checked: (this.taskMode && isRoot) ? false : null,
+            checked: (this.taskMode && (this.taskScope === 'all' || isRoot)) ? false : null,
             subtext: '',
             images: [],
             filePath: null
@@ -606,6 +615,11 @@ var OutlinerModel = (function() {
         }
         if (this.taskMode) {
             data.taskMode = true;
+        }
+        // taskScope は 'all' のときのみ persist ('top' 既定は省略 = 旧 .out byte 互換・NFR-TS-02)。
+        // taskMode 条件の外に置く: OFF 後も次回 ON のデフォルトとして 'all' を残す (FR-TS-02)。
+        if (this.taskScope === 'all') {
+            data.taskScope = 'all';
         }
         // taskFilter は 'active' 時のみ persist (デフォルト 'all' は省略)
         if (this.taskFilter === 'active') {
