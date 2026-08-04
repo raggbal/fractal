@@ -36,6 +36,7 @@ import {
     generateUniqueFileName,
 } from './editorProvider';
 import { generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
+import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 
 /**
  * NotesEditorProvider — WebviewPanel で Notes エディタを開く
@@ -1169,6 +1170,66 @@ export class NotesEditorProvider {
                     });
                 } catch (e) {
                     console.error('[Notes] saveMdFileToDir error:', e);
+                }
+            },
+            // FR-B07 (sprint 20260804-145603): Notes md メインペインへの .md D&D → subpage 登録。
+            // 編集中 md と同階層（= note md ルート flat）に一意名コピー + insertSubpageLink 返信 +
+            // ファイルツリーにも登録（ユーザー仕様「note フォルダに登録」）。
+            saveMdAsSubpageForNotesMd: (dataUrl: string, fileName: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                try {
+                    const r = saveDroppedMdAsSubpage(cur, dataUrlToUtf8(dataUrl), fileName || 'untitled.md');
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: r.relPath,
+                        title: r.title,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveMdAsSubpageForNotesMd error:', e);
+                }
+            },
+            readMdAsSubpageForNotesMd: (filePath: string) => {
+                const cur = fileManager.getCurrentFilePath();
+                if (!cur || !cur.endsWith('.md')) return;
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const r = saveDroppedMdAsSubpage(cur, content, path.basename(filePath));
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: r.relPath,
+                        title: r.title,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readMdAsSubpageForNotesMd error:', e);
+                }
+            },
+            // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
+            saveMdAsSubpageForSidePanel: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
+                try {
+                    const r = saveDroppedMdAsSubpage(sidePanelFilePath, dataUrlToUtf8(dataUrl), fileName || 'untitled.md');
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: r.relPath,
+                        title: r.title,
+                        sidePanelFilePath,
+                    });
+                } catch (e) {
+                    console.error('[Notes] saveMdAsSubpageForSidePanel error:', e);
+                }
+            },
+            readMdAsSubpageForSidePanel: (filePath: string, sidePanelFilePath: string) => {
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const r = saveDroppedMdAsSubpage(sidePanelFilePath, content, path.basename(filePath));
+                    panel.webview.postMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: r.relPath,
+                        title: r.title,
+                        sidePanelFilePath,
+                    });
+                } catch (e) {
+                    console.error('[Notes] readMdAsSubpageForSidePanel error:', e);
                 }
             },
             readAndInsertMdFile: (filePath: string) => {

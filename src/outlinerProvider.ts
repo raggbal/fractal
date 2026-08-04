@@ -8,6 +8,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
+import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
@@ -1098,6 +1099,41 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 fileName: destFileName,
                                 sidePanelFilePath: message.sidePanelFilePath // FR: 宛先=sidepanel
                             });
+                        }
+                        break;
+                    }
+
+                    // FR-B07 (sprint 20260804-145603): outliner page md（sidepanel）への .md D&D → subpage 登録
+                    case 'saveMdAsSubpage': {
+                        if (message.sidePanelFilePath && message.dataUrl) {
+                            try {
+                                const r = saveDroppedMdAsSubpage(message.sidePanelFilePath, dataUrlToUtf8(message.dataUrl), message.fileName || 'untitled.md');
+                                webviewPanel.webview.postMessage({
+                                    type: 'insertSubpageLink',
+                                    markdownPath: r.relPath,
+                                    title: r.title,
+                                    sidePanelFilePath: message.sidePanelFilePath,
+                                });
+                            } catch (e) {
+                                console.error('[Outliner] saveMdAsSubpage error:', e);
+                            }
+                        }
+                        break;
+                    }
+                    case 'readAndInsertMdAsSubpage': {
+                        if (message.sidePanelFilePath && message.filePath) {
+                            try {
+                                const content = fs.readFileSync(message.filePath, 'utf8');
+                                const r = saveDroppedMdAsSubpage(message.sidePanelFilePath, content, path.basename(message.filePath));
+                                webviewPanel.webview.postMessage({
+                                    type: 'insertSubpageLink',
+                                    markdownPath: r.relPath,
+                                    title: r.title,
+                                    sidePanelFilePath: message.sidePanelFilePath,
+                                });
+                            } catch (e) {
+                                console.error('[Outliner] readAndInsertMdAsSubpage error:', e);
+                            }
                         }
                         break;
                     }

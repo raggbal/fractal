@@ -52,6 +52,23 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertFile(filePath, this.filePath);
     }
+    // FR-B07: .md D&D subpage 登録（sidepanel md でも同階層コピー + subpage リンク）
+    saveMdAsSubpage(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.saveMdAsSubpage === 'function') {
+            this._mainHost.saveMdAsSubpage(dataUrl, fileName, this.filePath);
+        } else {
+            this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+        }
+    }
+    readAndInsertMdAsSubpage(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.readAndInsertMdAsSubpage === 'function') {
+            this._mainHost.readAndInsertMdAsSubpage(filePath, this.filePath);
+        } else {
+            this._mainHost.readAndInsertFile(filePath, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -16026,6 +16043,49 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'insertSubpageLink') {
+            // FR-B07 (sprint 20260804-145603): .md D&D の subpage 登録。host が md を保存して
+            // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
+            //（serialize が [[title]](path) に書き戻す = pageCreatedAtPath と同じ属性セット）。
+            // 宛先判定も insertFileLink と同一（sidepanel 宛は中継のみ・自分に挿入しない）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: message.markdownPath,
+                        title: message.title
+                    });
+                }
+                return;
+            }
+            const spA = document.createElement('a');
+            spA.href = message.markdownPath;
+            spA.textContent = message.title || 'untitled';
+            spA.dataset.markdownPath = message.markdownPath;
+            spA.dataset.subpage = 'true';
+            spA.className = 'link-internal-md link-subpage';
+
+            editor.focus();
+            const spSel = window.getSelection();
+            const spSelInEditor = !!(spSel && spSel.rangeCount && (
+                editor.contains(spSel.getRangeAt(0).startContainer) ||
+                spSel.getRangeAt(0).startContainer === editor
+            ));
+            if (spSel && spSel.rangeCount && spSelInEditor) {
+                const spRange = spSel.getRangeAt(0);
+                spRange.deleteContents();
+                spRange.insertNode(spA);
+                spRange.setStartAfter(spA);
+                spRange.collapse(true);
+                spSel.removeAllRanges();
+                spSel.addRange(spRange);
+            } else {
+                const spTailP = document.createElement('p');
+                spTailP.appendChild(spA);
+                editor.appendChild(spTailP);
+            }
+            syncMarkdown();
+            logger.log('Subpage link element inserted');
         } else if (message.type === 'pasteWithAssetCopyResult') {
             // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
             if (sidePanelHostBridge) {
@@ -17440,6 +17500,25 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
+        // FR-B07 (sprint 20260804-145603): .md D&D は添付（files/）でなく subpage 登録。
+        // host が md をエディタ md と同階層に一意名で保存し insertSubpageLink を返す。
+        // host 未対応（旧 host / fallback）時は従来の添付挙動に落とす。
+        function isMdDropName(name) { return /\.md$/i.test(String(name || '')); }
+        function saveMdAsSubpageViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                if (typeof h.saveMdAsSubpage === 'function') {
+                    h.saveMdAsSubpage(event.target.result, file.name);
+                } else {
+                    h.saveFileAndInsert(event.target.result, file.name);
+                }
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error (md subpage):', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -17450,7 +17529,11 @@ class EditorInstance {
             // MD-45/MD-13拡張: classifyDroppedFile による switch 分岐
             //（MD-46 の drawio-xml 棄却は sprint 20260801-200307 / ADRL-DDX-1 で廃止 — 'file' に落ちる）
             const cls = classifyDroppedFile(file.name);
-            if (cls === 'drawio-file') {
+            if (isMdDropName(file.name)) {
+                // FR-B07: .md は subpage 登録（classify は md を 'file' に落とすため先に判定）
+                saveMdAsSubpageViaHost(file, targetHost);
+                return;
+            } else if (cls === 'drawio-file') {
                 readAndInsertDrawioViaHost(file, targetHost);
                 return;
             } else if (cls === 'image' || file.type.startsWith('image/')) {
@@ -17474,7 +17557,11 @@ class EditorInstance {
                     if (!file) continue;
                     // MD-45: drawio classifier first
                     const itemCls = classifyDroppedFile(file.name);
-                    if (itemCls === 'drawio-file') {
+                    if (isMdDropName(file.name)) {
+                        // FR-B07: items 経路でも .md → subpage（経路ごと handler 網羅）
+                        saveMdAsSubpageViaHost(file, targetHost);
+                        return;
+                    } else if (itemCls === 'drawio-file') {
                         logger.log('Got drawio file from items:', file.name, file.size);
                         readAndInsertDrawioViaHost(file, targetHost);
                         return;
@@ -17552,6 +17639,15 @@ class EditorInstance {
         if (filePath) {
             // MD-45/MD-46/MD-13拡張: classifyDroppedFile で 4 経路に分岐
             const pathCls = classifyDroppedFile(pathFileName);
+            if (isMdDropName(pathFileName)) {
+                // FR-B07: uri-list 経路の .md → subpage（host がファイルを読んで同階層コピー + リンク返信）
+                if (typeof targetHost.readAndInsertMdAsSubpage === 'function') {
+                    targetHost.readAndInsertMdAsSubpage(filePath);
+                } else {
+                    targetHost.readAndInsertFile(filePath);
+                }
+                return;
+            }
             if (pathCls === 'drawio-file') {
                 logger.log('Found drawio file path:', filePath);
                 if (typeof targetHost.readAndInsertDrawio === 'function') {

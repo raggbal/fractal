@@ -113,6 +113,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'readAndInsertFile', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // FR-B07 (sprint 20260804-145603): .md D&D の subpage 登録（添付でなく同階層コピー + [[title]](file.md)）
+        saveMdAsSubpage: function(dataUrl, fileName, sidePanelFilePath) {
+            postFn({ type: 'saveMdAsSubpage', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });
+        },
+        readAndInsertMdAsSubpage: function(filePath, sidePanelFilePath) {
+            postFn({ type: 'readAndInsertMdAsSubpage', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
+        },
+
         // MD-45/46/47: drawio.svg / drawio.png / drawio (XML) 経路
         saveDrawioAndInsert: function(dataUrl, fileName, sidePanelFilePath) {
             postFn({ type: 'saveDrawioAndInsert', dataUrl: dataUrl, fileName: fileName, sidePanelFilePath: sidePanelFilePath });

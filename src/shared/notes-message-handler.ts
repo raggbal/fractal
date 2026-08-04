@@ -61,12 +61,18 @@ export interface NotesPlatformActions {
     saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイル添付をコピーしてマークダウンリンク挿入 */
     readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
+    /** FR-B07: sidepanel md への .md D&D → subpage 登録 */
+    saveMdAsSubpageForSidePanel?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
+    readMdAsSubpageForSidePanel?(filePath: string, sidePanelFilePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ に保存して挿入 */
     saveMdImageToDir?(dataUrl: string, fileName: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ にコピーして挿入 */
     readAndInsertMdImage?(filePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ に保存して挿入 */
     saveMdFileToDir?(dataUrl: string, fileName: string): void;
+    /** FR-B07: Notes md メインペインの .md D&D → subpage 登録（同階層コピー + insertSubpageLink 返信） */
+    saveMdAsSubpageForNotesMd?(dataUrl: string, fileName: string): void;
+    readMdAsSubpageForNotesMd?(filePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
     readAndInsertMdFile?(filePath: string): void;
     /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
@@ -837,6 +843,19 @@ export async function handleNotesMessage(
             }
             break;
 
+        // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
+        case 'saveMdAsSubpage':
+            if (message.sidePanelFilePath && message.dataUrl && platform.saveMdAsSubpageForSidePanel) {
+                platform.saveMdAsSubpageForSidePanel(message.dataUrl, message.fileName, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'readAndInsertMdAsSubpage':
+            if (message.sidePanelFilePath && message.filePath && platform.readMdAsSubpageForSidePanel) {
+                platform.readMdAsSubpageForSidePanel(message.filePath, message.sidePanelFilePath);
+            }
+            break;
+
         case 'saveDrawioAndInsert':
             if (message.sidePanelFilePath && message.dataUrl && platform.saveDrawioToDir) {
                 platform.saveDrawioToDir(message.dataUrl, message.fileName, message.sidePanelFilePath);
@@ -865,6 +884,19 @@ export async function handleNotesMessage(
         case 'notesMdReadAndInsertFile':
             if (message.filePath && platform.readAndInsertMdFile) {
                 platform.readAndInsertMdFile(message.filePath);
+            }
+            break;
+
+        // FR-B07 (sprint 20260804-145603): Notes md メインペインの .md D&D → subpage 登録
+        case 'notesMdSaveMdAsSubpage':
+            if (message.dataUrl && platform.saveMdAsSubpageForNotesMd) {
+                platform.saveMdAsSubpageForNotesMd(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadMdAsSubpage':
+            if (message.filePath && platform.readMdAsSubpageForNotesMd) {
+                platform.readMdAsSubpageForNotesMd(message.filePath);
             }
             break;
 

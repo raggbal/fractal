@@ -9236,6 +9236,17 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'insertSubpageLink':
+                    // FR-B07: sidepanel md への .md D&D subpage 登録（insertFileLink と同じ宛先判定）
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: msg.markdownPath,
+                            title: msg.title
+                        });
+                    }
+                    break;
+
                 case 'sidePanelAssetContext':
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._assetContext = {

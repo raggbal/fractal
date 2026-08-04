@@ -316,6 +316,13 @@
         readAndInsertFile: function(filePath) {
             api.postMessage({ type: 'notesMdReadAndInsertFile', filePath: filePath });
         },
+        // FR-B07: Notes md メインペインの .md D&D → subpage 登録（files/ 添付にしない）
+        saveMdAsSubpage: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveMdAsSubpage', dataUrl: dataUrl, fileName: fileName });
+        },
+        readAndInsertMdAsSubpage: function(filePath) {
+            api.postMessage({ type: 'notesMdReadMdAsSubpage', filePath: filePath });
+        },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
         // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび
