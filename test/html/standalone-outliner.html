@@ -16506,8 +16506,10 @@ class EditorInstance {
                 // （タスクリストの checkbox 剥がしと同型の 2 段階）。ネスト/top-level を問わず
                 // parentList.tagName==='OL' のみで判定（Backspace の行頭 ol li は 3 状態あり、
                 // nested 判定を足すと第 3 状態=ネスト非先頭が取りこぼされる。designer_failures 2026-07-30）。
-                // 空 li は既存の段落変換/削除経路のまま（demote しない）。
-                if (isAtBeginning && !isEmptyItem && list.tagName === 'OL') {
+                // sprint 20260805-124854 TASK-06(3): 空 li も demote する（ユーザー仕様変更・
+                // 許可: test_update TC-OB-07）。「どんな時も 1 段階目は bullet 解除」— 空/非空で
+                // 挙動が割れると空 li だけ行が即消えして cursor が飛ぶ非対称だった。
+                if (isAtBeginning && list.tagName === 'OL') {
                     e.preventDefault();
                     demoteOlLiToBullet(liElement, sel);
                     return;
@@ -18932,6 +18934,17 @@ class EditorInstance {
             if (parent?.tagName?.toLowerCase() === 'ul' || parent?.tagName?.toLowerCase() === 'ol') {
                 const grandParent = parent.parentNode;
                 if (grandParent?.tagName?.toLowerCase() === 'li') {
+                    // sprint 20260805-124854 TASK-06(1): 同一親 li 内で parent リストの直前に
+                    // 兄弟リスト（demote 分割で生じた ol/ul 等）があるなら、その最深 last li が
+                    // 「視覚的な前要素」（従来は親 li に飛び、カーソルが親テキスト末尾 =
+                    // 見た目上 2 行上に移動するバグ）。
+                    const prevSiblingList = parent.previousElementSibling;
+                    if (prevSiblingList && (prevSiblingList.tagName === 'UL' || prevSiblingList.tagName === 'OL')) {
+                        const lastSibLi = prevSiblingList.lastElementChild;
+                        if (lastSibLi && lastSibLi.tagName === 'LI') {
+                            return findDeepestLastLi(lastSibLi);
+                        }
+                    }
                     // Return the parent li (the text part before the nested list)
                     return grandParent;
                 }
@@ -19057,6 +19070,35 @@ class EditorInstance {
             const { liElement, list, nestedLists, precedingSiblings, sel } = context;
 
             logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'nestedLists:', nestedLists.length);
+
+            // sprint 20260805-124854 TASK-06(2): 空 bullet（ul の唯一 li）が ol と ol の間に
+            // あるとき、削除で ol 同士を結合し連番に修正する（「連なる ol は先頭行のみ番号指定可・
+            // 以降は連番」= after 側の start を破棄 → serialize が prev start からの連番で描画）。
+            // top-level / ネスト（親 li 内の兄弟リスト）どちらでも同じ。
+            if (list && list.tagName === 'UL' && list.children.length === 1) {
+                const prevOl = list.previousElementSibling;
+                const nextOl = list.nextElementSibling;
+                if (prevOl && prevOl.tagName === 'OL' && nextOl && nextOl.tagName === 'OL') {
+                    // 空 li のネストリストは prev の最終 li へ退避（既存 merge 経路と同方針）
+                    const prevLastLi = prevOl.lastElementChild;
+                    for (const nl of nestedLists) {
+                        nl.remove();
+                        if (prevLastLi) prevLastLi.appendChild(nl);
+                    }
+                    liElement.remove();
+                    list.remove();
+                    // join: after の start を破棄して連番化（ADRL-0022: 属性なし = 前からの連番）
+                    nextOl.removeAttribute('start');
+                    while (nextOl.firstChild) prevOl.appendChild(nextOl.firstChild);
+                    nextOl.remove();
+                    if (prevLastLi) {
+                        setCursorToEndOfLi(prevLastLi);
+                    } else {
+                        setCursorToEnd(prevOl);
+                    }
+                    return true;
+                }
+            }
 
             // Find the visually previous element to move cursor to
             const visualPrev = findVisuallyPreviousElement(liElement);
