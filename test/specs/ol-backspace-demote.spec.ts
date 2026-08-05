@@ -575,3 +575,95 @@ test.describe('空 bullet backspace のカーソル・連番結合 (TASK-06)', (
         expect(fin.start).toBeNull(); // 連番（1,2）
     });
 });
+
+// sprint 20260805-124854 TASK-06(2) 追補（画像 #5→#6 の再現）: 非空 bullet が
+// ol / ol の間にあり、その行頭 backspace で前 ol 末尾へ結合 → ul 消滅 → ol 再結合 + 連番
+test.describe('非空 bullet の merge でも ol 再結合 + 連番 (TASK-06 追補)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-OB-12: 1.sdsf / -f / 3.dsds の f 行頭 backspace → sdsff の 1 個の ol・連番', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>sdsf</li></ol><ul><li>f</li></ul><ol start="3"><li>dsds</li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const ols = ed.querySelectorAll('ol');
+            return {
+                olCount: ols.length,
+                ulCount: ed.querySelectorAll('ul').length,
+                lis: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        // counterfactual: join 未配線だと olCount=2 で dsds が「3.」のまま = RED
+        expect(r.ulCount).toBe(0);
+        expect(r.olCount).toBe(1);
+        expect(r.lis).toEqual(['sdsff', 'dsds']);
+        expect(r.start).toBeNull(); // 1,2 の連番
+    });
+
+    test('TC-OB-13: ネスト内でも同様（親 li 内の ol / -f / ol）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>p<ol><li>sdsf</li></ol><ul><li>f</li></ul><ol start="3"><li>dsds</li></ol></li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => {
+            const parentLi = document.querySelector('#editor > ol > li')!;
+            const ols = parentLi.querySelectorAll(':scope > ol');
+            return {
+                olCount: ols.length,
+                ulCount: parentLi.querySelectorAll(':scope > ul').length,
+                lis: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        expect(r.ulCount).toBe(0);
+        expect(r.olCount).toBe(1);
+        expect(r.lis).toEqual(['sdsff', 'dsds']);
+        expect(r.start).toBeNull();
+    });
+
+    test('TC-OB-14: ol / -f / ul（次が ol でない）は結合しない（no-op 番人）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>a</li></ol><ul><li>f</li></ul><ul><li>z</li></ul>';
+            const li = ed.querySelectorAll('ul')[0]!.querySelector('li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => ({
+            html: document.getElementById('editor')!.innerHTML,
+            olLis: Array.from(document.querySelectorAll('#editor ol > li')).map(l => l.textContent),
+        }));
+        expect(r.olLis).toEqual(['af']); // f は前 ol 末尾へ merge（従来）
+        expect(r.html).toContain('<ul><li>z</li></ul>'); // ul z は不変（ol 化されない）
+    });
+});

@@ -16621,7 +16621,9 @@ class EditorInstance {
 
                         // If current list is now empty, remove it
                         if (list.children.length === 0) {
+                            const jPrev = list.previousElementSibling, jNext = list.nextElementSibling;
                             list.remove();
+                            joinAdjacentOlsAfterListRemoval(jPrev, jNext); // TASK-06(2)
                         }
 
                         // Set cursor position
@@ -16696,7 +16698,9 @@ class EditorInstance {
 
                         // If the list is now empty, remove it
                         if (list.children.length === 0) {
+                            const jPrev2 = list.previousElementSibling, jNext2 = list.nextElementSibling;
                             list.remove();
+                            joinAdjacentOlsAfterListRemoval(jPrev2, jNext2); // TASK-06(2)
                         }
 
                         // If there was a nested list in current li, insert it before the remaining siblings.
@@ -19087,10 +19091,7 @@ class EditorInstance {
                     }
                     liElement.remove();
                     list.remove();
-                    // join: after の start を破棄して連番化（ADRL-0022: 属性なし = 前からの連番）
-                    nextOl.removeAttribute('start');
-                    while (nextOl.firstChild) prevOl.appendChild(nextOl.firstChild);
-                    nextOl.remove();
+                    joinAdjacentOlsAfterListRemoval(prevOl, nextOl);
                     if (prevLastLi) {
                         setCursorToEndOfLi(prevLastLi);
                     } else {
@@ -19395,7 +19396,9 @@ class EditorInstance {
                 
                 // If list is now empty, remove it
                 if (list.children.length === 0) {
+                    const jPrev3 = list.previousElementSibling, jNext3 = list.nextElementSibling;
                     list.remove();
+                    joinAdjacentOlsAfterListRemoval(jPrev3, jNext3); // TASK-06(2) 非空 bullet 経路（画像 #5→#6 の f ケース）
                 }
                 
                 // Add nested lists to visualPrev
@@ -21129,6 +21132,20 @@ class EditorInstance {
     // changeParentListType が ol を分割し（after 側に start 焼き = ADRL-LST-2）、
     // カーソルは li テキスト先頭に維持。2 回目の backspace は ul li として既存経路に落ちる。
     // sync はここで 1 回のみ（呼び出し側は preventDefault + return で二重発火させない）。
+    // sprint 20260805-124854 TASK-06(2)/追補: リスト除去で ol 同士が隣接したら結合 + 連番化。
+    // 「連なる ol は先頭行のみ番号指定可・以降は自動連番」= after 側の start を破棄
+    //（ADRL-0022: 属性なし = 前からの連番で serialize）。除去する list の prev/next を
+    // **remove 前に**捕まえて渡す。ol/ol 隣接でなければ no-op（段落・ul 等は不変）。
+    // 空 bullet 経路（handleEmptyLi）と非空 merge 経路（handleNonEmptyLiStart :8113/:8188/:10887）
+    // の全てで呼ぶ（片肺配線の禁止）。
+    function joinAdjacentOlsAfterListRemoval(prevEl, nextEl) {
+        if (!prevEl || !nextEl) return;
+        if (prevEl.tagName !== 'OL' || nextEl.tagName !== 'OL') return;
+        nextEl.removeAttribute('start');
+        while (nextEl.firstChild) prevEl.appendChild(nextEl.firstChild);
+        nextEl.remove();
+    }
+
     function demoteOlLiToBullet(liElement, sel) {
         changeParentListType(liElement, 'ul');
         // カーソルを li テキスト先頭に置き直す（DOM 移動で selection が飛ぶことがあるため）
