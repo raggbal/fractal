@@ -260,6 +260,10 @@ const testNotesHostBridge = `
         notesRegisterSubpageFromMd: function(payload, parentId, index) {
             window.__testApi.notesMessages.push({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
+        // FR-T01: Finder / VS Code Explorer から .md をツリーに D&D
+        notesRegisterExternalMd: function(items, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterExternalMd', items: items, parentId: parentId, index: index });
+        },
         notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
             window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
         },

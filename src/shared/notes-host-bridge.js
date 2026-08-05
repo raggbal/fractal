@@ -442,6 +442,12 @@
             api.postMessage({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
 
+        // FR-T01: Finder / VS Code Explorer から .md をツリーに D&D → 新 id で複製登録。
+        // items = 種別付き配列 [{kind:'md', name, content}]（webview が FileReader で読み込み済み）。
+        notesRegisterExternalMd: function(items, parentId, index) {
+            api.postMessage({ type: 'notesRegisterExternalMd', items: items, parentId: parentId || null, index: index || 0 });
+        },
+
         // v0.207.77: D&D — outliner page-node を Notes panel にドロップして .md として登録
         notesImportOutPageNodeAsMd: function(payload, parentId, index) {
             flushOutlinerSync();

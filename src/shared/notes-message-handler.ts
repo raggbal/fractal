@@ -226,6 +226,13 @@ export interface NotesPlatformActions {
     notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
     /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
     notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    /** FR-T01: Finder / VS Code Explorer から .md をツリーに D&D → 各 md を新 id で複製登録 */
+    notesRegisterExternalMd?(
+        items: { kind: string; name: string; content: string }[],
+        parentId: string | null,
+        index: number,
+        sender: NotesSender
+    ): Promise<void> | void;
     /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
     notesImportOutPageNodeAsMd?(
         payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
@@ -1243,6 +1250,13 @@ export async function handleNotesMessage(
         case 'notesRegisterSubpageFromMd':
             if (message.payload && platform.notesRegisterSubpageFromMd) {
                 await platform.notesRegisterSubpageFromMd(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+
+        // FR-T01: Finder / VS Code Explorer から .md をツリーに D&D → 各 md を新 id で複製登録
+        case 'notesRegisterExternalMd':
+            if (Array.isArray(message.items) && platform.notesRegisterExternalMd) {
+                await platform.notesRegisterExternalMd(message.items, message.parentId ?? null, message.index ?? 0, sender);
             }
             break;
 
