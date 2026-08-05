@@ -8325,6 +8325,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         notesRegisterSubpageFromMd: function(payload, parentId, index) {
             window.__testApi.notesMessages.push({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
+        // FR-T01: Finder / VS Code Explorer から .md をツリーに D&D
+        notesRegisterExternalMd: function(items, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterExternalMd', items: items, parentId: parentId, index: index });
+        },
         notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
             window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
         },
@@ -42305,6 +42309,54 @@ var notesFilePanel = (function() {
         }
     }
 
+    // FR-T01 (sprint 20260805-124854): Finder / VS Code Explorer からの外部ファイル D&D 判定。
+    // outliner.js:1357 isFilesDragEvent の二段構え（dragover 中は types に 'Files'・drop 時は
+    // 環境により types に載らないので files 実体でフォールバック）を file-panel 内に移植。
+    function isExternalFilesDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        if (types.indexOf('Files') !== -1) return true;
+        // drop 時フォールバック（症状 B 対策 / dragover 中は files が空なので types 判定が効く）
+        return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
+    }
+
+    // FR-T01: 外部 files（.md のみ）を FileReader で読み、bridge.notesRegisterExternalMd を 1 回呼ぶ。
+    // items = 種別付き配列 [{kind:'md', name, content}]（次フェーズのファイル D&D 拡張用に shape を維持）。
+    // 非 md は黙ってスキップ・md 0 件なら bridge を呼ばない。挿入位置（parentId/index）は呼び出し側が決定。
+    function registerExternalMdFiles(e, parentId, index) {
+        var fileList = [];
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            fileList = Array.prototype.slice.call(e.dataTransfer.files);
+        } else if (e.dataTransfer && e.dataTransfer.items) {
+            // 環境により files が空で items のみ載る場合のフォールバック
+            var items = Array.prototype.slice.call(e.dataTransfer.items);
+            for (var k = 0; k < items.length; k++) {
+                if (items[k].kind === 'file') {
+                    var gf = items[k].getAsFile();
+                    if (gf) fileList.push(gf);
+                }
+            }
+        }
+        // .md のみ抽出（非 md は通知なしでスキップ）
+        var mdFiles = fileList.filter(function(f) { return f && /\.md$/i.test(f.name || ''); });
+        if (mdFiles.length === 0) return; // md 0 件なら bridge を呼ばない
+        var readOne = function(file) {
+            return new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onload = function() { resolve({ kind: 'md', name: file.name, content: String(reader.result || '') }); };
+                reader.onerror = function() { resolve(null); };
+                reader.readAsText(file);
+            });
+        };
+        Promise.all(mdFiles.map(readOne)).then(function(results) {
+            var itemsPayload = results.filter(function(r) { return r; });
+            if (itemsPayload.length === 0) return;
+            if (typeof bridge.notesRegisterExternalMd === 'function') {
+                bridge.notesRegisterExternalMd(itemsPayload, parentId, index);
+            }
+        });
+    }
+
     function setupDragSource(el) {
         el.addEventListener('dragstart', function(e) {
             var target = el.closest('[data-item-id]') || el;
@@ -42355,7 +42407,10 @@ var notesFilePanel = (function() {
             //（Outliner page → ツリーと同じ補助線 UX。md-into-out 分岐は dragSourceFileExt
             //  が null なので発火しない = 誤 highlight なし）
             var fromMdSubpage = isMdSubpageDrag(e);
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage) return;
+            // FR-T01: 外部 files（Finder / VS Code Explorer）は最後に判定（内部 drag / outliner /
+            // subpage が最優先。内部 drag は tree-md MIME 等も積むので dragItemId 非 null を先に弾く）。
+            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && isExternalFilesDrag(e);
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromExternal) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 
@@ -42448,6 +42503,21 @@ var notesFilePanel = (function() {
                 if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
                     bridge.notesRegisterSubpageFromMd(mdSubpagePayload, parentSp, ratioSp < 0.5 ? idxSp : idxSp + 1);
                 }
+                return;
+            }
+            // FR-T01: 外部 files（.md）を item 上に drop → その item の前/後（ratio<0.5=前）に登録。
+            // 内部 drag / outliner / subpage が全て無いときのみ（内部 drag 最優先を保つ）。
+            if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && isExternalFilesDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetEx = el.closest('[data-item-id]') || el;
+                var rectEx = targetEx.getBoundingClientRect();
+                var ratioEx = (e.clientY - rectEx.top) / rectEx.height;
+                var parentEx = targetEx.dataset.parentId || null;
+                var sibEx = getChildIdsOfParent(parentEx);
+                var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
+                if (idxEx === -1) idxEx = sibEx.length;
+                registerExternalMdFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
                 return;
             }
             if (!dragItemId && !outPayload && !subtreePayload) return;
@@ -42580,11 +42650,13 @@ var notesFilePanel = (function() {
     function setupFolderChildrenDrop(childrenEl, folderId) {
         childrenEl.addEventListener('dragover', function(e) {
             var fromOutliner = isOutNodePageDrag(e);
-            if (!dragItemId && !fromOutliner) return;
+            // FR-T01: 外部 files（.md）— 内部 drag / outliner が無いときのみ
+            var fromExternal = !dragItemId && !fromOutliner && isExternalFilesDrag(e);
+            if (!dragItemId && !fromOutliner && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromExternal) ? 'copy' : 'move';
                 clearAllDragOver();
                 // 改善1: 子を持つフォルダの隙間では「children 全域ハイライト → 末尾追加」を廃止
                 // (っっd+w が丸ごと選択される分かりづらい挙動)。直近の線を復元して線基準にする。
@@ -42604,6 +42676,14 @@ var notesFilePanel = (function() {
             if (e.target !== childrenEl && e.target.className !== 'file-panel-folder-children') return;
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             e.preventDefault();
+            // FR-T01: 外部 files（.md）→ フォルダ内末尾に登録（内部 drag / outliner が無いときのみ）
+            if (!dragItemId && !outPayload && isExternalFilesDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                lastDropLine = null;
+                registerExternalMdFiles(e, folderId, getChildIdsOfParent(folderId).length);
+                return;
+            }
             if (!dragItemId && !outPayload) return;
             clearAllDragOver();
             removeDropIndicator();
@@ -43430,11 +43510,13 @@ var notesFilePanel = (function() {
             listEl.addEventListener('dragover', function(e) {
                 var fromOutliner = isOutNodePageDrag(e);
                 var fromMdSubpageR = isMdSubpageDrag(e);
-                if (!dragItemId && !fromOutliner && !fromMdSubpageR) return;
+                // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage が無いときのみ
+                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && isExternalFilesDrag(e);
+                if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromExternalR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR || fromExternalR) ? 'copy' : 'move';
                 // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
                 // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
                 if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
@@ -43446,6 +43528,15 @@ var notesFilePanel = (function() {
                 var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
                 var mdSubpagePayloadR = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
                 e.preventDefault();
+                // FR-T01: 外部 files（.md）→ ルート末尾に登録（内部 drag / outliner / subpage が無いとき）
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR && isExternalFilesDrag(e)) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    var rootIdsEx = structure ? structure.rootIds : [];
+                    registerExternalMdFiles(e, null, rootIdsEx.length);
+                    return;
+                }
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;
                 clearAllDragOver();
                 removeDropIndicator();
