@@ -12,31 +12,17 @@ import { runExportMdToPdf, PdfExportDeps, ExecResult } from './shared/pdf-export
 
 interface FractalLinkParams {
     noteFolderName: string;
-    outFileId: string;
+    outFileId?: string;
     nodeId?: string;
     pageId?: string;
+    mdFileId?: string;
 }
 
 function parseFractalLink(url: string): FractalLinkParams | null {
-    // Page link: fractal://note/{folder}/{outFileId}/page/{pageId}
-    const pageMatch = url.match(/^fractal:\/\/note\/([^/]+)\/([^/]+)\/page\/([^/?]+)$/);
-    if (pageMatch) {
-        return {
-            noteFolderName: decodeURIComponent(pageMatch[1]),
-            outFileId: decodeURIComponent(pageMatch[2]),
-            pageId: decodeURIComponent(pageMatch[3]),
-        };
-    }
-    // Node link: fractal://note/{folder}/{outFileId}/{nodeId}
-    const nodeMatch = url.match(/^fractal:\/\/note\/([^/]+)\/([^/]+)\/([^/?]+)$/);
-    if (nodeMatch) {
-        return {
-            noteFolderName: decodeURIComponent(nodeMatch[1]),
-            outFileId: decodeURIComponent(nodeMatch[2]),
-            nodeId: decodeURIComponent(nodeMatch[3]),
-        };
-    }
-    return null;
+    // FR-B11: 文法の単一真実 = src/shared/inapp-link-utils.js（生成側 webview と共有、
+    // parse は最長一致順 page → md → node → out。2 実装非対称を防ぐため委譲する）
+    const { parseFractalLink: parseShared } = require('./shared/inapp-link-utils');
+    return parseShared(url);
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -378,14 +364,16 @@ export function activate(context: vscode.ExtensionContext) {
             if (parsed.pageId) {
                 // Page link: open md in CURRENT note's sidepanel (no note/outliner switch)
                 // Resolve file path from target note's folder, then open in current panel
-                const pagePath = notesEditorProvider.resolvePagePath(folderPath, parsed.outFileId, parsed.pageId!);
+                const pagePath = notesEditorProvider.resolvePagePath(folderPath, parsed.outFileId!, parsed.pageId!);
                 if (pagePath) {
                     notesEditorProvider.openPageInCurrentPanel(pagePath);
                 } else {
                     vscode.window.showWarningMessage('Page file not found');
                 }
             } else {
-                // Node link: navigate to note + outliner + node
+                // Node / out / md link: navigate to note then delegate
+                // (FR-B11: out link = nodeId なしで outliner を開くだけ / md link = mdFileId 経由で
+                //  main pane に md を開く。分岐は navigateToLink 側)
                 await notesEditorProvider.openNotesFolder(folderPath);
                 setTimeout(() => {
                     notesEditorProvider.navigateToLink(folderPath, parsed);

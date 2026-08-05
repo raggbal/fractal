@@ -52,6 +52,31 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         this._mainHost.readAndInsertFile(filePath, this.filePath);
     }
+    // FR-B07: .md D&D subpage 登録（sidepanel md でも同階層コピー + subpage リンク）
+    saveMdAsSubpage(dataUrl, fileName) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.saveMdAsSubpage === 'function') {
+            this._mainHost.saveMdAsSubpage(dataUrl, fileName, this.filePath);
+        } else {
+            this._mainHost.saveFileAndInsert(dataUrl, fileName, this.filePath);
+        }
+    }
+    readAndInsertMdAsSubpage(filePath) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.readAndInsertMdAsSubpage === 'function') {
+            this._mainHost.readAndInsertMdAsSubpage(filePath, this.filePath);
+        } else {
+            this._mainHost.readAndInsertFile(filePath, this.filePath);
+        }
+    }
+    // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md D&D。host が同一 note 判定
+    //（同一 = リンク + ツリー除去 / 別 note = sidepanel md の隣へ複製）
+    linkMdAsSubpage(filePath, mdFileId) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.linkMdAsSubpageForSidePanel === 'function') {
+            this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -427,6 +452,40 @@ class EditorInstance {
             var title = toolbarTitleMap[btn.dataset.action];
             if (title && !btn.title) btn.title = title;
         });
+    }
+
+    // FR-B06: Notes 内 md メインペインでのみ「アプリ内リンクをコピー」ボタンを表示。
+    // 生成器（editor-body-html.js）は standalone md editor と共有のため、button は HTML で
+    // display:none。ここで .notes-layout かつ この instance の md filePath が note md のときだけ現す
+    // （standalone md editor には .notes-layout が無いので隠れたまま）。
+    var copyInAppLinkBtn = container.querySelector('[data-action="copyInAppLink"]');
+    if (copyInAppLinkBtn) {
+        var notesLayoutForInAppReveal = document.querySelector('.notes-layout');
+        var mdFpForReveal = self.options.filePath || '';
+        if (notesLayoutForInAppReveal && /\.md$/i.test(mdFpForReveal)) {
+            copyInAppLinkBtn.style.display = '';
+        }
+    }
+
+    // FR-B06: 「アプリ内リンクをコピー」クリック時のハンドラ。
+    // md link = InAppLinkUtils.buildMdLink(folder, mdFileId)、clipboard は [title](link)（title の [] 除去）。
+    // outliner.js の node/sidepanel copy-inapp と同じ markdown 形式。
+    function copyInAppLinkForMainMd() {
+        if (typeof window === 'undefined' || !window.InAppLinkUtils) return;
+        var notesLayoutEl = document.querySelector('.notes-layout');
+        if (!notesLayoutEl) return;
+        var folderName = notesLayoutEl.dataset.noteFolderName;
+        var mdFp = self.options.filePath || '';
+        if (!folderName || !/\.md$/i.test(mdFp)) return;
+        var mdFileId = mdFp.replace(/^.*[/\\]/, '').replace(/\.md$/i, '');
+        var link = window.InAppLinkUtils.buildMdLink(folderName, mdFileId);
+        // 表示テキスト: 先頭 H1 を優先、無ければ mdFileId
+        var displayText = '';
+        var h1 = editor ? editor.querySelector('h1') : null;
+        if (h1) { displayText = (h1.textContent || '').trim(); }
+        if (!displayText) { displayText = mdFileId; }
+        var mdLink = '[' + displayText.replace(/[\[\]]/g, '') + '](' + link + ')';
+        try { navigator.clipboard.writeText(mdLink); } catch (err) { /* ignore */ }
     }
 
     // Toolbar horizontal scroll navigation
@@ -2145,7 +2204,8 @@ class EditorInstance {
                     var linkClass = classifyLinkHref(ln.url, ln.isSubpage);
                     var classAttr = linkClass ? ' class="' + linkClass + '"' : '';
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
-                    var subpageAttr = ln.isSubpage ? ' data-subpage="true"' : '';
+                    // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
+                    var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
@@ -3530,10 +3590,29 @@ class EditorInstance {
             }
             openBlockFullscreen({ kind: 'code', source: pre });
         });
-        
+
+        // FR-B10: 折り返しトグル。pre に .code-block-wrap を付け外しして
+        // white-space: pre ⇄ pre-wrap を切替える（表示状態のみ・md には保存しない）。
+        // class トグルだけなので copy（getCodePlainText）や serialize（mdProcessNode）に一切影響しない。
+        const wrapBtn = document.createElement('button');
+        wrapBtn.className = 'code-wrap-btn';
+        wrapBtn.textContent = '↩';
+        wrapBtn.title = i18n.codeBlockWrap || 'Wrap';
+        wrapBtn.setAttribute('contenteditable', 'false');
+        // 既に折り返し ON 状態の pre を再セットアップした場合（display/edit 往復）に active 見た目を復元
+        if (pre.classList.contains('code-block-wrap')) {
+            wrapBtn.classList.add('is-active');
+        }
+        wrapBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const on = pre.classList.toggle('code-block-wrap');
+            wrapBtn.classList.toggle('is-active', on);
+        });
+
         header.appendChild(expandBtn);
         header.appendChild(langTag);
         header.appendChild(copyBtn);
+        header.appendChild(wrapBtn);
         pre.insertBefore(header, pre.firstChild);
         
         // Apply syntax highlighting for display mode
@@ -12946,6 +13025,9 @@ class EditorInstance {
             case 'copyPath':
                 host.copyFilePath();
                 break;
+            case 'copyInAppLink':
+                copyInAppLinkForMainMd();
+                break;
             case 'openInNewTab':
                 if (typeof host.openInNewTab === 'function') {
                     host.openInNewTab();
@@ -13953,6 +14035,7 @@ class EditorInstance {
         if (!isExistingFile) {
             a.dataset.subpage = 'true';
             a.className = 'link-internal-md link-subpage';
+            a.draggable = true; // TASK-19: subpage はツリーへ D&D 可
         }
         var sel2 = window.getSelection();
         if (sel2 && sel2.rangeCount) {
@@ -14111,6 +14194,7 @@ class EditorInstance {
                 pcA.dataset.markdownPath = relativePath;
                 // 新規ページ=常に subpage（ADRL-0003）。serialize が [[]] に書き戻す
                 pcA.dataset.subpage = 'true';
+                pcA.draggable = true; // TASK-19
                 pcA.className = 'link-internal-md link-subpage';
                 if (pcMarker && pcMarker.parentNode) {
                     pcMarker.parentNode.replaceChild(pcA, pcMarker);
@@ -15970,6 +16054,73 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('File link element inserted');
+        } else if (message.type === 'removeSubpageLink') {
+            // TASK-19: subpage をツリーへ D&D 登録した後、元 md からアンカーを除去する。
+            // insertFileLink と同じ宛先パターン: 自分（この instance の md）なら editor から除去 +
+            // syncMarkdown / 自分が管理する sidepanel の md なら中継（sidepanel instance が処理）。
+            var rmOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (rmOwnFp === message.sourceMdPath) {
+                var rmAnchors = editor.querySelectorAll('a[data-subpage="true"]');
+                for (var rmJ = 0; rmJ < rmAnchors.length; rmJ++) {
+                    var rmA = rmAnchors[rmJ];
+                    var rmHref = rmA.dataset.markdownPath || rmA.getAttribute('href') || '';
+                    if (rmHref === message.href) {
+                        rmA.parentNode.removeChild(rmA);
+                        syncMarkdown();
+                        break; // 最初の一致 1 個だけ（同一 href 複数は先頭を除去）
+                    }
+                }
+            } else if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sourceMdPath) {
+                sidePanelHostBridge._sendMessage({
+                    type: 'removeSubpageLink',
+                    href: message.href,
+                    sourceMdPath: message.sourceMdPath
+                });
+            }
+        } else if (message.type === 'insertSubpageLink') {
+            // FR-B07 (sprint 20260804-145603): .md D&D の subpage 登録。host が md を保存して
+            // {markdownPath, title} を返す。insertFileLink と同じ挿入防御 + subpage dataset
+            //（serialize が [[title]](path) に書き戻す = pageCreatedAtPath と同じ属性セット）。
+            // 宛先判定も insertFileLink と同一（sidepanel 宛は中継のみ・自分に挿入しない）。
+            if (message.sidePanelFilePath) {
+                if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sidePanelFilePath) {
+                    sidePanelHostBridge._sendMessage({
+                        type: 'insertSubpageLink',
+                        markdownPath: message.markdownPath,
+                        title: message.title
+                    });
+                }
+                return;
+            }
+            const spA = document.createElement('a');
+            spA.href = message.markdownPath;
+            spA.textContent = message.title || 'untitled';
+            spA.dataset.markdownPath = message.markdownPath;
+            spA.dataset.subpage = 'true';
+            spA.draggable = true; // TASK-19
+            spA.className = 'link-internal-md link-subpage';
+
+            editor.focus();
+            const spSel = window.getSelection();
+            const spSelInEditor = !!(spSel && spSel.rangeCount && (
+                editor.contains(spSel.getRangeAt(0).startContainer) ||
+                spSel.getRangeAt(0).startContainer === editor
+            ));
+            if (spSel && spSel.rangeCount && spSelInEditor) {
+                const spRange = spSel.getRangeAt(0);
+                spRange.deleteContents();
+                spRange.insertNode(spA);
+                spRange.setStartAfter(spA);
+                spRange.collapse(true);
+                spSel.removeAllRanges();
+                spSel.addRange(spRange);
+            } else {
+                const spTailP = document.createElement('p');
+                spTailP.appendChild(spA);
+                editor.appendChild(spTailP);
+            }
+            syncMarkdown();
+            logger.log('Subpage link element inserted');
         } else if (message.type === 'pasteWithAssetCopyResult') {
             // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
             if (sidePanelHostBridge) {
@@ -17251,6 +17402,29 @@ class EditorInstance {
         return null;
     }
 
+    // TASK-19 (sprint 20260804-145603): md editor 内の subpage リンクを Notes ツリーへ D&D。
+    // a[data-subpage="true"] のみ（通常 Link は対象外）。payload には解決用の基準
+    //（この editor の md 絶対パス）と相対 href を積み、host が実体を解決する。
+    // 受け側 = notes-file-panel.js（application/x-fractal-md-subpage）。
+    if (isMainInstance) document.addEventListener('dragstart', function(e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[data-subpage="true"]') : null;
+        if (!a) { return; }
+        var t = findTargetEditor(e.target);
+        if (!t) { return; }
+        var srcMdPath = (t.instance.host && t.instance.host.filePath) ||
+            (t.instance.options && t.instance.options.filePath) || '';
+        var href = a.dataset.markdownPath || a.getAttribute('href') || '';
+        if (!href || !e.dataTransfer) { return; }
+        try {
+            e.dataTransfer.setData('application/x-fractal-md-subpage', JSON.stringify({
+                href: href,
+                sourceMdPath: srcMdPath,
+                title: (a.textContent || '').trim(),
+            }));
+            e.dataTransfer.effectAllowed = 'copyMove';
+        } catch (err) { /* ignore */ }
+    });
+
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
         var t = findTargetEditor(e.target);
         if (t) {
@@ -17384,6 +17558,43 @@ class EditorInstance {
             reader.readAsDataURL(file);
         }
 
+        // FR-B07 (sprint 20260804-145603): .md D&D は添付（files/）でなく subpage 登録。
+        // host が md をエディタ md と同階層に一意名で保存し insertSubpageLink を返す。
+        // host 未対応（旧 host / fallback）時は従来の添付挙動に落とす。
+        function isMdDropName(name) { return /\.md$/i.test(String(name || '')); }
+        function saveMdAsSubpageViaHost(file, h) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                if (typeof h.saveMdAsSubpage === 'function') {
+                    h.saveMdAsSubpage(event.target.result, file.name);
+                } else {
+                    h.saveFileAndInsert(event.target.result, file.name);
+                }
+            };
+            reader.onerror = function(err) {
+                logger.error('FileReader error (md subpage):', err);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // FR-B09 (sprint 20260804-145603): Notes ファイルツリーの md item drop（TASK-08）。
+        // ファイルは既に note 内にあるためコピーせず、既存 md への subpage リンクを挿入する
+        //（host が title/相対パスを解決して insertSubpageLink を返す = FR-B07 と同じ受信経路）。
+        // linkMdAsSubpage を持つ host（Notes md メインペイン）でのみ動作、他は no-op（添付に落とさない）。
+        try {
+            var treeMdRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-tree-md') : '';
+            if (treeMdRaw) {
+                var treeMdPayload = null;
+                try { treeMdPayload = JSON.parse(treeMdRaw); } catch (err) { /* ignore */ }
+                if (treeMdPayload && treeMdPayload.filePath &&
+                    typeof targetHost.linkMdAsSubpage === 'function') {
+                    // US-09: id も渡す（host がツリーから md エントリを除去して真の subpage 化する）
+                    targetHost.linkMdAsSubpage(treeMdPayload.filePath, treeMdPayload.id || null);
+                }
+                return;
+            }
+        } catch (err) { /* ignore */ }
+
         // Try to get files first
         const files = e.dataTransfer?.files;
 
@@ -17394,7 +17605,11 @@ class EditorInstance {
             // MD-45/MD-13拡張: classifyDroppedFile による switch 分岐
             //（MD-46 の drawio-xml 棄却は sprint 20260801-200307 / ADRL-DDX-1 で廃止 — 'file' に落ちる）
             const cls = classifyDroppedFile(file.name);
-            if (cls === 'drawio-file') {
+            if (isMdDropName(file.name)) {
+                // FR-B07: .md は subpage 登録（classify は md を 'file' に落とすため先に判定）
+                saveMdAsSubpageViaHost(file, targetHost);
+                return;
+            } else if (cls === 'drawio-file') {
                 readAndInsertDrawioViaHost(file, targetHost);
                 return;
             } else if (cls === 'image' || file.type.startsWith('image/')) {
@@ -17418,7 +17633,11 @@ class EditorInstance {
                     if (!file) continue;
                     // MD-45: drawio classifier first
                     const itemCls = classifyDroppedFile(file.name);
-                    if (itemCls === 'drawio-file') {
+                    if (isMdDropName(file.name)) {
+                        // FR-B07: items 経路でも .md → subpage（経路ごと handler 網羅）
+                        saveMdAsSubpageViaHost(file, targetHost);
+                        return;
+                    } else if (itemCls === 'drawio-file') {
                         logger.log('Got drawio file from items:', file.name, file.size);
                         readAndInsertDrawioViaHost(file, targetHost);
                         return;
@@ -17496,6 +17715,15 @@ class EditorInstance {
         if (filePath) {
             // MD-45/MD-46/MD-13拡張: classifyDroppedFile で 4 経路に分岐
             const pathCls = classifyDroppedFile(pathFileName);
+            if (isMdDropName(pathFileName)) {
+                // FR-B07: uri-list 経路の .md → subpage（host がファイルを読んで同階層コピー + リンク返信）
+                if (typeof targetHost.readAndInsertMdAsSubpage === 'function') {
+                    targetHost.readAndInsertMdAsSubpage(filePath);
+                } else {
+                    targetHost.readAndInsertFile(filePath);
+                }
+                return;
+            }
             if (pathCls === 'drawio-file') {
                 logger.log('Found drawio file path:', filePath);
                 if (typeof targetHost.readAndInsertDrawio === 'function') {
@@ -18622,6 +18850,10 @@ class EditorInstance {
                     const a = document.createElement('a');
                     a.href = pathInfo.path;
                     a.textContent = selText;
+                    // bug-fix 2026-08-05: 再読込（markdownToHtml :2204）と同じ class を貼付時にも
+                    // 付ける（.md パスのリンクアイコンが親 md 再読込まで出ない問題）
+                    a.className = classifyLinkHref(pathInfo.path, false);
+                    a.dataset.markdownPath = pathInfo.path;
                     range.deleteContents();
                     range.insertNode(a);
                     const nr = document.createRange();
@@ -18649,6 +18881,9 @@ class EditorInstance {
                         const a = document.createElement('a');
                         a.href = pathInfo.path;
                         a.textContent = pathInfo.base;
+                        // bug-fix 2026-08-05: 貼付直後もリンクアイコンを出す（上の選択あり分岐と同じ）
+                        a.className = classifyLinkHref(pathInfo.path, false);
+                        a.dataset.markdownPath = pathInfo.path;
                         range.deleteContents();
                         range.insertNode(a);
                         const nr = document.createRange();
@@ -19490,4 +19725,10 @@ window.SidePanelHostBridge = SidePanelHostBridge;
 // Auto-create main instance (skipped when loaded as library in outliner webview)
 if (!window.__SKIP_EDITOR_AUTO_INIT__) {
     new EditorInstance(document.body, window.hostBridge);
+    // FR-B06b: cmd 長押しショートカット HUD（md editor 面）。__SKIP_EDITOR_AUTO_INIT__ が
+    // 立っていない = standalone/production の md editor が主体の webview なので 'md' リストで初期化。
+    // outliner/notes は outliner.js 側が 'outliner' で init する（ShortcutHud 内の二重 init ガードで 1 個）。
+    if (typeof ShortcutHud !== 'undefined') {
+        ShortcutHud.init(document, 'md');
+    }
 }

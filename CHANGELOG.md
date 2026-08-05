@@ -5,6 +5,26 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.18] - 2026-08-05
+
+### Added
+- **Copy in-App Link everywhere** — file-tree right-click (out/md), Outliner header Menu, and md editor toolbar (right of Copy Path, Notes md only)
+- **New in-app link forms** — `fractal://note/{folder}/{outFileId}` (outliner) and `fractal://note/{folder}/md/{mdFileId}` (note md), backward compatible (ADRL-0039)
+- **Shortcut HUD** — long-press cmd (800ms) shows a keyboard-shortcut overlay with a mode title and per-view lists (Markdown / Outliner / Mindmap / Database), resolved dynamically (sidepanel md → Markdown list)
+- **md D&D as subpage** — dropping an external .md into any md editor registers it as a subpage (`[[title]](file.md)`, unique name next to the current md) instead of a files/ attachment
+- **Note-tree ⇄ editor md D&D** — tree md → Outliner (page node), tree md → md editor / sidepanel md (subpage link), subpage anchor → tree; same-note moves never copy/rename (ownership moves), cross-note drops duplicate
+- **Code block wrap toggle** — new ↩ button in the code block header (display-only, carries into the fullscreen popup)
+
+### Changed
+- Display name renamed to **Fractal Note** (identifiers, setting keys, and the `fractal://` scheme unchanged)
+- File-tree "+" button now reads "+out"; in-app-link icon replaced with a horizontal link glyph (uniform button width)
+- Outliner page-md → tree drag now starts from the 📄 page icon (bullet is reorder/subtree-move only)
+
+### Fixed
+- Path traversal in the new md link resolution (clamped to the note folder, ADRL-0040)
+- First click on a tree item being ignored right after drag & drop
+- Pasted .md paths (Copy Path) now show the link icon immediately
+
 ## [1.1.17] - 2026-08-04
 
 ### Added

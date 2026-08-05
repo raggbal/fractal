@@ -12,6 +12,7 @@ import {
     removeAllDirectives
 } from './shared/markdown-directives';
 import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import {
     resolveSaveDirFromSidecar,
     readSaveDirConfig,
@@ -1084,6 +1085,42 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     const readDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
                     const readDocContent = await this.resolveImageDocumentContent(message.sidePanelFilePath, sidePanel.watchedPath, sidePanel.document, document);
                     await this.handleReadAndInsertFile(readDocUri, readDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
+                    break;
+                }
+
+                // FR-B07 (sprint 20260804-145603): .md D&D → subpage 登録（files/ 添付にしない）。
+                // 対象 md（main or sidepanel）と同じフォルダに一意名で保存し insertSubpageLink を返す。
+                case 'saveMdAsSubpage': {
+                    const spDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
+                    const spTarget = sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined;
+                    try {
+                        const r = saveDroppedMdAsSubpage(spDocUri.fsPath, dataUrlToUtf8(message.dataUrl), message.fileName || 'untitled.md');
+                        webviewPanel.webview.postMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: r.relPath,
+                            title: r.title,
+                            sidePanelFilePath: spTarget,
+                        });
+                    } catch (e) {
+                        console.error('[Editor] saveMdAsSubpage error:', e);
+                    }
+                    break;
+                }
+                case 'readAndInsertMdAsSubpage': {
+                    const spDocUri = this.resolveImageDocumentUri(message.sidePanelFilePath, sidePanel.watchedPath, document);
+                    const spTarget = sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined;
+                    try {
+                        const content = fs.readFileSync(message.filePath, 'utf8');
+                        const r = saveDroppedMdAsSubpage(spDocUri.fsPath, content, path.basename(message.filePath));
+                        webviewPanel.webview.postMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: r.relPath,
+                            title: r.title,
+                            sidePanelFilePath: spTarget,
+                        });
+                    } catch (e) {
+                        console.error('[Editor] readAndInsertMdAsSubpage error:', e);
+                    }
                     break;
                 }
 

@@ -94,6 +94,11 @@ const notesColorPaletteScript = fs.readFileSync(notesColorPaletteJsPath, 'utf-8'
 // sprint 20260724-160000: インライン文字色 共有 core + ピッカー
 const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color.js'), 'utf-8');
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
+// FR-B04 / FR-B06: In-App link 生成の共有純関数（window.InAppLinkUtils）。notes-file-panel / editor / outliner が消費するため前に注入。
+const inAppLinkUtilsScript = fs.readFileSync(path.join(__dirname, '../src/shared/inapp-link-utils.js'), 'utf-8');
+// FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js/outliner.js より前）
+const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
+const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
 const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
@@ -129,6 +134,10 @@ const testNotesHostBridge = `
 
     // outliner.js 用ブリッジ
     window.outlinerHostBridge = Object.assign(shared, {
+        // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge の _mainHost = このブリッジ）
+        linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
+            window.__testApi.notesMessages.push({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId, sidePanelFilePath: sidePanelFilePath });
+        },
         syncData: function(jsonString) {
             var msg = { type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId };
             window.__testApi.messages.push(msg);
@@ -247,6 +256,10 @@ const testNotesHostBridge = `
         notesImportMdIntoOut: function(mdFileId, targetOutId) {
             window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
         },
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D
+        notesRegisterSubpageFromMd: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
+        },
         notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
             window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
         },
@@ -303,7 +316,7 @@ const html = `<!DOCTYPE html>
     <style>${notesCss}</style>
 </head>
 <body>
-    <div class="notes-layout">
+    <div class="notes-layout" data-note-folder-name="">
         ${notesHtml}
         <div class="notes-main-wrapper">
             <!-- sprint 20260723-233506: webview 内タブ bar（本番 notesWebviewContent.ts:193 と同位置。tabs>=2 で表示） -->
@@ -424,6 +437,15 @@ const html = `<!DOCTYPE html>
     __INLINE_COLOR_PICKER_SCRIPT__
     </script>
     <script>
+    __INAPP_LINK_UTILS_SCRIPT__
+    </script>
+    <script>
+    __SHORTCUT_LIST_SCRIPT__
+    </script>
+    <script>
+    __SHORTCUT_HUD_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -461,13 +483,19 @@ const html = `<!DOCTYPE html>
         Outliner.init(data || defaultData);
         window.__testApi.ready = true;
     };
-    window.__testApi.initNotesPanel = function(fileList, currentFile, structure, panelWidth) {
+    window.__testApi.initNotesPanel = function(fileList, currentFile, structure, panelWidth, noteFolderName) {
+        // FR-B04/FR-B06: 本番 notesWebviewContent と同じく noteFolderName を file-panel と
+        // .notes-layout dataset の双方へ渡す（両者とも path.basename(folderPath) = 同値）。
+        var folderName = noteFolderName || '';
+        var layoutEl = document.querySelector('.notes-layout');
+        if (layoutEl) layoutEl.dataset.noteFolderName = folderName;
         notesFilePanel.init(
             window.notesHostBridge,
             fileList || [],
             currentFile || null,
             structure || null,
-            panelWidth || null
+            panelWidth || null,
+            folderName
         );
     };
     window.__testApi.getSerializedData = function() {
@@ -503,6 +531,10 @@ const html = `<!DOCTYPE html>
         save: function() { window.__testApi.messages.push({ type: 'save' }); },
         reportEditingState: function(editing) {
             window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
+        },
+        // FR-B09 (TASK-08): ツリー md → md editor D&D（本番 notes-host-bridge.js と同名メソッド）
+        linkMdAsSubpage: function(filePath) {
+            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
         },
     });
     window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({
@@ -593,6 +625,9 @@ result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
+result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript);
+result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
+result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);

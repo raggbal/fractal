@@ -1,8 +1,8 @@
 {
   "name": "fractal",
-  "displayName": "Fractal — Markdown & Outliner (Database & Mindmap)",
+  "displayName": "Fractal Note — Markdown & Outliner (Database & Mindmap)",
   "description": "Combines a Dynalist-like outliner and a Typora-like WYSIWYG markdown editor",
-  "version": "1.1.17",
+  "version": "1.1.18",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -47,7 +47,7 @@
       "activitybar": [
         {
           "id": "fractal-notes",
-          "title": "Fractal Notes",
+          "title": "Fractal Note",
           "icon": "media/notes-icon.svg"
         }
       ]
@@ -64,110 +64,110 @@
       {
         "command": "fractal.openEditor",
         "title": "Open with Fractal Editor",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.addNotesFolder",
         "title": "Add Notes Folder",
-        "category": "Fractal",
+        "category": "Fractal Note",
         "icon": "$(add)"
       },
       {
         "command": "fractal.removeNotesFolder",
         "title": "Remove Notes Folder",
-        "category": "Fractal",
+        "category": "Fractal Note",
         "icon": "$(remove)"
       },
       {
         "command": "fractal.openNotesFolder",
         "title": "Open Notes Folder",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.migrateToFlatLayout",
         "title": "Migrate to Flat Layout",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.exportToPdf",
         "title": "Export to PDF",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.insertTable",
         "title": "Insert Table",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.insertToc",
         "title": "Insert Table of Contents",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.openAsText",
         "title": "Open as Text Editor",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.toggleSourceMode",
         "title": "Toggle Source Mode",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.compareAsText",
         "title": "Compare as Text",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.undo",
         "title": "Undo",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.redo",
         "title": "Redo",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.scopeIn",
         "title": "Scope Into Node",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.scopeOut",
         "title": "Clear Scope",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.newOutliner",
         "title": "New Outliner File",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.cleanUnusedFilesInNote",
         "title": "Clean Unused Files in All Notes",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.cleanUnusedFilesInCurrentNote",
         "title": "Clean Unused Files in Current Note",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.translate",
         "title": "Translate",
-        "category": "Fractal"
+        "category": "Fractal Note"
       },
       {
         "command": "fractal.toggleSidebar",
         "title": "Toggle Right Sidebar (Outline / SidePanel)",
-        "category": "Fractal"
+        "category": "Fractal Note"
       }
     ],
     "customEditors": [
       {
         "viewType": "fractal.editor",
-        "displayName": "Fractal",
+        "displayName": "Fractal Note",
         "selector": [
           {
             "filenamePattern": "*.md"
@@ -180,7 +180,7 @@
       },
       {
         "viewType": "fractal.outliner",
-        "displayName": "Fractal Outliner",
+        "displayName": "Fractal Note Outliner",
         "selector": [
           {
             "filenamePattern": "*.out"
@@ -190,7 +190,7 @@
       }
     ],
     "configuration": {
-      "title": "Fractal",
+      "title": "Fractal Note",
       "properties": {
         "fractal.resourceRoots": {
           "type": "array",

@@ -36,6 +36,15 @@ var notesFilePanel = (function() {
     var dragItemType = null; // 'file' or 'folder'
     var dragSourceFileExt = null; // 'md' | 'out' | null  (file の場合のみ)
     var dropIndicator = null;
+    // bug-fix 2026-08-05: renderTree の全再構築が click 合成を殺すのを補う pointerup 保険の状態
+    var _pointerDownItemId = null;
+
+    // click / pointerup の両経路から呼ぶ単一の開閉口（currentFile ガードで二重送信防止）
+    function openItemFile(filePath) {
+        if (filePath === currentFile) return;
+        currentFile = filePath;  // 即時更新で二重送信防止
+        bridge.openFile(filePath);
+    }
 
     // Resize state
     var resizeHandle = null;
@@ -234,10 +243,24 @@ var notesFilePanel = (function() {
                 if (bridge.openFileInTab) bridge.openFileInTab(f.filePath);
                 return; // FR-CT-02: openFile は発火させない（currentFile も変えない）
             }
-            if (f.filePath !== currentFile) {
-                currentFile = f.filePath;  // 即時更新で二重送信防止
-                bridge.openFile(f.filePath);
-            }
+            openItemFile(f.filePath);
+        });
+        // bug-fix 2026-08-05: D&D 直後の 1 回目 click が無視される件。
+        // D&D 応答の notesFileListChanged → renderTree() が item を全再構築するため、
+        // ユーザーの mousedown〜mouseup の間に要素が差し替わると click 合成イベントが
+        // 発火しない（mousedown/mouseup が別要素）。pointerup ベースの保険を張り、
+        // 「直近の pointerdown と同じ item 上で pointerup」なら click 相当として openFile する。
+        // click も発火した場合は openItemFile 内の currentFile ガードで二重送信されない。
+        item.addEventListener('pointerdown', function(e) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey) { _pointerDownItemId = null; return; }
+            _pointerDownItemId = f.id || f.filePath;
+        });
+        item.addEventListener('pointerup', function(e) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey) { return; }
+            if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
+            _pointerDownItemId = null;
+            if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
+            openItemFile(f.filePath);
         });
         item.addEventListener('dblclick', function(e) {
             e.stopPropagation();
@@ -465,6 +488,22 @@ var notesFilePanel = (function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
         });
+        // FR-B04: アプリ内リンクをコピー（file item = .out / .md のみ。folder は showFolderContextMenu で別扱い）。
+        // out → InAppLinkUtils.buildOutLink(folder, id) / md → InAppLinkUtils.buildMdLink(folder, id)。
+        // clipboard は outliner.js:7054 / :7427 と同じ [title](link) markdown（title の [] を除去）。
+        if (typeof window !== 'undefined' && window.InAppLinkUtils) {
+            var isMdFileForLink = /\.md$/i.test(file.filePath);
+            var linkFileId = file.id || file.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/i, '');
+            addContextItem(contextMenu, i18n.copyInAppLink || 'Copy In-App Link', function() {
+                closeContextMenu();
+                if (!noteFolderName) return;
+                var link = isMdFileForLink
+                    ? window.InAppLinkUtils.buildMdLink(noteFolderName, linkFileId)
+                    : window.InAppLinkUtils.buildOutLink(noteFolderName, linkFileId);
+                var title = (file.title || 'Untitled').replace(/[\[\]]/g, '');
+                try { navigator.clipboard.writeText('[' + title + '](' + link + ')'); } catch (err) { /* ignore */ }
+            });
+        }
         // FR-MV-01: 別 Note へ移動 (QuickPick は host 側)。file item のみ (outliner/md)。
         addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
             closeContextMenu();
@@ -625,6 +664,23 @@ var notesFilePanel = (function() {
         return types.indexOf(OUT_NODE_PAGE_MIME) !== -1;
     }
 
+    // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → ツリー D&D。
+    // editor.js の dragstart（a[data-subpage] のみ）が setData する。Link は積まれない。
+    var MD_SUBPAGE_MIME = 'application/x-fractal-md-subpage';
+    function isMdSubpageDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(MD_SUBPAGE_MIME) !== -1;
+    }
+    function readMdSubpagePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(MD_SUBPAGE_MIME);
+            if (!raw) return null;
+            var p = JSON.parse(raw);
+            return (p && p.href && p.sourceMdPath) ? p : null;
+        } catch (err) { return null; }
+    }
+
     function readOutNodePagePayload(e) {
         try {
             var raw = e.dataTransfer.getData(OUT_NODE_PAGE_MIME);
@@ -666,6 +722,17 @@ var notesFilePanel = (function() {
             e.dataTransfer.effectAllowed = 'copyMove';
             // テキストを設定（VSCode webview互換）
             try { e.dataTransfer.setData('text/plain', dragItemId); } catch(err) { /* ignore */ }
+            // FR-B08 (sprint 20260804-145603): md item は Note Outliner tree へも drop できるよう
+            // 内部 MIME を積む（受け側 = outliner.js の isTreeMdDragEvent → notesImportMdIntoOut）。
+            // panel 内 D&D は module 変数（dragItemId 等）で動くため setData 追加は既存挙動に非干渉。
+            if (dragSourceFileExt === 'md') {
+                try {
+                    e.dataTransfer.setData('application/x-fractal-tree-md', JSON.stringify({
+                        id: dragItemId,
+                        filePath: target.dataset.filePath || null,
+                    }));
+                } catch(err) { /* ignore */ }
+            }
             // ドラッグ中のスタイル
             setTimeout(function() { target.style.opacity = '0.4'; }, 0);
         });
@@ -689,7 +756,12 @@ var notesFilePanel = (function() {
             // node-move-to-other-outliner: 通常 node（page なし）は subtree MIME のみ持つため、
             // ここで preventDefault しないと HTML5 D&D 仕様で drop が発火しない（HIGH-1 修正）。
             var fromOutlinerSubtree = isOutNodeSubtreeDrag(e);
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree) return;
+            // TASK-19: md editor 内 subpage リンクからの drag も受理。
+            // 早期 return せず通常の line 表示ロジック（下の before/after/into-folder）へ流す
+            //（Outliner page → ツリーと同じ補助線 UX。md-into-out 分岐は dragSourceFileExt
+            //  が null なので発火しない = 誤 highlight なし）
+            var fromMdSubpage = isMdSubpageDrag(e);
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 
@@ -766,7 +838,24 @@ var notesFilePanel = (function() {
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             // node-move-to-other-outliner: サブツリー move payload（notes 全 node に載る）
             var subtreePayload = isOutNodeSubtreeDrag(e) ? readOutNodeSubtreePayload(e) : null;
+            // TASK-19: md editor 内 subpage リンク → ツリー item 上に drop（挿入位置 = target の前後）
+            var mdSubpagePayload = (!outPayload && !subtreePayload) && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
             e.preventDefault();
+            if (mdSubpagePayload && !dragItemId) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetSp = el.closest('[data-item-id]') || el;
+                var rectSp = targetSp.getBoundingClientRect();
+                var ratioSp = (e.clientY - rectSp.top) / rectSp.height;
+                var parentSp = targetSp.dataset.parentId || null;
+                var sibSp = getChildIdsOfParent(parentSp);
+                var idxSp = sibSp.indexOf(targetSp.dataset.itemId);
+                if (idxSp === -1) idxSp = sibSp.length;
+                if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                    bridge.notesRegisterSubpageFromMd(mdSubpagePayload, parentSp, ratioSp < 0.5 ? idxSp : idxSp + 1);
+                }
+                return;
+            }
             if (!dragItemId && !outPayload && !subtreePayload) return;
 
             clearAllDragOver();
@@ -1746,11 +1835,12 @@ var notesFilePanel = (function() {
             listEl.__rootDropWired = true;
             listEl.addEventListener('dragover', function(e) {
                 var fromOutliner = isOutNodePageDrag(e);
-                if (!dragItemId && !fromOutliner) return;
+                var fromMdSubpageR = isMdSubpageDrag(e);
+                if (!dragItemId && !fromOutliner && !fromMdSubpageR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = fromOutliner ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR) ? 'copy' : 'move';
                 // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
                 // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
                 if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
@@ -1760,14 +1850,22 @@ var notesFilePanel = (function() {
             listEl.addEventListener('drop', function(e) {
                 if (e.target !== listEl) return;
                 var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
+                var mdSubpagePayloadR = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
                 e.preventDefault();
-                if (!dragItemId && !outPayload) return;
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;
                 clearAllDragOver();
                 removeDropIndicator();
                 var rootIds = structure ? structure.rootIds : [];
                 if (outPayload) {
                     if (typeof bridge.notesImportOutPageNodeAsMd === 'function') {
                         bridge.notesImportOutPageNodeAsMd(outPayload, null, rootIds.length);
+                    }
+                    return;
+                }
+                // TASK-19: subpage → ルート末尾へ
+                if (mdSubpagePayloadR && !dragItemId) {
+                    if (typeof bridge.notesRegisterSubpageFromMd === 'function') {
+                        bridge.notesRegisterSubpageFromMd(mdSubpagePayloadR, null, rootIds.length);
                     }
                     return;
                 }

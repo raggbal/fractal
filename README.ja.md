@@ -1,7 +1,7 @@
-<img src="media/icon.png" alt="Fractal" width="48" align="absmiddle"> Fractal — VS Code のための Markdown & アウトライナー（データベース&マインドマップ）
+<img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — VS Code のための Markdown & アウトライナー（データベース&マインドマップ）
 =
 
-**VS Code の中で完結するノートテイキング環境。** Fractal は **Notion ライクな WYSIWYG マークダウンエディタ** と **Dynalist ライクなアウトライナー( データベース / マインドマップ モードもあり) **をひとつのワークスペースに統合。**Note** 単位で整理し、すべてを横断検索でき、S3 に同期でき、そして **AI コーディングアシスタントとの共同作業** を前提に設計されています。
+**VS Code の中で完結するノートテイキング環境。** Fractal Note は **Notion ライクな WYSIWYG マークダウンエディタ** と **Dynalist ライクなアウトライナー( データベース / マインドマップ モードもあり) **をひとつのワークスペースに統合。**Note** 単位で整理し、すべてを横断検索でき、S3 に同期でき、そして **AI コーディングアシスタントとの共同作業** を前提に設計されています。
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
 ![Open VSX](https://img.shields.io/open-vsx/v/imaken/fractal?label=Open%20VSX)
@@ -10,7 +10,7 @@
 
 ---
 
-## Fractal を選ぶ理由
+## Fractal Note を選ぶ理由
 
 - ✍️ **WYSIWYG Markdown** — 編集と閲覧を同時に。分割プレビューも生のマークダウン記法も不要。テーブル、コードブロック、Mermaid、数式、draw.io — すべてリアルタイムにレンダリング。
 - 🌲 **本格的なアウトライナー** — Dynalist / Workflowy スタイルのツリー編集。タグ管理、スムーズな絞り込み、そして **アウトライナー / データベース / マインドマップ** の3つのビュー。
@@ -18,7 +18,7 @@
 - 🤖 **AI フレンドリーな設計** — 外部からのファイル変更を **リアルタイム** に画面へ反映。Claude Code、Cursor、Kiro にノートを編集させながら、自分の作業を続けられます。カーソル位置や編集中の内容は保持されます。
 - 🗂 **Notes** — フォルダ（"note"）単位で情報を管理。ファイル自体はフラットに保存しつつ、表示上は仮想的なフォルダ/ファイルツリーで構造的に整理。横断フルテキスト検索、タブ・履歴管理、Daily Notes も。
 - ☁️ **S3 バックアップ & リストア** — 自分の AWS S3 バケットへワンクリックでバックアップ、そこからのリストアも可能。
-- 🧩 **エディタの外へ** — Web ページを取り込む Chrome 拡張、Amazon Translate 連携、そして AI エージェントが Fractal のノートを読み書きできる **AI スキル** を公開（Fractal を Obsidian の代わりに）。
+- 🧩 **エディタの外へ** — Web ページを取り込む Chrome 拡張、Amazon Translate 連携、そして AI エージェントが Fractal Note のノートを読み書きできる **AI スキル** を公開（Fractal Note を Obsidian の代わりに）。
 
 `.md` と `.out` は単体（standalone）でも動作しますが、真価を発揮するのはすべてが繋がる **Notes マネージャ** です。
 
@@ -40,7 +40,7 @@ Dynalist クラスのアウトライナー。フォルダ、タグ、そして�
 
 ## ✨ コアコンセプト
 
-**Notion のように、Markdown・Outliner・Database・Mindmap をひとつの場所で管理する。** Fractal では 4 つのコンテンツが別々のツールではなく、同じ note の中で繋がります — アウトラインのノードにマークダウンページをぶら下げ、同じアウトラインをデータベースやマインドマップとして眺め、すべてを横断検索する。しかもデータはプレーンな `.md` と JSON のままです。
+**Notion のように、Markdown・Outliner・Database・Mindmap をひとつの場所で管理する。** Fractal Note では 4 つのコンテンツが別々のツールではなく、同じ note の中で繋がります — アウトラインのノードにマークダウンページをぶら下げ、同じアウトラインをデータベースやマインドマップとして眺め、すべてを横断検索する。しかもデータはプレーンな `.md` と JSON のままです。
 
 | コンテンツ | 実体 | 概要 |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ Notion スタイルの WYSIWYG エディタ。見えているものがそのま�
 - **添付パネル** — ドキュメント内で参照しているすべての画像・ファイルを一覧表示。Open / Copy Path 付き
 
 ### PDF エクスポート
-- **ワンクリックで PDF** — ツールバー / サイドパネルのボタン（または `Fractal: Export to PDF`）で、開いている md をエディタ表示そのまま（Mermaid・数式・文字色・チェックボックス込み）の印刷向け PDF に変換
+- **ワンクリックで PDF** — ツールバー / サイドパネルのボタン（または `Fractal Note: Export to PDF`）で、開いている md をエディタ表示そのまま（Mermaid・数式・文字色・チェックボックス込み）の印刷向け PDF に変換
 - **スマートな改ページ** — 既定で h1/h2 の前に改ページ。ただし最初の h1 と、各 h1 直後の最初の h2 の前には入れない（章立てが自然に組まれる）
 - **CSS でカスタマイズ** — `fractal.pdfStyles`（CSS ファイルパスの配列）で組み込みスタイルを上書き。`fractal.pdfIncludeDefaultStyles: false` で完全差し替えも可。改ページは素の CSS（`break-before`）なので自由に無効化・拡張できる
 - **ローカル完結・依存ゼロ** — インストール済みの Chrome/Edge を headless 利用。エクスポート中の外部通信なし・拡張本体への追加依存なし
@@ -108,7 +108,7 @@ AI アシスタント（Claude Code、Cursor、Kiro など）— あるいは他
 - `Cmd+L` — 選択テキストを AI チャットへ送信。`Cmd+Shift+.` で VS Code のテキストエディタとして開く
 
 ### スタンドアロンモード
-- Fractal を `.md`** のデフォルトエディタ** に設定すれば、マシン上のあらゆるマークダウンを編集可能 — Fractal の note は不要
+- Fractal Note を `.md`** のデフォルトエディタ** に設定すれば、マシン上のあらゆるマークダウンを編集可能 — note ワークスペースは不要
 - スタンドアロンのファイルでは **画像・添付ファイルの保存先フォルダを指定可能**（ファイルの隣の隠しファイル `.fractal.json` に保存 — マークダウン本文には一切手を加えないため、他のエディタからは見えません）
 
 ---
@@ -156,7 +156,7 @@ Enter / Tab / Shift+Tab は期待どおりに動作。複数選択インデン�
 
 ## 🗂 Notes — すべてが繋がる場所
 
-Fractal は **note** 単位で情報を管理します。アクティビティバーから任意のフォルダを登録するだけです。
+Fractal Note は **note** 単位で情報を管理します。アクティビティバーから任意のフォルダを登録するだけです。
 ![assets/images/1785086976945.png](assets/images/1785086976945.png)
 
 - **ロックインのない構造化** — ファイルはディスク上に **フラット** に保存しつつ、`.out` と `.md` を **仮想的なフォルダ/ファイルツリー** でドラッグ&ドロップ整理。データはあくまでプレーンなファイルのまま
@@ -164,7 +164,7 @@ Fractal は **note** 単位で情報を管理します。アクティビティ�
 - **タブ** — note 内で複数のアウトライナーや md をブラウザライクなタブで切り替え。タブ名はタイトル / H1 に追従、md タブは右クリックで VS Code タブとしても開ける
 - **Recent（履歴）** — 最近開いたファイルの一覧からワンクリックで復帰
 - **Daily Notes** — ワンクリックの日次ジャーナル。年/月/日の階層を自動作成、`<` `>` ナビゲーションとカレンダーピッカー付き
-- **アプリ内リンク** — 任意のノードやページへのリンクをコピーし、Fractal 内のどこにでもペースト。クリックでジャンプ
+- **アプリ内リンク** — 任意のノードやページへのリンクをコピーし、Fractal Note 内のどこにでもペースト。クリックでジャンプ
 - **お掃除機能** — "Clean Unused Files" で孤立した画像・ページ・添付を検出してゴミ箱へ。"Move to Other Note" でページをアセットごと別の note へ移動
 
 ### ☁️ S3 バックアップ & リストア
@@ -180,9 +180,9 @@ AWS アカウントがあれば、note を S3 に同期できます:
 
 ---
 
-## 🤖 AI スキル — Fractal をエージェントのノートに
+## 🤖 AI スキル — Fractal Note をエージェントのノートに
 
-Fractal は **AI スキル**（`ai_skills/`）を公開しています。AI エージェントに Fractal のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
+Fractal Note は **AI スキル**（`ai_skills/`）を公開しています。AI エージェントに Fractal Note のデータモデルを教え、ノートの検索・読み取り・書き込みを直接行えるようにするものです:
 
 - `fractal-structure` — Notes / Outliner / Page のデータモデルのリファレンス
 - `fractal-search` — Notes フォルダの自動検出、note 横断の全文検索、タグ・タスク状態フィルタ（`--tag` / `--checked`）、note 名での絞り込み
@@ -196,16 +196,16 @@ ai_skills/install.sh         # 検出した AI IDE すべてに配置（Claude C
 ./install-skills.sh          # Claude Code のみ・rules 付きでインストール
 ```
 
-スキルをインストールすれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。
+スキルをインストールすれば、Claude Code などのエージェントがリサーチ結果の整理、クリップの要約、ナレッジベースの構築を Fractal Note に直接書き込めます — AI ネイティブなワークフローを備えた、実用的な **Obsidian 代替** として。
 
 ---
 
 ## 🌐 Chrome 拡張（Web クリッパー）
 
-任意の Web ページを Fractal の Note へ保存 — VS Code を起動せず、Chrome から直接。
+任意の Web ページを Fractal Note の Note へ保存 — VS Code を起動せず、Chrome から直接。
 
 - リポジトリの `chrome-extension/` にあります（unpacked extension として読み込み）
-- アイコンをクリック（または `Alt+Shift+F` でクイッククリップ）→ ページを **Mozilla Readability** で抽出し、**Fractal 自身の HTML→MD パイプライン** で変換（テーブル、GFM、Medium / dev.to のコードブロックなどに対応）
+- アイコンをクリック（または `Alt+Shift+F` でクイッククリップ）→ ページを **Mozilla Readability** で抽出し、**Fractal Note 自身の HTML→MD パイプライン** で変換（テーブル、GFM、Medium / dev.to のコードブロックなどに対応）
 - 保存先は **アウトライナー**（ページノードとして追加）と **マークダウン**（新規 md を作成し、選んだ md の末尾にサブページリンクを追記）の両方に対応
 - **保存先プリセット** — よく使う「Note + 保存先」の組み合わせを複数登録し、★デフォルトを指定。ポップアップはデフォルト選択済みで開き、即保存できます
 - File System Access API でディスクに直接書き込み — VS Code との通信は不要
@@ -231,7 +231,7 @@ Windows / Linux 向けの実装（パス処理、クリップボード、外部�
 
 ### VS Code Marketplace
 1. 拡張機能を開く（`Ctrl+Shift+X`）
-2. **"Fractal"** を検索 → インストール
+2. **"Fractal Note"** を検索 → インストール
 
 または直接: [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=imaken.fractal)
 
@@ -263,22 +263,26 @@ npm run compile
 ## 🚀 はじめかた
 
 ### Notes（おすすめ）
-1. アクティビティバーの **Fractal Notes** アイコンをクリック
+1. アクティビティバーの **Fractal Note** アイコンをクリック
 2. 任意のフォルダを追加して note として登録
 3. note をクリックして3ペイン UI を開く — アウトライナー、ページ、フォルダはそこから作成できます
 
 ### マークダウンエディタ
-1. 任意の `.md` を右クリック → **"Open with Fractal"**
-2. またはデフォルトに設定: `.md` を右クリック → **Open With…** → **Configure default editor** → **Fractal**
+1. 任意の `.md` を右クリック → **"Open with Fractal Note"**
+2. またはデフォルトに設定: `.md` を右クリック → **Open With…** → **Configure default editor** → **Fractal Note**
 
 ### アウトライナー
-- `.out` ファイルは自動的に Fractal で開きます
-- コマンドパレットから作成: `Fractal: New Outliner File`
+- `.out` ファイルは自動的に Fractal Note で開きます
+- コマンドパレットから作成: `Fractal Note: New Outliner File`
 
 ### アプリ内リンク
 - アウトライナーのノードを右クリック → **Copy In-App Link**
+- ファイルツリーの out/md 右クリック・Outliner ヘッダーの Menu・md エディタのツールバーからもコピー可能（outliner 全体 / note md へのリンク）
 - サイドパネルヘッダの 🔗 で現在のページへのリンクを作成
-- Fractal 内のどこにでもペースト — クリックでジャンプ
+- Fractal Note 内のどこにでもペースト — クリックでジャンプ
+
+### ショートカット一覧 HUD
+- **cmd（Windows: Ctrl）を単独で長押し**すると、表示中のビュー（Markdown / Outliner / Mindmap / Database）に応じたショートカット一覧がポップアップ。キーを離すと消えます
 
 ---
 

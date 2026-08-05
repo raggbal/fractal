@@ -98,6 +98,8 @@ export interface WebviewMessages {
   textColor: string;
   textColorNone: string;
   codeBlock: string;
+  // FR-B10: codeblock 折り返しトグルボタンの tooltip
+  codeBlockWrap?: string;
   insertLink: string;
   insertImage: string;
   setImageDir: string;
@@ -208,6 +210,16 @@ export interface WebviewMessages {
   taskScopePopupTitle?: string;
   taskScopeTopOnly?: string;
   taskScopeAll?: string;
+  // FR-B06b: cmd 長押しショートカット HUD のカテゴリ見出し（本体リストは英語固定・見出しのみ i18n）
+  shortcutHudTitleMd?: string;
+  shortcutHudTitleOutliner?: string;
+  shortcutHudTitleMindmap?: string;
+  shortcutHudTitleTable?: string;
+  shortcutCatEditing?: string;
+  shortcutCatNavigation?: string;
+  shortcutCatSearch?: string;
+  shortcutCatTask?: string;
+  shortcutCatOther?: string;
 }
 
 // Supported locales

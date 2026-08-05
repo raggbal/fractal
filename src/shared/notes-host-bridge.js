@@ -24,6 +24,10 @@
 
     // ── outliner.js 用ブリッジ (既存 outliner-host-bridge.js と同一インターフェース) ──
     window.outlinerHostBridge = Object.assign(shared, {
+        // TASK-17: ツリー md → sidepanel md D&D（SidePanelHostBridge.linkMdAsSubpage の _mainHost 経由）
+        linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null, sidePanelFilePath: sidePanelFilePath });
+        },
         // データ同期
         syncData: function(jsonString) {
             api.postMessage({ type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId });
@@ -316,6 +320,18 @@
         readAndInsertFile: function(filePath) {
             api.postMessage({ type: 'notesMdReadAndInsertFile', filePath: filePath });
         },
+        // FR-B07: Notes md メインペインの .md D&D → subpage 登録（files/ 添付にしない）
+        saveMdAsSubpage: function(dataUrl, fileName) {
+            api.postMessage({ type: 'notesMdSaveMdAsSubpage', dataUrl: dataUrl, fileName: fileName });
+        },
+        readAndInsertMdAsSubpage: function(filePath) {
+            api.postMessage({ type: 'notesMdReadMdAsSubpage', filePath: filePath });
+        },
+        // FR-B09 (TASK-08): ファイルツリー md item → md editor D&D。既存 md へコピーせずリンクのみ。
+        // US-09: mdFileId も渡し、host がツリーから md エントリを除去（真の subpage 化・ファイル実体不変）
+        linkMdAsSubpage: function(filePath, mdFileId) {
+            api.postMessage({ type: 'notesMdLinkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null });
+        },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
         // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび
@@ -419,6 +435,11 @@
         // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
         notesImportMdIntoOut: function(mdFileId, targetOutId) {
             api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        },
+
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D（host が href を sourceMd 基準で解決）
+        notesRegisterSubpageFromMd: function(payload, parentId, index) {
+            api.postMessage({ type: 'notesRegisterSubpageFromMd', payload: payload, parentId: parentId, index: index });
         },
 
         // v0.207.77: D&D — outliner page-node を Notes panel にドロップして .md として登録

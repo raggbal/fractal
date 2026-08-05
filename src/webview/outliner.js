@@ -1150,6 +1150,29 @@ var Outliner = (function() {
         // 初期ベースライン（undoStackには入れない → ボタンdisabled）
         saveBaseline();
 
+        // FR-B06b: cmd 長押しショートカット HUD（outliner 面）。init() が複数回呼ばれても
+        // ShortcutHud.init 内の window.__shortcutHudInitialized ガードで 1 個だけ。
+        // notes は editor.js も 'md' で init を試みるが、二重 init ガードで先勝ちの 1 個になる
+        //（outliner.js が先に init される順序なので notes/outliner では 'outliner' リストが出る）。
+        if (typeof ShortcutHud !== 'undefined') {
+            ShortcutHud.init(document, 'outliner');
+        }
+        // US-6b (TASK-12): HUD の mode を表示時に動的解決する resolver。
+        // 優先順: sidepanel md open / notes md main pane 可視 → md、mindmap / table ビュー、
+        // それ以外 → outliner。resolver は showHud() のたびに呼ばれる（切替に追随）。
+        if (typeof window !== 'undefined') {
+            window.__shortcutHudModeResolver = function() {
+                try {
+                    if (sidePanelEl && sidePanelEl.classList.contains('open')) { return 'md'; }
+                    var mdPane = document.querySelector('.markdown-container');
+                    if (mdPane && mdPane.style.display !== 'none' && mdPane.offsetParent !== null) { return 'md'; }
+                    if (VIEW_MODE === 'mindmap') { return 'mindmap'; }
+                    if (VIEW_MODE === 'table') { return 'table'; }
+                } catch (err) { /* fallthrough */ }
+                return 'outliner';
+            };
+        }
+
         // sprint 20260801-232943 (TASK-01): drag セッション終了の安全網。drop が webview に
         // 届かない終わり方（shift なし D&D・webview 外への drop・ESC キャンセル）でも
         // highlight を必ず解除する（clearDropZoneHighlight はモジュールスコープに定義）。
@@ -1174,6 +1197,16 @@ var Outliner = (function() {
             treeEl.addEventListener('drop', function(e) {
                 if (VIEW_MODE === 'mindmap') { return; }
                 if (dragState) { return; } // node reorder は既存経路
+                // FR-B08: ファイルツリー md item → tree drop（挿入位置は notesImportMdIntoOut の
+                // 既存仕様 = rootIds 先頭固定なので position 解決は不要）
+                if (isTreeMdDragEvent(e)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    clearDropZoneHighlight();
+                    removeDropIndicator();
+                    handleTreeMdDrop(e);
+                    return;
+                }
                 if (!isAnyFilesDragEvent(e)) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
@@ -1217,6 +1250,13 @@ var Outliner = (function() {
             //   node ターゲット + before/after/child で扱う。outliner の tree-level（root-end）は
             //   mindmap では発火させない（二重発火 → targetNodeId=null で誤ノード化を防ぐ）。
             if (VIEW_MODE === 'mindmap') { return; }
+            // FR-B08: ファイルツリー md item のドラッグを受理（preventDefault しないと drop が発火しない）
+            if (isTreeMdDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -1331,6 +1371,29 @@ var Outliner = (function() {
     /** Check if drag event is any file drop (Finder OR VSCode Explorer) */
     function isAnyFilesDragEvent(e) {
         return isFilesDragEvent(e) || isVscodeUriDragEvent(e);
+    }
+
+    /** FR-B08 (sprint 20260804-145603): Notes ファイルツリーの md item ドラッグ
+     *  （notes-file-panel.js dragstart が application/x-fractal-tree-md を setData）。
+     *  drop 受理は notesImportMdIntoOut（既存 v0.207.77 経路 = h1→node text・page 添付・
+     *  ツリーから md エントリ除去）へ委譲する。 */
+    var TREE_MD_MIME = 'application/x-fractal-tree-md';
+    function isTreeMdDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_MD_MIME) >= 0);
+    }
+    function handleTreeMdDrop(e) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(TREE_MD_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.id) return;
+        var notesBridgeForMd = window.notesHostBridge;
+        var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
+        if (payload.id === outFileId) return; // 自分自身へは無意味
+        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId);
     }
 
     /** Classify dropped file by extension */
@@ -3347,19 +3410,9 @@ var Outliner = (function() {
             // 'copyMove' にしないと dropEffect 不一致で drop がキャンセルされる
             e.dataTransfer.effectAllowed = 'copyMove';
             e.dataTransfer.setData('text/plain', node.id);
-            // v0.207.77 (D&D Feature B): Notes mode + page-node を Notes panel にドロップする経路用
-            // のカスタム MIME。outFileKey + nodeId + pageId を payload。
-            if (isNotesMode() && node.isPage && node.pageId) {
-                try {
-                    var payload = JSON.stringify({
-                        outFileKey: currentOutFileKey,
-                        nodeId: node.id,
-                        pageId: node.pageId,
-                        title: node.text || '',
-                    });
-                    e.dataTransfer.setData('application/x-fractal-out-node-page', payload);
-                } catch (err) { /* ignore */ }
-            }
+            // 2026-08-05: page-node → Notes tree の MIME（Feature B）は bullet から
+            // 📄 ページアイコンの dragstart へ移動（md editor の subpage アイコン D&D と同 UX）。
+            // bullet はノード並べ替え + subtree 移動（下記）専用。
             // node-move-to-other-outliner: notes モードなら全 node（page 有無問わず）で
             // サブツリー移動用 MIME を載せる。実体は host が src .out（flush 済み disk）から解決（案B）。
             if (isNotesMode()) {
@@ -3418,6 +3471,28 @@ var Outliner = (function() {
                 }
                 openPage(node.id);
             });
+            // 2026-08-05: page md → Notes tree D&D（Feature B）は 📄 アイコンを掴む
+            //（md editor の subpage アイコン D&D と同 UX。bullet は並べ替え/subtree 移動専用に分離）。
+            if (isNotesMode() && node.pageId) {
+                pageIcon.draggable = true;
+                pageIcon.style.cursor = 'grab';
+                pageIcon.addEventListener('dragstart', function(e) {
+                    e.stopPropagation(); // bullet/node の dragstart（並べ替え）に流さない
+                    // dragState は張らない（ツリー内並べ替えの indicator を出さない）
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    try {
+                        e.dataTransfer.setData('application/x-fractal-out-node-page', JSON.stringify({
+                            outFileKey: currentOutFileKey,
+                            nodeId: node.id,
+                            pageId: node.pageId,
+                            title: node.text || '',
+                        }));
+                    } catch (err) { /* ignore */ }
+                });
+                pageIcon.addEventListener('dragend', function() {
+                    removeDropIndicator();
+                });
+            }
             el.appendChild(pageIcon);
         }
 
@@ -6177,6 +6252,29 @@ var Outliner = (function() {
             host.importFilesDialog(focusedNodeId);
         });
         dropdown.appendChild(importFileItem);
+
+        // FR-B05: アプリ内リンクをコピー (Notes mode のみ)。
+        // OUT link = fractal://note/{folder}/{outFileId}（nodeId なし・md/page セグメントなし）を
+        // src/shared/inapp-link-utils.js（唯一の生成元）で組み立て、表示テキストは outliner タイトル
+        // （model.title）。title の [] は markdown link ラベルを壊さないよう除去する。
+        var menuNotesLayoutEl = document.querySelector('.notes-layout');
+        if (menuNotesLayoutEl && typeof window.InAppLinkUtils !== 'undefined') {
+            var copyInAppItem = document.createElement('button');
+            copyInAppItem.className = 'menu-item';
+            copyInAppItem.textContent = i18n.copyInAppLink || 'Copy In-App Link';
+            copyInAppItem.addEventListener('click', function() {
+                dropdown.remove();
+                var folderName = menuNotesLayoutEl.dataset.noteFolderName;
+                var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+                    ? notesFilePanel.getCurrentOutFileId() : null;
+                if (!folderName || !outFileId) { return; }
+                var title = (model && model.title ? model.title : '') || 'Untitled';
+                var link = window.InAppLinkUtils.buildOutLink(folderName, outFileId);
+                var mdLink = '[' + title.replace(/[\[\]]/g, '') + '](' + link + ')';
+                navigator.clipboard.writeText(mdLink);
+            });
+            dropdown.appendChild(copyInAppItem);
+        }
 
         // 検索バーを基準に配置（メニューボタンの直下に表示）
         var searchBar = document.querySelector('.outliner-search-bar');
@@ -9066,14 +9164,19 @@ var Outliner = (function() {
                     break;
 
                 case 'notesNavigateInAppLink':
-                    // Node link navigation: close sidepanel + jump to node
+                    // Node/out link: close sidepanel + jump（out link は nodeId なし = 開くだけ）
+                    // FR-B11 md link: mdFilePath（host 解決済み絶対パス）を notesOpenFile 経路で開く
                     var notesBridge = window.notesHostBridge;
                     if (notesBridge) {
                         // Close sidepanel immediately if open
                         if (sidePanelEl && sidePanelEl.classList.contains('open')) {
                             closeSidePanelImmediate();
                         }
-                        notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        if (msg.mdFilePath) {
+                            notesBridge.openFile(msg.mdFilePath);
+                        } else {
+                            notesBridge.jumpToNode(msg.outFileId, msg.nodeId);
+                        }
                     }
                     break;
 
@@ -9156,6 +9259,29 @@ var Outliner = (function() {
                             type: 'insertFileLink',
                             markdownPath: msg.markdownPath,
                             fileName: msg.fileName
+                        });
+                    }
+                    break;
+
+                case 'insertSubpageLink':
+                    // FR-B07: sidepanel md への .md D&D subpage 登録（insertFileLink と同じ宛先判定）
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sidePanelFilePath && sidePanelHostBridge.filePath === msg.sidePanelFilePath) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'insertSubpageLink',
+                            markdownPath: msg.markdownPath,
+                            title: msg.title
+                        });
+                    }
+                    break;
+
+                case 'removeSubpageLink':
+                    // TASK-19: subpage → ツリー D&D 登録後の元アンカー除去。
+                    // sidepanel md が発生源なら sidepanel instance に中継（editor.js 側が除去 + sync）。
+                    if (sidePanelInstance && sidePanelHostBridge && msg.sourceMdPath && sidePanelHostBridge.filePath === msg.sourceMdPath) {
+                        sidePanelHostBridge._sendMessage({
+                            type: 'removeSubpageLink',
+                            href: msg.href,
+                            sourceMdPath: msg.sourceMdPath
                         });
                     }
                     break;

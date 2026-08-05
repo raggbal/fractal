@@ -61,12 +61,23 @@ export interface NotesPlatformActions {
     saveFileToDir?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
     /** ファイル添付をコピーしてマークダウンリンク挿入 */
     readAndInsertFile?(filePath: string, sidePanelFilePath: string): void;
+    /** FR-B07: sidepanel md への .md D&D → subpage 登録 */
+    saveMdAsSubpageForSidePanel?(dataUrl: string, fileName: string, sidePanelFilePath: string): void;
+    readMdAsSubpageForSidePanel?(filePath: string, sidePanelFilePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ に保存して挿入 */
     saveMdImageToDir?(dataUrl: string, fileName: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/images/ にコピーして挿入 */
     readAndInsertMdImage?(filePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ に保存して挿入 */
     saveMdFileToDir?(dataUrl: string, fileName: string): void;
+    /** FR-B07: Notes md メインペインの .md D&D → subpage 登録（同階層コピー + insertSubpageLink 返信） */
+    saveMdAsSubpageForNotesMd?(dataUrl: string, fileName: string): void;
+    readMdAsSubpageForNotesMd?(filePath: string): void;
+    /** FR-B09: ファイルツリー md → md editor D&D（コピーせず既存 md への subpage リンクを返信。
+     *  US-09: mdFileId 指定時はツリーから md エントリを除去 = 真の subpage 化） */
+    linkMdAsSubpageForNotesMd?(filePath: string, mdFileId?: string | null): void;
+    /** TASK-17: ツリー md → sidepanel md D&D（同一 note = リンク+除去 / 別 note = 複製） */
+    linkMdAsSubpageForSidePanel?(filePath: string, mdFileId: string | null, sidePanelFilePath: string): void;
     /** ADR-008: Notes 内 .md エディタ用 — _notes_md/files/ にコピーして挿入 */
     readAndInsertMdFile?(filePath: string): void;
     /** v0.207.82: Notes 内 .md エディタ用 — メインペインステータスバーへ画像/ファイル保存先を送出 */
@@ -213,6 +224,8 @@ export interface NotesPlatformActions {
     showErrorMessage?(text: string): void;
     /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
     notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
+    notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
     notesImportOutPageNodeAsMd?(
         payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
@@ -837,6 +850,19 @@ export async function handleNotesMessage(
             }
             break;
 
+        // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
+        case 'saveMdAsSubpage':
+            if (message.sidePanelFilePath && message.dataUrl && platform.saveMdAsSubpageForSidePanel) {
+                platform.saveMdAsSubpageForSidePanel(message.dataUrl, message.fileName, message.sidePanelFilePath);
+            }
+            break;
+
+        case 'readAndInsertMdAsSubpage':
+            if (message.sidePanelFilePath && message.filePath && platform.readMdAsSubpageForSidePanel) {
+                platform.readMdAsSubpageForSidePanel(message.filePath, message.sidePanelFilePath);
+            }
+            break;
+
         case 'saveDrawioAndInsert':
             if (message.sidePanelFilePath && message.dataUrl && platform.saveDrawioToDir) {
                 platform.saveDrawioToDir(message.dataUrl, message.fileName, message.sidePanelFilePath);
@@ -865,6 +891,33 @@ export async function handleNotesMessage(
         case 'notesMdReadAndInsertFile':
             if (message.filePath && platform.readAndInsertMdFile) {
                 platform.readAndInsertMdFile(message.filePath);
+            }
+            break;
+
+        // FR-B07 (sprint 20260804-145603): Notes md メインペインの .md D&D → subpage 登録
+        case 'notesMdSaveMdAsSubpage':
+            if (message.dataUrl && platform.saveMdAsSubpageForNotesMd) {
+                platform.saveMdAsSubpageForNotesMd(message.dataUrl, message.fileName);
+            }
+            break;
+
+        case 'notesMdReadMdAsSubpage':
+            if (message.filePath && platform.readMdAsSubpageForNotesMd) {
+                platform.readMdAsSubpageForNotesMd(message.filePath);
+            }
+            break;
+
+        // FR-B09 (TASK-08): ファイルツリー md → md editor D&D（コピーせず既存 md へ subpage リンク）
+        case 'notesMdLinkMdAsSubpage':
+            if (message.filePath && platform.linkMdAsSubpageForNotesMd) {
+                platform.linkMdAsSubpageForNotesMd(message.filePath, message.mdFileId || null);
+            }
+            break;
+
+        // TASK-17: ファイルツリー md → sidepanel md D&D（同一 note 判定は host 側）
+        case 'linkMdAsSubpage':
+            if (message.filePath && message.sidePanelFilePath && platform.linkMdAsSubpageForSidePanel) {
+                platform.linkMdAsSubpageForSidePanel(message.filePath, message.mdFileId || null, message.sidePanelFilePath);
             }
             break;
 
@@ -1186,6 +1239,13 @@ export async function handleNotesMessage(
         }
 
         // v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加
+        // TASK-19: md editor 内 subpage リンク → ツリー D&D
+        case 'notesRegisterSubpageFromMd':
+            if (message.payload && platform.notesRegisterSubpageFromMd) {
+                await platform.notesRegisterSubpageFromMd(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+
         case 'notesImportMdIntoOut': {
             if (typeof platform.notesImportMdIntoOut === 'function') {
                 await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender);
@@ -1635,10 +1695,13 @@ export async function handleNotesMessage(
         }
 
         case 'notesNavigateInAppLink': {
-            // Node link only — navigate to note + outliner + node
+            // Node/out link — navigate to note + outliner (+ node if nodeId)
             fileManager.flushSave();
             const navFilePath = fileManager.getFilePathById(message.outFileId);
             if (!navFilePath) break;
+            // FR-B11: md link は navigateToLink が mdFilePath 解決 → webview の notesOpenFile 経路で
+            // 開くためここには来ない。万一 md id が流れても JSON.parse に落とさないガード
+            if (navFilePath.endsWith('.md')) break;
             const navContent = fileManager.openFile(navFilePath);
             if (navContent === null) break;
             fileManager.recordFileHistory(navFilePath); // FR-HP-03（アプリ内リンク）
