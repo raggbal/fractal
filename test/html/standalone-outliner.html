@@ -14180,6 +14180,9 @@ class EditorInstance {
                 if (parentTag === 'ol') return false; // Already ordered
 
                 const existingText = orderedMatch[2] || '';
+                // sprint 20260805-124854 TASK-05: 打った番号を尊重する（段落経路 ADRL-OLS-2 と同じ
+                // 意味論）。従来は typedNum を捨てて 1 起点化していた = ユーザーの明示番号の無言破棄
+                const typedOlNum = parseInt(orderedMatch[1], 10);
                 const nestedLists = collectNestedLists();
                 // inline 要素保持（sprint 20260728-121645）: innerHTML='' の前に退避
                 const inlineFrag = existingText
@@ -14195,7 +14198,7 @@ class EditorInstance {
                 }
                 restoreNestedLists(nestedLists);
 
-                changeParentListType(liNode, 'ol');
+                changeParentListType(liNode, 'ol', typedOlNum);
 
                 setCursorToLiTextStart();
                 syncMarkdown();
@@ -21106,7 +21109,10 @@ class EditorInstance {
     // If the li is the only child, just swap the tag.
     // If there are siblings, split into up to 3 lists: before (original), target (new), after (original).
     // Then merge adjacent compatible lists.
-    function changeParentListType(li, targetTag) {
+    // sprint 20260805-124854 TASK-05: 第 3 引数 olStart（省略可）。targetTag==='ol' のとき
+    // 生成する ol に打った番号を焼く（bullet 行頭の「N. 」入力 = ユーザーの明示番号を捨てない）。
+    // 未指定なら従来挙動（属性なし = 1 起点）と完全一致。
+    function changeParentListType(li, targetTag, olStart) {
         var parentList = li.parentNode;
         if (!parentList) return;
         var currentTag = parentList.tagName.toLowerCase();
@@ -21125,8 +21131,17 @@ class EditorInstance {
                 if (attr.name === 'start' && targetTag !== 'ol') continue;
                 newList.setAttribute(attr.name, attr.value);
             }
+            // TASK-05: 明示番号（「N. 」入力）があれば焼く（コピー元に start が無い ul→ol で有効）。
+            // merge は明示番号経路のみ（連番なら隣接 ol へ吸収 = 段落経路 ADRL-OLS-2 と同じ意味論。
+            // olStart 未指定の従来呼び出しは挙動不変 = merge しない従来どおり）
+            if (targetTag === 'ol' && olStart !== undefined) {
+                applyOlStartIfNeeded(newList, olStart);
+            }
             newList.appendChild(li);
             parentList.replaceWith(newList);
+            if (targetTag === 'ol' && olStart !== undefined) {
+                mergeAdjacentLists(newList);
+            }
         } else {
             // Multiple siblings — split into before/target/after
             var parentOfList = parentList.parentNode;
@@ -21151,6 +21166,10 @@ class EditorInstance {
 
             // Build "target" list (just the converted li)
             var targetList = document.createElement(targetTag);
+            // TASK-05: 明示番号（「N. 」入力）があれば焼く
+            if (targetTag === 'ol' && olStart !== undefined) {
+                applyOlStartIfNeeded(targetList, olStart);
+            }
             targetList.appendChild(li);
 
             // parentList now only contains "before" items (items before li)

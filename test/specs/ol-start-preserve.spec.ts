@@ -627,3 +627,78 @@ test.describe('《数字リスト》開始番号の保持', () => {
     });
 });
 
+
+// sprint 20260805-124854 TASK-05（手動テスト fail 反映）: bullet 行頭の「N. 」入力で
+// 打った番号を尊重する（従来は typedNum を捨て 1 起点化 = 明示番号の無言破棄）。
+test.describe('bullet 行頭の「N. 」入力の番号尊重 (TASK-05)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    async function typeAtLiStart(page: import('@playwright/test').Page, selector: string, liIndex: number, text: string) {
+        await page.evaluate(({ selector, liIndex }) => {
+            const editor = document.getElementById('editor')!;
+            (editor as HTMLElement).focus();
+            const li = editor.querySelectorAll(selector)[liIndex]!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }, { selector, liIndex });
+        await page.keyboard.type(text, { delay: 50 });
+        await page.waitForTimeout(150);
+    }
+
+    test('TC-OL-23: 1. / - / - の最後の bullet 行頭で「2. 」→ 2. として続く', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ol><li>xxx</li></ol><ul><li>aaa</li><li>bbb</li></ul>';
+        });
+        await typeAtLiStart(page, 'ul li', 1, '2. ');
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        // counterfactual: typedNum 未配線だと bbb が「1. bbb」になり RED
+        expect(md).toContain('1. xxx');
+        expect(md).toContain('- aaa');
+        expect(md).toContain('2. bbb');
+        expect(md).not.toContain('1. bbb');
+    });
+
+    test('TC-OL-24: ネスト ul 内の bullet 行頭で「3. 」→ ネスト ol start=3（どの階層でも）', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>parent<ul><li>c1</li><li>c2</li></ul></li></ul>';
+        });
+        await typeAtLiStart(page, 'ul ul li', 1, '3. ');
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        expect(html).toMatch(/<ol start="3"><li>c2<\/li><\/ol>/);
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).toContain('3. c2');
+    });
+
+    test('TC-OL-25: 「1. 」は従来どおり素の ol（start 属性なし = byte 互換）+ 連番なら隣接結合', async ({ page }) => {
+        // 単独 bullet → 「1. 」= 属性なし ol（従来挙動不変）
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>only</li></ul>';
+        });
+        await typeAtLiStart(page, 'ul li', 0, '1. ');
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        expect(html).toMatch(/<ol><li>only<\/li><\/ol>/);
+        expect(html).not.toContain('start=');
+        // 連番: 1. a の直後の bullet で「2. 」→ 前 ol に結合（1 個の ol・2 項目）
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ol><li>a</li></ol><ul><li>b</li></ul>';
+        });
+        await typeAtLiStart(page, 'ul li', 0, '2. ');
+        const merged = await page.evaluate(() => {
+            const ols = document.querySelectorAll('#editor ol');
+            return { count: ols.length, lis: ols[0]?.querySelectorAll(':scope > li').length };
+        });
+        expect(merged.count).toBe(1);
+        expect(merged.lis).toBe(2);
+    });
+});
