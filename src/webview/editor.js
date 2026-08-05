@@ -10555,6 +10555,10 @@ class EditorInstance {
                 if (prevOl && prevOl.tagName === 'OL' && nextOl && nextOl.tagName === 'OL') {
                     // 空 li のネストリストは prev の最終 li へ退避（既存 merge 経路と同方針）
                     const prevLastLi = prevOl.lastElementChild;
+                    // カーソルは「視覚的に直前の行」= prev 最終 li の最深の末尾 li
+                    //（prevLastLi が入れ子リストを持つ場合、その末尾が直前の行。ネストリスト
+                    //  退避より前に確定する — 退避された空 li の子に飛ばないため）
+                    const cursorLi = prevLastLi ? findDeepestLastLi(prevLastLi) : null;
                     for (const nl of nestedLists) {
                         nl.remove();
                         if (prevLastLi) prevLastLi.appendChild(nl);
@@ -10562,8 +10566,8 @@ class EditorInstance {
                     liElement.remove();
                     list.remove();
                     joinAdjacentOlsAfterListRemoval(prevOl, nextOl);
-                    if (prevLastLi) {
-                        setCursorToEndOfLi(prevLastLi);
+                    if (cursorLi) {
+                        setCursorToEndOfLi(cursorLi);
                     } else {
                         setCursorToEnd(prevOl);
                     }

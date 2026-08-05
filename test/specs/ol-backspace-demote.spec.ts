@@ -667,3 +667,42 @@ test.describe('非空 bullet の merge でも ol 再結合 + 連番 (TASK-06 追
         expect(r.html).toContain('<ul><li>z</li></ul>'); // ul z は不変（ol 化されない）
     });
 });
+
+// sprint 20260805-124854 TASK-08 追補（画像 #13→#14）: join 時のカーソルは
+// 「視覚的に直前の行」= prev 最終 li の最深末尾（入れ子 bullet がある場合はそこ）
+test('TC-OB-15: ol(1: sdsff + 子bullet aaadsds) / 空2 / ol(3: d) で空行 bk×2 → カーソルは aaadsds 末尾', async ({ page }) => {
+    await page.goto('/standalone-editor.html');
+    await page.waitForFunction(() => (window as any).__testApi?.ready);
+    await page.evaluate(() => {
+        const ed = document.getElementById('editor')!;
+        ed.innerHTML = '<ol><li>sdsff<ul><li>aaadsds</li></ul></li><li><br></li><li>d</li></ol>';
+        (ed as HTMLElement).focus();
+        const li = ed.querySelectorAll('ol > li')[1]!;
+        const sel = window.getSelection()!;
+        const range = document.createRange();
+        range.setStart(li, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    });
+    await page.keyboard.press('Backspace'); // 1回目: demote（bullet 化）
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Backspace'); // 2回目: 空 bullet 削除 → ol 結合
+    await page.waitForTimeout(300);
+    const r = await page.evaluate(() => {
+        const sel = window.getSelection()!;
+        let n: Node | null = sel.anchorNode;
+        while (n && (n as HTMLElement).tagName?.toLowerCase() !== 'li') n = n.parentNode;
+        const ed = document.getElementById('editor')!;
+        const ols = ed.querySelectorAll('ol');
+        return {
+            cursorLiText: n ? (n as HTMLElement).firstChild?.textContent : null,
+            olCount: ols.length,
+            topTexts: Array.from(ols[0].querySelectorAll(':scope > li')).map(l => (l.firstChild?.textContent || '').trim()),
+        };
+    });
+    // counterfactual: cursorLi を prevLastLi のままにすると sdsff（1 の行）に飛び RED
+    expect(r.cursorLiText).toBe('aaadsds');
+    expect(r.olCount).toBe(1);
+    expect(r.topTexts).toEqual(['sdsff', 'd']); // 1, 2 の連番
+});
