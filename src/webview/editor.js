@@ -2974,7 +2974,21 @@ class EditorInstance {
                     }
                     // Not within list - fall through to close list and add blank line
                 }
-                
+
+                // sprint 20260806-035923 (FR-LC-01): CommonMark 継続行。リスト内の非空・非リスト行で、
+                // 行頭インデントが「開いている最深リストの indentLevel + 1」以上（= 子リストと同深度以上 =
+                // li 本文開始位置）なら、直前 li の項目内改行として取り込む（リストを閉じない）。
+                // 浅い行は従来どおりリスト終了 → 段落（TC-LC-03 で回帰 pin）。
+                if (listStack.length > 0 && line.trim() !== '' && parsed.tag !== 'hr') {
+                    const contIndentMatch = line.match(/^(\s*)/);
+                    const contIndentLevel = Math.floor(contIndentMatch[1].length / 2);
+                    const deepestIndent = listStack[listStack.length - 1].indent;
+                    if (contIndentLevel >= deepestIndent + 1) {
+                        html += '<br>' + parseInline(line.trim());
+                        continue;
+                    }
+                }
+
                 // Close all open lists before non-list content
                 html += closeAllLists();
 
@@ -6992,7 +7006,22 @@ class EditorInstance {
 
         // Use mdGetInlineMarkdown to process inline content (excluding nested lists)
         // This properly normalizes redundant formatting tags
-        const itemText = mdGetInlineMarkdown(li);
+        // sprint 20260806-035923 (FR-LC-03): li 直下の <br>（テキストを伴う項目内改行 = 継続行）は
+        // マーカー text に置換してから inline 変換し、後で行分割する（<br> のみの空 li は従来どおり）。
+        const LC_BR = '\u0000LCBR\u0000';
+        let liForMd = li;
+        const directBrs = Array.from(li.childNodes).filter(
+            (c) => c.nodeType === 1 && c.tagName === 'BR');
+        const liTextTrim = (li.textContent || '').trim();
+        if (directBrs.length > 0 && liTextTrim) {
+            liForMd = li.cloneNode(true);
+            for (const b of Array.from(liForMd.childNodes)) {
+                if (b.nodeType === 1 && b.tagName === 'BR') {
+                    liForMd.replaceChild(document.createTextNode(LC_BR), b);
+                }
+            }
+        }
+        const itemText = mdGetInlineMarkdown(liForMd);
 
         // Skip empty list items only when they have no content at all
         // (can happen when selection includes next line's start during copy)
@@ -7003,11 +7032,23 @@ class EditorInstance {
             return '';
         }
 
+        // 継続行の分割: マーカー位置で行に割り、2 行目以降は「マーカー幅スペース」でインデント
+        //（html-md-converter.js:153 listItem の継続行形式と対称）
+        const lcParts = trimmedText.split(LC_BR).map(t => t.trim()).filter((t, i) => t !== '' || i === 0);
+        const headText = lcParts[0] || '';
+        let markerPrefix;
         if (checkbox) {
             const checked = checkbox.checked ? 'x' : ' ';
-            result = indent + '- [' + checked + '] ' + trimmedText + '\n';
+            markerPrefix = indent + '- [' + checked + '] ';
         } else {
-            result = indent + marker + ' ' + trimmedText + '\n';
+            markerPrefix = indent + marker + ' ';
+        }
+        result = markerPrefix + headText + '\n';
+        if (lcParts.length > 1) {
+            const contIndent = ' '.repeat(markerPrefix.length - indent.length) ;
+            for (let ci = 1; ci < lcParts.length; ci++) {
+                result += indent + contIndent + lcParts[ci] + '\n';
+            }
         }
 
         result += nestedContent;
@@ -8397,6 +8438,35 @@ class EditorInstance {
                 shiftKey: e.shiftKey
             });
             
+            // sprint 20260806-035923 (FR-LC-02): リスト内 Shift+Enter = 項目内改行（継続行）。
+            // li 内に <br> を挿入して同一項目の 2 行目にする（従来の「新 li 作成」は Enter と
+            // 重複していたため置換 = ADRL 記録済み）。pre / table 内は従来どおり。
+            // inline 要素内でも li 内なら継続行を優先（li 内の bold 途中で Shift+Enter →
+            // inline を閉じて <br> = 下の inline 分岐と同じ動きに li 内でもなるが、
+            // ここでは単純に <br> 挿入で足りる: contenteditable が inline を跨いで分割する）。
+            if (e.shiftKey && listItem && !preElement && !tableCell) {
+                e.preventDefault();
+                const lcRange = sel.getRangeAt(0);
+                lcRange.deleteContents();
+                const lcBr = document.createElement('br');
+                lcRange.insertNode(lcBr);
+                // <br> が li 末尾だと trailing <br> 仕様で視覚行が出ないため、もう 1 個の
+                // <br> を置いてカーソル行を確保（タイプ開始でブラウザが 2 個目の直前に文字を
+                // 入れる標準挙動。2 個目はタイプ後も残るが「行末の <br>」として無害・
+                // serialize はテキスト無し末尾 <br> を無視する）
+                const lcBr2 = document.createElement('br');
+                lcBr.after(lcBr2);
+                const lcNr = document.createRange();
+                lcNr.setStartAfter(lcBr);
+                lcNr.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(lcNr);
+                undoManager.saveSnapshot();
+                markAsEdited();
+                syncMarkdown();
+                return;
+            }
+
             // Handle Shift+Enter inside inline elements (strong, em, del, code)
             // Close the inline element first, then insert line break
             if (e.shiftKey) {
