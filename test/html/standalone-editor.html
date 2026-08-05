@@ -19682,9 +19682,7 @@ class EditorInstance {
                 // 元表示番号 = 実効 start + 抜けた li の index + 1。値 1 は属性省略（ADRL-0022 規約）。
                 if (currentTag === 'ol') {
                     var afterStart = getEffectiveOlStart(parentList) + liIndex + 1;
-                    if (isValidOlStart(afterStart) && afterStart !== 1) {
-                        afterList.setAttribute('start', String(afterStart));
-                    }
+                    applyOlStartIfNeeded(afterList, afterStart); // sprint 20260805-124854: 共通ヘルパ（挙動不変）
                 }
                 for (var j = 0; j < afterItems.length; j++) {
                     afterList.appendChild(afterItems[j]);
@@ -19716,6 +19714,16 @@ class EditorInstance {
     function getEffectiveOlStart(ol) {
         var s = ol.getAttribute('start');
         return (s && /^\d{1,9}$/.test(s) && Number(s) >= 1) ? Number(s) : 1;
+    }
+
+    // sprint 20260805-124854: ol 分割で生成した ol に start を焼く共通ヘルパ（ADRL-0022 規約:
+    // valid かつ ≠1 のときのみ start 属性を設定。start=1 は属性省略 = 旧 byte 互換）。
+    // changeParentListType（:12633-12637 = ADRL-0027）と convertListToType CASE B（ol 分割）で共有し、
+    // 「共有判定を一部経路にだけ配線」の再発を防ぐ。挙動は両経路の従来ロジックと 1:1 一致。
+    function applyOlStartIfNeeded(newList, startValue) {
+        if (isValidOlStart(startValue) && startValue !== 1) {
+            newList.setAttribute('start', String(startValue));
+        }
     }
 
     // Check if two list elements are compatible for merging
@@ -22516,6 +22524,12 @@ class EditorInstance {
         // 1. Before list (keep original type)
         if (beforeItems.length > 0) {
             var beforeList = document.createElement(currentParentTag.toLowerCase());
+            // sprint 20260805-124854 (FR-OLS / ADRL-0027 対称化): ol の一部を ul/task 化するとき
+            // before 側は元 ol の実効 start をそのまま保持する（先頭項目 index=0 のためシフト無し）。
+            // 焼くのは生成リストが ol のとき（= currentParentTag==='OL'）のみ。値 1 は属性省略。
+            if (currentParentTag === 'OL') {
+                applyOlStartIfNeeded(beforeList, getEffectiveOlStart(parentList));
+            }
             for (var i = 0; i < beforeItems.length; i++) {
                 beforeList.appendChild(beforeItems[i]); // Move, not clone
             }
@@ -22535,6 +22549,13 @@ class EditorInstance {
         // 3. After list (keep original type)
         if (afterItems.length > 0) {
             var afterList = document.createElement(currentParentTag.toLowerCase());
+            // sprint 20260805-124854 (FR-OLS / ADRL-0027 対称化): after 側の先頭項目の元表示番号 =
+            // 元 ol の実効 start + after 先頭 li の元 index（= lastConvertIdx + 1）。changeParentListType
+            // :12634 と同型（あちらは liIndex+1、こちらは lastConvertIdx+1 = 抜けた範囲の直後 index）。
+            // 焼くのは生成リストが ol のとき（= currentParentTag==='OL'）のみ。値 1 は属性省略。
+            if (currentParentTag === 'OL') {
+                applyOlStartIfNeeded(afterList, getEffectiveOlStart(parentList) + (lastConvertIdx + 1));
+            }
             for (var i = 0; i < afterItems.length; i++) {
                 afterList.appendChild(afterItems[i]); // Move, not clone
             }
