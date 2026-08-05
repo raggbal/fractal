@@ -761,3 +761,44 @@ test.describe('連なりの途中での番号手入力は自動補正 (TASK-07)'
         expect(html).toMatch(/<ol start="7"><li>xxx<\/li><\/ol>/);
     });
 });
+
+// sprint 20260805-124854 TASK-07 追補（画像 #9→#10）: Tab インデントで間の bullet が
+// 入れ子に移動し ol 同士が隣接 → 結合 + 自動連番
+test.describe('Tab インデントでの ol 再結合 (TASK-07 追補)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-OL-28: ol(sdsff) / -aaa / ol(start=3: dsds) の aaa を Tab → ol 結合・dsds は 2 表示', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>sdsff</li></ol><ul><li>aaa</li></ul><ol start="3"><li>dsds</li></ol>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(200);
+        const r = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const topOls = ed.querySelectorAll(':scope > ol');
+            return {
+                topOlCount: topOls.length,
+                topTexts: topOls[0] ? Array.from(topOls[0].querySelectorAll(':scope > li')).map(l => (l.firstChild?.textContent || '').trim()) : [],
+                start: topOls[0]?.getAttribute('start'),
+                nestedUl: ed.querySelectorAll('ol li > ul').length,
+            };
+        });
+        // counterfactual: join 未配線だと topOlCount=2 で dsds が 3 のまま = RED
+        expect(r.topOlCount).toBe(1);
+        expect(r.start).toBeNull();
+        expect(r.topTexts).toEqual(['sdsff', 'dsds']); // 1, 2 の自動連番
+        expect(r.nestedUl).toBe(1); // aaa は sdsff の子 bullet
+    });
+});

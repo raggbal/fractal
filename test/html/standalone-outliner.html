@@ -19117,7 +19117,9 @@ class EditorInstance {
 
             // Clean up empty parent list if we just removed its last child
             if (list && list.parentNode && list.children.length === 0) {
+                const jPrevE = list.previousElementSibling, jNextE = list.nextElementSibling;
                 list.remove();
+                joinAdjacentOlsAfterListRemoval(jPrevE, jNextE); // TASK-07 追補
             }
 
             if (visualPrev.tagName?.toLowerCase() === 'li') {
@@ -21320,7 +21322,12 @@ class EditorInstance {
                     nestedList.appendChild(li);
                     // If the parent list is now empty, remove it
                     if (parentList.children.length === 0) {
+                        // sprint 20260805-124854 TASK-07 追補: 間の ul が消えて ol 同士が
+                        // 隣接したら結合 + 自動連番（Tab インデント経路も同ルール。画像 #9→#10）
+                        const jPrevT = parentList.previousElementSibling;
+                        const jNextT = parentList.nextElementSibling;
                         parentList.remove();
+                        joinAdjacentOlsAfterListRemoval(jPrevT, jNextT);
                     }
                     logger.log('indentListItem: Cross-list indent done');
                     return;
