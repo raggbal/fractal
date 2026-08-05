@@ -2901,36 +2901,33 @@ class EditorInstance {
                 const indent = parsed.indent || 0;
                 const indentLevel = Math.floor(indent / 2); // 2 spaces = 1 level
                 
+                // sprint 20260805-124854 TASK-09（混在リスト貼付の全面見直し）:
+                // ネスト判定は「スタックに保存した indent 値」で比較する。
+                // 旧実装は listStack.length（スタック深さ）と indentLevel を混同しており、
+                // インデントが 1 段で 2 レベル以上跳ぶ入力（4 スペース直下 等）の後に同じ
+                // インデントの別種リストが来ると「より深い」と誤判定して入れ子化していた
+                //（- ada / 4sp- asda / 4sp1. asda で ol が ul の子になるバグ）。
                 if (listStack.length === 0) {
                     // Start a new top-level list
                     html += buildListOpenTag(parsed);
                     listStack.push({ type: parsed.listType, indent: indentLevel });
                 } else {
-                    const currentLevel = listStack.length - 1;
+                    const topIndent = listStack[listStack.length - 1].indent;
 
-                    if (indentLevel > currentLevel) {
+                    if (indentLevel > topIndent) {
                         // Nest deeper - create nested list inside current li
                         html += buildListOpenTag(parsed);
                         listStack.push({ type: parsed.listType, indent: indentLevel });
-                    } else if (indentLevel < listStack.length) {
-                        // Go back up - close lists until we reach the right level
-                        while (listStack.length > indentLevel + 1) {
+                    } else {
+                        // Same level or going up: close lists whose stored indent is deeper
+                        while (listStack.length > 0 && listStack[listStack.length - 1].indent > indentLevel) {
                             html += '</li></' + listStack.pop().type + '>';
                         }
-                        // Check if list type changed at the target level
-                        if (listStack.length > 0 && listStack[listStack.length - 1].type !== parsed.listType) {
-                            // Close ONLY the current level's list and start new sibling list
-                            // of different type under the same parent li.
-                            // (Do NOT close all lists - that would collapse nested type changes to top level)
-                            html += '</li></' + listStack.pop().type + '>';
+                        if (listStack.length === 0) {
+                            // Everything closed (shallower than any open list) - new top-level list
                             html += buildListOpenTag(parsed);
                             listStack.push({ type: parsed.listType, indent: indentLevel });
-                        } else if (listStack.length > 0) {
-                            html += '</li><li>' + parsed.html;
-                        }
-                    } else {
-                        // Same level - check if list type changed
-                        if (listStack[listStack.length - 1].type !== parsed.listType) {
+                        } else if (listStack[listStack.length - 1].type !== parsed.listType) {
                             // Close ONLY the current level's list and start new sibling list
                             // of different type under the same parent li.
                             // (Do NOT close all lists - that would collapse nested type changes to top level)
