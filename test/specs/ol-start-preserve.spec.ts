@@ -802,3 +802,95 @@ test.describe('Tab インデントでの ol 再結合 (TASK-07 追補)', () => {
         expect(r.nestedUl).toBe(1); // aaa は sdsff の子 bullet
     });
 });
+
+// sprint 20260805-124854 TASK-08（先回り総ざらい）: リスト隣接を変える残経路の番人
+test.describe('残経路の ol 連番・分割番号保持 (TASK-08)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-OL-29: ネスト内 ol / -x / ol(start=3) の x を Shift+Tab → 行順序保持で c は x の子（構造 pin）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>p<ol><li>a</li></ol><ul><li>x</li></ul><ol start="3"><li>c</li></ol></li></ol>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Shift+Tab');
+        await page.waitForTimeout(200);
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        // outdent は trailing リストを移動 li の子として保持（行順序不変・既存仕様）。
+        // c は x の子リストの先頭になる（構造として ol 隣接は発生しない = join の対象外・ここを pin）
+        expect(html).toBe('<ol><li>p<ol><li>a</li></ol></li><li>x<ol start="3"><li>c</li></ol></li></ol>');
+    });
+
+    test('TC-OL-30: ol(start=5) の空 li で Enter 脱出 → after 分割の番号保持（7 起点）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol start="5"><li>a</li><li><br></li><li>c</li></ol>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelectorAll('ol > li')[1]!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Enter'); // 空 li で Enter = リスト脱出（middle split）
+        await page.waitForTimeout(200);
+        const r = await page.evaluate(() => {
+            const ols = document.querySelectorAll('#editor ol');
+            return {
+                olCount: ols.length,
+                firstStart: ols[0]?.getAttribute('start'),
+                secondStart: ols[1]?.getAttribute('start'),
+                pBetween: !!document.querySelector('#editor ol + p'),
+            };
+        });
+        // before は 5 のまま・after は 7（split = 番号保持。間に <p> が挟まるので結合はしない）
+        expect(r.olCount).toBe(2);
+        expect(r.firstStart).toBe('5');
+        expect(r.secondStart).toBe('7');
+        expect(r.pBetween).toBe(true);
+    });
+
+    test('TC-OL-31: ol / -x / ol の x を範囲選択削除 → ol 結合・連番', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>aaa</li></ol><ul><li>xxx</li></ul><ol start="3"><li>ccc</li></ol>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(li);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace'); // 選択内容削除 → 空 li → もう一度で削除
+        await page.waitForTimeout(150);
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const ols = ed.querySelectorAll('ol');
+            return {
+                olCount: ols.length,
+                ulCount: ed.querySelectorAll('ul').length,
+                texts: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        expect(r.ulCount).toBe(0);
+        expect(r.olCount).toBe(1);
+        expect(r.texts).toEqual(['aaa', 'ccc']);
+        expect(r.start).toBeNull();
+    });
+});

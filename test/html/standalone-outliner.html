@@ -16304,7 +16304,9 @@ class EditorInstance {
                             if (parentList && parentList.isConnected &&
                                 (parentList.tagName?.toLowerCase() === 'ul' || parentList.tagName?.toLowerCase() === 'ol') &&
                                 parentList.children.length === 0) {
+                                const jPrevR = parentList.previousElementSibling, jNextR = parentList.nextElementSibling;
                                 parentList.remove();
+                                joinAdjacentOlsAfterListRemoval(jPrevR, jNextR); // TASK-08: 範囲削除/cut で ul 消滅 → ol 再結合
                             }
                         }
                     }
@@ -17386,6 +17388,10 @@ class EditorInstance {
                             followingSiblings.push(sibling);
                             sibling = sibling.nextElementSibling;
                         }
+                        // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+                        const followStartNumB = (list.tagName === 'OL' && followingSiblings.length > 0)
+                            ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                            : null;
                         
                         // Remove the empty item
                         listItem.remove();
@@ -17411,6 +17417,7 @@ class EditorInstance {
                         // If there are following siblings, create a new list for them
                         if (followingSiblings.length > 0) {
                             const newList = document.createElement(list.tagName);
+                            if (followStartNumB !== null) applyOlStartIfNeeded(newList, followStartNumB); // TASK-08
                             for (const sib of followingSiblings) {
                                 sib.remove();
                                 newList.appendChild(sib);
@@ -19608,6 +19615,10 @@ class EditorInstance {
                         followingSiblings.push(sibling);
                         sibling = sibling.nextElementSibling;
                     }
+                    // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+                    const followStartNumC = (list.tagName === 'OL' && followingSiblings.length > 0)
+                        ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                        : null;
                     
                     // First, remove all nested lists from the li (before removing li)
                     for (const nestedList of allNestedLists) {
@@ -19634,6 +19645,7 @@ class EditorInstance {
                     // If there are following siblings, create a new list for them
                     if (followingSiblings.length > 0) {
                         const newList = document.createElement(list.tagName);
+                        if (followStartNumC !== null) applyOlStartIfNeeded(newList, followStartNumC); // TASK-08
                         for (const sib of followingSiblings) {
                             sib.remove();
                             newList.appendChild(sib);
@@ -20613,6 +20625,11 @@ class EditorInstance {
                             nextSib = nextSib.nextElementSibling;
                         }
                         
+                        // sprint 20260805-124854 TASK-08: split 時の after 番号保持のため
+                        // remove 前に following 先頭の元表示番号を捕捉（ol のみ）
+                        const followStartNum = (list.tagName === 'OL' && followingSiblings.length > 0)
+                            ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                            : null;
                         // Remove the empty item
                         liElement.remove();
                         
@@ -20628,6 +20645,7 @@ class EditorInstance {
                         } else {
                             // Middle item - split list and insert paragraph in between
                             const newList = document.createElement(list.tagName);
+                            if (followStartNum !== null) applyOlStartIfNeeded(newList, followStartNum); // TASK-08
                             for (const sib of followingSiblings) {
                                 newList.appendChild(sib);
                             }
@@ -21430,7 +21448,9 @@ class EditorInstance {
 
         // Remove empty parent list
         if (parentList.children.length === 0) {
+            var jPrevO = parentList.previousElementSibling, jNextO = parentList.nextElementSibling;
             parentList.remove();
+            joinAdjacentOlsAfterListRemoval(jPrevO, jNextO); // TASK-08: outdent で ul 消滅 → ol 再結合
         }
 
         // Note: Cursor position is preserved by the caller
@@ -21467,6 +21487,10 @@ class EditorInstance {
             followingItems.push(sib);
             sib = sib.nextElementSibling;
         }
+        // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+        var followStartNumD = (listTagName === 'ol' && followingItems.length > 0)
+            ? getEffectiveOlStart(parentList) + Array.prototype.indexOf.call(parentList.children, followingItems[0])
+            : null;
         for (var j = 0; j < followingItems.length; j++) {
             followingItems[j].remove();
         }
@@ -21509,6 +21533,7 @@ class EditorInstance {
 
         if (followingItems.length > 0) {
             var newList = document.createElement(listTagName);
+            if (followStartNumD !== null) applyOlStartIfNeeded(newList, followStartNumD); // TASK-08
             for (var k = 0; k < followingItems.length; k++) {
                 newList.appendChild(followingItems[k]);
             }
