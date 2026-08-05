@@ -3410,19 +3410,9 @@ var Outliner = (function() {
             // 'copyMove' にしないと dropEffect 不一致で drop がキャンセルされる
             e.dataTransfer.effectAllowed = 'copyMove';
             e.dataTransfer.setData('text/plain', node.id);
-            // v0.207.77 (D&D Feature B): Notes mode + page-node を Notes panel にドロップする経路用
-            // のカスタム MIME。outFileKey + nodeId + pageId を payload。
-            if (isNotesMode() && node.isPage && node.pageId) {
-                try {
-                    var payload = JSON.stringify({
-                        outFileKey: currentOutFileKey,
-                        nodeId: node.id,
-                        pageId: node.pageId,
-                        title: node.text || '',
-                    });
-                    e.dataTransfer.setData('application/x-fractal-out-node-page', payload);
-                } catch (err) { /* ignore */ }
-            }
+            // 2026-08-05: page-node → Notes tree の MIME（Feature B）は bullet から
+            // 📄 ページアイコンの dragstart へ移動（md editor の subpage アイコン D&D と同 UX）。
+            // bullet はノード並べ替え + subtree 移動（下記）専用。
             // node-move-to-other-outliner: notes モードなら全 node（page 有無問わず）で
             // サブツリー移動用 MIME を載せる。実体は host が src .out（flush 済み disk）から解決（案B）。
             if (isNotesMode()) {
@@ -3481,6 +3471,28 @@ var Outliner = (function() {
                 }
                 openPage(node.id);
             });
+            // 2026-08-05: page md → Notes tree D&D（Feature B）は 📄 アイコンを掴む
+            //（md editor の subpage アイコン D&D と同 UX。bullet は並べ替え/subtree 移動専用に分離）。
+            if (isNotesMode() && node.pageId) {
+                pageIcon.draggable = true;
+                pageIcon.style.cursor = 'grab';
+                pageIcon.addEventListener('dragstart', function(e) {
+                    e.stopPropagation(); // bullet/node の dragstart（並べ替え）に流さない
+                    // dragState は張らない（ツリー内並べ替えの indicator を出さない）
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    try {
+                        e.dataTransfer.setData('application/x-fractal-out-node-page', JSON.stringify({
+                            outFileKey: currentOutFileKey,
+                            nodeId: node.id,
+                            pageId: node.pageId,
+                            title: node.text || '',
+                        }));
+                    } catch (err) { /* ignore */ }
+                });
+                pageIcon.addEventListener('dragend', function() {
+                    removeDropIndicator();
+                });
+            }
             el.appendChild(pageIcon);
         }
 
