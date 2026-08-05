@@ -275,8 +275,12 @@ Core features work without AWS. To use S3 sync and Amazon Translate, just config
 
 ### In-app links
 - Right-click an outliner node → **Copy In-App Link**
+- Also available from the file-tree right-click (out/md), the Outliner header Menu, and the md editor toolbar (links to a whole outliner or a note md)
 - Use 🔗 in the side-panel header to create a link to the current page
 - Paste it anywhere in Fractal Note — click to jump
+
+### Shortcut HUD
+- **Long-press cmd (Ctrl on Windows)** to pop up a keyboard-shortcut overlay for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss
 
 ---
 

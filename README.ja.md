@@ -277,8 +277,12 @@ npm run compile
 
 ### アプリ内リンク
 - アウトライナーのノードを右クリック → **Copy In-App Link**
+- ファイルツリーの out/md 右クリック・Outliner ヘッダーの Menu・md エディタのツールバーからもコピー可能（outliner 全体 / note md へのリンク）
 - サイドパネルヘッダの 🔗 で現在のページへのリンクを作成
 - Fractal Note 内のどこにでもペースト — クリックでジャンプ
+
+### ショートカット一覧 HUD
+- **cmd（Windows: Ctrl）を単独で長押し**すると、表示中のビュー（Markdown / Outliner / Mindmap / Database）に応じたショートカット一覧がポップアップ。キーを離すと消えます
 
 ---
 
