@@ -193,7 +193,9 @@ test.describe('《数字リスト》開始番号の保持', () => {
     // counterfactual: 隣接判定が tagName==='ol' のみ（旧実装）だと B が merge され 5 が消えて RED。
     // 注: ol と p の間に空行があると <p><br></p> が挟まり旧実装でも merge しないため、
     // fixture は「ol の直後に p」（空行なし）で作る。
-    test('TC-OL-11: 隣接 merge は連続番号のみ（連続→merge / 非連続→独立）', async ({ page }) => {
+    // sprint 20260805-124854 TASK-07（許可: test_update・ADRL-0023 supersede）: 新ルール
+    // 「番号手入力は連なりの先頭のみ・以降は自動連番」— 非連続番号でも前の ol へ結合し番号破棄
+    test('TC-OL-11: 隣接 ol へは常に merge（打った途中番号は自動連番に補正）', async ({ page }) => {
         const placeCursorInPlaceholder = async () => {
             await page.evaluate(() => {
                 const editor = document.getElementById('editor')!;
@@ -242,12 +244,13 @@ test.describe('《数字リスト》開始番号の保持', () => {
                 secondStart: ols[1]?.getAttribute('start'),
             };
         });
-        expect(olInfo.count).toBe(2);
-        expect(olInfo.secondStart).toBe('5');
+        // 新ルール: 5 は途中番号なので破棄 → 1 本に結合し自動連番（1. a / 2. b）
+        expect(olInfo.count).toBe(1);
+        expect(olInfo.secondStart).toBeUndefined();
 
         const md = await editor.getMarkdown();
-        expect(md).toContain('5. b');
-        expect(md).not.toContain('2. b');
+        expect(md).toContain('2. b');
+        expect(md).not.toContain('5. b');
     });
 
     // TC-OL-12: Enter 継続はブラウザ連番 + start 起点シリアライズ
@@ -281,7 +284,8 @@ test.describe('《数字リスト》開始番号の保持', () => {
     // mergeAdjacentLists の唯一の呼び出し元は changeParentListType（複数兄弟分岐）なので、
     // 「ul の末尾 li 内で 1.+space 型変換」という実経路で駆動する
     //（__testApi.convertListToType は mergeAdjacentLists を呼ばない別経路 — design-review 指摘の解決）。
-    test('TC-OL-13: start 非連続の隣接 ol は統合されない／連続は統合される', async ({ page }) => {
+    // sprint 20260805-124854 TASK-07（許可: test_update）: 新ルールでは非連続でも常に統合 + 自動連番
+    test('TC-OL-13: 隣接 ol は常に統合され、吸収側の start は破棄（自動連番）', async ({ page }) => {
         const setupAndConvert = async (fixtureHtml: string) => {
             await page.evaluate((html) => {
                 const editor = document.getElementById('editor')!;
@@ -302,19 +306,19 @@ test.describe('《数字リスト》開始番号の保持', () => {
             await page.waitForTimeout(100);
         };
 
-        // 非連続: 変換で生じた ol（実効 start=1, li 1 個）の直後に ol start=5 → 1+1=2 ≠ 5 → 統合されない
+        // 非連続でも統合: 変換で生じた ol の直後の ol start=5 は吸収され start 破棄（1,2 の連番）
         await setupAndConvert('<ul><li>m</li><li>n</li></ul><ol start="5"><li>b</li></ol>');
         const nonContiguous = await page.evaluate(() => {
             const ols = document.querySelectorAll('#editor ol');
             return {
                 count: ols.length,
-                lastStart: ols[ols.length - 1]?.getAttribute('start'),
-                lastLiCount: ols[ols.length - 1]?.querySelectorAll(':scope > li').length,
+                start: ols[0]?.getAttribute('start'),
+                liCount: ols[0]?.querySelectorAll(':scope > li').length,
             };
         });
-        expect(nonContiguous.count).toBe(2);
-        expect(nonContiguous.lastStart).toBe('5');
-        expect(nonContiguous.lastLiCount).toBe(1);
+        expect(nonContiguous.count).toBe(1);
+        expect(nonContiguous.start).toBeNull();
+        expect(nonContiguous.liCount).toBe(2);
 
         // 連続: 直後の ol が start=2 → 1+1=2 === 2 → 1 本に統合、先行側（属性なし=実効1）を保持
         await setupAndConvert('<ul><li>m</li><li>n</li></ul><ol start="2"><li>b</li></ol>');
@@ -429,13 +433,10 @@ test.describe('《数字リスト》開始番号の保持', () => {
         expect(md).not.toContain('1. a');
     });
 
-    // TC-OL-18 ★load-bearing・counterfactual（test_add / review iteration 1）:
-    // convertToList('ol')（段落→ol、Ctrl+Shift+O の convertListToType false フォールバック）の
-    // 隣接 merge が raw tagName 判定（areListsCompatible を通さない旧実装）だと、
-    // 入力 A で段落 x が <ol start="5"> に prepend され a の表示番号が 6 にシフト（x が 5 を奪う）→ RED
-    test('TC-OL-18: convertToList(ol) は隣接 start≠1 ol に無言 merge しない', async ({ page }) => {
-        // 入力 A（prepend 側・非連続）: 段落 x の直後に <ol start="5">。
-        // 期待: x は独立した素の <ol> になり、<ol start="5"> は不変（ol 2 個）
+    // TC-OL-18（sprint 20260805-124854 TASK-07・許可: test_update）: 新ルールでは
+    // 段落 x の ol 化で x が連なりの先頭になり、後続 <ol start="5"> は吸収 + start 破棄（自動連番）
+    test('TC-OL-18: convertToList(ol) で後続 ol は吸収され自動連番（x=1, a=2）', async ({ page }) => {
+        // 入力 A: 段落 x の直後に <ol start="5">。期待: 1 本に結合・x が先頭（暗黙 1）・a は 2
         const prependCase = await page.evaluate(() => {
             const editor = document.getElementById('editor')!;
             editor.innerHTML = '<p>x</p><ol start="5"><li>a</li></ol>';
@@ -452,15 +453,13 @@ test.describe('《数字リスト》開始番号の保持', () => {
                 count: ols.length,
                 firstStart: ols[0]?.getAttribute('start'),
                 firstLiCount: ols[0]?.querySelectorAll(':scope > li').length,
-                secondStart: ols[1]?.getAttribute('start'),
-                secondLiCount: ols[1]?.querySelectorAll(':scope > li').length,
+                texts: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
             };
         });
-        expect(prependCase.count).toBe(2);
-        expect(prependCase.firstStart).toBeNull();   // x は独立の素の <ol>
-        expect(prependCase.firstLiCount).toBe(1);
-        expect(prependCase.secondStart).toBe('5');   // 既存 ol は不変（a は依然 5 番始まり）
-        expect(prependCase.secondLiCount).toBe(1);
+        expect(prependCase.count).toBe(1);
+        expect(prependCase.firstStart).toBeNull();   // 連なりの先頭 = 暗黙 1
+        expect(prependCase.firstLiCount).toBe(2);
+        expect(prependCase.texts).toEqual(['x', 'a']); // a は自動連番で 2 表示
 
         // 入力 B（append 側）: <ol start="3"> の直後に段落 y。
         // 期待: y は prev に append され連番を継ぐ（従来どおり merge・start="3" 保持）
@@ -700,5 +699,65 @@ test.describe('bullet 行頭の「N. 」入力の番号尊重 (TASK-05)', () => 
         });
         expect(merged.count).toBe(1);
         expect(merged.lis).toBe(2);
+    });
+});
+
+// sprint 20260805-124854 TASK-07（画像 #7→#8 の再現）: 連なりの途中の bullet 行で
+// 「5. 」等を打っても、前の ol に結合され自動連番になる（途中番号の手入力は補正される）
+test.describe('連なりの途中での番号手入力は自動補正 (TASK-07)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-OL-26: ol(a,b) / -xxx / ol(start=4: d,e) の xxx で「5. 」→ 全結合・自動連番', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>sada</li><li>adsa</li></ol><ul><li>xxx</li></ul><ol start="4"><li>sdas</li><li>dsds</li></ol>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.type('5. ', { delay: 50 });
+        await page.waitForTimeout(200);
+        const r = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const ols = ed.querySelectorAll('ol');
+            return {
+                olCount: ols.length,
+                ulCount: ed.querySelectorAll('ul').length,
+                texts: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        // counterfactual: 旧ルール（連続性判定）だと xxx が <ol start="5"> の独立リストになり olCount=3 = RED
+        expect(r.olCount).toBe(1);
+        expect(r.ulCount).toBe(0);
+        expect(r.texts).toEqual(['sada', 'adsa', 'xxx', 'sdas', 'dsds']); // a,b,c,d,e の自動連番
+        expect(r.start).toBeNull();
+    });
+
+    test('TC-OL-27: 連なりの先頭（前に ol なし）では打った番号が尊重される（先頭のみ指定可）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<p>head</p><ul><li>xxx</li></ul>';
+            (ed as HTMLElement).focus();
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.type('7. ', { delay: 50 });
+        await page.waitForTimeout(200);
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        expect(html).toMatch(/<ol start="7"><li>xxx<\/li><\/ol>/);
     });
 });

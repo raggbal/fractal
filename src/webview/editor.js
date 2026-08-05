@@ -5848,45 +5848,18 @@ class EditorInstance {
                 li.innerHTML = '<br>';
             }
             
-            // Check for adjacent ol to merge with
-            // sprint 20260729-000358 (ADRL-OLS-2): 打った番号 n が隣接 ol の連番に続くとき、
-            // または n===1（惰性の継続マーカー。従来 UX = list-merge.spec.ts が契約）のとき merge。
-            // それ以外（例: 1. a の直後に 5.）は独立した <ol start="n"> を作る（番号を無言で捨てない）。
+            // sprint 20260805-124854 TASK-07（ADRL-OLS-2/ADRL-0023 supersede）:
+            // 「番号手入力は連なりの先頭のみ・以降は自動連番」。独立 <ol start=n> を作って
+            // mergeAdjacentLists に委ねる — 前に ol があれば結合され n は破棄（自動連番）、
+            // 前が無ければ n が連なりの先頭として尊重される。次に ol があれば吸収（start 破棄）。
             const typedNum = parseInt(olMatch[1], 10);
-            const nextSibling = node.nextElementSibling;
-            const prevSibling = node.previousElementSibling;
-
-            const nextIsOl = nextSibling && nextSibling.tagName?.toLowerCase() === 'ol';
-            const prevIsOl = prevSibling && prevSibling.tagName?.toLowerCase() === 'ol';
-            const prevContinues = prevIsOl && (typedNum === 1 ||
-                typedNum === getEffectiveOlStart(prevSibling) + prevSibling.querySelectorAll(':scope > li').length);
-            // next への prepend は「明示的に next の start-1 を打った」か「n===1 かつ next も 1 始まり」のみ
-            //（n===1 で start 付き next に prepend すると next の開始番号が消えるため除外）
-            const nextContinues = nextIsOl && (typedNum === getEffectiveOlStart(nextSibling) - 1 ||
-                (typedNum === 1 && nextSibling.getAttribute('start') === null));
-
-            if (nextContinues) {
-                // Merge with next ol - prepend new item（次リストの先頭番号が n+1 → n を先頭に）
-                nextSibling.insertBefore(li, nextSibling.firstChild);
-                if (isValidOlStart(typedNum) && typedNum !== 1) {
-                    nextSibling.setAttribute('start', String(typedNum));
-                } else {
-                    nextSibling.removeAttribute('start');
-                }
-                node.remove();
-            } else if (prevContinues) {
-                // Merge with previous ol - append new item（前リストの連番に続く n）
-                prevSibling.appendChild(li);
-                node.remove();
-            } else {
-                // Create new ol（隣接なし or 番号が連続しない）
-                const ol = document.createElement('ol');
-                if (isValidOlStart(typedNum) && typedNum !== 1) {
-                    ol.setAttribute('start', String(typedNum));
-                }
-                ol.appendChild(li);
-                node.replaceWith(ol);
+            const ol = document.createElement('ol');
+            if (isValidOlStart(typedNum) && typedNum !== 1) {
+                ol.setAttribute('start', String(typedNum));
             }
+            ol.appendChild(li);
+            node.replaceWith(ol);
+            mergeAdjacentLists(ol);
             setCursorToEnd(li);
             syncMarkdown();
             return true;
@@ -12768,15 +12741,11 @@ class EditorInstance {
             // Only merge if both are task or both are non-task
             return aHasCheckbox === bHasCheckbox;
         }
-        // sprint 20260729-000358: 後続 b に明示 start があるとき、その番号が a の連番に
-        // 続かないなら別リスト（merge すると番号が消える）。b に start が無ければ番号は
-        // auto（a の連番を継ぐ意図）なので従来どおり merge 可 — 属性なし ol 同士の
-        // 既存 merge 挙動を壊さない。
-        var bAttr = b.getAttribute('start');
-        if (bAttr === null) return true;
-        var bStart = getEffectiveOlStart(b);
-        var aCount = a.querySelectorAll(':scope > li').length;
-        return bStart === getEffectiveOlStart(a) + aCount;
+        // sprint 20260805-124854 TASK-07（ADRL-0023 supersede）: ol 同士は常に結合可。
+        // ユーザールール「番号手入力は連なりの先頭のみ・以降は自動連番」— 途中の番号は
+        // 尊重せず自動補正するため、連続性チェックは廃止（結合時に後続の start を破棄 =
+        // mergeAdjacentLists 側で実施）。
+        return true;
     }
 
     // Merge targetList with its adjacent compatible siblings
@@ -12784,6 +12753,8 @@ class EditorInstance {
         // Merge with next sibling
         var next = targetList.nextElementSibling;
         if (next && areListsCompatible(targetList, next)) {
+            // TASK-07: 吸収される側の start は破棄（前が連なりの先頭 = 自動連番）
+            next.removeAttribute('start');
             while (next.firstChild) {
                 targetList.appendChild(next.firstChild);
             }
@@ -12793,6 +12764,8 @@ class EditorInstance {
         // Merge with previous sibling
         var prev = targetList.previousElementSibling;
         if (prev && areListsCompatible(prev, targetList)) {
+            // TASK-07: 吸収される側（targetList）の start は破棄
+            targetList.removeAttribute('start');
             while (targetList.firstChild) {
                 prev.appendChild(targetList.firstChild);
             }
@@ -15329,6 +15302,9 @@ class EditorInstance {
             const li = document.createElement('li');
             fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持（sprint 20260728-121645）
             nextSibling.insertBefore(li, nextSibling.firstChild);
+            // sprint 20260805-124854 TASK-07: prepend で新項目が連なりの先頭になる →
+            // 吸収した ol の start は破棄（自動連番。「番号指定は先頭のみ」の新ルール）
+            if (type === 'ol') { nextSibling.removeAttribute('start'); }
             node.remove();
             setCursorToEnd(li);
             syncMarkdown();
