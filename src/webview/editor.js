@@ -2901,36 +2901,33 @@ class EditorInstance {
                 const indent = parsed.indent || 0;
                 const indentLevel = Math.floor(indent / 2); // 2 spaces = 1 level
                 
+                // sprint 20260805-124854 TASK-09（混在リスト貼付の全面見直し）:
+                // ネスト判定は「スタックに保存した indent 値」で比較する。
+                // 旧実装は listStack.length（スタック深さ）と indentLevel を混同しており、
+                // インデントが 1 段で 2 レベル以上跳ぶ入力（4 スペース直下 等）の後に同じ
+                // インデントの別種リストが来ると「より深い」と誤判定して入れ子化していた
+                //（- ada / 4sp- asda / 4sp1. asda で ol が ul の子になるバグ）。
                 if (listStack.length === 0) {
                     // Start a new top-level list
                     html += buildListOpenTag(parsed);
                     listStack.push({ type: parsed.listType, indent: indentLevel });
                 } else {
-                    const currentLevel = listStack.length - 1;
+                    const topIndent = listStack[listStack.length - 1].indent;
 
-                    if (indentLevel > currentLevel) {
+                    if (indentLevel > topIndent) {
                         // Nest deeper - create nested list inside current li
                         html += buildListOpenTag(parsed);
                         listStack.push({ type: parsed.listType, indent: indentLevel });
-                    } else if (indentLevel < listStack.length) {
-                        // Go back up - close lists until we reach the right level
-                        while (listStack.length > indentLevel + 1) {
+                    } else {
+                        // Same level or going up: close lists whose stored indent is deeper
+                        while (listStack.length > 0 && listStack[listStack.length - 1].indent > indentLevel) {
                             html += '</li></' + listStack.pop().type + '>';
                         }
-                        // Check if list type changed at the target level
-                        if (listStack.length > 0 && listStack[listStack.length - 1].type !== parsed.listType) {
-                            // Close ONLY the current level's list and start new sibling list
-                            // of different type under the same parent li.
-                            // (Do NOT close all lists - that would collapse nested type changes to top level)
-                            html += '</li></' + listStack.pop().type + '>';
+                        if (listStack.length === 0) {
+                            // Everything closed (shallower than any open list) - new top-level list
                             html += buildListOpenTag(parsed);
                             listStack.push({ type: parsed.listType, indent: indentLevel });
-                        } else if (listStack.length > 0) {
-                            html += '</li><li>' + parsed.html;
-                        }
-                    } else {
-                        // Same level - check if list type changed
-                        if (listStack[listStack.length - 1].type !== parsed.listType) {
+                        } else if (listStack[listStack.length - 1].type !== parsed.listType) {
                             // Close ONLY the current level's list and start new sibling list
                             // of different type under the same parent li.
                             // (Do NOT close all lists - that would collapse nested type changes to top level)
@@ -5670,6 +5667,9 @@ class EditorInstance {
                 if (parentTag === 'ol') return false; // Already ordered
 
                 const existingText = orderedMatch[2] || '';
+                // sprint 20260805-124854 TASK-05: 打った番号を尊重する（段落経路 ADRL-OLS-2 と同じ
+                // 意味論）。従来は typedNum を捨てて 1 起点化していた = ユーザーの明示番号の無言破棄
+                const typedOlNum = parseInt(orderedMatch[1], 10);
                 const nestedLists = collectNestedLists();
                 // inline 要素保持（sprint 20260728-121645）: innerHTML='' の前に退避
                 const inlineFrag = existingText
@@ -5685,7 +5685,7 @@ class EditorInstance {
                 }
                 restoreNestedLists(nestedLists);
 
-                changeParentListType(liNode, 'ol');
+                changeParentListType(liNode, 'ol', typedOlNum);
 
                 setCursorToLiTextStart();
                 syncMarkdown();
@@ -5845,45 +5845,18 @@ class EditorInstance {
                 li.innerHTML = '<br>';
             }
             
-            // Check for adjacent ol to merge with
-            // sprint 20260729-000358 (ADRL-OLS-2): 打った番号 n が隣接 ol の連番に続くとき、
-            // または n===1（惰性の継続マーカー。従来 UX = list-merge.spec.ts が契約）のとき merge。
-            // それ以外（例: 1. a の直後に 5.）は独立した <ol start="n"> を作る（番号を無言で捨てない）。
+            // sprint 20260805-124854 TASK-07（ADRL-OLS-2/ADRL-0023 supersede）:
+            // 「番号手入力は連なりの先頭のみ・以降は自動連番」。独立 <ol start=n> を作って
+            // mergeAdjacentLists に委ねる — 前に ol があれば結合され n は破棄（自動連番）、
+            // 前が無ければ n が連なりの先頭として尊重される。次に ol があれば吸収（start 破棄）。
             const typedNum = parseInt(olMatch[1], 10);
-            const nextSibling = node.nextElementSibling;
-            const prevSibling = node.previousElementSibling;
-
-            const nextIsOl = nextSibling && nextSibling.tagName?.toLowerCase() === 'ol';
-            const prevIsOl = prevSibling && prevSibling.tagName?.toLowerCase() === 'ol';
-            const prevContinues = prevIsOl && (typedNum === 1 ||
-                typedNum === getEffectiveOlStart(prevSibling) + prevSibling.querySelectorAll(':scope > li').length);
-            // next への prepend は「明示的に next の start-1 を打った」か「n===1 かつ next も 1 始まり」のみ
-            //（n===1 で start 付き next に prepend すると next の開始番号が消えるため除外）
-            const nextContinues = nextIsOl && (typedNum === getEffectiveOlStart(nextSibling) - 1 ||
-                (typedNum === 1 && nextSibling.getAttribute('start') === null));
-
-            if (nextContinues) {
-                // Merge with next ol - prepend new item（次リストの先頭番号が n+1 → n を先頭に）
-                nextSibling.insertBefore(li, nextSibling.firstChild);
-                if (isValidOlStart(typedNum) && typedNum !== 1) {
-                    nextSibling.setAttribute('start', String(typedNum));
-                } else {
-                    nextSibling.removeAttribute('start');
-                }
-                node.remove();
-            } else if (prevContinues) {
-                // Merge with previous ol - append new item（前リストの連番に続く n）
-                prevSibling.appendChild(li);
-                node.remove();
-            } else {
-                // Create new ol（隣接なし or 番号が連続しない）
-                const ol = document.createElement('ol');
-                if (isValidOlStart(typedNum) && typedNum !== 1) {
-                    ol.setAttribute('start', String(typedNum));
-                }
-                ol.appendChild(li);
-                node.replaceWith(ol);
+            const ol = document.createElement('ol');
+            if (isValidOlStart(typedNum) && typedNum !== 1) {
+                ol.setAttribute('start', String(typedNum));
             }
+            ol.appendChild(li);
+            node.replaceWith(ol);
+            mergeAdjacentLists(ol);
             setCursorToEnd(li);
             syncMarkdown();
             return true;
@@ -7818,7 +7791,9 @@ class EditorInstance {
                             if (parentList && parentList.isConnected &&
                                 (parentList.tagName?.toLowerCase() === 'ul' || parentList.tagName?.toLowerCase() === 'ol') &&
                                 parentList.children.length === 0) {
+                                const jPrevR = parentList.previousElementSibling, jNextR = parentList.nextElementSibling;
                                 parentList.remove();
+                                joinAdjacentOlsAfterListRemoval(jPrevR, jNextR); // TASK-08: 範囲削除/cut で ul 消滅 → ol 再結合
                             }
                         }
                     }
@@ -7993,8 +7968,10 @@ class EditorInstance {
                 // （タスクリストの checkbox 剥がしと同型の 2 段階）。ネスト/top-level を問わず
                 // parentList.tagName==='OL' のみで判定（Backspace の行頭 ol li は 3 状態あり、
                 // nested 判定を足すと第 3 状態=ネスト非先頭が取りこぼされる。designer_failures 2026-07-30）。
-                // 空 li は既存の段落変換/削除経路のまま（demote しない）。
-                if (isAtBeginning && !isEmptyItem && list.tagName === 'OL') {
+                // sprint 20260805-124854 TASK-06(3): 空 li も demote する（ユーザー仕様変更・
+                // 許可: test_update TC-OB-07）。「どんな時も 1 段階目は bullet 解除」— 空/非空で
+                // 挙動が割れると空 li だけ行が即消えして cursor が飛ぶ非対称だった。
+                if (isAtBeginning && list.tagName === 'OL') {
                     e.preventDefault();
                     demoteOlLiToBullet(liElement, sel);
                     return;
@@ -8106,7 +8083,9 @@ class EditorInstance {
 
                         // If current list is now empty, remove it
                         if (list.children.length === 0) {
+                            const jPrev = list.previousElementSibling, jNext = list.nextElementSibling;
                             list.remove();
+                            joinAdjacentOlsAfterListRemoval(jPrev, jNext); // TASK-06(2)
                         }
 
                         // Set cursor position
@@ -8181,7 +8160,9 @@ class EditorInstance {
 
                         // If the list is now empty, remove it
                         if (list.children.length === 0) {
+                            const jPrev2 = list.previousElementSibling, jNext2 = list.nextElementSibling;
                             list.remove();
+                            joinAdjacentOlsAfterListRemoval(jPrev2, jNext2); // TASK-06(2)
                         }
 
                         // If there was a nested list in current li, insert it before the remaining siblings.
@@ -8894,6 +8875,10 @@ class EditorInstance {
                             followingSiblings.push(sibling);
                             sibling = sibling.nextElementSibling;
                         }
+                        // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+                        const followStartNumB = (list.tagName === 'OL' && followingSiblings.length > 0)
+                            ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                            : null;
                         
                         // Remove the empty item
                         listItem.remove();
@@ -8919,6 +8904,7 @@ class EditorInstance {
                         // If there are following siblings, create a new list for them
                         if (followingSiblings.length > 0) {
                             const newList = document.createElement(list.tagName);
+                            if (followStartNumB !== null) applyOlStartIfNeeded(newList, followStartNumB); // TASK-08
                             for (const sib of followingSiblings) {
                                 sib.remove();
                                 newList.appendChild(sib);
@@ -10419,6 +10405,17 @@ class EditorInstance {
             if (parent?.tagName?.toLowerCase() === 'ul' || parent?.tagName?.toLowerCase() === 'ol') {
                 const grandParent = parent.parentNode;
                 if (grandParent?.tagName?.toLowerCase() === 'li') {
+                    // sprint 20260805-124854 TASK-06(1): 同一親 li 内で parent リストの直前に
+                    // 兄弟リスト（demote 分割で生じた ol/ul 等）があるなら、その最深 last li が
+                    // 「視覚的な前要素」（従来は親 li に飛び、カーソルが親テキスト末尾 =
+                    // 見た目上 2 行上に移動するバグ）。
+                    const prevSiblingList = parent.previousElementSibling;
+                    if (prevSiblingList && (prevSiblingList.tagName === 'UL' || prevSiblingList.tagName === 'OL')) {
+                        const lastSibLi = prevSiblingList.lastElementChild;
+                        if (lastSibLi && lastSibLi.tagName === 'LI') {
+                            return findDeepestLastLi(lastSibLi);
+                        }
+                    }
                     // Return the parent li (the text part before the nested list)
                     return grandParent;
                 }
@@ -10545,6 +10542,36 @@ class EditorInstance {
 
             logger.log('[handleEmptyLi] precedingSiblings:', precedingSiblings.length, 'nestedLists:', nestedLists.length);
 
+            // sprint 20260805-124854 TASK-06(2): 空 bullet（ul の唯一 li）が ol と ol の間に
+            // あるとき、削除で ol 同士を結合し連番に修正する（「連なる ol は先頭行のみ番号指定可・
+            // 以降は連番」= after 側の start を破棄 → serialize が prev start からの連番で描画）。
+            // top-level / ネスト（親 li 内の兄弟リスト）どちらでも同じ。
+            if (list && list.tagName === 'UL' && list.children.length === 1) {
+                const prevOl = list.previousElementSibling;
+                const nextOl = list.nextElementSibling;
+                if (prevOl && prevOl.tagName === 'OL' && nextOl && nextOl.tagName === 'OL') {
+                    // 空 li のネストリストは prev の最終 li へ退避（既存 merge 経路と同方針）
+                    const prevLastLi = prevOl.lastElementChild;
+                    // カーソルは「視覚的に直前の行」= prev 最終 li の最深の末尾 li
+                    //（prevLastLi が入れ子リストを持つ場合、その末尾が直前の行。ネストリスト
+                    //  退避より前に確定する — 退避された空 li の子に飛ばないため）
+                    const cursorLi = prevLastLi ? findDeepestLastLi(prevLastLi) : null;
+                    for (const nl of nestedLists) {
+                        nl.remove();
+                        if (prevLastLi) prevLastLi.appendChild(nl);
+                    }
+                    liElement.remove();
+                    list.remove();
+                    joinAdjacentOlsAfterListRemoval(prevOl, nextOl);
+                    if (cursorLi) {
+                        setCursorToEndOfLi(cursorLi);
+                    } else {
+                        setCursorToEnd(prevOl);
+                    }
+                    return true;
+                }
+            }
+
             // Find the visually previous element to move cursor to
             const visualPrev = findVisuallyPreviousElement(liElement);
 
@@ -10588,7 +10615,9 @@ class EditorInstance {
 
             // Clean up empty parent list if we just removed its last child
             if (list && list.parentNode && list.children.length === 0) {
+                const jPrevE = list.previousElementSibling, jNextE = list.nextElementSibling;
                 list.remove();
+                joinAdjacentOlsAfterListRemoval(jPrevE, jNextE); // TASK-07 追補
             }
 
             if (visualPrev.tagName?.toLowerCase() === 'li') {
@@ -10840,7 +10869,9 @@ class EditorInstance {
                 
                 // If list is now empty, remove it
                 if (list.children.length === 0) {
+                    const jPrev3 = list.previousElementSibling, jNext3 = list.nextElementSibling;
                     list.remove();
+                    joinAdjacentOlsAfterListRemoval(jPrev3, jNext3); // TASK-06(2) 非空 bullet 経路（画像 #5→#6 の f ケース）
                 }
                 
                 // Add nested lists to visualPrev
@@ -11075,6 +11106,10 @@ class EditorInstance {
                         followingSiblings.push(sibling);
                         sibling = sibling.nextElementSibling;
                     }
+                    // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+                    const followStartNumC = (list.tagName === 'OL' && followingSiblings.length > 0)
+                        ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                        : null;
                     
                     // First, remove all nested lists from the li (before removing li)
                     for (const nestedList of allNestedLists) {
@@ -11101,6 +11136,7 @@ class EditorInstance {
                     // If there are following siblings, create a new list for them
                     if (followingSiblings.length > 0) {
                         const newList = document.createElement(list.tagName);
+                        if (followStartNumC !== null) applyOlStartIfNeeded(newList, followStartNumC); // TASK-08
                         for (const sib of followingSiblings) {
                             sib.remove();
                             newList.appendChild(sib);
@@ -12080,6 +12116,11 @@ class EditorInstance {
                             nextSib = nextSib.nextElementSibling;
                         }
                         
+                        // sprint 20260805-124854 TASK-08: split 時の after 番号保持のため
+                        // remove 前に following 先頭の元表示番号を捕捉（ol のみ）
+                        const followStartNum = (list.tagName === 'OL' && followingSiblings.length > 0)
+                            ? getEffectiveOlStart(list) + Array.prototype.indexOf.call(list.children, followingSiblings[0])
+                            : null;
                         // Remove the empty item
                         liElement.remove();
                         
@@ -12095,6 +12136,7 @@ class EditorInstance {
                         } else {
                             // Middle item - split list and insert paragraph in between
                             const newList = document.createElement(list.tagName);
+                            if (followStartNum !== null) applyOlStartIfNeeded(newList, followStartNum); // TASK-08
                             for (const sib of followingSiblings) {
                                 newList.appendChild(sib);
                             }
@@ -12574,6 +12616,20 @@ class EditorInstance {
     // changeParentListType が ol を分割し（after 側に start 焼き = ADRL-LST-2）、
     // カーソルは li テキスト先頭に維持。2 回目の backspace は ul li として既存経路に落ちる。
     // sync はここで 1 回のみ（呼び出し側は preventDefault + return で二重発火させない）。
+    // sprint 20260805-124854 TASK-06(2)/追補: リスト除去で ol 同士が隣接したら結合 + 連番化。
+    // 「連なる ol は先頭行のみ番号指定可・以降は自動連番」= after 側の start を破棄
+    //（ADRL-0022: 属性なし = 前からの連番で serialize）。除去する list の prev/next を
+    // **remove 前に**捕まえて渡す。ol/ol 隣接でなければ no-op（段落・ul 等は不変）。
+    // 空 bullet 経路（handleEmptyLi）と非空 merge 経路（handleNonEmptyLiStart :8113/:8188/:10887）
+    // の全てで呼ぶ（片肺配線の禁止）。
+    function joinAdjacentOlsAfterListRemoval(prevEl, nextEl) {
+        if (!prevEl || !nextEl) return;
+        if (prevEl.tagName !== 'OL' || nextEl.tagName !== 'OL') return;
+        nextEl.removeAttribute('start');
+        while (nextEl.firstChild) prevEl.appendChild(nextEl.firstChild);
+        nextEl.remove();
+    }
+
     function demoteOlLiToBullet(liElement, sel) {
         changeParentListType(liElement, 'ul');
         // カーソルを li テキスト先頭に置き直す（DOM 移動で selection が飛ぶことがあるため）
@@ -12596,7 +12652,10 @@ class EditorInstance {
     // If the li is the only child, just swap the tag.
     // If there are siblings, split into up to 3 lists: before (original), target (new), after (original).
     // Then merge adjacent compatible lists.
-    function changeParentListType(li, targetTag) {
+    // sprint 20260805-124854 TASK-05: 第 3 引数 olStart（省略可）。targetTag==='ol' のとき
+    // 生成する ol に打った番号を焼く（bullet 行頭の「N. 」入力 = ユーザーの明示番号を捨てない）。
+    // 未指定なら従来挙動（属性なし = 1 起点）と完全一致。
+    function changeParentListType(li, targetTag, olStart) {
         var parentList = li.parentNode;
         if (!parentList) return;
         var currentTag = parentList.tagName.toLowerCase();
@@ -12615,8 +12674,17 @@ class EditorInstance {
                 if (attr.name === 'start' && targetTag !== 'ol') continue;
                 newList.setAttribute(attr.name, attr.value);
             }
+            // TASK-05: 明示番号（「N. 」入力）があれば焼く（コピー元に start が無い ul→ol で有効）。
+            // merge は明示番号経路のみ（連番なら隣接 ol へ吸収 = 段落経路 ADRL-OLS-2 と同じ意味論。
+            // olStart 未指定の従来呼び出しは挙動不変 = merge しない従来どおり）
+            if (targetTag === 'ol' && olStart !== undefined) {
+                applyOlStartIfNeeded(newList, olStart);
+            }
             newList.appendChild(li);
             parentList.replaceWith(newList);
+            if (targetTag === 'ol' && olStart !== undefined) {
+                mergeAdjacentLists(newList);
+            }
         } else {
             // Multiple siblings — split into before/target/after
             var parentOfList = parentList.parentNode;
@@ -12632,9 +12700,7 @@ class EditorInstance {
                 // 元表示番号 = 実効 start + 抜けた li の index + 1。値 1 は属性省略（ADRL-0022 規約）。
                 if (currentTag === 'ol') {
                     var afterStart = getEffectiveOlStart(parentList) + liIndex + 1;
-                    if (isValidOlStart(afterStart) && afterStart !== 1) {
-                        afterList.setAttribute('start', String(afterStart));
-                    }
+                    applyOlStartIfNeeded(afterList, afterStart); // sprint 20260805-124854: 共通ヘルパ（挙動不変）
                 }
                 for (var j = 0; j < afterItems.length; j++) {
                     afterList.appendChild(afterItems[j]);
@@ -12643,6 +12709,10 @@ class EditorInstance {
 
             // Build "target" list (just the converted li)
             var targetList = document.createElement(targetTag);
+            // TASK-05: 明示番号（「N. 」入力）があれば焼く
+            if (targetTag === 'ol' && olStart !== undefined) {
+                applyOlStartIfNeeded(targetList, olStart);
+            }
             targetList.appendChild(li);
 
             // parentList now only contains "before" items (items before li)
@@ -12668,6 +12738,16 @@ class EditorInstance {
         return (s && /^\d{1,9}$/.test(s) && Number(s) >= 1) ? Number(s) : 1;
     }
 
+    // sprint 20260805-124854: ol 分割で生成した ol に start を焼く共通ヘルパ（ADRL-0022 規約:
+    // valid かつ ≠1 のときのみ start 属性を設定。start=1 は属性省略 = 旧 byte 互換）。
+    // changeParentListType（:12633-12637 = ADRL-0027）と convertListToType CASE B（ol 分割）で共有し、
+    // 「共有判定を一部経路にだけ配線」の再発を防ぐ。挙動は両経路の従来ロジックと 1:1 一致。
+    function applyOlStartIfNeeded(newList, startValue) {
+        if (isValidOlStart(startValue) && startValue !== 1) {
+            newList.setAttribute('start', String(startValue));
+        }
+    }
+
     // Check if two list elements are compatible for merging
     // Regular ul and task ul are NOT compatible
     // a が先行・b が後続の隣接リストであること（呼び出し側の並び順で渡す）
@@ -12682,15 +12762,11 @@ class EditorInstance {
             // Only merge if both are task or both are non-task
             return aHasCheckbox === bHasCheckbox;
         }
-        // sprint 20260729-000358: 後続 b に明示 start があるとき、その番号が a の連番に
-        // 続かないなら別リスト（merge すると番号が消える）。b に start が無ければ番号は
-        // auto（a の連番を継ぐ意図）なので従来どおり merge 可 — 属性なし ol 同士の
-        // 既存 merge 挙動を壊さない。
-        var bAttr = b.getAttribute('start');
-        if (bAttr === null) return true;
-        var bStart = getEffectiveOlStart(b);
-        var aCount = a.querySelectorAll(':scope > li').length;
-        return bStart === getEffectiveOlStart(a) + aCount;
+        // sprint 20260805-124854 TASK-07（ADRL-0023 supersede）: ol 同士は常に結合可。
+        // ユーザールール「番号手入力は連なりの先頭のみ・以降は自動連番」— 途中の番号は
+        // 尊重せず自動補正するため、連続性チェックは廃止（結合時に後続の start を破棄 =
+        // mergeAdjacentLists 側で実施）。
+        return true;
     }
 
     // Merge targetList with its adjacent compatible siblings
@@ -12698,6 +12774,8 @@ class EditorInstance {
         // Merge with next sibling
         var next = targetList.nextElementSibling;
         if (next && areListsCompatible(targetList, next)) {
+            // TASK-07: 吸収される側の start は破棄（前が連なりの先頭 = 自動連番）
+            next.removeAttribute('start');
             while (next.firstChild) {
                 targetList.appendChild(next.firstChild);
             }
@@ -12707,6 +12785,8 @@ class EditorInstance {
         // Merge with previous sibling
         var prev = targetList.previousElementSibling;
         if (prev && areListsCompatible(prev, targetList)) {
+            // TASK-07: 吸収される側（targetList）の start は破棄
+            targetList.removeAttribute('start');
             while (targetList.firstChild) {
                 prev.appendChild(targetList.firstChild);
             }
@@ -12751,7 +12831,12 @@ class EditorInstance {
                     nestedList.appendChild(li);
                     // If the parent list is now empty, remove it
                     if (parentList.children.length === 0) {
+                        // sprint 20260805-124854 TASK-07 追補: 間の ul が消えて ol 同士が
+                        // 隣接したら結合 + 自動連番（Tab インデント経路も同ルール。画像 #9→#10）
+                        const jPrevT = parentList.previousElementSibling;
+                        const jNextT = parentList.nextElementSibling;
                         parentList.remove();
+                        joinAdjacentOlsAfterListRemoval(jPrevT, jNextT);
                     }
                     logger.log('indentListItem: Cross-list indent done');
                     return;
@@ -12854,7 +12939,9 @@ class EditorInstance {
 
         // Remove empty parent list
         if (parentList.children.length === 0) {
+            var jPrevO = parentList.previousElementSibling, jNextO = parentList.nextElementSibling;
             parentList.remove();
+            joinAdjacentOlsAfterListRemoval(jPrevO, jNextO); // TASK-08: outdent で ul 消滅 → ol 再結合
         }
 
         // Note: Cursor position is preserved by the caller
@@ -12891,6 +12978,10 @@ class EditorInstance {
             followingItems.push(sib);
             sib = sib.nextElementSibling;
         }
+        // sprint 20260805-124854 TASK-08: split 前に after 先頭の元表示番号を捕捉（ol のみ）
+        var followStartNumD = (listTagName === 'ol' && followingItems.length > 0)
+            ? getEffectiveOlStart(parentList) + Array.prototype.indexOf.call(parentList.children, followingItems[0])
+            : null;
         for (var j = 0; j < followingItems.length; j++) {
             followingItems[j].remove();
         }
@@ -12933,6 +13024,7 @@ class EditorInstance {
 
         if (followingItems.length > 0) {
             var newList = document.createElement(listTagName);
+            if (followStartNumD !== null) applyOlStartIfNeeded(newList, followStartNumD); // TASK-08
             for (var k = 0; k < followingItems.length; k++) {
                 newList.appendChild(followingItems[k]);
             }
@@ -15243,6 +15335,9 @@ class EditorInstance {
             const li = document.createElement('li');
             fillWithExtracted(li, cloneInlineFromNode(node)); // inline 保持（sprint 20260728-121645）
             nextSibling.insertBefore(li, nextSibling.firstChild);
+            // sprint 20260805-124854 TASK-07: prepend で新項目が連なりの先頭になる →
+            // 吸収した ol の start は破棄（自動連番。「番号指定は先頭のみ」の新ルール）
+            if (type === 'ol') { nextSibling.removeAttribute('start'); }
             node.remove();
             setCursorToEnd(li);
             syncMarkdown();
@@ -15466,6 +15561,12 @@ class EditorInstance {
         // 1. Before list (keep original type)
         if (beforeItems.length > 0) {
             var beforeList = document.createElement(currentParentTag.toLowerCase());
+            // sprint 20260805-124854 (FR-OLS / ADRL-0027 対称化): ol の一部を ul/task 化するとき
+            // before 側は元 ol の実効 start をそのまま保持する（先頭項目 index=0 のためシフト無し）。
+            // 焼くのは生成リストが ol のとき（= currentParentTag==='OL'）のみ。値 1 は属性省略。
+            if (currentParentTag === 'OL') {
+                applyOlStartIfNeeded(beforeList, getEffectiveOlStart(parentList));
+            }
             for (var i = 0; i < beforeItems.length; i++) {
                 beforeList.appendChild(beforeItems[i]); // Move, not clone
             }
@@ -15485,6 +15586,13 @@ class EditorInstance {
         // 3. After list (keep original type)
         if (afterItems.length > 0) {
             var afterList = document.createElement(currentParentTag.toLowerCase());
+            // sprint 20260805-124854 (FR-OLS / ADRL-0027 対称化): after 側の先頭項目の元表示番号 =
+            // 元 ol の実効 start + after 先頭 li の元 index（= lastConvertIdx + 1）。changeParentListType
+            // :12634 と同型（あちらは liIndex+1、こちらは lastConvertIdx+1 = 抜けた範囲の直後 index）。
+            // 焼くのは生成リストが ol のとき（= currentParentTag==='OL'）のみ。値 1 は属性省略。
+            if (currentParentTag === 'OL') {
+                applyOlStartIfNeeded(afterList, getEffectiveOlStart(parentList) + (lastConvertIdx + 1));
+            }
             for (var i = 0; i < afterItems.length; i++) {
                 afterList.appendChild(afterItems[i]); // Move, not clone
             }

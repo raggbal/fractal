@@ -2108,6 +2108,39 @@ export class NotesEditorProvider {
                 }
             },
 
+            // FR-T01 (sprint 20260805-124854): Finder / VS Code Explorer から .md をツリーに D&D。
+            // webview が FileReader で読んだ items（[{kind:'md', name, content}]）を、各々
+            // 新 id で mainFolder 直下（flat）へ複製登録（元ファイルは OS 側なので不変）。
+            // タイトルは H1（無ければファイル名 stem）。挿入位置は index から順に i ずつずらす。
+            notesRegisterExternalMd: (
+                items: { kind: string; name: string; content: string }[],
+                parentId: string | null,
+                index: number,
+                senderRef: NotesSender
+            ) => {
+                try {
+                    if (!Array.isArray(items) || items.length === 0) return;
+                    let registered = 0;
+                    for (let i = 0; i < items.length; i++) {
+                        const item = items[i];
+                        if (!item || item.kind !== 'md') continue;
+                        const content = typeof item.content === 'string' ? item.content : '';
+                        const title = resolveSubpageTitle(content, item.name || 'untitled.md');
+                        fileManager.registerMarkdownFile(content, title, parentId, index + registered);
+                        registered++;
+                    }
+                    if (registered === 0) return;
+                    senderRef.postMessage({
+                        type: 'notesFileListChanged',
+                        fileList: fileManager.listFiles(),
+                        structure: fileManager.getStructureForWebview(),
+                        currentFile: fileManager.getCurrentFilePath(),
+                    });
+                } catch (e) {
+                    console.error('[Notes] notesRegisterExternalMd error:', e);
+                }
+            },
+
             // v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ →
             // 当該 page の .md を _notes_md/<newId>.md (v0.207.82: フラット) に複製し、独立 .md として構造へ登録
             notesImportOutPageNodeAsMd: async (

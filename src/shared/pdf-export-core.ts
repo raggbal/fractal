@@ -47,7 +47,16 @@ table { border-collapse: collapse; } th,td { border:1px solid #d0d7de; padding:.
 blockquote { border-left:3px solid #d0d7de; margin-left:0; padding-left:1em; color:#57606a; }
 img { max-width:100%; }
 a { color:#0969da; text-decoration:none; }
-input[type=checkbox] { transform: translateY(1px); }`;
+input[type=checkbox] { transform: translateY(1px); }
+ol { list-style-type: decimal; }
+ol ol { list-style-type: lower-alpha; }
+ol ol ol { list-style-type: lower-roman; }
+ol ol ol ol { list-style-type: decimal; }
+ol ol ol ol ol { list-style-type: lower-alpha; }
+ol ol ol ol ol ol { list-style-type: lower-roman; }
+ol ol ol ol ol ol ol { list-style-type: decimal; }
+ol ol ol ol ol ol ol ol { list-style-type: lower-alpha; }
+ol ol ol ol ol ol ol ol ol { list-style-type: lower-roman; }`;
 
 /**
  * 文書順トークン走査で h1/h2 開きタグを検出し、除外対象 (最初の h1 と

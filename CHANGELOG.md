@@ -5,6 +5,22 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.19] - 2026-08-06
+
+### Added
+- **External .md drag & drop onto the Notes file tree** — dropped files are copied under a new id and registered (H1 becomes the title); non-md files are silently skipped
+- **Depth-cycled ordered-list markers** — nested numbered lists render as 1,2,3 → a,b,c → ⅰ,ⅱ,ⅲ (cycling, 9 levels), in the editor and PDF export; the .md file keeps plain `1. 2. 3.`
+
+### Changed
+- **Ordered-list numbering semantics unified** (ADRL-0042, supersedes ADRL-0023): a typed number only matters at the head of a run; adjacent numbered lists always join with automatic renumbering; splits preserve the visible numbers. Wired across every path — typing, toolbar/shortcut conversion, backspace (empty & non-empty), Tab/Shift+Tab, Enter escape, range delete/cut
+- Empty numbered-list items now demote to a bullet on the first backspace (same two-step as non-empty)
+
+### Fixed
+- Numbered list resetting to 1 when converting a middle item via toolbar / Ctrl+Shift+U
+- Typed start numbers being ignored on bullet lines (`2. ` at a bullet head now works, at any nesting level)
+- Mixed bullet/numbered list pastes nesting incorrectly when indented with 4+ spaces (nesting is now judged by stored indentation, not stack depth)
+- Cursor jumping to the wrong line after deleting an empty bullet between numbered lists
+
 ## [1.1.18] - 2026-08-05
 
 ### Added

@@ -326,8 +326,10 @@ test.describe('ol 行頭 backspace の 2 段階化', () => {
         ]);
     });
 
-    // TC-OB-07: 空 ol li は demote 対象外（既存の空 li 処理のまま）
-    test('TC-OB-07: 空 ol li の行頭 backspace は demote しない', async ({ page }) => {
+    // TC-OB-07（sprint 20260805-124854 TASK-06(3)・許可: test_update）: 仕様変更 —
+    // 空 ol li も行頭 backspace で demote する（「どんな時も 1 段階目は bullet 解除」・
+    // 旧仕様の「空は li 即削除」は空/非空の非対称でカーソル飛びの温床だった）
+    test('TC-OB-07: 空 ol li の行頭 backspace も demote する（仕様変更）', async ({ page }) => {
         await page.evaluate(() => {
             const ed = document.getElementById('editor')!;
             ed.innerHTML = '<ol><li>a</li><li><br></li></ol>';
@@ -342,12 +344,18 @@ test.describe('ol 行頭 backspace の 2 段階化', () => {
         await page.keyboard.press('Backspace');
         await page.waitForTimeout(300);
 
-        // demote（<ul><li><br></li></ul> の出現）ではなく既存処理（li 削除 or 段落化）
+        // demote: 空 li が bullet（ul）になる（ol: a は不変）
         const after = await page.evaluate(() => {
             const ed = document.getElementById('editor')!;
-            return { ulCount: ed.querySelectorAll('ul').length, html: ed.innerHTML.slice(0, 200) };
+            return {
+                ulCount: ed.querySelectorAll('ul').length,
+                ulLiCount: ed.querySelectorAll('ul > li').length,
+                olTexts: Array.from(ed.querySelectorAll('ol > li')).map(l => l.textContent),
+            };
         });
-        expect(after.ulCount).toBe(0);
+        expect(after.ulCount).toBe(1);
+        expect(after.ulLiCount).toBe(1);
+        expect(after.olTexts).toEqual(['a']);
     });
 
     // TC-OB-08: task li は既存 checkbox 剥がしのまま（demote 経路に吸われない）
@@ -450,4 +458,251 @@ test.describe('ol 行頭 backspace の 2 段階化', () => {
             { tag: 'ol', start: '3', texts: ['c'] },
         ]);
     });
+});
+
+// sprint 20260805-124854 TASK-06（手動テスト fail 第 2 陣）
+test.describe('空 bullet backspace のカーソル・連番結合 (TASK-06)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    // (1) code_fix: ネスト内で demote 分割された空 bullet の backspace で、カーソルが
+    // 「親 li のテキスト末尾」でなく「直前兄弟リスト（a. sdsd）の末尾」に移動する
+    test('TC-OB-09: 親 li 内の ol / 空ul / ol 構造で空 bullet を backspace → カーソルは直前 ol の末尾', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            // 2. dadada の子: a. sdsd / （空 bullet）/ c. sddsds — 画像 #2 の再現
+            ed.innerHTML = '<ol><li>aaada</li><li>dadada' +
+                '<ol><li>sdsd</li></ol>' +
+                '<ul><li><br></li></ul>' +
+                '<ol start="3"><li>sddsds</li></ol>' +
+                '</li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const at = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            let n: Node | null = sel.anchorNode;
+            while (n && (n as HTMLElement).tagName?.toLowerCase() !== 'li') n = n.parentNode;
+            return n ? (n as HTMLElement).textContent : null;
+        });
+        // counterfactual: 修正前は親 li（dadada...）に飛ぶ = RED
+        expect(at).toContain('sdsd');
+        expect(at).not.toMatch(/^dadada/);
+    });
+
+    // (2) 仕様: 空 bullet 削除で ol 同士が隣接 → 自動結合 + 連番修正（after の start 破棄）
+    test('TC-OB-10: ol / 空ul / ol(start=3) の空 bullet を backspace → 1 個の ol・連番', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>aaada</li><li>dadada' +
+                '<ol><li>sdsd</li></ol>' +
+                '<ul><li><br></li></ul>' +
+                '<ol start="3"><li>sddsds</li></ol>' +
+                '</li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const joined = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const parentLi = ed.querySelectorAll('#editor > ol > li')[1]!;
+            const nestedOls = parentLi.querySelectorAll(':scope > ol');
+            return {
+                olCount: nestedOls.length,
+                lis: nestedOls[0] ? Array.from(nestedOls[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: nestedOls[0]?.getAttribute('start'),
+                ulLeft: parentLi.querySelectorAll(':scope > ul').length,
+            };
+        });
+        // counterfactual: join を外すと nestedOls が 2 個のまま = RED
+        expect(joined.olCount).toBe(1);
+        expect(joined.lis).toEqual(['sdsd', 'sddsds']);
+        expect(joined.start).toBeNull(); // after の start=3 破棄 → a,b（1,2）連番
+        expect(joined.ulLeft).toBe(0);
+    });
+
+    // (3)+(1)+(2) 統合: 空 ol li → backspace 1 回目 demote（bullet 化）→ 2 回目で結合 + 連番
+    test('TC-OB-11: 空 ol li は backspace 2 回で「bullet 化 → 結合・連番」の 2 段階', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>a</li><li><br></li><li>c</li></ol>';
+            const li = ed.querySelectorAll('ol > li')[1]!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace'); // 1 回目: demote（ol/ul/ol に分割）
+        await page.waitForTimeout(200);
+        const mid = await page.evaluate(() => ({
+            uls: document.querySelectorAll('#editor ul').length,
+            ols: document.querySelectorAll('#editor ol').length,
+        }));
+        expect(mid.uls).toBe(1);
+        expect(mid.ols).toBe(2);
+        await page.keyboard.press('Backspace'); // 2 回目: 空 bullet 削除 → ol 結合 + 連番
+        await page.waitForTimeout(300);
+        const fin = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const ols = ed.querySelectorAll('ol');
+            return {
+                uls: ed.querySelectorAll('ul').length,
+                ols: ols.length,
+                lis: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        expect(fin.uls).toBe(0);
+        expect(fin.ols).toBe(1);
+        expect(fin.lis).toEqual(['a', 'c']);
+        expect(fin.start).toBeNull(); // 連番（1,2）
+    });
+});
+
+// sprint 20260805-124854 TASK-06(2) 追補（画像 #5→#6 の再現）: 非空 bullet が
+// ol / ol の間にあり、その行頭 backspace で前 ol 末尾へ結合 → ul 消滅 → ol 再結合 + 連番
+test.describe('非空 bullet の merge でも ol 再結合 + 連番 (TASK-06 追補)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-OB-12: 1.sdsf / -f / 3.dsds の f 行頭 backspace → sdsff の 1 個の ol・連番', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>sdsf</li></ol><ul><li>f</li></ul><ol start="3"><li>dsds</li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            const ols = ed.querySelectorAll('ol');
+            return {
+                olCount: ols.length,
+                ulCount: ed.querySelectorAll('ul').length,
+                lis: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        // counterfactual: join 未配線だと olCount=2 で dsds が「3.」のまま = RED
+        expect(r.ulCount).toBe(0);
+        expect(r.olCount).toBe(1);
+        expect(r.lis).toEqual(['sdsff', 'dsds']);
+        expect(r.start).toBeNull(); // 1,2 の連番
+    });
+
+    test('TC-OB-13: ネスト内でも同様（親 li 内の ol / -f / ol）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>p<ol><li>sdsf</li></ol><ul><li>f</li></ul><ol start="3"><li>dsds</li></ol></li></ol>';
+            const li = ed.querySelector('ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => {
+            const parentLi = document.querySelector('#editor > ol > li')!;
+            const ols = parentLi.querySelectorAll(':scope > ol');
+            return {
+                olCount: ols.length,
+                ulCount: parentLi.querySelectorAll(':scope > ul').length,
+                lis: ols[0] ? Array.from(ols[0].querySelectorAll(':scope > li')).map(l => l.textContent) : [],
+                start: ols[0]?.getAttribute('start'),
+            };
+        });
+        expect(r.ulCount).toBe(0);
+        expect(r.olCount).toBe(1);
+        expect(r.lis).toEqual(['sdsff', 'dsds']);
+        expect(r.start).toBeNull();
+    });
+
+    test('TC-OB-14: ol / -f / ul（次が ol でない）は結合しない（no-op 番人）', async ({ page }) => {
+        await page.evaluate(() => {
+            const ed = document.getElementById('editor')!;
+            ed.innerHTML = '<ol><li>a</li></ol><ul><li>f</li></ul><ul><li>z</li></ul>';
+            const li = ed.querySelectorAll('ul')[0]!.querySelector('li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(300);
+        const r = await page.evaluate(() => ({
+            html: document.getElementById('editor')!.innerHTML,
+            olLis: Array.from(document.querySelectorAll('#editor ol > li')).map(l => l.textContent),
+        }));
+        expect(r.olLis).toEqual(['af']); // f は前 ol 末尾へ merge（従来）
+        expect(r.html).toContain('<ul><li>z</li></ul>'); // ul z は不変（ol 化されない）
+    });
+});
+
+// sprint 20260805-124854 TASK-08 追補（画像 #13→#14）: join 時のカーソルは
+// 「視覚的に直前の行」= prev 最終 li の最深末尾（入れ子 bullet がある場合はそこ）
+test('TC-OB-15: ol(1: sdsff + 子bullet aaadsds) / 空2 / ol(3: d) で空行 bk×2 → カーソルは aaadsds 末尾', async ({ page }) => {
+    await page.goto('/standalone-editor.html');
+    await page.waitForFunction(() => (window as any).__testApi?.ready);
+    await page.evaluate(() => {
+        const ed = document.getElementById('editor')!;
+        ed.innerHTML = '<ol><li>sdsff<ul><li>aaadsds</li></ul></li><li><br></li><li>d</li></ol>';
+        (ed as HTMLElement).focus();
+        const li = ed.querySelectorAll('ol > li')[1]!;
+        const sel = window.getSelection()!;
+        const range = document.createRange();
+        range.setStart(li, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+    });
+    await page.keyboard.press('Backspace'); // 1回目: demote（bullet 化）
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Backspace'); // 2回目: 空 bullet 削除 → ol 結合
+    await page.waitForTimeout(300);
+    const r = await page.evaluate(() => {
+        const sel = window.getSelection()!;
+        let n: Node | null = sel.anchorNode;
+        while (n && (n as HTMLElement).tagName?.toLowerCase() !== 'li') n = n.parentNode;
+        const ed = document.getElementById('editor')!;
+        const ols = ed.querySelectorAll('ol');
+        return {
+            cursorLiText: n ? (n as HTMLElement).firstChild?.textContent : null,
+            olCount: ols.length,
+            topTexts: Array.from(ols[0].querySelectorAll(':scope > li')).map(l => (l.firstChild?.textContent || '').trim()),
+        };
+    });
+    // counterfactual: cursorLi を prevLastLi のままにすると sdsff（1 の行）に飛び RED
+    expect(r.cursorLiText).toBe('aaadsds');
+    expect(r.olCount).toBe(1);
+    expect(r.topTexts).toEqual(['sdsff', 'd']); // 1, 2 の連番
 });

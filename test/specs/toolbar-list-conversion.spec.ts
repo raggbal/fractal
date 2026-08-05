@@ -92,7 +92,10 @@ test.describe('ツールバーリスト変換: 単一カーソル行のみ変換
         const html = await editor.getHtml();
         expect(html).toMatch(/<ol><li>item1<\/li><\/ol>/);
         expect(html).toMatch(/<ul><li>item2<\/li><\/ul>/);
-        expect(html).toMatch(/<ol><li>item3<\/li><\/ol>/);
+        // sprint 20260805-124854 TASK-04 (許可: test_update): FR-OLS 修正で after-list は
+        // 元の表示番号を保持する（item3 は 3 起点）。旧期待（素の <ol> = 1 起点再採番）は
+        // バグ挙動の焼き付けだった（changeParentListType 経路と同一結果 = TC-OL-21 で pin 済み）
+        expect(html).toMatch(/<ol start="3"><li>item3<\/li><\/ol>/);
     });
 
     test('task中間行 → ulボタン → チェックボックス削除のみ', async ({ page }) => {

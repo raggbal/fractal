@@ -1328,6 +1328,19 @@ body {
 .editor ul, .editor ol { margin: 0.5em 0; padding-left: 1.8em; }
 .editor li { margin: 0.25em 0; }
 .editor li > ul, .editor li > ol { margin: 0.25em 0; } /* Nested lists */
+/* FR-T03 (sprint 20260805-124854): ネスト ol の深さ別マーカー（表示のみ・serialize/md は数字のまま不変）。
+   深さ循環 decimal → lower-alpha → lower-roman（9 段 = 3 周。ol の祖先数だけで数える。
+   CSS の子孫結合子は間に ul を挟んでも「祖先に ol が N 個」でマッチするため ol の深さのみが効く。
+   <ol start> は native ::marker が honor するので FR-OLS の start 保持と無干渉）。 */
+.editor ol { list-style-type: decimal; }
+.editor ol ol { list-style-type: lower-alpha; }
+.editor ol ol ol { list-style-type: lower-roman; }
+.editor ol ol ol ol { list-style-type: decimal; }
+.editor ol ol ol ol ol { list-style-type: lower-alpha; }
+.editor ol ol ol ol ol ol { list-style-type: lower-roman; }
+.editor ol ol ol ol ol ol ol { list-style-type: decimal; }
+.editor ol ol ol ol ol ol ol ol { list-style-type: lower-alpha; }
+.editor ol ol ol ol ol ol ol ol ol { list-style-type: lower-roman; }
 .editor hr { border: none; border-top: 2px solid var(--border-color); margin: 0.9em 0; }
 .editor table { border-collapse: collapse; margin: 0.9em 0; position: relative; max-width: none; }
 .editor th, .editor td { border: 1px solid var(--border-color); padding: 7px 11px; min-width: 72px; position: relative; word-wrap: break-word; }
