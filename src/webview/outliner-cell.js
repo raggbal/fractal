@@ -214,6 +214,12 @@
         });
         // 末尾スペースをNBSPに変換
         html = html.replace(/ $/, ' ');
+        // FR-SE-02: 末尾が改行のとき placeholder <br> を足す。無いと caret が
+        // 「不可視の trailing \n の後ろ」に立てず、続けて打った文字が \n の前に入る
+        // （contenteditable の trailing-newline caret 問題。md editor v1.1.20 の
+        //  「行末のみ 2 個目 br」と同型）。<br> は textContent に乗らないため
+        // getPlainText / offset 計算には影響しない。
+        if (/\n$/.test(text)) { html += '<br>'; }
         return html;
     }
 

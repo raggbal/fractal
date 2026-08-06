@@ -310,3 +310,145 @@ test.describe('FR-SE-01: Shift+Cmd+Enter = subtext トグル', () => {
         expect(r).toContain('Cmd+Shift+Enter|Open / close subtext (note)');
     });
 });
+
+test.describe('FR-SE-03/04: 下流保護 + H1 先頭行同期 (TASK-02)', () => {
+
+    test('TC-SE-12: 複数選択 Cmd+C の plain text は改行を空白に潰す（1 node = 1 行）', async ({ page }) => {
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1', 'n2'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'multi\nline\ntext', tags: [] },
+                n2: { id: 'n2', parentId: null, children: [], text: 'plain', tags: [] },
+            },
+        });
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        // Cmd+A で全 node 選択 → Cmd+C（実キー経路）
+        await page.locator('.outliner-node[data-id="n2"] .outliner-text').click();
+        await page.keyboard.press('Meta+a');
+        await page.waitForTimeout(50);
+        await page.keyboard.press('Meta+c');
+        await page.waitForTimeout(200);
+
+        const r = await page.evaluate(() => {
+            const msgs = (window as any).__testApi.messages.filter((m: any) => m.type === 'saveOutlinerClipboard');
+            return msgs.length ? msgs[msgs.length - 1] : null;
+        });
+        expect(r).toBeTruthy();
+        const lines = (r.plainText as string).split('\n');
+        expect(lines.length).toBe(2);              // ★ 1 node = 1 行（改行入りでも分裂しない）
+        expect(lines[0]).toBe('multi line text');  // ★ \n → 空白
+        expect(lines[1]).toBe('plain');
+        // 内部 nodes（clipboardNodes）は改行保持
+        const texts = r.nodes.map((n: any) => n.text);
+        expect(texts).toContain('multi\nline\ntext');
+    });
+
+    test('TC-SE-13: 内部 copy 用 getSelectedNodesData は改行保持', async ({ page }) => {
+        await boot(page, singleNodeData('multi\nline'));
+        const r = await page.evaluate(() => {
+            const model = (window as any).__testApi.getModel();
+            // clipboardNodes の源泉 = model の text がそのまま入ることを確認
+            return model.getNode('n1').text;
+        });
+        expect(r).toBe('multi\nline');
+    });
+
+    test('TC-SE-16: page node の H1 同期は先頭行のみ送出', async ({ page }) => {
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'Title', tags: [], isPage: true, pageId: 'pg-se16' },
+            },
+        });
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        // 実キー編集: 末尾で Shift+Enter → 2 行目を入力 → blur
+        const textEl = page.locator('.outliner-node[data-id="n1"] .outliner-text');
+        await textEl.click();
+        await page.keyboard.press('End');
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('detail');
+        await page.locator('body').click({ position: { x: 5, y: 5 } });
+        await page.waitForTimeout(150);
+
+        const r = await page.evaluate(() => {
+            const msgs = (window as any).__testApi.messages.filter((m: any) => m.type === 'syncNodeTextToPageH1');
+            const model = (window as any).__testApi.getModel();
+            return { msgs, text: model.getNode('n1').text };
+        });
+        expect(r.text).toBe('Title\ndetail');           // model には改行入りで保持
+        expect(r.msgs.length).toBeGreaterThanOrEqual(1);
+        const last = r.msgs[r.msgs.length - 1];
+        expect(last.text).toBe('Title');                 // ★ H1 へは先頭行のみ（\n を含まない）
+        expect(last.text).not.toContain('\n');
+    });
+
+    test('TC-SE-17: H1→node 反映は先頭行だけ置換（継続行保持）', async ({ page }) => {
+        const DOC = 'http://localhost:3000/note1/';
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'Old\ndetail', tags: [], isPage: true, pageId: 'pg-se17' },
+            },
+        });
+        // sidepanel を本番経路（openSidePanel メッセージ）で開き、H1 を編集（syncContent 経路）
+        await page.evaluate(({ md, fp, doc }) => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel', markdown: md, filePath: fp, fileName: fp.split('/').pop(), toc: [], documentBaseUri: doc,
+            });
+        }, { md: '# Old\n\nbody', fp: `${DOC}pg-se17.md`, doc: DOC });
+        await page.waitForTimeout(200);
+        await page.evaluate((m) => (window as any).__testApi.editSidePanelMarkdown(m), '# New\n\nbody');
+        await page.waitForTimeout(200);
+        const text = await page.evaluate(() => (window as any).__testApi.getModel().getNode('n1').text);
+        expect(text).toBe('New\ndetail');   // ★ 先頭行だけ New、継続行 detail は保持
+    });
+
+    test('TC-SE-18: 改行なし page node の H1 同期は従来どおり（回帰 pin）', async ({ page }) => {
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'Old', tags: [], isPage: true, pageId: 'pg-se18' },
+            },
+        });
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        const textEl = page.locator('.outliner-node[data-id="n1"] .outliner-text');
+        await textEl.click();
+        await page.keyboard.press('End');
+        await page.keyboard.type('X');
+        await page.locator('body').click({ position: { x: 5, y: 5 } });
+        await page.waitForTimeout(150);
+        const msgs = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'syncNodeTextToPageH1'));
+        expect(msgs.length).toBeGreaterThanOrEqual(1);
+        expect(msgs[msgs.length - 1].text).toBe('OldX');
+    });
+
+    test('TC-SE-19: mindmap 発の改行入り page node text も H1 送出は先頭行のみ', async ({ page }) => {
+        // mindmap で改行が入った状態を model 直接投入で再現（mindmap 編集の結果と等価）
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'MTitle\nmm-detail', tags: [], isPage: true, pageId: 'pg-se19' },
+            },
+        });
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        // outliner 側で同 node を実キー編集して確定（mindmap で改行済み text に触るシナリオ）
+        const textEl = page.locator('.outliner-node[data-id="n1"] .outliner-text');
+        await textEl.click();
+        await page.keyboard.press('End');
+        await page.keyboard.type('!');
+        await page.locator('body').click({ position: { x: 5, y: 5 } });
+        await page.waitForTimeout(150);
+        const msgs = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'syncNodeTextToPageH1'));
+        expect(msgs.length).toBeGreaterThanOrEqual(1);
+        const last = msgs[msgs.length - 1];
+        expect(last.text).toBe('MTitle');   // ★ 改行入り text でも先頭行のみ（H1 破壊しない）
+        expect(last.text).not.toContain('\n');
+    });
+});

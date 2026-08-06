@@ -86,6 +86,7 @@ function emit(node: PreparedNode, depth: number, lines: string[]): void {
     }
 
     // heading 行 (root は H1、それ以外は depth に応じて H1〜H6)
+    // 注: node.text は prepare() の cleanText 済み（\s+ → ' ' で改行も空白化済み = FR-SE-03）
     const level = Math.min(Math.max(depth, 1), 6);
     lines.push(`${'#'.repeat(level)} ${node.text}`);
     lines.push('');
