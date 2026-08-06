@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.21] - 2026-08-06
+
+### Fixed
+- **Cmd+F / Cmd+H not working in the Notes markdown editor** (main pane) — the outliner's global search-shortcut fallback was intercepting the keys even when focus was in the markdown pane, opening an invisible outliner search instead. The fallback now defers to the markdown editor's own in-document search (standalone and side-panel editors were unaffected)
+
 ## [1.1.20] - 2026-08-06
 
 ### Added
