@@ -201,7 +201,9 @@ test.describe('TC-005: OutlinerCell Phase 5 (applyInlineFormat + subtext)', () =
         expect(result.contentEditable).toBe('false');
     });
 
-    test('handleSubtextKeydown Shift+Enter closes subtext', async ({ page }) => {
+    // sprint 20260806-133523 (許可: test_update): FR-SE-01 で閉じるキーが Shift+Enter →
+    // Shift+Cmd+Enter に変更（開くと同キーのトグル統一）。Shift+Enter は改行のデフォルト委譲に。
+    test('handleSubtextKeydown Shift+Cmd+Enter closes subtext', async ({ page }) => {
         const result = await page.evaluate(() => {
             const OC = (window as any).OutlinerCell;
             const subtextEl = document.createElement('div');
@@ -216,7 +218,7 @@ test.describe('TC-005: OutlinerCell Phase 5 (applyInlineFormat + subtext)', () =
                     keyCode: 13,
                     key: 'Enter',
                     shiftKey: true,
-                    metaKey: false,
+                    metaKey: true,
                     ctrlKey: false,
                     preventDefault: () => { prevented++; }
                 };

@@ -214,6 +214,12 @@
         });
         // 末尾スペースをNBSPに変換
         html = html.replace(/ $/, ' ');
+        // FR-SE-02: 末尾が改行のとき placeholder <br> を足す。無いと caret が
+        // 「不可視の trailing \n の後ろ」に立てず、続けて打った文字が \n の前に入る
+        // （contenteditable の trailing-newline caret 問題。md editor v1.1.20 の
+        //  「行末のみ 2 個目 br」と同型）。<br> は textContent に乗らないため
+        // getPlainText / offset 計算には影響しない。
+        if (/\n$/.test(text)) { html += '<br>'; }
         return html;
     }
 
@@ -907,13 +913,15 @@
         if (!e || !model || !subtextEl) { return; }
         if (e.isComposing || e.keyCode === 229) { return; }
 
-        if (e.key === 'Enter' && e.shiftKey) {
+        // FR-SE-01: 閉じる = Shift+Cmd+Enter（開くと同キーのトグルに統一。従来は Shift+Enter）。
+        // Shift+Enter / Enter は通常の改行（contenteditable デフォルトに委譲）。
+        if (e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
             return;
         }
 
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter') {
             return;
         }
 

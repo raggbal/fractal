@@ -659,6 +659,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     line-height: 1.35;
     outline: none;
     word-break: break-word;
+    /* FR-SE-02: node text 内改行（\n）を表示に反映（mindmap.css の .mindmap-node-text と同方式） */
+    white-space: pre-wrap;
     padding: 0 4px;
     border-radius: 2px;
 }

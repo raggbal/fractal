@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.22] - 2026-08-06
+
+### Added
+- **Shift+Enter inserts a line break inside the node text** (Outliner and Table view) — matching what Mindmap already allowed, so all three views now agree. Line breaks live in the `.out` file losslessly and are view-only: markdown conversions (node copy as markdown, llms.txt, plain-text clipboard) flatten them to spaces, while internal node copy/paste keeps them
+
+### Changed
+- **Subtext (note) open/close moved to `Shift+Cmd+Enter`** (was `Shift+Enter`), now a single toggle key. Inside the subtext, Shift+Enter is a plain line break
+- Page-node title sync now uses the **first line only** in both directions (node → H1 and H1 → node, continuation lines preserved) — this also fixes a latent bug where a Mindmap-added line break could corrupt the page H1
+
 ## [1.1.21] - 2026-08-06
 
 ### Fixed

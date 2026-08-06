@@ -4145,7 +4145,9 @@ var Outliner = (function() {
             var relDepth = model.getDepth(selectedFlat[j]) - minDepth;
             var indent = '';
             for (var k = 0; k < relDepth; k++) { indent += '\t'; }
-            lines.push(indent + node.text);
+            // FR-SE-03: node text 内改行（\n）は空白に潰して 1 node = 1 行を保つ
+            //（この plain text は行ベースで往復する。改行を残すと外部 paste で別ノードに分裂する）
+            lines.push(indent + String(node.text || '').replace(/\n/g, ' '));
         }
         return lines.join('\n');
     }
@@ -4763,6 +4765,16 @@ var Outliner = (function() {
 
         switch (e.key) {
             case 'Enter':
+                // FR-SE-01: Shift+Cmd+Enter = subtext を開く（従来 Shift+Enter から移動）。
+                // 下の Cmd+Enter 分岐は shiftKey を区別しない（Shift+Cmd+Enter を吸収する）ため、
+                // 必ずこの位置（Cmd+Enter より前）で分岐する。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveSnapshot();
+                    openSubtext(nodeId);
+                    return;
+                }
                 // Cmd+Enter: ノード種別に応じてアクション
                 //   isPage  → side panel で page MD を開く (既存挙動)
                 //   filePath → 外部アプリで添付ファイルを開く (FR-OL-CMDENTER-1, sprint v14)
@@ -4804,8 +4816,10 @@ var Outliner = (function() {
                     // Option+Enter: 子ノードとして追加 (既に子がいれば先頭に)
                     handleShiftEnter(node, textEl, offset);
                 } else if (e.shiftKey) {
-                    // Shift+Enter: サブテキスト追加/フォーカス
-                    openSubtext(nodeId);
+                    // FR-SE-02: Shift+Enter = node text 内改行（従来の subtext は Shift+Cmd+Enter へ）。
+                    // pre-wrap + 生 \n 方式: model.text に \n を挿入 → 編集ビュー再描画 → カーソル復元。
+                    // contenteditable の DOM を直接手術しない（mindmap と同じ「\n が真実」）。
+                    handleNodeTextLineBreak(node, textEl, offset);
                 } else if (isScopeHeader) {
                     // スコープヘッダー: Enterで子ノード追加（兄弟追加はスコープ外になるため）
                     handleScopeHeaderEnter(node, textEl, offset);
@@ -5291,9 +5305,11 @@ var Outliner = (function() {
                         var selC = window.getSelection();
                         if (!selC || selC.isCollapsed) {
                             e.preventDefault();
-                            var singleText = node.text || '';
+                            // FR-SE-03 (TASK-03): plain text は \n を空白潰し（外部 paste の行分裂防止）。
+                            // nodesData は raw（\n 保持 = 内部/cross paste の往復忠実度）— multi-select と同じ分離
+                            var singleText = String(node.text || '').replace(/\n/g, ' ');
                             var singleNodesData = [{
-                                text: singleText, level: 0,
+                                text: node.text || '', level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
@@ -5335,9 +5351,10 @@ var Outliner = (function() {
                         var selX = window.getSelection();
                         if (!selX || selX.isCollapsed) {
                             e.preventDefault();
-                            var cutSingleText = node.text || '';
+                            // FR-SE-03 (TASK-03): copy 側と同じ分離（plain=潰し / nodesData=raw）
+                            var cutSingleText = String(node.text || '').replace(/\n/g, ' ');
                             var cutSingleNodesData = [{
-                                text: cutSingleText, level: 0,
+                                text: node.text || '', level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
@@ -5533,6 +5550,34 @@ var Outliner = (function() {
     /** サブテキストを開いてフォーカス
      * 実装は outliner-cell.js (OutlinerCell.openSubtext) に分離 (TASK-A5, Phase 5 split)。
      */
+    // FR-SE-02: node text 内改行（Shift+Enter）。カーソル位置に \n を挿入する。
+    // ⚠️ handleShiftEnter（:5510 = Option+Enter の子ノード追加。命名は歴史的経緯）とは別物。
+    // 方式: model.text を更新 → renderEditingText で再描画 → カーソルを \n の直後へ復元。
+    // getPlainText は textContent ベースで \n を保持し、offset 系も \n を 1 文字として数える
+    // （テキストノード内の生文字）ため、cursor/render の共有関数は無変更で成立する。
+    function handleNodeTextLineBreak(node, textEl, offset) {
+        // 選択範囲があれば削除してから挿入（contenteditable の通常の置換挿入と同じ意味論）
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount && !sel.isCollapsed) {
+            var r = sel.getRangeAt(0);
+            if (textEl.contains(r.commonAncestorContainer)) {
+                r.deleteContents();
+                offset = getCursorOffset(textEl);
+            }
+        }
+        var cur = getPlainText(textEl);
+        var next = cur.slice(0, offset) + '\n' + cur.slice(offset);
+        model.updateText(node.id, next);
+        textEl.innerHTML = renderEditingText(next);
+        setCursorAtOffset(textEl, offset + 1);
+        saveSnapshotDebounced();
+        scheduleSyncToHost();
+        // FR-SE-04 (TASK-04): 改行挿入は先頭行を変えうる text 変異なので、input/compositionend
+        // 経路と対称に H1 同期を発火（内部で isPage/pageId/_applyingH1ToNode を自己ガード）。
+        // 先頭行が変わらない場合も host 側 writeFileIfChanged で no-op。
+        syncPageH1FromNodeText(node.id);
+    }
+
     function openSubtext(nodeId) {
         return OutlinerCell.openSubtext({ nodeId: nodeId, treeEl: treeEl, model: model });
     }
@@ -5727,7 +5772,9 @@ var Outliner = (function() {
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        host.makePage(nodeId, pageId, node.text);
+        // FR-SE-04 (TASK-05): H1 は 1 行のみ — 先頭行だけ渡す（syncPageH1FromNodeText と同じ規則）。
+        // node.text 自体は不変（tree は複数行のまま）。raw を渡すと継続行が page md の本文に漏れる
+        host.makePage(nodeId, pageId, String(node.text || '').split('\n')[0].trim());
         renderTree();
         scheduleSyncToHost();
     }
@@ -7079,7 +7126,7 @@ var Outliner = (function() {
         addMenuItem(contextMenuEl, subtextLabel, function() {
             hideContextMenu();
             openSubtext(nodeId);
-        }, 'Shift+Enter');
+        }, isMacPlatform ? 'Shift+Cmd+Enter' : 'Shift+Ctrl+Enter');
 
         addMenuSeparator(contextMenuEl);
 
@@ -8277,7 +8324,9 @@ var Outliner = (function() {
         if (_applyingH1ToNode) { return; }
         var node = model.getNode(nodeId);
         if (!node || !node.isPage || !node.pageId) { return; }
-        var text = (node.text || '').trim();
+        // FR-SE-04: H1 は 1 行しか表現できないため、text の先頭行のみを送る（先頭行同期）。
+        // 改行入り text をそのまま送ると setFirstH1 が H1 行を破壊する。
+        var text = String(node.text || '').split('\n')[0].trim();
         if (!text) { return; }
         if (host && typeof host.syncNodeTextToPageH1 === 'function') {
             host.syncNodeTextToPageH1(node.pageId, text);
@@ -8321,10 +8370,16 @@ var Outliner = (function() {
             _lastSidePanelH1 = firstH1;
             var pageId = basenameNoExt(sidePanelFilePath);
             var node = model.findNodeByPageId(pageId);
-            if (node && (node.text || '') !== firstH1) {
+            // FR-SE-04: \u5148\u982d\u884c\u540c\u671f \u2014 H1 \u306f node.text \u306e\u5148\u982d\u884c\u3060\u3051\u3092\u7f6e\u63db\u3057\u3001
+            // 2 \u884c\u76ee\u4ee5\u964d\uff08Shift+Enter \u306e\u7d99\u7d9a\u884c\uff09\u306f\u4fdd\u6301\u3059\u308b\u3002\u6bd4\u8f03\u3082\u5148\u982d\u884c\u540c\u58eb\u3067\u884c\u3046\u3002
+            var curText = node ? String(node.text || '') : '';
+            var nlIdx = curText.indexOf('\n');
+            var curFirstLine = nlIdx >= 0 ? curText.slice(0, nlIdx) : curText;
+            if (node && curFirstLine !== firstH1) {
+                var nextText = nlIdx >= 0 ? firstH1 + curText.slice(nlIdx) : firstH1;
                 _applyingH1ToNode = true; // FR-TH-07: \u3053\u306e\u9593 node\u2192md \u9001\u4fe1\u3092\u30b9\u30ad\u30c3\u30d7
                 try {
-                    model.updateText(node.id, firstH1);
+                    model.updateText(node.id, nextText);
                     renderTree();
                     scheduleSyncToHost();
                 } finally {

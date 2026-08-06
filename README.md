@@ -148,7 +148,7 @@ Switch with the view toggle:
 - **Archive to Daily Notes** — Move finished tasks (with their pages, images, and files) under today's Daily Note, tagged `#TASK #DONE`
 
 ### Editing basics
-Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node moves (`Cmd+Shift+↑/↓`), subtext (`Shift+Enter`), inline formatting, clickable links, navigation history (`Opt+←/→`), and full undo/redo. See "Key shortcuts" below for details.
+Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node moves (`Cmd+Shift+↑/↓`), subtext (`Shift+Cmd+Enter`), inline formatting, clickable links, navigation history (`Opt+←/→`), and full undo/redo. See "Key shortcuts" below for details.
 
 ---
 
@@ -314,7 +314,8 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | Shortcut | Action |
 | --- | --- |
 | `Enter` / `Option+Enter` | New sibling node / new child node |
-| `Shift+Enter` | Open subtext (note) |
+| `Shift+Enter` | Line break within the node text |
+| `Shift+Cmd+Enter` | Open / close subtext (note) |
 | `Tab` / `Shift+Tab` | Indent / outdent (multi-select supported) |
 | `Cmd+Enter` | Open the page (creates one if missing; file attachments open in an external app) |
 | `↑` / `↓`, `Shift+↑/↓` | Move between nodes / extend multi-selection |
