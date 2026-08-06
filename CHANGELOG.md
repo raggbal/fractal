@@ -5,6 +5,17 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.20] - 2026-08-06
+
+### Added
+- **Markdown list continuation lines (CommonMark)** — indented non-list lines inside a list now join the previous list item as an in-item line break instead of breaking the list (fixes Quip-exported lists collapsing on paste)
+- **Shift+Enter in lists creates a continuation line** — a line break within the same list item (replaces the old "new item" behavior, which duplicated Enter). Mid-text Shift+Enter wraps in place with no blank line
+- Continuation lines serialize back to markdown as marker-width indented lines, so round-trips are lossless
+
+### Fixed
+- Copying list items with continuation lines lost the line breaks (bare `<br>` now serializes as a newline, including across bold spans)
+- **Multi-line selection copy now always produces list markdown**, regardless of how much of the first line is selected (previously a partial first-line selection could turn the first item into a paragraph or drop the list entirely). Single-line partial selections still copy as plain text
+
 ## [1.1.19] - 2026-08-06
 
 ### Added

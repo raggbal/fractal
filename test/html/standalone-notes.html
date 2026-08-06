@@ -12661,7 +12661,21 @@ class EditorInstance {
                     }
                     // Not within list - fall through to close list and add blank line
                 }
-                
+
+                // sprint 20260806-035923 (FR-LC-01): CommonMark 継続行。リスト内の非空・非リスト行で、
+                // 行頭インデントが「開いている最深リストの indentLevel + 1」以上（= 子リストと同深度以上 =
+                // li 本文開始位置）なら、直前 li の項目内改行として取り込む（リストを閉じない）。
+                // 浅い行は従来どおりリスト終了 → 段落（TC-LC-03 で回帰 pin）。
+                if (listStack.length > 0 && line.trim() !== '' && parsed.tag !== 'hr') {
+                    const contIndentMatch = line.match(/^(\s*)/);
+                    const contIndentLevel = Math.floor(contIndentMatch[1].length / 2);
+                    const deepestIndent = listStack[listStack.length - 1].indent;
+                    if (contIndentLevel >= deepestIndent + 1) {
+                        html += '<br>' + parseInline(line.trim());
+                        continue;
+                    }
+                }
+
                 // Close all open lists before non-list content
                 html += closeAllLists();
 
@@ -16540,7 +16554,10 @@ class EditorInstance {
                 }
                 // Use single newline for regular divs
                 return divContent + '\n';
-            case 'br': return '';
+            // sprint 20260806-035923 (FR-LC-03): bare <br>（li ラッパ無しの部分選択コピー等）は
+            // 改行として出す（従来 '' で継続行が連結されていた。段落末尾の装飾 <br> は
+            // mdProcessNode に単体で来ることが稀なため、改行出力が安全側）
+            case 'br': return '\n';
             case 'hr': return '---\n';
             case 'blockquote':
                 // Handle multi-line blockquotes - each line needs > prefix
@@ -16679,7 +16696,22 @@ class EditorInstance {
 
         // Use mdGetInlineMarkdown to process inline content (excluding nested lists)
         // This properly normalizes redundant formatting tags
-        const itemText = mdGetInlineMarkdown(li);
+        // sprint 20260806-035923 (FR-LC-03): li 直下の <br>（テキストを伴う項目内改行 = 継続行）は
+        // マーカー text に置換してから inline 変換し、後で行分割する（<br> のみの空 li は従来どおり）。
+        const LC_BR = '\u0000LCBR\u0000';
+        let liForMd = li;
+        const directBrs = Array.from(li.childNodes).filter(
+            (c) => c.nodeType === 1 && c.tagName === 'BR');
+        const liTextTrim = (li.textContent || '').trim();
+        if (directBrs.length > 0 && liTextTrim) {
+            liForMd = li.cloneNode(true);
+            for (const b of Array.from(liForMd.childNodes)) {
+                if (b.nodeType === 1 && b.tagName === 'BR') {
+                    liForMd.replaceChild(document.createTextNode(LC_BR), b);
+                }
+            }
+        }
+        const itemText = mdGetInlineMarkdown(liForMd);
 
         // Skip empty list items only when they have no content at all
         // (can happen when selection includes next line's start during copy)
@@ -16690,11 +16722,23 @@ class EditorInstance {
             return '';
         }
 
+        // 継続行の分割: マーカー位置で行に割り、2 行目以降は「マーカー幅スペース」でインデント
+        //（html-md-converter.js:153 listItem の継続行形式と対称）
+        const lcParts = trimmedText.split(LC_BR).map(t => t.trim()).filter((t, i) => t !== '' || i === 0);
+        const headText = lcParts[0] || '';
+        let markerPrefix;
         if (checkbox) {
             const checked = checkbox.checked ? 'x' : ' ';
-            result = indent + '- [' + checked + '] ' + trimmedText + '\n';
+            markerPrefix = indent + '- [' + checked + '] ';
         } else {
-            result = indent + marker + ' ' + trimmedText + '\n';
+            markerPrefix = indent + marker + ' ';
+        }
+        result = markerPrefix + headText + '\n';
+        if (lcParts.length > 1) {
+            const contIndent = ' '.repeat(markerPrefix.length - indent.length) ;
+            for (let ci = 1; ci < lcParts.length; ci++) {
+                result += indent + contIndent + lcParts[ci] + '\n';
+            }
         }
 
         result += nestedContent;
@@ -18084,6 +18128,40 @@ class EditorInstance {
                 shiftKey: e.shiftKey
             });
             
+            // sprint 20260806-035923 (FR-LC-02): リスト内 Shift+Enter = 項目内改行（継続行）。
+            // li 内に <br> を挿入して同一項目の 2 行目にする（従来の「新 li 作成」は Enter と
+            // 重複していたため置換 = ADRL 記録済み）。pre / table 内は従来どおり。
+            // inline 要素内でも li 内なら継続行を優先（li 内の bold 途中で Shift+Enter →
+            // inline を閉じて <br> = 下の inline 分岐と同じ動きに li 内でもなるが、
+            // ここでは単純に <br> 挿入で足りる: contenteditable が inline を跨いで分割する）。
+            if (e.shiftKey && listItem && !preElement && !tableCell) {
+                e.preventDefault();
+                const lcRange = sel.getRangeAt(0);
+                lcRange.deleteContents();
+                const lcBr = document.createElement('br');
+                lcRange.insertNode(lcBr);
+                // <br> の後に実コンテンツ（テキスト/要素。ネストリスト以外）が無い場合のみ、
+                // trailing <br> 仕様（視覚行が出ない）対策の 2 個目 <br> を置く。
+                // 文字途中の Shift+Enter で無条件に 2 個置くと空白行が挟まる（bug 2026-08-06）。
+                let lcHasAfter = false;
+                for (let lcN = lcBr.nextSibling; lcN; lcN = lcN.nextSibling) {
+                    if (lcN.nodeType === 3 && lcN.textContent !== '') { lcHasAfter = true; break; }
+                    if (lcN.nodeType === 1 && lcN.tagName !== 'UL' && lcN.tagName !== 'OL' && lcN.tagName !== 'BR') { lcHasAfter = true; break; }
+                }
+                if (!lcHasAfter) {
+                    lcBr.after(document.createElement('br'));
+                }
+                const lcNr = document.createRange();
+                lcNr.setStartAfter(lcBr);
+                lcNr.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(lcNr);
+                undoManager.saveSnapshot();
+                markAsEdited();
+                syncMarkdown();
+                return;
+            }
+
             // Handle Shift+Enter inside inline elements (strong, em, del, code)
             // Close the inline element first, then insert line break
             if (e.shiftKey) {
@@ -27636,8 +27714,88 @@ class EditorInstance {
             }
         }
         
+        // sprint 20260806-035923（ユーザー要望）: 複数行選択で「選択始点が li の途中」だと
+        // cloneContents が先頭 li のラッパ（<ol|ul><li>）を落とし、先頭行だけ bare content
+        //（→ 段落化）になる。後続にリスト要素があるのに先頭が bare の場合、選択始点の実 li
+        // からリスト型を取り、先頭 bare 群を同型の <ol|ul><li>…</li></…> で包み直す
+        //（= 複数行選択なら先頭行の選択範囲がどうであれリストとしてコピー）。
+        (function wrapLeadingBareAsLi() {
+            const kids = Array.from(tempDiv.childNodes);
+            if (kids.length === 0) { return; }
+            // ケース 2: 共通祖先がリストの場合、fragment は bare <li> 群（ul/ol ラッパなし）に
+            // なる。standalone li 処理（marker '-' 固定）に落ちると ol 由来でも bullet 化する
+            // ため、startLi の親リスト型で全体を包む（番号は連番に自動リセット = FR-OL-RULES）。
+            if (kids.some((n) => n.nodeType === 1 && n.tagName === 'LI')) {
+                let s2 = range.startContainer;
+                if (s2.nodeType === 3) { s2 = s2.parentElement; }
+                const sLi = s2 && s2.closest ? s2.closest('li') : null;
+                const lt = (sLi && sLi.parentElement &&
+                            (sLi.parentElement.tagName === 'OL' || sLi.parentElement.tagName === 'UL'))
+                    ? sLi.parentElement.tagName.toLowerCase() : null;
+                if (lt) {
+                    const wrap2 = document.createElement(lt);
+                    for (const k of kids) {
+                        // bare li はそのまま・li 間に紛れた bare テキスト等は li に包んで維持
+                        if (k.nodeType === 1 && k.tagName === 'LI') {
+                            wrap2.appendChild(k);
+                        } else if ((k.textContent || '').trim() !== '') {
+                            const extraLi = document.createElement('li');
+                            extraLi.appendChild(k);
+                            wrap2.appendChild(extraLi);
+                        } else {
+                            k.remove();
+                        }
+                    }
+                    tempDiv.appendChild(wrap2);
+                    return;
+                }
+            }
+            // 先頭の連続 bare 群（ul/ol/ブロック要素以外）を数える
+            const isBlockTag = (n) => n.nodeType === 1 &&
+                /^(UL|OL|P|H[1-6]|PRE|BLOCKQUOTE|TABLE|HR|DIV)$/.test(n.tagName);
+            let bareEnd = 0;
+            while (bareEnd < kids.length && !isBlockTag(kids[bareEnd])) { bareEnd++; }
+            if (bareEnd === 0) { return; }                    // 先頭からブロック（li ラッパあり等）
+            if (bareEnd >= kids.length) { return; }           // 全部 bare（単一行の部分選択 = 従来どおり）
+            // 後続にリストが無ければ対象外（見出し等で終わる混在選択は従来どおり）
+            let hasFollowingList = false;
+            for (let k = bareEnd; k < kids.length; k++) {
+                if (kids[k].nodeType === 1 && (kids[k].tagName === 'UL' || kids[k].tagName === 'OL')) { hasFollowingList = true; break; }
+            }
+            if (!hasFollowingList) { return; }
+            // bare 群に実コンテンツが無ければ（空白のみ）除去だけして終わり
+            const bareHasContent = kids.slice(0, bareEnd).some(
+                (n) => (n.textContent || '').trim() !== '' || (n.nodeType === 1 && n.tagName === 'IMG'));
+            // 選択始点の実 li → 親リスト型を解決（li 外始点なら ul 既定）
+            let startEl = range.startContainer;
+            if (startEl.nodeType === 3) { startEl = startEl.parentElement; }
+            const startLi = startEl && startEl.closest ? startEl.closest('li') : null;
+            const listTag = (startLi && startLi.parentElement) ? startLi.parentElement.tagName.toLowerCase() : 'ul';
+            if (!bareHasContent) {
+                for (let k = 0; k < bareEnd; k++) { tempDiv.removeChild(kids[k]); }
+                return;
+            }
+            const wrapList = document.createElement(listTag === 'ol' ? 'ol' : 'ul');
+            const wrapLi = document.createElement('li');
+            // bare 群 + それに続く「startLi のネスト子由来の UL/OL」を 1 li に包む。
+            // 判定: startLi が実 DOM で子リストを持つなら、フラグメント先頭側の UL/OL は
+            // その部分クローン（同じ li の中身）→ wrapLi へ。startLi に子リストが無ければ
+            // 後続 UL/OL は独立リスト → 包まない。
+            for (let k = 0; k < bareEnd; k++) { wrapLi.appendChild(kids[k]); }
+            if (startLi && startLi.querySelector(':scope > ul, :scope > ol')) {
+                let idx = bareEnd;
+                while (idx < kids.length && kids[idx].nodeType === 1 &&
+                       (kids[idx].tagName === 'UL' || kids[idx].tagName === 'OL')) {
+                    wrapLi.appendChild(kids[idx]);
+                    idx++;
+                }
+            }
+            wrapList.appendChild(wrapLi);
+            tempDiv.insertBefore(wrapList, tempDiv.firstChild);
+        })();
+
         const selectedHtml = tempDiv.innerHTML;
-        
+
         logger.log('Copy - selected HTML:', selectedHtml.substring(0, 500));
         logger.log('Copy - tempDiv children count:', tempDiv.childNodes.length);
         logger.log('Copy - tempDiv children:', Array.from(tempDiv.childNodes).map(n => n.nodeName + '(' + (n.textContent || '').substring(0, 30) + ')').join(', '));

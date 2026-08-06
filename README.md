@@ -306,6 +306,7 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | `Cmd+F` / `Cmd+H` | Find / replace |
 | `Cmd+S` / `Cmd+Z` / `Cmd+Shift+Z` | Save / undo / redo |
 | `Tab` / `Shift+Tab` | Tables: move between cells; lists: indent / outdent |
+| `Shift+Enter` | Lists: line break within the item (continuation line) |
 | `Opt+←` / `Opt+→` | Side-panel back / forward (side panel only) |
 
 ### Outliner view
