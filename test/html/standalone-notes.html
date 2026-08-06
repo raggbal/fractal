@@ -41644,11 +41644,14 @@ var Outliner = (function() {
             // Cmd+F / Cmd+H / Cmd+Shift+F グローバルフォールバック
             //   (ノード編集中は textEl の handleNodeKeydown 側で stopPropagation 済み)
             //   (サイドパネル MD エディタにフォーカスがある場合は editor.js 側に委譲)
+            //   (Notes md メインペイン .markdown-container フォーカスも editor.js 側に委譲 —
+            //    ここで先取りすると不可視の outliner 検索が開くだけで md 内検索が死ぬ)
             if ((e.metaKey || e.ctrlKey) && !e.altKey) {
                 var ae = document.activeElement;
                 var inBox = !!(textSearchBox && ae && textSearchBox.contains(ae));
                 var inSidePanel = !!(ae && ae.closest && ae.closest('.side-panel-editor-root'));
-                if (!inBox && !inSidePanel) {
+                var inMdPane = !!(ae && ae.closest && ae.closest('.markdown-container'));
+                if (!inBox && !inSidePanel && !inMdPane) {
                     if (!e.shiftKey && (e.key === 'f' || e.key === 'F')) {
                         e.preventDefault();
                         e.stopPropagation();
