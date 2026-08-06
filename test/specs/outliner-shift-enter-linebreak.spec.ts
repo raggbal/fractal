@@ -452,3 +452,128 @@ test.describe('FR-SE-03/04: 下流保護 + H1 先頭行同期 (TASK-02)', () => 
         expect(last.text).not.toContain('\n');
     });
 });
+
+// ============================================================
+// TASK-06 (review iteration 1): 宣言済み未実装 TC の regression pin
+// sink は全て潰し済みで挙動は正 = 純粋な番人（将来の潰し除去を RED にする）
+// ============================================================
+import * as fs from 'fs';
+import * as os from 'os';
+import * as pathMod from 'path';
+
+test.describe('FR-SE-03: 下流 sink の \\n 潰し regression pin (TASK-06)', () => {
+
+    test('TC-SE-14: llms.txt 生成で改行入り node.text が 1 行化（cleanText の \\s+ 潰し）', async () => {
+        const { buildLlmsTxt } = require('../../src/shared/llms-txt-builder');
+        const tree = {
+            id: 'r', text: 'Root\nsecond line', pageId: 'p1', filePath: null, children: [],
+        };
+        const out = buildLlmsTxt(tree, 'md', {
+            resolveMdPath: (pid: string) => (pid === 'p1' ? '/abs/p1.md' : null),
+            resolveFilePath: () => null,
+        });
+        // heading にもリンクラベルにも \n が残らない（1 行化）
+        expect(out).toBe('# Root second line\n\n- [Root second line](/abs/p1.md)\n');
+        expect(out.split('\n').filter(l => l.startsWith('#')).length).toBe(1);
+    });
+
+    test('TC-SE-15: paste-asset の node md 化で改行が空白化（既存 replace の番人）', async () => {
+        const pah = require('../../src/shared/paste-asset-handler');
+        const src = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'fr-se15-src-'));
+        const dest = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'fr-se15-dest-'));
+        fs.writeFileSync(pathMod.join(dest, 'target.md'), '# T\n');
+        try {
+            const r = pah.buildOutlinerNodesPasteMd({
+                nodes: [{ text: 'multi\nline\nnode', level: 0 }],
+                srcOutDir: src, srcPagesDir: src, srcFileDir: pathMod.join(src, 'files'),
+                destMdPath: pathMod.join(dest, 'target.md'),
+                destFilesDir: pathMod.join(dest, 'files'),
+                destImagesDir: pathMod.join(dest, 'images'),
+            });
+            expect(r.markdown).toContain('- multi line node');  // \n → 空白で 1 bullet 行
+            expect(r.markdown.trim().split('\n').length).toBe(1);
+        } finally {
+            fs.rmSync(src, { recursive: true, force: true });
+            fs.rmSync(dest, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-SE-20: sanitizeSubpageLabel は改行をラベルに残さない（[\\r\\n]+ 潰しの番人）', async () => {
+        const pah = require('../../src/shared/paste-asset-handler');
+        const label = pah.sanitizeSubpageLabel('Title\r\nwith\nbreaks');
+        expect(label).toBe('Title with breaks');
+        expect(label).not.toMatch(/[\r\n]/);
+    });
+});
+
+test.describe('FR-SE-03/04: review iteration 1 の code_fix 番人 (TASK-03/04/05)', () => {
+
+    test('TC-SE-21: 単一 node Cmd+C の plain text は \\n を空白潰し（nodesData は raw 保持）', async ({ page }) => {
+        await boot(page, singleNodeData('single\nnode\ntext', { tags: [] }));
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        // 単一 node にフォーカス（選択なし・collapsed）で Cmd+C
+        await page.locator('.outliner-node[data-id="n1"] .outliner-text').click();
+        await page.evaluate(() => {
+            // クリック位置により selection が非 collapsed になるのを避ける
+            const sel = window.getSelection()!;
+            sel.collapseToStart();
+        });
+        await page.keyboard.press('Meta+c');
+        await page.waitForTimeout(200);
+        const r = await page.evaluate(() => {
+            const msgs = (window as any).__testApi.messages.filter((m: any) => m.type === 'saveOutlinerClipboard');
+            return msgs.length ? msgs[msgs.length - 1] : null;
+        });
+        expect(r).toBeTruthy();
+        expect(r.plainText).toBe('single node text');       // ★ plain は潰し
+        expect(r.plainText).not.toContain('\n');
+        expect(r.nodes[0].text).toBe('single\nnode\ntext'); // ★ nodesData は raw（内部 paste 忠実度）
+    });
+
+    test('TC-SE-22: page node の行途中 Shift+Enter 直後（入力なし blur なし）に H1 同期が発火', async ({ page }) => {
+        await boot(page, {
+            version: 1,
+            rootIds: ['n1'],
+            nodes: {
+                n1: { id: 'n1', parentId: null, children: [], text: 'HeadTail', tags: [], isPage: true, pageId: 'pg-se22' },
+            },
+        });
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        await focusNodeTextAt(page, 'n1', 4); // "Head|Tail"
+        await pressShiftEnter(page, 'n1');    // 先頭行が "Head" に変わる
+
+        const r = await page.evaluate(() => {
+            const msgs = (window as any).__testApi.messages.filter((m: any) => m.type === 'syncNodeTextToPageH1');
+            const model = (window as any).__testApi.getModel();
+            return { msgs, text: model.getNode('n1').text };
+        });
+        expect(r.text).toBe('Head\nTail');
+        // ★ blur を待たず改行挿入時点で先頭行 "Head" が送出される（stale 解消）
+        expect(r.msgs.length).toBeGreaterThanOrEqual(1);
+        expect(r.msgs[r.msgs.length - 1].text).toBe('Head');
+    });
+
+    test('TC-SE-23: 複数行 node の page 化で H1 は先頭行のみ（継続行が md に漏れない）', async ({ page }) => {
+        await boot(page, singleNodeData('PageTitle\ncontinuation', { tags: [] }));
+        await page.evaluate(() => { (window as any).__testApi.messages = []; });
+        // Cmd+Enter で page 化（makePage 経路）
+        await focusNodeTextAt(page, 'n1', 3);
+        await page.evaluate(() => {
+            const textEl = document.querySelector('.outliner-node[data-id="n1"] .outliner-text') as HTMLElement;
+            textEl.dispatchEvent(new KeyboardEvent('keydown', {
+                key: 'Enter', keyCode: 13, metaKey: true, bubbles: true, cancelable: true,
+            }));
+        });
+        await page.waitForTimeout(200);
+        const r = await page.evaluate(() => {
+            const msgs = (window as any).__testApi.messages.filter((m: any) => m.type === 'makePage');
+            const model = (window as any).__testApi.getModel();
+            return { msgs, text: model.getNode('n1').text, isPage: model.getNode('n1').isPage };
+        });
+        expect(r.isPage).toBe(true);
+        expect(r.msgs.length).toBe(1);
+        expect(r.msgs[0].title).toBe('PageTitle');           // ★ 先頭行のみ
+        expect(r.msgs[0].title).not.toContain('\n');
+        expect(r.text).toBe('PageTitle\ncontinuation');      // node.text 自体は不変
+    });
+});

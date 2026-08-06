@@ -40653,9 +40653,11 @@ var Outliner = (function() {
                         var selC = window.getSelection();
                         if (!selC || selC.isCollapsed) {
                             e.preventDefault();
-                            var singleText = node.text || '';
+                            // FR-SE-03 (TASK-03): plain text は \n を空白潰し（外部 paste の行分裂防止）。
+                            // nodesData は raw（\n 保持 = 内部/cross paste の往復忠実度）— multi-select と同じ分離
+                            var singleText = String(node.text || '').replace(/\n/g, ' ');
                             var singleNodesData = [{
-                                text: singleText, level: 0,
+                                text: node.text || '', level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
@@ -40697,9 +40699,10 @@ var Outliner = (function() {
                         var selX = window.getSelection();
                         if (!selX || selX.isCollapsed) {
                             e.preventDefault();
-                            var cutSingleText = node.text || '';
+                            // FR-SE-03 (TASK-03): copy 側と同じ分離（plain=潰し / nodesData=raw）
+                            var cutSingleText = String(node.text || '').replace(/\n/g, ' ');
                             var cutSingleNodesData = [{
-                                text: cutSingleText, level: 0,
+                                text: node.text || '', level: 0,
                                 isPage: node.isPage || false,
                                 pageId: node.pageId || null,
                                 images: (node.images && node.images.length > 0) ? node.images.slice() : [],
@@ -40917,6 +40920,10 @@ var Outliner = (function() {
         setCursorAtOffset(textEl, offset + 1);
         saveSnapshotDebounced();
         scheduleSyncToHost();
+        // FR-SE-04 (TASK-04): 改行挿入は先頭行を変えうる text 変異なので、input/compositionend
+        // 経路と対称に H1 同期を発火（内部で isPage/pageId/_applyingH1ToNode を自己ガード）。
+        // 先頭行が変わらない場合も host 側 writeFileIfChanged で no-op。
+        syncPageH1FromNodeText(node.id);
     }
 
     function openSubtext(nodeId) {
@@ -41113,7 +41120,9 @@ var Outliner = (function() {
         var pageId = model.makePage(nodeId);
         if (!pageId) { return; }
 
-        host.makePage(nodeId, pageId, node.text);
+        // FR-SE-04 (TASK-05): H1 は 1 行のみ — 先頭行だけ渡す（syncPageH1FromNodeText と同じ規則）。
+        // node.text 自体は不変（tree は複数行のまま）。raw を渡すと継続行が page md の本文に漏れる
+        host.makePage(nodeId, pageId, String(node.text || '').split('\n')[0].trim());
         renderTree();
         scheduleSyncToHost();
     }
