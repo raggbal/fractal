@@ -4763,6 +4763,16 @@ var Outliner = (function() {
 
         switch (e.key) {
             case 'Enter':
+                // FR-SE-01: Shift+Cmd+Enter = subtext を開く（従来 Shift+Enter から移動）。
+                // 下の Cmd+Enter 分岐は shiftKey を区別しない（Shift+Cmd+Enter を吸収する）ため、
+                // 必ずこの位置（Cmd+Enter より前）で分岐する。
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveSnapshot();
+                    openSubtext(nodeId);
+                    return;
+                }
                 // Cmd+Enter: ノード種別に応じてアクション
                 //   isPage  → side panel で page MD を開く (既存挙動)
                 //   filePath → 外部アプリで添付ファイルを開く (FR-OL-CMDENTER-1, sprint v14)
@@ -4804,8 +4814,10 @@ var Outliner = (function() {
                     // Option+Enter: 子ノードとして追加 (既に子がいれば先頭に)
                     handleShiftEnter(node, textEl, offset);
                 } else if (e.shiftKey) {
-                    // Shift+Enter: サブテキスト追加/フォーカス
-                    openSubtext(nodeId);
+                    // FR-SE-02: Shift+Enter = node text 内改行（従来の subtext は Shift+Cmd+Enter へ）。
+                    // pre-wrap + 生 \n 方式: model.text に \n を挿入 → 編集ビュー再描画 → カーソル復元。
+                    // contenteditable の DOM を直接手術しない（mindmap と同じ「\n が真実」）。
+                    handleNodeTextLineBreak(node, textEl, offset);
                 } else if (isScopeHeader) {
                     // スコープヘッダー: Enterで子ノード追加（兄弟追加はスコープ外になるため）
                     handleScopeHeaderEnter(node, textEl, offset);
@@ -5533,6 +5545,30 @@ var Outliner = (function() {
     /** サブテキストを開いてフォーカス
      * 実装は outliner-cell.js (OutlinerCell.openSubtext) に分離 (TASK-A5, Phase 5 split)。
      */
+    // FR-SE-02: node text 内改行（Shift+Enter）。カーソル位置に \n を挿入する。
+    // ⚠️ handleShiftEnter（:5510 = Option+Enter の子ノード追加。命名は歴史的経緯）とは別物。
+    // 方式: model.text を更新 → renderEditingText で再描画 → カーソルを \n の直後へ復元。
+    // getPlainText は textContent ベースで \n を保持し、offset 系も \n を 1 文字として数える
+    // （テキストノード内の生文字）ため、cursor/render の共有関数は無変更で成立する。
+    function handleNodeTextLineBreak(node, textEl, offset) {
+        // 選択範囲があれば削除してから挿入（contenteditable の通常の置換挿入と同じ意味論）
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount && !sel.isCollapsed) {
+            var r = sel.getRangeAt(0);
+            if (textEl.contains(r.commonAncestorContainer)) {
+                r.deleteContents();
+                offset = getCursorOffset(textEl);
+            }
+        }
+        var cur = getPlainText(textEl);
+        var next = cur.slice(0, offset) + '\n' + cur.slice(offset);
+        model.updateText(node.id, next);
+        textEl.innerHTML = renderEditingText(next);
+        setCursorAtOffset(textEl, offset + 1);
+        saveSnapshotDebounced();
+        scheduleSyncToHost();
+    }
+
     function openSubtext(nodeId) {
         return OutlinerCell.openSubtext({ nodeId: nodeId, treeEl: treeEl, model: model });
     }
@@ -7079,7 +7115,7 @@ var Outliner = (function() {
         addMenuItem(contextMenuEl, subtextLabel, function() {
             hideContextMenu();
             openSubtext(nodeId);
-        }, 'Shift+Enter');
+        }, isMacPlatform ? 'Shift+Cmd+Enter' : 'Shift+Ctrl+Enter');
 
         addMenuSeparator(contextMenuEl);
 

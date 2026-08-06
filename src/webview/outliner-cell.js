@@ -907,13 +907,15 @@
         if (!e || !model || !subtextEl) { return; }
         if (e.isComposing || e.keyCode === 229) { return; }
 
-        if (e.key === 'Enter' && e.shiftKey) {
+        // FR-SE-01: 閉じる = Shift+Cmd+Enter（開くと同キーのトグルに統一。従来は Shift+Enter）。
+        // Shift+Enter / Enter は通常の改行（contenteditable デフォルトに委譲）。
+        if (e.key === 'Enter' && e.shiftKey && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             closeSubtext({ nodeId: nodeId, subtextEl: subtextEl, model: model, host: host });
             return;
         }
 
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter') {
             return;
         }
 
