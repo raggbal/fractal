@@ -136,3 +136,71 @@ test.describe('リスト継続行 (FR-LC)', () => {
         expect(await getMd(page)).toBe(md1);
     });
 });
+
+// 2026-08-06 手動テスト fail 反映
+test.describe('継続行の Shift+Enter 途中改行 / コピー保全 (fix)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+    });
+
+    test('TC-LC-09 文字途中の Shift+Enter は空白行を挟まない（br 1 個）', async ({ page }) => {
+        await page.evaluate(() => { (window as any).__testApi.setMarkdown('- abcdef'); });
+        await page.waitForTimeout(200);
+        await page.evaluate(() => {
+            const li = document.querySelector('#editor ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li.firstChild!, 3); range.collapse(true);
+            sel.removeAllRanges(); sel.addRange(range);
+            (document.getElementById('editor') as HTMLElement).focus();
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        // counterfactual: 無条件 double-br だと <br><br> で空白行 = RED
+        expect(html).toContain('<li>abc<br>def</li>');
+        expect(html).not.toContain('<br><br>');
+    });
+
+    test('TC-LC-10 末尾の Shift+Enter は視覚行を確保（br 2 個許容・タイプで 1 行に）', async ({ page }) => {
+        await page.evaluate(() => { (window as any).__testApi.setMarkdown('- abc'); });
+        await page.waitForTimeout(200);
+        await page.evaluate(() => {
+            const li = document.querySelector('#editor ul li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(li); range.collapse(false);
+            sel.removeAllRanges(); sel.addRange(range);
+            (document.getElementById('editor') as HTMLElement).focus();
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.keyboard.type('xyz');
+        await page.waitForTimeout(200);
+        const html = await page.evaluate(() => document.getElementById('editor')!.innerHTML);
+        expect(html).toContain('<li>abc<br>xyz');
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).toContain('- abc\n  xyz');
+    });
+
+    test('TC-LC-11 継続行持ち li の選択コピーで改行が保たれる（bold 跨ぎ含む）', async ({ page }) => {
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('1. **Does data?\n    **AWS 側で扱うか\n    1. Yes: High\n');
+        });
+        await page.waitForTimeout(200);
+        const copied = await page.evaluate(() => {
+            const li = document.querySelector('#editor ol li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(li);
+            sel.removeAllRanges(); sel.addRange(range);
+            const dt = new DataTransfer();
+            const ev = new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true } as any);
+            document.getElementById('editor')!.dispatchEvent(ev);
+            return dt.getData('text/plain');
+        });
+        // counterfactual: bare br → '' だと「?**AWS」に連結 = RED
+        expect(copied).toContain('Does data?\n');
+        expect(copied).not.toContain('?**AWS');
+    });
+});

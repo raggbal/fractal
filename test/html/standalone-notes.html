@@ -16554,7 +16554,10 @@ class EditorInstance {
                 }
                 // Use single newline for regular divs
                 return divContent + '\n';
-            case 'br': return '';
+            // sprint 20260806-035923 (FR-LC-03): bare <br>（li ラッパ無しの部分選択コピー等）は
+            // 改行として出す（従来 '' で継続行が連結されていた。段落末尾の装飾 <br> は
+            // mdProcessNode に単体で来ることが稀なため、改行出力が安全側）
+            case 'br': return '\n';
             case 'hr': return '---\n';
             case 'blockquote':
                 // Handle multi-line blockquotes - each line needs > prefix
@@ -18137,12 +18140,17 @@ class EditorInstance {
                 lcRange.deleteContents();
                 const lcBr = document.createElement('br');
                 lcRange.insertNode(lcBr);
-                // <br> が li 末尾だと trailing <br> 仕様で視覚行が出ないため、もう 1 個の
-                // <br> を置いてカーソル行を確保（タイプ開始でブラウザが 2 個目の直前に文字を
-                // 入れる標準挙動。2 個目はタイプ後も残るが「行末の <br>」として無害・
-                // serialize はテキスト無し末尾 <br> を無視する）
-                const lcBr2 = document.createElement('br');
-                lcBr.after(lcBr2);
+                // <br> の後に実コンテンツ（テキスト/要素。ネストリスト以外）が無い場合のみ、
+                // trailing <br> 仕様（視覚行が出ない）対策の 2 個目 <br> を置く。
+                // 文字途中の Shift+Enter で無条件に 2 個置くと空白行が挟まる（bug 2026-08-06）。
+                let lcHasAfter = false;
+                for (let lcN = lcBr.nextSibling; lcN; lcN = lcN.nextSibling) {
+                    if (lcN.nodeType === 3 && lcN.textContent !== '') { lcHasAfter = true; break; }
+                    if (lcN.nodeType === 1 && lcN.tagName !== 'UL' && lcN.tagName !== 'OL' && lcN.tagName !== 'BR') { lcHasAfter = true; break; }
+                }
+                if (!lcHasAfter) {
+                    lcBr.after(document.createElement('br'));
+                }
                 const lcNr = document.createRange();
                 lcNr.setStartAfter(lcBr);
                 lcNr.collapse(true);
