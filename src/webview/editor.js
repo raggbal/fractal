@@ -18027,8 +18027,88 @@ class EditorInstance {
             }
         }
         
+        // sprint 20260806-035923（ユーザー要望）: 複数行選択で「選択始点が li の途中」だと
+        // cloneContents が先頭 li のラッパ（<ol|ul><li>）を落とし、先頭行だけ bare content
+        //（→ 段落化）になる。後続にリスト要素があるのに先頭が bare の場合、選択始点の実 li
+        // からリスト型を取り、先頭 bare 群を同型の <ol|ul><li>…</li></…> で包み直す
+        //（= 複数行選択なら先頭行の選択範囲がどうであれリストとしてコピー）。
+        (function wrapLeadingBareAsLi() {
+            const kids = Array.from(tempDiv.childNodes);
+            if (kids.length === 0) { return; }
+            // ケース 2: 共通祖先がリストの場合、fragment は bare <li> 群（ul/ol ラッパなし）に
+            // なる。standalone li 処理（marker '-' 固定）に落ちると ol 由来でも bullet 化する
+            // ため、startLi の親リスト型で全体を包む（番号は連番に自動リセット = FR-OL-RULES）。
+            if (kids.some((n) => n.nodeType === 1 && n.tagName === 'LI')) {
+                let s2 = range.startContainer;
+                if (s2.nodeType === 3) { s2 = s2.parentElement; }
+                const sLi = s2 && s2.closest ? s2.closest('li') : null;
+                const lt = (sLi && sLi.parentElement &&
+                            (sLi.parentElement.tagName === 'OL' || sLi.parentElement.tagName === 'UL'))
+                    ? sLi.parentElement.tagName.toLowerCase() : null;
+                if (lt) {
+                    const wrap2 = document.createElement(lt);
+                    for (const k of kids) {
+                        // bare li はそのまま・li 間に紛れた bare テキスト等は li に包んで維持
+                        if (k.nodeType === 1 && k.tagName === 'LI') {
+                            wrap2.appendChild(k);
+                        } else if ((k.textContent || '').trim() !== '') {
+                            const extraLi = document.createElement('li');
+                            extraLi.appendChild(k);
+                            wrap2.appendChild(extraLi);
+                        } else {
+                            k.remove();
+                        }
+                    }
+                    tempDiv.appendChild(wrap2);
+                    return;
+                }
+            }
+            // 先頭の連続 bare 群（ul/ol/ブロック要素以外）を数える
+            const isBlockTag = (n) => n.nodeType === 1 &&
+                /^(UL|OL|P|H[1-6]|PRE|BLOCKQUOTE|TABLE|HR|DIV)$/.test(n.tagName);
+            let bareEnd = 0;
+            while (bareEnd < kids.length && !isBlockTag(kids[bareEnd])) { bareEnd++; }
+            if (bareEnd === 0) { return; }                    // 先頭からブロック（li ラッパあり等）
+            if (bareEnd >= kids.length) { return; }           // 全部 bare（単一行の部分選択 = 従来どおり）
+            // 後続にリストが無ければ対象外（見出し等で終わる混在選択は従来どおり）
+            let hasFollowingList = false;
+            for (let k = bareEnd; k < kids.length; k++) {
+                if (kids[k].nodeType === 1 && (kids[k].tagName === 'UL' || kids[k].tagName === 'OL')) { hasFollowingList = true; break; }
+            }
+            if (!hasFollowingList) { return; }
+            // bare 群に実コンテンツが無ければ（空白のみ）除去だけして終わり
+            const bareHasContent = kids.slice(0, bareEnd).some(
+                (n) => (n.textContent || '').trim() !== '' || (n.nodeType === 1 && n.tagName === 'IMG'));
+            // 選択始点の実 li → 親リスト型を解決（li 外始点なら ul 既定）
+            let startEl = range.startContainer;
+            if (startEl.nodeType === 3) { startEl = startEl.parentElement; }
+            const startLi = startEl && startEl.closest ? startEl.closest('li') : null;
+            const listTag = (startLi && startLi.parentElement) ? startLi.parentElement.tagName.toLowerCase() : 'ul';
+            if (!bareHasContent) {
+                for (let k = 0; k < bareEnd; k++) { tempDiv.removeChild(kids[k]); }
+                return;
+            }
+            const wrapList = document.createElement(listTag === 'ol' ? 'ol' : 'ul');
+            const wrapLi = document.createElement('li');
+            // bare 群 + それに続く「startLi のネスト子由来の UL/OL」を 1 li に包む。
+            // 判定: startLi が実 DOM で子リストを持つなら、フラグメント先頭側の UL/OL は
+            // その部分クローン（同じ li の中身）→ wrapLi へ。startLi に子リストが無ければ
+            // 後続 UL/OL は独立リスト → 包まない。
+            for (let k = 0; k < bareEnd; k++) { wrapLi.appendChild(kids[k]); }
+            if (startLi && startLi.querySelector(':scope > ul, :scope > ol')) {
+                let idx = bareEnd;
+                while (idx < kids.length && kids[idx].nodeType === 1 &&
+                       (kids[idx].tagName === 'UL' || kids[idx].tagName === 'OL')) {
+                    wrapLi.appendChild(kids[idx]);
+                    idx++;
+                }
+            }
+            wrapList.appendChild(wrapLi);
+            tempDiv.insertBefore(wrapList, tempDiv.firstChild);
+        })();
+
         const selectedHtml = tempDiv.innerHTML;
-        
+
         logger.log('Copy - selected HTML:', selectedHtml.substring(0, 500));
         logger.log('Copy - tempDiv children count:', tempDiv.childNodes.length);
         logger.log('Copy - tempDiv children:', Array.from(tempDiv.childNodes).map(n => n.nodeName + '(' + (n.textContent || '').substring(0, 30) + ')').join(', '));

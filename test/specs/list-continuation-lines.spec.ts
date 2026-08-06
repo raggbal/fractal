@@ -204,3 +204,61 @@ test.describe('継続行の Shift+Enter 途中改行 / コピー保全 (fix)', (
         expect(copied).not.toContain('?**AWS');
     });
 });
+
+// 2026-08-06 ユーザー要望: 複数行選択の cmd+c は先頭行の選択範囲がどうであれリストとしてコピー
+test.describe('部分選択コピーのリスト保全 (TC-LC-12..14)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('1. Risk の説明\n   (補足を太字で)\n    1. **Does?\n        **AWS で扱うか\n    2. second\n2. next item\n');
+        });
+        await page.waitForTimeout(200);
+    });
+
+    async function copyRange(page: any, setup: string) {
+        return page.evaluate((code: string) => {
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            eval(code);
+            sel.removeAllRanges(); sel.addRange(range);
+            const dt = new DataTransfer();
+            document.getElementById('editor')!.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true } as any));
+            return dt.getData('text/plain');
+        }, setup);
+    }
+
+    test('TC-LC-12 先頭 li のテキスト途中から複数 li 選択 → ol としてコピー（counterfactual: 旧実装は先頭が bullet/段落化）', async ({ page }) => {
+        const md = await copyRange(page, `
+            const li0 = document.querySelector('#editor ol li');
+            const topLis = document.querySelectorAll('#editor > ol > li');
+            range.setStart(li0.firstChild, 5);
+            range.setEndAfter(topLis[topLis.length - 1]);
+        `);
+        expect(md).toMatch(/^1\. /);        // 先頭行が ol の li（段落・bullet でない）
+        expect(md).toContain('2. next item'); // 後続 li も連番
+        expect(md).toContain('(補足を太字で)'); // 継続行維持
+    });
+
+    test('TC-LC-13 継続行の途中から選択でもリストとしてコピー', async ({ page }) => {
+        const md = await copyRange(page, `
+            const li0 = document.querySelector('#editor ol li');
+            const cont = Array.from(li0.childNodes).filter(n => n.nodeType === 3)[1];
+            const allLis = document.querySelectorAll('#editor li');
+            range.setStart(cont, 2);
+            range.setEndAfter(allLis[allLis.length - 1]);
+        `);
+        expect(md).toMatch(/^1\. /);
+        expect(md).toContain('1. **Does?');
+    });
+
+    test('TC-LC-14 単一行の部分選択は従来どおりプレーンテキスト（回帰 pin）', async ({ page }) => {
+        const md = await copyRange(page, `
+            const li0 = document.querySelector('#editor ol li');
+            range.setStart(li0.firstChild, 0);
+            range.setEnd(li0.firstChild, 4);
+        `);
+        expect(md).not.toMatch(/^[-\d]/); // マーカー無しのプレーンテキスト
+        expect(md).toContain('Risk');
+    });
+});
