@@ -150,3 +150,67 @@ test.describe('FR-LV-04: blur 時キュー破棄の限定', () => {
         expect(q).toBe('EXTERNAL_V'); // 破棄されていない
     });
 });
+
+test.describe('TASK-04: 外部更新で sidepanel 目次（TOC）も更新される', () => {
+
+    test('TC-LV-15: sidePanelMessage update で .side-panel-toc が更新される（editor.js）', async ({ page }) => {
+        await boot(page, 'MAIN');
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel',
+                markdown: '# Old Title\n\nbody',
+                filePath: '/fake/sp.md',
+                fileName: 'sp.md',
+                toc: [{ level: 1, text: 'Old Title', anchor: 'old-title' }],
+                documentBaseUri: 'http://localhost:3000/fake/',
+            });
+        });
+        await page.waitForTimeout(400);
+        const before = await page.evaluate(() =>
+            (document.querySelector('.side-panel-toc') as HTMLElement)?.textContent || '__none__');
+        if (before === '__none__') { test.skip(true, 'side-panel-toc not present in standalone-editor harness'); return; }
+        expect(before).toContain('Old Title');
+
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'sidePanelMessage',
+                data: { type: 'update', content: '# Old Title\n\n## New Section\n\nbody', filePath: '/fake/sp.md' },
+            });
+        });
+        await page.waitForTimeout(300);
+        const after = await page.evaluate(() =>
+            (document.querySelector('.side-panel-toc') as HTMLElement)?.textContent || '');
+        expect(after).toContain('New Section');
+    });
+
+    test('TC-LV-16: outliner.js 経路（standalone-notes）でも外部更新で TOC が更新される', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'openSidePanel',
+                markdown: '# Old Title\n\nbody',
+                filePath: '/Users/test/notes/noteA/sp.md',
+                fileName: 'sp.md',
+                toc: [{ level: 1, text: 'Old Title', anchor: 'old-title' }],
+                documentBaseUri: 'http://localhost:3000/note1/',
+            });
+        });
+        await page.waitForTimeout(400);
+        const before = await page.evaluate(() =>
+            (document.querySelector('.side-panel-toc') as HTMLElement)?.textContent || '');
+        expect(before).toContain('Old Title');
+
+        // 外部更新（AI CLI → host reconcile → sidePanelMessage update）
+        await page.evaluate(() => {
+            (window as any).__hostMessageHandler({
+                type: 'sidePanelMessage',
+                data: { type: 'update', content: '# Old Title\n\n## New Section\n\nbody', filePath: '/Users/test/notes/noteA/sp.md' },
+            });
+        });
+        await page.waitForTimeout(300);
+        const after = await page.evaluate(() =>
+            (document.querySelector('.side-panel-toc') as HTMLElement)?.textContent || '');
+        expect(after).toContain('New Section');   // ★ 目次が外部更新に追随
+    });
+});

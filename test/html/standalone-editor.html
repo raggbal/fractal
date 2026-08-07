@@ -23502,6 +23502,13 @@ class EditorInstance {
                     '(current=', sidePanelFilePath, ')');
                 return;
             }
+            // TASK-04 (sprint 20260806-165116): 外部更新でも目次を更新する。
+            // TOC の更新経路は従来「open 時の toc 同梱」と「ユーザー編集の syncContent →
+            // onTocUpdate」の 2 つだけで、外部編集（AI CLI）の update はここを素通りして
+            // 本文だけ変わり目次が古いまま残っていた。
+            if (spData.type === 'update' && typeof spData.content === 'string') {
+                updateSidePanelTocFromMarkdown(spData.content);
+            }
             // それ以外は side panel EditorInstance に dispatch
             if (sidePanelHostBridge) {
                 sidePanelHostBridge._sendMessage(message.data);
