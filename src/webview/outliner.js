@@ -9259,6 +9259,13 @@ var Outliner = (function() {
                         && sidePanelFilePath && spdata.filePath !== sidePanelFilePath) {
                         break;
                     }
+                    // TASK-04 (sprint 20260806-165116): 外部更新でも目次を更新する（editor.js と対称）。
+                    // updateSidePanelTocFromMarkdown は H1→node 同期も担うが、_lastSidePanelH1 の
+                    // dedup + _applyingH1ToNode ガード済みで安全（外部編集の H1 を tree に反映する
+                    // 正しい経路でもある）。
+                    if (spdata.type === 'update' && typeof spdata.content === 'string') {
+                        updateSidePanelTocFromMarkdown(spdata.content);
+                    }
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage(msg.data);
                     }

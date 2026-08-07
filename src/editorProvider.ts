@@ -27,6 +27,7 @@ import { runExportBundle } from './shared/export-bundle-host';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
+import { setupExternalMdWatcher } from './shared/external-md-watcher';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
@@ -813,47 +814,48 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             updateDrawioRefs();
         });
 
-        // Listen for file system changes (from external editors like Claude)
-        // This ONLY syncs the VS Code document; messaging is handled by onDidChangeTextDocument
-        const fileWatcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(vscode.Uri.joinPath(document.uri, '..'), path.basename(document.uri.fsPath))
-        );
+        // Listen for file system changes (from external editors like Claude Code / kiro)
+        // FR-LV-01 (sprint 20260806-165116): 素の FSW onDidChange 単独では atomic rename 保存
+        // （Claude Code の書き込み方式・onDidCreate で上がる）と workspace 外ファイルを取りこぼす。
+        // setupExternalMdWatcher（hybrid = FSW onDidChange + onDidCreate + fs.watchFile 1s polling）
+        // へ差し替え。先頭 early-return ガードは置かない（fs.watchFile はエッジトリガのため、
+        // 捨てたイベントは再配送されない。自己保存は下の差分チェックが no-op に吸収する）。
+        const externalWatcher = setupExternalMdWatcher({
+            filePath: document.uri.fsPath,
+            vscodeNs: vscode,
+            fsNs: fs,
+            onFsEvent: async () => {
+                try {
+                    const fileContent = await vscode.workspace.fs.readFile(document.uri);
+                    const newContent = new TextDecoder().decode(fileContent);
+                    const currentContent = document.getText();
 
-        const fileChangeSubscription = fileWatcher.onDidChange(async (uri) => {
-            if (uri.toString() === document.uri.toString()) {
-                setTimeout(async () => {
-                    try {
-                        const fileContent = await vscode.workspace.fs.readFile(uri);
-                        const newContent = new TextDecoder().decode(fileContent);
-                        const currentContent = document.getText();
-
-                        if (newContent !== currentContent) {
-                            // Sync VS Code document with file content (triggers onDidChangeTextDocument)
-                            isApplyingOwnEdit = true;
-                            const fullRange = new vscode.Range(
-                                document.positionAt(0),
-                                document.positionAt(currentContent.length)
-                            );
-                            const edit = new vscode.WorkspaceEdit();
-                            edit.replace(document.uri, fullRange, newContent);
-                            await vscode.workspace.applyEdit(edit);
-                            isApplyingOwnEdit = false;
-
-                            // Save immediately to clear dirty state — file on disk is already up to date
-                            await document.save();
-
-                            // Notify webview directly (since isApplyingOwnEdit suppressed onDidChangeTextDocument)
-                            const content = convertImagePaths(newContent);
-                            webviewPanel.webview.postMessage({
-                                type: 'update',
-                                content: content
-                            });
-                        }
-                    } catch (error) {
+                    if (newContent !== currentContent) {
+                        // Sync VS Code document with file content (triggers onDidChangeTextDocument)
+                        isApplyingOwnEdit = true;
+                        const fullRange = new vscode.Range(
+                            document.positionAt(0),
+                            document.positionAt(currentContent.length)
+                        );
+                        const edit = new vscode.WorkspaceEdit();
+                        edit.replace(document.uri, fullRange, newContent);
+                        await vscode.workspace.applyEdit(edit);
                         isApplyingOwnEdit = false;
-                        console.error('[Any MD] Error reading file after external change:', error);
+
+                        // Save immediately to clear dirty state — file on disk is already up to date
+                        await document.save();
+
+                        // Notify webview directly (since isApplyingOwnEdit suppressed onDidChangeTextDocument)
+                        const content = convertImagePaths(newContent);
+                        webviewPanel.webview.postMessage({
+                            type: 'update',
+                            content: content
+                        });
                     }
-                }, 100);
+                } catch (error) {
+                    isApplyingOwnEdit = false;
+                    console.error('[Any MD] Error reading file after external change:', error);
+                }
             }
         });
 
@@ -1683,8 +1685,7 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             OutlinerProvider.outlinerPagePaths.delete(document.uri.fsPath);
             changeDocumentSubscription.dispose();
             changeConfigSubscription.dispose();
-            fileChangeSubscription.dispose();
-            fileWatcher.dispose();
+            externalWatcher.dispose();
             sidePanel.disposeFileWatcher();
             // MD-48: drawio watcher dispose
             drawioWatcher.disposeAll();
