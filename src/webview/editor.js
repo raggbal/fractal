@@ -19489,8 +19489,12 @@ class EditorInstance {
         }
 
         // Flush pending edits immediately on blur
+        // FR-LV-04 (sprint 20260806-165116): flush + queue drop の条件を hasUserEdited（Cmd+S まで
+        // sticky）から「未同期編集が実際にある」（pendingSync || isActivelyEditing）に絞る。
+        // 外部編集（AI CLI）の update はイベント再到来しない（fs.watchFile エッジトリガ）ため、
+        // 同期済みの blur で queue を捨てると外部内容が永久消失していた。
         var didFlushUserEdit = false;
-        if (!isSourceMode && hasUserEdited) {
+        if (!isSourceMode && hasUserEdited && (pendingSync || isActivelyEditing)) {
             clearTimeout(syncTimeout);
             markdown = htmlToMarkdown();
             host.syncContent(markdown);
@@ -19537,8 +19541,10 @@ class EditorInstance {
             console.warn('[Fractal:blur-with-queue]', _finfo2);
         }
 
+        // FR-LV-04: flush + queue drop は「未同期編集の実在」時のみ（editor.blur と同じ絞り。
+        // source mode は sourceEditor.value と markdown の差分で未同期を判定）
         var didFlushUserEditSrc = false;
-        if (isSourceMode && hasUserEdited) {
+        if (isSourceMode && hasUserEdited && (sourceEditor.value !== markdown || isActivelyEditing)) {
             markdown = sourceEditor.value;
             host.syncContent(markdown);
             didFlushUserEditSrc = true;
@@ -19560,7 +19566,10 @@ class EditorInstance {
     this._handleVisibilityChange = function() {
         // v0.195.720: 翻訳ビュー中は visibility hidden flush も抑止
         if (translationViewActive) return;
-        if (document.visibilityState === 'hidden' && hasUserEdited) {
+        // FR-LV-04: flush + queue drop は「未同期編集の実在」時のみ（editor.blur と同じ絞り）。
+        // 同期済みで hidden になっただけの場合に外部編集 queue を捨てない
+        if (document.visibilityState === 'hidden' && hasUserEdited
+            && (pendingSync || isActivelyEditing || (isSourceMode && sourceEditor.value !== markdown))) {
             // P2 観測 (FR-DBG-1, FR-DBG-2): visibility hidden 時の検知
             if (queuedExternalContent !== null) {
                 var _fdomMd3 = isSourceMode ? sourceEditor.value : htmlToMarkdown();
@@ -19898,6 +19907,10 @@ class EditorInstance {
             markdown = md;
             updateFromMarkdown();
         };
+        // sprint 20260806-165116 (FR-LV-04): blur 時キュー破棄限定の検証用。
+        // idle 状態で queue に残った外部更新を模擬注入 / queue の現在値を照会（TC-LV-11c/14）。
+        window.__testApi.injectQueuedExternal = (content) => { queuedExternalContent = content; };
+        window.__testApi.getQueuedExternal = () => queuedExternalContent;
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;

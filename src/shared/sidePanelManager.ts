@@ -42,9 +42,22 @@ export class SidePanelManager {
     // FSW 単独では workspace フォルダ外のファイルに fire しない（editorProvider.ts:792 / MD-48 と同じ既知制約）。
     private _hybridWatcher: DrawioFileWatcher | undefined;
     private _fileChangeSubscription: { dispose: () => void } | undefined;
+    // FR-LV-03 (sprint 20260806-165116): atomic rename（Claude Code の保存方式）は FSW では
+    // onDidCreate で上がるため、onDidChange に加えて onDidCreate も購読する
+    private _createSubscription: { dispose: () => void } | undefined;
     private _docChangeSubscription: vscode.Disposable | undefined;
     private _watchedPath: string | undefined;
     private _isApplyingEdit = false;
+    // FR-LV-02: deferred reconcile。_isApplyingEdit 中に届いた外部 FS イベントは捨てずに
+    // ここへ保留し、_isApplyingEdit が false に戻る全地点で照合を 1 回実行する。
+    // fs.watchFile はエッジトリガ（再配送なし）のため、捨てると次の disk 変化まで永久に
+    // 反映されず、直後の auto-save が AI 編集を上書きする lost-update になる。
+    // bool 1 個で足りる（照合はイベント内容でなく disk 現物を読むため、複数イベントの
+    // 集約として正しい）。clear 契機 = 照合実行時 / disposeFileWatcher。
+    private _pendingExternalCheck = false;
+    // reconcile が既にスケジュール済みなら後続イベントを集約（drawioWatcher はポーリング発火を
+    // onDidChange/onDidCreate 両 handler に配るため、1 イベントで onFsEvent が複数回呼ばれうる）
+    private _reconcileScheduled = false;
 
     // v15+: side panel navigation history (back/forward stacks)
     // ユーザーが side panel 内で .md link click したときに pre-replace の filePath を push し
@@ -95,56 +108,21 @@ export class SidePanelManager {
         // workspace 外の note でも外部編集（AI CLI 等）を検知してライブ反映する。
         // ポーリングが自己保存の後に発火しても下の newContent !== currentContent 差分チェックで no-op（NFR-LR-02）。
         this._hybridWatcher = createHybridFileWatcher(filePath, vscode, fs);
-        this._fileChangeSubscription = this._hybridWatcher.onDidChange(() => {
-            if (this._isApplyingEdit) return;
-            setTimeout(async () => {
-                try {
-                    // Race guard: navigation may have switched _document/_watchedPath
-                    // between the disk event and this setTimeout firing. Apply only
-                    // if we are still watching the same file the event is for.
-                    if (this._watchedPath !== filePath) return;
-                    const targetDoc = this._document;
-                    if (!targetDoc) return;
-                    if (targetDoc.uri.fsPath !== filePath) return;
-                    const liveDoc = targetDoc.isClosed
-                        ? await vscode.workspace.openTextDocument(fileUri)
-                        : targetDoc;
-                    // Re-check after await: navigation may have happened during openTextDocument
-                    if (this._watchedPath !== filePath) return;
-                    if (this._document !== liveDoc) {
-                        // Update the cached document only if we are still watching this file
-                        this._document = liveDoc;
-                    }
-                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                    if (this._watchedPath !== filePath) return;
-                    const newContent = new TextDecoder().decode(fileContent);
-                    const currentContent = liveDoc.getText();
-                    if (newContent !== currentContent) {
-                        this._isApplyingEdit = true;
-                        const fullRange = new vscode.Range(
-                            liveDoc.positionAt(0),
-                            liveDoc.positionAt(currentContent.length)
-                        );
-                        const edit = new vscode.WorkspaceEdit();
-                        edit.replace(liveDoc.uri, fullRange, newContent);
-                        await vscode.workspace.applyEdit(edit);
-                        this._isApplyingEdit = false;
-                        // Final guard before save: confirm no navigation happened
-                        if (this._watchedPath !== filePath) return;
-                        if (liveDoc.isClosed) return;
-                        await liveDoc.save();
-                        if (this._watchedPath !== filePath) return;
-                        this.host.postMessage({
-                            type: 'sidePanelMessage',
-                            data: { type: 'update', content: newContent, filePath }
-                        });
-                    }
-                } catch (error) {
-                    this._isApplyingEdit = false;
-                    console.error(`${prefix}[SP-FSW] Error:`, error);
-                }
+        // FR-LV-02: _isApplyingEdit 中のイベントは捨てずに保留（deferred reconcile）。
+        // 捨てると fs.watchFile（エッジトリガ・再配送なし）のイベントが永久消失し、
+        // 直後の auto-save が AI 編集を上書きする lost-update になる。
+        const onFsEvent = () => {
+            if (this._isApplyingEdit) { this._pendingExternalCheck = true; return; }
+            if (this._reconcileScheduled) return;  // 同一変更の多重検知を 1 回の照合に集約
+            this._reconcileScheduled = true;
+            setTimeout(() => {
+                this._reconcileScheduled = false;
+                void this._reconcileExternal(filePath, fileUri, prefix);
             }, 100);
-        });
+        };
+        this._fileChangeSubscription = this._hybridWatcher.onDidChange(onFsEvent);
+        // FR-LV-03: atomic rename（Claude Code）は FSW では onDidCreate で上がる
+        this._createSubscription = this._hybridWatcher.onDidCreate ? this._hybridWatcher.onDidCreate(onFsEvent) : undefined;
 
         // Watch TextDocument changes → relay to iframe
         this._docChangeSubscription = vscode.workspace.onDidChangeTextDocument(e => {
@@ -163,6 +141,72 @@ export class SidePanelManager {
     }
 
     /**
+     * FR-LV-02: 外部変更の照合ボディ（disk 読み → doc 比較 → 差分あれば反映）。
+     * watcher イベントと pending flush の両方から呼ばれる。イベント内容でなく disk 現物を
+     * 読むため、複数イベントが保留 bool 1 個に集約されても最終状態に収束する。
+     * 自己保存由来の空振りは差分チェックで no-op（NFR-LR-02 維持）。
+     */
+    private async _reconcileExternal(filePath: string, fileUri: vscode.Uri, prefix: string): Promise<void> {
+        try {
+            // Race guard: navigation may have switched _document/_watchedPath
+            // between the disk event and this call firing. Apply only
+            // if we are still watching the same file the event is for.
+            if (this._watchedPath !== filePath) return;
+            const targetDoc = this._document;
+            if (!targetDoc) return;
+            if (targetDoc.uri.fsPath !== filePath) return;
+            const liveDoc = targetDoc.isClosed
+                ? await vscode.workspace.openTextDocument(fileUri)
+                : targetDoc;
+            // Re-check after await: navigation may have happened during openTextDocument
+            if (this._watchedPath !== filePath) return;
+            if (this._document !== liveDoc) {
+                // Update the cached document only if we are still watching this file
+                this._document = liveDoc;
+            }
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            if (this._watchedPath !== filePath) return;
+            const newContent = new TextDecoder().decode(fileContent);
+            const currentContent = liveDoc.getText();
+            if (newContent !== currentContent) {
+                this._isApplyingEdit = true;
+                const fullRange = new vscode.Range(
+                    liveDoc.positionAt(0),
+                    liveDoc.positionAt(currentContent.length)
+                );
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(liveDoc.uri, fullRange, newContent);
+                await vscode.workspace.applyEdit(edit);
+                this._isApplyingEdit = false;
+                this._flushPendingExternalCheck(filePath, fileUri, prefix);
+                // Final guard before save: confirm no navigation happened
+                if (this._watchedPath !== filePath) return;
+                if (liveDoc.isClosed) return;
+                await liveDoc.save();
+                if (this._watchedPath !== filePath) return;
+                this.host.postMessage({
+                    type: 'sidePanelMessage',
+                    data: { type: 'update', content: newContent, filePath }
+                });
+            }
+        } catch (error) {
+            this._isApplyingEdit = false;
+            this._flushPendingExternalCheck(filePath, fileUri, prefix);
+            console.error(`${prefix}[SP-FSW] Error:`, error);
+        }
+    }
+
+    /**
+     * FR-LV-02: _isApplyingEdit=false 化直後に呼び、保留中の外部イベントがあれば照合を 1 回実行。
+     * false 化 → flush の順（逆だと reconcile が再びガードに掛かる）。
+     */
+    private _flushPendingExternalCheck(filePath: string, fileUri: vscode.Uri, prefix: string): void {
+        if (!this._pendingExternalCheck) return;
+        this._pendingExternalCheck = false;
+        setTimeout(() => this._reconcileExternal(filePath, fileUri, prefix), 100);
+    }
+
+    /**
      * ファイル監視リソースを全て破棄する。
      */
     disposeFileWatcher(): void {
@@ -170,11 +214,15 @@ export class SidePanelManager {
         this._docChangeSubscription = undefined;
         this._fileChangeSubscription?.dispose();
         this._fileChangeSubscription = undefined;
+        this._createSubscription?.dispose();
+        this._createSubscription = undefined;
         // FR-LR-01: hybrid watcher の dispose（内部で fs.unwatchFile + FSW dispose）
         this._hybridWatcher?.dispose();
         this._hybridWatcher = undefined;
         this._document = undefined;
         this._watchedPath = undefined;
+        // FR-LV-02: one-shot state の clear 契機（別ファイル open 後に stale 照合が走らない）
+        this._pendingExternalCheck = false;
     }
 
     // --- メッセージハンドラ ---
@@ -217,6 +265,8 @@ export class SidePanelManager {
                 );
                 await vscode.workspace.applyEdit(spEdit);
                 this._isApplyingEdit = false;
+                // FR-LV-02: 保存窓中に届いて保留された外部イベントを照合（false 化 → flush の順）
+                this._flushPendingExternalCheck(filePath, targetUri, prefix);
                 if (targetDoc.isClosed) {
                     targetDoc = await vscode.workspace.openTextDocument(targetUri);
                 }
@@ -230,6 +280,7 @@ export class SidePanelManager {
             }
         } catch (e) {
             this._isApplyingEdit = false;
+            this._flushPendingExternalCheck(filePath, vscode.Uri.file(filePath), prefix);
             console.error(`${prefix}[SP-Save] Error:`, e);
             vscode.window.showErrorMessage(
                 `Failed to save: ${filePath} — ${e instanceof Error ? e.message : String(e)}`
