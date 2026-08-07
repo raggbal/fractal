@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.23] - 2026-08-07
+
+### Fixed
+- **External edits (Claude Code, kiro, other AI CLIs) not appearing in the editor** — fixed across all three markdown surfaces:
+  - Standalone md tabs now use the hybrid file watcher (FSW change+create events plus 1s polling), so atomic-rename saves (how Claude Code writes files) and files outside the workspace are detected
+  - Side panel and Notes md no longer silently drop change events that arrive during Fractal's own auto-save; the event is held and reconciled right after the save completes. This also fixes the lost-update where the next auto-save could overwrite the AI's edit
+  - Leaving the editor (blur / tab switch) no longer discards a queued external update when your own edits are already synced
+- **Side panel outline (TOC) not updating on external edits** — the table of contents now follows external content changes; in Notes, an externally-changed H1 also updates the tree title
+
 ## [1.1.22] - 2026-08-06
 
 ### Added
