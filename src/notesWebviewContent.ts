@@ -89,6 +89,9 @@ export function getNotesWebviewContent(
     // sprint 20260802-075012: md → PDF エクスポートの webview 側清書（editor.js/outliner.js より前）
     const pdfExportScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
+    // FR-SPM-01 (sprint 20260808-000219): sidepanel header overflow menu（editor.js/outliner.js より前に window.SidePanelOverflow を用意）
+    const sidePanelOverflowScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'sidepanel-overflow.js'), 'utf8');
 
     // Load Notes file panel JS
     const notesFilePanelScript = fs.readFileSync(
@@ -297,6 +300,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${inlineColorPickerScript}</script>
     <script nonce="${nonce}">${inAppLinkUtilsScript}</script>
     <script nonce="${nonce}">${pdfExportScript}</script>
+    <script nonce="${nonce}">${sidePanelOverflowScript}</script>
     <script nonce="${nonce}">${shortcutListScript}</script>
     <script nonce="${nonce}">${shortcutHudScript}</script>
     <script nonce="${nonce}">${editorScript}</script>

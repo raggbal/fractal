@@ -166,6 +166,7 @@ export const webviewMessages = {
   outlinerDelete: 'Supprimer',
   outlinerDeleteNode: 'Supprimer le nœud',
   copyInAppLink: 'Copier le lien interne',
+  overflowMenuTitle: "Plus d'actions",
   contextCut: 'Couper',
   contextCopy: 'Copier',
   contextPaste: 'Coller',

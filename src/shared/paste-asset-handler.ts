@@ -1326,3 +1326,126 @@ export function runOutlinerNodesExportBundle(opts: {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
 }
+
+/**
+ * FR-XP-01 (sprint 20260808-000219): pasteWithAssetCopy の宛先 md 解決 seam。
+ * sidepanel 経路は message.sidePanelFilePath が畳まれているのでそれを使い、
+ * main md 経路（sidePanelFilePath なし）は host が知る自 document のパスに fallback する。
+ * 従来は sidePanelFilePath 必須ガードで main md paste が silent no-op だった
+ * （notes-host-bridge.js:265-276 の pasteOutlinerNodesWithAssets override と同型の穴）。
+ * pure 関数（fs/vscode 非依存）— unit から直接 require して behavioral 検証する。
+ */
+export function resolvePasteWithAssetCopyDest(
+    sidePanelFilePath: string | undefined | null,
+    documentFsPath: string | undefined | null
+): string | null {
+    if (sidePanelFilePath) return sidePanelFilePath;
+    if (documentFsPath) return documentFsPath;
+    return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// md 範囲選択 copy → outliner paste の添付 node 化 + asset 複製
+// (sprint 20260808-000219 FR-XP-02 / ADRL-md-paste-transport「単一 postback」)
+// webview (outliner.js handleNodePaste) が text/x-any-md + context を host へ送り
+// (pasteMdIntoOutliner)、host が本関数で複製 + 行→node 変換を一括実行して
+// pasteMdIntoOutlinerResult で確定 node 配列を返す。per-line cross message
+// (updateNodeFilePath 等の placeholder 上書き postback) は使わない。
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MdOutlinerPasteNode {
+    text: string;
+    level: number;
+    images?: string[];
+    filePath?: string;
+    isPage?: boolean;
+    pageId?: string;
+}
+
+/**
+ * FR-XP-02: md テキストを outliner node 記述の配列に変換する。
+ * - 実体複製は copyMdPasteAssets（既存エンジン・無変更）に委譲し、書換済み md の
+ *   行を分類する: 行全体が画像リンク → 画像 node / 行全体が 📎 → file 添付 node /
+ *   行全体が subpage [[t]](x.md) → page node（pageId = 複製後 md の stem）/ それ以外 → text node
+ * - cut + sameOutliner（sourceCtx と dest の imageDir+fileDir 文字列一致 = editor.js:18611 の
+ *   分岐と同一規則）は複製せず参照そのまま node 化（同一 note 内 move セマンティクス）。
+ * - source 実体は消さない（orphan → cleanup 回収。cut の統一規約）。
+ * pure 寄り関数（fs は copyMdPasteAssets 経由のみ）— unit から直接 require して behavioral 検証。
+ */
+export function runMdIntoOutlinerPaste(opts: {
+    mdText: string;
+    sourceContext: { imageDir: string; fileDir: string; mdDir: string };
+    isCut: boolean;
+    destOutDir: string;
+    destPagesDir: string;
+    destImagesDir: string;
+    destFilesDir: string;
+}): { nodes: MdOutlinerPasteNode[] } {
+    // SEC-4 (reviewer): sourceContext は OS クリップボード由来の外部入力。
+    // 3 フィールドが string でなければ複製せずプレーンテキスト扱い（型ガード）。
+    const ctx = opts.sourceContext;
+    if (!ctx || typeof ctx.imageDir !== 'string' || typeof ctx.fileDir !== 'string' || typeof ctx.mdDir !== 'string') {
+        opts = { ...opts, isCut: true, sourceContext: { imageDir: opts.destImagesDir, fileDir: opts.destFilesDir, mdDir: opts.destPagesDir } };
+    }
+    const sameOutliner = !!opts.sourceContext
+        && opts.sourceContext.imageDir === opts.destImagesDir
+        && opts.sourceContext.fileDir === opts.destFilesDir;
+
+    let body = opts.mdText || '';
+    if (!(opts.isCut && sameOutliner)) {
+        // copy / cross-cut: 実体を dest note へ複製しリンクを書換（既存エンジン流用）
+        const r = copyMdPasteAssets({
+            markdown: body,
+            sourceMdDir: opts.sourceContext.mdDir,
+            sourceImageDir: opts.sourceContext.imageDir,
+            sourceFileDir: opts.sourceContext.fileDir,
+            destImageDir: opts.destImagesDir,
+            destFileDir: opts.destFilesDir,
+            destMdDir: opts.destPagesDir,
+        });
+        body = r.rewrittenMarkdown;
+    }
+
+    // 行→node 変換。インデント規則は outliner.js pasteNodesFromText の外部経路と同一
+    // （タブ / 2〜4 スペース = 1 レベル・空行スキップ・先頭バレット除去）。
+    // リンク相対パスは destPagesDir 基準（copyMdPasteAssets の destMdDir）なので、
+    // node.images / node.filePath は destOutDir 基準に付け替える。
+    const toOutRel = (rel: string): string => {
+        const abs = path.resolve(opts.destPagesDir, rel);
+        return path.relative(opts.destOutDir, abs).replace(/\\/g, '/');
+    };
+
+    const imgLineRe = /^!\[([^\]]*)\]\(([^)\s"]+)(?:\s+"[^"]*")?\)$/;
+    const fileLineRe = /^\[📎\s*([^\]]*)\]\(([^)\s"]+)(?:\s+"[^"]*")?\)$/;
+    const subpageLineRe = /^\[\[([^\]]*)\]\]\(([^)\s"]+\.md)\)$/;
+
+    const nodes: MdOutlinerPasteNode[] = [];
+    for (const rawLine of body.split('\n')) {
+        let j = 0;
+        let level = 0;
+        let sawTab = false;
+        while (j < rawLine.length) {
+            if (rawLine[j] === '\t') { level++; j++; sawTab = true; }
+            else if (rawLine[j] === ' ' && !sawTab) {
+                let spaces = 0;
+                while (j < rawLine.length && rawLine[j] === ' ') { spaces++; j++; }
+                level += Math.max(1, Math.round(spaces / 2));
+            } else { break; }
+        }
+        let content = rawLine.substring(j).replace(/^(?:[-*+]|\d+\.)[ \t]+/, '').trim();
+        if (content === '') continue;
+
+        let m: RegExpMatchArray | null;
+        if ((m = content.match(imgLineRe)) !== null) {
+            nodes.push({ text: (m[1] || '').trim(), level, images: [toOutRel(m[2])] });
+        } else if ((m = content.match(fileLineRe)) !== null) {
+            nodes.push({ text: (m[1] || '').trim(), level, filePath: toOutRel(m[2]) });
+        } else if ((m = content.match(subpageLineRe)) !== null) {
+            const stem = path.basename(m[2].split(/[?#]/)[0], '.md');
+            nodes.push({ text: (m[1] || '').trim(), level, isPage: true, pageId: stem });
+        } else {
+            nodes.push({ text: content, level });
+        }
+    }
+    return { nodes };
+}

@@ -161,11 +161,15 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            // destination (sprint 20260808-000219): 結果 (pasteWithAssetCopyResult) の宛先識別。
+            // sidePanelFilePath を畳むのは SidePanelHostBridge の中継だけなので、その有無で
+            // sidepanel / main-md を確定できる。host は echo back するだけ（解釈しない）。
             postFn({
                 type: 'pasteWithAssetCopy',
                 markdown: markdown,
                 sourceContext: sourceContext,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
 

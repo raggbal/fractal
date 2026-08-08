@@ -115,6 +115,9 @@ export function getWebviewContent(
     // sprint 20260802-075012: md → PDF エクスポートの webview 側清書（editor.js より前に window.PdfExport を用意）
     const pdfExportScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
+    // FR-SPM-01 (sprint 20260808-000219): sidepanel header overflow menu（editor.js/outliner.js より前に window.SidePanelOverflow を用意）
+    const sidePanelOverflowScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'sidepanel-overflow.js'), 'utf8');
     // FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js より前に window.ShortcutList / ShortcutHud を用意）
     const shortcutListScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'shortcut-list.js'), 'utf8');
@@ -189,6 +192,7 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${pdfExportScript}
+        ${sidePanelOverflowScript}
     </script>
     <script nonce="${nonce}">
         ${shortcutListScript}

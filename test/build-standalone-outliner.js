@@ -93,6 +93,8 @@ const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
 const outlinerModelScript = fs.readFileSync(outlinerModelJsPath, 'utf-8');
 const outlinerSearchScript = fs.readFileSync(outlinerSearchJsPath, 'utf-8');
 const outlinerScript = fs.readFileSync(outlinerJsPath, 'utf-8');
+// FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
+const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // Mindmap Mode scripts + css
 const mindmapModelScript = fs.readFileSync(mindmapModelJsPath, 'utf-8');
 const mindmapLayoutScript = fs.readFileSync(mindmapLayoutJsPath, 'utf-8');
@@ -207,6 +209,10 @@ const testOutlinerHostBridge = `
         },
         handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
             window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
+        },
+        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste の一括解決依頼
+        pasteMdIntoOutliner: function(mdText, sourceContext, targetNodeId, isCut) {
+            window.__testApi.messages.push({ type: 'pasteMdIntoOutliner', mdText: mdText, sourceContext: sourceContext, targetNodeId: targetNodeId, isCut: !!isCut });
         },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
@@ -340,6 +346,9 @@ const html = `<!DOCTYPE html>
     __SHORTCUT_HUD_SCRIPT__
     </script>
     <script>
+    __SIDEPANEL_OVERFLOW_SCRIPT__
+    </script>
+    <script>
     __EDITOR_SCRIPT__
     </script>
     <script>
@@ -417,6 +426,7 @@ result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
+result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);

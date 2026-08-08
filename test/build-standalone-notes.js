@@ -103,6 +103,8 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
+// FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
+const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
 const notesHistoryPanelScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-history-panel.js'), 'utf-8');
 // sprint 20260723-233506: webview 内マルチタブ Tab Manager（本番 notesWebviewContent と同じ実体を inline）
@@ -163,6 +165,10 @@ const testNotesHostBridge = `
         },
         copyImagesCross: function(images, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
+        },
+        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste の一括解決依頼
+        pasteMdIntoOutliner: function(mdText, sourceContext, targetNodeId, isCut) {
+            window.__testApi.messages.push({ type: 'pasteMdIntoOutliner', mdText: mdText, sourceContext: sourceContext, targetNodeId: targetNodeId, isCut: !!isCut });
         },
         saveOutlinerClipboard: function(plainText, isCut, nodes) {
             window.__testApi.messages.push({ type: 'saveOutlinerClipboard', plainText: plainText, isCut: isCut, nodes: nodes });
@@ -474,6 +480,9 @@ const html = `<!DOCTYPE html>
     __NOTES_MD_DISPATCHER_SCRIPT__
     </script>
     <script>
+    __SIDEPANEL_OVERFLOW_SCRIPT__
+    </script>
+    <script>
     __NOTES_HISTORY_PANEL_SCRIPT__
     </script>
     <script>
@@ -539,6 +548,17 @@ const html = `<!DOCTYPE html>
         // FR-B09 (TASK-08): ツリー md → md editor D&D（本番 notes-host-bridge.js と同名メソッド）
         linkMdAsSubpage: function(filePath) {
             window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
+        },
+        // FR-XP-01 (sprint 20260808-000219): 本番 notes-host-bridge.js の pasteWithAssetCopy
+        // override をミラー（自 filePath を宛先として畳む + destination='main-md'）。
+        pasteWithAssetCopy: function(markdown, sourceContext) {
+            window.__testApi.messages.push({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                destination: 'main-md',
+            });
         },
     });
     window.__testApi.mdDispatcher = window.__initNotesMdDispatcher({
@@ -634,6 +654,7 @@ result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
 result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);
 fs.writeFileSync(outputPath, result);

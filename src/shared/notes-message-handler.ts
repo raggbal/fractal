@@ -4,7 +4,7 @@ import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut } from './paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
@@ -190,7 +190,7 @@ export interface NotesPlatformActions {
     /** FR-7: 手動クリーンアップコマンド (自ノート限定モード) */
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
     /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
-    pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string): void;
+    pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string, destination?: string): void;
     /** outliner node paste の添付複製 (sprint 20260727-124904)。nodes は Store が真実 (message.nodes は Store miss 時の fallback リスト用) */
     pasteOutlinerNodesWithAssets?(plainText: string, nodes: unknown[], sidePanelFilePath: string): void;
     /** HTML paste で MD に残った data:image/... を images/ に実体化し相対 path 化 */
@@ -629,6 +629,29 @@ export async function handleNotesMessage(
             break;
         }
 
+        case 'pasteMdIntoOutliner': {
+            // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste。
+            // sourceContext (text/x-any-md-context 由来) を使い、複製 + 行→node 変換を一括実行。
+            if (!message.mdText || !message.sourceContext || !message.targetNodeId) break;
+            const xpCurrentFile = fileManager.getCurrentFilePath();
+            const xpDestPagesDir = fileManager.getPagesDirPath();
+            const xpResult = runMdIntoOutlinerPaste({
+                mdText: message.mdText,
+                sourceContext: message.sourceContext,
+                isCut: !!message.isCut,
+                destOutDir: xpCurrentFile ? path.dirname(xpCurrentFile) : xpDestPagesDir,
+                destPagesDir: xpDestPagesDir,
+                destImagesDir: fileManager.getOutlinerImageDirPath(),
+                destFilesDir: fileManager.getFileDirPath(),
+            });
+            sender.postMessage({
+                type: 'pasteMdIntoOutlinerResult',
+                targetNodeId: message.targetNodeId,
+                nodes: xpResult.nodes,
+            });
+            break;
+        }
+
         case 'handleFileAssetCross': {
             const fileClipData = OutlinerClipboardStore.get(message.clipboardPlainText);
             if (!fileClipData || !message.filePath) break;
@@ -799,7 +822,9 @@ export async function handleNotesMessage(
 
         case 'pasteWithAssetCopy':
             if (message.sidePanelFilePath && message.markdown && message.sourceContext && platform.pasteWithAssetCopy) {
-                platform.pasteWithAssetCopy(message.markdown, message.sourceContext, message.sidePanelFilePath);
+                // FR-XP-01 (sprint 20260808-000219): destination は結果の宛先札（main-md /
+                // sidepanel / 旧形式 undefined）。host は解釈せず echo back するだけ。
+                platform.pasteWithAssetCopy(message.markdown, message.sourceContext, message.sidePanelFilePath, message.destination);
             }
             break;
 

@@ -344,6 +344,14 @@ export class NotesEditorProvider {
                     console.error('[Notes] initial md setupFileWatcher error:', e);
                 });
             });
+            // FR-XP-01 (sprint 20260808-000219): 初期 md は notesOpenFile (mdMainOpened) を
+            // 通らないため、ここでも assetContext を配線（mdMainOpened と対称）。
+            panel.webview.postMessage({
+                type: 'mainMdAssetContext',
+                imageDir: resolveImagesDirForMd(initialMdPath),
+                fileDir: resolveFilesDirForMd(initialMdPath),
+                mdDir: path.dirname(initialMdPath)
+            });
         }
 
         // サイドパネル管理
@@ -1393,6 +1401,15 @@ export class NotesEditorProvider {
                 mdMain.setupFileWatcher(filePath).catch(e => {
                     console.error('[Notes] mdMain.setupFileWatcher error:', e);
                 });
+                // FR-XP-01 (sprint 20260808-000219): main md の assetContext 配線。
+                // md メインペイン open の単一 choke point。dir 解決は sidepanel 送信
+                // (sendSidePanelImageDir :1698-1704) と同じ flat-layout ヘルパ（新規解決ロジック禁止）。
+                panel.webview.postMessage({
+                    type: 'mainMdAssetContext',
+                    imageDir: resolveImagesDirForMd(filePath),
+                    fileDir: resolveFilesDirForMd(filePath),
+                    mdDir: path.dirname(filePath)
+                });
             },
             // v0.207.82: Notes 内 .md 以外のファイル (.out) に切り替わった時 / md ファイルが
             // 削除された時 — TextDocument / watcher を破棄。
@@ -1796,9 +1813,9 @@ export class NotesEditorProvider {
                     markdown: result.markdown
                 });
             },
-            pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string) => {
+            pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string, destination?: string) => {
                 // v9: MD paste with asset copy (cross-outliner/cross-note paste)
-                // FR: 貼り付け先は sidepanel で開いている md の場所を基準にする
+                // FR: 貼り付け先は開いている md（sidepanel または main md pane）の場所を基準にする
                 const destImageDir = resolveImagesDirForMd(sidePanelFilePath);
                 const destFileDir = resolveFilesDirForMd(sidePanelFilePath);
                 const destMdDir = path.dirname(sidePanelFilePath);
@@ -1815,7 +1832,10 @@ export class NotesEditorProvider {
 
                 panel.webview.postMessage({
                     type: 'pasteWithAssetCopyResult',
-                    markdown: result.rewrittenMarkdown
+                    markdown: result.rewrittenMarkdown,
+                    // FR-XP-01: 宛先札の echo back（main-md なら outliner.js の転送 switch が
+                    // sidepanel への転送を止め、md pane の EditorInstance が直接受信する）
+                    destination
                 });
             },
             extractDataUrlsInPastedMd: (markdown: string, sidePanelFilePath: string) => {

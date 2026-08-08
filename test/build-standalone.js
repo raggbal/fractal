@@ -60,6 +60,8 @@ const colorPaletteScript = fs.readFileSync(path.join(__dirname, '../src/shared/n
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 // sprint 20260802-075012: PDF エクスポート webview 清書（window.PdfExport seam を露出。editor.js より前にロード）
 const pdfExportScript = fs.readFileSync(path.join(__dirname, '../src/webview/pdf-export-webview.js'), 'utf-8');
+// FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
+const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js より前にロード）
 const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
 const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
@@ -276,6 +278,9 @@ const html = `<!DOCTYPE html>
     __PDF_EXPORT_SCRIPT__
     </script>
     <script>
+    __SIDEPANEL_OVERFLOW_SCRIPT__
+    </script>
+    <script>
     __SHORTCUT_LIST_SCRIPT__
     </script>
     <script>
@@ -298,6 +303,7 @@ result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
 result = safeReplace(result, '__PDF_EXPORT_SCRIPT__', pdfExportScript);
+result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);

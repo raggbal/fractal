@@ -11,7 +11,7 @@ import {
     extractForceRelativeFilePath,
     removeAllDirectives
 } from './shared/markdown-directives';
-import { copyMdPasteAssets } from './shared/paste-asset-handler';
+import { copyMdPasteAssets, resolvePasteWithAssetCopyDest } from './shared/paste-asset-handler';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import {
     resolveSaveDirFromSidecar,
@@ -737,6 +737,21 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
         // Initial content
         updateWebview();
 
+        // FR-XP-01 (sprint 20260808-000219): main md の assetContext 配線。
+        // 従来 _assetContext は sidepanel 専用 (sidePanelAssetContext) で、main md の
+        // 範囲選択 copy に text/x-any-md-context が載らず cross-note asset 複製が発火しなかった。
+        // dir 解決は sidepanel 応答 (getSidePanelImageDir :1312-1334) と同じ既存 manager 導出。
+        const sendMainMdAssetContext = () => {
+            const docContent = document.getText();
+            webviewPanel.webview.postMessage({
+                type: 'mainMdAssetContext',
+                imageDir: imageDirectoryManager.getImageDirectory(document.uri, docContent),
+                fileDir: fileDirectoryManager.getFileDirectory(document.uri, docContent),
+                mdDir: path.dirname(document.uri.fsPath)
+            });
+        };
+        sendMainMdAssetContext();
+
         // Send initial image dir status (queued for webview)
         sendImageDirStatus();
 
@@ -809,6 +824,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
             // Update image dir status
             sendImageDirStatus();
+            // FR-XP-01 (reviewer QUAL-6): 本文ディレクティブ（imageDir/fileDir 指定）の外部書き換えで
+            // dir 導出が変わりうるため、document 変更でも assetContext を追随再送する
+            sendMainMdAssetContext();
 
             // MD-48: drawio 参照 diff を取り、watcher 追加/削除（既存ロジック無修正）
             updateDrawioRefs();
@@ -878,6 +896,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                 }
                 updateWebview();
                 sendImageDirStatus();
+                // updateWebview は webview.html を再構築する（webview state リセット）ため
+                // assetContext も再送する（FR-XP-01）
+                sendMainMdAssetContext();
             }
         });
 
@@ -1363,17 +1384,24 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 case 'pasteWithAssetCopy': {
                     // v9: MD paste with asset copy (cross-file paste)
-                    if (message.sidePanelFilePath && message.markdown && message.sourceContext) {
-                        const spUri = vscode.Uri.file(message.sidePanelFilePath);
+                    // FR-XP-01 (sprint 20260808-000219): sidePanelFilePath 必須ガードを seam
+                    // (resolvePasteWithAssetCopyDest) で緩和 — main md paste は自 document に畳む
+                    // (:1342 pasteOutlinerNodesWithAssets の `|| document.uri.fsPath` fallback と同型)。
+                    const xpDestMd = resolvePasteWithAssetCopyDest(
+                        message.sidePanelFilePath, document.uri.fsPath);
+                    if (xpDestMd && message.markdown && message.sourceContext) {
+                        const spUri = vscode.Uri.file(xpDestMd);
                         let spContent = '';
-                        if (sidePanel.document && !sidePanel.document.isClosed) {
+                        if (message.sidePanelFilePath && sidePanel.document && !sidePanel.document.isClosed) {
                             spContent = sidePanel.document.getText();
+                        } else if (!message.sidePanelFilePath) {
+                            spContent = document.getText();
                         } else {
-                            try { spContent = fs.readFileSync(message.sidePanelFilePath, 'utf-8'); } catch { /* empty */ }
+                            try { spContent = fs.readFileSync(xpDestMd, 'utf-8'); } catch { /* empty */ }
                         }
                         const destImageDir = imageDirectoryManager.getImageDirectory(spUri, spContent);
                         const destFileDir = fileDirectoryManager.getFileDirectory(spUri, spContent);
-                        const destMdDir = path.dirname(message.sidePanelFilePath);
+                        const destMdDir = path.dirname(xpDestMd);
 
                         const result = copyMdPasteAssets({
                             markdown: message.markdown,
@@ -1387,7 +1415,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                         webviewPanel.webview.postMessage({
                             type: 'pasteWithAssetCopyResult',
-                            markdown: result.rewrittenMarkdown
+                            markdown: result.rewrittenMarkdown,
+                            // destination echo back (解釈しない往復札。無指定なら従来 = sidepanel)
+                            destination: message.destination
                         });
                     }
                     break;

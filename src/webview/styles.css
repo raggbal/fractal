@@ -1773,6 +1773,52 @@ body {
 .side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
+/* FR-SPM-01 (sprint 20260808-000219): overflow「…」メニュー。
+   sp-overflowed = 幅不足で「…」メニューへ格納されたボタン（DOM は動かさず非表示のみ）。
+   !important は :413-414 の translate 表示制御等より優先させるため。 */
+.side-panel-header .sp-overflowed {
+    display: none !important;
+}
+.side-panel-header > .side-panel-overflow-btn {
+    flex-shrink: 0;
+}
+.side-panel-overflow-menu {
+    position: fixed;
+    background: var(--vscode-menu-background, #252526);
+    border: 1px solid var(--vscode-menu-border, #454545);
+    border-radius: 5px;
+    padding: 4px 0;
+    min-width: 144px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    z-index: 1000;
+    font-size: 12px;
+    color: var(--vscode-menu-foreground, #cccccc);
+}
+.side-panel-overflow-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 18px 5px 11px;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: left;
+}
+.side-panel-overflow-item:hover:not(:disabled) {
+    background: var(--vscode-menu-selectionBackground, #094771);
+    color: var(--vscode-menu-selectionForeground, #ffffff);
+}
+.side-panel-overflow-item:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.side-panel-overflow-item svg {
+    flex-shrink: 0;
+}
 /* wrapper は gap:4px で並べるため、ボタン個別の margin-right(4px) が gap と二重加算されて
    app link の左右だけ広く見えていた → wrapper 内では margin を殺して gap に一本化。
    sprint 20260803-013547 TASK-03 */
