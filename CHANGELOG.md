@@ -5,6 +5,18 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.24] - 2026-08-09
+
+### Added
+- **Cross-note copy/paste now duplicates linked files in all four directions** — selecting markdown containing image / 📎 file / subpage links and pasting into another note now copies the actual files into the destination note (previously only the sidepanel md path worked; main-pane md → md and md → outliner silently pasted broken links):
+  - **md → md (main pane)**: images, attachments, and subpage `.md` files (recursively, including their own images) are duplicated into the destination note and links are rewritten
+  - **md → outliner**: whole-line image / 📎 / subpage links become proper attachment, image, and page nodes (clickable, backed by duplicated files); mixed text lines keep working links; plain external text pastes unchanged
+  - Cut (`Cmd+X`) follows the existing cross-note semantics: same note = move, different note = duplicate (source file kept as orphan for cleanup)
+- **Side panel header overflow menu** — when the panel is too narrow, buttons that no longer fit collapse into a "…" menu (rightmost first, VS Code toolbar style) instead of hiding behind a barely-visible horizontal scrollbar. Widening the panel restores them; works with the translation view
+
+### Fixed
+- **File names containing spaces were silently skipped during paste duplication** (e.g. `My Document.docx`) — asset extraction now uses the canonical markdown link parser instead of a whitespace-breaking regex, in both md → md and md → outliner paths
+
 ## [1.1.23] - 2026-08-07
 
 ### Fixed

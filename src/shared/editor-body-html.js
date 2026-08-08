@@ -205,6 +205,13 @@ function generateSidePanelHtml(messages) {
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
                     </button>
                     </div>
+                    <!-- FR-SPM-01 (sprint 20260808-000219): overflow「…」メニュー。狭幅で溢れた
+                         非固定ボタンのプロキシ item を持つ。scroll 外＝固定（常に押せる）。
+                         格納ボタンが 0 のときは sidepanel-overflow.js が display:none にする -->
+                    <button class="side-panel-header-btn side-panel-overflow-btn" id="sidePanelOverflowBtn" title="${msg.overflowMenuTitle || 'More actions'}" style="display:none">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                    </button>
+                    <div class="side-panel-overflow-menu" id="sidePanelOverflowMenu" style="display:none"></div>
                     <!-- sprint 20260725: open-in-tab は close と同様に scroll 外＝固定表示（狭幅でも隠れない） -->
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>

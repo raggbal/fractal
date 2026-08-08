@@ -85,6 +85,9 @@ export function getOutlinerWebviewContent(
         path.join(__dirname, 'shared', 'shortcut-hud.js'), 'utf8');
     const pdfExportScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'pdf-export-webview.js'), 'utf8');
+    // FR-SPM-01 (sprint 20260808-000219): sidepanel header overflow menu（editor.js/outliner.js より前に window.SidePanelOverflow を用意）
+    const sidePanelOverflowScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'sidepanel-overflow.js'), 'utf8');
 
     const editorScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor.js'), 'utf8')
@@ -212,6 +215,7 @@ export function getOutlinerWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${pdfExportScript}
+        ${sidePanelOverflowScript}
     </script>
     <script nonce="${nonce}">
         ${shortcutListScript}

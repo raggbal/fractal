@@ -4372,6 +4372,27 @@ var Outliner = (function() {
         var isCutPaste = sel.isCut;
         var clipSourceKey = sel.sourceOutFileKey || null;
 
+        // FR-XP-02 (sprint 20260808-000219): md エディタ範囲選択 copy 由来の paste。
+        // 従来 external 経路はバレット除去 + URL 変換だけで、md リンク構文
+        // (![](images/x.png) / [📎 y](files/y.pdf) / [[t]](z.md)) が生テキスト node になり
+        // 相対パスが dest note で解決できずリンク切れだった（handler 不在）。
+        // text/x-any-md-context (source note の dir 情報) がある場合のみ host に一括解決を
+        // 依頼し、pasteMdIntoOutlinerResult (確定 node 配列) を待つ。
+        // context の無い純粋外部テキスト paste は従来経路のまま (NFR-XP-03)。
+        if (sel.source === 'external' && e.clipboardData && typeof host.pasteMdIntoOutliner === 'function') {
+            var xpMd = e.clipboardData.getData('text/x-any-md');
+            var xpCtxRaw = e.clipboardData.getData('text/x-any-md-context');
+            if (xpMd && xpCtxRaw) {
+                var xpCtx = null;
+                try { xpCtx = JSON.parse(xpCtxRaw); } catch (xpErr) { xpCtx = null; }
+                if (xpCtx && xpCtx.imageDir && xpCtx.fileDir && xpCtx.mdDir) {
+                    var xpIsCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+                    host.pasteMdIntoOutliner(xpMd, xpCtx, nodeId, xpIsCut);
+                    return; // pasteMdIntoOutlinerResult 受信で挿入（画像 paste と同じ非同期パターン）
+                }
+            }
+        }
+
         // カット消費: internalClip が採用され かつ cut の時のみ (従来と同一)
         if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
             internalClipboard = null;
@@ -4634,6 +4655,74 @@ var Outliner = (function() {
             for (var cl = level + 1; cl <= 10; cl++) {
                 delete levelToLastId[cl];
             }
+        }
+
+        renderTree();
+        if (lastId) { focusNode(lastId); }
+        scheduleSyncToHost();
+    }
+
+    /**
+     * FR-XP-02 (sprint 20260808-000219): pasteMdIntoOutlinerResult の確定 node 配列を挿入。
+     * host が複製・変換済みの {text, level, images?, filePath?, isPage?, pageId?} を
+     * pasteNodesFromText と同じ規則（levelToLastId 親子構築・挿入位置）でモデルに追加する。
+     * host 確定値をそのまま採用（placeholder 上書き postback は無い = 単一 postback 方式）。
+     */
+    function insertMdPasteNodes(targetNodeId, pasteNodes) {
+        if (!pasteNodes || pasteNodes.length === 0) { return; }
+        var anchor = model.getNode(targetNodeId);
+        if (!anchor) { return; }
+        saveSnapshot();
+
+        // 挿入位置は handleNodePaste の複数行経路と同じ:
+        // 空 leaf ノード → 置換 / それ以外 → 直後に兄弟として挿入
+        var baseParentId, afterId, insertAtStart = false;
+        var anchorText = (anchor.text || '').trim();
+        var anchorHasChildren = !!(anchor.children && anchor.children.length > 0);
+        if (anchorText === '' && !anchorHasChildren) {
+            baseParentId = anchor.parentId;
+            var xpSiblings = baseParentId ? (model.getNode(baseParentId).children || []) : model.rootIds;
+            var xpIdx = xpSiblings.indexOf(targetNodeId);
+            afterId = xpIdx > 0 ? xpSiblings[xpIdx - 1] : null;
+            insertAtStart = xpIdx === 0;
+            model.removeNode(targetNodeId);
+        } else {
+            baseParentId = anchor.parentId;
+            afterId = targetNodeId;
+        }
+
+        // 最小レベルを 0 に正規化（pasteNodesFromText と同じ）
+        var minLv = Infinity;
+        for (var i = 0; i < pasteNodes.length; i++) {
+            if (pasteNodes[i].level < minLv) { minLv = pasteNodes[i].level; }
+        }
+        if (!isFinite(minLv)) { minLv = 0; }
+
+        var levelToLastId = {};
+        var lastId = null;
+        for (var n = 0; n < pasteNodes.length; n++) {
+            var pn = pasteNodes[n];
+            var level = Math.max(0, (pn.level || 0) - minLv);
+            var parentId, after;
+            if (level === 0) {
+                parentId = baseParentId;
+                after = (n === 0) ? afterId : levelToLastId[0] || afterId;
+            } else {
+                parentId = levelToLastId[level - 1] || baseParentId;
+                after = null;
+            }
+            var newNode;
+            if (n === 0 && level === 0 && insertAtStart && !after) {
+                newNode = model.addNodeAtStart(parentId, pn.text || '');
+            } else {
+                newNode = model.addNode(parentId, after, pn.text || '');
+            }
+            if (pn.images && pn.images.length > 0) { newNode.images = pn.images.slice(); }
+            if (pn.filePath) { newNode.filePath = pn.filePath; }
+            if (pn.isPage && pn.pageId) { newNode.isPage = true; newNode.pageId = pn.pageId; }
+            levelToLastId[level] = newNode.id;
+            lastId = newNode.id;
+            for (var cl = level + 1; cl <= 10; cl++) { delete levelToLastId[cl]; }
         }
 
         renderTree();
@@ -7871,6 +7960,8 @@ var Outliner = (function() {
                     actions.innerHTML =
                         '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>' +
                         '<button class="side-panel-header-btn fractal-translation-save" data-action="translateSave" title="Save translation as child page in outliner">翻訳結果を保存</button>';
+                    // FR-SPM-01: 差し替えで格納状態が stale になるので明示再計算（暗黙監視より決定論）
+                    if (window.SidePanelOverflow) { window.SidePanelOverflow.recalc(); }
                     var backBtn = actions.querySelector('[data-action="translateBack"]');
                     if (backBtn) {
                         backBtn.addEventListener('click', function() {
@@ -8149,6 +8240,10 @@ var Outliner = (function() {
             });
         }
 
+        // FR-SPM-01 (sprint 20260808-000219): sidepanel open のたびに overflow メニューを初期化
+        //（init は idempotent。ResizeObserver 配線 + 初回 recalc）
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.init(); }
+
         // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
         // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
         // scroll 復元の同期アンカー（§5・ADRL-TABS-SCROLL）。復元中は下の 400ms auto-focus を skip。
@@ -8219,6 +8314,8 @@ var Outliner = (function() {
         if (actions) {
             actions.innerHTML = sidePanelPreTranslationState.actionsHtml;
         }
+        // FR-SPM-01: 復元直後に overflow 格納状態を再計算
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.recalc(); }
     }
 
     function closeSidePanelImmediate(isSwitch) {
@@ -8883,6 +8980,13 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'pasteMdIntoOutlinerResult': {
+                    // FR-XP-02 (sprint 20260808-000219): host が md 行→node 変換 + asset 複製を
+                    // 一括実行した確定 node 配列（単一 postback。placeholder 上書き不要）。
+                    insertMdPasteNodes(msg.targetNodeId, msg.nodes || []);
+                    break;
+                }
+
                 case 'updateData':
                     // ADR-008: kind === 'md' の updateData は notes webview の markdown
                     // dispatcher が処理する。outliner はノータッチ。
@@ -9359,6 +9463,11 @@ var Outliner = (function() {
                     break;
 
                 case 'pasteWithAssetCopyResult':
+                    // FR-XP-01 (sprint 20260808-000219): destination='main-md' は Notes md
+                    // メインペイン宛（notesMarkdownHostBridge の window listener 経由で
+                    // md EditorInstance が直接受信する）。sidepanel へ転送すると二重挿入になる
+                    // ため転送しない。destination 無し（旧形式）と 'sidepanel' は従来どおり転送。
+                    if (msg.destination === 'main-md') { break; }
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
                             type: 'pasteWithAssetCopyResult',

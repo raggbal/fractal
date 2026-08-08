@@ -862,22 +862,24 @@ export function extractAllAssetRefs(md: string): {
     const mdLinks = new Set<string>();
     const mdLinkRefs: { url: string; isSubpage: boolean }[] = [];
     if (!md) return { images: [], files: [], mdLinks: [], mdLinkRefs: [] };
-    // images: ![alt](url)
-    const imgRe = /!\[[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = imgRe.exec(md)) !== null) {
-        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+    // images / files: 正典パーサ parseMarkdownLinks で抽出する（bugfix 2026-08-09:
+    // 旧 regex `[^)\s"]+` はスペース入りファイル名 `files/my file.docx` にマッチせず
+    // 複製から silent 脱落していた。パーサは括弧バランス走査でスペースを扱える）。
+    // url 正規化は旧 regex と同一: trim → <>strip → 末尾 title strip → ?# 除去。
+    const normalizeAssetUrl = (raw: string): string => {
+        let u = (raw || '').trim().replace(/^<|>$/g, '');
+        u = u.replace(/\s+["'][^"']*["']\s*$/, ''); // 末尾 title ("..." / '...') を除去
+        return u.split(/[?#]/)[0];
+    };
+    for (const tok of parser.parseMarkdownLinks(md) as Array<{ kind: string; alt: string; url: string }>) {
+        const url = normalizeAssetUrl(tok.url);
         if (!url) continue;
         if (/^(data:|https?:|file:)/i.test(url)) continue; // remote / data は除外
-        images.add(url);
-    }
-    // files: [📎 ...](url)
-    const fileRe = /\[📎[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
-    while ((m = fileRe.exec(md)) !== null) {
-        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
-        if (!url) continue;
-        if (/^(data:|https?:|file:)/i.test(url)) continue;
-        files.add(url);
+        if (tok.kind === 'image') {
+            images.add(url);
+        } else if (tok.kind === 'link' && (tok.alt || '').trim().indexOf('📎') === 0) {
+            files.add(url);
+        }
     }
     // mdLinks / mdLinkRefs: parser.parseMarkdownLinks で subpage 判別を一元化 (`[[]]` も拾う)
     // url 正規化: title strip (`[x](y.md "title")`) → クエリ/フラグメント除去
@@ -1325,4 +1327,140 @@ export function runOutlinerNodesExportBundle(opts: {
     } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
+}
+
+/**
+ * FR-XP-01 (sprint 20260808-000219): pasteWithAssetCopy の宛先 md 解決 seam。
+ * sidepanel 経路は message.sidePanelFilePath が畳まれているのでそれを使い、
+ * main md 経路（sidePanelFilePath なし）は host が知る自 document のパスに fallback する。
+ * 従来は sidePanelFilePath 必須ガードで main md paste が silent no-op だった
+ * （notes-host-bridge.js:265-276 の pasteOutlinerNodesWithAssets override と同型の穴）。
+ * pure 関数（fs/vscode 非依存）— unit から直接 require して behavioral 検証する。
+ */
+export function resolvePasteWithAssetCopyDest(
+    sidePanelFilePath: string | undefined | null,
+    documentFsPath: string | undefined | null
+): string | null {
+    if (sidePanelFilePath) return sidePanelFilePath;
+    if (documentFsPath) return documentFsPath;
+    return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// md 範囲選択 copy → outliner paste の添付 node 化 + asset 複製
+// (sprint 20260808-000219 FR-XP-02 / ADRL-md-paste-transport「単一 postback」)
+// webview (outliner.js handleNodePaste) が text/x-any-md + context を host へ送り
+// (pasteMdIntoOutliner)、host が本関数で複製 + 行→node 変換を一括実行して
+// pasteMdIntoOutlinerResult で確定 node 配列を返す。per-line cross message
+// (updateNodeFilePath 等の placeholder 上書き postback) は使わない。
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MdOutlinerPasteNode {
+    text: string;
+    level: number;
+    images?: string[];
+    filePath?: string;
+    isPage?: boolean;
+    pageId?: string;
+}
+
+/**
+ * FR-XP-02: md テキストを outliner node 記述の配列に変換する。
+ * - 実体複製は copyMdPasteAssets（既存エンジン・無変更）に委譲し、書換済み md の
+ *   行を分類する: 行全体が画像リンク → 画像 node / 行全体が 📎 → file 添付 node /
+ *   行全体が subpage [[t]](x.md) → page node（pageId = 複製後 md の stem）/ それ以外 → text node
+ * - cut + sameOutliner（sourceCtx と dest の imageDir+fileDir 文字列一致 = editor.js:18611 の
+ *   分岐と同一規則）は複製せず参照そのまま node 化（同一 note 内 move セマンティクス）。
+ * - source 実体は消さない（orphan → cleanup 回収。cut の統一規約）。
+ * pure 寄り関数（fs は copyMdPasteAssets 経由のみ）— unit から直接 require して behavioral 検証。
+ */
+export function runMdIntoOutlinerPaste(opts: {
+    mdText: string;
+    sourceContext: { imageDir: string; fileDir: string; mdDir: string };
+    isCut: boolean;
+    destOutDir: string;
+    destPagesDir: string;
+    destImagesDir: string;
+    destFilesDir: string;
+}): { nodes: MdOutlinerPasteNode[] } {
+    // SEC-4 (reviewer): sourceContext は OS クリップボード由来の外部入力。
+    // 3 フィールドが string でなければ複製せずプレーンテキスト扱い（型ガード）。
+    const ctx = opts.sourceContext;
+    if (!ctx || typeof ctx.imageDir !== 'string' || typeof ctx.fileDir !== 'string' || typeof ctx.mdDir !== 'string') {
+        opts = { ...opts, isCut: true, sourceContext: { imageDir: opts.destImagesDir, fileDir: opts.destFilesDir, mdDir: opts.destPagesDir } };
+    }
+    const sameOutliner = !!opts.sourceContext
+        && opts.sourceContext.imageDir === opts.destImagesDir
+        && opts.sourceContext.fileDir === opts.destFilesDir;
+
+    let body = opts.mdText || '';
+    if (!(opts.isCut && sameOutliner)) {
+        // copy / cross-cut: 実体を dest note へ複製しリンクを書換（既存エンジン流用）
+        const r = copyMdPasteAssets({
+            markdown: body,
+            sourceMdDir: opts.sourceContext.mdDir,
+            sourceImageDir: opts.sourceContext.imageDir,
+            sourceFileDir: opts.sourceContext.fileDir,
+            destImageDir: opts.destImagesDir,
+            destFileDir: opts.destFilesDir,
+            destMdDir: opts.destPagesDir,
+        });
+        body = r.rewrittenMarkdown;
+    }
+
+    // 行→node 変換。インデント規則は outliner.js pasteNodesFromText の外部経路と同一
+    // （タブ / 2〜4 スペース = 1 レベル・空行スキップ・先頭バレット除去）。
+    // リンク相対パスは destPagesDir 基準（copyMdPasteAssets の destMdDir）なので、
+    // node.images / node.filePath は destOutDir 基準に付け替える。
+    const toOutRel = (rel: string): string => {
+        const abs = path.resolve(opts.destPagesDir, rel);
+        return path.relative(opts.destOutDir, abs).replace(/\\/g, '/');
+    };
+
+    // 行全体が単一リンクか（bugfix 2026-08-09: 旧 regex `[^)\s"]+` はスペース入り
+    // ファイル名にマッチせず、docx がテキスト node に落ちてリンク切れになった。
+    // 正典パーサで解析し「行 == リンクトークン 1 個」を判定する）。
+    const classifyLine = (content: string): { kind: 'image' | 'file' | 'subpage'; alt: string; url: string } | null => {
+        const toks = parser.parseMarkdownLinks(content) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }>;
+        if (toks.length !== 1) return null;
+        const t = toks[0];
+        if (t.start !== 0 || t.end !== content.length) return null; // 行内混在はテキスト node
+        const url = (t.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        if (!url) return null;
+        const altTrim = (t.alt || '').trim();
+        if (t.kind === 'image') return { kind: 'image', alt: altTrim, url };
+        if (t.isSubpage && url.toLowerCase().endsWith('.md')) return { kind: 'subpage', alt: altTrim, url };
+        if (altTrim.indexOf('📎') === 0) return { kind: 'file', alt: altTrim.replace(/^📎\s*/, ''), url };
+        return null;
+    };
+
+    const nodes: MdOutlinerPasteNode[] = [];
+    for (const rawLine of body.split('\n')) {
+        let j = 0;
+        let level = 0;
+        let sawTab = false;
+        while (j < rawLine.length) {
+            if (rawLine[j] === '\t') { level++; j++; sawTab = true; }
+            else if (rawLine[j] === ' ' && !sawTab) {
+                let spaces = 0;
+                while (j < rawLine.length && rawLine[j] === ' ') { spaces++; j++; }
+                level += Math.max(1, Math.round(spaces / 2));
+            } else { break; }
+        }
+        let content = rawLine.substring(j).replace(/^(?:[-*+]|\d+\.)[ \t]+/, '').trim();
+        if (content === '') continue;
+
+        const cls = classifyLine(content);
+        if (cls && cls.kind === 'image') {
+            nodes.push({ text: cls.alt, level, images: [toOutRel(cls.url)] });
+        } else if (cls && cls.kind === 'file') {
+            nodes.push({ text: cls.alt, level, filePath: toOutRel(cls.url) });
+        } else if (cls && cls.kind === 'subpage') {
+            const stem = path.basename(cls.url, '.md');
+            nodes.push({ text: cls.alt, level, isPage: true, pageId: stem });
+        } else {
+            nodes.push({ text: content, level });
+        }
+    }
+    return { nodes };
 }

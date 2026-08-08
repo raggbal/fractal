@@ -2415,6 +2415,52 @@ body {
 .side-panel-header-scroll > .side-panel-copy-inapp-link {
     flex-shrink: 0;
 }
+/* FR-SPM-01 (sprint 20260808-000219): overflow「…」メニュー。
+   sp-overflowed = 幅不足で「…」メニューへ格納されたボタン（DOM は動かさず非表示のみ）。
+   !important は :413-414 の translate 表示制御等より優先させるため。 */
+.side-panel-header .sp-overflowed {
+    display: none !important;
+}
+.side-panel-header > .side-panel-overflow-btn {
+    flex-shrink: 0;
+}
+.side-panel-overflow-menu {
+    position: fixed;
+    background: var(--vscode-menu-background, #252526);
+    border: 1px solid var(--vscode-menu-border, #454545);
+    border-radius: 5px;
+    padding: 4px 0;
+    min-width: 144px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    z-index: 1000;
+    font-size: 12px;
+    color: var(--vscode-menu-foreground, #cccccc);
+}
+.side-panel-overflow-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 18px 5px 11px;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    text-align: left;
+}
+.side-panel-overflow-item:hover:not(:disabled) {
+    background: var(--vscode-menu-selectionBackground, #094771);
+    color: var(--vscode-menu-selectionForeground, #ffffff);
+}
+.side-panel-overflow-item:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+.side-panel-overflow-item svg {
+    flex-shrink: 0;
+}
 /* wrapper は gap:4px で並べるため、ボタン個別の margin-right(4px) が gap と二重加算されて
    app link の左右だけ広く見えていた → wrapper 内では margin を殺して gap に一本化。
    sprint 20260803-013547 TASK-03 */
@@ -5479,6 +5525,13 @@ body.mm-dragging, body.mm-dragging * {
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
                     </button>
                     </div>
+                    <!-- FR-SPM-01 (sprint 20260808-000219): overflow「…」メニュー。狭幅で溢れた
+                         非固定ボタンのプロキシ item を持つ。scroll 外＝固定（常に押せる）。
+                         格納ボタンが 0 のときは sidepanel-overflow.js が display:none にする -->
+                    <button class="side-panel-header-btn side-panel-overflow-btn" id="sidePanelOverflowBtn" title="More actions" style="display:none">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                    </button>
+                    <div class="side-panel-overflow-menu" id="sidePanelOverflowMenu" style="display:none"></div>
                     <!-- sprint 20260725: open-in-tab は close と同様に scroll 外＝固定表示（狭幅でも隠れない） -->
                     <button class="side-panel-open-tab" id="sidePanelOpenTab" title="Open in new tab">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -8508,6 +8561,198 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
     window.ShortcutHud = _api;
 }
+
+    </script>
+    <script>
+    /**
+ * Side panel header overflow menu — FR-SPM-01 (sprint 20260808-000219)
+ *
+ * 狭幅時に `.side-panel-header-scroll` 内の非固定ボタンが横スクロールに隠れて
+ * 押せない問題への対策。溢れる分だけ右端のボタンから順に `sp-overflowed` クラス
+ * （CSS display:none）を付け、「…」ボタンのプロキシメニューから発火できるようにする。
+ *
+ * 設計原則（ADRL-sidepanel-overflow-menu）:
+ *  - ボタン DOM は一切動かさない（editor.js:16677 / outliner.js:8016 の 2 実装の
+ *    cloneNode 配線・undo/redo disabled 直接操作・styles.css の祖先属性セレクタを断線させない）
+ *  - メニュー item は開くたびに溢れボタンを走査して再生成するプロキシ
+ *    （click は元ボタン element の .click() を委譲。disabled/title は開いた時点のスナップショット）
+ *  - filename は格納対象外（従来の ellipsis 縮小のまま）
+ *  - computed display:none の元ボタン（copy-inapp-link の Notes 限定 / translate 設定 OFF）は
+ *    幅を消費しないため走査 skip（候補外）
+ *  - 翻訳ビューの innerHTML 差し替え/復元直後は呼び出し側が recalc() を明示コール（決定論）
+ *
+ * 3 host（Notes / standalone outliner / standalone md）の webviewContent が共通ロードする。
+ */
+(function() {
+    'use strict';
+
+    var _wired = false;
+    var _menuOpen = false;
+
+    function header() { return document.querySelector('.side-panel .side-panel-header'); }
+    function scrollEl() { return document.querySelector('.side-panel .side-panel-header-scroll'); }
+    function overflowBtn() { return document.getElementById('sidePanelOverflowBtn'); }
+    function menuEl() { return document.getElementById('sidePanelOverflowMenu'); }
+
+    /** 格納候補: scroll 内の非固定ボタン（filename は対象外）。DOM 順で返す。 */
+    function candidates() {
+        var scroll = scrollEl();
+        if (!scroll) return [];
+        var list = [];
+        var actions = scroll.querySelector('.side-panel-header-actions');
+        if (actions) {
+            var kids = actions.children;
+            for (var i = 0; i < kids.length; i++) {
+                if (kids[i].tagName === 'BUTTON') list.push(kids[i]);
+            }
+        }
+        var copyPath = scroll.querySelector('.side-panel-copy-path');
+        if (copyPath) list.push(copyPath);
+        var inapp = scroll.querySelector('.side-panel-copy-inapp-link');
+        if (inapp) list.push(inapp);
+        return list;
+    }
+
+    /** 元々非表示（設定 OFF / Notes 限定）のボタンか。sp-overflowed 自身は除いて判定する。 */
+    function isNativelyHidden(btn) {
+        if (btn.classList.contains('sp-overflowed')) {
+            // 一時的に外して computed を見る（restore は同期なので描画チラつきなし）
+            btn.classList.remove('sp-overflowed');
+            var hidden = getComputedStyle(btn).display === 'none';
+            btn.classList.add('sp-overflowed');
+            return hidden;
+        }
+        return getComputedStyle(btn).display === 'none';
+    }
+
+    /**
+     * 幅再計算: 全候補を一旦表示に戻して自然幅を測り、収まらない分を右端から格納する。
+     * 溢れ判定は「scroll 内コンテンツの必要幅 > scroll の利用可能幅」。
+     */
+    function recalc() {
+        var scroll = scrollEl();
+        var btn = overflowBtn();
+        if (!scroll || !btn) return;
+
+        // 翻訳ビュー中も通常時も同じ扱い: その時点で actions にあるボタン（翻訳ビューなら
+        // Back/Save）を候補として幅判定する。差し替え/復元の直後は呼び出し側（outliner.js）が
+        // recalc() を明示コールして stale 格納を掃除する（FR-SPM-01）
+        var cands = candidates().filter(function(b) { return !isNativelyHidden(b); });
+
+        // 一旦全部戻して自然幅を測る
+        for (var i = 0; i < cands.length; i++) cands[i].classList.remove('sp-overflowed');
+        btn.style.display = 'none';
+
+        if (cands.length === 0) { closeMenu(); return; }
+
+        // scrollWidth > clientWidth = 溢れ。右端から 1 個ずつ格納して再判定。
+        var overflowed = [];
+        var guard = cands.length;
+        while (scroll.scrollWidth > scroll.clientWidth + 1 && guard-- > 0) {
+            // 「…」ボタン自身の幅も必要になるので、1 個でも格納が始まったら表示して測り直す
+            btn.style.display = '';
+            var next = null;
+            for (var k = cands.length - 1; k >= 0; k--) {
+                if (!cands[k].classList.contains('sp-overflowed')) { next = cands[k]; break; }
+            }
+            if (!next) break;
+            next.classList.add('sp-overflowed');
+            overflowed.push(next);
+        }
+
+        btn.style.display = overflowed.length > 0 ? '' : 'none';
+        if (overflowed.length === 0) closeMenu();
+        else if (_menuOpen) buildMenu(); // 開いたまま幅が変わったら item を作り直す
+    }
+
+    /** メニュー item を溢れボタンから再生成（プロキシ方式）。 */
+    function buildMenu() {
+        var menu = menuEl();
+        if (!menu) return;
+        menu.innerHTML = '';
+        var over = candidates().filter(function(b) {
+            return b.classList.contains('sp-overflowed') && !isNativelyHidden(b);
+        });
+        for (var i = 0; i < over.length; i++) {
+            (function(src) {
+                var item = document.createElement('button');
+                item.className = 'side-panel-overflow-item';
+                item.type = 'button';
+                item.disabled = !!src.disabled;
+                // icon（svg）を複製 + title をラベルに
+                var icon = src.querySelector('svg');
+                if (icon) item.appendChild(icon.cloneNode(true));
+                var label = document.createElement('span');
+                label.textContent = src.title || src.getAttribute('data-action') || '';
+                item.appendChild(label);
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeMenu();
+                    src.click(); // 元ボタンの既存配線へ委譲（DOM 不動の要）
+                });
+                menu.appendChild(item);
+            })(over[i]);
+        }
+    }
+
+    function openMenu() {
+        var menu = menuEl();
+        var btn = overflowBtn();
+        if (!menu || !btn) return;
+        buildMenu();
+        menu.style.display = 'block';
+        _menuOpen = true;
+        // 「…」ボタン直下に配置（header は position 文脈を持たないので fixed で viewport 基準）
+        var r = btn.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = (r.bottom + 4) + 'px';
+        menu.style.right = Math.max(4, window.innerWidth - r.right) + 'px';
+        menu.style.left = 'auto';
+    }
+
+    function closeMenu() {
+        var menu = menuEl();
+        if (menu) menu.style.display = 'none';
+        _menuOpen = false;
+    }
+
+    /** 初期化（idempotent）。sidepanel open 時に editor.js / outliner.js から呼ばれる。 */
+    function init() {
+        var btn = overflowBtn();
+        var hd = header();
+        if (!btn || !hd) return;
+        if (!_wired) {
+            _wired = true;
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (_menuOpen) closeMenu(); else openMenu();
+            });
+            document.addEventListener('click', function(e) {
+                if (!_menuOpen) return;
+                var menu = menuEl();
+                if (menu && !menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+                    closeMenu();
+                }
+            });
+            if (typeof ResizeObserver !== 'undefined' && !window.__disableSidePanelOverflowObserver) {
+                var ro = new ResizeObserver(function() {
+                    if (window.__disableSidePanelOverflowObserver) return; // テスト用 counterfactual フラグ
+                    recalc();
+                });
+                ro.observe(hd);
+            }
+        }
+        recalc();
+    }
+
+    window.SidePanelOverflow = {
+        init: init,
+        recalc: recalc,
+        closeMenu: closeMenu,
+    };
+})();
 
     </script>
     <script>
@@ -24360,9 +24605,42 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // FR-XP-01 (sprint 20260808-000219): この instance が sidepanel 内かの判定。
+        // host の型で判定しない（Notes の sidepanel bridge は outliner.js 側の別実装で
+        // _mainHost を持たない — 共有判定を host 実装差に依存させない）。DOM 位置が唯一の真実。
+        var _xpInSidePanel = !!(container && container.closest && container.closest('.side-panel'));
+        // FR-XP-01: main md の asset context 配線。
+        // sidepanel の sidePanelAssetContext (outliner.js:9351) と対になる main md 版。
+        // これが載ると copy/cut (:18393/:18430) が text/x-any-md-context を積み、
+        // paste (:18611) が cross-note asset 複製分岐に入る。
+        // sidepanel instance は従来どおり sidePanelAssetContext 経由なので除外。
+        if (message.type === 'mainMdAssetContext') {
+            if (!_xpInSidePanel) {
+                host._assetContext = {
+                    imageDir: message.imageDir,
+                    fileDir: message.fileDir,
+                    mdDir: message.mdDir
+                };
+            }
+            return;
+        }
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
         if (message.type === 'pasteWithAssetCopyResult') {
             logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            // FR-XP-01: destination ルーティング。main-md 宛は main md instance だけが処理し、
+            // sidepanel 宛は sidepanel instance だけが処理する。
+            // destination 無し（旧形式 = pasteOutlinerNodesWithAssets の結果等）は従来どおり無条件処理。
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) {
+                // standalone editor では main instance の callback が唯一の window 受信者なので
+                // 自分の sidepanel instance へ delegate する（Notes では md pane に sidepanel DOM が
+                // 無く sidePanelHostBridge は常に null → outliner.js:9361 switch が配送 = 二重配送なし）。
+                if (typeof sidePanelHostBridge !== 'undefined' && sidePanelHostBridge
+                    && typeof sidePanelInstance !== 'undefined' && sidePanelInstance) {
+                    sidePanelHostBridge._sendMessage(message);
+                }
+                return;
+            }
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
             if (!message.markdown) return;
             undoManager.saveSnapshot();
             markAsEdited();
@@ -24820,11 +25098,6 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('Subpage link element inserted');
-        } else if (message.type === 'pasteWithAssetCopyResult') {
-            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage(message);
-            }
         } else if (message.type === 'extractDataUrlsInPastedMdResult') {
             // data URL extraction result - delegate to side panel EditorInstance if present
             if (sidePanelHostBridge) {
@@ -24963,6 +25236,13 @@ class EditorInstance {
                 logger.log('[Any MD] dropping stale sidePanel update for', spData.filePath,
                     '(current=', sidePanelFilePath, ')');
                 return;
+            }
+            // TASK-04 (sprint 20260806-165116): 外部更新でも目次を更新する。
+            // TOC の更新経路は従来「open 時の toc 同梱」と「ユーザー編集の syncContent →
+            // onTocUpdate」の 2 つだけで、外部編集（AI CLI）の update はここを素通りして
+            // 本文だけ変わり目次が古いまま残っていた。
+            if (spData.type === 'update' && typeof spData.content === 'string') {
+                updateSidePanelTocFromMarkdown(spData.content);
             }
             // それ以外は side panel EditorInstance に dispatch
             if (sidePanelHostBridge) {
@@ -25137,6 +25417,9 @@ class EditorInstance {
 
         // Setup header bar buttons (undo/redo/source)
         setupSidePanelHeaderButtons();
+
+        // FR-SPM-01 (sprint 20260808-000219): sidepanel open のたびに overflow メニューを初期化
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.init(); }
 
         // Render TOC
         renderSidePanelToc(toc);
@@ -28002,8 +28285,12 @@ class EditorInstance {
         }
 
         // Flush pending edits immediately on blur
+        // FR-LV-04 (sprint 20260806-165116): flush + queue drop の条件を hasUserEdited（Cmd+S まで
+        // sticky）から「未同期編集が実際にある」（pendingSync || isActivelyEditing）に絞る。
+        // 外部編集（AI CLI）の update はイベント再到来しない（fs.watchFile エッジトリガ）ため、
+        // 同期済みの blur で queue を捨てると外部内容が永久消失していた。
         var didFlushUserEdit = false;
-        if (!isSourceMode && hasUserEdited) {
+        if (!isSourceMode && hasUserEdited && (pendingSync || isActivelyEditing)) {
             clearTimeout(syncTimeout);
             markdown = htmlToMarkdown();
             host.syncContent(markdown);
@@ -28050,8 +28337,10 @@ class EditorInstance {
             console.warn('[Fractal:blur-with-queue]', _finfo2);
         }
 
+        // FR-LV-04: flush + queue drop は「未同期編集の実在」時のみ（editor.blur と同じ絞り。
+        // source mode は sourceEditor.value と markdown の差分で未同期を判定）
         var didFlushUserEditSrc = false;
-        if (isSourceMode && hasUserEdited) {
+        if (isSourceMode && hasUserEdited && (sourceEditor.value !== markdown || isActivelyEditing)) {
             markdown = sourceEditor.value;
             host.syncContent(markdown);
             didFlushUserEditSrc = true;
@@ -28073,7 +28362,10 @@ class EditorInstance {
     this._handleVisibilityChange = function() {
         // v0.195.720: 翻訳ビュー中は visibility hidden flush も抑止
         if (translationViewActive) return;
-        if (document.visibilityState === 'hidden' && hasUserEdited) {
+        // FR-LV-04: flush + queue drop は「未同期編集の実在」時のみ（editor.blur と同じ絞り）。
+        // 同期済みで hidden になっただけの場合に外部編集 queue を捨てない
+        if (document.visibilityState === 'hidden' && hasUserEdited
+            && (pendingSync || isActivelyEditing || (isSourceMode && sourceEditor.value !== markdown))) {
             // P2 観測 (FR-DBG-1, FR-DBG-2): visibility hidden 時の検知
             if (queuedExternalContent !== null) {
                 var _fdomMd3 = isSourceMode ? sourceEditor.value : htmlToMarkdown();
@@ -28411,6 +28703,10 @@ class EditorInstance {
             markdown = md;
             updateFromMarkdown();
         };
+        // sprint 20260806-165116 (FR-LV-04): blur 時キュー破棄限定の検証用。
+        // idle 状態で queue に残った外部更新を模擬注入 / queue の現在値を照会（TC-LV-11c/14）。
+        window.__testApi.injectQueuedExternal = (content) => { queuedExternalContent = content; };
+        window.__testApi.getQueuedExternal = () => queuedExternalContent;
         window.__testApi.setupInteractiveElements = setupInteractiveElements;
         window.__testApi.renderFromMarkdown = renderFromMarkdown;
         window.__testApi.htmlToMarkdown = htmlToMarkdown;
@@ -28924,11 +29220,15 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             });
         },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
+            // destination (sprint 20260808-000219): 結果 (pasteWithAssetCopyResult) の宛先識別。
+            // sidePanelFilePath を畳むのは SidePanelHostBridge の中継だけなので、その有無で
+            // sidepanel / main-md を確定できる。host は echo back するだけ（解釈しない）。
             postFn({
                 type: 'pasteWithAssetCopy',
                 markdown: markdown,
                 sourceContext: sourceContext,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
 
@@ -29103,6 +29403,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         handleFileAssetCross: function(filePath, clipboardPlainText, nodeId, isCut) {
             window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, nodeId: nodeId, isCut: !!isCut });
+        },
+        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste の一括解決依頼
+        pasteMdIntoOutliner: function(mdText, sourceContext, targetNodeId, isCut) {
+            window.__testApi.messages.push({ type: 'pasteMdIntoOutliner', mdText: mdText, sourceContext: sourceContext, targetNodeId: targetNodeId, isCut: !!isCut });
         },
         setOutlinerImageDir: function() {
             window.__testApi.messages.push({ type: 'setOutlinerImageDir' });
@@ -39720,6 +40024,27 @@ var Outliner = (function() {
         var isCutPaste = sel.isCut;
         var clipSourceKey = sel.sourceOutFileKey || null;
 
+        // FR-XP-02 (sprint 20260808-000219): md エディタ範囲選択 copy 由来の paste。
+        // 従来 external 経路はバレット除去 + URL 変換だけで、md リンク構文
+        // (![](images/x.png) / [📎 y](files/y.pdf) / [[t]](z.md)) が生テキスト node になり
+        // 相対パスが dest note で解決できずリンク切れだった（handler 不在）。
+        // text/x-any-md-context (source note の dir 情報) がある場合のみ host に一括解決を
+        // 依頼し、pasteMdIntoOutlinerResult (確定 node 配列) を待つ。
+        // context の無い純粋外部テキスト paste は従来経路のまま (NFR-XP-03)。
+        if (sel.source === 'external' && e.clipboardData && typeof host.pasteMdIntoOutliner === 'function') {
+            var xpMd = e.clipboardData.getData('text/x-any-md');
+            var xpCtxRaw = e.clipboardData.getData('text/x-any-md-context');
+            if (xpMd && xpCtxRaw) {
+                var xpCtx = null;
+                try { xpCtx = JSON.parse(xpCtxRaw); } catch (xpErr) { xpCtx = null; }
+                if (xpCtx && xpCtx.imageDir && xpCtx.fileDir && xpCtx.mdDir) {
+                    var xpIsCut = e.clipboardData.getData('text/x-any-md-iscut') === '1';
+                    host.pasteMdIntoOutliner(xpMd, xpCtx, nodeId, xpIsCut);
+                    return; // pasteMdIntoOutlinerResult 受信で挿入（画像 paste と同じ非同期パターン）
+                }
+            }
+        }
+
         // カット消費: internalClip が採用され かつ cut の時のみ (従来と同一)
         if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
             internalClipboard = null;
@@ -39982,6 +40307,74 @@ var Outliner = (function() {
             for (var cl = level + 1; cl <= 10; cl++) {
                 delete levelToLastId[cl];
             }
+        }
+
+        renderTree();
+        if (lastId) { focusNode(lastId); }
+        scheduleSyncToHost();
+    }
+
+    /**
+     * FR-XP-02 (sprint 20260808-000219): pasteMdIntoOutlinerResult の確定 node 配列を挿入。
+     * host が複製・変換済みの {text, level, images?, filePath?, isPage?, pageId?} を
+     * pasteNodesFromText と同じ規則（levelToLastId 親子構築・挿入位置）でモデルに追加する。
+     * host 確定値をそのまま採用（placeholder 上書き postback は無い = 単一 postback 方式）。
+     */
+    function insertMdPasteNodes(targetNodeId, pasteNodes) {
+        if (!pasteNodes || pasteNodes.length === 0) { return; }
+        var anchor = model.getNode(targetNodeId);
+        if (!anchor) { return; }
+        saveSnapshot();
+
+        // 挿入位置は handleNodePaste の複数行経路と同じ:
+        // 空 leaf ノード → 置換 / それ以外 → 直後に兄弟として挿入
+        var baseParentId, afterId, insertAtStart = false;
+        var anchorText = (anchor.text || '').trim();
+        var anchorHasChildren = !!(anchor.children && anchor.children.length > 0);
+        if (anchorText === '' && !anchorHasChildren) {
+            baseParentId = anchor.parentId;
+            var xpSiblings = baseParentId ? (model.getNode(baseParentId).children || []) : model.rootIds;
+            var xpIdx = xpSiblings.indexOf(targetNodeId);
+            afterId = xpIdx > 0 ? xpSiblings[xpIdx - 1] : null;
+            insertAtStart = xpIdx === 0;
+            model.removeNode(targetNodeId);
+        } else {
+            baseParentId = anchor.parentId;
+            afterId = targetNodeId;
+        }
+
+        // 最小レベルを 0 に正規化（pasteNodesFromText と同じ）
+        var minLv = Infinity;
+        for (var i = 0; i < pasteNodes.length; i++) {
+            if (pasteNodes[i].level < minLv) { minLv = pasteNodes[i].level; }
+        }
+        if (!isFinite(minLv)) { minLv = 0; }
+
+        var levelToLastId = {};
+        var lastId = null;
+        for (var n = 0; n < pasteNodes.length; n++) {
+            var pn = pasteNodes[n];
+            var level = Math.max(0, (pn.level || 0) - minLv);
+            var parentId, after;
+            if (level === 0) {
+                parentId = baseParentId;
+                after = (n === 0) ? afterId : levelToLastId[0] || afterId;
+            } else {
+                parentId = levelToLastId[level - 1] || baseParentId;
+                after = null;
+            }
+            var newNode;
+            if (n === 0 && level === 0 && insertAtStart && !after) {
+                newNode = model.addNodeAtStart(parentId, pn.text || '');
+            } else {
+                newNode = model.addNode(parentId, after, pn.text || '');
+            }
+            if (pn.images && pn.images.length > 0) { newNode.images = pn.images.slice(); }
+            if (pn.filePath) { newNode.filePath = pn.filePath; }
+            if (pn.isPage && pn.pageId) { newNode.isPage = true; newNode.pageId = pn.pageId; }
+            levelToLastId[level] = newNode.id;
+            lastId = newNode.id;
+            for (var cl = level + 1; cl <= 10; cl++) { delete levelToLastId[cl]; }
         }
 
         renderTree();
@@ -43219,6 +43612,8 @@ var Outliner = (function() {
                     actions.innerHTML =
                         '<button class="side-panel-header-btn" data-action="translateBack" title="Back to original">← Back</button>' +
                         '<button class="side-panel-header-btn fractal-translation-save" data-action="translateSave" title="Save translation as child page in outliner">翻訳結果を保存</button>';
+                    // FR-SPM-01: 差し替えで格納状態が stale になるので明示再計算（暗黙監視より決定論）
+                    if (window.SidePanelOverflow) { window.SidePanelOverflow.recalc(); }
                     var backBtn = actions.querySelector('[data-action="translateBack"]');
                     if (backBtn) {
                         backBtn.addEventListener('click', function() {
@@ -43497,6 +43892,10 @@ var Outliner = (function() {
             });
         }
 
+        // FR-SPM-01 (sprint 20260808-000219): sidepanel open のたびに overflow メニューを初期化
+        //（init は idempotent。ResizeObserver 配線 + 初回 recalc）
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.init(); }
+
         // sprint 20260723-233506: タブ復帰でのサイドパネル復元。
         // openSidePanel は EditorInstance を同期構築（:7171）しパネルを同期表示するので、この末尾が
         // scroll 復元の同期アンカー（§5・ADRL-TABS-SCROLL）。復元中は下の 400ms auto-focus を skip。
@@ -43567,6 +43966,8 @@ var Outliner = (function() {
         if (actions) {
             actions.innerHTML = sidePanelPreTranslationState.actionsHtml;
         }
+        // FR-SPM-01: 復元直後に overflow 格納状態を再計算
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.recalc(); }
     }
 
     function closeSidePanelImmediate(isSwitch) {
@@ -44231,6 +44632,13 @@ var Outliner = (function() {
                     break;
                 }
 
+                case 'pasteMdIntoOutlinerResult': {
+                    // FR-XP-02 (sprint 20260808-000219): host が md 行→node 変換 + asset 複製を
+                    // 一括実行した確定 node 配列（単一 postback。placeholder 上書き不要）。
+                    insertMdPasteNodes(msg.targetNodeId, msg.nodes || []);
+                    break;
+                }
+
                 case 'updateData':
                     // ADR-008: kind === 'md' の updateData は notes webview の markdown
                     // dispatcher が処理する。outliner はノータッチ。
@@ -44607,6 +45015,13 @@ var Outliner = (function() {
                         && sidePanelFilePath && spdata.filePath !== sidePanelFilePath) {
                         break;
                     }
+                    // TASK-04 (sprint 20260806-165116): 外部更新でも目次を更新する（editor.js と対称）。
+                    // updateSidePanelTocFromMarkdown は H1→node 同期も担うが、_lastSidePanelH1 の
+                    // dedup + _applyingH1ToNode ガード済みで安全（外部編集の H1 を tree に反映する
+                    // 正しい経路でもある）。
+                    if (spdata.type === 'update' && typeof spdata.content === 'string') {
+                        updateSidePanelTocFromMarkdown(spdata.content);
+                    }
                     if (sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage(msg.data);
                     }
@@ -44700,6 +45115,11 @@ var Outliner = (function() {
                     break;
 
                 case 'pasteWithAssetCopyResult':
+                    // FR-XP-01 (sprint 20260808-000219): destination='main-md' は Notes md
+                    // メインペイン宛（notesMarkdownHostBridge の window listener 経由で
+                    // md EditorInstance が直接受信する）。sidepanel へ転送すると二重挿入になる
+                    // ため転送しない。destination 無し（旧形式）と 'sidepanel' は従来どおり転送。
+                    if (msg.destination === 'main-md') { break; }
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
                             type: 'pasteWithAssetCopyResult',

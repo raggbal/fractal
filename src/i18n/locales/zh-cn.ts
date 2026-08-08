@@ -166,6 +166,7 @@ export const webviewMessages = {
   outlinerDelete: '删除',
   outlinerDeleteNode: '删除节点',
   copyInAppLink: '复制应用内链接',
+  overflowMenuTitle: '更多操作',
   contextCut: '剪切',
   contextCopy: '复制',
   contextPaste: '粘贴',

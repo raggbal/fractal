@@ -210,6 +210,7 @@ export const webviewMessages = {
   outlinerDelete: '削除',
   outlinerDeleteNode: 'ノードを削除',
   copyInAppLink: 'アプリ内リンクをコピー',
+  overflowMenuTitle: 'その他の操作',
   contextCut: '切り取り',
   contextCopy: 'コピー',
   contextPaste: '貼り付け',

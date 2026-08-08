@@ -40,6 +40,12 @@
         copyImagesCross: function(images, clipboardPlainText, targetNodeId, isCut) {
             api.postMessage({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: !!isCut });
         },
+        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste の一括解決依頼。
+        // host が複製 + 行→node 変換して pasteMdIntoOutlinerResult を返す（単一 postback）。
+        // notes-host-bridge.js と対称配線（片肺禁止）。
+        pasteMdIntoOutliner: function(mdText, sourceContext, targetNodeId, isCut) {
+            api.postMessage({ type: 'pasteMdIntoOutliner', mdText: mdText, sourceContext: sourceContext, targetNodeId: targetNodeId, isCut: !!isCut });
+        },
         saveOutlinerClipboard: function(plainText, isCut, nodes) {
             api.postMessage({ type: 'saveOutlinerClipboard', plainText: plainText, isCut: isCut, nodes: nodes });
         },

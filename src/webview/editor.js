@@ -15847,9 +15847,42 @@ class EditorInstance {
 
     // Handle messages from host (VSCode / Electron / test)
     host.onMessage(function(message) {
+        // FR-XP-01 (sprint 20260808-000219): この instance が sidepanel 内かの判定。
+        // host の型で判定しない（Notes の sidepanel bridge は outliner.js 側の別実装で
+        // _mainHost を持たない — 共有判定を host 実装差に依存させない）。DOM 位置が唯一の真実。
+        var _xpInSidePanel = !!(container && container.closest && container.closest('.side-panel'));
+        // FR-XP-01: main md の asset context 配線。
+        // sidepanel の sidePanelAssetContext (outliner.js:9351) と対になる main md 版。
+        // これが載ると copy/cut (:18393/:18430) が text/x-any-md-context を積み、
+        // paste (:18611) が cross-note asset 複製分岐に入る。
+        // sidepanel instance は従来どおり sidePanelAssetContext 経由なので除外。
+        if (message.type === 'mainMdAssetContext') {
+            if (!_xpInSidePanel) {
+                host._assetContext = {
+                    imageDir: message.imageDir,
+                    fileDir: message.fileDir,
+                    mdDir: message.mdDir
+                };
+            }
+            return;
+        }
         // v9: pasteWithAssetCopyResult — insert rewritten markdown via shared paste function
         if (message.type === 'pasteWithAssetCopyResult') {
             logger.log('pasteWithAssetCopyResult received, markdown length:', message.markdown?.length);
+            // FR-XP-01: destination ルーティング。main-md 宛は main md instance だけが処理し、
+            // sidepanel 宛は sidepanel instance だけが処理する。
+            // destination 無し（旧形式 = pasteOutlinerNodesWithAssets の結果等）は従来どおり無条件処理。
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) {
+                // standalone editor では main instance の callback が唯一の window 受信者なので
+                // 自分の sidepanel instance へ delegate する（Notes では md pane に sidepanel DOM が
+                // 無く sidePanelHostBridge は常に null → outliner.js:9361 switch が配送 = 二重配送なし）。
+                if (typeof sidePanelHostBridge !== 'undefined' && sidePanelHostBridge
+                    && typeof sidePanelInstance !== 'undefined' && sidePanelInstance) {
+                    sidePanelHostBridge._sendMessage(message);
+                }
+                return;
+            }
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
             if (!message.markdown) return;
             undoManager.saveSnapshot();
             markAsEdited();
@@ -16307,11 +16340,6 @@ class EditorInstance {
             }
             syncMarkdown();
             logger.log('Subpage link element inserted');
-        } else if (message.type === 'pasteWithAssetCopyResult') {
-            // v9: Delegate to EditorInstance's host.onMessage handler (needs markdownToHtmlFragment scope)
-            if (sidePanelHostBridge) {
-                sidePanelHostBridge._sendMessage(message);
-            }
         } else if (message.type === 'extractDataUrlsInPastedMdResult') {
             // data URL extraction result - delegate to side panel EditorInstance if present
             if (sidePanelHostBridge) {
@@ -16631,6 +16659,9 @@ class EditorInstance {
 
         // Setup header bar buttons (undo/redo/source)
         setupSidePanelHeaderButtons();
+
+        // FR-SPM-01 (sprint 20260808-000219): sidepanel open のたびに overflow メニューを初期化
+        if (window.SidePanelOverflow) { window.SidePanelOverflow.init(); }
 
         // Render TOC
         renderSidePanelToc(toc);

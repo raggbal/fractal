@@ -12,7 +12,7 @@ import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils
 import { importFiles } from './shared/file-import';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets, resolveCrossPasteCut } from './shared/paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste } from './shared/paste-asset-handler';
 import { setFirstH1, writeFileIfChanged } from './shared/md-h1-utils';
 import { safeResolveUnderDir } from './shared/path-safety';
 import * as flatLayout from './shared/flat-layout';
@@ -689,6 +689,28 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                                 type: 'updateNodeImages',
                                 nodeId: message.targetNodeId,
                                 newImages: result.newNodeImages
+                            });
+                        }
+                        break;
+                    }
+
+                    case 'pasteMdIntoOutliner': {
+                        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste。
+                        // notes-message-handler.ts の同 case と対称（片肺禁止）。
+                        if (message.mdText && message.sourceContext && message.targetNodeId) {
+                            const xpResult = runMdIntoOutlinerPaste({
+                                mdText: message.mdText,
+                                sourceContext: message.sourceContext,
+                                isCut: !!message.isCut,
+                                destOutDir: path.dirname(document.uri.fsPath),
+                                destPagesDir: this.getPagesDirPath(document),
+                                destImagesDir: this.getOutlinerImageDirPath(document),
+                                destFilesDir: this.getFileDirPath(document),
+                            });
+                            webviewPanel.webview.postMessage({
+                                type: 'pasteMdIntoOutlinerResult',
+                                targetNodeId: message.targetNodeId,
+                                nodes: xpResult.nodes,
                             });
                         }
                         break;

@@ -49,6 +49,11 @@
         copyImagesCross: function(images, clipboardPlainText, targetNodeId, isCut) {
             api.postMessage({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: !!isCut });
         },
+        // FR-XP-02 (sprint 20260808-000219): md 範囲選択 copy → outliner paste の一括解決依頼。
+        // host が複製 + 行→node 変換して pasteMdIntoOutlinerResult を返す（単一 postback）。
+        pasteMdIntoOutliner: function(mdText, sourceContext, targetNodeId, isCut) {
+            api.postMessage({ type: 'pasteMdIntoOutliner', mdText: mdText, sourceContext: sourceContext, targetNodeId: targetNodeId, isCut: !!isCut });
+        },
         saveOutlinerClipboard: function(plainText, isCut, nodes) {
             api.postMessage({ type: 'saveOutlinerClipboard', plainText: plainText, isCut: isCut, nodes: nodes });
         },
@@ -272,6 +277,20 @@
                 plainText: plainText,
                 nodes: nodes,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        // FR-XP-01 (sprint 20260808-000219): md-copy paste の添付複製。上の
+        // pasteOutlinerNodesWithAssets と同型の穴 — shared factory 版は sidePanelFilePath
+        // 引数前提で、note md メインペインでは undefined → notes-message-handler の guard で
+        // silent no-op だった。自分の filePath を宛先として畳み、結果の宛先札は main-md
+        // （sidepanel へ転送させない。outliner.js の pasteWithAssetCopyResult 転送 switch が見る）。
+        pasteWithAssetCopy: function(markdown, sourceContext) {
+            api.postMessage({
+                type: 'pasteWithAssetCopy',
+                markdown: markdown,
+                sourceContext: sourceContext,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                destination: 'main-md',
             });
         },
         openLink: function(href) {

@@ -164,6 +164,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
 - **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal Note. Click to jump
+- **Cross-note copy & paste with assets** — Copy markdown containing images, 📎 attachments, or subpage links and paste it into another note (md or outliner): the linked files are duplicated into the destination note and links keep working. Pasting into an outliner turns whole-line links into proper attachment / image / page nodes
 - **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
 
 ### ☁️ S3 backup & restore
