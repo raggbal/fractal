@@ -862,22 +862,24 @@ export function extractAllAssetRefs(md: string): {
     const mdLinks = new Set<string>();
     const mdLinkRefs: { url: string; isSubpage: boolean }[] = [];
     if (!md) return { images: [], files: [], mdLinks: [], mdLinkRefs: [] };
-    // images: ![alt](url)
-    const imgRe = /!\[[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = imgRe.exec(md)) !== null) {
-        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+    // images / files: 正典パーサ parseMarkdownLinks で抽出する（bugfix 2026-08-09:
+    // 旧 regex `[^)\s"]+` はスペース入りファイル名 `files/my file.docx` にマッチせず
+    // 複製から silent 脱落していた。パーサは括弧バランス走査でスペースを扱える）。
+    // url 正規化は旧 regex と同一: trim → <>strip → 末尾 title strip → ?# 除去。
+    const normalizeAssetUrl = (raw: string): string => {
+        let u = (raw || '').trim().replace(/^<|>$/g, '');
+        u = u.replace(/\s+["'][^"']*["']\s*$/, ''); // 末尾 title ("..." / '...') を除去
+        return u.split(/[?#]/)[0];
+    };
+    for (const tok of parser.parseMarkdownLinks(md) as Array<{ kind: string; alt: string; url: string }>) {
+        const url = normalizeAssetUrl(tok.url);
         if (!url) continue;
         if (/^(data:|https?:|file:)/i.test(url)) continue; // remote / data は除外
-        images.add(url);
-    }
-    // files: [📎 ...](url)
-    const fileRe = /\[📎[^\]]*\]\(([^)\s"]+)(?:\s+"[^"]*")?\)/g;
-    while ((m = fileRe.exec(md)) !== null) {
-        const url = (m[1] || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
-        if (!url) continue;
-        if (/^(data:|https?:|file:)/i.test(url)) continue;
-        files.add(url);
+        if (tok.kind === 'image') {
+            images.add(url);
+        } else if (tok.kind === 'link' && (tok.alt || '').trim().indexOf('📎') === 0) {
+            files.add(url);
+        }
     }
     // mdLinks / mdLinkRefs: parser.parseMarkdownLinks で subpage 判別を一元化 (`[[]]` も拾う)
     // url 正規化: title strip (`[x](y.md "title")`) → クエリ/フラグメント除去
@@ -1415,9 +1417,22 @@ export function runMdIntoOutlinerPaste(opts: {
         return path.relative(opts.destOutDir, abs).replace(/\\/g, '/');
     };
 
-    const imgLineRe = /^!\[([^\]]*)\]\(([^)\s"]+)(?:\s+"[^"]*")?\)$/;
-    const fileLineRe = /^\[📎\s*([^\]]*)\]\(([^)\s"]+)(?:\s+"[^"]*")?\)$/;
-    const subpageLineRe = /^\[\[([^\]]*)\]\]\(([^)\s"]+\.md)\)$/;
+    // 行全体が単一リンクか（bugfix 2026-08-09: 旧 regex `[^)\s"]+` はスペース入り
+    // ファイル名にマッチせず、docx がテキスト node に落ちてリンク切れになった。
+    // 正典パーサで解析し「行 == リンクトークン 1 個」を判定する）。
+    const classifyLine = (content: string): { kind: 'image' | 'file' | 'subpage'; alt: string; url: string } | null => {
+        const toks = parser.parseMarkdownLinks(content) as Array<{ kind: string; alt: string; url: string; isSubpage?: boolean; start: number; end: number }>;
+        if (toks.length !== 1) return null;
+        const t = toks[0];
+        if (t.start !== 0 || t.end !== content.length) return null; // 行内混在はテキスト node
+        const url = (t.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
+        if (!url) return null;
+        const altTrim = (t.alt || '').trim();
+        if (t.kind === 'image') return { kind: 'image', alt: altTrim, url };
+        if (t.isSubpage && url.toLowerCase().endsWith('.md')) return { kind: 'subpage', alt: altTrim, url };
+        if (altTrim.indexOf('📎') === 0) return { kind: 'file', alt: altTrim.replace(/^📎\s*/, ''), url };
+        return null;
+    };
 
     const nodes: MdOutlinerPasteNode[] = [];
     for (const rawLine of body.split('\n')) {
@@ -1435,14 +1450,14 @@ export function runMdIntoOutlinerPaste(opts: {
         let content = rawLine.substring(j).replace(/^(?:[-*+]|\d+\.)[ \t]+/, '').trim();
         if (content === '') continue;
 
-        let m: RegExpMatchArray | null;
-        if ((m = content.match(imgLineRe)) !== null) {
-            nodes.push({ text: (m[1] || '').trim(), level, images: [toOutRel(m[2])] });
-        } else if ((m = content.match(fileLineRe)) !== null) {
-            nodes.push({ text: (m[1] || '').trim(), level, filePath: toOutRel(m[2]) });
-        } else if ((m = content.match(subpageLineRe)) !== null) {
-            const stem = path.basename(m[2].split(/[?#]/)[0], '.md');
-            nodes.push({ text: (m[1] || '').trim(), level, isPage: true, pageId: stem });
+        const cls = classifyLine(content);
+        if (cls && cls.kind === 'image') {
+            nodes.push({ text: cls.alt, level, images: [toOutRel(cls.url)] });
+        } else if (cls && cls.kind === 'file') {
+            nodes.push({ text: cls.alt, level, filePath: toOutRel(cls.url) });
+        } else if (cls && cls.kind === 'subpage') {
+            const stem = path.basename(cls.url, '.md');
+            nodes.push({ text: cls.alt, level, isPage: true, pageId: stem });
         } else {
             nodes.push({ text: content, level });
         }

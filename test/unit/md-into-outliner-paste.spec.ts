@@ -132,3 +132,66 @@ test('TC-XP-05b バレット付き md リスト行: バレット除去 + リン�
     expect(fs.existsSync(path.join(noteB, nodes[0].images![0]))).toBe(true);
     expect(nodes[1].text).toBe('plain');
 });
+
+test('TC-XP-10 (bugfix 2026-08-09) スペース入りファイル名の 📎 行が添付 node になり実体複製される（ユーザー報告再現）', () => {
+    const root = mkTmp();
+    const noteA = path.join(root, 'noteA');
+    const noteB = path.join(root, 'noteB');
+    writeF(noteA, 'files/追記_Solution Space_NMOJ_202607.docx', 'DOCX');
+    writeF(noteA, 'files/PACE_Enablement_SolutionSpace_ja.pptx', 'PPTX');
+    writeF(noteA, '1786088806332.md', '# test\n');
+    fs.mkdirSync(noteB, { recursive: true });
+    const srcCtx = {
+        imageDir: path.join(noteA, 'images'),
+        fileDir: path.join(noteA, 'files'),
+        mdDir: noteA,
+    };
+    const mdText = [
+        '### こちらから提出する もの SSD',
+        '[📎 追記_Solution Space_NMOJ_202607.docx](files/追記_Solution Space_NMOJ_202607.docx)',
+        '[📎 PACE_Enablement_SolutionSpace_ja.pptx](files/PACE_Enablement_SolutionSpace_ja.pptx)',
+        '[[test]](1786088806332.md)',
+    ].join('\n');
+
+    const { nodes } = runMdIntoOutlinerPaste({
+        mdText, sourceContext: srcCtx, isCut: false,
+        destOutDir: noteB, destPagesDir: noteB,
+        destImagesDir: path.join(noteB, 'images'),
+        destFilesDir: path.join(noteB, 'files'),
+    });
+
+    expect(nodes.length).toBe(4);
+    // counterfactual: 旧 regex `[^)\s"]+` はスペース入り URL にマッチせず
+    // nodes[1].filePath が undefined（テキスト node）になり RED
+    expect(nodes[1].filePath).toBeTruthy();
+    expect(fs.existsSync(path.join(noteB, nodes[1].filePath!))).toBe(true);
+    expect(fs.readFileSync(path.join(noteB, nodes[1].filePath!), 'utf8')).toBe('DOCX');
+    // スペースなしも従来どおり
+    expect(nodes[2].filePath).toBeTruthy();
+    expect(fs.existsSync(path.join(noteB, nodes[2].filePath!))).toBe(true);
+    // subpage も従来どおり
+    expect(nodes[3].isPage).toBe(true);
+    expect(fs.existsSync(path.join(noteB, `${nodes[3].pageId}.md`))).toBe(true);
+});
+
+test('TC-XP-11 (bugfix 同根) スペース入り画像/📎 が md→md 複製（copyMdPasteAssets）でも脱落しない', () => {
+    const root = mkTmp();
+    const noteA = path.join(root, 'noteA');
+    const noteB = path.join(root, 'noteB');
+    writeF(noteA, 'images/my pic.png', 'PNG');
+    writeF(noteA, 'files/my doc.docx', 'DOCX');
+    fs.mkdirSync(noteB, { recursive: true });
+    const { rewrittenMarkdown } = require('../../src/shared/paste-asset-handler').copyMdPasteAssets({
+        markdown: '![p](images/my pic.png)\n[📎 my doc.docx](files/my doc.docx)',
+        sourceMdDir: noteA,
+        sourceImageDir: path.join(noteA, 'images'),
+        sourceFileDir: path.join(noteA, 'files'),
+        destImageDir: path.join(noteB, 'images'),
+        destFileDir: path.join(noteB, 'files'),
+        destMdDir: noteB,
+    });
+    // counterfactual: 旧 regex では両方とも抽出されず dest が空 + リンク無変換で RED
+    expect(fs.readdirSync(path.join(noteB, 'images')).some(f => f.endsWith('my pic.png'))).toBe(true);
+    expect(fs.readdirSync(path.join(noteB, 'files'))).toContain('my doc.docx');
+    expect(rewrittenMarkdown).not.toContain('](images/my pic.png)');
+});
