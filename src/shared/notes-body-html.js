@@ -178,6 +178,20 @@ function generateNotesFilePanelHtml(options) {
         }
 
         /* ── Drag & Drop ── */
+        /* FR-TF-16 (sprint 20260809 再オープン③): drag セッション中は hover 背景を出さない。
+         * hover 色が「その item の中に drop できる」誤演出になるため、drag 中の drop 可視化は
+         * 専用表示 (.file-panel-drag-over 系 / drop-line) だけに一本化する。
+         * body.fr-drag-active の set/clear は notes-file-panel.js（受け側完結: dragenter/dragover で set・
+         * relaxed dragleave + drop + dragend + window 安全網で clear — cross-webview/外部 drag は
+         * drag 元の dragend が届かないため受け側イベントで管理する）。
+         * 注: 既存 hover 規則 (:134/:158) は書き換えない（.active:hover の specificity 同点勝ちを
+         * 維持するため追加規則で上書きする）。table-resizing 型の * !important 全域上書きは
+         * drop 専用表示まで殺すため採らない (ADRL-C Decision 1)。 */
+        /* :not(drag-over 系) — drag 中は :hover と drop 専用表示が同一要素で同時成立するため、
+         * 除外しないとこのガード (specificity 0,3,1) が専用表示 (0,1,0) に勝って highlight まで消す */
+        body.fr-drag-active .file-panel-item:hover:not(.file-panel-drag-over):not(.file-panel-drag-over-md-into-out),
+        body.fr-drag-active .file-panel-item.active:hover:not(.file-panel-drag-over):not(.file-panel-drag-over-md-into-out),
+        body.fr-drag-active .file-panel-folder-header:hover:not(.file-panel-drag-over):not(.file-panel-drag-over-md-into-out) { background: transparent; }
         .file-panel-drag-over { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); border-radius: var(--fr-radius-sm, 6px); }
         /* v0.207.77 (D&D Feature A): md → .out item のドロップ時 yellow highlight。
            既存の青系 .file-panel-drag-over (folder hover) と区別する。 */

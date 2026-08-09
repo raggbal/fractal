@@ -937,6 +937,8 @@ var notesFilePanel = (function() {
             dragItemId = target.dataset.itemId;
             dragItemType = target.dataset.itemType;
             dragSourceFileExt = target.dataset.fileExt || null;
+            // FR-TF-16: 内部 drag の開始時点から hover 抑止（dragover を待たない）
+            setDragHoverSuppression();
             // v0.207.77: 'copyMove' にしないと、dropEffect='copy' (Feature A/B) との不一致で
             // ブラウザが drop event をキャンセルする (HTML5 D&D 仕様)。
             e.dataTransfer.effectAllowed = 'copyMove';
@@ -974,6 +976,7 @@ var notesFilePanel = (function() {
             removeDropIndicator();
             lastDropLine = null; // TASK-A2: 谷間フォールバック状態もリセット
             clearAllDragOver();
+            clearDragHoverSuppression(); // FR-TF-16: 内部 drag 終了で hover 抑止解除
         });
     }
 
@@ -1469,6 +1472,26 @@ var notesFilePanel = (function() {
         for (var j = 0; j < els2.length; j++) {
             els2[j].classList.remove('file-panel-drag-over-md-into-out');
         }
+    }
+
+    // FR-TF-16 (sprint 20260809 再オープン③): drag セッション中の hover 色抑止フラグ。
+    // CSS 側（notes-body-html.js）が body.fr-drag-active 下の item/folder :hover を transparent にする。
+    // set/clear は受け側完結（外部/cross-webview drag では drag 元の dragend がこの webview に
+    // 届かない — HTML5 仕様）: set = dragenter/dragover capture（冪等）+ 内部 dragstart、
+    // clear = relaxed dragleave（panel 外へ）+ drop + dragend + window 安全網。
+    function setDragHoverSuppression() {
+        document.body.classList.add('fr-drag-active');
+    }
+    function clearDragHoverSuppression() {
+        document.body.classList.remove('fr-drag-active');
+    }
+    // drag セッション終了の一括掃除（hover 抑止 + highlight + 補助線を 1 ラッパに束ねる —
+    // 片系統だけ消す掃除経路を作らない: generator_failures 2026-08-02「掃除の片肺化」回避）。
+    // lastDropLine は触らない（listEl 谷間 drop が挿入位置の参照に使う。dragend/実 drop でリセット済み）。
+    function clearDragSessionVisuals() {
+        clearDragHoverSuppression();
+        if (listEl) clearAllDragOver();
+        removeDropIndicator();
     }
 
     // ── ヘルパー ──
@@ -2047,6 +2070,26 @@ var notesFilePanel = (function() {
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
+
+        // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
+        // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても
+        // フラグ管理は必ず走る。__hoverSupWired で冪等化（standalone harness は init が 2 回走る）。
+        if (panelEl && !panelEl.__hoverSupWired) {
+            panelEl.__hoverSupWired = true;
+            // set: panel 内に drag が入った/動いた（外部 Files / uri-list / cross-webview MIME / 内部すべて）
+            panelEl.addEventListener('dragenter', setDragHoverSuppression, true);
+            panelEl.addEventListener('dragover', setDragHoverSuppression, true);
+            // clear①: panel の外へ出た（relaxed 判定 — relatedTarget が panel 外 or null。
+            // panel 内の要素間移動では clear しない = 抑止が途切れて hover が明滅するのを防ぐ）
+            panelEl.addEventListener('dragleave', function(e) {
+                var rt = e.relatedTarget;
+                if (!rt || !panelEl.contains(rt)) clearDragHoverSuppression();
+            });
+            // clear②③④: drop / dragend の window capture 安全網（panel 内 drop・内部 drag の
+            // dragend・panel 外 drop での終了をすべて拾う。既存の highlight/補助線掃除も束ねる）
+            window.addEventListener('drop', clearDragSessionVisuals, true);
+            window.addEventListener('dragend', clearDragSessionVisuals, true);
+        }
         var addBtn = document.getElementById('filePanelAdd');
         var addMdBtn = document.getElementById('filePanelAddMarkdown');
         var addFolderBtn = document.getElementById('filePanelAddFolder');
