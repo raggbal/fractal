@@ -1207,7 +1207,9 @@ var Outliner = (function() {
                     handleTreeMdDrop(e);
                     return;
                 }
-                if (!isAnyFilesDragEvent(e)) { return; }
+                // FR-TF-05a (§4d): ツリー file item drop も files drop と同じ位置解決経路で受ける。
+                var isTreeFileDrop = isTreeFileDragEvent(e);
+                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
@@ -1236,7 +1238,9 @@ var Outliner = (function() {
                     }
                 }
                 removeDropIndicator();
-                if (isFilesDragEvent(e)) {
+                if (isTreeFileDrop) {
+                    handleTreeFileDrop(e, targetId, pos);
+                } else if (isFilesDragEvent(e)) {
                     handleFilesDrop(e, targetId, pos);
                 } else {
                     handleVscodeUrisDrop(e, targetId, pos);
@@ -1252,6 +1256,13 @@ var Outliner = (function() {
             if (VIEW_MODE === 'mindmap') { return; }
             // FR-B08: ファイルツリー md item のドラッグを受理（preventDefault しないと drop が発火しない）
             if (isTreeMdDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
+            // FR-TF-05a (§4d): ファイルツリー file item のドラッグも受理（同上・drop 発火のため）
+            if (isTreeFileDragEvent(e)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 treeEl.classList.add('outliner-tree-drop-zone-active');
@@ -1394,6 +1405,30 @@ var Outliner = (function() {
         if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
         if (payload.id === outFileId) return; // 自分自身へは無意味
         notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId);
+    }
+
+    /** FR-TF-05a (sprint 20260809-031217, §4d :92): Notes ファイルツリーの file item ドラッグ
+     *  （notes-file-panel.js dragstart が application/x-fractal-tree-file を setData・payload {id}）。
+     *  drop 受理は tree-md と対称で notesImportTreeFileAtPosition へ委譲する。ただし md（rootIds 先頭固定）
+     *  と違い file は挿入位置を持つため、files drop と同じ before/after/child 解決結果
+     *  （targetNodeId / position）を bridge へ渡す（host が dropFilesResult 互換で node 化する）。 */
+    var TREE_FILE_MIME = 'application/x-fractal-tree-file';
+    function isTreeFileDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_FILE_MIME) >= 0);
+    }
+    function handleTreeFileDrop(e, targetNodeId, position) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(TREE_FILE_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.id) return;
+        var notesBridgeForFile = window.notesHostBridge;
+        var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!notesBridgeForFile || !notesBridgeForFile.notesImportTreeFileAtPosition || !outFileId) return;
+        notesBridgeForFile.notesImportTreeFileAtPosition(
+            payload.id, outFileId, targetNodeId || null, position || null);
     }
 
     /** Classify dropped file by extension */
@@ -3505,6 +3540,30 @@ var Outliner = (function() {
                 e.stopPropagation();
                 host.openAttachedFile(node.id);
             });
+            // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
+            //   掴みは bullet（並べ替え/subtree 移動）と分離し、📎 は file 専用 MIME のみ載せる。
+            //   payload は outFileKey + nodeId のみ（NFR-TF-02: 絶対パス/実体パスを載せない。
+            //   host が src .out（flush 済み disk）から filePath を解決する）。
+            if (isNotesMode()) {
+                fileIcon.draggable = true;
+                fileIcon.style.cursor = 'grab';
+                fileIcon.addEventListener('dragstart', function(e) {
+                    e.stopPropagation(); // bullet/node の dragstart（並べ替え）に流さない
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    try {
+                        e.dataTransfer.setData('application/x-fractal-out-node-file', JSON.stringify({
+                            outFileKey: currentOutFileKey,
+                            nodeId: node.id,
+                        }));
+                    } catch (err) { /* ignore */ }
+                    // §4h: one-shot drag-session state（bullet の is-dragging と対称）。dragend で必ず clear。
+                    fileIcon.classList.add('outliner-file-icon-dragging');
+                });
+                fileIcon.addEventListener('dragend', function() {
+                    fileIcon.classList.remove('outliner-file-icon-dragging');
+                    removeDropIndicator();
+                });
+            }
             el.appendChild(fileIcon);
         }
 
