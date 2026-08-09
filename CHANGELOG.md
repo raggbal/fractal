@@ -5,6 +5,22 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.25] - 2026-08-10
+
+### Added
+- **Note file tree now manages arbitrary files (third item kind alongside .out / .md)** — sprint 20260809-031217-notetree-file-dnd:
+  - Drag & drop any file from Finder / VS Code Explorer into the tree; the file is stored in the shared `files/` folder (original name preserved, unique-suffix on collision, 50MB/file cap with explicit error). Clicking a file item opens it in the OS default app.
+  - Full drag & drop matrix (ownership-transfer semantics — the physical file never moves, only the owning ledger changes): tree file → tree .out item (attaches as top file node) / tree file → tree md item (appends `[📎 name](files/...)` link) / tree file ⇄ open Outliner Editor (drop-position aware, both directions) / tree file ⇄ open Markdown Editor incl. sidepanel (both directions).
+  - Context menu parity: Open / Reveal in Finder / Rename (title only) / Favorite / Copy Path / Set Color / Move Other Note / New Outline here / New Markdown here / New Subfolder / Delete.
+  - Explore filter matches file items by title/filename with a [file] badge.
+- **Drop-position indicator for tree → outliner drags** — dragging a tree md/file item over outliner nodes now shows the same before/after/child indicator as node reordering, and the drop honors it (md previously always inserted at top; that path stays as fallback).
+
+### Fixed
+- **Clean Notes / startup integrity for tree files**: tree-registered files are counted as live (never garbage-collected), and items whose physical file disappeared (e.g. S3 split-brain) self-heal on startup.
+- **Drop at the very first row landed at the bottom** — 'before' insertion at the first sibling was mis-resolved to a tail append in all three drop-result paths (file / md / import).
+- **📎 file links inside markdown could not actually be dragged** — anchors inside contenteditable need `contenteditable=false` + `user-select:none` for the browser to start an element drag; now applied on render and on insert, so links are draggable after reload too.
+- External file drops onto the tree no longer silently skip non-md files (superseded FR-T01 behavior from v1.1.19).
+
 ## [1.1.24] - 2026-08-09
 
 ### Added
