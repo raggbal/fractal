@@ -2270,7 +2270,20 @@ export function treeFileRegisterFromOutNode(
         const title = String(node.text || filename);
         rawInsertTreeFileEntry(fileManager, filename, title, parentId, index);
 
-        node.filePath = null;
+        // FR-TF-05b 改訂（2026-08-10）: 子なし node は node ごと削除（「添付が外れたファイル名テキスト node」の残留防止）。
+        // 子を持つ node のみ filePath null 化で温存（子の喪失防止）。
+        if (!node.children || node.children.length === 0) {
+            delete outData.nodes[payload.nodeId];
+            if (Array.isArray(outData.rootIds)) {
+                outData.rootIds = outData.rootIds.filter((id: string) => id !== payload.nodeId);
+            }
+            const parentNode = node.parentId ? outData.nodes[node.parentId] : null;
+            if (parentNode && Array.isArray(parentNode.children)) {
+                parentNode.children = parentNode.children.filter((id: string) => id !== payload.nodeId);
+            }
+        } else {
+            node.filePath = null;
+        }
         fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
         if (fileManager.getCurrentFilePath() === outPath) {
             fileManager.openFile(outPath);

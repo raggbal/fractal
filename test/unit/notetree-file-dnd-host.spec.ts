@@ -192,9 +192,10 @@ test.describe('tree file item host D&D 経路（seam）', () => {
             expect(items[0].filename).toBe('report.pdf');
             // 共有 files/ 配下は重複コピーされない（files/ は report.pdf 1 個のまま）
             expect(fs.readdirSync(filesDir)).toEqual(['report.pdf']);
-            // 元 node の filePath は null 化（所有移し替え）
+            // FR-TF-05b 改訂（2026-08-10）: 子なし node は node ごと削除（旧: filePath null 化 → 空 text node 残留が不自然）
             const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-            expect(after.nodes['n1'].filePath).toBe(null);
+            expect(after.nodes['n1']).toBeUndefined();
+            expect(after.rootIds).not.toContain('n1');
         }
         // branch B: node.filePath が legacy per-id dir（files/ 配下でない）→ copy + uniquify
         {
@@ -215,9 +216,64 @@ test.describe('tree file item host D&D 経路（seam）', () => {
             const filesDir = fm.getMdFilesDirPath();
             expect(fs.existsSync(path.join(filesDir, 'legacy.bin'))).toBe(true);
             expect(fs.readFileSync(path.join(filesDir, 'legacy.bin'), 'utf8')).toBe('LEGACY');
+            // FR-TF-05b 改訂: legacy 経路でも子なし node は削除
             const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-            expect(after.nodes['n1'].filePath).toBe(null);
+            expect(after.nodes['n1']).toBeUndefined();
+            expect(after.rootIds).not.toContain('n1');
         }
+    });
+
+    // TC-MX-01 (FR-TF-05b 改訂 2026-08-10): 子なし file node → tree 登録後に node 自体が消える
+    //（counterfactual: filePath null 化のみの旧実装だと nodes['n1'] が残り RED）
+    test('TC-MX-01: 子なし file node → 登録後に node が .out から完全に消える（nodes/rootIds/親children）', () => {
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'a.pdf'), 'A');
+        const outPath = fm.createFile('OutDoc', null);
+        // 親 node の子として file node を注入（rootIds 直下でない = 親 children からの除去を検証）
+        const data = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        data.nodes = data.nodes || {}; data.rootIds = data.rootIds || [];
+        data.nodes['parent'] = { id: 'parent', parentId: null, children: ['child-f'], text: 'P', tags: [], isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: null };
+        data.nodes['child-f'] = { id: 'child-f', parentId: 'parent', children: [], text: 'a.pdf', tags: [], isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: 'files/a.pdf' };
+        data.rootIds.push('parent');
+        fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
+
+        const { sender } = spy();
+        treeFileRegisterFromOutNode(fm, sender, { outFileKey: outPath, nodeId: 'child-f' }, null, 0);
+
+        expect(fileItems(fm).length).toBe(1);
+        const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        expect(after.nodes['child-f']).toBeUndefined();
+        expect(after.nodes['parent'].children).not.toContain('child-f');
+        expect(after.rootIds).not.toContain('child-f');
+    });
+
+    // TC-MX-02 (FR-TF-05b 改訂): 子ありの file node は従来どおり filePath null 化で温存（子の喪失防止）
+    test('TC-MX-02: 子ありの file node → filePath null 化で node 温存・子は無傷', () => {
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'b.pdf'), 'B');
+        const outPath = fm.createFile('OutDoc', null);
+        const data = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        data.nodes = data.nodes || {}; data.rootIds = data.rootIds || [];
+        data.nodes['f-with-kids'] = { id: 'f-with-kids', parentId: null, children: ['kid'], text: 'b.pdf', tags: [], isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: 'files/b.pdf' };
+        data.nodes['kid'] = { id: 'kid', parentId: 'f-with-kids', children: [], text: 'memo', tags: [], isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: null };
+        data.rootIds.push('f-with-kids');
+        fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
+
+        const { sender } = spy();
+        treeFileRegisterFromOutNode(fm, sender, { outFileKey: outPath, nodeId: 'f-with-kids' }, null, 0);
+
+        expect(fileItems(fm).length).toBe(1);
+        const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        expect(after.nodes['f-with-kids']).toBeDefined();
+        expect(after.nodes['f-with-kids'].filePath).toBe(null);
+        expect(after.nodes['f-with-kids'].children).toEqual(['kid']);
+        expect(after.nodes['kid'].text).toBe('memo');
     });
 
     test('TC-TF-15: treeFileRegisterFromMdLink — files/x.pdf 登録+removeFileLink / traversal href 拒否', () => {

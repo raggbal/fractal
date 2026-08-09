@@ -2165,13 +2165,17 @@ var notesFilePanel = (function() {
             listEl.addEventListener('dragover', function(e) {
                 var fromOutliner = isOutNodePageDrag(e);
                 var fromMdSubpageR = isMdSubpageDrag(e);
-                // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage が無いときのみ
-                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && isExternalFilesDrag(e);
-                if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromExternalR) return;
+                // FR-TF-05b/06b 信頼性 (§4i(2) 2026-08-10): file 系 MIME も余白 dragover で受理する。
+                // これが無いと谷間/余白 drop が非 preventDefault で不発（「補助線だけ出て移動しない」）。
+                var fromOutNodeFileR = isOutNodeFileDrag(e);
+                var fromMdFileLinkR = isMdFileLinkDrag(e);
+                // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage / file 系が無いときのみ
+                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && isExternalFilesDrag(e);
+                if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromExternalR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR || fromExternalR) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR || fromOutNodeFileR || fromMdFileLinkR || fromExternalR) ? 'copy' : 'move';
                 // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
                 // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
                 if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
@@ -2182,7 +2186,29 @@ var notesFilePanel = (function() {
                 if (e.target !== listEl) return;
                 var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
                 var mdSubpagePayloadR = !outPayload && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
+                // FR-TF-05b/06b 信頼性 (§4i(2)): file 系 MIME の余白 drop → ルート末尾に登録
+                var outNodeFilePayloadR = (!outPayload && !mdSubpagePayloadR) && isOutNodeFileDrag(e) ? readOutNodeFilePayload(e) : null;
+                var mdFileLinkPayloadR = (!outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
                 e.preventDefault();
+                var rootIdsF = structure ? structure.rootIds : [];
+                if (outNodeFilePayloadR && !dragItemId) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    if (typeof bridge.notesRegisterFileFromOutNode === 'function') {
+                        bridge.notesRegisterFileFromOutNode(outNodeFilePayloadR, null, rootIdsF.length);
+                    }
+                    return;
+                }
+                if (mdFileLinkPayloadR && !dragItemId) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    if (typeof bridge.notesRegisterFileFromMdLink === 'function') {
+                        bridge.notesRegisterFileFromMdLink(mdFileLinkPayloadR, null, rootIdsF.length);
+                    }
+                    return;
+                }
                 // FR-T01: 外部 files（.md）→ ルート末尾に登録（内部 drag / outliner / subpage が無いとき）
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR && isExternalFilesDrag(e)) {
                     clearAllDragOver();

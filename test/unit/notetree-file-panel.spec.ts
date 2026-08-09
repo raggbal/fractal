@@ -456,6 +456,53 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         expect(r.subpage).toBe(0); // MIME 判別（shape 判別で subpage に取り違えると RED）
     });
 
+    // ── TC-MX-03 (FR-TF-05b 信頼性 2026-08-10): listEl fallback（谷間/余白）drop の file MIME 配線 ──
+    // item 直上でなく listEl 自体（余白）に drop した場合も notesRegisterFileFromOutNode /
+    // notesRegisterFileFromMdLink がルート末尾 index で呼ばれる（counterfactual: fallback 配線を
+    // 外すと dragover 非 preventDefault で drop 不発 = 呼ばれず RED —「補助線だけ出て移動しない」の番人）。
+    test('TC-MX-03 listEl 余白への out-node-file / md-filelink drop → ルート末尾に登録', async ({ page }) => {
+        await loadPanel(page, {
+            fileList: [{ id: 'o1', filePath: '/n/plan.out', title: 'Plan', kind: 'out' }],
+            structure: { version: 1, rootIds: ['o1'], items: { o1: { type: 'file', id: 'o1', title: 'Plan' } } },
+        });
+
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            w.__calls = [];
+            const list = document.getElementById('notesFileList') as HTMLElement;
+            const rr = list.getBoundingClientRect();
+            const fire = (mime: string, payload: any) => {
+                const dt = new DataTransfer();
+                dt.setData(mime, JSON.stringify(payload));
+                // 余白 = listEl 自身を target にする（item 要素外の座標）
+                const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rr.left + 10, clientY: rr.bottom - 4 });
+                Object.defineProperty(over, 'target', { value: list });
+                list.dispatchEvent(over);
+                const preventedOver = over.defaultPrevented;
+                const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rr.left + 10, clientY: rr.bottom - 4 });
+                Object.defineProperty(drop, 'target', { value: list });
+                list.dispatchEvent(drop);
+                return preventedOver;
+            };
+            const overOF = fire('application/x-fractal-out-node-file', { outFileKey: '/n/src.out', nodeId: 'node-9' });
+            const overFL = fire('application/x-fractal-md-filelink', { href: 'files/z.pdf', sourceMdPath: '/n/doc.md' });
+            return {
+                overOF, overFL,
+                fromOutNode: w.__calls.filter((c: any) => c.type === 'notesRegisterFileFromOutNode'),
+                fromMdLink: w.__calls.filter((c: any) => c.type === 'notesRegisterFileFromMdLink'),
+            };
+        });
+
+        expect(r.overOF).toBe(true); // dragover が preventDefault（drop 発火の前提）
+        expect(r.overFL).toBe(true);
+        expect(r.fromOutNode.length).toBe(1);
+        expect(r.fromOutNode[0].args[1]).toBe(null); // parentId = root
+        expect(r.fromOutNode[0].args[2]).toBe(1);    // index = rootIds.length（末尾）
+        expect(r.fromMdLink.length).toBe(1);
+        expect(r.fromMdLink[0].args[1]).toBe(null);
+        expect(r.fromMdLink[0].args[2]).toBe(1);
+    });
+
     // ── TC-WV-14: openAttachExternal の click/pointerup 二重発火デデュープ（400ms + id）──
     // file item は click と pointerup 保険の両経路から openAttachExternal を呼ぶため、
     // 短時間の同一 id 連打は 1 回に潰す（counterfactual: dedup を外すと 2 回 = RED）。
