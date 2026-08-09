@@ -518,6 +518,17 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         // 2 回目の挿入も n1 より前（rootIds 内で n1 の index が繰り上がる）
         expect(afterMd.indexOf('n1')).toBeGreaterThanOrEqual(2);
         expect(afterMd.indexOf('n2')).toBe(afterMd.length - 1); // n2 は末尾のまま
+
+        // importFilesResult: 3 番目の同型 before 分岐（review iter3 QUAL-1 — 現状 host は after 固定で
+        // dead code だが、将来の位置対応で再燃しないよう番人化）
+        const afterFiles = await page.evaluate(() => {
+            const w = window as any;
+            w.__omh({ type: 'importFilesResult', results: [{ title: 'x.pdf', filePath: 'files/x.pdf' }], targetNodeId: 'n1', position: 'before' });
+            return w.Outliner.getModel ? w.Outliner.getModel().rootIds.slice() : null;
+        });
+        expect(afterFiles).not.toBeNull();
+        expect(afterFiles.indexOf('n1')).toBeGreaterThanOrEqual(3); // 3 回とも n1 より前に入った
+        expect(afterFiles.indexOf('n2')).toBe(afterFiles.length - 1);
     });
 
     // ---- TC-WV-09: editor x-fractal-tree-file drop -> attachTreeFileToMd; main/sidepanel both; not linkMdAsSubpage ----

@@ -41233,9 +41233,10 @@ var Outliner = (function() {
                                 var lastRootId3 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId3, r.title);
                             } else if (impPosition === 'before') {
-                                var info3 = model._getSiblingInfo(impTargetId);
-                                var afterId3 = info3 && info3.index > 0 ? info3.siblings[info3.index - 1] : null;
-                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId3, r.title);
+                                // TC-MX-07 (review iter3 QUAL-1): 3 番目の同型ブロックにも addNodeBefore を配線
+                                //（現状 host は 'after' 固定送信で dead code だが、旧「前兄弟 afterId + addNode」は
+                                // 先頭 target で末尾 append に化ける同型バグ — N 経路の一部にだけ配線の防止）
+                                newNode = model.addNodeBefore(model.getNode(impTargetId).parentId, impTargetId, r.title);
                             } else if (impPosition === 'child') {
                                 newNode = model.addNodeAtStart(impTargetId, r.title);
                                 model.getNode(impTargetId).collapsed = false;
