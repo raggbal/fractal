@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractMarkdownImagePaths } from './markdown-image-utils';
 import { safeResolveUnderDir } from './path-safety';
+import { resolveMdFilesDir } from './flat-layout';
 const { extractMarkdownFileLinks } = require('./markdown-link-parser');
 
 export async function listOutFiles(mainFolderPath: string): Promise<string[]> {
@@ -118,6 +119,30 @@ function addNotesMdToLiveSet(mainFolderPath: string, liveMd: Set<string>): void 
         if (!item || item.type !== 'file' || item.ext !== 'md') continue;
         liveMd.add(path.join(mainFolderPath, `${id}.md`));      // 新: basedir 直下
         liveMd.add(path.join(legacyMdRoot, `${id}.md`));         // legacy: _notes_md/
+    }
+}
+
+/**
+ * outline.note の structure を読み、tree に登録された添付ファイル（ext==='file'）の
+ * 実体パスを liveFiles に追加する。addNotesMdToLiveSet（md 版）と同型（FR-TF-07 🔴）。
+ *
+ * tree file は node/md どこからも参照されない（filename が実体への唯一の参照）ため、
+ * これをしないと Clean Unused Files が tree 登録済みの添付を orphan-file として誤検出し
+ * 破壊的に削除する。false-negative（生存 file を live から漏らす）は trash=データロスなので致命。
+ *
+ * filename は structure 由来だが、防御として safeResolveUnderDir で files/ 配下に clamp する
+ * （traversal filename は null → live 化しない。resolveMdFilePath 等の path-safety と同一方針）。
+ */
+export function addNotesFilesToLiveSet(structure: any, mainFolderPath: string, liveFiles: Set<string>): void {
+    const items = structure?.items;
+    if (!items || typeof items !== 'object') return;
+
+    const filesDir = resolveMdFilesDir(mainFolderPath); // flat-layout 正典（共有 files/）
+    for (const id of Object.keys(items)) {
+        const item = items[id];
+        if (!item || item.type !== 'file' || item.ext !== 'file' || !item.filename) continue;
+        const safeAbs = safeResolveUnderDir(filesDir, item.filename);
+        if (safeAbs) { liveFiles.add(safeAbs); }
     }
 }
 
@@ -358,6 +383,19 @@ export interface CleanupCandidateCore {
 export async function scanSingleNoteCore(mainFolderPath: string): Promise<CleanupCandidateCore[]> {
     const outFiles = await listOutFiles(mainFolderPath);
     const { liveMd: liveMd0, liveImages: initialLiveImages, liveFiles: initialLiveFiles } = await buildLiveSetPass1(outFiles, mainFolderPath);
+
+    // FR-TF-07: outline.note に登録された tree 添付ファイル（ext==='file'）を live 化する。
+    // node/md から未参照でも tree 登録されていれば生存扱い（addNotesMdToLiveSet の file 版）。
+    // Pass2 は initialLiveFiles を copy して起点にするため、Pass2 の前に足せば最終 liveFiles に残る。
+    const noteFilePath = path.join(mainFolderPath, 'outline.note');
+    if (fs.existsSync(noteFilePath)) {
+        try {
+            const structure = JSON.parse(fs.readFileSync(noteFilePath, 'utf8'));
+            addNotesFilesToLiveSet(structure, mainFolderPath, initialLiveFiles);
+        } catch (e) {
+            console.warn('[Fractal] Failed to parse outline.note for file live-set:', noteFilePath, e);
+        }
+    }
 
     // md→md リンク推移閉包で live を拡張してから Pass2 を回す。
     // 順序が load-bearing: Pass2（画像/添付）は liveMd を起点に md 本文を読むため、
