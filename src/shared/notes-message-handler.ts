@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as url from 'url';
 import { NotesFileManager } from './notes-file-manager';
+import { resolveSubpageTitle } from './md-subpage-utils';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
@@ -2416,10 +2418,6 @@ export function registerExternalDroppedUris(
     sender: NotesSender
 ): void {
     if (!Array.isArray(uris) || uris.length === 0) { return; }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const url = require('url') as typeof import('url');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { resolveSubpageTitle } = require('./md-subpage-utils') as typeof import('./md-subpage-utils');
     let registered = 0;
     for (const uri of uris) {
         try {

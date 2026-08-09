@@ -794,6 +794,19 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             listEl.dispatchEvent(dp2);
             out.listDrop = calls().map((c: any) => c.args)[0] || null;
 
+            // (2b) フォルダ children 余白: フォルダ内末尾へ（QUAL-4: 代表 3 点の宣言どおり全点踏む）
+            w.__calls = [];
+            const childrenEl = document.querySelector('.file-panel-folder-children') as HTMLElement;
+            dt = mkDt();
+            const ov3 = new DragEvent('dragover', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(ov3, 'target', { value: childrenEl });
+            childrenEl.dispatchEvent(ov3);
+            out.childrenOverAccepted = ov3.defaultPrevented;
+            const dp3 = new DragEvent('drop', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(dp3, 'target', { value: childrenEl });
+            childrenEl.dispatchEvent(dp3);
+            out.childrenDrop = calls().map((c: any) => c.args)[0] || null;
+
             // (3) Files 優先の dispatch 順: Files + uri-list 両方 → uri-list 経路は使わない
             w.__calls = [];
             const dtBoth = new DataTransfer();
@@ -819,6 +832,11 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         expect(r.listDrop).toBeTruthy();
         expect(r.listDrop[1]).toBe(null);
         expect(r.listDrop[2]).toBe(2); // rootIds.length = 2（o1, fold1 の末尾）
+        // (2b) フォルダ children 余白: フォルダ内末尾（parentId = folder id）
+        expect(r.childrenOverAccepted).toBe(true);
+        expect(r.childrenDrop).toBeTruthy();
+        expect(r.childrenDrop[1]).toBe('fold1');
+        expect(r.childrenDrop[2]).toBe(0); // childIds 空 → 末尾 = 0
         // (3) Files 同時積みは Files 経路優先（uri-list 経路は発火しない）
         expect(r.bothUriCalls).toBe(0);
     });
