@@ -4,8 +4,9 @@ import { NotesFileManager } from './notes-file-manager';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste } from './paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
+import { resolveFilesDirForMd } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
@@ -226,9 +227,12 @@ export interface NotesPlatformActions {
     notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
     /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
     notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
-    /** FR-T01: Finder / VS Code Explorer から .md をツリーに D&D → 各 md を新 id で複製登録 */
+    /**
+     * FR-T01 / FR-TF-01: Finder / VS Code Explorer から D&D。
+     * kind:'md' = 各 md を新 id で複製登録 / kind:'file'（§4a）= bytes(base64) を files/ に tree file item 登録。
+     */
     notesRegisterExternalMd?(
-        items: { kind: string; name: string; content: string }[],
+        items: { kind: string; name: string; content?: string; bytes?: string }[],
         parentId: string | null,
         index: number,
         sender: NotesSender
@@ -246,6 +250,30 @@ export interface NotesPlatformActions {
         targetOutFilePath: string,
         sender: NotesSender
     ): Promise<void> | void;
+
+    // ── FR-TF: tree file item（ext:'file'）D&D 経路（8 経路 + menu/click）——————————
+    /** click: tree file を外部アプリで開く（getTreeFilePath → openExternal） */
+    openTreeFileExternal?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-03 (§4b): tree file を .out item にドロップ → 当該 .out root 先頭に file node 追加 + tree 除去 */
+    notesImportFileIntoOut?(dragItemId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-04 (§4c): tree file を md item にドロップ → 対象 md 末尾に 📎 リンク追記 + tree 除去 */
+    notesAttachFileIntoMd?(dragItemId: string, targetMdId: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-06a (§4f): tree file を開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）へ添付 */
+    attachTreeFileToMd?(id: string, sidePanelFilePath: string | null | undefined, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-05a (§4d): tree file を outliner の node 位置に D&D → dropFilesResult 互換 postback + tree 除去 */
+    notesImportTreeFileAtPosition?(id: string, outFileId: string, targetNodeId: string | null, position: string | null, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-05b (§4e): outliner の file 添付 node をツリーへ D&D → files/ 登録（共有配下は無コピー）+ node.filePath null 化 */
+    notesRegisterFileFromOutNode?(payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-06b (§4g): md editor 内の 📎 file リンクをツリーへ D&D → files/ 登録 + 元 md からアンカー除去 */
+    notesRegisterFileFromMdLink?(payload: { href: string; sourceMdPath: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-10 menu: Reveal in Finder（getTreeFilePath → revealFileInOS command） */
+    revealTreeFileInOS?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-10 menu: Copy Path（getTreeFilePath の絶対パスを OS clipboard へ） */
+    copyTreeFilePath?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-10 menu: Delete（getTreeFilePath → workspace.fs.delete useTrash → structure 除去） */
+    deleteTreeFile?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-01 (§4a): 外部 D&D の 50MB 超 skip 等をユーザーに明示通知 */
+    notifyError?(message: string): void;
 }
 
 /**
@@ -1317,6 +1345,86 @@ export async function handleNotesMessage(
             break;
         }
 
+        // ── FR-TF: tree file item（ext:'file'）D&D 経路 ──
+        case 'openTreeFileExternal': {
+            if (typeof platform.openTreeFileExternal === 'function') {
+                await platform.openTreeFileExternal(message.id, sender);
+            }
+            break;
+        }
+        // FR-TF-03 (§4b)
+        case 'notesImportFileIntoOut': {
+            if (typeof platform.notesImportFileIntoOut === 'function') {
+                await platform.notesImportFileIntoOut(message.dragItemId, message.targetOutId, sender);
+            }
+            break;
+        }
+        // FR-TF-04 (§4c)
+        case 'notesAttachFileIntoMd': {
+            if (typeof platform.notesAttachFileIntoMd === 'function') {
+                await platform.notesAttachFileIntoMd(message.dragItemId, message.targetMdId, sender);
+            }
+            break;
+        }
+        // FR-TF-06a (§4f)
+        case 'attachTreeFileToMd': {
+            if (typeof platform.attachTreeFileToMd === 'function') {
+                await platform.attachTreeFileToMd(message.id, message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
+        // FR-TF-05a (§4d)
+        case 'notesImportTreeFileAtPosition': {
+            if (typeof platform.notesImportTreeFileAtPosition === 'function') {
+                await platform.notesImportTreeFileAtPosition(
+                    message.id,
+                    message.outFileId,
+                    message.targetNodeId ?? null,
+                    message.position ?? null,
+                    sender
+                );
+            }
+            break;
+        }
+        // FR-TF-05b (§4e)
+        case 'notesRegisterFileFromOutNode': {
+            if (typeof platform.notesRegisterFileFromOutNode === 'function') {
+                await platform.notesRegisterFileFromOutNode(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+        }
+        // FR-TF-06b (§4g)
+        case 'notesRegisterFileFromMdLink': {
+            if (typeof platform.notesRegisterFileFromMdLink === 'function') {
+                await platform.notesRegisterFileFromMdLink(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+        }
+        // FR-TF-10 menu
+        case 'revealTreeFileInOS': {
+            if (typeof platform.revealTreeFileInOS === 'function') {
+                await platform.revealTreeFileInOS(message.id, sender);
+            }
+            break;
+        }
+        case 'copyTreeFilePath': {
+            if (typeof platform.copyTreeFilePath === 'function') {
+                await platform.copyTreeFilePath(message.id, sender);
+            }
+            break;
+        }
+        case 'deleteTreeFile': {
+            if (typeof platform.deleteTreeFile === 'function') {
+                await platform.deleteTreeFile(message.id, sender);
+            }
+            break;
+        }
+        // FR-TF-01 (§4a): 外部 D&D の明示通知
+        case 'notifyError': {
+            platform.notifyError?.(String(message.message ?? ''));
+            break;
+        }
+
         // v11: アイテム色設定
         case 'notesToggleFavorite': {
             // v0.207.36: お気に入り toggle (outline.note の favorites array を更新)
@@ -1901,4 +2009,331 @@ export async function handleNotesMessage(
             break;
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FR-TF: tree file item（ext:'file'）D&D の pure-fs seam 関数群
+//
+// notesEditorProvider.ts の platform ハンドラ（openNotesFolder() 内の巨大クロージャ）は
+// provider+webviewPanel+document なしに直接 unit 起動できない（designer_failures 2026-08-07
+// の seam 抽出方針）。ここに DI（fileManager / sender を引数）で pure-fs ロジックを export し、
+// provider の薄い wrapper がこれを呼ぶ。unit（notetree-file-dnd-host.spec.ts）はこの seam を直接叩く。
+//
+// 契約（ADRL-B / 所有移し替え・§4y/§4z）:
+//  - files/ 実体は「不動」が既定（.out import / md attach = リンク/相対パスで指すだけ・コピーしない）
+//  - 衝突解決は必ず shared generateUniqueFileNamePreserving（§4z。local shadow / global replace 禁止）
+//  - リンク生成時の title は `]`→`］`・改行→空白（§4y。filename 側は NotesFileManager.sanitizeTreeFileName）
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * §4y: files/ 添付を markdown リンクにする際の書式生成。
+ * title（alt スロット）の label 終端衝突文字 `]`→`］` + 改行→空白。`[` は parser 上無害なので保持。
+ * relPath（url スロット）は呼び出し側で sanitize 済み filename から組んだ相対パスを渡す。
+ */
+export function buildFileLinkMarkdown(title: string, relPath: string): string {
+    const safeTitle = String(title || '').replace(/\]/g, '］').replace(/[\r\n]+/g, ' ');
+    return `[📎 ${safeTitle}](${relPath})`;
+}
+
+/** file item id → .out の絶対パス解決（id / path のどちらで渡されても解決する） */
+function resolveOutPathRef(fileManager: NotesFileManager, ref: string): string | null {
+    if (typeof ref === 'string' && ref.endsWith('.out') && fs.existsSync(ref)) { return ref; }
+    try {
+        const p = fileManager.getFilePathById(ref);
+        if (p && p.endsWith('.out') && fs.existsSync(p)) { return p; }
+    } catch { /* ignore */ }
+    return null;
+}
+
+/**
+ * raw structure insert（コピーなしで既存 files/ 実体を tree file item として登録する）。
+ * NotesFileManager.registerTreeFile は必ず sanitize+uniquify+実体 write するため無コピー登録に使えない
+ * （registerExistingMdFile :1742 と同型の raw insert precedent をミラー）。§4e branch A / §4g で使用。
+ */
+function rawInsertTreeFileEntry(
+    fileManager: NotesFileManager,
+    filename: string,
+    title: string,
+    parentId: string | null,
+    index: number
+): string {
+    const id = NotesFileManager.generateOutlineId();
+    const structure: any = fileManager.getStructure();
+    structure.items[id] = { type: 'file', id, title: title || filename, ext: 'file', filename };
+    const parent = parentId ? structure.items[parentId] : null;
+    const siblings: string[] = parent && parent.type === 'folder' ? parent.childIds : structure.rootIds;
+    const safeIndex = Math.max(0, Math.min(index, siblings.length));
+    siblings.splice(safeIndex, 0, id);
+    fileManager.saveStructure();
+    return id;
+}
+
+/**
+ * §4y: attach 時（§4c/§4f = リンク文法を通す経路）に、違反名の実体を sanitize 名へリネームする。
+ * tree item は排他所有中なのでリネーム安全。sanitize で変化が無ければ何もしない。
+ * @returns 安全化後の filename / null（item が file でない）
+ */
+function ensureSafeTreeFileName(fileManager: NotesFileManager, id: string): string | null {
+    const item: any = fileManager.getStructure().items[id];
+    if (!item || item.type !== 'file' || item.ext !== 'file' || !item.filename) { return null; }
+    const safe = NotesFileManager.sanitizeTreeFileName(item.filename);
+    if (safe === item.filename) { return item.filename; }
+    const filesDir = fileManager.getMdFilesDirPath();
+    const oldPath = fileManager.getTreeFilePath(id);
+    const uniqueSafe = generateUniqueFileNamePreserving(filesDir, safe);
+    const newPath = path.join(filesDir, uniqueSafe);
+    if (oldPath && fs.existsSync(oldPath) && path.resolve(oldPath) !== path.resolve(newPath)) {
+        try { fs.mkdirSync(filesDir, { recursive: true }); } catch { /* ignore */ }
+        try { fs.renameSync(oldPath, newPath); } catch { /* ignore */ }
+    }
+    item.filename = uniqueSafe;
+    fileManager.saveStructure();
+    return uniqueSafe;
+}
+
+/**
+ * FR-TF-03 (§4b): tree file を .out item にドロップ。
+ * .out root 先頭に file node（filePath=outDir 相対）を unshift し、tree エントリを除去（実体不動）。
+ */
+export function treeFileImportIntoOut(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    dragItemId: string,
+    targetOutId: string
+): void {
+    try {
+        const item: any = fileManager.getStructure().items[dragItemId];
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
+        const title = String(item.title || item.filename || 'file');
+        const outPath = resolveOutPathRef(fileManager, targetOutId);
+        if (!outPath) { return; }
+        const fileAbs = fileManager.getTreeFilePath(dragItemId);
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        const relPath = path.relative(path.dirname(outPath), fileAbs).replace(/\\/g, '/');
+
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        outData.nodes = outData.nodes || {};
+        outData.rootIds = outData.rootIds || [];
+        const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        outData.nodes[newNodeId] = {
+            id: newNodeId, parentId: null, children: [], text: title, tags: [],
+            isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: relPath,
+        };
+        outData.rootIds.unshift(newNodeId);
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        fileManager.unregisterTreeFileFromStructureOnly(dragItemId);
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileImportIntoOut error:', e);
+    }
+}
+
+/**
+ * FR-TF-04 (§4c): tree file を md item にドロップ。対象 md 末尾に 📎 リンクを追記し tree 除去（実体不動）。
+ * 違反名実体は attach 前に sanitize 名へリネーム（§4y）。
+ */
+export function treeFileAttachIntoMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    dragItemId: string,
+    targetMdId: string
+): void {
+    try {
+        const safeName = ensureSafeTreeFileName(fileManager, dragItemId);
+        if (!safeName) { return; }
+        const fileAbs = fileManager.getTreeFilePath(dragItemId);
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        const mdPath = fileManager.getFilePathById(targetMdId);
+        if (!mdPath || !mdPath.endsWith('.md') || !fs.existsSync(mdPath)) { return; }
+        const item: any = fileManager.getStructure().items[dragItemId];
+        const title = String((item && item.title) || safeName);
+        const relPath = path.relative(path.dirname(mdPath), fileAbs).replace(/\\/g, '/');
+        const link = buildFileLinkMarkdown(title, relPath);
+        const cur = fs.readFileSync(mdPath, 'utf8');
+        const newContent = cur + (cur.endsWith('\n') ? '' : '\n') + link + '\n';
+        writeFileIfChanged(mdPath, newContent);
+        fileManager.unregisterTreeFileFromStructureOnly(dragItemId);
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileAttachIntoMd error:', e);
+    }
+}
+
+/**
+ * FR-TF-06a (§4f): tree file を開いている md editor へ添付。
+ * main=currentFile / sidepanel=sidePanelFilePath 宛て。insertFileLink（markdownPath 相対・fileName=title）
+ * を送り、webview 既存ハンドラが 📎 アンカーを挿入。main は sidePanelFilePath を付けない（誤送出防止）。
+ */
+export function treeFileAttachToMdEditor(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    id: string,
+    sidePanelFilePath?: string | null
+): void {
+    try {
+        const safeName = ensureSafeTreeFileName(fileManager, id);
+        if (!safeName) { return; }
+        const fileAbs = fileManager.getTreeFilePath(id);
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
+        if (!target) { return; }
+        const item: any = fileManager.getStructure().items[id];
+        const title = String((item && item.title) || safeName);
+        const markdownPath = path.relative(path.dirname(target), fileAbs).replace(/\\/g, '/');
+        const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
+        if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
+        sender.postMessage(msg);
+        fileManager.unregisterTreeFileFromStructureOnly(id);
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileAttachToMdEditor error:', e);
+    }
+}
+
+/**
+ * FR-TF-05a (§4d): tree file を outliner の node 位置に D&D。
+ * getTreeFilePath → outDir 相対化 → dropFilesResult 互換 shape を単一 postback（既存 file kind 処理が node 化）。
+ * 挿入位置は webview が解決した targetNodeId/position をそのまま返す。tree エントリ除去（実体不動）。
+ */
+export function treeFileImportAtPosition(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    id: string,
+    outFileId: string,
+    targetNodeId: string | null,
+    position: string | null
+): void {
+    try {
+        const item: any = fileManager.getStructure().items[id];
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
+        const title = String(item.title || item.filename || 'file');
+        const fileAbs = fileManager.getTreeFilePath(id);
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        const baseDir = outPath ? path.dirname(outPath) : fileManager.getMainFolderPath();
+        const relPath = path.relative(baseDir, fileAbs).replace(/\\/g, '/');
+        sender.postMessage({
+            type: 'dropFilesResult',
+            results: [{ kind: 'file', ok: true, title, filePath: relPath }],
+            targetNodeId: targetNodeId ?? null,
+            position: position ?? null,
+        });
+        fileManager.unregisterTreeFileFromStructureOnly(id);
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileImportAtPosition error:', e);
+    }
+}
+
+/**
+ * FR-TF-05b (§4e): outliner の file 添付 node をツリーへ D&D。
+ * node.filePath を outDir 基準で clamp 解決 → 共有 files/ 配下なら無コピー登録（basename）/
+ * legacy 配下なら files/ へ copy + §4z uniquify 登録 → 元 node.filePath を null 化（所有移し替え）。
+ */
+export function treeFileRegisterFromOutNode(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { outFileKey: string; nodeId: string },
+    parentId: string | null,
+    index: number
+): void {
+    try {
+        if (!payload || !payload.outFileKey || !payload.nodeId) { return; }
+        const outPath = resolveOutPathRef(fileManager, payload.outFileKey);
+        if (!outPath) { return; }
+        const outDir = path.dirname(outPath);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const node = outData.nodes && outData.nodes[payload.nodeId];
+        if (!node || !node.filePath) { return; }
+        // node.filePath は outDir 基準の相対（or 絶対）→ traversal clamp（files/ 外 escape 防御）
+        const abs = safeResolveUnderDir(outDir, node.filePath);
+        if (!abs || !fs.existsSync(abs)) { return; }
+        const filesDir = fileManager.getMdFilesDirPath();
+        const relToFiles = path.relative(filesDir, abs);
+        const underFiles = !!relToFiles && !relToFiles.startsWith('..') && !path.isAbsolute(relToFiles);
+        let filename: string;
+        if (underFiles) {
+            // 既に共有 files/ 配下 → 無コピーでそのまま登録（1:1 所有を node → tree item へ移す）
+            filename = path.basename(abs);
+        } else {
+            // legacy per-id dir 等 → files/ へ copy + §4z uniquify
+            try { fs.mkdirSync(filesDir, { recursive: true }); } catch { /* ignore */ }
+            const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(abs));
+            filename = generateUniqueFileNamePreserving(filesDir, sanitized);
+            fs.copyFileSync(abs, path.join(filesDir, filename));
+        }
+        const title = String(node.text || filename);
+        rawInsertTreeFileEntry(fileManager, filename, title, parentId, index);
+
+        node.filePath = null;
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileRegisterFromOutNode error:', e);
+    }
+}
+
+/**
+ * FR-TF-06b (§4g): md editor 内の 📎 file リンクをツリーへ D&D。
+ * href を resolveFilesDirForMd(sourceMdPath) 基準で clamp（traversal は登録も removeFileLink もせず中断）→
+ * 無コピー登録 → 元 md の該当アンカー除去（removeFileLink）。
+ */
+export function treeFileRegisterFromMdLink(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string },
+    parentId: string | null,
+    index: number
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+        // href は md 隣 files/ への相対（`files/<name>`）。decode 後に clamp（%2F traversal を復号後に弾く）
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+        // filesDir 配下に収まるかを path.relative で判定（.. / 絶対化は拒否）
+        const rel = path.relative(filesDir, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
+        if (!fs.existsSync(abs)) { return; }
+        const filename = path.basename(abs);
+        rawInsertTreeFileEntry(fileManager, filename, filename, parentId, index);
+        sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeFileRegisterFromMdLink error:', e);
+    }
+}
+
+/**
+ * FR-TF-01 (§4a): 外部 D&D の 1 ファイルを tree file item として登録する。
+ * bytes は base64。50MB 超は decode 前に長さから推定して skip + notify（巨大 Buffer alloc を避ける）。
+ * kind!=='file' は従来 md 経路が扱うため null を返す。衝突解決は registerTreeFile 内の shared uniquify。
+ * @returns 登録した item id / null（md・skip・不正）
+ */
+export function registerExternalDroppedFileItem(
+    fileManager: NotesFileManager,
+    item: { kind: string; name: string; bytes?: string },
+    parentId: string | null,
+    index: number,
+    notify?: (name: string) => void
+): string | null {
+    if (!item || item.kind !== 'file') { return null; }
+    const b64 = typeof item.bytes === 'string' ? item.bytes : '';
+    const estimate = Math.floor(b64.length * 3 / 4);
+    if (estimate > 50 * 1024 * 1024) {
+        if (typeof notify === 'function') { notify(item.name); }
+        return null;
+    }
+    const buf = Buffer.from(b64, 'base64');
+    return fileManager.registerTreeFile(item.name, item.name, parentId, index, buf);
 }
