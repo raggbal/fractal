@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
-import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs } from './paste-asset-handler';
+import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving } from './paste-asset-handler';
+import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
 const mdLinkParser = require('./markdown-link-parser');
@@ -11,6 +12,7 @@ export interface NotesFileEntry {
     filePath: string;
     title: string;
     id: string;
+    kind?: 'out' | 'md' | 'file'; // FR-TF: 列挙元の種別（.out / .md / tree file）
 }
 
 // ── .note 構造管理 ──
@@ -20,7 +22,9 @@ export interface NoteTreeFile {
     id: string;        // ファイル名（拡張子なし）
     title: string;     // 表示タイトル（.outのtitleと同期）
     color?: string;    // v11: Tailwind palette name ('red', 'orange', ..., 'zinc') or undefined
-    ext?: 'out' | 'md'; // v0.207.75: ファイル拡張子。省略時は 'out' (back-compat). ADR-008
+    ext?: 'out' | 'md' | 'file'; // v0.207.75: ファイル拡張子。省略時は 'out' (back-compat). ADR-008
+                                 // 'file' (FR-TF): 任意拡張子の添付を files/ 配下に実体保持する tree file item。
+    filename?: string; // FR-TF: ext:'file' の実体名（files/ 配下・拡張子込み）。id とは別（id は uuid）。
 }
 
 export interface NoteTreeFolder {
@@ -54,7 +58,7 @@ export interface NoteStructure {
 export interface SearchResult {
     fileId: string;
     fileTitle: string;
-    fileType: 'out' | 'md';
+    fileType: 'out' | 'md' | 'file';
     matches: SearchMatch[];
     parentOutFileId?: string;  // pages .md の場合、親.outのfileId
     pageId?: string;           // pages .md の場合、pageId
@@ -135,6 +139,140 @@ export class NotesFileManager {
             fs.mkdirSync(this.getMdFilesDirPath(), { recursive: true });
         } catch (e) {
             console.error('[NotesFileManager] ensureMdDirs error:', e);
+        }
+    }
+
+    // ── FR-TF: tree file item（ext:'file'）— 任意拡張子の添付を files/ 配下に実体保持 ──
+
+    /**
+     * filename（相対名）を files/ 共有サブフォルダ配下の絶対パスに解決する（getStructure 非依存）。
+     * design §1: traversal（`../..` / `..%2F`）は safeResolveUnderDir で files/ 外へ escape させず null に clamp。
+     * loadStructure→syncStructureWithDisk からも呼べるよう getStructure() を参照しない。
+     */
+    private resolveTreeFileEntity(filename: string | undefined): string | null {
+        if (!filename) { return null; }
+        const filesDir = flatLayout.resolveMdFilesDir(this.mainFolderPath);
+        return safeResolveUnderDir(filesDir, filename);
+    }
+
+    /**
+     * FR-TF §1: tree file item（ext:'file'）の実体パスを返す。
+     * @returns files/ 配下の絶対パス / null（item が file でない・filename 無し・traversal escape）
+     */
+    getTreeFilePath(itemId: string): string | null {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return null; }
+        return this.resolveTreeFileEntity(item.filename);
+    }
+
+    /**
+     * FR-TF §4y: tree file の実体名を markdown リンク構文で安全な名前に正規化する。
+     * - `?` `#` `[` `]` + 制御文字（\x00-\x1f, \x7f）→ `_`（常に置換）
+     * - `(` `)` は balanced（開閉が対応）なら保持・unbalanced なら `_` に置換
+     *   （markdown-link-parser は balanced-paren aware なので、対応が取れた括弧は URL 部で壊れない）。
+     * - `.` は保持する（連続ドット名 archive..tar.gz を破壊しない — §4z の趣旨。global `\.\.` replace 禁止）。
+     */
+    static sanitizeTreeFileName(name: string): string {
+        let s = String(name || '');
+        // markdown リンク構文の破壊文字（label 終端 `]` / 誤解析 `?#[`）+ 制御文字を _ に。
+        // eslint-disable-next-line no-control-regex
+        s = s.replace(/[?#[\]\x00-\x1f\x7f]/g, '_');
+        // () の balance 判定（depth が負になる or 最終 depth≠0 なら unbalanced）
+        let depth = 0;
+        let balanced = true;
+        for (const ch of s) {
+            if (ch === '(') { depth++; }
+            else if (ch === ')') { depth--; if (depth < 0) { balanced = false; break; } }
+        }
+        if (depth !== 0) { balanced = false; }
+        if (!balanced) { s = s.replace(/[()]/g, '_'); }
+        return s;
+    }
+
+    /**
+     * FR-TF §0/§2: tree file item（ext:'file'）を新規登録する。
+     * filename を sanitize（§4y）+ uniquify（§4z generateUniqueFileNamePreserving）して files/ に実体を書き、
+     * outline.note の items に {type:'file', ext:'file', filename, title} を登録する。
+     * @param bytes 実体バイト列（省略時は空ファイル。台帳登録が主目的で bytes は D&D 経路が渡す）
+     * @returns 生成した item id（uuid・filename とは別）
+     */
+    registerTreeFile(
+        filename: string,
+        title: string,
+        parentId: string | null,
+        index: number,
+        bytes?: Buffer | Uint8Array
+    ): string {
+        const id = NotesFileManager.generateOutlineId();
+        const filesDir = flatLayout.resolveMdFilesDir(this.mainFolderPath);
+        try { fs.mkdirSync(filesDir, { recursive: true }); } catch { /* ignore */ }
+        // §4y sanitize → §4z uniquify（generateUniqueFileNamePreserving が入口で basename + 厳密名 ./.. ガード）
+        const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(String(filename || 'file')));
+        const uniqueName = generateUniqueFileNamePreserving(filesDir, sanitized);
+        const entityPath = path.join(filesDir, uniqueName);
+        try {
+            fs.writeFileSync(entityPath, bytes ?? Buffer.alloc(0));
+        } catch (e) {
+            console.error('[NotesFileManager] registerTreeFile write error:', e);
+        }
+
+        const structure = this.getStructure();
+        structure.items[id] = { type: 'file', id, title: title || uniqueName, ext: 'file', filename: uniqueName };
+
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        const safeIndex = Math.max(0, Math.min(index, siblings.length));
+        siblings.splice(safeIndex, 0, id);
+
+        this.saveStructure();
+        return id;
+    }
+
+    /**
+     * FR-TF: 物理実体（files/ 配下）は残したまま、outline.note 構造からのみ tree file item を除去する。
+     * unregisterMdFromStructureOnly の tree file 版（D&D で別 note へ移した後の src エントリ除去用）。
+     * @returns 除去した実体の filePath（or null）
+     */
+    unregisterTreeFileFromStructureOnly(itemId: string): string | null {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return null; }
+        const filePath = this.getTreeFilePath(itemId);
+
+        this.removeItemFromStructure(structure, itemId);
+        this.saveStructure();
+
+        if (filePath && this.currentFilePath === filePath) {
+            this.currentFilePath = null;
+            this.isDirty = false;
+            this.lastJsonString = null;
+        }
+        return filePath;
+    }
+
+    /**
+     * FR-TF §7: tree file item を削除する（files/ 実体を trash へ + 構造から除去）。
+     * deleteFile（.out/.md 用の filePath ベース経路）には載せない（id ベースの別経路）。
+     */
+    async deleteTreeFile(itemId: string): Promise<void> {
+        try {
+            const structure = this.getStructure();
+            const item = structure.items[itemId];
+            if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
+            const entityPath = this.getTreeFilePath(itemId);
+            if (entityPath && fs.existsSync(entityPath)) {
+                const vscode = require('vscode');
+                await vscode.workspace.fs.delete(
+                    vscode.Uri.file(entityPath),
+                    { useTrash: true, recursive: false }
+                );
+            }
+            this.removeItemFromStructure(structure, itemId);
+            this.saveStructure();
+        } catch (e) {
+            console.error('[NotesFileManager] deleteTreeFile error:', e);
         }
     }
     getCurrentFilePath(): string | null { return this.currentFilePath; }
@@ -343,13 +481,22 @@ export class NotesFileManager {
         }
 
         // 欠損ファイル → 構造から削除
-        // ext === 'md' なら .md の存在を、それ以外は .out の存在を確認
+        // ext === 'md' なら .md、ext === 'file' なら files/ 実体、それ以外は .out の存在を確認
+        // FR-TF §2 :346-356: tree file item（ext:'file'）は実体を files/ 配下に filename で持つため
+        //   diskOutFiles/diskMdIds のどちらにも現れない。第 3 分岐で getTreeFilePath 実在を確認する
+        //   （この分岐が無いと file item が else に落ち diskOutFiles 非該当で誤削除される）。
+        //   disk→items 自動追加は行わない（未登録 stray はスキャンしない）。
         const toRemove: string[] = [];
         for (const [id, item] of Object.entries(structure.items)) {
             if (item.type !== 'file') continue;
             const ext = item.ext ?? 'out';
             if (ext === 'md') {
                 if (!diskMdIds.has(id)) toRemove.push(id);
+            } else if (ext === 'file') {
+                // getTreeFilePath は getStructure() 依存で loadStructure 中は再入するため、
+                // item.filename から直接解決する getStructure-free ヘルパを使う。
+                const entityPath = this.resolveTreeFileEntity(item.filename);
+                if (!entityPath || !fs.existsSync(entityPath)) toRemove.push(id);
             } else {
                 if (!diskOutFiles.has(id)) toRemove.push(id);
             }
@@ -826,7 +973,7 @@ export class NotesFileManager {
                 } catch {
                     // JSON parse failure — use default title
                 }
-                result.push({ filePath, title, id });
+                result.push({ filePath, title, id, kind: 'out' });
             }
             // v0.207.82: .md ファイル — _notes_md/ 直下から、outline.note 構造に登録された ID のみ列挙 (フラット化)
             const structure = this.getStructure();
@@ -841,8 +988,16 @@ export class NotesFileManager {
                     try {
                         if (!fs.statSync(filePath).isFile()) continue;
                     } catch { continue; }
-                    result.push({ filePath, title: item.title || id, id });
+                    result.push({ filePath, title: item.title || id, id, kind: 'md' });
                 }
+            }
+            // FR-TF §3: tree file item（ext:'file'）を登録ベースで列挙（files/ 全 walk はしない）。
+            //   実体が存在するものだけ列挙（実体欠損 item は非列挙）。
+            for (const [id, item] of Object.entries(structure.items)) {
+                if (item.type !== 'file' || item.ext !== 'file') continue;
+                const filePath = this.getTreeFilePath(id);
+                if (!filePath || !fs.existsSync(filePath)) continue;
+                result.push({ filePath, title: item.title || id, id, kind: 'file' });
             }
             result.sort((a, b) => a.title.localeCompare(b.title));
             return result;
@@ -1121,6 +1276,12 @@ export class NotesFileManager {
         const structure = this.getStructure();
         const item = structure.items[itemId];
         if (!item || item.type !== 'file') { return null; }
+        // FR-TF §5 / §2 :1124: 明示 3 値化。tree file item（ext:'file'）は専用経路へ分岐し、
+        //   .md/.out closure 機構に載せない（else-out に落とすと <src>/<uuid>.out が無く copy されず、
+        //   dst に実体なし item が登録される回帰 = TC-TF-17 counterfactual）。
+        if (item.ext === 'file') {
+            return this._moveTreeFileToOtherNote(itemId, item, dstFolderPath);
+        }
         const ext: 'out' | 'md' = item.ext === 'md' ? 'md' : 'out';
 
         const dstFm = new NotesFileManager(dstFolderPath);
@@ -1346,6 +1507,81 @@ export class NotesFileManager {
         }
         this.saveStructure();
 
+        return newId;
+    }
+
+    /**
+     * FR-TF §5: tree file item（ext:'file'）を別 note へ移動する専用経路。
+     * - src 実体（files/<filename>）を dst の files/ へ sanitize(§4y)+uniquify(§4z) して copy。
+     * - dst outline.note に {type:'file', ext:'file', filename:new, title, color} を rootIds 先頭で登録。
+     * - src 残留参照判定（§5）: 他 .out/.md が同 basename を参照（collectSurvivingAssetRefs）
+     *   OR 残留 file item が同 filename を持つ → 参照ありなら src 実体温存、参照なしなら削除。
+     *   共有アセットの実削除は notes-asset-mover.cleanupMovedAssets に委譲（DOD-24 allowlist）。
+     * - src structure エントリを除去。
+     * @returns dst での新 id / null（filename 無し・実体不在・copy 失敗）
+     */
+    private _moveTreeFileToOtherNote(itemId: string, item: NoteTreeFile, dstFolderPath: string): string | null {
+        const structure = this.getStructure();
+        const filename = item.filename;
+        if (!filename) { return null; }
+        const srcEntity = this.getTreeFilePath(itemId);
+        if (!srcEntity || !fs.existsSync(srcEntity)) { return null; }
+
+        const dstFm = new NotesFileManager(dstFolderPath);
+        const dstStructure = dstFm.getStructure();
+
+        // dst files/ へ copy（§4y sanitize + §4z uniquify）
+        const dstFilesDir = flatLayout.resolveMdFilesDir(dstFolderPath);
+        let dstName = '';
+        try {
+            fs.mkdirSync(dstFilesDir, { recursive: true });
+            const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(filename));
+            dstName = generateUniqueFileNamePreserving(dstFilesDir, sanitized);
+            fs.copyFileSync(srcEntity, path.join(dstFilesDir, dstName));
+        } catch (e) {
+            console.error('[NotesFileManager] _moveTreeFileToOtherNote copy error:', e);
+            return null;
+        }
+
+        // dst 構造に登録（rootIds 先頭）
+        let newId = itemId;
+        if (dstStructure.items[newId]) { newId = NotesFileManager.generateOutlineId(); }
+        dstStructure.items[newId] = {
+            type: 'file', id: newId, title: item.title, ext: 'file', filename: dstName,
+            ...(item.color ? { color: item.color } : {}),
+        };
+        dstStructure.rootIds.unshift(newId);
+        dstFm.saveStructure();
+
+        // src 残留参照判定 → 実体削除 or 温存（§5）
+        try {
+            // (1) 残留 file item が同 filename を参照するか（collectSurvivingAssetRefs は tree file item を
+            //     走査しないため、ここで別途確認する）。
+            let referencedByOtherFileItem = false;
+            for (const [id2, it2] of Object.entries(structure.items)) {
+                if (id2 === itemId) { continue; }
+                if (it2.type === 'file' && it2.ext === 'file' && it2.filename === filename) {
+                    referencedByOtherFileItem = true;
+                    break;
+                }
+            }
+            if (!referencedByOtherFileItem) {
+                // (2) 他 .out/.md 本文の 📎 参照は cleanupMovedAssets 内の collectSurvivingAssetRefs が判定。
+                //     surviving に basename があれば削除スキップ（データロス防止）、無ければ削除。
+                assetMover.cleanupMovedAssets(
+                    this.mainFolderPath,
+                    new Set<string>([itemId, newId]),
+                    [{ absPath: srcEntity, recursive: false, isSharedAsset: true }]
+                );
+            }
+            // else: 残留 file item がまだ同実体を参照 → src 実体温存（削除しない）
+        } catch (e) {
+            console.error('[NotesFileManager] _moveTreeFileToOtherNote src cleanup error:', e);
+        }
+
+        // src 構造エントリ除去
+        this.removeItemFromStructure(structure, itemId);
+        this.saveStructure();
         return newId;
     }
 
@@ -1646,6 +1882,22 @@ export class NotesFileManager {
      */
     renameTitle(filePath: string, newTitle: string): void {
         try {
+            // FR-TF §2 :1647: tree file item（files/ 配下の実体パス）は id ベースの別経路。
+            //   実体パスを .out/.md の filePath ベースロジック（JSON.parse / setFirstH1）に流さない
+            //   （binary を JSON.parse/H1 書換すると破壊するため）。title のみ更新・実体は不変。
+            const filesDir = path.resolve(flatLayout.resolveMdFilesDir(this.mainFolderPath));
+            if (path.dirname(path.resolve(filePath)) === filesDir) {
+                const base = path.basename(filePath);
+                const structure = this.getStructure();
+                for (const it of Object.values(structure.items)) {
+                    if (it.type === 'file' && it.ext === 'file' && it.filename === base) {
+                        it.title = newTitle;
+                        this.saveStructure();
+                        break;
+                    }
+                }
+                return;
+            }
             const isMd = filePath.endsWith('.md');
             if (!isMd) {
                 const content = fs.readFileSync(filePath, 'utf8');
@@ -1709,6 +1961,13 @@ export class NotesFileManager {
         const ext = (item && item.type === 'file' && item.ext) ? item.ext : 'out';
         if (ext === 'md') {
             return this.getMdFilePath(fileId);
+        }
+        if (ext === 'file') {
+            // FR-TF §2 :1709: fake `${id}.file` を返さず実体パス（files/ 配下）へ委譲する。
+            //   返り値契約は string（既存 caller が .endsWith 等で string を前提）を維持し、
+            //   traversal escape 等で null のときは '' に落とす（openFile('') が readFileSync で
+            //   ENOENT → null を返し caller が安全に中断する。fake .file 経路には決して流さない）。
+            return this.getTreeFilePath(fileId) ?? '';
         }
         return path.join(this.mainFolderPath, `${fileId}.${ext}`);
     }
