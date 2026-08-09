@@ -42807,6 +42807,19 @@ var notesFilePanel = (function() {
                 closeContextMenu();
                 if (bridge.moveToOtherNote) { bridge.moveToOtherNote(treeFileId); }
             });
+            // FR-TF-10: 共通項目（その位置に新規作成）は file item でも従来どおり表示（design §7 / SYS-1 裁定 2026-08-10）
+            addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
+                closeContextMenu();
+                promptNewFile(fileParentId, fileId);
+            });
+            addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+                closeContextMenu();
+                promptNewMarkdownFile(fileParentId, fileId);
+            });
+            addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
+                closeContextMenu();
+                promptNewFolder(fileParentId, fileId);
+            });
             addContextItem(contextMenu, i18n.notesDelete || 'Delete', function() {
                 closeContextMenu();
                 if (bridge && bridge.deleteTreeFile) { bridge.deleteTreeFile(treeFileId); }

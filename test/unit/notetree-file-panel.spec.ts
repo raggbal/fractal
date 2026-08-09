@@ -198,7 +198,9 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
     });
 
     // ── TC-WV-05: file 右クリックメニュー集合 ──
-    test('TC-WV-05 file メニュー = 専用 8 項目（Copy In-App Link / Open in new tab は非表示）。out は両者を表示', async ({ page }) => {
+    // rev (design_gap SYS-1 / ユーザー裁定 2026-08-10): FR-TF-10「共通項目（New Outline here /
+    // New Markdown here / New Subfolder）は従来どおり表示」が正。旧版は not.toContain で逆方向 pin していた。
+    test('TC-WV-05 file メニュー = 専用 8 項目 + 共通 3 項目（Copy In-App Link / Open in new tab は非表示）。out は両者を表示', async ({ page }) => {
         await loadPanel(page, {
             fileList: [
                 { id: 'a1', filePath: '/n/files/photo.png', title: 'photo.png', kind: 'file' },
@@ -225,7 +227,7 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             return { fileLabels, outLabels };
         });
 
-        // file メニュー: 専用 8 項目・順序込み
+        // file メニュー: 専用 8 項目 + 共通 3 項目（FR-TF-10「共通項目は従来どおり表示」）・順序込み
         expect(labels.fileLabels).toEqual([
             'Open',
             'Reveal in Finder',
@@ -234,14 +236,14 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             'Copy Path',
             'Set Color',
             'Move Other Note',
+            'New Outline here',
+            'New Markdown here',
+            'New Subfolder',
             'Delete',
         ]);
         // file では出さない
         expect(labels.fileLabels).not.toContain('Copy In-App Link');
         expect(labels.fileLabels).not.toContain('Open in new tab');
-        expect(labels.fileLabels).not.toContain('New Outline here');
-        expect(labels.fileLabels).not.toContain('New Markdown here');
-        expect(labels.fileLabels).not.toContain('New Subfolder');
         // out（対比）: Copy In-App Link と Open in new tab を出す
         // → file 側の非表示は「InAppLinkUtils 不在」ではなく file branch 固有と確定できる
         expect(labels.outLabels).toContain('Copy In-App Link');
