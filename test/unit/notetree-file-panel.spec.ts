@@ -453,4 +453,61 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         expect(r.fromMdLink[0].args[0]).toEqual({ href: 'files/a.pdf', sourceMdPath: '/n/doc.md' });
         expect(r.subpage).toBe(0); // MIME 判別（shape 判別で subpage に取り違えると RED）
     });
+
+    // ── TC-WV-14: openAttachExternal の click/pointerup 二重発火デデュープ（400ms + id）──
+    // file item は click と pointerup 保険の両経路から openAttachExternal を呼ぶため、
+    // 短時間の同一 id 連打は 1 回に潰す（counterfactual: dedup を外すと 2 回 = RED）。
+    test('TC-WV-14 file click の連続 2 回は openTreeFileExternal 1 回・別 id は即時可・400ms 経過後は再発火', async ({ page }) => {
+        await loadPanel(page, {
+            fileList: [
+                { id: 'a1', filePath: '/n/files/one.pdf', title: 'one.pdf', kind: 'file' },
+                { id: 'a2', filePath: '/n/files/two.pdf', title: 'two.pdf', kind: 'file' },
+            ],
+            structure: {
+                version: 1, rootIds: ['a1', 'a2'],
+                items: {
+                    a1: { type: 'file', id: 'a1', title: 'one.pdf' },
+                    a2: { type: 'file', id: 'a2', title: 'two.pdf' },
+                },
+            },
+        });
+
+        // Date.now を制御して 400ms 窓を決定論でテストする（実時間 sleep を使わない）
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const realNow = Date.now;
+            let t = realNow();
+            Date.now = () => t;
+            try {
+                const click = (id: string) => {
+                    (document.querySelector('[data-item-id="' + id + '"]') as HTMLElement).click();
+                };
+                const count = (id: string) =>
+                    w.__calls.filter((c: any) => c.type === 'openTreeFileExternal' && c.args[0] === id).length;
+
+                // (1) 同一 id 連続 2 回（同時刻）→ 1 回だけ
+                w.__calls = [];
+                click('a1'); click('a1');
+                const dup = count('a1');
+
+                // (2) 直後の別 id は即時可
+                click('a2');
+                const other = count('a2');
+
+                // (3) 400ms 経過後は同一 id でも再発火（a2 の直後に a1 へ戻るケースも id が違うので即時、
+                //     ここでは a2 → a2 を時間経過で検証）
+                t += 401;
+                click('a2');
+                const after = count('a2');
+
+                return { dup, other, after };
+            } finally {
+                Date.now = realNow;
+            }
+        });
+
+        expect(r.dup).toBe(1);    // counterfactual: dedup を外すと 2
+        expect(r.other).toBe(1);  // 別 id は dedup に阻まれない
+        expect(r.after).toBe(2);  // 400ms 経過後は同一 id でも再発火
+    });
 });

@@ -353,9 +353,10 @@
         },
         // FR-TF-06a (§4f): ツリー file item → 開いている md editor 本文へ添付（コピーなし・リンクのみ）。
         // editor.js の tree-file drop 分岐が targetHost.attachTreeFileToMd(id) で呼ぶ。
-        // main md 経路（この bridge）は sidePanelFilePath を渡さない → host は currentFile 宛てに解決。
-        attachTreeFileToMd: function(id) {
-            api.postMessage({ type: 'attachTreeFileToMd', id: id });
+        // main md 経路は sidePanelFilePath 省略 → host は currentFile 宛てに解決。
+        // sidepanel 経路は SidePanelHostBridge の委譲が第 2 引数に this.filePath を渡す。
+        attachTreeFileToMd: function(id, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
         },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに

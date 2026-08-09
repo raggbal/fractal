@@ -383,6 +383,46 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(side.main.length).toBe(0);
     });
 
+    // ---- TC-WV-15: sidepanel は実 SidePanelHostBridge 経由（Proxy fake 禁止の番人） ----
+    // TC-WV-09 の fake host は「任意メソッド名に応答する Proxy」なので、SidePanelHostBridge に
+    // 委譲メソッドが実在しなくても green になる（generator_failures 2026-08-09 の false-green）。
+    // ここでは実クラスに recorder main host を包ませ、typeof ガードが実メソッドで発火することを固定する
+    // （counterfactual: SidePanelHostBridge.attachTreeFileToMd を消すとガード false で不発 = RED）。
+    test('TC-WV-15 sidepanel drop は実 SidePanelHostBridge の委譲で main host に (id, sidePanelFilePath) が届く', async ({ page }) => {
+        await loadEnv(page);
+        await initEditorListeners(page);
+
+        const res = await page.evaluate(() => {
+            const EI = (window as any).EditorInstance;
+            EI.instances.length = 0;
+            const c = document.createElement('div');
+            const ed = document.createElement('div');
+            ed.className = 'editor'; ed.contentEditable = 'true';
+            c.appendChild(ed); document.body.appendChild(c);
+            // 実クラス: recorder main host を包む（メソッド集合は実装どおり = Proxy fake でない）
+            const calls: any[] = [];
+            const mainHost = (window as any).__rec(calls, {});
+            const SPB = (window as any).SidePanelHostBridge;
+            const bridge = new SPB(mainHost, '/notes/side.md', {});
+            EI.instances.push({ container: c, host: bridge, options: { filePath: '/notes/side.md' } });
+
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-file', JSON.stringify({ id: 'F9' }));
+            ed.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 5, clientY: 5 }));
+            return {
+                hasMethod: typeof bridge.attachTreeFileToMd === 'function',
+                calls: calls.slice(),
+            };
+        });
+        // 委譲メソッドが実在する（typeof ガードが発火する前提そのもの）
+        expect(res.hasMethod).toBe(true);
+        // main host へ (id, sidepanel の filePath) で委譲される
+        const attach = res.calls.filter((c: any) => c.type === 'attachTreeFileToMd');
+        expect(attach.length).toBe(1);
+        expect(attach[0].args[0]).toBe('F9');
+        expect(attach[0].args[1]).toBe('/notes/side.md');
+    });
+
     // ---- TC-WV-10: dragstart new state cleared on dragend (per-file counterfactual) ----
     test('TC-WV-10 outliner 📎 / editor file アンカーの dragstart 新 state が dragend で clear される', async ({ page }) => {
         await loadEnv(page);

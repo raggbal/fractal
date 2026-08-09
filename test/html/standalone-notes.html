@@ -9828,6 +9828,15 @@ class SidePanelHostBridge {
             this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
         }
     }
+    // FR-TF-06a (sprint 20260809-031217): ツリー file item → sidepanel md D&D。
+    // 宛先 = sidepanel の md (this.filePath)。SidePanelHostBridge は共有 factory 非経由の
+    // 手書きクラスなので個別追加が必要 (designer_failures 2026-07-20)。
+    attachTreeFileToMd(id) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachTreeFileToMd === 'function') {
+            this._mainHost.attachTreeFileToMd(id, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();

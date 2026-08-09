@@ -173,6 +173,9 @@ export interface WebviewMessages {
   notesSearchOutlinerResults: string;
   notesSearchMarkdownResults: string;
   notesRename: string;
+  notesOpen: string;
+  notesRevealInFinder: string;
+  notesAttachTooLarge: string;
   notesDelete: string;
   notesDeleteFolder: string;
   notesUntitled: string;
