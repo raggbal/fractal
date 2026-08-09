@@ -42186,6 +42186,22 @@ var notesFilePanel = (function() {
         bridge.openFile(filePath);
     }
 
+    // FR-TF-02 (sprint 20260809): kind==='file' item を OS 既定アプリで開く（openFile/openFileInTab は
+    // .md/.out stem 前提で file に不達なので専用 bridge へ分岐）。click と pointerup 保険の両経路から
+    // 呼ばれるため短時間の二重呼び出しを id + 時刻でデデュープ（openItemFile の currentFile ガード相当）。
+    var _lastAttachOpenId = null;
+    var _lastAttachOpenTs = 0;
+    function openAttachExternal(id) {
+        if (!id) return;
+        var now = Date.now();
+        if (_lastAttachOpenId === id && (now - _lastAttachOpenTs) < 400) return;
+        _lastAttachOpenId = id;
+        _lastAttachOpenTs = now;
+        if (bridge && typeof bridge.openTreeFileExternal === 'function') {
+            bridge.openTreeFileExternal(id);
+        }
+    }
+
     // Resize state
     var resizeHandle = null;
     var isResizing = false;
@@ -42210,6 +42226,9 @@ var notesFilePanel = (function() {
     var ICON_FILE = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
     // ADR-008: Notes 内 .md ファイル識別用アイコン (file の右下に "M" ラベル)
     var ICON_FILE_MD = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>';
+    // FR-TF-02 (sprint 20260809): tree に登録された添付ファイル (kind:'file') 識別用の専用アイコン (paperclip)。
+    // .out (ICON_FILE) / .md (ICON_FILE_MD) と視覚的に区別し、is-attach class + 専用 marker class を持つ。
+    var ICON_FILE_ATTACH = '<svg class="file-panel-item-icon file-panel-attach-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var ICON_FOLDER = '<svg class="file-panel-folder-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
     var ICON_CHEVRON = '<svg class="file-panel-folder-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
@@ -42358,7 +42377,12 @@ var notesFilePanel = (function() {
 
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
-        var isMd = /\.md$/i.test(f.filePath);
+        // FR-TF-02 (sprint 20260809): listFiles が付与する kind ('out'|'md'|'file') で 3 値描画。
+        // 拡張子推測 (/\.md$/i) をやめる — 添付 file が `a.md` という名でも file として扱う (誤判定防止)。
+        // 後方互換: kind 未付与の旧 entry は従来どおり拡張子で md/out を推測 (file 扱いにはしない)。
+        var kind = f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
+        var isMd = kind === 'md';
+        var isAttach = kind === 'file';
         var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
         // v11: color class 反映
         var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, ''));
@@ -42366,18 +42390,21 @@ var notesFilePanel = (function() {
             itemClass += ' notes-item-color-' + itemColor;
         }
         if (isMd) itemClass += ' is-md';
+        if (isAttach) itemClass += ' is-attach';
         item.className = itemClass;
         item.dataset.filePath = f.filePath;
         item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, '');
         item.dataset.itemType = 'file';
-        item.dataset.fileExt = isMd ? 'md' : 'out';
+        item.dataset.fileExt = kind;
         if (parentId) item.dataset.parentId = parentId;
         item.draggable = true;
 
-        var icon = isMd ? ICON_FILE_MD : ICON_FILE;
+        var icon = isAttach ? ICON_FILE_ATTACH : (isMd ? ICON_FILE_MD : ICON_FILE);
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function(e) {
+            // FR-TF-02: 添付 file は OS 既定アプリで開く（cmd/ctrl 修飾も無視 = file はタブ化不可）。
+            if (isAttach) { openAttachExternal(f.id); return; }
             // FR-CT-01: cmd/ctrl+click → webview 内タブ（右クリック Open in new tab と同経路）
             if (e && (e.metaKey || e.ctrlKey)) {
                 if (bridge.openFileInTab) bridge.openFileInTab(f.filePath);
@@ -42400,6 +42427,8 @@ var notesFilePanel = (function() {
             if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
             _pointerDownItemId = null;
             if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
+            // FR-TF-02: 添付 file は click と同じく OS 既定アプリで開く（openAttachExternal 内で二重呼び出し dedup）
+            if (isAttach) { openAttachExternal(f.id); return; }
             openItemFile(f.filePath);
         });
         item.addEventListener('dblclick', function(e) {
@@ -42593,6 +42622,56 @@ var notesFilePanel = (function() {
         // クリックされた file 要素の親フォルダ ID を取得（ルート直下なら null）
         var fileItemEl = clickedItem || (listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null);
         var fileParentId = (fileItemEl && fileItemEl.dataset && fileItemEl.dataset.parentId) ? fileItemEl.dataset.parentId : null;
+
+        // FR-TF-10 (sprint 20260809): kind==='file' の添付ファイルは専用メニュー集合。
+        // 表示: Open（OS 既定アプリ）/ Reveal in Finder / Rename（title のみ）/ Favorite /
+        //       Copy Path（絶対パスは host→webview 応答で NFR-TF-02 非抵触）/ Set Color / Move Other Note / Delete。
+        // 非表示: Copy In-App Link・Open in new tab（file は .md/.out stem を持たずタブ化・アプリ内リンク不可）。
+        // 実体パスは .md/.out stem 前提の既存経路（deleteFile(filePath) 等）に流さず、id ベースの新 bridge を使う。
+        var menuKind = file.kind || (/\.md$/i.test(file.filePath || '') ? 'md' : 'out');
+        if (menuKind === 'file') {
+            var treeFileId = file.id || fileId;
+            addContextItem(contextMenu, i18n.notesOpen || 'Open', function() {
+                closeContextMenu();
+                openAttachExternal(treeFileId);
+            });
+            addContextItem(contextMenu, i18n.notesRevealInFinder || 'Reveal in Finder', function() {
+                closeContextMenu();
+                if (bridge && bridge.revealTreeFileInOS) { bridge.revealTreeFileInOS(treeFileId); }
+            });
+            addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
+                closeContextMenu();
+                var itemElF = listEl ? listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]') : null;
+                if (itemElF) startRenameFile(itemElF, file);
+            });
+            addContextItem(contextMenu, isFav ? (i18n.notesUnfavorite || '★ Unfavorite') : (i18n.notesFavorite || '☆ Add to Favorites'), function() {
+                closeContextMenu();
+                bridge.toggleFavorite(fileId);
+            });
+            addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
+                closeContextMenu();
+                if (bridge && bridge.copyTreeFilePath) { bridge.copyTreeFilePath(treeFileId); }
+            });
+            addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+                renderColorPalette(contextMenu, currentColor, function(colorName) {
+                    bridge.setItemColor(fileId, colorName);
+                    closeContextMenu();
+                }, function() {
+                    showFileContextMenu(e, file);
+                });
+            }, false, true);
+            addContextItem(contextMenu, i18n.notesMoveOtherNote || 'Move Other Note', function() {
+                closeContextMenu();
+                if (bridge.moveToOtherNote) { bridge.moveToOtherNote(treeFileId); }
+            });
+            addContextItem(contextMenu, i18n.notesDelete || 'Delete', function() {
+                closeContextMenu();
+                if (bridge && bridge.deleteTreeFile) { bridge.deleteTreeFile(treeFileId); }
+            }, true);
+            document.body.appendChild(contextMenu);
+            setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
+            return;
+        }
 
         // sprint 20260725: md/.out を webview 内の新しいタブで開く（file-tree 右クリック）
         addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
@@ -42821,6 +42900,53 @@ var notesFilePanel = (function() {
         } catch (err) { return null; }
     }
 
+    // FR-TF-05b (sprint 20260809): Outliner の file node（📎 アイコン）→ tree への drag。
+    // outliner.js dragstart が application/x-fractal-out-node-file を setData（payload {outFileKey, nodeId}・絶対パス不含）。
+    var OUT_NODE_FILE_MIME = 'application/x-fractal-out-node-file';
+    function isOutNodeFileDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(OUT_NODE_FILE_MIME) !== -1;
+    }
+    function readOutNodeFilePayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(OUT_NODE_FILE_MIME);
+            if (!raw) return null;
+            var p = JSON.parse(raw);
+            return (p && p.outFileKey && p.nodeId) ? p : null;
+        } catch (err) { return null; }
+    }
+
+    // FR-TF-06b (sprint 20260809): md editor 内の file リンク（📎 アンカー）→ tree への drag。
+    // editor.js dragstart が application/x-fractal-md-filelink を setData（payload {href, sourceMdPath}）。
+    // 重要: md-subpage と payload shape（href/sourceMdPath）が同一のため、必ず MIME 種別で判別する
+    // （payload 形状で分岐すると subpage/filelink を取り違える — designer_failures「2 端配線」の教訓）。
+    var MD_FILELINK_MIME = 'application/x-fractal-md-filelink';
+    function isMdFileLinkDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(MD_FILELINK_MIME) !== -1;
+    }
+    function readMdFileLinkPayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(MD_FILELINK_MIME);
+            if (!raw) return null;
+            var p = JSON.parse(raw);
+            return (p && p.href && p.sourceMdPath) ? p : null;
+        } catch (err) { return null; }
+    }
+
+    // 外部 drop / subpage / out-node-file / md-filelink の drop 位置 → 兄弟挿入 {parentId, index} 解決。
+    function computeSiblingInsert(targetEl, e) {
+        var rect = targetEl.getBoundingClientRect();
+        var ratio = rect.height ? (e.clientY - rect.top) / rect.height : 0;
+        var parentId = targetEl.dataset.parentId || null;
+        var sib = getChildIdsOfParent(parentId);
+        var idx = sib.indexOf(targetEl.dataset.itemId);
+        if (idx === -1) idx = sib.length;
+        return { parentId: parentId, index: ratio < 0.5 ? idx : idx + 1 };
+    }
+
     function readOutNodePagePayload(e) {
         try {
             var raw = e.dataTransfer.getData(OUT_NODE_PAGE_MIME);
@@ -42862,35 +42988,68 @@ var notesFilePanel = (function() {
         return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
     }
 
-    // FR-T01: 外部 files（.md のみ）を FileReader で読み、bridge.notesRegisterExternalMd を 1 回呼ぶ。
-    // items = 種別付き配列 [{kind:'md', name, content}]（次フェーズのファイル D&D 拡張用に shape を維持）。
-    // 非 md は黙ってスキップ・md 0 件なら bridge を呼ばない。挿入位置（parentId/index）は呼び出し側が決定。
-    function registerExternalMdFiles(e, parentId, index) {
-        var fileList = [];
+    // ArrayBuffer → base64（添付 file の bytes 転送用。VS Code webview↔host は文字列が確実）。
+    function arrayBufferToBase64(buffer) {
+        try {
+            var bytes = new Uint8Array(buffer || new ArrayBuffer(0));
+            var binary = '';
+            var chunk = 0x8000; // apply の引数上限を避けて分割
+            for (var i = 0; i < bytes.length; i += chunk) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+            }
+            if (typeof btoa === 'function') return btoa(binary);
+            if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+            return '';
+        } catch (err) { return ''; }
+    }
+
+    var MAX_ATTACH_BYTES = 50 * 1024 * 1024; // FR-TF-01: 50MB 超の添付は per-file skip
+
+    // FR-TF-01 (sprint 20260809): 外部 files を FileReader で読み bridge.notesRegisterExternalMd を 1 回呼ぶ。
+    // 振り分け: .md → readAsText → {kind:'md', name, content}（従来経路 不変） /
+    //          その他 → readAsArrayBuffer → base64 → {kind:'file', name, bytes}（添付 file 経路 新設）。
+    // 50MB 超の file は per-file で skip し bridge.notifyError で明示通知（旧 registerExternalMdFiles の
+    // 「非 md を silent skip」は撤廃）。md/file が 0 件なら bridge を呼ばない。挿入位置は呼び出し側が決定。
+    function registerExternalDroppedFiles(e, parentId, index) {
+        var files = [];
         if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            fileList = Array.prototype.slice.call(e.dataTransfer.files);
+            files = Array.prototype.slice.call(e.dataTransfer.files);
         } else if (e.dataTransfer && e.dataTransfer.items) {
             // 環境により files が空で items のみ載る場合のフォールバック
             var items = Array.prototype.slice.call(e.dataTransfer.items);
             for (var k = 0; k < items.length; k++) {
                 if (items[k].kind === 'file') {
                     var gf = items[k].getAsFile();
-                    if (gf) fileList.push(gf);
+                    if (gf) files.push(gf);
                 }
             }
         }
-        // .md のみ抽出（非 md は通知なしでスキップ）
-        var mdFiles = fileList.filter(function(f) { return f && /\.md$/i.test(f.name || ''); });
-        if (mdFiles.length === 0) return; // md 0 件なら bridge を呼ばない
+        if (files.length === 0) return;
         var readOne = function(file) {
             return new Promise(function(resolve) {
-                var reader = new FileReader();
-                reader.onload = function() { resolve({ kind: 'md', name: file.name, content: String(reader.result || '') }); };
-                reader.onerror = function() { resolve(null); };
-                reader.readAsText(file);
+                var name = file.name || '';
+                if (/\.md$/i.test(name)) {
+                    var tr = new FileReader();
+                    tr.onload = function() { resolve({ kind: 'md', name: name, content: String(tr.result || '') }); };
+                    tr.onerror = function() { resolve(null); };
+                    tr.readAsText(file);
+                    return;
+                }
+                // 非 md = 添付 file。50MB 超は skip + 明示通知（silent skip しない）。
+                if (typeof file.size === 'number' && file.size > MAX_ATTACH_BYTES) {
+                    if (bridge && typeof bridge.notifyError === 'function') {
+                        bridge.notifyError((i18n.notesAttachTooLarge || 'File too large (skipped, max 50MB): ') + name);
+                    }
+                    resolve(null);
+                    return;
+                }
+                var br = new FileReader();
+                br.onload = function() { resolve({ kind: 'file', name: name, bytes: arrayBufferToBase64(br.result) }); };
+                br.onerror = function() { resolve(null); };
+                br.readAsArrayBuffer(file);
             });
         };
-        Promise.all(mdFiles.map(readOne)).then(function(results) {
+        Promise.all(files.map(readOne)).then(function(results) {
             var itemsPayload = results.filter(function(r) { return r; });
             if (itemsPayload.length === 0) return;
             if (typeof bridge.notesRegisterExternalMd === 'function') {
@@ -42921,6 +43080,14 @@ var notesFilePanel = (function() {
                     }));
                 } catch(err) { /* ignore */ }
             }
+            // FR-TF-05a/06a (sprint 20260809): 添付 file item を Outliner / Markdown Editor へ drop できるよう
+            // 内部 MIME を積む（受け側 = outliner.js handleTreeFileDrop / editor.js tree-file 分岐）。
+            // payload は {id} のみ（絶対パス・filename を webview 間に流さない = NFR-TF-02）。md 経路とは別 MIME で不干渉。
+            if (dragSourceFileExt === 'file') {
+                try {
+                    e.dataTransfer.setData('application/x-fractal-tree-file', JSON.stringify({ id: dragItemId }));
+                } catch(err) { /* ignore */ }
+            }
             // ドラッグ中のスタイル
             setTimeout(function() { target.style.opacity = '0.4'; }, 0);
         });
@@ -42949,10 +43116,14 @@ var notesFilePanel = (function() {
             //（Outliner page → ツリーと同じ補助線 UX。md-into-out 分岐は dragSourceFileExt
             //  が null なので発火しない = 誤 highlight なし）
             var fromMdSubpage = isMdSubpageDrag(e);
+            // FR-TF-05b/06b (sprint 20260809): Outliner file node / md file リンクからの drag（別 webview 由来）。
+            // dragItemId は載らない外部 MIME 経路。subpage と同じく補助線 UX で受理する。
+            var fromOutNodeFile = isOutNodeFileDrag(e);
+            var fromMdFileLink = isMdFileLinkDrag(e);
             // FR-T01: 外部 files（Finder / VS Code Explorer）は最後に判定（内部 drag / outliner /
             // subpage が最優先。内部 drag は tree-md MIME 等も積むので dragItemId 非 null を先に弾く）。
-            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && isExternalFilesDrag(e);
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromExternal) return;
+            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && isExternalFilesDrag(e);
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromExternal) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 
@@ -42983,11 +43154,24 @@ var notesFilePanel = (function() {
             // FR-DD-01 (sprint 20260727-124904): 従来は ratio を見ず item 全域が import 扱いになり
             // 兄弟ドロップ (上/下) が不可能だったバグを、folder と同じ 0.25/0.75 の 3 ゾーンに是正
             // (ADRL-0002)。上/下 25% は fall-through して既存 before/after (兄弟挿入) を使う。
+            // FR-TF-03 (sprint 20260809): tree file → .out item も同じ中央ゾーンで import 対象（md と対称）。
             if (
                 !fromOutliner &&
-                dragSourceFileExt === 'md' &&
+                (dragSourceFileExt === 'md' || dragSourceFileExt === 'file') &&
                 target.dataset.itemType === 'file' &&
                 target.dataset.fileExt === 'out' &&
+                ratio >= 0.25 && ratio <= 0.75
+            ) {
+                target.classList.add('file-panel-drag-over-md-into-out');
+                return;
+            }
+
+            // FR-TF-04 (sprint 20260809): tree file → md item 中央 → md 本文へ 📎 添付ゾーン（新設）。
+            if (
+                !fromOutliner &&
+                dragSourceFileExt === 'file' &&
+                target.dataset.itemType === 'file' &&
+                target.dataset.fileExt === 'md' &&
                 ratio >= 0.25 && ratio <= 0.75
             ) {
                 target.classList.add('file-panel-drag-over-md-into-out');
@@ -43031,6 +43215,11 @@ var notesFilePanel = (function() {
             var subtreePayload = isOutNodeSubtreeDrag(e) ? readOutNodeSubtreePayload(e) : null;
             // TASK-19: md editor 内 subpage リンク → ツリー item 上に drop（挿入位置 = target の前後）
             var mdSubpagePayload = (!outPayload && !subtreePayload) && isMdSubpageDrag(e) ? readMdSubpagePayload(e) : null;
+            // FR-TF-05b/06b (sprint 20260809): Outliner file node / md file リンク → tree item 上に drop。
+            // md-filelink は md-subpage と payload shape が同一のため、必ず自分の MIME で判別する
+            // （isMdFileLinkDrag は x-fractal-md-filelink・isMdSubpageDrag は x-fractal-md-subpage で不干渉）。
+            var outNodeFilePayload = (!outPayload && !subtreePayload) && isOutNodeFileDrag(e) ? readOutNodeFilePayload(e) : null;
+            var mdFileLinkPayload = (!outPayload && !subtreePayload && !mdSubpagePayload) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
             e.preventDefault();
             if (mdSubpagePayload && !dragItemId) {
                 clearAllDragOver();
@@ -43047,9 +43236,30 @@ var notesFilePanel = (function() {
                 }
                 return;
             }
+            // FR-TF-05b (受信): Outliner file node → tree item 上に drop → structure 登録（挿入位置 = target 前後）。
+            if (outNodeFilePayload && !dragItemId) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var insOF = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                if (typeof bridge.notesRegisterFileFromOutNode === 'function') {
+                    bridge.notesRegisterFileFromOutNode(outNodeFilePayload, insOF.parentId, insOF.index);
+                }
+                return;
+            }
+            // FR-TF-06b (受信): md editor 内 file リンク → tree item 上に drop → structure 登録。
+            // MIME 種別で判別済みのため subpage 経路（notesRegisterSubpageFromMd）へ流入しない。
+            if (mdFileLinkPayload && !dragItemId) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var insFL = computeSiblingInsert(el.closest('[data-item-id]') || el, e);
+                if (typeof bridge.notesRegisterFileFromMdLink === 'function') {
+                    bridge.notesRegisterFileFromMdLink(mdFileLinkPayload, insFL.parentId, insFL.index);
+                }
+                return;
+            }
             // FR-T01: 外部 files（.md）を item 上に drop → その item の前/後（ratio<0.5=前）に登録。
-            // 内部 drag / outliner / subpage が全て無いときのみ（内部 drag 最優先を保つ）。
-            if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && isExternalFilesDrag(e)) {
+            // 内部 drag / outliner / subpage / out-node-file / md-filelink が全て無いときのみ（内部 drag 最優先を保つ）。
+            if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isExternalFilesDrag(e)) {
                 clearAllDragOver();
                 removeDropIndicator();
                 var targetEx = el.closest('[data-item-id]') || el;
@@ -43059,7 +43269,7 @@ var notesFilePanel = (function() {
                 var sibEx = getChildIdsOfParent(parentEx);
                 var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
                 if (idxEx === -1) idxEx = sibEx.length;
-                registerExternalMdFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
+                registerExternalDroppedFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
                 return;
             }
             if (!dragItemId && !outPayload && !subtreePayload) return;
@@ -43130,6 +43340,32 @@ var notesFilePanel = (function() {
             ) {
                 if (typeof bridge.notesImportMdIntoOut === 'function') {
                     bridge.notesImportMdIntoOut(dragItemId, targetId);
+                }
+                return;
+            }
+
+            // FR-TF-03 (sprint 20260809): tree file → .out item 中央 → .out に file node 取込（md と対称）。
+            if (
+                dragSourceFileExt === 'file' &&
+                targetType === 'file' &&
+                target.dataset.fileExt === 'out' &&
+                ratio >= 0.25 && ratio <= 0.75
+            ) {
+                if (typeof bridge.notesImportFileIntoOut === 'function') {
+                    bridge.notesImportFileIntoOut(dragItemId, targetId);
+                }
+                return;
+            }
+
+            // FR-TF-04 (sprint 20260809): tree file → md item 中央 → md 本文に 📎 リンク添付（新設ゾーン）。
+            if (
+                dragSourceFileExt === 'file' &&
+                targetType === 'file' &&
+                target.dataset.fileExt === 'md' &&
+                ratio >= 0.25 && ratio <= 0.75
+            ) {
+                if (typeof bridge.notesAttachFileIntoMd === 'function') {
+                    bridge.notesAttachFileIntoMd(dragItemId, targetId);
                 }
                 return;
             }
@@ -43223,7 +43459,7 @@ var notesFilePanel = (function() {
                 clearAllDragOver();
                 removeDropIndicator();
                 lastDropLine = null;
-                registerExternalMdFiles(e, folderId, getChildIdsOfParent(folderId).length);
+                registerExternalDroppedFiles(e, folderId, getChildIdsOfParent(folderId).length);
                 return;
             }
             if (!dragItemId && !outPayload) return;
@@ -43642,12 +43878,16 @@ var notesFilePanel = (function() {
             } else if (item.type === 'file') {
                 var fileEntry = fileMap[id];
                 var title = (item.title) || (fileEntry && fileEntry.title) || '';
-                if (matcher(title)) {
-                    var fp = fileEntry ? fileEntry.filePath : null;
-                    var isMd = fp ? /\.md$/i.test(fp) : false;
+                var fp = fileEntry ? fileEntry.filePath : null;
+                // FR-TF-12 (sprint 20260809): kind は listFiles 付与値を優先（無ければ拡張子推測。file 扱いにはしない）。
+                var fkind = (fileEntry && fileEntry.kind) || (fp ? (/\.md$/i.test(fp) ? 'md' : 'out') : 'out');
+                // 添付 file はタイトルに加えファイル名（basename）部分一致でもヒットさせる。
+                var basename = fp ? fp.replace(/^.*[/\\]/, '') : '';
+                var hit = matcher(title) || (fkind === 'file' && basename && matcher(basename));
+                if (hit) {
                     matches.push({
                         id: id, type: 'file', title: title, filePath: fp,
-                        fileExt: isMd ? 'md' : 'out',
+                        fileExt: fkind,
                     });
                 }
             }
@@ -44076,7 +44316,7 @@ var notesFilePanel = (function() {
                     removeDropIndicator();
                     lastDropLine = null;
                     var rootIdsEx = structure ? structure.rootIds : [];
-                    registerExternalMdFiles(e, null, rootIdsEx.length);
+                    registerExternalDroppedFiles(e, null, rootIdsEx.length);
                     return;
                 }
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;
