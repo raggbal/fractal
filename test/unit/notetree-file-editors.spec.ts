@@ -378,6 +378,67 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(mdResult.filter((c: any) => c.type === 'notesImportTreeFileAtPosition').length).toBe(0);
     });
 
+    // ---- TC-MX-04 (FR-TF-14 2026-08-10): tree-file / tree-md の node 上 dragover で補助線 + drop 位置 pass-through ----
+    // 従来は zone highlight（点線）のみで補助線が出ず、md は rootIds 先頭固定だった。
+    // counterfactual: node dragover の indicator 分岐を外すと indicator 不在 = RED /
+    //                 handleTreeMdDrop の位置引数を外すと position が undefined = RED。
+    test('TC-MX-04 node 上の tree-file/tree-md dragover で補助線表示・md drop は位置引数付きで呼ばれる', async ({ page }) => {
+        await loadEnv(page);
+        await initOutlinerWithFileNode(page);
+
+        // (a) tree-file dragover → indicator 出現（zone highlight と共存）
+        const fileOver = await page.evaluate(() => {
+            const nodeEl = document.querySelector('.outliner-node') as HTMLElement;
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-file', JSON.stringify({ id: 'FILE-1' }));
+            const rect = nodeEl.getBoundingClientRect();
+            nodeEl.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rect.left + 5, clientY: rect.top + 1, // 上端 = before 帯
+            }));
+            return {
+                indicator: !!document.querySelector('.outliner-drop-indicator'),
+            };
+        });
+        expect(fileOver.indicator).toBe(true);
+
+        // (b) tree-md dragover → indicator 出現
+        const mdOver = await page.evaluate(() => {
+            const prev = document.querySelector('.outliner-drop-indicator');
+            if (prev) prev.remove();
+            const nodeEl = document.querySelector('.outliner-node') as HTMLElement;
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-md', JSON.stringify({ id: 'MD-1' }));
+            const rect = nodeEl.getBoundingClientRect();
+            nodeEl.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rect.left + 5, clientY: rect.top + rect.height / 2, // 中央 = child 帯
+            }));
+            return { indicator: !!document.querySelector('.outliner-drop-indicator') };
+        });
+        expect(mdOver.indicator).toBe(true);
+
+        // (c) tree-md drop（上端 = before）→ notesImportMdIntoOut(id, outFileId, targetNodeId, position)
+        const mdDrop = await page.evaluate(() => {
+            (window as any).__calls.length = 0;
+            const nodeEl = document.querySelector('.outliner-node') as HTMLElement;
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-md', JSON.stringify({ id: 'MD-9' }));
+            const rect = nodeEl.getBoundingClientRect();
+            nodeEl.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rect.left + 5, clientY: rect.top + 1,
+            }));
+            return (window as any).__calls.slice();
+        });
+        const mdCalls = mdDrop.filter((c: any) => c.type === 'notesImportMdIntoOut');
+        expect(mdCalls.length).toBe(1);
+        expect(mdCalls[0].args[0]).toBe('MD-9');
+        expect(mdCalls[0].args[1]).toBe('OUT-1');
+        expect(mdCalls[0].args[2]).toBe('n1');      // targetNodeId（従来は渡らなかった）
+        expect(mdCalls[0].args[3]).toBe('before');  // position
+    });
+
     // ---- TC-WV-09: editor x-fractal-tree-file drop -> attachTreeFileToMd; main/sidepanel both; not linkMdAsSubpage ----
     test('TC-WV-09 editor の x-fractal-tree-file drop が targetHost.attachTreeFileToMd(id) を呼ぶ・main/sidepanel 両方・linkMdAsSubpage へ流入しない', async ({ page }) => {
         await loadEnv(page);

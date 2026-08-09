@@ -10973,7 +10973,14 @@ class EditorInstance {
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
                     // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
                     var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
+                    // FR-TF-15 (§4i(4) 2026-08-10): 📎 file 添付リンクはレンダ時に data-is-file-attachment +
+                    // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
+                    // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
+                    var fileAttachAttr = '';
+                    if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                    }
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -36933,19 +36940,12 @@ var Outliner = (function() {
             treeEl.addEventListener('drop', function(e) {
                 if (VIEW_MODE === 'mindmap') { return; }
                 if (dragState) { return; } // node reorder は既存経路
-                // FR-B08: ファイルツリー md item → tree drop（挿入位置は notesImportMdIntoOut の
-                // 既存仕様 = rootIds 先頭固定なので position 解決は不要）
-                if (isTreeMdDragEvent(e)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    clearDropZoneHighlight();
-                    removeDropIndicator();
-                    handleTreeMdDrop(e);
-                    return;
-                }
+                // FR-TF-14 (§4i(3) 2026-08-10): tree md item も files drop と同じ位置解決経路で受ける
+                //（旧: rootIds 先頭固定。node 上に補助線を出す以上、drop もその位置に従う）。
+                var isTreeMdDrop = isTreeMdDragEvent(e);
                 // FR-TF-05a (§4d): ツリー file item drop も files drop と同じ位置解決経路で受ける。
                 var isTreeFileDrop = isTreeFileDragEvent(e);
-                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop) { return; }
+                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
@@ -36974,7 +36974,9 @@ var Outliner = (function() {
                     }
                 }
                 removeDropIndicator();
-                if (isTreeFileDrop) {
+                if (isTreeMdDrop) {
+                    handleTreeMdDrop(e, targetId, pos);
+                } else if (isTreeFileDrop) {
                     handleTreeFileDrop(e, targetId, pos);
                 } else if (isFilesDragEvent(e)) {
                     handleFilesDrop(e, targetId, pos);
@@ -37128,7 +37130,7 @@ var Outliner = (function() {
     function isTreeMdDragEvent(e) {
         return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_MD_MIME) >= 0);
     }
-    function handleTreeMdDrop(e) {
+    function handleTreeMdDrop(e, targetNodeId, position) {
         var raw = '';
         try { raw = e.dataTransfer.getData(TREE_MD_MIME) || ''; } catch (err) { /* ignore */ }
         if (!raw) return;
@@ -37140,7 +37142,9 @@ var Outliner = (function() {
             ? notesFilePanel.getCurrentOutFileId() : null;
         if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
         if (payload.id === outFileId) return; // 自分自身へは無意味
-        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId);
+        // FR-TF-14 (§4i(3) 2026-08-10): drop 位置（補助線の位置）を渡す。省略時は host 側が
+        // 従来どおり rootIds 先頭 unshift（後方互換 — tree 内 md→out item の中央 50% 経路）。
+        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId, targetNodeId || null, position || null);
     }
 
     /** FR-TF-05a (sprint 20260809-031217, §4d :92): Notes ファイルツリーの file item ドラッグ
@@ -39492,6 +39496,20 @@ var Outliner = (function() {
 
         // D&D: ノード要素にドロップターゲットイベント
         el.addEventListener('dragover', function(e) {
+            // FR-TF-14 (§4i(3) 2026-08-10): ツリー md/file item の drag も node 上では
+            // Files D&D と同じ補助線（before/after/child）を出す（zone 点線と共存）。
+            // drop 側（capture handler :1197）が同じしきい値で位置解決する = 表示=挿入の一致。
+            if (isTreeMdDragEvent(e) || isTreeFileDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                var rectT = el.getBoundingClientRect();
+                var yT = e.clientY - rectT.top;
+                var hT = rectT.height;
+                if (yT < hT * 0.25) showDropIndicator(el, 'before', e.clientX);
+                else if (yT > hT * 0.60) showDropIndicator(el, 'after', e.clientX);
+                else showDropIndicator(el, 'child', e.clientX);
+                return;
+            }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();

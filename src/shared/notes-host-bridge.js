@@ -459,8 +459,9 @@
         },
 
         // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
-        notesImportMdIntoOut: function(mdFileId, targetOutId) {
-            api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        notesImportMdIntoOut: function(mdFileId, targetOutId, targetNodeId, position) {
+            // FR-TF-14 (2026-08-10): targetNodeId/position は任意（省略時 = 従来の rootIds 先頭 unshift）
+            api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId, targetNodeId: targetNodeId ?? null, position: position ?? null });
         },
 
         // TASK-19: md editor 内 subpage リンク → ツリー D&D（host が href を sourceMd 基準で解決）

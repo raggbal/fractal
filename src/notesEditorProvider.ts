@@ -5,7 +5,7 @@ import { NotesFileManager } from './shared/notes-file-manager';
 import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
-    treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink,
+    treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
     registerExternalDroppedFileItem,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
@@ -2000,7 +2000,7 @@ export class NotesEditorProvider {
 
             // v0.207.77 (D&D Feature A): Notes 内 .md ファイルを別の .out item にドロップ →
             // 当該 .out の rootIds 先頭に page-node として追加 (md は .out の pageDir にコピーする)
-            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender) => {
+            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null) => {
                 try {
                     const mdSourcePath = fileManager.getFilePathById(mdFileId);
                     const outFilePath = fileManager.getFilePathById(targetOutId);
@@ -2039,12 +2039,14 @@ export class NotesEditorProvider {
                         r = imported[0];
                     }
 
-                    // 3. .out の先頭に page-node を追加
+                    // 3. page-node を追加。FR-TF-14 (2026-08-10): targetNodeId/position 指定時は
+                    // drop 位置（補助線の位置 = before/after/child）に挿入。省略時は従来の rootIds 先頭
+                    //（tree 内 md→out item の中央 50% 経路 = 後方互換）。
                     // outliner-model.js と一致するノード構造 (children / parentId / isPage / pageId / 等)
                     const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
                     outData.nodes = outData.nodes || {};
                     outData.rootIds = outData.rootIds || [];
-                    outData.nodes[newNodeId] = {
+                    const newNode: Record<string, unknown> = {
                         id: newNodeId,
                         parentId: null,
                         children: [],
@@ -2058,7 +2060,8 @@ export class NotesEditorProvider {
                         images: [],
                         filePath: null,
                     };
-                    outData.rootIds.unshift(newNodeId);
+                    outData.nodes[newNodeId] = newNode;
+                    insertNodeAtDropPosition(outData, newNodeId, targetNodeId, position);
 
                     // 4. .out 保存
                     const newJsonString = JSON.stringify(outData, null, 2);

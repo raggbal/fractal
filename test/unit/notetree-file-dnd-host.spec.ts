@@ -276,6 +276,47 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(after.nodes['kid'].text).toBe('memo');
     });
 
+    // TC-MX-05 (FR-TF-14 2026-08-10): insertNodeAtDropPosition — 位置指定挿入 / 省略時は先頭 unshift（後方互換）
+    test('TC-MX-05: insertNodeAtDropPosition — before/after/child の位置挿入 + 省略時は rootIds 先頭（後方互換）', () => {
+        const mk = () => ({
+            nodes: {
+                a: { id: 'a', parentId: null, children: ['a1'] },
+                a1: { id: 'a1', parentId: 'a', children: [] },
+                b: { id: 'b', parentId: null, children: [] },
+            } as Record<string, any>,
+            rootIds: ['a', 'b'],
+        });
+        const ins = (mh as any).insertNodeAtDropPosition;
+        expect(typeof ins).toBe('function');
+
+        // before
+        let d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', 'b', 'before');
+        expect(d.rootIds).toEqual(['a', 'x', 'b']);
+        // after
+        d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', 'a', 'after');
+        expect(d.rootIds).toEqual(['a', 'x', 'b']);
+        // child（先頭）+ parentId 設定
+        d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', 'a', 'child');
+        expect(d.nodes['a'].children).toEqual(['x', 'a1']);
+        expect(d.nodes['x'].parentId).toBe('a');
+        // 子階層の before（siblings = 親の children）
+        d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', 'a1', 'before');
+        expect(d.nodes['a'].children).toEqual(['x', 'a1']);
+        expect(d.nodes['x'].parentId).toBe('a');
+        // 省略（null/null）= 従来の先頭 unshift（後方互換 counterfactual）
+        d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', null, null);
+        expect(d.rootIds).toEqual(['x', 'a', 'b']);
+        // 不明 target = 先頭 unshift にフォールバック
+        d = mk(); d.nodes['x'] = { id: 'x', parentId: null, children: [] };
+        ins(d, 'x', 'ghost', 'before');
+        expect(d.rootIds).toEqual(['x', 'a', 'b']);
+    });
+
     test('TC-TF-15: treeFileRegisterFromMdLink — files/x.pdf 登録+removeFileLink / traversal href 拒否', () => {
         const dir = track(mkNote());
         const fm = new NotesFileManager(dir);

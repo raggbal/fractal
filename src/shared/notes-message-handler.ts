@@ -224,7 +224,7 @@ export interface NotesPlatformActions {
     /** タスクモード archive: エラーメッセージ表示 */
     showErrorMessage?(text: string): void;
     /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
-    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
+    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender, targetNodeId?: string | null, position?: string | null): Promise<void> | void;
     /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
     notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /**
@@ -1315,7 +1315,8 @@ export async function handleNotesMessage(
 
         case 'notesImportMdIntoOut': {
             if (typeof platform.notesImportMdIntoOut === 'function') {
-                await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender);
+                // FR-TF-14: targetNodeId/position は任意（旧 webview からは undefined = 従来挙動）
+                await platform.notesImportMdIntoOut(message.mdFileId, message.targetOutId, sender, message.targetNodeId ?? null, message.position ?? null);
             }
             break;
         }
@@ -2200,6 +2201,38 @@ export function treeFileAttachToMdEditor(
  * getTreeFilePath → outDir 相対化 → dropFilesResult 互換 shape を単一 postback（既存 file kind 処理が node 化）。
  * 挿入位置は webview が解決した targetNodeId/position をそのまま返す。tree エントリ除去（実体不動）。
  */
+/**
+ * FR-TF-14 (§4i(3) 2026-08-10): .out データへ新規 node を drop 位置（before/after/child）で挿入する
+ * pure seam。targetNodeId が無い / position が不明なら従来どおり rootIds 先頭 unshift（後方互換）。
+ * notesImportMdIntoOut（page node）が使用。node は呼び出し側が outData.nodes に登録済みであること。
+ */
+export function insertNodeAtDropPosition(
+    outData: { nodes: Record<string, any>; rootIds: string[] },
+    newNodeId: string,
+    targetNodeId: string | null | undefined,
+    position: string | null | undefined
+): void {
+    const newNode = outData.nodes[newNodeId];
+    const target = targetNodeId ? outData.nodes[targetNodeId] : null;
+    if (target && position === 'child') {
+        newNode.parentId = target.id;
+        target.children = target.children || [];
+        target.children.unshift(newNodeId);
+        return;
+    }
+    if (target && (position === 'before' || position === 'after')) {
+        newNode.parentId = target.parentId || null;
+        const siblings: string[] = target.parentId && outData.nodes[target.parentId]
+            ? (outData.nodes[target.parentId].children = outData.nodes[target.parentId].children || [])
+            : outData.rootIds;
+        const ti = siblings.indexOf(targetNodeId as string);
+        const at = ti === -1 ? siblings.length : (position === 'before' ? ti : ti + 1);
+        siblings.splice(at, 0, newNodeId);
+        return;
+    }
+    outData.rootIds.unshift(newNodeId);
+}
+
 export function treeFileImportAtPosition(
     fileManager: NotesFileManager,
     sender: NotesSender,
