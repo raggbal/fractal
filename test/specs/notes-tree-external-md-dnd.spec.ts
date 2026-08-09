@@ -173,9 +173,11 @@ test.describe('FR-T01: Note ファイルツリーへの外部 md D&D (webview)',
         expect(reg[0].items[0].name).toBe('infolder.md');
     });
 
-    // TC-T01-04: .md + .png 混在 drop → items に md のみ
-    // counterfactual: 拡張子判定（/\.md$/i）を外すと png も入る = items.length 2 で RED
-    test('TC-T01-04 ★counterfactual: .md + .png 混在 → items に md のみ（png はスキップ）', async ({ page }) => {
+    // TC-T01-04: .md + .png 混在 drop → md item と file item の両方が items に載る
+    // 旧 FR-T01「非 md は無通知スキップ」は sprint 20260809-031217 FR-TF-01 が明示撤廃
+    //（非 md は kind:'file' の添付として受理）。counterfactual: file 経路を外すと png が
+    // 落ちて items.length 2 = RED（silent skip の復活を検出）。
+    test('TC-T01-04 ★counterfactual: .md + .png 混在 → md 経路と file 経路の両方に振り分け（silent skip なし）', async ({ page }) => {
         const msgs = await dropExternalFiles(
             page, '[data-item-id="mdDoc"]',
             [
@@ -187,22 +189,29 @@ test.describe('FR-T01: Note ファイルツリーへの外部 md D&D (webview)',
         );
         const reg = msgs.filter((m: any) => m.type === 'notesRegisterExternalMd');
         expect(reg.length).toBe(1);
-        // md のみ 2 件（png はスキップ）
-        expect(reg[0].items.length).toBe(2);
-        const names = reg[0].items.map((it: any) => it.name).sort();
-        expect(names).toEqual(['doc.md', 'note2.md']);
-        expect(reg[0].items.every((it: any) => it.kind === 'md')).toBe(true);
+        // md 2 件 + file 1 件 = 3 件（png はスキップされない）
+        expect(reg[0].items.length).toBe(3);
+        const mds = reg[0].items.filter((it: any) => it.kind === 'md').map((it: any) => it.name).sort();
+        expect(mds).toEqual(['doc.md', 'note2.md']);
+        const files = reg[0].items.filter((it: any) => it.kind === 'file');
+        expect(files.length).toBe(1);
+        expect(files[0].name).toBe('pic.png');
+        expect(typeof files[0].bytes).toBe('string'); // base64 bytes（content でなくバイナリ safe）
     });
 
-    // TC-T01-04b: 非 md のみ（.png のみ）drop → bridge を呼ばない
-    test('TC-T01-04b .png のみ drop → notesRegisterExternalMd 不発火（md 0 件は bridge を呼ばない）', async ({ page }) => {
+    // TC-T01-04b: 非 md のみ（.png のみ）drop → kind:'file' として bridge が発火する
+    //（旧仕様「md 0 件は bridge を呼ばない」は FR-TF-01 撤廃により反転）
+    test('TC-T01-04b .png のみ drop → kind:file の notesRegisterExternalMd が発火（silent skip 撤廃）', async ({ page }) => {
         const msgs = await dropExternalFiles(
             page, '[data-item-id="mdDoc"]',
             [{ name: 'pic.png', content: 'PNGDATA', type: 'image/png' }],
             0.3
         );
         const reg = msgs.filter((m: any) => m.type === 'notesRegisterExternalMd');
-        expect(reg.length).toBe(0);
+        expect(reg.length).toBe(1);
+        expect(reg[0].items.length).toBe(1);
+        expect(reg[0].items[0].kind).toBe('file');
+        expect(reg[0].items[0].name).toBe('pic.png');
     });
 
     // TC-T01-05: 外部 files の dragover で preventDefault + 内部 drag 中は外部分岐に入らない

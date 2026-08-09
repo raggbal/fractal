@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NotesFileManager } from './shared/notes-file-manager';
-import { handleNotesMessage, NotesSender, NotesPlatformActions } from './shared/notes-message-handler';
+import {
+    handleNotesMessage, NotesSender, NotesPlatformActions,
+    treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
+    treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
+    registerExternalDroppedFileItem,
+} from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
@@ -1995,7 +2000,7 @@ export class NotesEditorProvider {
 
             // v0.207.77 (D&D Feature A): Notes 内 .md ファイルを別の .out item にドロップ →
             // 当該 .out の rootIds 先頭に page-node として追加 (md は .out の pageDir にコピーする)
-            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender) => {
+            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null) => {
                 try {
                     const mdSourcePath = fileManager.getFilePathById(mdFileId);
                     const outFilePath = fileManager.getFilePathById(targetOutId);
@@ -2034,12 +2039,14 @@ export class NotesEditorProvider {
                         r = imported[0];
                     }
 
-                    // 3. .out の先頭に page-node を追加
+                    // 3. page-node を追加。FR-TF-14 (2026-08-10): targetNodeId/position 指定時は
+                    // drop 位置（補助線の位置 = before/after/child）に挿入。省略時は従来の rootIds 先頭
+                    //（tree 内 md→out item の中央 50% 経路 = 後方互換）。
                     // outliner-model.js と一致するノード構造 (children / parentId / isPage / pageId / 等)
                     const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
                     outData.nodes = outData.nodes || {};
                     outData.rootIds = outData.rootIds || [];
-                    outData.nodes[newNodeId] = {
+                    const newNode: Record<string, unknown> = {
                         id: newNodeId,
                         parentId: null,
                         children: [],
@@ -2053,7 +2060,8 @@ export class NotesEditorProvider {
                         images: [],
                         filePath: null,
                     };
-                    outData.rootIds.unshift(newNodeId);
+                    outData.nodes[newNodeId] = newNode;
+                    insertNodeAtDropPosition(outData, newNodeId, targetNodeId, position);
 
                     // 4. .out 保存
                     const newJsonString = JSON.stringify(outData, null, 2);
@@ -2084,6 +2092,76 @@ export class NotesEditorProvider {
                     console.error('[Notes] notesImportMdIntoOut error:', e);
                     vscode.window.showErrorMessage('Failed to import .md into outliner');
                 }
+            },
+
+            // ── FR-TF: tree file item（ext:'file'）D&D 経路 — pure-fs は notes-message-handler の
+            // seam 関数へ委譲（DI: fileManager + senderRef）。vscode 依存分（open/reveal/clipboard/delete/
+            // notify）だけ provider に置く。既存 openAttachedFile / revealAttachedFileInOS / copyAttachedFilePath と同型。 ──
+
+            // FR-TF click（§4）: file item を OS 既定アプリで開く
+            openTreeFileExternal: async (id: string, _senderRef: NotesSender) => {
+                const p = fileManager.getTreeFilePath(id);
+                if (!p || !fs.existsSync(p)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                await vscode.env.openExternal(vscode.Uri.file(p));
+            },
+            // FR-TF-03 (§4b): tree file → .out item
+            notesImportFileIntoOut: (dragItemId: string, targetOutId: string, senderRef: NotesSender) => {
+                treeFileImportIntoOut(fileManager, senderRef, dragItemId, targetOutId);
+            },
+            // FR-TF-04 (§4c): tree file → md item（末尾に 📎 リンク追記）
+            notesAttachFileIntoMd: (dragItemId: string, targetMdId: string, senderRef: NotesSender) => {
+                treeFileAttachIntoMd(fileManager, senderRef, dragItemId, targetMdId);
+            },
+            // FR-TF-06a (§4f): tree file → 開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）
+            attachTreeFileToMd: (id: string, sidePanelFilePath: string | null | undefined, senderRef: NotesSender) => {
+                treeFileAttachToMdEditor(fileManager, senderRef, id, sidePanelFilePath);
+            },
+            // FR-TF-05a (§4d): tree file → outliner の node 位置（dropFilesResult 互換 postback）
+            notesImportTreeFileAtPosition: (id: string, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
+                treeFileImportAtPosition(fileManager, senderRef, id, outFileId, targetNodeId, position);
+            },
+            // FR-TF-05b (§4e): outliner の file 添付 node → tree（所有移し替え）
+            notesRegisterFileFromOutNode: (payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
+                treeFileRegisterFromOutNode(fileManager, senderRef, payload, parentId, index);
+            },
+            // FR-TF-06b (§4g): md editor 内 📎 file リンク → tree（元 md から removeFileLink）
+            notesRegisterFileFromMdLink: (payload: { href: string; sourceMdPath: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
+                treeFileRegisterFromMdLink(fileManager, senderRef, payload, parentId, index);
+            },
+            // FR-TF-10 menu（§7）: Reveal in Finder
+            revealTreeFileInOS: async (id: string, _senderRef: NotesSender) => {
+                const p = fileManager.getTreeFilePath(id);
+                if (!p || !fs.existsSync(p)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(p));
+            },
+            // FR-TF-10 menu（§7）: Copy Path（絶対パスを OS clipboard へ。host→webview 応答方向なので NFR-TF-02 非抵触）
+            copyTreeFilePath: async (id: string, _senderRef: NotesSender) => {
+                const p = fileManager.getTreeFilePath(id);
+                if (!p) {
+                    vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                    return;
+                }
+                await vscode.env.clipboard.writeText(p);
+            },
+            // FR-TF-10 menu（§7）: Delete（実体 useTrash 削除 + structure 除去。既存 deleteFile には流さない）
+            deleteTreeFile: async (id: string, senderRef: NotesSender) => {
+                await fileManager.deleteTreeFile(id);
+                senderRef.postMessage({
+                    type: 'notesFileListChanged',
+                    fileList: fileManager.listFiles(),
+                    structure: fileManager.getStructureForWebview(),
+                    currentFile: fileManager.getCurrentFilePath(),
+                });
+            },
+            // FR-TF-01 (§4a): 外部 D&D の明示通知（50MB 超 skip 等）
+            notifyError: (message: string) => {
+                if (message) { vscode.window.showErrorMessage(message); }
             },
 
             // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → Notes ツリー D&D。
@@ -2129,11 +2207,13 @@ export class NotesEditorProvider {
             },
 
             // FR-T01 (sprint 20260805-124854): Finder / VS Code Explorer から .md をツリーに D&D。
-            // webview が FileReader で読んだ items（[{kind:'md', name, content}]）を、各々
-            // 新 id で mainFolder 直下（flat）へ複製登録（元ファイルは OS 側なので不変）。
-            // タイトルは H1（無ければファイル名 stem）。挿入位置は index から順に i ずつずらす。
+            // FR-TF-01 (§4a): 同経路で非 md ファイル（kind:'file'）も受理。webview が
+            // md → readAsText（content）/ その他 → readAsArrayBuffer（bytes base64）で読む。
+            // md は各々新 id で mainFolder 直下（flat）へ複製登録（title は H1 / stem）。
+            // file は bytes を files/ に byte 一致で保存（50MB 超は per-file skip + 明示通知）。
+            // 元ファイルは OS 側なので不変。挿入位置は index から登録済み件数ぶんずらす。
             notesRegisterExternalMd: (
-                items: { kind: string; name: string; content: string }[],
+                items: { kind: string; name: string; content?: string; bytes?: string }[],
                 parentId: string | null,
                 index: number,
                 senderRef: NotesSender
@@ -2143,11 +2223,22 @@ export class NotesEditorProvider {
                     let registered = 0;
                     for (let i = 0; i < items.length; i++) {
                         const item = items[i];
-                        if (!item || item.kind !== 'md') continue;
-                        const content = typeof item.content === 'string' ? item.content : '';
-                        const title = resolveSubpageTitle(content, item.name || 'untitled.md');
-                        fileManager.registerMarkdownFile(content, title, parentId, index + registered);
-                        registered++;
+                        if (!item) continue;
+                        if (item.kind === 'md') {
+                            const content = typeof item.content === 'string' ? item.content : '';
+                            const title = resolveSubpageTitle(content, item.name || 'untitled.md');
+                            fileManager.registerMarkdownFile(content, title, parentId, index + registered);
+                            registered++;
+                        } else if (item.kind === 'file') {
+                            const fid = registerExternalDroppedFileItem(
+                                fileManager,
+                                item,
+                                parentId,
+                                index + registered,
+                                (name: string) => vscode.window.showWarningMessage(`${t('dropFileTooLarge')}: ${name}`)
+                            );
+                            if (fid) registered++;
+                        }
                     }
                     if (registered === 0) return;
                     senderRef.postMessage({

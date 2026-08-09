@@ -16,7 +16,7 @@
 - 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
 - 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
-- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen. Cross-file full-text search, tabs and history, Daily Notes.
+- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search, tabs and history, Daily Notes.
 - ☁️ **S3 backup & restore** — One-click backup to your own AWS S3 bucket, and restore from it.
 - 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your notes in Fractal Note (use Fractal Note instead of Obsidian).
 
@@ -157,8 +157,9 @@ Enter / Tab / Shift+Tab work the way you expect. Multi-select indenting, node mo
 Fractal Note organizes information into **notes**. Just register any folder from the activity bar.
 ![assets/images/1785087018130.png](assets/images/1785087018130.png)
 
-- **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out` and `.md` files in a **virtual folder/file tree** with drag & drop. Your data stays plain files
-- **Import external md** — drag a .md from Finder onto the file tree to copy & register it into the note
+- **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
+- **Import anything** — drag a .md from Finder onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open in the OS default app
+- **Files flow everywhere** — drag a tree file onto an outliner or markdown (editor or tree item) to attach it, or drag a 📎 attachment out of an editor back into the tree. The physical file never moves; only its owner changes
 - **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note. Streaming results, click to jump
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click

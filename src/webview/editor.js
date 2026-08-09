@@ -77,6 +77,15 @@ class SidePanelHostBridge {
             this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
         }
     }
+    // FR-TF-06a (sprint 20260809-031217): ツリー file item → sidepanel md D&D。
+    // 宛先 = sidepanel の md (this.filePath)。SidePanelHostBridge は共有 factory 非経由の
+    // 手書きクラスなので個別追加が必要 (designer_failures 2026-07-20)。
+    attachTreeFileToMd(id) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachTreeFileToMd === 'function') {
+            this._mainHost.attachTreeFileToMd(id, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -2206,7 +2215,16 @@ class EditorInstance {
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
                     // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
                     var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
+                    // FR-TF-15 (§4i(4) 2026-08-10): 📎 file 添付リンクはレンダ時に data-is-file-attachment +
+                    // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
+                    // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
+                    var fileAttachAttr = '';
+                    if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
+                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
+                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
+                    }
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -16250,6 +16268,8 @@ class EditorInstance {
             link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
+            link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
 
             editor.focus();
             const sel = window.getSelection();
@@ -16292,6 +16312,29 @@ class EditorInstance {
             } else if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sourceMdPath) {
                 sidePanelHostBridge._sendMessage({
                     type: 'removeSubpageLink',
+                    href: message.href,
+                    sourceMdPath: message.sourceMdPath
+                });
+            }
+        } else if (message.type === 'removeFileLink') {
+            // FR-TF-06b (§4g): md editor 内 📎 file リンクを Notes ツリーへ D&D 登録した後、
+            // 元 md から該当 file アンカーを除去する（所有移し替え）。宛先判定は removeSubpageLink と同一
+            //（自分の md なら editor から除去 + syncMarkdown / 自分が管理する sidepanel の md なら中継）。
+            var rmFileOwnFp = (host && host.filePath) || (self.options && self.options.filePath) || '';
+            if (rmFileOwnFp === message.sourceMdPath) {
+                var rmFileAnchors = editor.querySelectorAll('a[data-is-file-attachment="true"]');
+                for (var rmFj = 0; rmFj < rmFileAnchors.length; rmFj++) {
+                    var rmFa = rmFileAnchors[rmFj];
+                    var rmFhref = rmFa.dataset.markdownPath || rmFa.getAttribute('href') || '';
+                    if (rmFhref === message.href) {
+                        rmFa.parentNode.removeChild(rmFa);
+                        syncMarkdown();
+                        break; // 最初の一致 1 個だけ（同一 href 複数は先頭を除去）
+                    }
+                }
+            } else if (sidePanelHostBridge && sidePanelInstance && sidePanelHostBridge.filePath === message.sourceMdPath) {
+                sidePanelHostBridge._sendMessage({
+                    type: 'removeFileLink',
                     href: message.href,
                     sourceMdPath: message.sourceMdPath
                 });
@@ -17649,6 +17692,39 @@ class EditorInstance {
         } catch (err) { /* ignore */ }
     });
 
+    // FR-TF-06b (sprint 20260809-031217, §4g :105): md editor 内の 📎 file 添付リンクを Notes ツリーへ D&D。
+    // a[data-is-file-attachment="true"] のみ（subpage/通常リンクは対象外セレクタ = subpage 経路と相互不干渉）。
+    // payload = { href（相対）, sourceMdPath（この md の絶対パス） }。受け側 = notes-file-panel.js
+    //（application/x-fractal-md-filelink）。host が href を resolveFilesDirForMd 基準で解決する。
+    if (isMainInstance) document.addEventListener('dragstart', function(e) {
+        var fa = e.target && e.target.closest ? e.target.closest('a[data-is-file-attachment="true"]') : null;
+        if (!fa) { return; }
+        var ft = findTargetEditor(e.target);
+        if (!ft) { return; }
+        var fSrcMdPath = (ft.instance.host && ft.instance.host.filePath) ||
+            (ft.instance.options && ft.instance.options.filePath) || '';
+        var fHref = fa.dataset.markdownPath || fa.getAttribute('href') || '';
+        if (!fHref || !e.dataTransfer) { return; }
+        try {
+            e.dataTransfer.setData('application/x-fractal-md-filelink', JSON.stringify({
+                href: fHref,
+                sourceMdPath: fSrcMdPath,
+            }));
+            e.dataTransfer.effectAllowed = 'copyMove';
+        } catch (err) { /* ignore */ }
+        // §4h: one-shot drag-session state。dragend で必ず clear（下記 dragend listener）。
+        fa.classList.add('dragging-file-attachment');
+    });
+
+    // §4h: file 添付リンク D&D の one-shot state（dragging-file-attachment）を dragend で必ず clear。
+    // drop 成否・webview 外 drop・cancel いずれの終了でも stale class を残さない（次セッションへ漏らさない）。
+    if (isMainInstance) document.addEventListener('dragend', function() {
+        var draggingFileAnchors = document.querySelectorAll('a.dragging-file-attachment');
+        for (var dfi = 0; dfi < draggingFileAnchors.length; dfi++) {
+            draggingFileAnchors[dfi].classList.remove('dragging-file-attachment');
+        }
+    });
+
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
         var t = findTargetEditor(e.target);
         if (t) {
@@ -17800,6 +17876,24 @@ class EditorInstance {
             };
             reader.readAsDataURL(file);
         }
+
+        // FR-TF-06a (sprint 20260809-031217, §4f :101): Notes ファイルツリーの file item drop。
+        // 開いている md 本文へ添付（コピーなし・リンクのみ）。ファイル実体は note 内にあるため
+        // targetHost.attachTreeFileToMd(id) へ委譲（host が currentFile 宛てに解決・📎 リンク追記）。
+        // ★ 順序契約: tree-md（subpage）分岐より必ず前に処理する。同 DataTransfer に tree-md が
+        //   同時に載っていても file を優先し、tree-md（linkMdAsSubpage）経路へ流入させない。
+        try {
+            var treeFileRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-tree-file') : '';
+            if (treeFileRaw) {
+                var treeFilePayload = null;
+                try { treeFilePayload = JSON.parse(treeFileRaw); } catch (err) { /* ignore */ }
+                if (treeFilePayload && treeFilePayload.id &&
+                    typeof targetHost.attachTreeFileToMd === 'function') {
+                    targetHost.attachTreeFileToMd(treeFilePayload.id);
+                }
+                return; // file drop はここで完結（他経路 = md/添付 へ落とさない）
+            }
+        } catch (err) { /* ignore */ }
 
         // FR-B09 (sprint 20260804-145603): Notes ファイルツリーの md item drop（TASK-08）。
         // ファイルは既に note 内にあるためコピーせず、既存 md への subpage リンクを挿入する

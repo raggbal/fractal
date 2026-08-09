@@ -351,6 +351,13 @@
         linkMdAsSubpage: function(filePath, mdFileId) {
             api.postMessage({ type: 'notesMdLinkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null });
         },
+        // FR-TF-06a (§4f): ツリー file item → 開いている md editor 本文へ添付（コピーなし・リンクのみ）。
+        // editor.js の tree-file drop 分岐が targetHost.attachTreeFileToMd(id) で呼ぶ。
+        // main md 経路は sidePanelFilePath 省略 → host は currentFile 宛てに解決。
+        // sidepanel 経路は SidePanelHostBridge の委譲が第 2 引数に this.filePath を渡す。
+        attachTreeFileToMd: function(id, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
+        },
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
         // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび
@@ -452,8 +459,9 @@
         },
 
         // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
-        notesImportMdIntoOut: function(mdFileId, targetOutId) {
-            api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        notesImportMdIntoOut: function(mdFileId, targetOutId, targetNodeId, position) {
+            // FR-TF-14 (2026-08-10): targetNodeId/position は任意（省略時 = 従来の rootIds 先頭 unshift）
+            api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId, targetNodeId: targetNodeId ?? null, position: position ?? null });
         },
 
         // TASK-19: md editor 内 subpage リンク → ツリー D&D（host が href を sourceMd 基準で解決）
@@ -487,6 +495,66 @@
                 payload: payload,
                 targetOutFilePath: targetOutFilePath,
             });
+        },
+
+        // ── FR-TF: tree file item（ext:'file'）D&D 経路（host 側 4 層配線。§8 の 11 個中 panel 側 10 個） ──
+        // FR-TF click（§4 :59）: kind==='file' の click → 外部アプリで開く
+        openTreeFileExternal: function(id) {
+            api.postMessage({ type: 'openTreeFileExternal', id: id });
+        },
+        // FR-TF-03 (§4b :82): ツリー file → .out item ドロップ（.out root 先頭に file node）
+        notesImportFileIntoOut: function(dragItemId, targetOutId) {
+            api.postMessage({ type: 'notesImportFileIntoOut', dragItemId: dragItemId, targetOutId: targetOutId });
+        },
+        // FR-TF-04 (§4c :86): ツリー file → md item ドロップ（md 末尾に 📎 リンク追記）
+        notesAttachFileIntoMd: function(dragItemId, targetMdId) {
+            api.postMessage({ type: 'notesAttachFileIntoMd', dragItemId: dragItemId, targetMdId: targetMdId });
+        },
+        // FR-TF-05a (§4d :92): ツリー file → outliner の node 位置に D&D（dropFilesResult 互換 postback）
+        notesImportTreeFileAtPosition: function(id, outFileId, targetNodeId, position) {
+            api.postMessage({
+                type: 'notesImportTreeFileAtPosition',
+                id: id,
+                outFileId: outFileId,
+                targetNodeId: targetNodeId || null,
+                position: position || null,
+            });
+        },
+        // FR-TF-05b (§4e :97): outliner の file 添付 node → ツリーへ D&D（所有移し替え）。
+        // node.filePath を disk から読むため flushOutlinerSync で src .out を最新化してから依頼。
+        notesRegisterFileFromOutNode: function(payload, parentId, index) {
+            flushOutlinerSync();
+            api.postMessage({
+                type: 'notesRegisterFileFromOutNode',
+                payload: payload,
+                parentId: parentId || null,
+                index: index || 0,
+            });
+        },
+        // FR-TF-06b (§4g :106): md editor 内 📎 file リンク → ツリーへ D&D（元 md から removeFileLink）
+        notesRegisterFileFromMdLink: function(payload, parentId, index) {
+            api.postMessage({
+                type: 'notesRegisterFileFromMdLink',
+                payload: payload,
+                parentId: parentId || null,
+                index: index || 0,
+            });
+        },
+        // FR-TF-10 menu（§7 :121）: Reveal in Finder（OS ファイラで選択表示）
+        revealTreeFileInOS: function(id) {
+            api.postMessage({ type: 'revealTreeFileInOS', id: id });
+        },
+        // FR-TF-10 menu（§7 :121）: Copy Path（getTreeFilePath の絶対パスを OS clipboard へ）
+        copyTreeFilePath: function(id) {
+            api.postMessage({ type: 'copyTreeFilePath', id: id });
+        },
+        // FR-TF-10 menu（§7 :122）: Delete（実体 useTrash 削除 + structure 除去）
+        deleteTreeFile: function(id) {
+            api.postMessage({ type: 'deleteTreeFile', id: id });
+        },
+        // FR-TF-01 (§4a :65): 外部 D&D の per-file skip（50MB 超）等の明示通知
+        notifyError: function(message) {
+            api.postMessage({ type: 'notifyError', message: message });
         },
 
         // Daily Notes

@@ -1197,17 +1197,12 @@ var Outliner = (function() {
             treeEl.addEventListener('drop', function(e) {
                 if (VIEW_MODE === 'mindmap') { return; }
                 if (dragState) { return; } // node reorder は既存経路
-                // FR-B08: ファイルツリー md item → tree drop（挿入位置は notesImportMdIntoOut の
-                // 既存仕様 = rootIds 先頭固定なので position 解決は不要）
-                if (isTreeMdDragEvent(e)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    clearDropZoneHighlight();
-                    removeDropIndicator();
-                    handleTreeMdDrop(e);
-                    return;
-                }
-                if (!isAnyFilesDragEvent(e)) { return; }
+                // FR-TF-14 (§4i(3) 2026-08-10): tree md item も files drop と同じ位置解決経路で受ける
+                //（旧: rootIds 先頭固定。node 上に補助線を出す以上、drop もその位置に従う）。
+                var isTreeMdDrop = isTreeMdDragEvent(e);
+                // FR-TF-05a (§4d): ツリー file item drop も files drop と同じ位置解決経路で受ける。
+                var isTreeFileDrop = isTreeFileDragEvent(e);
+                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
@@ -1236,7 +1231,11 @@ var Outliner = (function() {
                     }
                 }
                 removeDropIndicator();
-                if (isFilesDragEvent(e)) {
+                if (isTreeMdDrop) {
+                    handleTreeMdDrop(e, targetId, pos);
+                } else if (isTreeFileDrop) {
+                    handleTreeFileDrop(e, targetId, pos);
+                } else if (isFilesDragEvent(e)) {
                     handleFilesDrop(e, targetId, pos);
                 } else {
                     handleVscodeUrisDrop(e, targetId, pos);
@@ -1252,6 +1251,13 @@ var Outliner = (function() {
             if (VIEW_MODE === 'mindmap') { return; }
             // FR-B08: ファイルツリー md item のドラッグを受理（preventDefault しないと drop が発火しない）
             if (isTreeMdDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
+            // FR-TF-05a (§4d): ファイルツリー file item のドラッグも受理（同上・drop 発火のため）
+            if (isTreeFileDragEvent(e)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 treeEl.classList.add('outliner-tree-drop-zone-active');
@@ -1381,7 +1387,7 @@ var Outliner = (function() {
     function isTreeMdDragEvent(e) {
         return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_MD_MIME) >= 0);
     }
-    function handleTreeMdDrop(e) {
+    function handleTreeMdDrop(e, targetNodeId, position) {
         var raw = '';
         try { raw = e.dataTransfer.getData(TREE_MD_MIME) || ''; } catch (err) { /* ignore */ }
         if (!raw) return;
@@ -1393,7 +1399,33 @@ var Outliner = (function() {
             ? notesFilePanel.getCurrentOutFileId() : null;
         if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
         if (payload.id === outFileId) return; // 自分自身へは無意味
-        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId);
+        // FR-TF-14 (§4i(3) 2026-08-10): drop 位置（補助線の位置）を渡す。省略時は host 側が
+        // 従来どおり rootIds 先頭 unshift（後方互換 — tree 内 md→out item の中央 50% 経路）。
+        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId, targetNodeId || null, position || null);
+    }
+
+    /** FR-TF-05a (sprint 20260809-031217, §4d :92): Notes ファイルツリーの file item ドラッグ
+     *  （notes-file-panel.js dragstart が application/x-fractal-tree-file を setData・payload {id}）。
+     *  drop 受理は tree-md と対称で notesImportTreeFileAtPosition へ委譲する。ただし md（rootIds 先頭固定）
+     *  と違い file は挿入位置を持つため、files drop と同じ before/after/child 解決結果
+     *  （targetNodeId / position）を bridge へ渡す（host が dropFilesResult 互換で node 化する）。 */
+    var TREE_FILE_MIME = 'application/x-fractal-tree-file';
+    function isTreeFileDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_FILE_MIME) >= 0);
+    }
+    function handleTreeFileDrop(e, targetNodeId, position) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(TREE_FILE_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.id) return;
+        var notesBridgeForFile = window.notesHostBridge;
+        var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!notesBridgeForFile || !notesBridgeForFile.notesImportTreeFileAtPosition || !outFileId) return;
+        notesBridgeForFile.notesImportTreeFileAtPosition(
+            payload.id, outFileId, targetNodeId || null, position || null);
     }
 
     /** Classify dropped file by extension */
@@ -3505,6 +3537,30 @@ var Outliner = (function() {
                 e.stopPropagation();
                 host.openAttachedFile(node.id);
             });
+            // FR-TF-05b (§4e :96): file 添付 node の 📎 アイコン → Notes ツリーへ D&D（所有移し替え）。
+            //   掴みは bullet（並べ替え/subtree 移動）と分離し、📎 は file 専用 MIME のみ載せる。
+            //   payload は outFileKey + nodeId のみ（NFR-TF-02: 絶対パス/実体パスを載せない。
+            //   host が src .out（flush 済み disk）から filePath を解決する）。
+            if (isNotesMode()) {
+                fileIcon.draggable = true;
+                fileIcon.style.cursor = 'grab';
+                fileIcon.addEventListener('dragstart', function(e) {
+                    e.stopPropagation(); // bullet/node の dragstart（並べ替え）に流さない
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                    try {
+                        e.dataTransfer.setData('application/x-fractal-out-node-file', JSON.stringify({
+                            outFileKey: currentOutFileKey,
+                            nodeId: node.id,
+                        }));
+                    } catch (err) { /* ignore */ }
+                    // §4h: one-shot drag-session state（bullet の is-dragging と対称）。dragend で必ず clear。
+                    fileIcon.classList.add('outliner-file-icon-dragging');
+                });
+                fileIcon.addEventListener('dragend', function() {
+                    fileIcon.classList.remove('outliner-file-icon-dragging');
+                    removeDropIndicator();
+                });
+            }
             el.appendChild(fileIcon);
         }
 
@@ -3697,6 +3753,20 @@ var Outliner = (function() {
 
         // D&D: ノード要素にドロップターゲットイベント
         el.addEventListener('dragover', function(e) {
+            // FR-TF-14 (§4i(3) 2026-08-10): ツリー md/file item の drag も node 上では
+            // Files D&D と同じ補助線（before/after/child）を出す（zone 点線と共存）。
+            // drop 側（capture handler :1197）が同じしきい値で位置解決する = 表示=挿入の一致。
+            if (isTreeMdDragEvent(e) || isTreeFileDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                var rectT = el.getBoundingClientRect();
+                var yT = e.clientY - rectT.top;
+                var hT = rectT.height;
+                if (yT < hT * 0.25) showDropIndicator(el, 'before', e.clientX);
+                else if (yT > hT * 0.60) showDropIndicator(el, 'after', e.clientX);
+                else showDropIndicator(el, 'child', e.clientX);
+                return;
+            }
             // Files D&D (Finder or VSCode Explorer) has priority
             if (isAnyFilesDragEvent(e)) {
                 e.preventDefault();
@@ -9134,9 +9204,8 @@ var Outliner = (function() {
                                 var lastRootId2 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId2, r.title);
                             } else if (impPosition === 'before') {
-                                var info2 = model._getSiblingInfo(impTargetId);
-                                var afterId2 = info2 && info2.index > 0 ? info2.siblings[info2.index - 1] : null;
-                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId2, r.title);
+                                // TC-MX-07 (2026-08-10): dropFilesResult と同型 — addNodeBefore で先頭 target でも正位置
+                                newNode = model.addNodeBefore(model.getNode(impTargetId).parentId, impTargetId, r.title);
                             } else if (impPosition === 'child') {
                                 newNode = model.addNodeAtStart(impTargetId, r.title);
                                 model.getNode(impTargetId).collapsed = false;
@@ -9182,9 +9251,10 @@ var Outliner = (function() {
                                 var lastRootId3 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId3, r.title);
                             } else if (impPosition === 'before') {
-                                var info3 = model._getSiblingInfo(impTargetId);
-                                var afterId3 = info3 && info3.index > 0 ? info3.siblings[info3.index - 1] : null;
-                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId3, r.title);
+                                // TC-MX-07 (review iter3 QUAL-1): 3 番目の同型ブロックにも addNodeBefore を配線
+                                //（現状 host は 'after' 固定送信で dead code だが、旧「前兄弟 afterId + addNode」は
+                                // 先頭 target で末尾 append に化ける同型バグ — N 経路の一部にだけ配線の防止）
+                                newNode = model.addNodeBefore(model.getNode(impTargetId).parentId, impTargetId, r.title);
                             } else if (impPosition === 'child') {
                                 newNode = model.addNodeAtStart(impTargetId, r.title);
                                 model.getNode(impTargetId).collapsed = false;
@@ -9238,12 +9308,10 @@ var Outliner = (function() {
                                 var lastRootId4 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId4, '');
                             } else if (position === 'before') {
+                                // TC-MX-07 (2026-08-10): addNodeBefore で正位置挿入。旧「前兄弟 afterId + addNode」は
+                                // target が先頭兄弟のとき afterId=null が「null=末尾 append」に化けるバグ
                                 var beforeNode = model.getNode(targetId);
-                                insertParentId = beforeNode.parentId;
-                                var siblings = insertParentId ? model.getNode(insertParentId).children : model.rootIds;
-                                var idx = siblings.indexOf(targetId);
-                                insertAfterId = idx > 0 ? siblings[idx - 1] : null;
-                                newNode = model.addNode(insertParentId, insertAfterId, '');
+                                newNode = model.addNodeBefore(beforeNode.parentId, targetId, '');
                             } else if (position === 'child') {
                                 newNode = model.addNodeAtStart(targetId, '');
                                 var t = model.getNode(targetId);
