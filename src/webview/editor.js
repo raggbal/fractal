@@ -2215,7 +2215,14 @@ class EditorInstance {
                     // subpage marker `[[]]` は data-subpage で往路フラグを残す (serialize が [[]] に書き戻す)
                     // TASK-19: subpage は draggable（アイコンごと掴んでツリーへ D&D できる）
                     var subpageAttr = ln.isSubpage ? ' data-subpage="true" draggable="true"' : '';
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + '>' + ln.alt + '</a>';
+                    // FR-TF-15 (§4i(4) 2026-08-10): 📎 file 添付リンクはレンダ時に data-is-file-attachment +
+                    // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
+                    // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
+                    var fileAttachAttr = '';
+                    if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                    }
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);

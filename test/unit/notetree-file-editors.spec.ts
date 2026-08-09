@@ -283,6 +283,59 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(subCap['application/x-fractal-md-filelink']).toBeUndefined();
     });
 
+    // ---- TC-MX-06 (FR-TF-15 2026-08-10): レンダリング済み file アンカーでも dragstart が効く ----
+    // 初版は data-is-file-attachment が insertFileLink の新規挿入時にしか付かず、md ロード→
+    // レンダリング後のアンカーは drag 不能だった（counterfactual: レンダ時付与を外すと RED）。
+    test('TC-MX-06 md ロード後（レンダリング経由）の 📎 file アンカーで dragstart → x-fractal-md-filelink。subpage 非干渉', async ({ page }) => {
+        await loadEnv(page);
+        // insertFileLink を経由せず、initialContent の md からレンダリングさせる
+        await page.evaluate(() => {
+            const mc = document.querySelector('.markdown-container') as HTMLElement;
+            mc.style.display = '';
+            // eslint-disable-next-line no-new
+            new (window as any).EditorInstance(mc, (window as any).outlinerHostBridge, {
+                initialContent: '[📎 report.pdf](files/report.pdf)\n\n[[Sub Page]](sub.md)\n',
+                filePath: '/notes/main.md', documentBaseUri: '', sidebarHidden: true,
+            });
+        });
+
+        const state = await page.evaluate(() => {
+            const ed = document.querySelector('.markdown-container .editor') as HTMLElement;
+            const anchors = Array.from(ed.querySelectorAll('a'));
+            const fa = anchors.find(a => (a.textContent || '').indexOf('📎') === 0) as HTMLElement | undefined;
+            const sa = anchors.find(a => (a as HTMLElement).dataset.subpage === 'true') as HTMLElement | undefined;
+            if (!fa) return { found: false } as any;
+            const captured: Record<string, string> = {};
+            const orig = (DataTransfer.prototype as any).setData;
+            (DataTransfer.prototype as any).setData = function (type: string, data: string) {
+                captured[type] = data; return orig.call(this, type, data);
+            };
+            try {
+                const dt = new DataTransfer();
+                fa.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+            } finally {
+                (DataTransfer.prototype as any).setData = orig;
+            }
+            return {
+                found: true,
+                draggable: (fa as any).draggable === true,
+                hasAttr: fa.dataset.isFileAttachment === 'true',
+                subpageDistinct: !!sa && sa !== fa,
+                captured,
+            };
+        });
+
+        expect(state.found).toBe(true);
+        expect(state.draggable).toBe(true);   // レンダ時に draggable 付与
+        expect(state.hasAttr).toBe(true);     // レンダ時に data-is-file-attachment 付与（DOM 契約統一）
+        expect(state.subpageDistinct).toBe(true);
+        expect(state.captured['application/x-fractal-md-filelink']).toBeTruthy();
+        const p = JSON.parse(state.captured['application/x-fractal-md-filelink']);
+        expect(p.href).toBe('files/report.pdf');
+        expect(p.sourceMdPath).toBe('/notes/main.md');
+        expect(state.captured['application/x-fractal-md-subpage']).toBeUndefined();
+    });
+
     // ---- TC-WV-08: outliner x-fractal-tree-file drop -> notesImportTreeFileAtPosition ----
     test('TC-WV-08 outliner の x-fractal-tree-file drop が notesImportTreeFileAtPosition(id, outFileId, targetNodeId, position) を呼ぶ・tree-md と不干渉', async ({ page }) => {
         await loadEnv(page);
