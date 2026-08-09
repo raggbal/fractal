@@ -237,6 +237,13 @@ export interface NotesPlatformActions {
         index: number,
         sender: NotesSender
     ): Promise<void> | void;
+    /** FR-TF-17 (§4k): VS Code Explorer uri-list drop — uris[] を host fs 直読みで登録（50MB cap なし） */
+    notesRegisterExternalUris?(
+        uris: string[],
+        parentId: string | null,
+        index: number,
+        sender: NotesSender
+    ): Promise<void> | void;
     /** v0.207.77 (D&D Feature B): outliner page-node を Notes panel にドロップ → そのページを独立 .md として登録 */
     notesImportOutPageNodeAsMd?(
         payload: { outFileKey: string; nodeId: string; pageId: string; title: string },
@@ -1313,6 +1320,13 @@ export async function handleNotesMessage(
             }
             break;
 
+        // FR-TF-17 (§4k): VS Code Explorer uri-list drop → host fs 直読みで md/file 振り分け登録
+        case 'notesRegisterExternalUris':
+            if (Array.isArray(message.uris) && platform.notesRegisterExternalUris) {
+                await platform.notesRegisterExternalUris(message.uris, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+
         case 'notesImportMdIntoOut': {
             if (typeof platform.notesImportMdIntoOut === 'function') {
                 // FR-TF-14: targetNodeId/position は任意（旧 webview からは undefined = 従来挙動）
@@ -2382,4 +2396,53 @@ export function registerExternalDroppedFileItem(
     }
     const buf = Buffer.from(b64, 'base64');
     return fileManager.registerTreeFile(item.name, item.name, parentId, index, buf);
+}
+
+/**
+ * FR-TF-17 (§4k): VS Code Explorer uri-list drop の uris[] を host fs 直読みで tree に登録する。
+ * webview は URI を送るだけ（FileReader 非経由 → 50MB cap なし = ADRL-C Decision 2。
+ * buffered 経路の cap は webview メモリ保護が根拠で、host 直読みには該当しない）。
+ * - file: scheme のみ（vscode-remote:// 等は skip — outliner v12 = drop-import.ts と同じ規約）
+ * - 不存在 / ディレクトリは skip
+ * - `.md`（case-insensitive）→ registerMarkdownFile（title は H1 / stem = 既存 md 経路と同一）
+ * - その他 → registerTreeFile（sanitize §4y + uniquify §4z は registerTreeFile 内蔵に合流）
+ * - 挿入は uri 列挙順に index 連番（skip は index を消費しない）・postback は登録 ≥1 件で 1 回
+ */
+export function registerExternalDroppedUris(
+    fileManager: NotesFileManager,
+    uris: string[],
+    parentId: string | null,
+    index: number,
+    sender: NotesSender
+): void {
+    if (!Array.isArray(uris) || uris.length === 0) { return; }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const url = require('url') as typeof import('url');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { resolveSubpageTitle } = require('./md-subpage-utils') as typeof import('./md-subpage-utils');
+    let registered = 0;
+    for (const uri of uris) {
+        try {
+            const parsed = new URL(uri);
+            if (parsed.protocol !== 'file:') { continue; }
+            const fsPath = url.fileURLToPath(uri);
+            if (!fs.existsSync(fsPath) || !fs.statSync(fsPath).isFile()) { continue; }
+            const name = path.basename(fsPath);
+            if (/\.md$/i.test(name)) {
+                const content = fs.readFileSync(fsPath, 'utf8');
+                const title = resolveSubpageTitle(content, name);
+                fileManager.registerMarkdownFile(content, title, parentId, index + registered);
+                registered++;
+            } else {
+                const buf = fs.readFileSync(fsPath);
+                fileManager.registerTreeFile(name, name, parentId, index + registered, buf);
+                registered++;
+            }
+        } catch (e) {
+            console.error('[Notes] registerExternalDroppedUris skip:', uri, e);
+        }
+    }
+    if (registered > 0) {
+        sendFileListWithStructure(fileManager, sender);
+    }
 }

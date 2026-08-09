@@ -729,4 +729,98 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         expect(r.dragOverBg).not.toBe('transparent');
     });
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン③ (2026-08-10): FR-TF-17 uri-list webview 側（TC-UL-01/02）
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── TC-UL-01: isVscodeUriListDrag 判定（dragover 受理で代理検証）──
+    // ── TC-UL-02: 6 配線点（dragover 3 + drop 3）の対称配線 ──
+    test('TC-UL-01/02 uri-list drag が全配線点で受理され notesRegisterExternalUris が呼ばれる', async ({ page }) => {
+        await loadPanel(page, {
+            fileList: [
+                { id: 'o1', filePath: '/n/plan.out', title: 'Plan', kind: 'out' },
+                { id: 'f1', filePath: null, title: 'Folder', kind: undefined },
+            ],
+            structure: {
+                version: 1, rootIds: ['o1', 'fold1'],
+                items: {
+                    o1: { type: 'file', id: 'o1', title: 'Plan' },
+                    fold1: { type: 'folder', id: 'fold1', title: 'Folder', childIds: [], collapsed: false },
+                },
+            },
+        });
+
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const URI_MIME = 'application/vnd.code.uri-list';
+            const uris = 'file:///tmp/a.md\r\nfile:///tmp/b.pdf';
+            const mkDt = () => {
+                const dt = new DataTransfer();
+                dt.setData(URI_MIME, uris);
+                return dt;
+            };
+            const calls = () => w.__calls.filter((c: any) => c.type === 'notesRegisterExternalUris');
+
+            const out: any = {};
+
+            // (1) item 上（setupDropTarget）: dragover が preventDefault + drop で bridge 呼び出し
+            w.__calls = [];
+            const item = document.querySelector('[data-item-id="o1"]') as HTMLElement;
+            const rr = item.getBoundingClientRect();
+            let dt = mkDt();
+            const ov1 = new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3, // 上半分 = before
+            });
+            item.dispatchEvent(ov1);
+            out.itemOverAccepted = ov1.defaultPrevented; // counterfactual: 配線なしだと false
+            item.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3,
+            }));
+            out.itemDrop = calls().map((c: any) => c.args)[0] || null; // [uris[], parentId, index]
+
+            // (2) listEl 余白: root 末尾へ
+            w.__calls = [];
+            const listEl = document.getElementById('notesFileList') as HTMLElement;
+            dt = mkDt();
+            const ov2 = new DragEvent('dragover', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(ov2, 'target', { value: listEl });
+            listEl.dispatchEvent(ov2);
+            out.listOverAccepted = ov2.defaultPrevented;
+            const dp2 = new DragEvent('drop', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(dp2, 'target', { value: listEl });
+            listEl.dispatchEvent(dp2);
+            out.listDrop = calls().map((c: any) => c.args)[0] || null;
+
+            // (3) Files 優先の dispatch 順: Files + uri-list 両方 → uri-list 経路は使わない
+            w.__calls = [];
+            const dtBoth = new DataTransfer();
+            dtBoth.items.add(new File(['x'], 'c.pdf', { type: 'application/pdf' }));
+            dtBoth.setData(URI_MIME, uris);
+            item.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dtBoth,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3,
+            }));
+            out.bothUriCalls = calls().length; // Files 優先 → 0
+
+            return out;
+        });
+
+        // (1) item 上: dragover 受理 + drop で uris が届く（before = index 0）
+        expect(r.itemOverAccepted).toBe(true);
+        expect(r.itemDrop).toBeTruthy();
+        expect(r.itemDrop[0]).toEqual(['file:///tmp/a.md', 'file:///tmp/b.pdf']); // \r\n split + trim
+        expect(r.itemDrop[1]).toBe(null); // root 直下 item の前 = parentId null
+        expect(r.itemDrop[2]).toBe(0);
+        // (2) listEl 余白: root 末尾
+        expect(r.listOverAccepted).toBe(true);
+        expect(r.listDrop).toBeTruthy();
+        expect(r.listDrop[1]).toBe(null);
+        expect(r.listDrop[2]).toBe(2); // rootIds.length = 2（o1, fold1 の末尾）
+        // (3) Files 同時積みは Files 経路優先（uri-list 経路は発火しない）
+        expect(r.bothUriCalls).toBe(0);
+    });
+
 });

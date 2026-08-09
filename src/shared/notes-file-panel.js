@@ -861,6 +861,25 @@ var notesFilePanel = (function() {
         return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
     }
 
+    // FR-TF-17 (§4k): VS Code Explorer からの drag は files が空で application/vnd.code.uri-list
+    // のみ載る（isExternalFilesDrag では構造的に受理不能）。outliner.js isVscodeUriDragEvent の字面移植。
+    // text/uri-list は受けない（md editor の URL drag 用 — tree では登録意味論が未定義。ADRL-C）。
+    function isVscodeUriListDrag(e) {
+        return !!(e && e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('application/vnd.code.uri-list') >= 0);
+    }
+
+    // FR-TF-17 (§4k): uri-list drop → uris[] を host へ送るだけ（FileReader 非使用・host fs 直読み）。
+    // 50MB cap なし（ADRL-C Decision 2 = outliner v12 前例の既決踏襲）。0 件なら bridge を呼ばない。
+    function registerVscodeUriDrop(e, parentId, index) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData('application/vnd.code.uri-list') || ''; } catch (err) { raw = ''; }
+        var uris = raw.split(/\r?\n/).map(function(s) { return s.trim(); }).filter(Boolean);
+        if (uris.length === 0) return;
+        if (typeof bridge.notesRegisterExternalUris === 'function') {
+            bridge.notesRegisterExternalUris(uris, parentId, index);
+        }
+    }
+
     // ArrayBuffer → base64（添付 file の bytes 転送用。VS Code webview↔host は文字列が確実）。
     function arrayBufferToBase64(buffer) {
         try {
@@ -998,7 +1017,9 @@ var notesFilePanel = (function() {
             var fromMdFileLink = isMdFileLinkDrag(e);
             // FR-T01: 外部 files（Finder / VS Code Explorer）は最後に判定（内部 drag / outliner /
             // subpage が最優先。内部 drag は tree-md MIME 等も積むので dragItemId 非 null を先に弾く）。
-            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && isExternalFilesDrag(e);
+            // FR-TF-17: Explorer drag は files が空で vnd.code.uri-list のみ載るため OR で受理
+            //（これが無いと dragover 非 preventDefault で drop 自体が不発 = Explorer D&D 不能の主因）。
+            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
             if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromExternal) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
@@ -1146,6 +1167,21 @@ var notesFilePanel = (function() {
                 var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
                 if (idxEx === -1) idxEx = sibEx.length;
                 registerExternalDroppedFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
+                return;
+            }
+            // FR-TF-17: VS Code Explorer uri-list → item の前/後に登録（Files 分岐の後 = Files 優先の
+            // dispatch 順は outliner.js の Finder→uri-list 順と対称）。
+            if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isVscodeUriListDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetUl = el.closest('[data-item-id]') || el;
+                var rectUl = targetUl.getBoundingClientRect();
+                var ratioUl = (e.clientY - rectUl.top) / rectUl.height;
+                var parentUl = targetUl.dataset.parentId || null;
+                var sibUl = getChildIdsOfParent(parentUl);
+                var idxUl = sibUl.indexOf(targetUl.dataset.itemId);
+                if (idxUl === -1) idxUl = sibUl.length;
+                registerVscodeUriDrop(e, parentUl, ratioUl < 0.5 ? idxUl : idxUl + 1);
                 return;
             }
             if (!dragItemId && !outPayload && !subtreePayload) return;
@@ -1305,7 +1341,8 @@ var notesFilePanel = (function() {
         childrenEl.addEventListener('dragover', function(e) {
             var fromOutliner = isOutNodePageDrag(e);
             // FR-T01: 外部 files（.md）— 内部 drag / outliner が無いときのみ
-            var fromExternal = !dragItemId && !fromOutliner && isExternalFilesDrag(e);
+            // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
+            var fromExternal = !dragItemId && !fromOutliner && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
             if (!dragItemId && !fromOutliner && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
@@ -1336,6 +1373,14 @@ var notesFilePanel = (function() {
                 removeDropIndicator();
                 lastDropLine = null;
                 registerExternalDroppedFiles(e, folderId, getChildIdsOfParent(folderId).length);
+                return;
+            }
+            // FR-TF-17: Explorer uri-list → フォルダ内末尾に登録（Files 分岐の後 = Files 優先）
+            if (!dragItemId && !outPayload && isVscodeUriListDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                lastDropLine = null;
+                registerVscodeUriDrop(e, folderId, getChildIdsOfParent(folderId).length);
                 return;
             }
             if (!dragItemId && !outPayload) return;
@@ -2213,7 +2258,8 @@ var notesFilePanel = (function() {
                 var fromOutNodeFileR = isOutNodeFileDrag(e);
                 var fromMdFileLinkR = isMdFileLinkDrag(e);
                 // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage / file 系が無いときのみ
-                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && isExternalFilesDrag(e);
+                // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
+                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
                 if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromExternalR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
@@ -2259,6 +2305,15 @@ var notesFilePanel = (function() {
                     lastDropLine = null;
                     var rootIdsEx = structure ? structure.rootIds : [];
                     registerExternalDroppedFiles(e, null, rootIdsEx.length);
+                    return;
+                }
+                // FR-TF-17: Explorer uri-list → ルート末尾に登録（Files 分岐の後 = Files 優先）
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR && isVscodeUriListDrag(e)) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    var rootIdsUl = structure ? structure.rootIds : [];
+                    registerVscodeUriDrop(e, null, rootIdsUl.length);
                     return;
                 }
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;

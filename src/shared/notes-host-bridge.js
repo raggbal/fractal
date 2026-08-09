@@ -475,6 +475,12 @@
             api.postMessage({ type: 'notesRegisterExternalMd', items: items, parentId: parentId || null, index: index || 0 });
         },
 
+        // FR-TF-17 (§4k): VS Code Explorer uri-list drop — uris[] を host へ送り fs 直読みで登録
+        // （FileReader 非経由 = 50MB cap なし。md/file 振り分けは host 側）。
+        notesRegisterExternalUris: function(uris, parentId, index) {
+            api.postMessage({ type: 'notesRegisterExternalUris', uris: uris, parentId: parentId || null, index: index || 0 });
+        },
+
         // v0.207.77: D&D — outliner page-node を Notes panel にドロップして .md として登録
         notesImportOutPageNodeAsMd: function(payload, parentId, index) {
             flushOutlinerSync();
