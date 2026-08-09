@@ -1439,6 +1439,15 @@ body {
     cursor: grab;
 }
 .editor a.link-subpage:active::before { cursor: grabbing; }
+/* FR-TF-15 / TC-MX-08 (2026-08-10): 📎 file 添付リンクは要素ごと tree へ D&D する。
+   contenteditable=false（editor.js が付与）+ user-select:none で text selection に
+   mousedown を奪われず element drag が始まる（real Chromium 実測の機序）。 */
+.editor a[data-is-file-attachment="true"] {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: grab;
+}
+.editor a[data-is-file-attachment="true"]:active { cursor: grabbing; }
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -9513,7 +9522,9 @@ class EditorInstance {
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
+                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
                     }
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
@@ -23560,6 +23571,7 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
 
             editor.focus();
             const sel = window.getSelection();

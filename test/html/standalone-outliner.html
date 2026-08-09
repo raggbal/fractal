@@ -1327,6 +1327,15 @@ body {
     cursor: grab;
 }
 .editor a.link-subpage:active::before { cursor: grabbing; }
+/* FR-TF-15 / TC-MX-08 (2026-08-10): 📎 file 添付リンクは要素ごと tree へ D&D する。
+   contenteditable=false（editor.js が付与）+ user-select:none で text selection に
+   mousedown を奪われず element drag が始まる（real Chromium 実測の機序）。 */
+.editor a[data-is-file-attachment="true"] {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: grab;
+}
+.editor a[data-is-file-attachment="true"]:active { cursor: grabbing; }
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -10978,7 +10987,9 @@ class EditorInstance {
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
+                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
                     }
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
@@ -25025,6 +25036,7 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
 
             editor.focus();
             const sel = window.getSelection();
@@ -44947,9 +44959,8 @@ var Outliner = (function() {
                                 var lastRootId2 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId2, r.title);
                             } else if (impPosition === 'before') {
-                                var info2 = model._getSiblingInfo(impTargetId);
-                                var afterId2 = info2 && info2.index > 0 ? info2.siblings[info2.index - 1] : null;
-                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId2, r.title);
+                                // TC-MX-07 (2026-08-10): dropFilesResult と同型 — addNodeBefore で先頭 target でも正位置
+                                newNode = model.addNodeBefore(model.getNode(impTargetId).parentId, impTargetId, r.title);
                             } else if (impPosition === 'child') {
                                 newNode = model.addNodeAtStart(impTargetId, r.title);
                                 model.getNode(impTargetId).collapsed = false;
@@ -45051,12 +45062,10 @@ var Outliner = (function() {
                                 var lastRootId4 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId4, '');
                             } else if (position === 'before') {
+                                // TC-MX-07 (2026-08-10): addNodeBefore で正位置挿入。旧「前兄弟 afterId + addNode」は
+                                // target が先頭兄弟のとき afterId=null が「null=末尾 append」に化けるバグ
                                 var beforeNode = model.getNode(targetId);
-                                insertParentId = beforeNode.parentId;
-                                var siblings = insertParentId ? model.getNode(insertParentId).children : model.rootIds;
-                                var idx = siblings.indexOf(targetId);
-                                insertAfterId = idx > 0 ? siblings[idx - 1] : null;
-                                newNode = model.addNode(insertParentId, insertAfterId, '');
+                                newNode = model.addNodeBefore(beforeNode.parentId, targetId, '');
                             } else if (position === 'child') {
                                 newNode = model.addNodeAtStart(targetId, '');
                                 var t = model.getNode(targetId);

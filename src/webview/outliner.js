@@ -9204,9 +9204,8 @@ var Outliner = (function() {
                                 var lastRootId2 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId2, r.title);
                             } else if (impPosition === 'before') {
-                                var info2 = model._getSiblingInfo(impTargetId);
-                                var afterId2 = info2 && info2.index > 0 ? info2.siblings[info2.index - 1] : null;
-                                newNode = model.addNode(model.getNode(impTargetId).parentId, afterId2, r.title);
+                                // TC-MX-07 (2026-08-10): dropFilesResult と同型 — addNodeBefore で先頭 target でも正位置
+                                newNode = model.addNodeBefore(model.getNode(impTargetId).parentId, impTargetId, r.title);
                             } else if (impPosition === 'child') {
                                 newNode = model.addNodeAtStart(impTargetId, r.title);
                                 model.getNode(impTargetId).collapsed = false;
@@ -9308,12 +9307,10 @@ var Outliner = (function() {
                                 var lastRootId4 = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
                                 newNode = model.addNode(null, lastRootId4, '');
                             } else if (position === 'before') {
+                                // TC-MX-07 (2026-08-10): addNodeBefore で正位置挿入。旧「前兄弟 afterId + addNode」は
+                                // target が先頭兄弟のとき afterId=null が「null=末尾 append」に化けるバグ
                                 var beforeNode = model.getNode(targetId);
-                                insertParentId = beforeNode.parentId;
-                                var siblings = insertParentId ? model.getNode(insertParentId).children : model.rootIds;
-                                var idx = siblings.indexOf(targetId);
-                                insertAfterId = idx > 0 ? siblings[idx - 1] : null;
-                                newNode = model.addNode(insertParentId, insertAfterId, '');
+                                newNode = model.addNodeBefore(beforeNode.parentId, targetId, '');
                             } else if (position === 'child') {
                                 newNode = model.addNodeAtStart(targetId, '');
                                 var t = model.getNode(targetId);

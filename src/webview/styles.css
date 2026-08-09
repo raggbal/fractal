@@ -685,6 +685,15 @@ body {
     cursor: grab;
 }
 .editor a.link-subpage:active::before { cursor: grabbing; }
+/* FR-TF-15 / TC-MX-08 (2026-08-10): 📎 file 添付リンクは要素ごと tree へ D&D する。
+   contenteditable=false（editor.js が付与）+ user-select:none で text selection に
+   mousedown を奪われず element drag が始まる（real Chromium 実測の機序）。 */
+.editor a[data-is-file-attachment="true"] {
+    -webkit-user-select: none;
+    user-select: none;
+    cursor: grab;
+}
+.editor a[data-is-file-attachment="true"]:active { cursor: grabbing; }
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {

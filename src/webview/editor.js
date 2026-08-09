@@ -2220,7 +2220,9 @@ class EditorInstance {
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
+                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
                     }
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
@@ -16267,6 +16269,7 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
 
             editor.focus();
             const sel = window.getSelection();

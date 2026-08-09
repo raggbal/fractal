@@ -439,6 +439,87 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(mdCalls[0].args[3]).toBe('before');  // position
     });
 
+    // ---- TC-MX-08 (FR-TF-15 code_fix 2026-08-10): file アンカーは real mouse drag で dragstart 発火 ----
+    // 機序（real Chromium 実測）: contenteditable=true 内のアンカーは draggable=true でも
+    // text selection が mousedown を奪い dragstart が発火しない。ce=false + user-select:none で
+    // 選択対象から外れ element drag が始まる（counterfactual: ce=false を外すと dragstart 不発 = RED）。
+    test('TC-MX-08 レンダ済み file アンカーを real mouse drag → dragstart + x-fractal-md-filelink', async ({ page }) => {
+        await loadEnv(page);
+        await page.evaluate(() => {
+            const mc = document.querySelector('.markdown-container') as HTMLElement;
+            mc.style.display = '';
+            // eslint-disable-next-line no-new
+            new (window as any).EditorInstance(mc, (window as any).outlinerHostBridge, {
+                initialContent: '[📎 report.pdf](files/report.pdf)\n\ntail text\n',
+                filePath: '/notes/main.md', documentBaseUri: '', sidebarHidden: true,
+            });
+            (window as any).__dragTypes = null;
+            // bubble 段 + editor.js の handler より後に登録 = setData 実行後の types を読む
+            document.addEventListener('dragstart', (e: any) => {
+                (window as any).__dragTypes = e.dataTransfer ? Array.from(e.dataTransfer.types || []) : [];
+            }, false);
+        });
+
+        const a = page.locator('.markdown-container .editor a[data-is-file-attachment="true"]');
+        await a.waitFor({ state: 'visible' });
+        // DOM 契約: ce=false + draggable
+        expect(await a.getAttribute('contenteditable')).toBe('false');
+        expect(await a.getAttribute('draggable')).toBe('true');
+
+        // real mouse drag（アンカー中央 = テキスト部分を掴む — 手動テストと同じ持ち方）
+        const box = (await a.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 80, box.y + 80, { steps: 5 });
+        await page.mouse.move(box.x + box.width / 2 + 160, box.y + 160, { steps: 5 });
+        await page.mouse.up();
+
+        const types = await page.evaluate(() => (window as any).__dragTypes);
+        expect(types).not.toBeNull(); // dragstart が発火した（ce=false を外すと null = RED）
+        expect(types).toContain('application/x-fractal-md-filelink');
+    });
+
+    // ---- TC-MX-07 (FR-TF-05a code_fix 2026-08-10): position='before' × target=先頭兄弟 → 先頭に入る ----
+    // 旧実装は「前兄弟 afterId 計算 + addNode」で、先頭 target のとき afterId=null が addNode の
+    // 「null=末尾 append」に化け、「一番上に drop すると一番下に入る」バグ（手動テスト③追報）。
+    test('TC-MX-07 dropFilesResult/importMdFilesResult の before が先頭 target で index 0 に入る', async ({ page }) => {
+        await loadEnv(page);
+        // 兄弟 2 node（n1, n2）— n1 が先頭
+        await page.evaluate(() => {
+            const data = {
+                version: 1,
+                rootIds: ['n1', 'n2'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'first', filePath: null, isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [] },
+                    n2: { id: 'n2', parentId: null, children: [], text: 'second', filePath: null, isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [] },
+                },
+            };
+            (window as any).Outliner.init(data, 'OUT-KEY-1');
+        });
+
+        // dropFilesResult: 先頭 n1 の before に file node
+        const afterDrop = await page.evaluate(() => {
+            const w = window as any;
+            w.__omh({ type: 'dropFilesResult', results: [{ kind: 'file', ok: true, title: 'a.pdf', filePath: 'files/a.pdf' }], targetNodeId: 'n1', position: 'before' });
+            return w.Outliner.getModel ? w.Outliner.getModel().rootIds.slice() : (w.__outlinerModel ? w.__outlinerModel.rootIds.slice() : null);
+        });
+        // 挿入 node が index 0（先頭）に居る（counterfactual: 旧実装だと末尾 = RED）
+        expect(afterDrop).not.toBeNull();
+        expect(afterDrop.indexOf('n1')).toBe(1); // 新 node が n1 の前 = n1 は 2 番目へ
+        expect(afterDrop.indexOf('n2')).toBe(2);
+
+        // importMdFilesResult: 同型 before 分岐
+        const afterMd = await page.evaluate(() => {
+            const w = window as any;
+            w.__omh({ type: 'importMdFilesResult', results: [{ title: 'Doc', pageId: 'pg1' }], targetNodeId: 'n1', position: 'before' });
+            return w.Outliner.getModel ? w.Outliner.getModel().rootIds.slice() : null;
+        });
+        expect(afterMd).not.toBeNull();
+        // 2 回目の挿入も n1 より前（rootIds 内で n1 の index が繰り上がる）
+        expect(afterMd.indexOf('n1')).toBeGreaterThanOrEqual(2);
+        expect(afterMd.indexOf('n2')).toBe(afterMd.length - 1); // n2 は末尾のまま
+    });
+
     // ---- TC-WV-09: editor x-fractal-tree-file drop -> attachTreeFileToMd; main/sidepanel both; not linkMdAsSubpage ----
     test('TC-WV-09 editor の x-fractal-tree-file drop が targetHost.attachTreeFileToMd(id) を呼ぶ・main/sidepanel 両方・linkMdAsSubpage へ流入しない', async ({ page }) => {
         await loadEnv(page);
