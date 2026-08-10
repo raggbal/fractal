@@ -5821,11 +5821,59 @@ class EditorInstance {
             }
         }
         
+        // FR-LC-05/06 (sprint 20260810-183054): li 内(継続行)でのブロック作成。
+        // walk-up の前に判定する — walk-up は node をリスト全体にしてしまい、
+        // 「> 」でリスト全体が blockquote に置換される破壊事故(:replaceWith)の温床だった。
+        // 判定はカーソル行(li 直下 text node = 1 継続行)のテキストのみで行う。
+        if (liNode && liNode.tagName && liNode.tagName.toUpperCase() === 'LI') {
+            const liLine = getInLiLineInfo(sel);
+            if (liLine && liLine.textNode) {
+                const lineText = liLine.lineText;
+                // 「> 」→ li 内 blockquote(trigger: space)
+                const liBqMatch = lineText.match(/^>\s?(.*)$/);
+                if (liBqMatch && trigger === 'space') {
+                    const rest = liBqMatch[1] || '';
+                    const liBq = document.createElement('blockquote');
+                    if (rest) {
+                        liBq.textContent = rest;
+                    } else {
+                        liBq.innerHTML = '<br>';
+                    }
+                    liLine.textNode.replaceWith(liBq);
+                    setCursorToEnd(liBq);
+                    syncMarkdown();
+                    return true;
+                }
+                // 「```」+Enter → li 内 pre(言語タグ対応)
+                const liFenceMatch = lineText.match(/^\`\`\`(\w*)\s*$/);
+                if (liFenceMatch && trigger === 'enter') {
+                    const liPre = document.createElement('pre');
+                    liPre.setAttribute('data-lang', liFenceMatch[1] || '');
+                    liPre.setAttribute('data-mode', 'display');
+                    const liCode = document.createElement('code');
+                    liCode.setAttribute('contenteditable', 'false');
+                    liPre.appendChild(liCode);
+                    liLine.textNode.replaceWith(liPre);
+                    setupCodeBlockUI(liPre);
+                    enterEditMode(liPre);
+                    syncMarkdown();
+                    return true;
+                }
+            }
+            // li 内だが行がブロック記法でない → 従来の変換(リスト型変換等)は上で処理済み。
+            // ここで walk-up に落とすとリスト全体置換の危険があるため、li 内は明示 return。
+            // (段落内 li = cursorInParagraph 系は既存分岐が先に処理している)
+            const liLineText = liLine ? liLine.lineText : '';
+            if (/^>\s?/.test(liLineText) || /^\`\`\`/.test(liLineText)) {
+                return false; // 記法はあるが textNode 特定不能 — 何もしない(安全側)
+            }
+        }
+
         // Get the current block element
         while (node && node !== editor && node.parentNode !== editor) {
             node = node.parentNode;
         }
-        
+
         if (!node || node === editor) return false;
 
         const text = node.textContent || '';
@@ -8863,6 +8911,19 @@ class EditorInstance {
             // Handle list item continuation (using closest() for proper nested list detection)
             if (listItem && editor.contains(listItem)) {
                 const list = listItem.parentNode;
+
+                // FR-LC-06 (sprint 20260810-183054): li 内の継続行が「```(lang)」なら
+                // li 内コードブロック作成(checkBlockPatterns の li 内 fence 分岐へ)。
+                // li の通常 Enter(項目分割)より先に判定する。
+                {
+                    const liLineForFence = getInLiLineInfo(window.getSelection());
+                    if (liLineForFence && liLineForFence.textNode
+                        && /^\`\`\`\w*\s*$/.test(liLineForFence.lineText)) {
+                        e.preventDefault();
+                        checkAllPatterns('enter');
+                        return;
+                    }
+                }
 
                 // Check for empty item - only check direct text content, not nested lists
                 const checkbox = listItem.querySelector(':scope > input[type="checkbox"]');
@@ -13412,6 +13473,76 @@ class EditorInstance {
         });
     }
 
+    // FR-LC-05/06 (sprint 20260810-183054): ブロック挿入の対象解決ヘルパ。
+    // 4 経路(autoformat「> 」/「```」+Enter / palette・toolbar / Ctrl+Shift+Q/K)すべてが
+    // これを通る(N 経路一部配線クラスの構造的回避)。
+    // 返り値: { mode: 'top-level', node } = 現行挙動 / { mode: 'in-li', li } = li 内挿入。
+    // ネスト li も closest('li') で自然対応。table/pre 内は呼び出し元の既存 guard に委ねる。
+    function resolveBlockInsertionTarget(sel) {
+        if (!sel || !sel.rangeCount) return null;
+        let node = sel.anchorNode;
+        const el = node && (node.nodeType === 3 ? node.parentElement : node);
+        const li = el && el.closest ? el.closest('li') : null;
+        if (li && editor.contains(li)) {
+            return { mode: 'in-li', li: li };
+        }
+        // 現行の top-level walk-up
+        while (node && node !== editor && node.parentNode !== editor) {
+            node = node.parentNode;
+        }
+        if (!node || node === editor) return null;
+        return { mode: 'top-level', node: node };
+    }
+
+    // FR-LC-05/06: li 内カーソル行(継続行)の情報。anchorNode から li 直下の text node
+    // (inline 要素内なら li 直下までの祖先)を特定し、その行テキストを返す。
+    // li 直下 text node は <br> 区切りの 1 継続行に対応する(FR-LC 契約の DOM 形)。
+    function getInLiLineInfo(sel) {
+        if (!sel || !sel.rangeCount) return null;
+        let n = sel.anchorNode;
+        const el = n && (n.nodeType === 3 ? n.parentElement : n);
+        const li = el && el.closest ? el.closest('li') : null;
+        if (!li || !editor.contains(li)) return null;
+        // li 直下まで上がる
+        while (n && n.parentNode !== li && n !== li) n = n.parentNode;
+        if (n && n.parentNode === li && n.nodeType === 3) {
+            return { li: li, textNode: n, lineText: n.textContent || '' };
+        }
+        return { li: li, textNode: null, lineText: '' };
+    }
+
+    // FR-LC-05/06: li 内のカーソル位置(直近の <br> 境界 = 継続行位置)にブロックを挿入する。
+    // anchorNode が li 直下の text node のときはその直後、それ以外は li 末尾に append。
+    // 挿入位置の継続行テキスト(consumeLine=true 時)はブロック内へ移す(autoformat / Q/K 経路)。
+    function insertBlockIntoLi(li, blockEl, sel, consumeLineText) {
+        let anchorText = null;
+        if (sel && sel.rangeCount) {
+            let n = sel.anchorNode;
+            // li 直下まで上がる(inline 要素内なら親へ)
+            while (n && n.parentNode !== li && n !== li) n = n.parentNode;
+            if (n && n.parentNode === li && n.nodeType === 3) anchorText = n;
+        }
+        if (consumeLineText && anchorText) {
+            // 継続行テキストをブロックへ移す(行テキスト全体)
+            anchorText.replaceWith(blockEl);
+        } else if (anchorText) {
+            anchorText.after(blockEl);
+        } else {
+            li.appendChild(blockEl);
+        }
+        // ブロック直前の空 <br>(Shift+Enter が作った空継続行)が残っていたら 1 個掃除
+        const prev = blockEl.previousSibling;
+        if (prev && prev.nodeName === 'BR' && blockEl.nextSibling === null) {
+            // 末尾挿入時のみ: <br> はブロック自体が行を成すので不要
+            prev.remove();
+        }
+    }
+
+    // テスト seam(TC-ILB-02/03/07 が palette/toolbar 共有 dispatcher を直接駆動する)
+    if (typeof window !== 'undefined') {
+        window.__paletteActionForTest = function (action) { dispatchToolbarAction(action); };
+    }
+
     // Shared action dispatcher used by both toolbar and command palette
     function dispatchToolbarAction(action) {
         switch (action) {
@@ -13470,18 +13601,25 @@ class EditorInstance {
                     convertToTaskList();
                 }
                 break;
-            case 'quote':
+            case 'quote': {
                 var bq = document.createElement('blockquote');
                 bq.innerHTML = '<br>';
-                var currentLine3 = getCurrentLine();
-                if (currentLine3) {
-                    currentLine3.after(bq);
+                // FR-LC-05: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
+                var bqTarget = resolveBlockInsertionTarget(window.getSelection());
+                if (bqTarget && bqTarget.mode === 'in-li') {
+                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection(), false);
                 } else {
-                    editor.appendChild(bq);
+                    var currentLine3 = getCurrentLine();
+                    if (currentLine3) {
+                        currentLine3.after(bq);
+                    } else {
+                        editor.appendChild(bq);
+                    }
                 }
                 setCursorToEnd(bq);
                 syncMarkdown();
                 break;
+            }
             case 'codeblock': {
                 var pre = document.createElement('pre');
                 pre.setAttribute('data-lang', '');
@@ -13489,16 +13627,22 @@ class EditorInstance {
                 var codeEl = document.createElement('code');
                 codeEl.setAttribute('contenteditable', 'false');
                 pre.appendChild(codeEl);
-                var currentLine4 = getCurrentLine();
-                if (currentLine4) {
-                    var lineText = currentLine4.textContent?.trim() || '';
-                    if (lineText === '' || currentLine4.innerHTML === '<br>') {
-                        currentLine4.replaceWith(pre);
-                    } else {
-                        currentLine4.after(pre);
-                    }
+                // FR-LC-06: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
+                var preTarget = resolveBlockInsertionTarget(window.getSelection());
+                if (preTarget && preTarget.mode === 'in-li') {
+                    insertBlockIntoLi(preTarget.li, pre, window.getSelection(), false);
                 } else {
-                    editor.appendChild(pre);
+                    var currentLine4 = getCurrentLine();
+                    if (currentLine4) {
+                        var lineText = currentLine4.textContent?.trim() || '';
+                        if (lineText === '' || currentLine4.innerHTML === '<br>') {
+                            currentLine4.replaceWith(pre);
+                        } else {
+                            currentLine4.after(pre);
+                        }
+                    } else {
+                        editor.appendChild(pre);
+                    }
                 }
                 setupCodeBlockUI(pre);
                 enterEditMode(pre);
@@ -15865,13 +16009,32 @@ class EditorInstance {
     function convertToBlockquote() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
+        // FR-LC-05 (sprint 20260810-183054): li 内ではカーソル行(継続行)のみを
+        // li 内 blockquote 化する。旧 walk-up はリスト全体を node にして replaceWith で
+        // 丸ごと blockquote に置換していた(破壊的挙動の修正)。
+        const bqLiTarget = resolveBlockInsertionTarget(sel);
+        if (bqLiTarget && bqLiTarget.mode === 'in-li') {
+            const liLine = getInLiLineInfo(sel);
+            const blockquote = document.createElement('blockquote');
+            if (liLine && liLine.textNode && liLine.lineText.trim()) {
+                blockquote.textContent = liLine.lineText;
+                liLine.textNode.replaceWith(blockquote);
+            } else {
+                blockquote.innerHTML = '<br>';
+                insertBlockIntoLi(bqLiTarget.li, blockquote, sel, false);
+            }
+            setCursorToEnd(blockquote);
+            syncMarkdown();
+            return;
+        }
+
         let node = sel.anchorNode;
         while (node && node.parentNode !== editor) {
             node = node.parentNode;
         }
         if (!node || node === editor) return;
-        
+
         const blockquote = document.createElement('blockquote');
         // inline 要素保持（sprint 20260728-121645）
         fillWithExtracted(blockquote, cloneInlineFromNode(node));
@@ -15879,17 +16042,40 @@ class EditorInstance {
         setCursorToEnd(blockquote);
         syncMarkdown();
     }
-    
+
     function convertToCodeBlock() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
+        // FR-LC-06 (sprint 20260810-183054): li 内ではカーソル行のみを li 内 pre 化
+        // (convertToBlockquote と対称。旧 walk-up のリスト全体置換を修正)。
+        const preLiTarget = resolveBlockInsertionTarget(sel);
+        if (preLiTarget && preLiTarget.mode === 'in-li') {
+            const liLine = getInLiLineInfo(sel);
+            const pre = document.createElement('pre');
+            pre.setAttribute('data-lang', '');
+            const code = document.createElement('code');
+            if (liLine && liLine.textNode && liLine.lineText.trim()) {
+                code.textContent = liLine.lineText;
+                pre.appendChild(code);
+                liLine.textNode.replaceWith(pre);
+            } else {
+                code.innerHTML = '<br>';
+                pre.appendChild(code);
+                insertBlockIntoLi(preLiTarget.li, pre, sel, false);
+            }
+            setupCodeBlockUI(pre);
+            setCursorToEnd(code);
+            syncMarkdown();
+            return;
+        }
+
         let node = sel.anchorNode;
         while (node && node.parentNode !== editor) {
             node = node.parentNode;
         }
         if (!node || node === editor) return;
-        
+
         const text = node.textContent || '';
         const pre = document.createElement('pre');
         pre.setAttribute('data-lang', '');
