@@ -1416,10 +1416,10 @@ function ensureTableHeaders(htmlString) {
 }
 
 
-// HTML → Markdown 変換用 Turndown 独自 rule (8 個)
+// HTML → Markdown 変換用 Turndown 独自 rule (10 個)
 // fractal editor.js paste handler (v0.207.49) から抽出。
 //
-// 利用側: addCustomRules(turndownService) を呼ぶと 8 rule が登録される。
+// 利用側: addCustomRules(turndownService) を呼ぶと 10 rule が登録される。
 // 前提: turndownService が turndown-plugin-gfm を use() 済み。
 
 function addCustomRules(turndownService) {

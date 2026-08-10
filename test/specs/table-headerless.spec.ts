@@ -342,3 +342,85 @@ test.describe('Headerless table (FR-TBL)', () => {
         }
     });
 });
+
+// ---- 再オープン①(2026-08-11): undo + Header ON = 1 行目ヘッダー化 ----
+
+test.describe('Header toggle undo and first-row promotion (FR-TBL-01 rev)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-TBL-11: トグルが undo スタックに乗る(Cmd+Z で復帰)
+    // counterfactual: saveSnapshot なしだとトグル前の状態に戻れない = RED
+    test('TC-TBL-11 header toggle is undoable', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('| A | B |\n| --- | --- |\n| a1 | b1 |');
+            await new Promise(r => setTimeout(r, 300));
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            (window as any).__toggleTableHeaderForTest(table);
+            await new Promise(r => setTimeout(r, 200));
+        });
+        const afterToggle = await page.evaluate(() =>
+            (document.querySelector('#editor table') as HTMLTableElement)?.getAttribute('data-headerless'));
+        expect(afterToggle).toBe('true');
+        // Cmd+Z
+        await page.evaluate(() => { (document.querySelector('#editor') as HTMLElement).focus(); });
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const afterUndo = await page.evaluate(() => ({
+            attr: (document.querySelector('#editor table') as HTMLTableElement)?.getAttribute('data-headerless'),
+            thVisible: Array.from(document.querySelectorAll('#editor table th')).map(
+                th => (th as HTMLElement).offsetParent !== null),
+        }));
+        expect(afterUndo.attr).not.toBe('true'); // トグル前(header あり)に戻る
+        expect(afterUndo.thVisible).toEqual([true, true]);
+    });
+
+    // TC-TBL-12: paste 由来 headerless(空 th)で ON → body 1 行目が th 化
+    test('TC-TBL-12 header ON promotes first body row when th row is empty', async ({ page }) => {
+        const md = '<!-- fractal-headerless-table -->\n|   |   |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |';
+        const result = await page.evaluate(async (src) => {
+            (window as any).__testApi.setMarkdown(src);
+            await new Promise(r => setTimeout(r, 300));
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            (window as any).__toggleTableHeaderForTest(table);
+            await new Promise(r => setTimeout(r, 200));
+            return {
+                attr: table.getAttribute('data-headerless'),
+                thTexts: Array.from(table.querySelectorAll('th')).map(t => t.textContent?.trim()),
+                rowCount: table.querySelectorAll('tr').length,
+                out: (window as any).__testApi.getMarkdown(),
+            };
+        }, md);
+        expect(result.attr).not.toBe('true');
+        expect(result.thTexts).toEqual(['a1', 'b1']); // 1 行目が th 化
+        expect(result.rowCount).toBe(2);              // 空 th 行は消え、th(a1/b1) + td(a2/b2)
+        expect(result.out).not.toContain('fractal-headerless-table');
+        expect(result.out).toContain('| a1 | b1 |');
+    });
+
+    // TC-TBL-13: トグル OFF(内容あり th)→ ON → 従来どおり再表示(往復無劣化)
+    test('TC-TBL-13 toggle OFF then ON restores original header content', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('| A | B |\n| --- | --- |\n| a1 | b1 |');
+            await new Promise(r => setTimeout(r, 300));
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            (window as any).__toggleTableHeaderForTest(table); // OFF
+            await new Promise(r => setTimeout(r, 150));
+            (window as any).__toggleTableHeaderForTest(table); // ON
+            await new Promise(r => setTimeout(r, 150));
+            return {
+                attr: table.getAttribute('data-headerless'),
+                thTexts: Array.from(table.querySelectorAll('th')).map(t => t.textContent?.trim()),
+                thVisible: Array.from(table.querySelectorAll('th')).map(
+                    th => (th as HTMLElement).offsetParent !== null),
+                rowCount: table.querySelectorAll('tr').length,
+            };
+        });
+        expect(result.attr).not.toBe('true');
+        expect(result.thTexts).toEqual(['A', 'B']); // 内容あり th はそのまま復元(1 行目昇格しない)
+        expect(result.thVisible).toEqual([true, true]);
+        expect(result.rowCount).toBe(2);
+    });
+});

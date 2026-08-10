@@ -4617,8 +4617,31 @@ class EditorInstance {
     // preserved (hiding is CSS-only), so toggling back ON restores losslessly.
     function toggleTableHeader(table) {
         if (!table || !editor.contains(table)) return;
+        // FR-TBL-01 受け入れ「undo 可能」: main toolbar dispatch (:13540 系) と同型に
+        // 操作前スナップショットを積む(table-toolbar 系は従来 saveSnapshot を呼ばない
+        // 非対称があった — reviewer iteration 1 SYSALIGN-1)。
+        undoManager.saveSnapshot();
         if (table.getAttribute('data-headerless') === 'true') {
             table.removeAttribute('data-headerless');
+            // FR-TBL-01 改訂(2026-08-11 手動テスト裁定): ON 時に th 行の全セルが空
+            // (paste 由来 headerless 等)なら、空 th 行を出す代わりに body 1 行目を
+            // ヘッダーへ変換する(「1 行目をヘッダーに」のユーザー期待)。
+            // th に内容が残る場合(トグル OFF 由来)は従来どおり再表示のみ。
+            const rows = table.querySelectorAll('tr');
+            const thRow = rows.length > 0 && rows[0].querySelector('th') ? rows[0] : null;
+            const thAllEmpty = thRow && Array.prototype.every.call(
+                thRow.cells, (c) => (c.textContent || '').trim() === '');
+            if (thRow && thAllEmpty && rows.length > 1) {
+                const bodyRow = rows[1];
+                for (const td of Array.from(bodyRow.cells)) {
+                    const th = document.createElement('th');
+                    th.innerHTML = td.innerHTML;
+                    if (td.style.textAlign) th.style.textAlign = td.style.textAlign;
+                    th.setAttribute('contenteditable', 'true');
+                    bodyRow.replaceChild(th, td);
+                }
+                thRow.remove();
+            }
         } else {
             table.setAttribute('data-headerless', 'true');
         }
@@ -13676,8 +13699,9 @@ class EditorInstance {
 
     // FR-LC-05/06: li 内のカーソル位置(直近の <br> 境界 = 継続行位置)にブロックを挿入する。
     // anchorNode が li 直下の text node のときはその直後、それ以外は li 末尾に append。
-    // 挿入位置の継続行テキスト(consumeLine=true 時)はブロック内へ移す(autoformat / Q/K 経路)。
-    function insertBlockIntoLi(li, blockEl, sel, consumeLineText) {
+    // 行テキストをブロック内へ移す経路(autoformat / Q/K)は呼び出し元が
+    // liLine.textNode.replaceWith(block) を直接行う — この関数は空ブロック挿入専用。
+    function insertBlockIntoLi(li, blockEl, sel) {
         let anchorText = null;
         if (sel && sel.rangeCount) {
             let n = sel.anchorNode;
@@ -13685,10 +13709,7 @@ class EditorInstance {
             while (n && n.parentNode !== li && n !== li) n = n.parentNode;
             if (n && n.parentNode === li && n.nodeType === 3) anchorText = n;
         }
-        if (consumeLineText && anchorText) {
-            // 継続行テキストをブロックへ移す(行テキスト全体)
-            anchorText.replaceWith(blockEl);
-        } else if (anchorText) {
+        if (anchorText) {
             anchorText.after(blockEl);
         } else {
             li.appendChild(blockEl);
@@ -13770,7 +13791,7 @@ class EditorInstance {
                 // FR-LC-05: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
                 var bqTarget = resolveBlockInsertionTarget(window.getSelection());
                 if (bqTarget && bqTarget.mode === 'in-li') {
-                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection(), false);
+                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection());
                 } else {
                     var currentLine3 = getCurrentLine();
                     if (currentLine3) {
@@ -13793,7 +13814,7 @@ class EditorInstance {
                 // FR-LC-06: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
                 var preTarget = resolveBlockInsertionTarget(window.getSelection());
                 if (preTarget && preTarget.mode === 'in-li') {
-                    insertBlockIntoLi(preTarget.li, pre, window.getSelection(), false);
+                    insertBlockIntoLi(preTarget.li, pre, window.getSelection());
                 } else {
                     var currentLine4 = getCurrentLine();
                     if (currentLine4) {
@@ -16185,7 +16206,7 @@ class EditorInstance {
                 liLine.textNode.replaceWith(blockquote);
             } else {
                 blockquote.innerHTML = '<br>';
-                insertBlockIntoLi(bqLiTarget.li, blockquote, sel, false);
+                insertBlockIntoLi(bqLiTarget.li, blockquote, sel);
             }
             setCursorToEnd(blockquote);
             syncMarkdown();
@@ -16225,7 +16246,7 @@ class EditorInstance {
             } else {
                 code.innerHTML = '<br>';
                 pre.appendChild(code);
-                insertBlockIntoLi(preLiTarget.li, pre, sel, false);
+                insertBlockIntoLi(preLiTarget.li, pre, sel);
             }
             setupCodeBlockUI(pre);
             setCursorToEnd(code);
