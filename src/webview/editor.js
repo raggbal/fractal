@@ -8824,7 +8824,10 @@ class EditorInstance {
                     // The browser adds a sentinel \n only at the end; mid-content Enter
                     // does not produce a sentinel, so registering it would miscount lines.
                     const codeForSentinel = preElement.querySelector('code') || preElement;
-                    const textAfterInsert = codeForSentinel.textContent || '';
+                    // FR-CB-01: 正典 getCodePlainText(<br> を \n に数える)に統一。textContent は
+                    // 末尾が <br> の DOM で改行を数え落とす(測定済みケースでは等価・<br> 末尾エッジで
+                    // こちらが正確)。
+                    const textAfterInsert = getCodePlainText(codeForSentinel);
                     if (textAfterInsert.endsWith('\n')) {
                         const sentinelTarget = preElement.closest('.mermaid-wrapper') || preElement.closest('.math-wrapper') || preElement;
                         codeBlocksWithSentinel.add(sentinelTarget);
@@ -12183,9 +12186,13 @@ class EditorInstance {
                 // Convert empty code block back to paragraph, or block backspace at start of non-empty code block
                 if (tag === 'pre') {
                     const codeElement = currentLine.querySelector('code');
-                    const codeContent = codeElement ? codeElement.textContent : currentLine.textContent;
-                    // Check if code block is empty (only whitespace/newlines)
-                    const isEmpty = !codeContent || codeContent.trim() === '' || codeContent === '\n';
+                    // FR-CB-01 (sprint 20260810-183054): 空判定は正典 getCodePlainText(<br> を \n に
+                    // 数える)に統一。旧 textContent 判定は <br> ベース DOM(改行蓄積した空ブロックの
+                    // reload 後)で '' になり、改行 N 個が Backspace 1 回で全消しされていた。
+                    // 「真に空」= 改行蓄積なし(プレースホルダ <br> 1 個 or 完全空)の時だけ段落化し、
+                    // 改行が蓄積している間は非空ブロックと同じ扱い(先頭 guard / default の 1 個ずつ削除)。
+                    const codeContent = codeElement ? getCodePlainText(codeElement) : (currentLine.textContent || '');
+                    const isEmpty = codeContent === '' || codeContent === '\n';
 
                     logger.log('Backspace in pre:', { isEmpty, codeContent: JSON.stringify(codeContent) });
 
