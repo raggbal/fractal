@@ -12,7 +12,7 @@ import { resolveFilesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
-import { setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
 import { ExportOptions } from './md-export-core';
 
 /**
@@ -2378,7 +2378,7 @@ export function importOutPageNodeToMd(
         const srcMdPath = safeResolveUnderDir(pagesDir, `${payload.pageId}.md`);
         if (!srcMdPath || !fs.existsSync(srcMdPath)) { return; }
         const content = fs.readFileSync(srcMdPath, 'utf8');
-        const h1 = (content.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m) || [])[1];
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
         const title = (h1 || payload.title || 'Untitled').trim();
         let markdownPath: string;
         if (isCrossNoteDrop(fileManager.getMainFolderPath(), target)) {
@@ -2478,7 +2478,7 @@ export function linkMdSubpageToMd(
         if (!abs || !abs.endsWith('.md') || !fs.existsSync(abs)) { return; }
         if (path.resolve(abs) === path.resolve(target)) { return; } // リンク先 = drop 先 md の自己参照防止
         const content = fs.readFileSync(abs, 'utf8');
-        const h1 = (content.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m) || [])[1];
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
         const title = (h1 || payload.title || path.basename(abs)).trim();
         let markdownPath: string;
         if (isCrossNoteDrop(srcMainFolder, target)) {
@@ -2615,7 +2615,9 @@ export function importMdFileLinkIntoOut(
         if (!fs.existsSync(abs)) { return; }
         const srcMainFolder = path.dirname(filesDir);
         let entityAbs = abs;
-        if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), 'x.md'))) {
+        // isCrossNoteDrop の第 2 引数は「dest 側の note 内の任意パス」でよい（比較は note フォルダのみ・
+        // ファイル名は不使用）。drop 先は .out で md パスが無いため mainFolder 直下のダミー名で判定する。
+        if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), '__dest__.md'))) {
             // drop 先 .out の note（= fileManager の note）が src md の note と別 → dest files/ へコピー
             const dstName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
             if (!dstName) { return; }
@@ -2660,7 +2662,7 @@ export function importMdSubpageIntoOut(
         const outPath = resolveOutPathRef(fileManager, outFileId);
         if (!outPath) { return; }
         const content = fs.readFileSync(abs, 'utf8');
-        const h1 = (content.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m) || [])[1];
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
         const title = (h1 || payload.title || path.basename(abs, '.md')).trim();
         // page md を dest note に確定（同一 note = 既存 md をそのまま / cross-note = 複製）
         let pageMdAbs = abs;

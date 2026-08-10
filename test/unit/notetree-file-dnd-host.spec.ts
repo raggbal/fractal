@@ -726,4 +726,88 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(fs.existsSync(path.join(srcFiles, 'y.pdf'))).toBe(true);
     });
 
+
+    test('TC-CN-09(QUAL-1 番人): 末尾記号タイトル（# C#）が subpage 取込で切り捨てられない', () => {
+        const { linkMdSubpageToMd, importMdSubpageIntoOut } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        // note 内に C# タイトルの md + それへの subpage リンクを持つ src md
+        const subMd = path.join(note, 'csharp.md');
+        fs.writeFileSync(subMd, '# C#\nbody', 'utf8');
+        const srcMd = path.join(note, 'src.md');
+        fs.writeFileSync(srcMd, '[[C#]](csharp.md)\n', 'utf8');
+        const dstMd = path.join(note, 'dst.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        // (a) md→md: linkMdSubpageToMd の title が完全（counterfactual: inline 正規表現だと 'C' = RED）
+        const { sender: s1, msgs: m1 } = spy();
+        linkMdSubpageToMd(fm, s1, { href: 'csharp.md', sourceMdPath: srcMd }, dstMd);
+        const ins1 = m1.find((m) => m.type === 'insertSubpageLink');
+        expect(ins1.title).toBe('C#');
+
+        // (b) md→outliner: importMdSubpageIntoOut の page node text が完全
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        const { sender: s2 } = spy();
+        importMdSubpageIntoOut(fm, s2, { href: 'csharp.md', sourceMdPath: srcMd }, outId, null, null);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const pageNode = (Object.values(outData.nodes) as any[]).find((n) => n.isPage);
+        expect(pageNode.text).toBe('C#');
+    });
+
+    test('TC-CN-10(SYSALIGN-4): attachOutNodeFileToMd — 子あり node は filePath null 化で温存', () => {
+        const { attachOutNodeFileToMd } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        const outPath = fm.createFile('OutDoc', null);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'att2.pdf'), 'A2');
+        // 子ありの file node を注入
+        const data = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        data.nodes = data.nodes || {}; data.rootIds = data.rootIds || [];
+        data.nodes['pn'] = { id: 'pn', parentId: null, children: ['cn'], text: 'att2.pdf', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: path.relative(path.dirname(outPath), path.join(filesDir, 'att2.pdf')) };
+        data.nodes['cn'] = { id: 'cn', parentId: 'pn', children: [], text: 'child', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: null };
+        data.rootIds.push('pn');
+        fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
+        const dstMd = path.join(note, 'dst.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender } = spy();
+        attachOutNodeFileToMd(fm, sender, { outFileKey: outPath, nodeId: 'pn' }, dstMd);
+
+        const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        // 子あり → node 温存 + filePath null 化（counterfactual: 削除分岐に流れると child ごと消えて RED）
+        expect(after.nodes.pn).toBeTruthy();
+        expect(after.nodes.pn.filePath).toBe(null);
+        expect(after.nodes.cn).toBeTruthy();
+    });
+
+
+    test('TC-CN-12(SYSALIGN-3): importMdSubpageIntoOut 同一 note — md をコピーせず page node 化 + 元アンカー除去 message', () => {
+        const { importMdSubpageIntoOut } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        const subMd = path.join(note, 'topic.md');
+        fs.writeFileSync(subMd, '# Topic\nbody', 'utf8');
+        const srcMd = path.join(note, 'src.md');
+        fs.writeFileSync(srcMd, '[[Topic]](topic.md)\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        importMdSubpageIntoOut(fm, sender, { href: 'topic.md', sourceMdPath: srcMd }, outId, null, null);
+
+        // 同一 note: md 複製なし（note 直下の md は topic/src の 2 本のまま）
+        const mds = fs.readdirSync(note).filter((f) => f.endsWith('.md'));
+        expect(mds.sort()).toEqual(['src.md', 'topic.md']);
+        // page node が pageId=topic で入る
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const pageNode = (Object.values(outData.nodes) as any[]).find((n) => n.isPage);
+        expect(pageNode.pageId).toBe('topic');
+        expect(pageNode.text).toBe('Topic');
+        // 元アンカー除去 message
+        expect(msgs.find((m) => m.type === 'removeSubpageLink')).toBeTruthy();
+    });
+
 });

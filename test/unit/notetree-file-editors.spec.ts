@@ -912,4 +912,54 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(sp[0].args[3]).toBe('before');
     });
 
+
+    test('TC-CN-11(SYSALIGN-1): sidepanel drop で新 4 メソッドが SidePanelHostBridge 第 2 ホップ経由で届く', async ({ page }) => {
+        await loadEnv(page);
+        await initEditorListeners(page);
+        // TC-WV-15 と同じ「実 bridge ブロック抽出の明示 stub」で第 2 ホップを実面検証
+        const bridgeSrc = r('shared/notes-host-bridge.js');
+        const outStart = bridgeSrc.indexOf('window.outlinerHostBridge = Object.assign');
+        const mdStart = bridgeSrc.indexOf('window.notesMarkdownHostBridge = Object.assign');
+        const outBlock = bridgeSrc.slice(outStart, mdStart);
+        const methodNames = Array.from(outBlock.matchAll(/^\s{8}(\w+): function/gm)).map((m) => (m as any)[1]);
+        for (const m of ['attachOutNodeFileToMd', 'importOutPageNodeToMd', 'attachMdFileLinkToMd', 'linkMdSubpageToMd']) {
+            expect(methodNames).toContain(m); // bridge 側の実在（欠けたら追報①クラス）
+        }
+        await page.evaluate((names) => { (window as any).__outlinerBridgeMethods = names; }, methodNames);
+
+        const res = await page.evaluate(() => {
+            const EI = (window as any).EditorInstance;
+            EI.instances.length = 0;
+            const c = document.createElement('div');
+            const ed = document.createElement('div');
+            ed.className = 'editor'; ed.contentEditable = 'true';
+            c.appendChild(ed); document.body.appendChild(c);
+            const calls: any[] = [];
+            const methodNames2: string[] = (window as any).__outlinerBridgeMethods;
+            const mainHost: any = {};
+            for (const m of methodNames2) { mainHost[m] = function (...args: any[]) { calls.push({ type: m, args }); }; }
+            const SPB = (window as any).SidePanelHostBridge;
+            const bridge = new SPB(mainHost, '/notes/side.md', {});
+            EI.instances.push({ container: c, host: bridge, options: { filePath: '/notes/side.md' } });
+
+            const drive = (mime: string, payload: any) => {
+                const dt = new DataTransfer();
+                dt.setData(mime, JSON.stringify(payload));
+                ed.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 5, clientY: 5 }));
+            };
+            drive('application/x-fractal-out-node-file', { outFileKey: '/n/a.out', nodeId: 'n1' });
+            drive('application/x-fractal-out-node-page', { outFileKey: '/n/a.out', nodeId: 'n1', pageId: 'p1' });
+            drive('application/x-fractal-md-filelink', { href: 'files/x.pdf', sourceMdPath: '/other/src.md' });
+            drive('application/x-fractal-md-subpage', { href: 'sub.md', sourceMdPath: '/other/src.md' });
+            return calls;
+        });
+
+        // 4 メソッドとも第 2 引数 = sidepanel の filePath で mainHost に届く
+        for (const m of ['attachOutNodeFileToMd', 'importOutPageNodeToMd', 'attachMdFileLinkToMd', 'linkMdSubpageToMd']) {
+            const hit = res.filter((c: any) => c.type === m);
+            expect(hit.length, `${m} が第 2 ホップに届かない`).toBe(1);
+            expect(hit[0].args[1]).toBe('/notes/side.md');
+        }
+    });
+
 });
