@@ -214,6 +214,28 @@ class SidePanelHostBridge {
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
 }
 
+// FR-TBL-04 (sprint 20260810-183054): rich HTML 判定。paste ハンドラ内ローカルから
+// module スコープへ引き上げ(ロジック 1 バイト不変)— 非 Kiro paste 経路と Kiro keydown
+// 経路(navigator.clipboard.read)の両方から共有する(「共有判定を一部経路にだけ配線」の
+// 構造的解消)。rich = テキストや表を含む HTML。SVG 単体 / div>svg / img 単体は rich でない。
+function hasRichHtmlContent(h) {
+    if (!h) return false;
+    var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
+    // SVG のみ / div > svg のみ / img のみは rich でない
+    if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
+    if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
+    if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
+    // テキストや他要素が含まれていれば rich
+    var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
+    if (textContent.length > 0) return true;
+    // 複数 element (svg と img が並ぶ等) も rich 扱い
+    return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
+}
+// テスト seam(TC-KP-05 が module 化後の判定不変を検査する)
+if (typeof window !== 'undefined') {
+    window.__hasRichHtmlContentForTest = hasRichHtmlContent;
+}
+
 // EditorInstance class — Phase 2 skeleton wrapping legacy IIFE code
 class EditorInstance {
     // ===== Static members =====
@@ -15021,7 +15043,11 @@ class EditorInstance {
         }
 
         // Handle paste shortcut for Kiro only
-        const isKiro = navigator.userAgent.includes('Kiro');
+        // FR-TBL-04: isKiroEnv seam(shortcut-hud.js が定義・window 公開)経由。
+        // HUD 未注入環境への防御 fallback として直読みを残す。
+        const isKiro = (typeof window.isKiroEnv === 'function')
+            ? window.isKiroEnv()
+            : navigator.userAgent.includes('Kiro');
         if (isMod && e.key === 'v' && isKiro && navigator.clipboard && navigator.clipboard.read) {
             logger.log('Cmd/Ctrl+V keydown detected (Kiro)');
 
@@ -15034,6 +15060,27 @@ class EditorInstance {
             (async () => {
                 try {
                     const items = await navigator.clipboard.read();
+
+                    // FR-TBL-04: rich HTML(表・テキスト)が image と同居しているときは
+                    // image を採用しない(非 Kiro paste 経路の hasRichHtmlContent と同判定 =
+                    // 共有 module 関数)。Excel 範囲コピーは text/html(表)+ image/png(範囲
+                    // スクリーンショット)を並列で載せるため、無条件 image 採用だと表の直後に
+                    // 画像が混入していた。SVG 単体・image のみ(スクリーンショット/図として
+                    // コピー)は従来どおり image を採用する(over-broad 抑止にしない)。
+                    let kiroHtmlText = '';
+                    for (const item of items) {
+                        if (item.types && item.types.includes('text/html')) {
+                            try {
+                                const htmlBlob = await item.getType('text/html');
+                                kiroHtmlText = await htmlBlob.text();
+                            } catch (htmlErr) { /* HTML 取得失敗は非 rich 扱いで続行 */ }
+                            break;
+                        }
+                    }
+                    if (hasRichHtmlContent(kiroHtmlText)) {
+                        logger.log('Rich HTML alongside image — skip image, paste event handles HTML (Kiro)');
+                        return;
+                    }
 
                     for (const item of items) {
                         for (const type of item.types) {
@@ -18829,19 +18876,7 @@ class EditorInstance {
         if (!kiroSkipImage) {
             const items = e.clipboardData?.items;
             const htmlSnapshot = e.clipboardData?.getData('text/html') || '';
-            function hasRichHtmlContent(h) {
-                if (!h) return false;
-                var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
-                // SVG のみ / div > svg のみ / img のみは rich でない
-                if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
-                if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
-                if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
-                // テキストや他要素が含まれていれば rich
-                var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
-                if (textContent.length > 0) return true;
-                // 複数 element (svg と img が並ぶ等) も rich 扱い
-                return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
-            }
+            // hasRichHtmlContent は module スコープの共有判定(FR-TBL-04 で Kiro 経路と共通化)
             const htmlIsRich = hasRichHtmlContent(htmlSnapshot);
             if (items) {
                 for (let i = 0; i < items.length; i++) {
