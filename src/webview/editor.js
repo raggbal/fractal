@@ -7153,7 +7153,90 @@ class EditorInstance {
         }
     }
 
+    // FR-LC-07 (sprint 20260810-183054): li 直下に blockquote/pre を持つ li の serialize。
+    // li 子を文書順に inline-run / block / nested-list に分類し、ブロックはマーカー幅
+    // スペースでインデントして emit(FR-LC-03 の継続行インデント規則と同一)。子順を保持する。
+    // ブロックなし li はこの関数に入らない(mdProcessListItem 冒頭の分岐 — byte 互換 NFR-03)。
+    function mdProcessListItemWithBlocks(li, indent, marker) {
+        const checkbox = li.querySelector(':scope > input[type="checkbox"]');
+        let markerPrefix;
+        if (checkbox) {
+            const checked = checkbox.checked ? 'x' : ' ';
+            markerPrefix = indent + '- [' + checked + '] ';
+        } else {
+            markerPrefix = indent + marker + ' ';
+        }
+        const contIndent = ' '.repeat(markerPrefix.length - indent.length);
+        const LC_BR = ' LCBR ';
+
+        // li 子を文書順にセグメント化
+        const segments = [];
+        let curInline = null;
+        for (const child of li.childNodes) {
+            if (child.nodeType === 1 && (child.tagName === 'UL' || child.tagName === 'OL')) {
+                segments.push({ type: 'list', node: child });
+                curInline = null;
+            } else if (child.nodeType === 1 && (child.tagName === 'BLOCKQUOTE' || child.tagName === 'PRE')) {
+                segments.push({ type: 'block', node: child });
+                curInline = null;
+            } else if (child.nodeType === 1 && child.tagName === 'INPUT') {
+                continue; // checkbox は markerPrefix で処理済み
+            } else {
+                if (!curInline) { curInline = { type: 'inline', nodes: [] }; segments.push(curInline); }
+                curInline.nodes.push(child);
+            }
+        }
+
+        // inline run → 行配列(既存の LC_BR 手法で <br> を行区切りに)
+        const inlineLines = (nodes) => {
+            const tmp = document.createElement('li');
+            for (const n of nodes) {
+                if (n.nodeType === 1 && n.tagName === 'BR') {
+                    tmp.appendChild(document.createTextNode(LC_BR));
+                } else {
+                    tmp.appendChild(n.cloneNode(true));
+                }
+            }
+            const text = mdGetInlineMarkdown(tmp).trim();
+            if (!text) return [];
+            return text.split(LC_BR).map(t => t.trim()).filter((t, i) => t !== '' || i === 0);
+        };
+
+        const contentLines = [];
+        let nestedOut = '';
+        for (const seg of segments) {
+            if (seg.type === 'inline') {
+                for (const l of inlineLines(seg.nodes)) contentLines.push(l);
+            } else if (seg.type === 'block') {
+                const blockMd = mdProcessNode(seg.node, '');
+                for (const l of blockMd.split('\n')) contentLines.push(l);
+                while (contentLines.length && contentLines[contentLines.length - 1] === '') contentLines.pop();
+            } else {
+                nestedOut += mdProcessNode(seg.node, indent + '  ');
+            }
+        }
+
+        let result;
+        if (contentLines.length === 0) {
+            result = markerPrefix + '\n';
+        } else {
+            result = markerPrefix + contentLines[0] + '\n';
+            for (let i = 1; i < contentLines.length; i++) {
+                result += indent + contIndent + contentLines[i] + '\n';
+            }
+        }
+        result += nestedOut;
+        return result;
+    }
+
     function mdProcessListItem(li, indent, marker) {
+        // FR-LC-07: li 直下ブロック(blockquote/pre)がある場合のみ新経路へ。
+        // 無い li は従来経路を 1 行も変えずに通す(byte 互換 NFR-03 = TC-ILB-13)。
+        const hasDirectBlock = Array.from(li.childNodes).some(
+            (c) => c.nodeType === 1 && (c.tagName === 'BLOCKQUOTE' || c.tagName === 'PRE'));
+        if (hasDirectBlock) {
+            return mdProcessListItemWithBlocks(li, indent, marker);
+        }
         let result = '';
         const checkbox = li.querySelector(':scope > input[type="checkbox"]');
         let nestedContent = '';

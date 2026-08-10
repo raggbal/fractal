@@ -285,3 +285,77 @@ test.describe('In-li block creation (FR-LC-05/06)', () => {
         expect(state.topBqCount).toBe(1); // 既存どおり top-level に挿入
     });
 });
+
+// ---- TASK-09 (FR-LC-07 前半): li 内ブロックの serialize ----
+
+test.describe('In-li block serialize (FR-LC-07)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-10 (serialize 側): li 内 blockquote → マーカー幅インデントの > 行
+    // counterfactual: mdProcessListItem 拡張を外すと平坦化(> 行が出ない)= RED
+    test('TC-ILB-10s in-li blockquote serializes with marker-width indent', async ({ page }) => {
+        const md = await page.evaluate(async () => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>item one<blockquote>quoted</blockquote></li><li>item two</li></ul>';
+            (window as any).__testApi ? null : null;
+            // syncMarkdown 相当: getMarkdown が serialize を走らせる
+            await new Promise(r => setTimeout(r, 100));
+            return (window as any).__testApi.getMarkdown();
+        });
+        // マーカー幅(- = 2 スペース)インデントの > 行
+        expect(md).toContain('- item one\n  > quoted');
+        expect(md).toContain('- item two');
+    });
+
+    // TC-ILB-11 (serialize 側): li 内 pre(複数行)→ インデント付き fence
+    test('TC-ILB-11s in-li pre serializes as indented fence', async ({ page }) => {
+        const md = await page.evaluate(async () => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>item<pre data-lang="js"><code>line1<br>line2</code></pre></li></ul>';
+            await new Promise(r => setTimeout(r, 100));
+            return (window as any).__testApi.getMarkdown();
+        });
+        expect(md).toContain('- item\n  ```js\n  line1\n  line2\n  ```');
+    });
+
+    // TC-ILB-13: ブロックなし li の serialize 出力 byte 不変(NFR-03・TC-LC-06 継承)
+    test('TC-ILB-13 lists without blocks serialize byte-identically', async ({ page }) => {
+        // 継続行なし
+        const md1 = '- alpha\n- beta';
+        const out1 = await page.evaluate(async (src) => {
+            (window as any).__testApi.setMarkdown(src);
+            await new Promise(r => setTimeout(r, 300));
+            return (window as any).__testApi.getMarkdown();
+        }, md1);
+        expect(out1.trim()).toBe(md1);
+        // 継続行あり
+        const md2 = '- alpha\n  cont line\n- beta';
+        const out2 = await page.evaluate(async (src) => {
+            (window as any).__testApi.setMarkdown(src);
+            await new Promise(r => setTimeout(r, 300));
+            return (window as any).__testApi.getMarkdown();
+        }, md2);
+        expect(out2.trim()).toBe(md2);
+    });
+
+    // TC-ILB-16 (serialize 側): blockquote + 継続行 + nested list の子順保持
+    test('TC-ILB-16s in-li block order with continuation and nested list', async ({ page }) => {
+        const md = await page.evaluate(async () => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>head<blockquote>mid quote</blockquote>tail cont<ul><li>child</li></ul></li></ul>';
+            await new Promise(r => setTimeout(r, 100));
+            return (window as any).__testApi.getMarkdown();
+        });
+        const iHead = md.indexOf('head');
+        const iQuote = md.indexOf('> mid quote');
+        const iTail = md.indexOf('tail cont');
+        const iChild = md.indexOf('- child');
+        expect(iHead).toBeGreaterThanOrEqual(0);
+        expect(iQuote).toBeGreaterThan(iHead);
+        expect(iTail).toBeGreaterThan(iQuote);
+        expect(iChild).toBeGreaterThan(iTail);
+    });
+});
