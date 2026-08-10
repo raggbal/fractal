@@ -6,7 +6,7 @@ import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
-    registerExternalDroppedFileItem,
+    registerExternalDroppedFileItem, registerExternalDroppedUris,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -2249,6 +2249,21 @@ export class NotesEditorProvider {
                     });
                 } catch (e) {
                     console.error('[Notes] notesRegisterExternalMd error:', e);
+                }
+            },
+
+            // FR-TF-17 (§4k): VS Code Explorer uri-list drop。webview は URI を送るだけで
+            // host が fs 直読み → md/file 振り分け登録（50MB cap なし = ADRL-C Decision 2）。
+            notesRegisterExternalUris: (
+                uris: string[],
+                parentId: string | null,
+                index: number,
+                senderRef: NotesSender
+            ) => {
+                try {
+                    registerExternalDroppedUris(fileManager, uris, parentId, index, senderRef);
+                } catch (e) {
+                    console.error('[Notes] notesRegisterExternalUris error:', e);
                 }
             },
 

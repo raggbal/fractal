@@ -559,4 +559,286 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
         expect(r.other).toBe(1);  // 別 id は dedup に阻まれない
         expect(r.after).toBe(2);  // 400ms 経過後は同一 id でも再発火
     });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン③ (2026-08-10): FR-TF-16 drag 中 hover 色抑止（TC-HV-01/02/03）
+    // ═══════════════════════════════════════════════════════════════════
+
+    const HV_FIXTURE = {
+        fileList: [
+            { id: 'a1', filePath: '/n/files/photo.png', title: 'photo.png', kind: 'file' },
+            { id: 'o1', filePath: '/n/plan.out', title: 'Plan', kind: 'out' },
+        ],
+        structure: {
+            version: 1, rootIds: ['a1', 'o1'],
+            items: {
+                a1: { type: 'file', id: 'a1', title: 'photo.png' },
+                o1: { type: 'file', id: 'o1', title: 'Plan' },
+            },
+        },
+    };
+
+    // ── TC-HV-01: dragover / dragenter / 内部 dragstart で body.fr-drag-active が付く（冪等）──
+    test('TC-HV-01 panel 内 dragover で body.fr-drag-active が付与される（外部/内部・冪等）', async ({ page }) => {
+        await loadPanel(page, HV_FIXTURE);
+
+        const r = await page.evaluate(() => {
+            const item = document.querySelector('[data-item-id="o1"]') as HTMLElement;
+            const rr = item.getBoundingClientRect();
+            const has = () => document.body.classList.contains('fr-drag-active');
+
+            // 外部 Files drag: dragover のみ届く（dragstart/dragend は届かない）
+            const dtExt = new DataTransfer();
+            dtExt.items.add(new File(['x'], 'a.pdf', { type: 'application/pdf' }));
+            const mk = (type: string) => new DragEvent(type, {
+                bubbles: true, cancelable: true, dataTransfer: dtExt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.5,
+            });
+            const before = has();
+            item.dispatchEvent(mk('dragenter'));
+            const afterEnter = has();
+            item.dispatchEvent(mk('dragover'));
+            item.dispatchEvent(mk('dragover')); // 冪等（連続 dragover で例外なし）
+            const afterOver = has();
+            // 掃除して内部 drag を検証
+            document.body.classList.remove('fr-drag-active');
+            const src = document.querySelector('[data-item-id="a1"]') as HTMLElement;
+            src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }));
+            const afterInternalStart = has();
+            src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: new DataTransfer() }));
+            return { before, afterEnter, afterOver, afterInternalStart };
+        });
+
+        expect(r.before).toBe(false);
+        expect(r.afterEnter).toBe(true);   // dragenter で set
+        expect(r.afterOver).toBe(true);    // dragover でも set（冪等）
+        expect(r.afterInternalStart).toBe(true); // 内部 dragstart でも set
+    });
+
+    // ── TC-HV-02: clear 全系統（drop / relaxed dragleave / dragend / window 安全網）──
+    test('TC-HV-02 fr-drag-active の clear 4 系統（drop / dragleave外 / dragend / window 安全網）', async ({ page }) => {
+        await loadPanel(page, HV_FIXTURE);
+
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const item = document.querySelector('[data-item-id="o1"]') as HTMLElement;
+            const rr = item.getBoundingClientRect();
+            const has = () => document.body.classList.contains('fr-drag-active');
+            const extDt = () => {
+                const dt = new DataTransfer();
+                dt.items.add(new File(['x'], 'a.pdf', { type: 'application/pdf' }));
+                return dt;
+            };
+            const over = (dt: DataTransfer) => item.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.5,
+            }));
+
+            // ① drop で clear（外部 drop）
+            w.__calls = [];
+            let dt = extDt();
+            over(dt);
+            const set1 = has();
+            item.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.5,
+            }));
+            const afterDrop = has();
+
+            // ② relaxed dragleave（relatedTarget=null = panel 外へ）で clear
+            dt = extDt();
+            over(dt);
+            const set2 = has();
+            item.dispatchEvent(new DragEvent('dragleave', {
+                bubbles: true, cancelable: true, dataTransfer: dt, relatedTarget: null,
+            }));
+            const afterLeaveOut = has();
+
+            // ②b panel 内要素への dragleave（relatedTarget = panel 内）では clear しない
+            dt = extDt();
+            over(dt);
+            const inner = document.querySelector('[data-item-id="a1"]') as HTMLElement;
+            const ev: any = new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(ev, 'relatedTarget', { value: inner });
+            item.dispatchEvent(ev);
+            const afterLeaveInner = has();
+            document.body.classList.remove('fr-drag-active');
+
+            // ③ 内部 drag の dragend で clear
+            const src = document.querySelector('[data-item-id="a1"]') as HTMLElement;
+            src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }));
+            const set3 = has();
+            src.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: new DataTransfer() }));
+            const afterDragend = has();
+
+            // ④ window 安全網（dragend capture — item ハンドラ経由でない終了）
+            document.body.classList.add('fr-drag-active');
+            window.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+            const afterWindowSafety = has();
+
+            return { set1, afterDrop, set2, afterLeaveOut, afterLeaveInner, set3, afterDragend, afterWindowSafety };
+        });
+
+        expect(r.set1).toBe(true);
+        expect(r.afterDrop).toBe(false);        // ① drop で clear
+        expect(r.set2).toBe(true);
+        expect(r.afterLeaveOut).toBe(false);    // ② panel 外への dragleave で clear
+        expect(r.afterLeaveInner).toBe(true);   // ②b panel 内移動では clear しない（hover 抑止が途切れない）
+        expect(r.set3).toBe(true);
+        expect(r.afterDragend).toBe(false);     // ③ dragend で clear
+        expect(r.afterWindowSafety).toBe(false); // ④ window 安全網で clear
+    });
+
+    // ── TC-HV-03: CSS — fr-drag-active 下で hover 打ち消し・drop 専用表示は生存 ──
+    test('TC-HV-03 body.fr-drag-active 下で item/folder hover が transparent・drag-over 表示は生きる', async ({ page }) => {
+        await loadPanel(page, HV_FIXTURE);
+
+        const r = await page.evaluate(() => {
+            const item = document.querySelector('[data-item-id="a1"]') as HTMLElement;
+            document.body.classList.add('fr-drag-active');
+            // :hover は pointer 依存で合成不能 → CSSOM から規則の存在 + 適用値を代理検証。
+            // fr-drag-active 下の hover 打ち消し規則が style sheet に存在するか
+            let guardRule = false;
+            for (const sheet of Array.from(document.styleSheets)) {
+                let rules: CSSRuleList;
+                try { rules = (sheet as CSSStyleSheet).cssRules; } catch { continue; }
+                for (const rule of Array.from(rules)) {
+                    const sel = (rule as CSSStyleRule).selectorText || '';
+                    if (sel.includes('fr-drag-active') && sel.includes('.file-panel-item:hover')) {
+                        const bg = (rule as CSSStyleRule).style.background ||
+                                   (rule as CSSStyleRule).style.backgroundColor;
+                        if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') {
+                            // folder header も同規則に含まれるか
+                            guardRule = sel.includes('.file-panel-folder-header:hover') &&
+                                        sel.includes('.file-panel-item.active:hover');
+                        }
+                    }
+                }
+            }
+            // drop 専用表示は fr-drag-active 下でも点灯する（counterfactual: * !important 方式だと死ぬ）
+            item.classList.add('file-panel-drag-over');
+            const dragOverBg = getComputedStyle(item).backgroundColor;
+            item.classList.remove('file-panel-drag-over');
+            document.body.classList.remove('fr-drag-active');
+            return { guardRule, dragOverBg };
+        });
+
+        expect(r.guardRule).toBe(true); // 3 セレクタ揃いの打ち消し規則が存在
+        // drag-over の highlight 色（transparent でない）が生きている
+        expect(r.dragOverBg).not.toBe('rgba(0, 0, 0, 0)');
+        expect(r.dragOverBg).not.toBe('transparent');
+    });
+
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン③ (2026-08-10): FR-TF-17 uri-list webview 側（TC-UL-01/02）
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ── TC-UL-01: isVscodeUriListDrag 判定（dragover 受理で代理検証）──
+    // ── TC-UL-02: 6 配線点（dragover 3 + drop 3）の対称配線 ──
+    test('TC-UL-01/02 uri-list drag が全配線点で受理され notesRegisterExternalUris が呼ばれる', async ({ page }) => {
+        await loadPanel(page, {
+            fileList: [
+                { id: 'o1', filePath: '/n/plan.out', title: 'Plan', kind: 'out' },
+                { id: 'f1', filePath: null, title: 'Folder', kind: undefined },
+            ],
+            structure: {
+                version: 1, rootIds: ['o1', 'fold1'],
+                items: {
+                    o1: { type: 'file', id: 'o1', title: 'Plan' },
+                    fold1: { type: 'folder', id: 'fold1', title: 'Folder', childIds: [], collapsed: false },
+                },
+            },
+        });
+
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const URI_MIME = 'application/vnd.code.uri-list';
+            const uris = 'file:///tmp/a.md\r\nfile:///tmp/b.pdf';
+            const mkDt = () => {
+                const dt = new DataTransfer();
+                dt.setData(URI_MIME, uris);
+                return dt;
+            };
+            const calls = () => w.__calls.filter((c: any) => c.type === 'notesRegisterExternalUris');
+
+            const out: any = {};
+
+            // (1) item 上（setupDropTarget）: dragover が preventDefault + drop で bridge 呼び出し
+            w.__calls = [];
+            const item = document.querySelector('[data-item-id="o1"]') as HTMLElement;
+            const rr = item.getBoundingClientRect();
+            let dt = mkDt();
+            const ov1 = new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3, // 上半分 = before
+            });
+            item.dispatchEvent(ov1);
+            out.itemOverAccepted = ov1.defaultPrevented; // counterfactual: 配線なしだと false
+            item.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dt,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3,
+            }));
+            out.itemDrop = calls().map((c: any) => c.args)[0] || null; // [uris[], parentId, index]
+
+            // (2) listEl 余白: root 末尾へ
+            w.__calls = [];
+            const listEl = document.getElementById('notesFileList') as HTMLElement;
+            dt = mkDt();
+            const ov2 = new DragEvent('dragover', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(ov2, 'target', { value: listEl });
+            listEl.dispatchEvent(ov2);
+            out.listOverAccepted = ov2.defaultPrevented;
+            const dp2 = new DragEvent('drop', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(dp2, 'target', { value: listEl });
+            listEl.dispatchEvent(dp2);
+            out.listDrop = calls().map((c: any) => c.args)[0] || null;
+
+            // (2b) フォルダ children 余白: フォルダ内末尾へ（QUAL-4: 代表 3 点の宣言どおり全点踏む）
+            w.__calls = [];
+            const childrenEl = document.querySelector('.file-panel-folder-children') as HTMLElement;
+            dt = mkDt();
+            const ov3 = new DragEvent('dragover', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(ov3, 'target', { value: childrenEl });
+            childrenEl.dispatchEvent(ov3);
+            out.childrenOverAccepted = ov3.defaultPrevented;
+            const dp3 = new DragEvent('drop', { bubbles: false, cancelable: true, dataTransfer: dt });
+            Object.defineProperty(dp3, 'target', { value: childrenEl });
+            childrenEl.dispatchEvent(dp3);
+            out.childrenDrop = calls().map((c: any) => c.args)[0] || null;
+
+            // (3) Files 優先の dispatch 順: Files + uri-list 両方 → uri-list 経路は使わない
+            w.__calls = [];
+            const dtBoth = new DataTransfer();
+            dtBoth.items.add(new File(['x'], 'c.pdf', { type: 'application/pdf' }));
+            dtBoth.setData(URI_MIME, uris);
+            item.dispatchEvent(new DragEvent('drop', {
+                bubbles: true, cancelable: true, dataTransfer: dtBoth,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.3,
+            }));
+            out.bothUriCalls = calls().length; // Files 優先 → 0
+
+            return out;
+        });
+
+        // (1) item 上: dragover 受理 + drop で uris が届く（before = index 0）
+        expect(r.itemOverAccepted).toBe(true);
+        expect(r.itemDrop).toBeTruthy();
+        expect(r.itemDrop[0]).toEqual(['file:///tmp/a.md', 'file:///tmp/b.pdf']); // \r\n split + trim
+        expect(r.itemDrop[1]).toBe(null); // root 直下 item の前 = parentId null
+        expect(r.itemDrop[2]).toBe(0);
+        // (2) listEl 余白: root 末尾
+        expect(r.listOverAccepted).toBe(true);
+        expect(r.listDrop).toBeTruthy();
+        expect(r.listDrop[1]).toBe(null);
+        expect(r.listDrop[2]).toBe(2); // rootIds.length = 2（o1, fold1 の末尾）
+        // (2b) フォルダ children 余白: フォルダ内末尾（parentId = folder id）
+        expect(r.childrenOverAccepted).toBe(true);
+        expect(r.childrenDrop).toBeTruthy();
+        expect(r.childrenDrop[1]).toBe('fold1');
+        expect(r.childrenDrop[2]).toBe(0); // childIds 空 → 末尾 = 0
+        // (3) Files 同時積みは Files 経路優先（uri-list 経路は発火しない）
+        expect(r.bothUriCalls).toBe(0);
+    });
+
 });

@@ -24936,7 +24936,15 @@ class EditorInstance {
                 // For empty lines, find the nearest element and position there
                 const element = document.elementFromPoint(x, y);
                 var editorEl = targetEditorEl || editor;
-                if (element && editorEl.contains(element)) {
+                // TC-MX-09 (再オープン④): element が editor 自体（コンテンツ外の余白）のときは
+                // 要素基準を使わない — editor rect 基準だと「エディタ端に editor 全高のバー」が
+                // 出て pointer から数百 px 乖離する。マウス位置 + 20px（range=null fallback と同形）にする。
+                if (element === editorEl) {
+                    dragCursor.style.left = x + 'px';
+                    dragCursor.style.top = y + 'px';
+                    dragCursor.style.height = '20px';
+                    dragCursor.style.display = 'block';
+                } else if (element && editorEl.contains(element)) {
                     const elemRect = element.getBoundingClientRect();
                     dragCursor.style.left = (elemRect.left + 5) + 'px';
                     dragCursor.style.top = elemRect.top + 'px';

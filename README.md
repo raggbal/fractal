@@ -158,7 +158,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 ![assets/images/1785087018130.png](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
-- **Import anything** — drag a .md from Finder onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open in the OS default app
+- **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open in the OS default app
 - **Files flow everywhere** — drag a tree file onto an outliner or markdown (editor or tree item) to attach it, or drag a 📎 attachment out of an editor back into the tree. The physical file never moves; only its owner changes
 - **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note. Streaming results, click to jump
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well

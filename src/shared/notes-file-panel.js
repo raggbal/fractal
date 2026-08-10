@@ -861,6 +861,25 @@ var notesFilePanel = (function() {
         return !!(e.dataTransfer.files && e.dataTransfer.files.length > 0);
     }
 
+    // FR-TF-17 (§4k): VS Code Explorer からの drag は files が空で application/vnd.code.uri-list
+    // のみ載る（isExternalFilesDrag では構造的に受理不能）。outliner.js isVscodeUriDragEvent の字面移植。
+    // text/uri-list は受けない（md editor の URL drag 用 — tree では登録意味論が未定義。ADRL-C）。
+    function isVscodeUriListDrag(e) {
+        return !!(e && e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('application/vnd.code.uri-list') >= 0);
+    }
+
+    // FR-TF-17 (§4k): uri-list drop → uris[] を host へ送るだけ（FileReader 非使用・host fs 直読み）。
+    // 50MB cap なし（ADRL-C Decision 2 = outliner v12 前例の既決踏襲）。0 件なら bridge を呼ばない。
+    function registerVscodeUriDrop(e, parentId, index) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData('application/vnd.code.uri-list') || ''; } catch (err) { raw = ''; }
+        var uris = raw.split(/\r?\n/).map(function(s) { return s.trim(); }).filter(Boolean);
+        if (uris.length === 0) return;
+        if (typeof bridge.notesRegisterExternalUris === 'function') {
+            bridge.notesRegisterExternalUris(uris, parentId, index);
+        }
+    }
+
     // ArrayBuffer → base64（添付 file の bytes 転送用。VS Code webview↔host は文字列が確実）。
     function arrayBufferToBase64(buffer) {
         try {
@@ -937,6 +956,8 @@ var notesFilePanel = (function() {
             dragItemId = target.dataset.itemId;
             dragItemType = target.dataset.itemType;
             dragSourceFileExt = target.dataset.fileExt || null;
+            // FR-TF-16: 内部 drag の開始時点から hover 抑止（dragover を待たない）
+            setDragHoverSuppression();
             // v0.207.77: 'copyMove' にしないと、dropEffect='copy' (Feature A/B) との不一致で
             // ブラウザが drop event をキャンセルする (HTML5 D&D 仕様)。
             e.dataTransfer.effectAllowed = 'copyMove';
@@ -974,6 +995,7 @@ var notesFilePanel = (function() {
             removeDropIndicator();
             lastDropLine = null; // TASK-A2: 谷間フォールバック状態もリセット
             clearAllDragOver();
+            clearDragHoverSuppression(); // FR-TF-16: 内部 drag 終了で hover 抑止解除
         });
     }
 
@@ -995,7 +1017,9 @@ var notesFilePanel = (function() {
             var fromMdFileLink = isMdFileLinkDrag(e);
             // FR-T01: 外部 files（Finder / VS Code Explorer）は最後に判定（内部 drag / outliner /
             // subpage が最優先。内部 drag は tree-md MIME 等も積むので dragItemId 非 null を先に弾く）。
-            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && isExternalFilesDrag(e);
+            // FR-TF-17: Explorer drag は files が空で vnd.code.uri-list のみ載るため OR で受理
+            //（これが無いと dragover 非 preventDefault で drop 自体が不発 = Explorer D&D 不能の主因）。
+            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
             if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromExternal) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
@@ -1143,6 +1167,21 @@ var notesFilePanel = (function() {
                 var idxEx = sibEx.indexOf(targetEx.dataset.itemId);
                 if (idxEx === -1) idxEx = sibEx.length;
                 registerExternalDroppedFiles(e, parentEx, ratioEx < 0.5 ? idxEx : idxEx + 1);
+                return;
+            }
+            // FR-TF-17: VS Code Explorer uri-list → item の前/後に登録（Files 分岐の後 = Files 優先の
+            // dispatch 順は outliner.js の Finder→uri-list 順と対称）。
+            if (!dragItemId && !outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload && isVscodeUriListDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetUl = el.closest('[data-item-id]') || el;
+                var rectUl = targetUl.getBoundingClientRect();
+                var ratioUl = (e.clientY - rectUl.top) / rectUl.height;
+                var parentUl = targetUl.dataset.parentId || null;
+                var sibUl = getChildIdsOfParent(parentUl);
+                var idxUl = sibUl.indexOf(targetUl.dataset.itemId);
+                if (idxUl === -1) idxUl = sibUl.length;
+                registerVscodeUriDrop(e, parentUl, ratioUl < 0.5 ? idxUl : idxUl + 1);
                 return;
             }
             if (!dragItemId && !outPayload && !subtreePayload) return;
@@ -1302,7 +1341,8 @@ var notesFilePanel = (function() {
         childrenEl.addEventListener('dragover', function(e) {
             var fromOutliner = isOutNodePageDrag(e);
             // FR-T01: 外部 files（.md）— 内部 drag / outliner が無いときのみ
-            var fromExternal = !dragItemId && !fromOutliner && isExternalFilesDrag(e);
+            // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
+            var fromExternal = !dragItemId && !fromOutliner && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
             if (!dragItemId && !fromOutliner && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
@@ -1333,6 +1373,14 @@ var notesFilePanel = (function() {
                 removeDropIndicator();
                 lastDropLine = null;
                 registerExternalDroppedFiles(e, folderId, getChildIdsOfParent(folderId).length);
+                return;
+            }
+            // FR-TF-17: Explorer uri-list → フォルダ内末尾に登録（Files 分岐の後 = Files 優先）
+            if (!dragItemId && !outPayload && isVscodeUriListDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                lastDropLine = null;
+                registerVscodeUriDrop(e, folderId, getChildIdsOfParent(folderId).length);
                 return;
             }
             if (!dragItemId && !outPayload) return;
@@ -1469,6 +1517,26 @@ var notesFilePanel = (function() {
         for (var j = 0; j < els2.length; j++) {
             els2[j].classList.remove('file-panel-drag-over-md-into-out');
         }
+    }
+
+    // FR-TF-16 (sprint 20260809 再オープン③): drag セッション中の hover 色抑止フラグ。
+    // CSS 側（notes-body-html.js）が body.fr-drag-active 下の item/folder :hover を transparent にする。
+    // set/clear は受け側完結（外部/cross-webview drag では drag 元の dragend がこの webview に
+    // 届かない — HTML5 仕様）: set = dragenter/dragover capture（冪等）+ 内部 dragstart、
+    // clear = relaxed dragleave（panel 外へ）+ drop + dragend + window 安全網。
+    function setDragHoverSuppression() {
+        document.body.classList.add('fr-drag-active');
+    }
+    function clearDragHoverSuppression() {
+        document.body.classList.remove('fr-drag-active');
+    }
+    // drag セッション終了の一括掃除（hover 抑止 + highlight + 補助線を 1 ラッパに束ねる —
+    // 片系統だけ消す掃除経路を作らない: generator_failures 2026-08-02「掃除の片肺化」回避）。
+    // lastDropLine は触らない（listEl 谷間 drop が挿入位置の参照に使う。dragend/実 drop でリセット済み）。
+    function clearDragSessionVisuals() {
+        clearDragHoverSuppression();
+        if (listEl) clearAllDragOver();
+        removeDropIndicator();
     }
 
     // ── ヘルパー ──
@@ -2047,6 +2115,26 @@ var notesFilePanel = (function() {
 
         listEl = document.getElementById('notesFileList');
         panelEl = document.getElementById('notesFilePanel');
+
+        // FR-TF-16: drag 中 hover 抑止の set/clear 配線（受け側完結ライフサイクル）。
+        // capture で拾う: 個別 handler（setupDropTarget 等）が preventDefault/return しても
+        // フラグ管理は必ず走る。__hoverSupWired で冪等化（standalone harness は init が 2 回走る）。
+        if (panelEl && !panelEl.__hoverSupWired) {
+            panelEl.__hoverSupWired = true;
+            // set: panel 内に drag が入った/動いた（外部 Files / uri-list / cross-webview MIME / 内部すべて）
+            panelEl.addEventListener('dragenter', setDragHoverSuppression, true);
+            panelEl.addEventListener('dragover', setDragHoverSuppression, true);
+            // clear①: panel の外へ出た（relaxed 判定 — relatedTarget が panel 外 or null。
+            // panel 内の要素間移動では clear しない = 抑止が途切れて hover が明滅するのを防ぐ）
+            panelEl.addEventListener('dragleave', function(e) {
+                var rt = e.relatedTarget;
+                if (!rt || !panelEl.contains(rt)) clearDragHoverSuppression();
+            });
+            // clear②③④: drop / dragend の window capture 安全網（panel 内 drop・内部 drag の
+            // dragend・panel 外 drop での終了をすべて拾う。既存の highlight/補助線掃除も束ねる）
+            window.addEventListener('drop', clearDragSessionVisuals, true);
+            window.addEventListener('dragend', clearDragSessionVisuals, true);
+        }
         var addBtn = document.getElementById('filePanelAdd');
         var addMdBtn = document.getElementById('filePanelAddMarkdown');
         var addFolderBtn = document.getElementById('filePanelAddFolder');
@@ -2170,7 +2258,8 @@ var notesFilePanel = (function() {
                 var fromOutNodeFileR = isOutNodeFileDrag(e);
                 var fromMdFileLinkR = isMdFileLinkDrag(e);
                 // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage / file 系が無いときのみ
-                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && isExternalFilesDrag(e);
+                // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
+                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
                 if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromExternalR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
@@ -2216,6 +2305,15 @@ var notesFilePanel = (function() {
                     lastDropLine = null;
                     var rootIdsEx = structure ? structure.rootIds : [];
                     registerExternalDroppedFiles(e, null, rootIdsEx.length);
+                    return;
+                }
+                // FR-TF-17: Explorer uri-list → ルート末尾に登録（Files 分岐の後 = Files 優先）
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR && isVscodeUriListDrag(e)) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    var rootIdsUl = structure ? structure.rootIds : [];
+                    registerVscodeUriDrop(e, null, rootIdsUl.length);
                     return;
                 }
                 if (!dragItemId && !outPayload && !mdSubpagePayloadR) return;

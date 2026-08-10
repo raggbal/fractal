@@ -7,7 +7,7 @@
  *   になる（= S3 側にコード変更が不要）。counterfactual: walkLocalDir が files/ サブディレクトリや
  *   outline.note を除外するようになると、tree file が sync から漏れて RED。
  *
- * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 11 個）が
+ * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 12 個）が
  *   4 層（webview 呼び出し元 → bridge → handler case → provider 実装）すべてに配線されていることを
  *   grep で数え漏れゼロ確認する permanent guard。designer_failures 2026-08-09（attachTreeFileToMd が
  *   散文宣言のみで bridge 一覧・TASK・TC から漏れた「配線台帳の突き合わせ漏れ」）の再発防止。
@@ -54,11 +54,14 @@ test('TC-S3-01 walkLocalDir は files/<name> と outline.note を列挙に含む
 });
 
 // ─────────────────────────────────────────────────────────────
-// TC-RG-01 (wiring): 新設 bridge メソッド 11 個の 4 層配線 数え漏れゼロ
+// TC-RG-01 (wiring): 新設 bridge メソッド 12 個の 4 層配線 数え漏れゼロ
 // ─────────────────────────────────────────────────────────────
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '../../', rel), 'utf8');
 
-// design/system.md §8 の正典一覧（順不同・attachTreeFileToMd 含む 11 個）
+// design/system.md §8 の正典一覧（順不同・attachTreeFileToMd 含む。
+// 再オープン③ 2026-08-10: notesRegisterExternalUris（FR-TF-17）を追加 = 12 個。
+// design-review SYS-NEW-1: 完了済み TASK-06 の guard は 11 個時点の検証のため、
+// 12 個目はこの一覧への追加で regression 網に恒久編入する）
 const BRIDGE_METHODS = [
     'openTreeFileExternal',
     'notesImportFileIntoOut',
@@ -71,14 +74,15 @@ const BRIDGE_METHODS = [
     'copyTreeFilePath',
     'deleteTreeFile',
     'notifyError',
+    'notesRegisterExternalUris',
 ];
 
-test('TC-RG-01 wiring: 正典一覧が 11 個ちょうど（§8 と一致・重複なし）', () => {
-    expect(BRIDGE_METHODS.length).toBe(11);
-    expect(new Set(BRIDGE_METHODS).size).toBe(11);
+test('TC-RG-01 wiring: 正典一覧が 12 個ちょうど（§8 と一致・重複なし）', () => {
+    expect(BRIDGE_METHODS.length).toBe(12);
+    expect(new Set(BRIDGE_METHODS).size).toBe(12);
 });
 
-test('TC-RG-01 wiring: 全 11 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
+test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
     const bridge = read('src/shared/notes-host-bridge.js');
     const handler = read('src/shared/notes-message-handler.ts');
     const provider = read('src/notesEditorProvider.ts');

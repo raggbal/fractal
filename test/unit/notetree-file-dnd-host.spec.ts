@@ -487,4 +487,80 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(md.includes(`files/${sanitized}`)).toBe(true);              // リンクが sanitize 名を参照
         expect(extractMarkdownFileLinks(md)).toContain(`files/${sanitized}`);
     });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン③ (2026-08-10): FR-TF-17 VS Code Explorer uri-list（TC-UL-03/04）
+    // ═══════════════════════════════════════════════════════════════════
+
+    test('TC-UL-03: registerExternalDroppedUris — md/file 振り分け・非 file: scheme/不存在/ディレクトリ skip・index 連番・postback 1 回', () => {
+        const { registerExternalDroppedUris } = mh;
+        expect(typeof registerExternalDroppedUris).toBe('function'); // 未実装なら即 RED
+
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        // 外部ソース側（drop 元のファイル群）
+        const srcDir = track(mkNote());
+        const mdSrc = path.join(srcDir, 'Notes File.md');
+        fs.writeFileSync(mdSrc, '# Hello\nbody', 'utf8');
+        const pdfSrc = path.join(srcDir, 'Report.pdf');
+        fs.writeFileSync(pdfSrc, Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff])); // binary
+        const subDir = path.join(srcDir, 'a-directory');
+        fs.mkdirSync(subDir);
+
+        const { sender, msgs } = spy();
+        const toUri = (p: string) => require('url').pathToFileURL(p).href;
+        registerExternalDroppedUris(
+            fm,
+            [
+                toUri(mdSrc),                          // → registerMarkdownFile
+                'vscode-remote://wsl/etc/hosts',       // 非 file: scheme → skip
+                toUri(path.join(srcDir, 'missing.txt')), // 不存在 → skip
+                toUri(subDir),                         // ディレクトリ → skip
+                toUri(pdfSrc),                         // → registerTreeFile
+            ],
+            null, 0, sender
+        );
+
+        const structure = fm.getStructure();
+        const items = Object.values(structure.items) as any[];
+        const mdItem = items.find((it) => it.ext === 'md');
+        const fileItem = items.find((it) => it.ext === 'file');
+        expect(mdItem).toBeTruthy();
+        expect(mdItem.title).toBe('Hello'); // H1 から title（既存 md 経路 resolveSubpageTitle と同じ）
+        expect(fileItem).toBeTruthy();
+        expect(fileItem.filename).toBe('Report.pdf');
+        // 実体 = files/ に byte 一致で保存（binary safe）
+        const entity = fm.getTreeFilePath(fileItem.id) as string;
+        expect(Buffer.compare(fs.readFileSync(entity), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]))).toBe(0);
+        // 挿入順 = uri 列挙順（md が index0・pdf が index1。skip 3 件は index を消費しない）
+        expect(structure.rootIds.indexOf(mdItem.id)).toBe(0);
+        expect(structure.rootIds.indexOf(fileItem.id)).toBe(1);
+        // postback は 1 回（notesFileListChanged）
+        expect(msgs.filter((m) => m.type === 'notesFileListChanged').length).toBe(1);
+        // 元ファイルは不変（OS 側）
+        expect(fs.existsSync(mdSrc)).toBe(true);
+        expect(fs.existsSync(pdfSrc)).toBe(true);
+    });
+
+    test('TC-UL-04: registerExternalDroppedUris — 50MB 超も登録される（uri-list 経路は cap なし）', () => {
+        const { registerExternalDroppedUris } = mh;
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        const srcDir = track(mkNote());
+        const bigSrc = path.join(srcDir, 'big.bin');
+        // 51MB の sparse 書き（実 buffer は端点のみ — CI コスト最小化）
+        const fd = fs.openSync(bigSrc, 'w');
+        fs.ftruncateSync(fd, 51 * 1024 * 1024);
+        fs.closeSync(fd);
+
+        const { sender } = spy();
+        const uri = require('url').pathToFileURL(bigSrc).href;
+        registerExternalDroppedUris(fm, [uri], null, 0, sender);
+
+        const fileItem = (Object.values(fm.getStructure().items) as any[]).find((it) => it.ext === 'file');
+        expect(fileItem).toBeTruthy(); // counterfactual: buffered 経路の 50MB cap に誤合流すると skip = RED
+        const entity = fm.getTreeFilePath(fileItem.id) as string;
+        expect(fs.statSync(entity).size).toBe(51 * 1024 * 1024);
+    });
+
 });

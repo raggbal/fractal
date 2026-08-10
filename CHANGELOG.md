@@ -5,6 +5,18 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.26] - 2026-08-10
+
+### Added
+- **VS Code Explorer → Note tree drag & drop** (FR-TF-17, sprint 20260809-031217 reopened): files dragged from the VS Code Explorer (hold Shift — a VS Code platform requirement for webview drops) are now accepted by the Note file tree. `.md` files register as markdown items, any other extension registers as a file item in the shared `files/` folder. Drop position (before/after item, into folder, list tail) matches the Finder path. The Explorer path reads files host-side, so the 50MB buffered-path cap does not apply.
+
+### Changed
+- **Hover highlight is suppressed while any drag is in progress** (FR-TF-16): during external file drags, internal tree reordering, and cross-editor drags, tree items / folder headers no longer light up with the hover color — only the dedicated drop indicators (drop line, import zone highlight) are shown, so it is always clear where the item will land. Hover behavior returns to normal the moment the drag ends (drop, leave, or cancel).
+
+### Fixed
+- **Markdown editor drop cursor jumped to the editor edge** — dragging over empty space in the editor (e.g. beside a 📎 attachment line) drew a full-height bar at the editor's left/right edge, far from the pointer. The cursor now follows the mouse position in empty areas.
+- **Outliner drop outline disappeared on the focused row** — the dashed "droppable" border around the outliner was painted under the focused row's water-blue background, so the left edge looked broken. The border is now drawn as an overlay above all rows.
+
 ## [1.1.25] - 2026-08-10
 
 ### Added

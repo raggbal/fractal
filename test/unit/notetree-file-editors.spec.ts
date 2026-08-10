@@ -665,4 +665,123 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(editor.afterStart).toBe(true);
         expect(editor.afterEnd).toBe(false);
     });
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン④ (2026-08-10 rc.1 検証起因): 表示バグ 2 件（TC-MX-09/10）
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ---- TC-MX-09: md editor drag cursor — 余白 dragover でエディタ端の全高バーにならない ----
+    // 機序: showDragCursor の fallback で elementFromPoint が editor 自体（コンテンツ外の余白）を
+    // 返すと、旧実装は editorRect.left+5 に editor 全高のバーを描いた（pointer から数百 px 乖離）。
+    test('TC-MX-09 editor 余白への dragover で drag cursor がマウス位置近傍に出る（端の全高バー化しない）', async ({ page }) => {
+        await loadEnv(page);
+        await initOutlinerWithFileNode(page);
+        await initEditorListeners(page);
+
+        const r = await page.evaluate(() => {
+            const mc = document.querySelector('.markdown-container') as HTMLElement;
+            const editorEl = mc.querySelector('.editor') as HTMLElement;
+            // 実環境の症状幾何を再現: ce=false アンカー行 + 大きな padding。
+            // アンカー行の padding 域では caretRangeFromPoint が P の element offset に落ちて
+            // 高さ 0 の rect を返し（最初の repro grid で実測）、elementFromPoint は editor 自体
+            // （padding は editor の box）→ 旧実装の「editor rect 基準の全高バー」分岐に入る。
+            mc.style.position = 'fixed';
+            (mc.style as any).inset = '0';
+            mc.style.zIndex = '99999';
+            mc.style.background = '#fff';
+            editorEl.innerHTML =
+                '<p>first</p>' +
+                '<p><a href="files/x.docx" data-is-file-attachment="true" contenteditable="false" draggable="true">📎 attachment anchor text</a></p>' +
+                '<p>last</p>';
+            editorEl.style.minHeight = '600px';
+            editorEl.style.padding = '40px 120px';
+            const anchor = editorEl.querySelector('a') as HTMLElement;
+            const ar = anchor.getBoundingClientRect();
+            const er = editorEl.getBoundingClientRect();
+            // アンカー行の左 padding 域（editor 直 hit + caret 高 0 の点）を確認しつつ使う
+            const x = er.left + 30, y = ar.top + ar.height / 2;
+            const probeEl = document.elementFromPoint(x, y);
+            const rg = (document as any).caretRangeFromPoint(x, y);
+            const rgH = rg ? rg.getBoundingClientRect().height : -1;
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-file', JSON.stringify({ id: 'F1' }));
+            editorEl.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y,
+            }));
+            const cursor = document.querySelector('.drag-cursor') as HTMLElement;
+            const out: any = { probeIsEditor: probeEl === editorEl, rgH, x, y, visible: false };
+            if (cursor && cursor.style.display !== 'none') {
+                out.visible = true;
+                out.left = parseFloat(cursor.style.left);
+                out.top = parseFloat(cursor.style.top);
+                out.height = parseFloat(cursor.style.height);
+            }
+            editorEl.dispatchEvent(new DragEvent('dragleave', { bubbles: true }));
+            return out;
+        });
+
+        expect(r.probeIsEditor).toBe(true);  // setup: elementFromPoint = editor 自体（padding 域）
+        expect(r.rgH).toBe(0);               // setup: caret rect 高 0 = fallback 分岐に入る条件
+        expect(r.visible).toBe(true);
+        // counterfactual: 旧実装だと left = editorRect.left+5 で height = editor 全高（600px 級）
+        expect(Math.abs(r.left - r.x)).toBeLessThan(30);   // マウス位置近傍
+        expect(Math.abs(r.top - r.y)).toBeLessThan(30);
+        expect(r.height).toBeLessThanOrEqual(30);           // 全高バー化しない
+    });
+
+    // ---- TC-MX-10: outliner 受理点線 × is-focused — focus 行でも点線が描画される ----
+    // 機序: 要素 outline (offset -2px) は CSS paint order で子要素背景（is-focused の水色 =
+    // tree box と同幅）より先に描かれ、focus 行だけ点線が上塗りされて消えていた。
+    test('TC-MX-10 受理点線が is-focused 行の左端でも見える（::after オーバーレイ化）', async ({ page }) => {
+        await loadEnv(page);
+        await initOutlinerWithFileNode(page);
+        // このハーネスは script のみ注入で CSS を読まない — 点線/背景の pixel 検証には
+        // 実 CSS（outliner.css）が必要なので現ソースから注入する（addScriptTag と同思想）。
+        await page.addStyleTag({ content: r('webview/outliner.css') });
+        // 実環境の theme token を再現: is-focused は不透明 water-blue（fr-base の
+        // --fr-color-selection-bg）。ハーネス素の fallback は rgba(0,120,212,0.15) の半透明で
+        // 点線が透けてしまい、counterfactual（旧 outline 方式で点線消失 = RED）が成立しない。
+        await page.addStyleTag({ content: ':root { --fr-color-selection-bg: #deedf5; }' });
+
+        const box = await page.evaluate(() => {
+            const tree = document.querySelector('.outliner-tree') as HTMLElement;
+            const node = document.querySelector('.outliner-node') as HTMLElement;
+            tree.classList.add('outliner-tree-drop-zone-active');
+            node.classList.add('is-focused');
+            const tr = tree.getBoundingClientRect();
+            const nr = node.getBoundingClientRect();
+            return { treeLeft: tr.left, treeRight: tr.right, nodeLeft: nr.left, nodeRight: nr.right,
+                     nodeBg: getComputedStyle(node).backgroundColor, rowTop: nr.top, rowH: nr.height };
+        });
+
+        // focus 行の左端帯（点線が走るべき x = treeLeft..treeLeft+2）を screenshot して
+        // 点線ピクセル（青系 #007acc = rgb(0,122,204)）の実在を検証
+        const clipY = Math.max(0, box.rowTop + 2);
+        const shot = await page.screenshot({
+            clip: { x: Math.max(0, box.treeLeft - 1), y: clipY, width: 6, height: Math.max(8, box.rowH - 4) },
+        });
+        // PNG を raw decode せず、page 側で canvas に読み戻して画素検査
+        const hasBlue = await page.evaluate(async (b64) => {
+            const img = new Image();
+            await new Promise<void>((res, rej) => {
+                img.onload = () => res(); img.onerror = () => rej(new Error('img load'));
+                img.src = 'data:image/png;base64,' + b64;
+            });
+            const cv = document.createElement('canvas');
+            cv.width = img.width; cv.height = img.height;
+            const ctx = cv.getContext('2d')!;
+            ctx.drawImage(img, 0, 0);
+            const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+            for (let i = 0; i < px.length; i += 4) {
+                const r = px[i], g = px[i + 1], b = px[i + 2];
+                // 点線色 var(--vscode-focusBorder, #007acc) 近傍（青が強く赤が弱い）
+                if (b > 150 && b - r > 60 && g < 180) return true;
+            }
+            return false;
+        }, shot.toString('base64'));
+
+        // counterfactual: 要素 outline 方式に戻すと is-focused の水色が点線を上塗りして false = RED
+        expect(hasBlue).toBe(true);
+    });
+
 });
