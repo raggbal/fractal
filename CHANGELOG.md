@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.27] - 2026-08-10
+
+### Added
+- **Drag & drop into the side-panel markdown editor — full matrix** (FR-TF-19, sprint 20260809-031217 reopened): outliner 📎 file nodes, outliner page nodes, and markdown 📎/subpage links can now be dropped onto any open markdown editor (main pane and side panel alike). Previously the editor only accepted tree items; drops from the outliner or another markdown pane were silently ignored. Dropping a link onto its own source document is a no-op.
+- **Markdown links → outliner drops** (FR-TF-20): a 📎 file link or subpage link dragged from a markdown editor onto an outliner lands at the indicator position as a file-attachment node / page node, and the link is removed from the source document.
+
+### Changed
+- **Cross-note drag & drop now follows the cut-paste contract** (FR-TF-18, ADRL-0051): dropping a file or markdown item onto an editor showing a *different* note copies the physical file into the destination note (`files/` or note root), removes the source ledger entry (tree item / node / link), and **keeps the source file on disk** as an orphan — recoverable, and collected later by Clean Notes in the source note. Cross-note links never point across note folders (a silent data-loss path that Clean Notes could not protect). The existing "tree md → other note's side panel" drop, which used to keep the tree item, now removes it for consistency.
+
+### Fixed
+- **Tree file → side-panel markdown drop did nothing** — the bridge method was defined in only one of the two per-webview host-bridge blocks, so the side panel over an outliner page hit a silent no-op guard. Both blocks are now kept symmetric and guarded by a block-level wiring test.
+- **`# C#`-style titles were truncated** in the new subpage-link paths (inline H1 regex replaced with the CommonMark-compliant `extractFirstH1`).
+
 ## [1.1.26] - 2026-08-10
 
 ### Added
