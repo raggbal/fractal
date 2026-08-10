@@ -1399,6 +1399,10 @@ function ensureTableHeaders(htmlString) {
             if (existingThead) existingThead.parentNode.removeChild(existingThead);
             var thead = doc.createElement('thead');
             var tr = doc.createElement('tr');
+            // FR-TBL-03 (sprint 20260810-183054): 注入 thead = 元 HTML に heading row が
+            // 無かった証跡。マーカー属性を付け、fractalHeaderlessTable rule が md 出力の
+            // table 直前に <!-- fractal-headerless-table --> を前置する。
+            tr.setAttribute('data-fractal-headerless', 'true');
             for (var ci = 0; ci < colCount; ci++) {
                 tr.appendChild(doc.createElement('th'));
             }
@@ -1419,6 +1423,23 @@ function ensureTableHeaders(htmlString) {
 // 前提: turndownService が turndown-plugin-gfm を use() 済み。
 
 function addCustomRules(turndownService) {
+    // Rule 0 (FR-TBL-03, sprint 20260810-183054): headerless table.
+    // ensureTableHeaders が注入した thead(data-fractal-headerless 付き)を持つ table は、
+    // md 出力の直前に <!-- fractal-headerless-table --> を前置する(ADRL-0052)。
+    // 適用順の根拠(SYS-3 実装時検証): Rules.add は unshift(後勝ち)で、addCustomRules は
+    // gfm plugin の use() 後に呼ばれるため、この rule が gfm の rules.table より先に評価される。
+    // 変換自体は gfm table rule と同じ形(separator 行は tableRow rule が出す)。
+    turndownService.addRule('fractalHeaderlessTable', {
+        filter: function(node) {
+            return node.nodeName === 'TABLE'
+                && !!node.querySelector('tr[data-fractal-headerless]');
+        },
+        replacement: function(content) {
+            content = content.replace('\n\n', '\n');
+            return '\n\n<!-- fractal-headerless-table -->\n' + content + '\n\n';
+        }
+    });
+
     // Rule 1: Table cell の pipe escape + cell 内改行を <br> に変換
     turndownService.addRule('tableCellEscapePipe', {
         filter: ['th', 'td'],

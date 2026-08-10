@@ -233,6 +233,99 @@ test.describe('Headerless table (FR-TBL)', () => {
         expect(out.trim()).toBe(md);
     });
 
+    // ---- TASK-03 (FR-TBL-03): 外部 HTML table 貼り付けの headerless 判定 ----
+
+    async function pasteHtml(page, html: string) {
+        // 空段落にカーソルを置いてから paste(カーソル未設定だと paste ハンドラが no-op)
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<p><br></p>';
+            const p = editor.querySelector('p')!;
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            range.collapse(true);
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.waitForTimeout(100);
+        await page.evaluate((h: string) => {
+            const editor = document.getElementById('editor')!;
+            const clipboardData = {
+                _data: { 'text/plain': '', 'text/html': h } as Record<string, string>,
+                getData: function (type: string) { return this._data[type] || ''; },
+                setData: function (type: string, value: string) { this._data[type] = value; },
+                items: [],
+            };
+            const event = new ClipboardEvent('paste', {
+                bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
+            });
+            Object.defineProperty(event, 'clipboardData', {
+                value: clipboardData, writable: false, configurable: true,
+            });
+            editor.dispatchEvent(event);
+        }, html);
+        await page.waitForTimeout(300);
+    }
+
+    // TC-TBL-06: th なし HTML table → headerless で貼付(マーカー付き md)
+    // counterfactual: 旧 ensureTableHeaders(無条件空 thead 注入)だとマーカー無し = RED
+    test('TC-TBL-06 table without heading row pastes as headerless', async ({ page }) => {
+        await page.evaluate(() => { (window as any).__testApi.setMarkdown(''); });
+        await page.waitForTimeout(200);
+        await pasteHtml(page,
+            '<table><tr><td>a1</td><td>b1</td></tr><tr><td>a2</td><td>b2</td></tr></table>');
+        const result = await page.evaluate(() => {
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            return {
+                hasTable: !!table,
+                headerless: table?.getAttribute('data-headerless'),
+                out: (window as any).__testApi.getMarkdown(),
+            };
+        });
+        expect(result.hasTable).toBe(true);
+        expect(result.out).toContain(MARKER);
+        expect(result.headerless).toBe('true');
+    });
+
+    // TC-TBL-07: thead/th あり HTML table → 従来どおり header あり
+    test('TC-TBL-07 table with heading row pastes as normal table', async ({ page }) => {
+        await page.evaluate(() => { (window as any).__testApi.setMarkdown(''); });
+        await page.waitForTimeout(200);
+        await pasteHtml(page,
+            '<table><thead><tr><th>H1</th><th>H2</th></tr></thead>'
+            + '<tbody><tr><td>a1</td><td>b1</td></tr></tbody></table>');
+        const result = await page.evaluate(() => {
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            return {
+                headerless: table?.getAttribute('data-headerless'),
+                thTexts: Array.from(table?.querySelectorAll('th') || []).map(t => t.textContent?.trim()),
+                out: (window as any).__testApi.getMarkdown(),
+            };
+        });
+        expect(result.headerless).toBeFalsy();
+        expect(result.thTexts).toEqual(['H1', 'H2']);
+        expect(result.out).not.toContain(MARKER);
+    });
+
+    // TC-TBL-08: &nbsp; のみの th → header あり側(th 実在 = heading row)
+    test('TC-TBL-08 table with nbsp-only th pastes as normal table', async ({ page }) => {
+        await page.evaluate(() => { (window as any).__testApi.setMarkdown(''); });
+        await page.waitForTimeout(200);
+        await pasteHtml(page,
+            '<table><tr><th>&nbsp;</th><th>&nbsp;</th></tr>'
+            + '<tr><td>a1</td><td>b1</td></tr></table>');
+        const result = await page.evaluate(() => {
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            return {
+                headerless: table?.getAttribute('data-headerless'),
+                out: (window as any).__testApi.getMarkdown(),
+            };
+        });
+        expect(result.headerless).toBeFalsy();
+        expect(result.out).not.toContain(MARKER);
+    });
+
     // TC-I18N-01: tableToggleHeader キーが interface + 7 locale 全登録(grep 相当の検査)
     test('TC-I18N-01 tableToggleHeader is registered in all locales', async () => {
         const fs = require('fs');
