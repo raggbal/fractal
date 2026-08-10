@@ -690,6 +690,12 @@ class EditorInstance {
         }
         if (tag === 'table') {
             var rows = target.querySelectorAll('tr');
+            // FR-TBL-01: skip hidden rows (headerless CSS hides the th row but the DOM
+            // remains — designer_failures 2026-08-02 "display:none but DOM lingers" class)
+            var visibleRows = Array.prototype.filter.call(rows, function (r) {
+                return r.offsetParent !== null;
+            });
+            if (visibleRows.length > 0) rows = visibleRows;
             if (rows.length > 0) {
                 var row = direction === 'up' ? rows[rows.length - 1] : rows[0];
                 var cell = row.cells[0];
@@ -2630,6 +2636,7 @@ class EditorInstance {
         let inTable = false;
         let tableRows = [];
         let pendingTableColWidths = null; // Persistence (option C): widths for next table
+        let pendingHeaderlessTable = false; // FR-TBL-02: headerless marker seen for next table
         let inBlockquote = false;
         let blockquoteLines = [];
         
@@ -2750,12 +2757,14 @@ class EditorInstance {
             // Persistence (option C): if a `<!-- fractal-col-widths: ... -->` comment was seen
             // immediately before this table, render with table-layout: fixed + per-column widths.
             let tableHtml;
+            // FR-TBL-02: data-headerless attribute (structure kept, hiding is CSS-only)
+            const headerlessAttr = pendingHeaderlessTable ? ' data-headerless="true"' : '';
             if (pendingTableColWidths && pendingTableColWidths.length > 0) {
                 const widthsAttr = pendingTableColWidths.join(',');
                 const totalWidth = pendingTableColWidths.reduce((s, w) => s + w, 0);
-                tableHtml = '<table data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
+                tableHtml = '<table' + headerlessAttr + ' data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
             } else {
-                tableHtml = '<table>';
+                tableHtml = '<table' + headerlessAttr + '>';
             }
             rows.forEach((row, idx) => {
                 // Skip separator row
@@ -2782,6 +2791,8 @@ class EditorInstance {
             tableHtml += '</table>';
             // consume pending widths (only apply once)
             pendingTableColWidths = null;
+            // consume headerless flag (one-shot — must not leak to the next table)
+            pendingHeaderlessTable = false;
             return tableHtml;
         }
 
@@ -2901,6 +2912,14 @@ class EditorInstance {
                     .map((s) => parseInt(s.trim(), 10))
                     .filter((n) => Number.isFinite(n) && n > 0);
                 if (ws.length > 0) pendingTableColWidths = ws;
+                continue;
+            }
+
+            // FR-TBL-02 (ADRL-0052): headerless marker right before a table. Detection is
+            // marker-only — an empty header row without the marker stays a normal table
+            // (a user's intentionally-empty header must not morph into headerless).
+            if (/^<!--\s*fractal-headerless-table\s*-->\s*$/.test(line)) {
+                pendingHeaderlessTable = true;
                 continue;
             }
 
@@ -4083,6 +4102,9 @@ class EditorInstance {
             { action: 'align-left', title: i18n.alignLeft },
             { action: 'align-center', title: i18n.alignCenter },
             { action: 'align-right', title: i18n.alignRight },
+            null,
+            // FR-TBL-01: headerless toggle (display-only; th structure/content preserved)
+            { action: 'toggle-header', title: i18n.tableToggleHeader, text: 'H' },
         ];
         tableToolbarItems.forEach(function(item) {
             if (!item) {
@@ -4122,6 +4144,7 @@ class EditorInstance {
                 case 'align-left': setColumnAlignment('left'); break;
                 case 'align-center': setColumnAlignment('center'); break;
                 case 'align-right': setColumnAlignment('right'); break;
+                case 'toggle-header': if (activeTable) toggleTableHeader(activeTable); break;
             }
         });
 
@@ -4477,6 +4500,31 @@ class EditorInstance {
         addTableResizeHandles(table);
         
         syncMarkdown();
+    }
+
+    // FR-TBL-05: shared table insertion for palette case 'table' and Ctrl+T.
+    // (Ctrl+T previously called an undefined insertTable() — silent ReferenceError.)
+    function insertTableAtCursor() {
+        var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
+        document.execCommand('insertHTML', false, tableHtml);
+        syncMarkdown();
+    }
+
+    // FR-TBL-01 (ADRL-0052): toggle headerless display. Flips the data-headerless
+    // attribute only — th structure, cell content, textAlign and col-widths are all
+    // preserved (hiding is CSS-only), so toggling back ON restores losslessly.
+    function toggleTableHeader(table) {
+        if (!table || !editor.contains(table)) return;
+        if (table.getAttribute('data-headerless') === 'true') {
+            table.removeAttribute('data-headerless');
+        } else {
+            table.setAttribute('data-headerless', 'true');
+        }
+        syncMarkdown();
+    }
+    // テスト seam(TC-TBL-01 が toolbar handler の実体を直接駆動する)
+    if (typeof window !== 'undefined') {
+        window.__toggleTableHeaderForTest = function (table) { toggleTableHeader(table); };
     }
 
     // Set column alignment for the current column
@@ -7538,6 +7586,12 @@ class EditorInstance {
         if (colWidthsAttr && /^\d+(,\d+)*$/.test(colWidthsAttr)) {
             md += '<!-- fractal-col-widths: ' + colWidthsAttr + ' -->\n';
         }
+        // FR-TBL-02 (ADRL-0052): headerless marker. Header row cells are still emitted
+        // with their content preserved (display-only hiding via CSS) so toggling the
+        // header back ON restores the original cells losslessly.
+        if (table.getAttribute('data-headerless') === 'true') {
+            md += '<!-- fractal-headerless-table -->\n';
+        }
         let isFirstRow = true;
         let alignments = [];
         
@@ -10008,8 +10062,12 @@ class EditorInstance {
                             moveCursorToLine(currentLine - 1);
                         } else {
                             // Move to cell above
-                            if (rowIndex > 0) {
-                                const prevRow = rows[rowIndex - 1];
+                            // FR-TBL-01: skip hidden rows (headerless hides the th row via CSS
+                            // but it remains in the DOM — never land the cursor inside it)
+                            let upIndex = rowIndex - 1;
+                            while (upIndex >= 0 && rows[upIndex].offsetParent === null) upIndex--;
+                            if (upIndex >= 0) {
+                                const prevRow = rows[upIndex];
                                 const targetCell = prevRow.cells[Math.min(cellIndex, prevRow.cells.length - 1)];
                                 if (targetCell) {
                                     activeTableCell = targetCell;
@@ -13503,9 +13561,7 @@ class EditorInstance {
                 }
                 break;
             case 'table':
-                var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
-                document.execCommand('insertHTML', false, tableHtml);
-                syncMarkdown();
+                insertTableAtCursor();
                 break;
             case 'hr':
                 var hr = document.createElement('hr');
@@ -15131,11 +15187,12 @@ class EditorInstance {
             return;
         }
         
-        // Table (Ctrl+T)
+        // Table (Ctrl+T) — FR-TBL-05: was an undefined insertTable() (silent ReferenceError);
+        // now shares insertTableAtCursor() with the palette 'table' action.
         if (isMod && !e.shiftKey && keyIs('t')) {
             e.preventDefault();
             e.stopPropagation();
-            insertTable();
+            insertTableAtCursor();
             return;
         }
         

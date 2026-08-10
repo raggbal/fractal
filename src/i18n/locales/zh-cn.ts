@@ -93,6 +93,7 @@ export const webviewMessages = {
   alignLeft: '左对齐',
   alignCenter: '居中对齐',
   alignRight: '右对齐',
+  tableToggleHeader: '切换表头行',
   // Status bar
   words: '字数',
   characters: '字符数',

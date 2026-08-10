@@ -111,6 +111,7 @@ export const webviewMessages = {
   alignLeft: '左寄せ',
   alignCenter: '中央寄せ',
   alignRight: '右寄せ',
+  tableToggleHeader: 'ヘッダー行の表示/非表示',
   // Status bar
   words: '単語数',
   characters: '文字数',

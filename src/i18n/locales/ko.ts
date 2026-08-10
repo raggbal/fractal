@@ -93,6 +93,7 @@ export const webviewMessages = {
   alignLeft: '왼쪽 정렬',
   alignCenter: '가운데 정렬',
   alignRight: '오른쪽 정렬',
+  tableToggleHeader: '헤더 행 표시/숨기기',
   // Status bar
   words: '단어',
   characters: '문자',
