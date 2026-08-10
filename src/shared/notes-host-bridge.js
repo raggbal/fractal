@@ -28,6 +28,14 @@
         linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
             api.postMessage({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null, sidePanelFilePath: sidePanelFilePath });
         },
+        // FR-TF-06a + 追報①修正 (§4m 2026-08-10): ツリー file item → sidepanel md 添付。
+        // Notes の sidepanel は面によって _mainHost が別物（outliner ページ = このブロック /
+        // main md = notesMarkdownHostBridge ブロック）のため、md editor 系委譲メソッドは
+        // **両ブロックに対で定義する**（片方だけだと SidePanelHostBridge の typeof ガードで
+        // silent no-op — 追報①の根本原因。TC-RG-02 がブロック単位で番人）。
+        attachTreeFileToMd: function(id, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
+        },
         // データ同期
         syncData: function(jsonString) {
             api.postMessage({ type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId });
@@ -213,6 +221,12 @@
     // 既存の outliner / sidepanel 経路には触らない。
     // 画像/ファイル保存先は _notes_md/{images,files}/ で共通管理。
     window.notesMarkdownHostBridge = Object.assign({}, shared, {
+        // §4m (2026-08-10 TC-RG-02): sidepanel 委譲メソッドは outlinerHostBridge ブロックと**対で定義**
+        // （Notes の _mainHost は面によって別物。片方欠落 = typeof ガード silent no-op — 追報①クラス）。
+        // main md 画面の sidepanel への tree-md D&D はこの定義が無く不達だった（TC-RG-02 が検出）。
+        linkMdAsSubpageForSidePanel: function(filePath, mdFileId, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null, sidePanelFilePath: sidePanelFilePath });
+        },
         // Markdown 編集の auto-save: outline.note 構造内の現在の .md ファイルへ書き込み
         syncContent: function(markdown) {
             api.postMessage({

@@ -598,6 +598,16 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         await loadEnv(page);
         await initEditorListeners(page);
 
+        // 実 notes-host-bridge.js の outlinerHostBridge ブロックからメソッド名集合を抽出
+        //（Notes outliner ページの sidepanel の実 _mainHost 面。TC-RG-02 と同じブロック分割規約）。
+        const bridgeSrc = r('shared/notes-host-bridge.js');
+        const outStart = bridgeSrc.indexOf('window.outlinerHostBridge = Object.assign');
+        const mdStart = bridgeSrc.indexOf('window.notesMarkdownHostBridge = Object.assign');
+        const outBlock = bridgeSrc.slice(outStart, mdStart);
+        const methodNames = Array.from(outBlock.matchAll(/^\s{8}(\w+): function/gm)).map((m) => (m as any)[1]);
+        expect(methodNames).toContain('attachTreeFileToMd'); // 追報①修正の前提（欠けていたら bridge 側が RED）
+        await page.evaluate((names) => { (window as any).__outlinerBridgeMethods = names; }, methodNames);
+
         const res = await page.evaluate(() => {
             const EI = (window as any).EditorInstance;
             EI.instances.length = 0;
@@ -605,9 +615,17 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
             const ed = document.createElement('div');
             ed.className = 'editor'; ed.contentEditable = 'true';
             c.appendChild(ed); document.body.appendChild(c);
-            // 実クラス: recorder main host を包む（メソッド集合は実装どおり = Proxy fake でない）
+            // §4m 是正（再オープン⑤）: _mainHost は Proxy recorder でなく「実 notes-host-bridge.js の
+            // outlinerHostBridge ブロックから抽出したメソッド名集合を持つ明示 stub」にする。
+            // Proxy は任意メソッド名に応答するため第 2 ホップ（実 bridge ブロックのメソッド欠落 =
+            // 追報①の根本原因）を検証できなかった。存在しないメソッドは undefined を返し
+            // typeof ガードの発火（silent no-op）を実挙動どおり再現する。
             const calls: any[] = [];
-            const mainHost = (window as any).__rec(calls, {});
+            const methodNames: string[] = (window as any).__outlinerBridgeMethods;
+            const mainHost: any = {};
+            for (const m of methodNames) {
+                mainHost[m] = function (...args: any[]) { calls.push({ type: m, args }); };
+            }
             const SPB = (window as any).SidePanelHostBridge;
             const bridge = new SPB(mainHost, '/notes/side.md', {});
             EI.instances.push({ container: c, host: bridge, options: { filePath: '/notes/side.md' } });

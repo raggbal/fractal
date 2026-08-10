@@ -108,3 +108,39 @@ test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler�
     // 欠落があれば (method, layer) を全件出して RED（数え漏れの位置を特定できる）
     expect(gaps, `配線漏れ:\n${gaps.join('\n')}`).toEqual([]);
 });
+
+// ─────────────────────────────────────────────────────────────
+// TC-RG-02 (FR-TF-19 §4m): wiring guard ブロック単位化 — 追報①（attachTreeFileToMd が
+// notesMarkdownHostBridge ブロックのみで outlinerHostBridge ブロックに欠落 = Notes sidepanel で
+// silent no-op）の恒久封じ。TC-RG-01 のファイル単位 grep はブロック内欠落を検出できない。
+// ─────────────────────────────────────────────────────────────
+
+// md editor が SidePanelHostBridge 経由（_mainHost）で呼びうるメソッド集合。
+// Notes の _mainHost は面によって別物（main md = notesMarkdownHostBridge / outliner ページ上の
+// sidepanel = outlinerHostBridge）のため、両ブロックに揃って定義されていなければならない。
+const SIDEPANEL_DELEGATED_METHODS = [
+    'linkMdAsSubpageForSidePanel',
+    'attachTreeFileToMd',
+];
+
+test('TC-RG-02 wiring(block): sidepanel 委譲メソッドが outlinerHostBridge / notesMarkdownHostBridge の両ブロックに定義済み', () => {
+    const bridge = read('src/shared/notes-host-bridge.js');
+    // ブロック分割: outlinerHostBridge ブロック = 26 行付近の Object.assign から
+    // notesMarkdownHostBridge の Object.assign まで / md ブロック = そこから notesHostBridge まで
+    const outStart = bridge.indexOf('window.outlinerHostBridge = Object.assign');
+    const mdStart = bridge.indexOf('window.notesMarkdownHostBridge = Object.assign');
+    const notesStart = bridge.indexOf('window.notesHostBridge =');
+    expect(outStart).toBeGreaterThan(-1);
+    expect(mdStart).toBeGreaterThan(outStart);
+    expect(notesStart).toBeGreaterThan(mdStart);
+    const outBlock = bridge.slice(outStart, mdStart);
+    const mdBlock = bridge.slice(mdStart, notesStart);
+
+    const gaps: string[] = [];
+    for (const m of SIDEPANEL_DELEGATED_METHODS) {
+        if (!outBlock.includes(`${m}: function`)) gaps.push(`outlinerHostBridge block: ${m}`);
+        if (!mdBlock.includes(`${m}: function`)) gaps.push(`notesMarkdownHostBridge block: ${m}`);
+    }
+    // counterfactual: 追報①時点の code base では outlinerHostBridge block: attachTreeFileToMd が gap = RED
+    expect(gaps, `ブロック単位の配線漏れ（追報①クラス）:\n${gaps.join('\n')}`).toEqual([]);
+});

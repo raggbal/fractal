@@ -563,4 +563,87 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(fs.statSync(entity).size).toBe(51 * 1024 * 1024);
     });
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン⑤ (2026-08-10): FR-TF-18 cross-note = source orphan 契約（TC-CN-06/07/08）
+    // ═══════════════════════════════════════════════════════════════════
+
+    test('TC-CN-07(tree-file): 別 note md への attach — dest コピー + dest 相対リンク + 元台帳除去 + 元実体温存', () => {
+        const { treeFileAttachToMdEditor } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        const fileId = fm.registerTreeFile('report.pdf', 'Report', null, 0, Buffer.from('PDFDATA'));
+        const srcEntity = fm.getTreeFilePath(fileId) as string;
+        // 別 note の md（sidepanel で開いている想定）
+        const dstMd = path.join(dstNote, 'target.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        treeFileAttachToMdEditor(fm, sender, fileId, dstMd);
+
+        // (a) dest note の files/ に実体コピー
+        const dstFiles = path.join(dstNote, 'files');
+        expect(fs.existsSync(path.join(dstFiles, 'report.pdf'))).toBe(true);
+        expect(fs.readFileSync(path.join(dstFiles, 'report.pdf'), 'utf8')).toBe('PDFDATA');
+        // (b) insertFileLink の markdownPath は dest 相対（`../` 跨ぎを含まない）
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins).toBeTruthy();
+        expect(String(ins.markdownPath).includes('..')).toBe(false); // counterfactual: 跨ぎリンク方式だと ../ 混入 = RED
+        expect(ins.markdownPath).toBe('files/report.pdf');
+        // (c) 元台帳除去
+        expect(fileItems(fm).length).toBe(0);
+        // (d) 元実体は温存（source orphan 契約 — counterfactual: move 方式だと消えて RED）
+        expect(fs.existsSync(srcEntity)).toBe(true);
+    });
+
+    test('TC-CN-08: 同一 note 内の attach は従来どおり所有移し替え（コピーなし・実体不動）', () => {
+        const { treeFileAttachToMdEditor } = mh;
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        const fileId = fm.registerTreeFile('doc.pdf', 'Doc', null, 0, Buffer.from('D'));
+        const entity = fm.getTreeFilePath(fileId) as string;
+        const md = path.join(dir, 'main.md');
+        fs.writeFileSync(md, '# main\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        treeFileAttachToMdEditor(fm, sender, fileId, md);
+
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/doc.pdf');
+        // コピーが発生していない（files/ には元の 1 実体のみ）
+        const filesDir = path.dirname(entity);
+        expect(fs.readdirSync(filesDir).length).toBe(1);
+        expect(fs.existsSync(entity)).toBe(true);
+        expect(fileItems(fm).length).toBe(0); // 移し替えで台帳は消える
+    });
+
+
+    test('TC-CN-06: tree md → 別 note sidepanel — 複製 + 元 tree item 除去（cmd+x 統一・旧 = 温存から変更）', () => {
+        const { linkMdAsSubpageForSidePanelCore } = mh;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const su = require('../../src/shared/md-subpage-utils');
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        const mdId = fm.registerMarkdownFile('# Doc\nbody', 'Doc', null, 0);
+        const srcMdPath = fm.getMdFilePath(mdId);
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        linkMdAsSubpageForSidePanelCore(fm, sender, srcMdPath, mdId, dstMd,
+            { saveDroppedMdAsSubpage: su.saveDroppedMdAsSubpage, resolveSubpageTitle: su.resolveSubpageTitle || ((c: string, n: string) => n) });
+
+        // 複製が dst md の隣にできる
+        const ins = msgs.find((m) => m.type === 'insertSubpageLink');
+        expect(ins).toBeTruthy();
+        expect(String(ins.markdownPath).includes('..')).toBe(false);
+        // 元 tree item 除去（counterfactual: 旧挙動 = 温存だと RED）
+        const items = Object.values(fm.getStructure().items) as any[];
+        expect(items.find((it) => it.id === mdId)).toBeFalsy();
+        // 元 md 実体は温存（source orphan 契約）
+        expect(fs.existsSync(srcMdPath)).toBe(true);
+    });
+
 });

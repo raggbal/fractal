@@ -2186,6 +2186,82 @@ export function treeFileAttachIntoMd(
  * main=currentFile / sidepanel=sidePanelFilePath 宛て。insertFileLink（markdownPath 相対・fileName=title）
  * を送り、webview 既存ハンドラが 📎 アンカーを挿入。main は sidePanelFilePath を付けない（誤送出防止）。
  */
+/**
+ * FR-TF-18 (§4l): drop 先 md が drag 元 note（fileManager の mainFolder）の外か判定する。
+ * cross-note なら「dest note へ実体コピー + dest 相対リンク + 元台帳除去 + 元実体温存」
+ * （= cmd+x cross 貼りの source orphan 契約。ADRL-D）。跨ぎ ../ リンクは cleanup の
+ * safeResolveUnderDir が棄却して実体を保護できないため絶対に書かない。
+ */
+export function isCrossNoteDrop(srcMainFolder: string, destMdAbsPath: string): boolean {
+    const rel = path.relative(path.resolve(srcMainFolder), path.resolve(destMdAbsPath));
+    return rel.startsWith('..') || path.isAbsolute(rel);
+}
+
+/**
+ * FR-TF-18 (§4l): file 実体を dest md の note へ必要ならコピーし、dest md からの相対リンクパスを返す。
+ * 同一 note なら実体不動で従来の相対化のみ（所有の移し替え）。
+ * @returns insertFileLink に使う markdownPath（cross-note でコピー失敗なら null = 中断）
+ */
+function resolveAttachTargetPath(
+    fileManager: NotesFileManager,
+    fileAbs: string,
+    destMdAbs: string
+): string | null {
+    if (!isCrossNoteDrop(fileManager.getMainFolderPath(), destMdAbs)) {
+        return path.relative(path.dirname(destMdAbs), fileAbs).replace(/\\/g, '/');
+    }
+    // cross-note: dest note の files/ へコピー（§4y/§4z 合流 — copyTreeFileEntityTo）
+    const destMainFolder = path.dirname(resolveFilesDirForMd(destMdAbs));
+    const dstName = NotesFileManager.copyTreeFileEntityTo(fileAbs, destMainFolder);
+    if (!dstName) { return null; }
+    const dstAbs = path.join(resolveFilesDirForMd(destMdAbs), dstName);
+    return path.relative(path.dirname(destMdAbs), dstAbs).replace(/\\/g, '/');
+}
+
+/**
+ * FR-B09/TASK-17 + FR-TF-18 (§4l): tree md item → sidepanel md D&D の解決 seam（provider クロージャから抽出）。
+ * 同一 note → コピーせず相対リンク + tree 除去（所有の移し替え）。
+ * 別 note → sidepanel md の隣へ複製 + **tree 除去**（FR-TF-18 = cmd+x source orphan 契約。
+ * 元 md 実体は温存 = orphan 化し元 note の Clean Notes が回収。旧挙動「元 tree item 温存」は再オープン⑤で変更）。
+ */
+export function linkMdAsSubpageForSidePanelCore(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    filePath: string,
+    mdFileId: string | null,
+    sidePanelFilePath: string,
+    deps: {
+        saveDroppedMdAsSubpage: (target: string, content: string, name: string) => { relPath: string; title: string };
+        resolveSubpageTitle: (content: string, name: string) => string;
+    }
+): void {
+    if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) { return; }
+    if (!fs.existsSync(filePath)) { return; }
+    if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) { return; }
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const crossNote = isCrossNoteDrop(fileManager.getMainFolderPath(), sidePanelFilePath);
+        let markdownPath: string;
+        let title: string;
+        if (crossNote) {
+            const r = deps.saveDroppedMdAsSubpage(sidePanelFilePath, content, path.basename(filePath));
+            markdownPath = r.relPath;
+            title = r.title;
+        } else {
+            markdownPath = path.relative(path.dirname(sidePanelFilePath), filePath).replace(/\\/g, '/');
+            title = deps.resolveSubpageTitle(content, path.basename(filePath));
+        }
+        sender.postMessage({ type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath });
+        // FR-TF-18: 同一 note / 別 note とも元 tree item を除去（別 note の md 実体は温存 = orphan）
+        if (mdFileId) {
+            fileManager.unregisterMdFromStructureOnly(mdFileId);
+            sendFileListWithStructure(fileManager, sender);
+        }
+    } catch (e) {
+        console.error('[Notes] linkMdAsSubpageForSidePanelCore error:', e);
+    }
+}
+
 export function treeFileAttachToMdEditor(
     fileManager: NotesFileManager,
     sender: NotesSender,
@@ -2201,7 +2277,9 @@ export function treeFileAttachToMdEditor(
         if (!target) { return; }
         const item: any = fileManager.getStructure().items[id];
         const title = String((item && item.title) || safeName);
-        const markdownPath = path.relative(path.dirname(target), fileAbs).replace(/\\/g, '/');
+        // FR-TF-18: cross-note は dest note へ実体コピー（元実体は温存 = source orphan 契約）
+        const markdownPath = resolveAttachTargetPath(fileManager, fileAbs, target);
+        if (markdownPath === null) { return; } // コピー失敗 — 台帳を触らず中断
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);

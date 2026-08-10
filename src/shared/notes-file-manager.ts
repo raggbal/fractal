@@ -1520,6 +1520,25 @@ export class NotesFileManager {
      * - src structure エントリを除去。
      * @returns dst での新 id / null（filename 無し・実体不在・copy 失敗）
      */
+    /**
+     * FR-TF-18 (§4l): file 実体を別 note の files/ へコピーする共有部品（sanitize §4y + uniquify §4z）。
+     * Move Other Note（src 掃除つき）と cross-note D&D（source orphan 契約 = src 不触）の両方が使う。
+     * @returns dst files/ 内の実体名（コピー失敗は null）
+     */
+    static copyTreeFileEntityTo(srcEntityAbs: string, dstFolderPath: string): string | null {
+        try {
+            const dstFilesDir = flatLayout.resolveMdFilesDir(dstFolderPath);
+            fs.mkdirSync(dstFilesDir, { recursive: true });
+            const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(srcEntityAbs));
+            const dstName = generateUniqueFileNamePreserving(dstFilesDir, sanitized);
+            fs.copyFileSync(srcEntityAbs, path.join(dstFilesDir, dstName));
+            return dstName;
+        } catch (e) {
+            console.error('[NotesFileManager] copyTreeFileEntityTo error:', e);
+            return null;
+        }
+    }
+
     private _moveTreeFileToOtherNote(itemId: string, item: NoteTreeFile, dstFolderPath: string): string | null {
         const structure = this.getStructure();
         const filename = item.filename;
@@ -1530,18 +1549,9 @@ export class NotesFileManager {
         const dstFm = new NotesFileManager(dstFolderPath);
         const dstStructure = dstFm.getStructure();
 
-        // dst files/ へ copy（§4y sanitize + §4z uniquify）
-        const dstFilesDir = flatLayout.resolveMdFilesDir(dstFolderPath);
-        let dstName = '';
-        try {
-            fs.mkdirSync(dstFilesDir, { recursive: true });
-            const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(filename));
-            dstName = generateUniqueFileNamePreserving(dstFilesDir, sanitized);
-            fs.copyFileSync(srcEntity, path.join(dstFilesDir, dstName));
-        } catch (e) {
-            console.error('[NotesFileManager] _moveTreeFileToOtherNote copy error:', e);
-            return null;
-        }
+        // dst files/ へ copy（§4y sanitize + §4z uniquify — §4l 共有部品）
+        const dstName = NotesFileManager.copyTreeFileEntityTo(srcEntity, dstFolderPath);
+        if (!dstName) { return null; }
 
         // dst 構造に登録（rootIds 先頭）
         let newId = itemId;
