@@ -1,6 +1,6 @@
 {
  "note": "pre-existing red baseline. Regenerate with scripts/check-known-red.sh --update <json>",
- "count": 102,
+ "count": 100,
  "tests": [
   {
    "file": "specs/backspace-list.spec.ts",
@@ -76,10 +76,6 @@
   },
   {
    "file": "specs/blockquote-backspace-multiline.spec.ts",
-   "title": "空の引用ブロック先頭でBackspace → 空段落に変換"
-  },
-  {
-   "file": "specs/blockquote-backspace-multiline.spec.ts",
    "title": "複数行の引用ブロック先頭でBackspace → 各行が個別の段落に変換"
   },
   {
@@ -93,10 +89,6 @@
   {
    "file": "specs/blockquote-codeblock-backspace-fix.spec.ts",
    "title": "3行の引用ブロックで先頭Backspace → 3つの段落に変換"
-  },
-  {
-   "file": "specs/blockquote-codeblock-operations.spec.ts",
-   "title": "空の引用でBackspace → 段落に変換"
   },
   {
    "file": "specs/codeblock-display-edit-mode.spec.ts",

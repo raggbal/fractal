@@ -12261,6 +12261,21 @@ class EditorInstance {
                 // Range.toString() ignores <br>, so cloneContents() + querySelector('br')
                 // are used to also detect leading BR sentinels.
                 if (tag === 'blockquote') {
+                    // FR-QB-01 (sprint 20260810-183054): 完全に空(1 行 0 文字)の blockquote は
+                    // pre(上の isEmpty 分岐)と対称に <p><br></p> 化して脱出する(ae57510 の
+                    // guard 化時に脱落した非対称の回復)。img/checkbox/table/pre/iframe は
+                    // textContent 空でも content 扱い — 資産 1:1 保全(generator_failures 2026-07-28)。
+                    const bqIsEmpty = (currentLine.textContent || '').trim() === ''
+                        && !currentLine.querySelector('img, input, table, pre, iframe');
+                    if (bqIsEmpty) {
+                        e.preventDefault();
+                        const p = document.createElement('p');
+                        p.innerHTML = '<br>';
+                        currentLine.replaceWith(p);
+                        setCursorToEnd(p);
+                        syncMarkdown();
+                        return;
+                    }
                     const contentRange = document.createRange();
                     contentRange.selectNodeContents(currentLine);
                     contentRange.setEnd(range.startContainer, range.startOffset);
