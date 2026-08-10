@@ -907,10 +907,21 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 }
 
 /* --- Files D&D drop zone overlay (v12) --- */
+/* TC-MX-10 (再オープン④): 点線は要素 outline でなく ::after オーバーレイで描く。
+ * outline (offset -2px = box 内側) は CSS paint order で子要素背景より先に描かれるため、
+ * is-focused 行の水色背景（tree box と同幅）が点線を上塗りして focus 行だけ枠が消えていた。
+ * ::after は最後の子として全 node 行の上に重なる（pointer-events:none で D&D 非干渉）。 */
 .outliner-tree-drop-zone-active {
     background-color: rgba(0, 120, 212, 0.04);
-    outline: 2px dashed var(--vscode-focusBorder, #007acc);
-    outline-offset: -2px;
+    position: relative;
+}
+.outliner-tree-drop-zone-active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px dashed var(--vscode-focusBorder, #007acc);
+    pointer-events: none;
+    z-index: 100;
 }
 
 /* --- Side Panel (right half) --- */
