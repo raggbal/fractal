@@ -7,6 +7,7 @@ import {
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
     registerExternalDroppedFileItem, registerExternalDroppedUris, linkMdAsSubpageForSidePanelCore,
+    attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -1270,8 +1271,7 @@ export class NotesEditorProvider {
                 linkMdAsSubpageForSidePanelCore(
                     fileManager,
                     { postMessage: (m: unknown) => panel.webview.postMessage(m) },
-                    filePath, mdFileId, sidePanelFilePath,
-                    { saveDroppedMdAsSubpage, resolveSubpageTitle }
+                    filePath, mdFileId, sidePanelFilePath
                 );
             },
             // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
@@ -2090,6 +2090,19 @@ export class NotesEditorProvider {
             // FR-TF-06a (§4f): tree file → 開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）
             attachTreeFileToMd: (id: string, sidePanelFilePath: string | null | undefined, senderRef: NotesSender) => {
                 treeFileAttachToMdEditor(fileManager, senderRef, id, sidePanelFilePath);
+            },
+            // FR-TF-19 (§4m): md editor drop 受け 4 経路（seam は notes-message-handler の pure-fs 関数）
+            attachOutNodeFileToMd: (payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                attachOutNodeFileToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            importOutPageNodeToMd: (payload: { outFileKey: string; nodeId: string; pageId: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                importOutPageNodeToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            attachMdFileLinkToMd: (payload: { href: string; sourceMdPath: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                attachMdFileLinkToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            linkMdSubpageToMd: (payload: { href: string; sourceMdPath: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                linkMdSubpageToMd(fileManager, senderRef, payload, sidePanelFilePath);
             },
             // FR-TF-05a (§4d): tree file → outliner の node 位置（dropFilesResult 互換 postback）
             notesImportTreeFileAtPosition: (id: string, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {

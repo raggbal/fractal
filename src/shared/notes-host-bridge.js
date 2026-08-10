@@ -36,6 +36,22 @@
         attachTreeFileToMd: function(id, sidePanelFilePath) {
             api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
         },
+        // FR-TF-19 (§4m 2026-08-10): outliner 📎/page node・md 📎/subpage リンク → md editor D&D の
+        // 受け 4 メソッド。sidePanelFilePath 省略 = main md（host が currentFile 宛て解決）。
+        // 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に対で定義（TC-RG-02 番人）。
+        attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        attachMdFileLinkToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachMdFileLinkToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        linkMdSubpageToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdSubpageToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+
         // データ同期
         syncData: function(jsonString) {
             api.postMessage({ type: 'syncData', content: jsonString, fileChangeId: currentFileChangeId });
@@ -372,6 +388,22 @@
         attachTreeFileToMd: function(id, sidePanelFilePath) {
             api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
         },
+        // FR-TF-19 (§4m 2026-08-10): outliner 📎/page node・md 📎/subpage リンク → md editor D&D の
+        // 受け 4 メソッド。sidePanelFilePath 省略 = main md（host が currentFile 宛て解決）。
+        // 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に対で定義（TC-RG-02 番人）。
+        attachOutNodeFileToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachOutNodeFileToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        importOutPageNodeToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'importOutPageNodeToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        attachMdFileLinkToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'attachMdFileLinkToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        linkMdSubpageToMd: function(payload, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdSubpageToMd', payload: payload, sidePanelFilePath: sidePanelFilePath || null });
+        },
+
         // v0.207.81: 画像 cmd+v が複数枚同時挿入されるバグの修正。
         // sidepanel-bridge-methods.js の onMessage は呼ばれるたびに
         // window.addEventListener('message') を新規登録する。Notes は .md ファイルを切替えるたび

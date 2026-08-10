@@ -802,4 +802,57 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(hasBlue).toBe(true);
     });
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン⑤ (2026-08-10): FR-TF-19 md editor drop 受け 4 MIME（TC-CN-02/03/05）
+    // ═══════════════════════════════════════════════════════════════════
+
+    // main editor へ drop して targetHost の新メソッドが正しい payload で呼ばれることを検証する共通形
+    async function dropOnMainEditor(page: Page, mime: string, payload: any): Promise<any[]> {
+        return await page.evaluate(({ m, p }) => {
+            const w = window as any;
+            w.__calls.length = 0;
+            const mc = document.querySelector('.markdown-container') as HTMLElement;
+            const ed = mc.querySelector('.editor') as HTMLElement;
+            const dt = new DataTransfer();
+            dt.setData(m, JSON.stringify(p));
+            ed.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 5, clientY: 5 }));
+            return w.__calls.slice();
+        }, { m: mime, p: payload });
+    }
+
+    test('TC-CN-02 out-node-file → md editor drop で attachOutNodeFileToMd が呼ばれる', async ({ page }) => {
+        await loadEnv(page);
+        await initEditorListeners(page);
+        const calls = await dropOnMainEditor(page, 'application/x-fractal-out-node-file', { outFileKey: '/n/a.out', nodeId: 'n1' });
+        const hit = calls.filter((c: any) => c.type === 'attachOutNodeFileToMd');
+        expect(hit.length).toBe(1);
+        expect(hit[0].args[0]).toEqual({ outFileKey: '/n/a.out', nodeId: 'n1' });
+    });
+
+    test('TC-CN-03 out-node-page → md editor drop で importOutPageNodeToMd が呼ばれる', async ({ page }) => {
+        await loadEnv(page);
+        await initEditorListeners(page);
+        const calls = await dropOnMainEditor(page, 'application/x-fractal-out-node-page', { outFileKey: '/n/a.out', nodeId: 'n1', pageId: 'p1', title: 'T' });
+        const hit = calls.filter((c: any) => c.type === 'importOutPageNodeToMd');
+        expect(hit.length).toBe(1);
+        expect(hit[0].args[0].pageId).toBe('p1');
+    });
+
+    test('TC-CN-05 md-filelink / md-subpage → md editor drop + self-drop no-op', async ({ page }) => {
+        await loadEnv(page);
+        await initEditorListeners(page);
+        // (a) 別 md からの filelink → attachMdFileLinkToMd
+        const a = await dropOnMainEditor(page, 'application/x-fractal-md-filelink', { href: 'files/x.pdf', sourceMdPath: '/other/src.md' });
+        expect(a.filter((c: any) => c.type === 'attachMdFileLinkToMd').length).toBe(1);
+        // (b) 別 md からの subpage → linkMdSubpageToMd
+        const b = await dropOnMainEditor(page, 'application/x-fractal-md-subpage', { href: 'sub.md', sourceMdPath: '/other/src.md', title: 'Sub' });
+        expect(b.filter((c: any) => c.type === 'linkMdSubpageToMd').length).toBe(1);
+        // (c) self-drop（sourceMdPath === 対象 md = /notes/main.md）→ no-op（counterfactual: ガードを外すと発火 = RED）
+        const c = await dropOnMainEditor(page, 'application/x-fractal-md-filelink', { href: 'files/x.pdf', sourceMdPath: '/notes/main.md' });
+        expect(c.filter((x: any) => x.type === 'attachMdFileLinkToMd').length).toBe(0);
+        const d = await dropOnMainEditor(page, 'application/x-fractal-md-subpage', { href: 'sub.md', sourceMdPath: '/notes/main.md', title: 'Sub' });
+        expect(d.filter((x: any) => x.type === 'linkMdSubpageToMd').length).toBe(0);
+    });
+
 });

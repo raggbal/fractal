@@ -7,7 +7,7 @@
  *   になる（= S3 側にコード変更が不要）。counterfactual: walkLocalDir が files/ サブディレクトリや
  *   outline.note を除外するようになると、tree file が sync から漏れて RED。
  *
- * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 12 個）が
+ * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 16 個）が
  *   4 層（webview 呼び出し元 → bridge → handler case → provider 実装）すべてに配線されていることを
  *   grep で数え漏れゼロ確認する permanent guard。designer_failures 2026-08-09（attachTreeFileToMd が
  *   散文宣言のみで bridge 一覧・TASK・TC から漏れた「配線台帳の突き合わせ漏れ」）の再発防止。
@@ -54,7 +54,7 @@ test('TC-S3-01 walkLocalDir は files/<name> と outline.note を列挙に含む
 });
 
 // ─────────────────────────────────────────────────────────────
-// TC-RG-01 (wiring): 新設 bridge メソッド 12 個の 4 層配線 数え漏れゼロ
+// TC-RG-01 (wiring): 新設 bridge メソッド 16 個の 4 層配線 数え漏れゼロ
 // ─────────────────────────────────────────────────────────────
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '../../', rel), 'utf8');
 
@@ -75,14 +75,18 @@ const BRIDGE_METHODS = [
     'deleteTreeFile',
     'notifyError',
     'notesRegisterExternalUris',
+    'attachOutNodeFileToMd',
+    'importOutPageNodeToMd',
+    'attachMdFileLinkToMd',
+    'linkMdSubpageToMd',
 ];
 
-test('TC-RG-01 wiring: 正典一覧が 12 個ちょうど（§8 と一致・重複なし）', () => {
-    expect(BRIDGE_METHODS.length).toBe(12);
-    expect(new Set(BRIDGE_METHODS).size).toBe(12);
+test('TC-RG-01 wiring: 正典一覧が 16 個ちょうど（§8 と一致・重複なし）', () => {
+    expect(BRIDGE_METHODS.length).toBe(16);
+    expect(new Set(BRIDGE_METHODS).size).toBe(16);
 });
 
-test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
+test('TC-RG-01 wiring: 全 16 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
     const bridge = read('src/shared/notes-host-bridge.js');
     const handler = read('src/shared/notes-message-handler.ts');
     const provider = read('src/notesEditorProvider.ts');
@@ -121,6 +125,10 @@ test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler�
 const SIDEPANEL_DELEGATED_METHODS = [
     'linkMdAsSubpageForSidePanel',
     'attachTreeFileToMd',
+    'attachOutNodeFileToMd',
+    'importOutPageNodeToMd',
+    'attachMdFileLinkToMd',
+    'linkMdSubpageToMd',
 ];
 
 test('TC-RG-02 wiring(block): sidepanel 委譲メソッドが outlinerHostBridge / notesMarkdownHostBridge の両ブロックに定義済み', () => {

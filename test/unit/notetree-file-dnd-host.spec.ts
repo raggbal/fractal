@@ -621,8 +621,6 @@ test.describe('tree file item host D&D 経路（seam）', () => {
 
     test('TC-CN-06: tree md → 別 note sidepanel — 複製 + 元 tree item 除去（cmd+x 統一・旧 = 温存から変更）', () => {
         const { linkMdAsSubpageForSidePanelCore } = mh;
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const su = require('../../src/shared/md-subpage-utils');
         const srcNote = track(mkNote());
         const dstNote = track(mkNote());
         const fm = new NotesFileManager(srcNote);
@@ -632,8 +630,7 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         fs.writeFileSync(dstMd, '# dst\n', 'utf8');
 
         const { sender, msgs } = spy();
-        linkMdAsSubpageForSidePanelCore(fm, sender, srcMdPath, mdId, dstMd,
-            { saveDroppedMdAsSubpage: su.saveDroppedMdAsSubpage, resolveSubpageTitle: su.resolveSubpageTitle || ((c: string, n: string) => n) });
+        linkMdAsSubpageForSidePanelCore(fm, sender, srcMdPath, mdId, dstMd);
 
         // 複製が dst md の隣にできる
         const ins = msgs.find((m) => m.type === 'insertSubpageLink');
@@ -644,6 +641,61 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(items.find((it) => it.id === mdId)).toBeFalsy();
         // 元 md 実体は温存（source orphan 契約）
         expect(fs.existsSync(srcMdPath)).toBe(true);
+    });
+
+
+    test('TC-CN-07(out-node-file): 別 note md への attach — dest コピー + 元 node 後始末 + 元実体温存', () => {
+        const { attachOutNodeFileToMd } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        // src note に .out + file 添付 node（共有 files/ 配下の実体）
+        const outPath = fm.createFile('OutDoc', null);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'att.pdf'), 'ATT');
+        injectOutNode(outPath, 'n1', 'att.pdf', path.relative(path.dirname(outPath), path.join(filesDir, 'att.pdf')));
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        attachOutNodeFileToMd(fm, sender, { outFileKey: outPath, nodeId: 'n1' }, dstMd);
+
+        // dest コピー + dest 相対リンク
+        expect(fs.existsSync(path.join(dstNote, 'files', 'att.pdf'))).toBe(true);
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/att.pdf');
+        expect(String(ins.markdownPath).includes('..')).toBe(false);
+        // 元 node は子なし → 削除（FR-TF-05b 規約）
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        expect(outData.nodes.n1).toBeUndefined();
+        // 元実体温存（source orphan 契約）
+        expect(fs.existsSync(path.join(filesDir, 'att.pdf'))).toBe(true);
+    });
+
+    test('TC-CN-07(md-filelink): 別 note md への attach — dest コピー + 元リンク除去 message + 元実体温存', () => {
+        const { attachMdFileLinkToMd } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote); // fileManager は受け側 note のものとは限らない — 関数は src md 基準で解決
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '[📎 x](files/x.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'x.pdf'), 'X');
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        attachMdFileLinkToMd(fm, sender, { href: 'files/x.pdf', sourceMdPath: srcMd }, dstMd);
+
+        expect(fs.existsSync(path.join(dstNote, 'files', 'x.pdf'))).toBe(true);
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/x.pdf');
+        // 元リンク除去 message
+        expect(msgs.find((m) => m.type === 'removeFileLink')).toBeTruthy();
+        // 元実体温存
+        expect(fs.existsSync(path.join(srcFiles, 'x.pdf'))).toBe(true);
     });
 
 });
