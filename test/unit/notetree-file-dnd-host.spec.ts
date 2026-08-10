@@ -563,4 +563,251 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(fs.statSync(entity).size).toBe(51 * 1024 * 1024);
     });
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン⑤ (2026-08-10): FR-TF-18 cross-note = source orphan 契約（TC-CN-06/07/08）
+    // ═══════════════════════════════════════════════════════════════════
+
+    test('TC-CN-07(tree-file): 別 note md への attach — dest コピー + dest 相対リンク + 元台帳除去 + 元実体温存', () => {
+        const { treeFileAttachToMdEditor } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        const fileId = fm.registerTreeFile('report.pdf', 'Report', null, 0, Buffer.from('PDFDATA'));
+        const srcEntity = fm.getTreeFilePath(fileId) as string;
+        // 別 note の md（sidepanel で開いている想定）
+        const dstMd = path.join(dstNote, 'target.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        treeFileAttachToMdEditor(fm, sender, fileId, dstMd);
+
+        // (a) dest note の files/ に実体コピー
+        const dstFiles = path.join(dstNote, 'files');
+        expect(fs.existsSync(path.join(dstFiles, 'report.pdf'))).toBe(true);
+        expect(fs.readFileSync(path.join(dstFiles, 'report.pdf'), 'utf8')).toBe('PDFDATA');
+        // (b) insertFileLink の markdownPath は dest 相対（`../` 跨ぎを含まない）
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins).toBeTruthy();
+        expect(String(ins.markdownPath).includes('..')).toBe(false); // counterfactual: 跨ぎリンク方式だと ../ 混入 = RED
+        expect(ins.markdownPath).toBe('files/report.pdf');
+        // (c) 元台帳除去
+        expect(fileItems(fm).length).toBe(0);
+        // (d) 元実体は温存（source orphan 契約 — counterfactual: move 方式だと消えて RED）
+        expect(fs.existsSync(srcEntity)).toBe(true);
+    });
+
+    test('TC-CN-08: 同一 note 内の attach は従来どおり所有移し替え（コピーなし・実体不動）', () => {
+        const { treeFileAttachToMdEditor } = mh;
+        const dir = track(mkNote());
+        const fm = new NotesFileManager(dir);
+        const fileId = fm.registerTreeFile('doc.pdf', 'Doc', null, 0, Buffer.from('D'));
+        const entity = fm.getTreeFilePath(fileId) as string;
+        const md = path.join(dir, 'main.md');
+        fs.writeFileSync(md, '# main\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        treeFileAttachToMdEditor(fm, sender, fileId, md);
+
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/doc.pdf');
+        // コピーが発生していない（files/ には元の 1 実体のみ）
+        const filesDir = path.dirname(entity);
+        expect(fs.readdirSync(filesDir).length).toBe(1);
+        expect(fs.existsSync(entity)).toBe(true);
+        expect(fileItems(fm).length).toBe(0); // 移し替えで台帳は消える
+    });
+
+
+    test('TC-CN-06: tree md → 別 note sidepanel — 複製 + 元 tree item 除去（cmd+x 統一・旧 = 温存から変更）', () => {
+        const { linkMdAsSubpageForSidePanelCore } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        const mdId = fm.registerMarkdownFile('# Doc\nbody', 'Doc', null, 0);
+        const srcMdPath = fm.getMdFilePath(mdId);
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        linkMdAsSubpageForSidePanelCore(fm, sender, srcMdPath, mdId, dstMd);
+
+        // 複製が dst md の隣にできる
+        const ins = msgs.find((m) => m.type === 'insertSubpageLink');
+        expect(ins).toBeTruthy();
+        expect(String(ins.markdownPath).includes('..')).toBe(false);
+        // 元 tree item 除去（counterfactual: 旧挙動 = 温存だと RED）
+        const items = Object.values(fm.getStructure().items) as any[];
+        expect(items.find((it) => it.id === mdId)).toBeFalsy();
+        // 元 md 実体は温存（source orphan 契約）
+        expect(fs.existsSync(srcMdPath)).toBe(true);
+    });
+
+
+    test('TC-CN-07(out-node-file): 別 note md への attach — dest コピー + 元 node 後始末 + 元実体温存', () => {
+        const { attachOutNodeFileToMd } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote);
+        // src note に .out + file 添付 node（共有 files/ 配下の実体）
+        const outPath = fm.createFile('OutDoc', null);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'att.pdf'), 'ATT');
+        injectOutNode(outPath, 'n1', 'att.pdf', path.relative(path.dirname(outPath), path.join(filesDir, 'att.pdf')));
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        attachOutNodeFileToMd(fm, sender, { outFileKey: outPath, nodeId: 'n1' }, dstMd);
+
+        // dest コピー + dest 相対リンク
+        expect(fs.existsSync(path.join(dstNote, 'files', 'att.pdf'))).toBe(true);
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/att.pdf');
+        expect(String(ins.markdownPath).includes('..')).toBe(false);
+        // 元 node は子なし → 削除（FR-TF-05b 規約）
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        expect(outData.nodes.n1).toBeUndefined();
+        // 元実体温存（source orphan 契約）
+        expect(fs.existsSync(path.join(filesDir, 'att.pdf'))).toBe(true);
+    });
+
+    test('TC-CN-07(md-filelink): 別 note md への attach — dest コピー + 元リンク除去 message + 元実体温存', () => {
+        const { attachMdFileLinkToMd } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(srcNote); // fileManager は受け側 note のものとは限らない — 関数は src md 基準で解決
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '[📎 x](files/x.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'x.pdf'), 'X');
+        const dstMd = path.join(dstNote, 'panel.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        attachMdFileLinkToMd(fm, sender, { href: 'files/x.pdf', sourceMdPath: srcMd }, dstMd);
+
+        expect(fs.existsSync(path.join(dstNote, 'files', 'x.pdf'))).toBe(true);
+        const ins = msgs.find((m) => m.type === 'insertFileLink');
+        expect(ins.markdownPath).toBe('files/x.pdf');
+        // 元リンク除去 message
+        expect(msgs.find((m) => m.type === 'removeFileLink')).toBeTruthy();
+        // 元実体温存
+        expect(fs.existsSync(path.join(srcFiles, 'x.pdf'))).toBe(true);
+    });
+
+
+    test('TC-CN-04(cross-note): 別 note md の 📎 リンク → outliner 取込で dest files/ へコピー + 元実体温存', () => {
+        const { importMdFileLinkIntoOut } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(dstNote); // drop 先 .out の note
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        // src note の md + files/ 実体
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '[📎 y](files/y.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'y.pdf'), 'Y');
+
+        const { sender, msgs } = spy();
+        importMdFileLinkIntoOut(fm, sender, { href: 'files/y.pdf', sourceMdPath: srcMd }, outId, null, null);
+
+        // dest note の files/ にコピー + dropFilesResult の filePath は dest 相対（../ 不含）
+        expect(fs.existsSync(path.join(dstNote, 'files', 'y.pdf'))).toBe(true);
+        const dr = msgs.find((m) => m.type === 'dropFilesResult');
+        expect(dr).toBeTruthy();
+        expect(String(dr.results[0].filePath).includes('..')).toBe(false);
+        // 元リンク除去 message + 元実体温存
+        expect(msgs.find((m) => m.type === 'removeFileLink')).toBeTruthy();
+        expect(fs.existsSync(path.join(srcFiles, 'y.pdf'))).toBe(true);
+    });
+
+
+    test('TC-CN-09(QUAL-1 番人): 末尾記号タイトル（# C#）が subpage 取込で切り捨てられない', () => {
+        const { linkMdSubpageToMd, importMdSubpageIntoOut } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        // note 内に C# タイトルの md + それへの subpage リンクを持つ src md
+        const subMd = path.join(note, 'csharp.md');
+        fs.writeFileSync(subMd, '# C#\nbody', 'utf8');
+        const srcMd = path.join(note, 'src.md');
+        fs.writeFileSync(srcMd, '[[C#]](csharp.md)\n', 'utf8');
+        const dstMd = path.join(note, 'dst.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        // (a) md→md: linkMdSubpageToMd の title が完全（counterfactual: inline 正規表現だと 'C' = RED）
+        const { sender: s1, msgs: m1 } = spy();
+        linkMdSubpageToMd(fm, s1, { href: 'csharp.md', sourceMdPath: srcMd }, dstMd);
+        const ins1 = m1.find((m) => m.type === 'insertSubpageLink');
+        expect(ins1.title).toBe('C#');
+
+        // (b) md→outliner: importMdSubpageIntoOut の page node text が完全
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        const { sender: s2 } = spy();
+        importMdSubpageIntoOut(fm, s2, { href: 'csharp.md', sourceMdPath: srcMd }, outId, null, null);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const pageNode = (Object.values(outData.nodes) as any[]).find((n) => n.isPage);
+        expect(pageNode.text).toBe('C#');
+    });
+
+    test('TC-CN-10(SYSALIGN-4): attachOutNodeFileToMd — 子あり node は filePath null 化で温存', () => {
+        const { attachOutNodeFileToMd } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        const outPath = fm.createFile('OutDoc', null);
+        const filesDir = fm.getMdFilesDirPath();
+        fs.mkdirSync(filesDir, { recursive: true });
+        fs.writeFileSync(path.join(filesDir, 'att2.pdf'), 'A2');
+        // 子ありの file node を注入
+        const data = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        data.nodes = data.nodes || {}; data.rootIds = data.rootIds || [];
+        data.nodes['pn'] = { id: 'pn', parentId: null, children: ['cn'], text: 'att2.pdf', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: path.relative(path.dirname(outPath), path.join(filesDir, 'att2.pdf')) };
+        data.nodes['cn'] = { id: 'cn', parentId: 'pn', children: [], text: 'child', isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: null };
+        data.rootIds.push('pn');
+        fs.writeFileSync(outPath, JSON.stringify(data, null, 2), 'utf8');
+        const dstMd = path.join(note, 'dst.md');
+        fs.writeFileSync(dstMd, '# dst\n', 'utf8');
+
+        const { sender } = spy();
+        attachOutNodeFileToMd(fm, sender, { outFileKey: outPath, nodeId: 'pn' }, dstMd);
+
+        const after = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        // 子あり → node 温存 + filePath null 化（counterfactual: 削除分岐に流れると child ごと消えて RED）
+        expect(after.nodes.pn).toBeTruthy();
+        expect(after.nodes.pn.filePath).toBe(null);
+        expect(after.nodes.cn).toBeTruthy();
+    });
+
+
+    test('TC-CN-12(SYSALIGN-3): importMdSubpageIntoOut 同一 note — md をコピーせず page node 化 + 元アンカー除去 message', () => {
+        const { importMdSubpageIntoOut } = mh;
+        const note = track(mkNote());
+        const fm = new NotesFileManager(note);
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        const subMd = path.join(note, 'topic.md');
+        fs.writeFileSync(subMd, '# Topic\nbody', 'utf8');
+        const srcMd = path.join(note, 'src.md');
+        fs.writeFileSync(srcMd, '[[Topic]](topic.md)\n', 'utf8');
+
+        const { sender, msgs } = spy();
+        importMdSubpageIntoOut(fm, sender, { href: 'topic.md', sourceMdPath: srcMd }, outId, null, null);
+
+        // 同一 note: md 複製なし（note 直下の md は topic/src の 2 本のまま）
+        const mds = fs.readdirSync(note).filter((f) => f.endsWith('.md'));
+        expect(mds.sort()).toEqual(['src.md', 'topic.md']);
+        // page node が pageId=topic で入る
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const pageNode = (Object.values(outData.nodes) as any[]).find((n) => n.isPage);
+        expect(pageNode.pageId).toBe('topic');
+        expect(pageNode.text).toBe('Topic');
+        // 元アンカー除去 message
+        expect(msgs.find((m) => m.type === 'removeSubpageLink')).toBeTruthy();
+    });
+
 });

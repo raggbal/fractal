@@ -6,7 +6,8 @@ import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
-    registerExternalDroppedFileItem, registerExternalDroppedUris,
+    registerExternalDroppedFileItem, registerExternalDroppedUris, linkMdAsSubpageForSidePanelCore,
+    attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -1263,44 +1264,15 @@ export class NotesEditorProvider {
             },
             // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md への D&D。
             // sidepanel は別 note の md を開きうる（page link 遷移・Recent）ので同一 note 判定が必須:
-            //   同一 note → コピーせずリンク + ツリー除去 / 別 note → sidepanel md の隣へ複製（除去なし）
+            //   同一 note → コピーせずリンク + ツリー除去 / 別 note → sidepanel md の隣へ複製 +
+            //   ツリー除去（FR-TF-18 = cmd+x source orphan 契約への統一。元 md 実体は温存 = orphan 化し
+            //   元 note の Clean Notes が回収。旧挙動「元 tree item 温存」は 2026-08-10 再オープン⑤で変更）
             linkMdAsSubpageForSidePanel: (filePath: string, mdFileId: string | null, sidePanelFilePath: string) => {
-                if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) return;
-                if (!fs.existsSync(filePath)) return;
-                if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) return;
-                try {
-                    const content = fs.readFileSync(filePath, 'utf8');
-                    const mainFolder = fileManager.getMainFolderPath();
-                    const spInThisNote = !path.relative(mainFolder, path.resolve(sidePanelFilePath)).startsWith('..');
-                    if (!spInThisNote) {
-                        const r = saveDroppedMdAsSubpage(sidePanelFilePath, content, path.basename(filePath));
-                        panel.webview.postMessage({
-                            type: 'insertSubpageLink',
-                            markdownPath: r.relPath,
-                            title: r.title,
-                            sidePanelFilePath,
-                        });
-                        return;
-                    }
-                    const relPath = path.relative(path.dirname(sidePanelFilePath), filePath).replace(/\\/g, '/');
-                    panel.webview.postMessage({
-                        type: 'insertSubpageLink',
-                        markdownPath: relPath,
-                        title: resolveSubpageTitle(content, path.basename(filePath)),
-                        sidePanelFilePath,
-                    });
-                    if (mdFileId) {
-                        fileManager.unregisterMdFromStructureOnly(mdFileId);
-                        panel.webview.postMessage({
-                            type: 'notesFileListChanged',
-                            fileList: fileManager.listFiles(),
-                            structure: fileManager.getStructureForWebview(),
-                            currentFile: fileManager.getCurrentFilePath(),
-                        });
-                    }
-                } catch (e) {
-                    console.error('[Notes] linkMdAsSubpageForSidePanel error:', e);
-                }
+                linkMdAsSubpageForSidePanelCore(
+                    fileManager,
+                    { postMessage: (m: unknown) => panel.webview.postMessage(m) },
+                    filePath, mdFileId, sidePanelFilePath
+                );
             },
             // FR-B07: Notes sidepanel md への .md D&D → subpage 登録（sidepanel md と同階層）
             saveMdAsSubpageForSidePanel: (dataUrl: string, fileName: string, sidePanelFilePath: string) => {
@@ -2118,6 +2090,19 @@ export class NotesEditorProvider {
             // FR-TF-06a (§4f): tree file → 開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）
             attachTreeFileToMd: (id: string, sidePanelFilePath: string | null | undefined, senderRef: NotesSender) => {
                 treeFileAttachToMdEditor(fileManager, senderRef, id, sidePanelFilePath);
+            },
+            // FR-TF-19 (§4m): md editor drop 受け 4 経路（seam は notes-message-handler の pure-fs 関数）
+            attachOutNodeFileToMd: (payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                attachOutNodeFileToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            importOutPageNodeToMd: (payload: { outFileKey: string; nodeId: string; pageId: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                importOutPageNodeToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            attachMdFileLinkToMd: (payload: { href: string; sourceMdPath: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                attachMdFileLinkToMd(fileManager, senderRef, payload, sidePanelFilePath);
+            },
+            linkMdSubpageToMd: (payload: { href: string; sourceMdPath: string; title?: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                linkMdSubpageToMd(fileManager, senderRef, payload, sidePanelFilePath);
             },
             // FR-TF-05a (§4d): tree file → outliner の node 位置（dropFilesResult 互換 postback）
             notesImportTreeFileAtPosition: (id: string, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {

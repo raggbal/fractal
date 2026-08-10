@@ -7,7 +7,7 @@
  *   になる（= S3 側にコード変更が不要）。counterfactual: walkLocalDir が files/ サブディレクトリや
  *   outline.note を除外するようになると、tree file が sync から漏れて RED。
  *
- * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 12 個）が
+ * TC-RG-01 (NFR-TF-03) wiring 部: 全新設 bridge メソッド（design/system.md §8 の正典 16 個）が
  *   4 層（webview 呼び出し元 → bridge → handler case → provider 実装）すべてに配線されていることを
  *   grep で数え漏れゼロ確認する permanent guard。designer_failures 2026-08-09（attachTreeFileToMd が
  *   散文宣言のみで bridge 一覧・TASK・TC から漏れた「配線台帳の突き合わせ漏れ」）の再発防止。
@@ -54,7 +54,7 @@ test('TC-S3-01 walkLocalDir は files/<name> と outline.note を列挙に含む
 });
 
 // ─────────────────────────────────────────────────────────────
-// TC-RG-01 (wiring): 新設 bridge メソッド 12 個の 4 層配線 数え漏れゼロ
+// TC-RG-01 (wiring): 新設 bridge メソッド 16 個の 4 層配線 数え漏れゼロ
 // ─────────────────────────────────────────────────────────────
 const read = (rel: string) => fs.readFileSync(path.join(__dirname, '../../', rel), 'utf8');
 
@@ -75,14 +75,18 @@ const BRIDGE_METHODS = [
     'deleteTreeFile',
     'notifyError',
     'notesRegisterExternalUris',
+    'attachOutNodeFileToMd',
+    'importOutPageNodeToMd',
+    'attachMdFileLinkToMd',
+    'linkMdSubpageToMd',
 ];
 
-test('TC-RG-01 wiring: 正典一覧が 12 個ちょうど（§8 と一致・重複なし）', () => {
-    expect(BRIDGE_METHODS.length).toBe(12);
-    expect(new Set(BRIDGE_METHODS).size).toBe(12);
+test('TC-RG-01 wiring: 正典一覧が 16 個ちょうど（§8 と一致・重複なし）', () => {
+    expect(BRIDGE_METHODS.length).toBe(16);
+    expect(new Set(BRIDGE_METHODS).size).toBe(16);
 });
 
-test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
+test('TC-RG-01 wiring: 全 16 bridge メソッドが webview→bridge→handler→provider の 4 層に配線済み（数え漏れゼロ）', () => {
     const bridge = read('src/shared/notes-host-bridge.js');
     const handler = read('src/shared/notes-message-handler.ts');
     const provider = read('src/notesEditorProvider.ts');
@@ -107,4 +111,63 @@ test('TC-RG-01 wiring: 全 12 bridge メソッドが webview→bridge→handler�
 
     // 欠落があれば (method, layer) を全件出して RED（数え漏れの位置を特定できる）
     expect(gaps, `配線漏れ:\n${gaps.join('\n')}`).toEqual([]);
+});
+
+// ─────────────────────────────────────────────────────────────
+// TC-RG-02 (FR-TF-19 §4m): wiring guard ブロック単位化 — 追報①（attachTreeFileToMd が
+// notesMarkdownHostBridge ブロックのみで outlinerHostBridge ブロックに欠落 = Notes sidepanel で
+// silent no-op）の恒久封じ。TC-RG-01 のファイル単位 grep はブロック内欠落を検出できない。
+// ─────────────────────────────────────────────────────────────
+
+// md editor が SidePanelHostBridge 経由（_mainHost）で呼びうるメソッド集合。
+// Notes の _mainHost は面によって別物（main md = notesMarkdownHostBridge / outliner ページ上の
+// sidepanel = outlinerHostBridge）のため、両ブロックに揃って定義されていなければならない。
+const SIDEPANEL_DELEGATED_METHODS = [
+    'linkMdAsSubpageForSidePanel',
+    'attachTreeFileToMd',
+    'attachOutNodeFileToMd',
+    'importOutPageNodeToMd',
+    'attachMdFileLinkToMd',
+    'linkMdSubpageToMd',
+];
+
+// FR-TF-20 (§4n): outliner → host の direct-dispatch メソッド（handler 内 seam を直接呼ぶため
+// provider 層を持たない = 3 層検査）。TC-RG-01 の 4 層リストと別建て。
+const DIRECT_DISPATCH_METHODS = ['importMdFileLinkIntoOut', 'importMdSubpageIntoOut'];
+
+test('TC-RG-01b wiring: direct-dispatch 2 メソッドが webview→bridge→handler の 3 層に配線済み', () => {
+    const bridge = read('src/shared/notes-host-bridge.js');
+    const handler = read('src/shared/notes-message-handler.ts');
+    const webviewSrc = read('src/webview/outliner.js');
+    const gaps: string[] = [];
+    for (const m of DIRECT_DISPATCH_METHODS) {
+        if (!bridge.includes(`${m}: function`)) gaps.push(`bridge(method-def): ${m}`);
+        if (!bridge.includes(`type: '${m}'`)) gaps.push(`bridge(postMessage-type): ${m}`);
+        if (!handler.includes(`case '${m}'`)) gaps.push(`handler(case): ${m}`);
+        if (!handler.includes(`export function ${m}`)) gaps.push(`handler(seam): ${m}`);
+        if (!webviewSrc.includes(m)) gaps.push(`webview(call-site): ${m}`);
+    }
+    expect(gaps, `配線漏れ:\n${gaps.join('\n')}`).toEqual([]);
+});
+
+test('TC-RG-02 wiring(block): sidepanel 委譲メソッドが outlinerHostBridge / notesMarkdownHostBridge の両ブロックに定義済み', () => {
+    const bridge = read('src/shared/notes-host-bridge.js');
+    // ブロック分割: outlinerHostBridge ブロック = 26 行付近の Object.assign から
+    // notesMarkdownHostBridge の Object.assign まで / md ブロック = そこから notesHostBridge まで
+    const outStart = bridge.indexOf('window.outlinerHostBridge = Object.assign');
+    const mdStart = bridge.indexOf('window.notesMarkdownHostBridge = Object.assign');
+    const notesStart = bridge.indexOf('window.notesHostBridge =');
+    expect(outStart).toBeGreaterThan(-1);
+    expect(mdStart).toBeGreaterThan(outStart);
+    expect(notesStart).toBeGreaterThan(mdStart);
+    const outBlock = bridge.slice(outStart, mdStart);
+    const mdBlock = bridge.slice(mdStart, notesStart);
+
+    const gaps: string[] = [];
+    for (const m of SIDEPANEL_DELEGATED_METHODS) {
+        if (!outBlock.includes(`${m}: function`)) gaps.push(`outlinerHostBridge block: ${m}`);
+        if (!mdBlock.includes(`${m}: function`)) gaps.push(`notesMarkdownHostBridge block: ${m}`);
+    }
+    // counterfactual: 追報①時点の code base では outlinerHostBridge block: attachTreeFileToMd が gap = RED
+    expect(gaps, `ブロック単位の配線漏れ（追報①クラス）:\n${gaps.join('\n')}`).toEqual([]);
 });

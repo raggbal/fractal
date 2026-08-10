@@ -2,17 +2,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as url from 'url';
 import { NotesFileManager } from './notes-file-manager';
-import { resolveSubpageTitle } from './md-subpage-utils';
+import { resolveSubpageTitle, saveDroppedMdAsSubpage } from './md-subpage-utils';
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
-import { resolveFilesDirForMd } from './flat-layout';
+import { resolveFilesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
-import { setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
 import { ExportOptions } from './md-export-core';
 
 /**
@@ -239,6 +239,14 @@ export interface NotesPlatformActions {
         index: number,
         sender: NotesSender
     ): Promise<void> | void;
+    /** FR-TF-19 (§4m): outliner 📎 file node → md editor 添付（cross-note は §4l source orphan 契約） */
+    attachOutNodeFileToMd?(payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-19 (§4m): outliner page node → md editor subpage リンク */
+    importOutPageNodeToMd?(payload: { outFileKey: string; nodeId: string; pageId: string; title?: string }, sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-19 (§4m): md 📎 リンク → 別 md editor へ添付移動 */
+    attachMdFileLinkToMd?(payload: { href: string; sourceMdPath: string }, sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    /** FR-TF-19 (§4m): md subpage リンク → 別 md editor へ移動 */
+    linkMdSubpageToMd?(payload: { href: string; sourceMdPath: string; title?: string }, sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
     /** FR-TF-17 (§4k): VS Code Explorer uri-list drop — uris[] を host fs 直読みで登録（50MB cap なし） */
     notesRegisterExternalUris?(
         uris: string[],
@@ -1390,7 +1398,42 @@ export async function handleNotesMessage(
             }
             break;
         }
+
+        // FR-TF-19 (§4m): md editor drop 受け 4 経路（main = sidePanelFilePath null / sidepanel = 実パス）
+        case 'attachOutNodeFileToMd': {
+            if (typeof platform.attachOutNodeFileToMd === 'function') {
+                await platform.attachOutNodeFileToMd(message.payload, message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
+        case 'importOutPageNodeToMd': {
+            if (typeof platform.importOutPageNodeToMd === 'function') {
+                await platform.importOutPageNodeToMd(message.payload, message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
+        case 'attachMdFileLinkToMd': {
+            if (typeof platform.attachMdFileLinkToMd === 'function') {
+                await platform.attachMdFileLinkToMd(message.payload, message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
+        case 'linkMdSubpageToMd': {
+            if (typeof platform.linkMdSubpageToMd === 'function') {
+                await platform.linkMdSubpageToMd(message.payload, message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
         // FR-TF-05a (§4d)
+        // FR-TF-20 (§4n): md リンク → outliner drop 位置に取込
+        case 'importMdFileLinkIntoOut': {
+            importMdFileLinkIntoOut(fileManager, sender, message.payload, message.outFileId, message.targetNodeId ?? null, message.position ?? null);
+            break;
+        }
+        case 'importMdSubpageIntoOut': {
+            importMdSubpageIntoOut(fileManager, sender, message.payload, message.outFileId, message.targetNodeId ?? null, message.position ?? null);
+            break;
+        }
         case 'notesImportTreeFileAtPosition': {
             if (typeof platform.notesImportTreeFileAtPosition === 'function') {
                 await platform.notesImportTreeFileAtPosition(
@@ -2186,6 +2229,273 @@ export function treeFileAttachIntoMd(
  * main=currentFile / sidepanel=sidePanelFilePath 宛て。insertFileLink（markdownPath 相対・fileName=title）
  * を送り、webview 既存ハンドラが 📎 アンカーを挿入。main は sidePanelFilePath を付けない（誤送出防止）。
  */
+/**
+ * FR-TF-18 (§4l): drop 先 md が drag 元 note（fileManager の mainFolder）の外か判定する。
+ * cross-note なら「dest note へ実体コピー + dest 相対リンク + 元台帳除去 + 元実体温存」
+ * （= cmd+x cross 貼りの source orphan 契約。ADRL-D）。跨ぎ ../ リンクは cleanup の
+ * safeResolveUnderDir が棄却して実体を保護できないため絶対に書かない。
+ */
+export function isCrossNoteDrop(srcMainFolder: string, destMdAbsPath: string): boolean {
+    const rel = path.relative(path.resolve(srcMainFolder), path.resolve(destMdAbsPath));
+    return rel.startsWith('..') || path.isAbsolute(rel);
+}
+
+/**
+ * FR-TF-18 (§4l): file 実体を dest md の note へ必要ならコピーし、dest md からの相対リンクパスを返す。
+ * 同一 note なら実体不動で従来の相対化のみ（所有の移し替え）。
+ * @returns insertFileLink に使う markdownPath（cross-note でコピー失敗なら null = 中断）
+ */
+function resolveAttachTargetPath(
+    fileManager: NotesFileManager,
+    fileAbs: string,
+    destMdAbs: string
+): string | null {
+    if (!isCrossNoteDrop(fileManager.getMainFolderPath(), destMdAbs)) {
+        return path.relative(path.dirname(destMdAbs), fileAbs).replace(/\\/g, '/');
+    }
+    // cross-note: dest note の files/ へコピー（§4y/§4z 合流 — copyTreeFileEntityTo）
+    const destMainFolder = path.dirname(resolveFilesDirForMd(destMdAbs));
+    const dstName = NotesFileManager.copyTreeFileEntityTo(fileAbs, destMainFolder);
+    if (!dstName) { return null; }
+    const dstAbs = path.join(resolveFilesDirForMd(destMdAbs), dstName);
+    return path.relative(path.dirname(destMdAbs), dstAbs).replace(/\\/g, '/');
+}
+
+/**
+ * FR-B09/TASK-17 + FR-TF-18 (§4l): tree md item → sidepanel md D&D の解決 seam（provider クロージャから抽出）。
+ * 同一 note → コピーせず相対リンク + tree 除去（所有の移し替え）。
+ * 別 note → sidepanel md の隣へ複製 + **tree 除去**（FR-TF-18 = cmd+x source orphan 契約。
+ * 元 md 実体は温存 = orphan 化し元 note の Clean Notes が回収。旧挙動「元 tree item 温存」は再オープン⑤で変更）。
+ */
+export function linkMdAsSubpageForSidePanelCore(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    filePath: string,
+    mdFileId: string | null,
+    sidePanelFilePath: string
+): void {
+    if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) { return; }
+    if (!fs.existsSync(filePath)) { return; }
+    if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) { return; }
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const crossNote = isCrossNoteDrop(fileManager.getMainFolderPath(), sidePanelFilePath);
+        let markdownPath: string;
+        let title: string;
+        if (crossNote) {
+            const r = saveDroppedMdAsSubpage(sidePanelFilePath, content, path.basename(filePath));
+            markdownPath = r.relPath;
+            title = r.title;
+        } else {
+            markdownPath = path.relative(path.dirname(sidePanelFilePath), filePath).replace(/\\/g, '/');
+            title = resolveSubpageTitle(content, path.basename(filePath));
+        }
+        sender.postMessage({ type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath });
+        // FR-TF-18: 同一 note / 別 note とも元 tree item を除去（別 note の md 実体は温存 = orphan）
+        if (mdFileId) {
+            fileManager.unregisterMdFromStructureOnly(mdFileId);
+            sendFileListWithStructure(fileManager, sender);
+        }
+    } catch (e) {
+        console.error('[Notes] linkMdAsSubpageForSidePanelCore error:', e);
+    }
+}
+
+/**
+ * FR-TF-19 (§4m): outliner 📎 file node → md editor 添付。
+ * node.filePath を outDir 基準 clamp → dest md へ 📎 リンク挿入（cross-note は §4l = dest コピー）→
+ * 元 node の後始末（FR-TF-05b 規約: 子なし削除 / 子あり filePath null 化）。元実体は温存（source orphan 契約）。
+ */
+export function attachOutNodeFileToMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { outFileKey: string; nodeId: string },
+    sidePanelFilePath?: string | null
+): void {
+    try {
+        if (!payload || !payload.outFileKey || !payload.nodeId) { return; }
+        const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
+        if (!target || !target.endsWith('.md')) { return; }
+        const outPath = resolveOutPathRef(fileManager, payload.outFileKey);
+        if (!outPath) { return; }
+        const outDir = path.dirname(outPath);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const node = outData.nodes && outData.nodes[payload.nodeId];
+        if (!node || !node.filePath) { return; }
+        const fileAbs = safeResolveUnderDir(outDir, node.filePath);
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        const title = String(node.text || path.basename(fileAbs));
+        const markdownPath = resolveAttachTargetPath(fileManager, fileAbs, target);
+        if (markdownPath === null) { return; }
+        const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
+        if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
+        sender.postMessage(msg);
+        // 元 node の後始末（treeFileRegisterFromOutNode と同一規約）
+        if (!node.children || node.children.length === 0) {
+            delete outData.nodes[payload.nodeId];
+            if (Array.isArray(outData.rootIds)) {
+                outData.rootIds = outData.rootIds.filter((id: string) => id !== payload.nodeId);
+            }
+            const parentNode = node.parentId ? outData.nodes[node.parentId] : null;
+            if (parentNode && Array.isArray(parentNode.children)) {
+                parentNode.children = parentNode.children.filter((id: string) => id !== payload.nodeId);
+            }
+        } else {
+            node.filePath = null;
+        }
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+    } catch (e) {
+        console.error('[Notes] attachOutNodeFileToMd error:', e);
+    }
+}
+
+/**
+ * FR-TF-19 (§4m): outliner page node → md editor に subpage リンク挿入。
+ * page md を解決（resolvePagesDir + clamp）→ dest md へ insertSubpageLink（cross-note = dest 隣へ複製 = §4l。
+ * 同一 note = 相対リンク）→ 元 page node は notesImportOutPageNodeAsMd と同じ「page 属性クリア・node 温存」。
+ * 元 page md 実体は温存（source orphan 契約）。
+ */
+export function importOutPageNodeToMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { outFileKey: string; nodeId: string; pageId: string; title?: string },
+    sidePanelFilePath?: string | null
+): void {
+    try {
+        if (!payload || !payload.outFileKey || !payload.pageId || !payload.nodeId) { return; }
+        const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
+        if (!target || !target.endsWith('.md')) { return; }
+        const outPath = resolveOutPathRef(fileManager, payload.outFileKey);
+        if (!outPath) { return; }
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const pagesDir = resolvePagesDir(outPath, fileManager.getMainFolderPath(), {
+            pageDir: outData.pageDir, imageDir: outData.imageDir, fileDir: outData.fileDir,
+        });
+        const srcMdPath = safeResolveUnderDir(pagesDir, `${payload.pageId}.md`);
+        if (!srcMdPath || !fs.existsSync(srcMdPath)) { return; }
+        const content = fs.readFileSync(srcMdPath, 'utf8');
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
+        const title = (h1 || payload.title || 'Untitled').trim();
+        let markdownPath: string;
+        if (isCrossNoteDrop(fileManager.getMainFolderPath(), target)) {
+            const r = saveDroppedMdAsSubpage(target, content, path.basename(srcMdPath));
+            markdownPath = r.relPath;
+        } else {
+            markdownPath = path.relative(path.dirname(target), srcMdPath).replace(/\\/g, '/');
+        }
+        const msg: Record<string, unknown> = { type: 'insertSubpageLink', markdownPath, title };
+        if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
+        sender.postMessage(msg);
+        // 元 page node の後始末（notesImportOutPageNodeAsMd と同一: page 属性クリア・node/children 温存）
+        const node = outData.nodes && outData.nodes[payload.nodeId];
+        if (node) {
+            node.isPage = false;
+            node.pageId = null;
+            node.text = '';
+            node.images = [];
+            fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+            if (fileManager.getCurrentFilePath() === outPath) {
+                fileManager.openFile(outPath);
+                sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+            }
+        }
+    } catch (e) {
+        console.error('[Notes] importOutPageNodeToMd error:', e);
+    }
+}
+
+/**
+ * FR-TF-19 (§4m): md 📎 file リンク → 別の md editor へ添付移動。
+ * href を resolveFilesDirForMd(sourceMdPath) 基準 clamp → dest md へ 📎 リンク挿入
+ * （cross-note = dest コピー §4l）→ 元 md からアンカー除去（removeFileLink）。元実体は温存。
+ */
+export function attachMdFileLinkToMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string },
+    sidePanelFilePath?: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
+        if (!target || !target.endsWith('.md')) { return; }
+        if (path.resolve(payload.sourceMdPath) === path.resolve(target)) { return; } // self-drop 防御（webview と二重）
+        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+        const rel = path.relative(filesDir, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
+        if (!fs.existsSync(abs)) { return; }
+        const title = path.basename(abs);
+        // cross-note 判定は source md の note 基準（fileManager は drag 元 note を持つとは限らないため
+        // src md の位置から note を導出して比較する）
+        const srcMainFolder = path.dirname(filesDir);
+        let markdownPath: string;
+        if (isCrossNoteDrop(srcMainFolder, target)) {
+            const destMainFolder = path.dirname(resolveFilesDirForMd(target));
+            const dstName = NotesFileManager.copyTreeFileEntityTo(abs, destMainFolder);
+            if (!dstName) { return; }
+            const dstAbs = path.join(resolveFilesDirForMd(target), dstName);
+            markdownPath = path.relative(path.dirname(target), dstAbs).replace(/\\/g, '/');
+        } else {
+            markdownPath = path.relative(path.dirname(target), abs).replace(/\\/g, '/');
+        }
+        const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
+        if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
+        sender.postMessage(msg);
+        sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] attachMdFileLinkToMd error:', e);
+    }
+}
+
+/**
+ * FR-TF-19 (§4m): md subpage リンク → 別の md editor へ移動。
+ * href を source md 基準で解決 → dest md へ insertSubpageLink（cross-note = dest 隣へ複製 §4l）→
+ * 元 md からアンカー除去（removeSubpageLink）。元 md 実体は温存（source orphan 契約）。
+ */
+export function linkMdSubpageToMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string; title?: string },
+    sidePanelFilePath?: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
+        if (!target || !target.endsWith('.md')) { return; }
+        if (path.resolve(payload.sourceMdPath) === path.resolve(target)) { return; }
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        // subpage md は source md の note 内に限る（note 外への相対 href は拒否）
+        const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+        const abs = safeResolveUnderDir(srcMainFolder, path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded)));
+        if (!abs || !abs.endsWith('.md') || !fs.existsSync(abs)) { return; }
+        if (path.resolve(abs) === path.resolve(target)) { return; } // リンク先 = drop 先 md の自己参照防止
+        const content = fs.readFileSync(abs, 'utf8');
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
+        const title = (h1 || payload.title || path.basename(abs)).trim();
+        let markdownPath: string;
+        if (isCrossNoteDrop(srcMainFolder, target)) {
+            const r = saveDroppedMdAsSubpage(target, content, path.basename(abs));
+            markdownPath = r.relPath;
+        } else {
+            markdownPath = path.relative(path.dirname(target), abs).replace(/\\/g, '/');
+        }
+        const msg: Record<string, unknown> = { type: 'insertSubpageLink', markdownPath, title };
+        if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
+        sender.postMessage(msg);
+        sender.postMessage({ type: 'removeSubpageLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] linkMdSubpageToMd error:', e);
+    }
+}
+
 export function treeFileAttachToMdEditor(
     fileManager: NotesFileManager,
     sender: NotesSender,
@@ -2201,7 +2511,9 @@ export function treeFileAttachToMdEditor(
         if (!target) { return; }
         const item: any = fileManager.getStructure().items[id];
         const title = String((item && item.title) || safeName);
-        const markdownPath = path.relative(path.dirname(target), fileAbs).replace(/\\/g, '/');
+        // FR-TF-18: cross-note は dest note へ実体コピー（元実体は温存 = source orphan 契約）
+        const markdownPath = resolveAttachTargetPath(fileManager, fileAbs, target);
+        if (markdownPath === null) { return; } // コピー失敗 — 台帳を触らず中断
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
@@ -2276,6 +2588,108 @@ export function treeFileImportAtPosition(
         sendFileListWithStructure(fileManager, sender);
     } catch (e) {
         console.error('[Notes] treeFileImportAtPosition error:', e);
+    }
+}
+
+/**
+ * FR-TF-20 (§4n): md 📎 file リンク → outliner の drop 位置に file 添付 node として取込。
+ * href を source md 基準 clamp → cross-note なら dest note（.out の note = fileManager）の files/ へコピー（§4l）→
+ * dropFilesResult 互換 postback（webview 既存処理が node 化）→ 元 md からアンカー除去。元実体温存。
+ */
+export function importMdFileLinkIntoOut(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string },
+    outFileId: string,
+    targetNodeId: string | null,
+    position: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+        const rel = path.relative(filesDir, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
+        if (!fs.existsSync(abs)) { return; }
+        const srcMainFolder = path.dirname(filesDir);
+        let entityAbs = abs;
+        // isCrossNoteDrop の第 2 引数は「dest 側の note 内の任意パス」でよい（比較は note フォルダのみ・
+        // ファイル名は不使用）。drop 先は .out で md パスが無いため mainFolder 直下のダミー名で判定する。
+        if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), '__dest__.md'))) {
+            // drop 先 .out の note（= fileManager の note）が src md の note と別 → dest files/ へコピー
+            const dstName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
+            if (!dstName) { return; }
+            entityAbs = path.join(fileManager.getMdFilesDirPath(), dstName);
+        }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        const baseDir = outPath ? path.dirname(outPath) : fileManager.getMainFolderPath();
+        const relPath = path.relative(baseDir, entityAbs).replace(/\\/g, '/');
+        sender.postMessage({
+            type: 'dropFilesResult',
+            results: [{ kind: 'file', ok: true, title: path.basename(entityAbs), filePath: relPath }],
+            targetNodeId: targetNodeId ?? null,
+            position: position ?? null,
+        });
+        sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] importMdFileLinkIntoOut error:', e);
+    }
+}
+
+/**
+ * FR-TF-20 (§4n): md subpage リンク → outliner の drop 位置に page node として取込。
+ * 取込は既存 notesImportMdIntoOut と同じ「md → page node」だが、対象 md は tree item でなく
+ * source md からの相対 href で解決する。同一 note = md をそのまま page 化（コピーなし・md は
+ * mainFolder 直下 flat 前提）/ cross-note = dest note へ複製してから page 化。元 md からアンカー除去。
+ */
+export function importMdSubpageIntoOut(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string; title?: string },
+    outFileId: string,
+    targetNodeId: string | null,
+    position: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+        const abs = safeResolveUnderDir(srcMainFolder, path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded)));
+        if (!abs || !abs.endsWith('.md') || !fs.existsSync(abs)) { return; }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        if (!outPath) { return; }
+        const content = fs.readFileSync(abs, 'utf8');
+        const h1 = extractFirstH1(content); // CommonMark 準拠（inline 正規表現は `# C#` を切り捨てる既知バグクラス — extractFirstH1 が正典）
+        const title = (h1 || payload.title || path.basename(abs, '.md')).trim();
+        // page md を dest note に確定（同一 note = 既存 md をそのまま / cross-note = 複製）
+        let pageMdAbs = abs;
+        if (isCrossNoteDrop(srcMainFolder, outPath)) {
+            const destDir = fileManager.getMainFolderPath();
+            const unique = generateUniqueFileNamePreserving(destDir, path.basename(abs));
+            pageMdAbs = path.join(destDir, unique);
+            fs.copyFileSync(abs, pageMdAbs);
+        }
+        const pageId = path.basename(pageMdAbs, '.md');
+        // .out へ page node 挿入（insertNodeAtDropPosition seam = FR-TF-14 と同じ）
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const newNodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        outData.nodes = outData.nodes || {};
+        outData.nodes[newNodeId] = {
+            id: newNodeId, parentId: null, children: [], text: title, tags: [],
+            isPage: true, pageId, collapsed: false, checked: null, subtext: '', images: [], filePath: null,
+        };
+        insertNodeAtDropPosition(outData, newNodeId, targetNodeId, position);
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        sender.postMessage({ type: 'removeSubpageLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] importMdSubpageIntoOut error:', e);
     }
 }
 

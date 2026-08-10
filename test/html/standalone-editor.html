@@ -7388,6 +7388,32 @@ class SidePanelHostBridge {
             this._mainHost.attachTreeFileToMd(id, this.filePath);
         }
     }
+    // FR-TF-19 (§4m 2026-08-10): outliner 📎/page node・md 📎/subpage リンク → sidepanel md D&D の
+    // 委譲 4 メソッド。宛先 = this.filePath（sidepanel の md）。cross-note 解決は host（FR-TF-18）。
+    attachOutNodeFileToMd(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachOutNodeFileToMd === 'function') {
+            this._mainHost.attachOutNodeFileToMd(payload, this.filePath);
+        }
+    }
+    importOutPageNodeToMd(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.importOutPageNodeToMd === 'function') {
+            this._mainHost.importOutPageNodeToMd(payload, this.filePath);
+        }
+    }
+    attachMdFileLinkToMd(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachMdFileLinkToMd === 'function') {
+            this._mainHost.attachMdFileLinkToMd(payload, this.filePath);
+        }
+    }
+    linkMdSubpageToMd(payload) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.linkMdSubpageToMd === 'function') {
+            this._mainHost.linkMdSubpageToMd(payload, this.filePath);
+        }
+    }
     // MD-45/46/47: drawio
     saveDrawioAndInsert(dataUrl, fileName) {
         if (this._onImageRequest) this._onImageRequest();
@@ -25218,6 +25244,59 @@ class EditorInstance {
                     typeof targetHost.linkMdAsSubpage === 'function') {
                     // US-09: id も渡す（host がツリーから md エントリを除去して真の subpage 化する）
                     targetHost.linkMdAsSubpage(treeMdPayload.filePath, treeMdPayload.id || null);
+                }
+                return;
+            }
+        } catch (err) { /* ignore */ }
+
+        // FR-TF-19 (§4m 2026-08-10 再オープン⑤): outliner / 他 md からの D&D 受け 4 分岐。
+        // 従来 md editor は tree 系 2 MIME しか受けず、outliner 📎/page node・md 📎/subpage リンクの
+        // drop は main md 宛でも素通りだった（マトリクス未実装セル）。dispatch 順は tree 系の後。
+        // main/sidepanel は targetHost 解決（findTargetEditor）で対称 — sidepanel は SidePanelHostBridge が
+        // 第 2 引数 filePath を積んで委譲する。cross-note の解決は host 側（FR-TF-18 §4l）。
+        try {
+            var onfRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-out-node-file') : '';
+            if (onfRaw) {
+                var onfPayload = null;
+                try { onfPayload = JSON.parse(onfRaw); } catch (err) { /* ignore */ }
+                if (onfPayload && onfPayload.outFileKey && onfPayload.nodeId &&
+                    typeof targetHost.attachOutNodeFileToMd === 'function') {
+                    targetHost.attachOutNodeFileToMd(onfPayload);
+                }
+                return;
+            }
+            var onpRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-out-node-page') : '';
+            if (onpRaw) {
+                var onpPayload = null;
+                try { onpPayload = JSON.parse(onpRaw); } catch (err) { /* ignore */ }
+                if (onpPayload && onpPayload.outFileKey && onpPayload.pageId &&
+                    typeof targetHost.importOutPageNodeToMd === 'function') {
+                    targetHost.importOutPageNodeToMd(onpPayload);
+                }
+                return;
+            }
+            // md リンク 2 種: self-drop（自 md のリンクを自分に落とす）は no-op（リンク消失・重複防止）
+            var selfMdPath = (t.instance.host && t.instance.host.filePath) ||
+                (t.instance.options && t.instance.options.filePath) || '';
+            var mflRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-filelink') : '';
+            if (mflRaw) {
+                var mflPayload = null;
+                try { mflPayload = JSON.parse(mflRaw); } catch (err) { /* ignore */ }
+                if (mflPayload && mflPayload.href && mflPayload.sourceMdPath &&
+                    mflPayload.sourceMdPath !== selfMdPath &&
+                    typeof targetHost.attachMdFileLinkToMd === 'function') {
+                    targetHost.attachMdFileLinkToMd(mflPayload);
+                }
+                return;
+            }
+            var mspRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-subpage') : '';
+            if (mspRaw) {
+                var mspPayload = null;
+                try { mspPayload = JSON.parse(mspRaw); } catch (err) { /* ignore */ }
+                if (mspPayload && mspPayload.href && mspPayload.sourceMdPath &&
+                    mspPayload.sourceMdPath !== selfMdPath &&
+                    typeof targetHost.linkMdSubpageToMd === 'function') {
+                    targetHost.linkMdSubpageToMd(mspPayload);
                 }
                 return;
             }
