@@ -8795,6 +8795,40 @@ class EditorInstance {
                 shiftKey: e.shiftKey
             });
             
+            // FR-LC-08b (sprint 20260810-183054 再オープン①): li 内 pre/blockquote 内の
+            // Shift+Enter = ブロック直後に空継続行を作ってカーソル脱出(top-level blockquote の
+            // Shift+Enter 脱出と同型を li 内に配線)。ブロック内改行は通常 Enter が担う。
+            if (e.shiftKey && listItem && !tableCell) {
+                const exitBlock = (preElement && listItem.contains(preElement) && preElement.closest('li') === listItem)
+                    ? preElement
+                    : (blockquoteElement && listItem.contains(blockquoteElement) && blockquoteElement.closest('li') === listItem)
+                        ? blockquoteElement : null;
+                if (exitBlock) {
+                    e.preventDefault();
+                    if (exitBlock.tagName === 'PRE' && exitBlock.getAttribute('data-mode') === 'edit') {
+                        enterDisplayMode(exitBlock);
+                    }
+                    const exBr = document.createElement('br');
+                    exitBlock.after(exBr);
+                    // 後続に実コンテンツが無ければ trailing <br> 対策の 2 個目(FR-LC-02 と同規則)
+                    let exHasAfter = false;
+                    for (let exN = exBr.nextSibling; exN; exN = exN.nextSibling) {
+                        if (exN.nodeType === 3 && exN.textContent !== '') { exHasAfter = true; break; }
+                        if (exN.nodeType === 1 && exN.tagName !== 'UL' && exN.tagName !== 'OL' && exN.tagName !== 'BR') { exHasAfter = true; break; }
+                    }
+                    if (!exHasAfter) exBr.after(document.createElement('br'));
+                    const exNr = document.createRange();
+                    exNr.setStartAfter(exBr);
+                    exNr.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(exNr);
+                    undoManager.saveSnapshot();
+                    markAsEdited();
+                    syncMarkdown();
+                    return;
+                }
+            }
+
             // sprint 20260806-035923 (FR-LC-02): リスト内 Shift+Enter = 項目内改行（継続行）。
             // li 内に <br> を挿入して同一項目の 2 行目にする（従来の「新 li 作成」は Enter と
             // 重複していたため置換 = ADRL 記録済み）。pre / table 内は従来どおり。
@@ -10512,6 +10546,11 @@ class EditorInstance {
                             logger.log('Next element:', next ? next.tagName : 'null');
                             if (next) {
                                 navigateToAdjacentElement(next, 'down', false);
+                            } else if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                                // FR-LC-08b (sprint 20260810-183054 再オープン①): li 内ブロックでは
+                                // ↓ で継続行/段落を自動追加しない(ブロック末尾に留まる)。
+                                // 下へ出たいときは Shift+Enter(ブロック直後に空継続行 + 脱出)。
+                                logger.log('In-li block: ArrowDown at last line is a no-op (FR-LC-08b)');
                             } else {
                                 // No next element, create a new paragraph
                                 logger.log('Creating new paragraph');
@@ -11438,12 +11477,102 @@ class EditorInstance {
             // Selection deletion is handled in the early Backspace handler (around line 4083)
             // This handler only deals with collapsed selection
             if (!range.collapsed) return;
-            
+
+            // FR-LC-08c (sprint 20260810-183054 再オープン①): li 内 pre/blockquote の Backspace。
+            // getCurrentLine() は editor 直下まで walk-up するため li 内ブロックでは currentLine=UL
+            // となり、下の pre/blockquote 分岐に不達 → リスト系ハンドラが誤発動して親リスト解除・
+            // 上行統合が起きていた(手動テスト 2026-08-11)。closest でブロックを先に判定する。
+            {
+                const bsEl = range.startContainer.nodeType === 3
+                    ? range.startContainer.parentElement : range.startContainer;
+                const bsBlock = bsEl && bsEl.closest ? bsEl.closest('pre, blockquote') : null;
+                const bsLi = bsBlock && bsBlock.closest ? bsBlock.closest('li') : null;
+                if (bsBlock && bsLi && editor.contains(bsLi)) {
+                    if (bsBlock.tagName === 'PRE') {
+                        const bsCode = bsBlock.querySelector('code');
+                        const bsPlain = bsCode ? getCodePlainText(bsCode) : '';
+                        if (bsPlain === '' || bsPlain === '\n') {
+                            // 空の li 内 pre = ブロックだけ除去して継続行(空行)に戻る
+                            // (top-level の <p><br></p> 置換は li 内では構造破壊になるため置換しない)
+                            e.preventDefault();
+                            const bsBr = document.createElement('br');
+                            bsBlock.replaceWith(bsBr);
+                            const bsR = document.createRange();
+                            bsR.setStartAfter(bsBr);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        // 非空: 絶対先頭なら guard(top-level と同型)、それ以外は default(1 文字/改行削除)
+                        if (bsCode) {
+                            const bsRange = document.createRange();
+                            bsRange.selectNodeContents(bsCode);
+                            bsRange.setEnd(range.startContainer, range.startOffset);
+                            const bsBefore = bsRange.cloneContents();
+                            if ((bsBefore.textContent || '').length === 0 && !bsBefore.querySelector('br')) {
+                                e.preventDefault();
+                                return;
+                            }
+                        }
+                        return; // default に任せる(リスト系ハンドラへは流さない)
+                    }
+                    // BLOCKQUOTE
+                    const bsBqEmpty = (bsBlock.textContent || '').trim() === ''
+                        && !bsBlock.querySelector('img, input, table, pre, iframe');
+                    if (bsBqEmpty) {
+                        e.preventDefault();
+                        const bsBr = document.createElement('br');
+                        bsBlock.replaceWith(bsBr);
+                        const bsR = document.createRange();
+                        bsR.setStartAfter(bsBr);
+                        bsR.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(bsR);
+                        syncMarkdown();
+                        return;
+                    }
+                    // 非空 blockquote: 絶対先頭 guard(top-level :12172 系と同型)
+                    const bsCr = document.createRange();
+                    bsCr.selectNodeContents(bsBlock);
+                    bsCr.setEnd(range.startContainer, range.startOffset);
+                    const bsB = bsCr.cloneContents();
+                    if ((bsB.textContent || '').length === 0 && !bsB.querySelector('br')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    return; // default に任せる
+                }
+
+                // FR-LC-08c: li 内ブロック「直後」の継続行先頭での Backspace = 直前の <br> を
+                // 1 個消すだけ(継続行結合)。ブロックは不可侵・リスト系ハンドラに流さない
+                // (流すと li 全体が上行に統合される誤動作 — 手動テスト実測)。
+                if (!bsBlock && bsEl && bsEl.closest) {
+                    const bsCurLi = bsEl.closest('li');
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer.nodeType === 3
+                        && range.startContainer.parentNode === bsCurLi
+                        && range.startOffset === 0) {
+                        let bsPrev = range.startContainer.previousSibling;
+                        if (bsPrev && bsPrev.nodeName === 'BR') {
+                            const bsBeforeBr = bsPrev.previousSibling;
+                            if (bsBeforeBr && (bsBeforeBr.nodeName === 'PRE' || bsBeforeBr.nodeName === 'BLOCKQUOTE')) {
+                                e.preventDefault();
+                                bsPrev.remove();
+                                syncMarkdown();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Try state machine handler first
             if (handleBackspaceOnList(e, sel, range)) {
                 return;
             }
-            
+
             const currentLine = getCurrentLine();
             if (!currentLine) return;
 

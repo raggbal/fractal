@@ -453,3 +453,233 @@ test.describe('In-li block parse and roundtrip (FR-LC-07)', () => {
         expect(iChild).toBeGreaterThan(iTail);
     });
 });
+
+// ---- 再オープン①(2026-08-11): FR-LC-08 li 内ブロックの編集契約 ----
+
+test.describe('In-li block editing contract (FR-LC-08)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    async function loadWithBq(page: Page) {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item one\n  > quoted\n- item two');
+            await new Promise(r => setTimeout(r, 300));
+        });
+    }
+
+    async function cursorToEndOf(page: Page, selector: string) {
+        await page.evaluate((sel_) => {
+            const el = document.querySelector(sel_) as HTMLElement;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }, selector);
+    }
+
+    // TC-ILB-19: li 内 blockquote 内で Shift+Enter → ブロック直後に空継続行 + カーソル脱出
+    test('TC-ILB-19 shift+enter inside in-li blockquote exits to new continuation line', async ({ page }) => {
+        await loadWithBq(page);
+        await cursorToEndOf(page, '#editor li blockquote');
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => {
+            const bq = document.querySelector('#editor li blockquote')!;
+            const anchor = window.getSelection()!.anchorNode;
+            const inBq = !!(anchor && (anchor.nodeType === 1
+                ? (anchor as Element).closest('blockquote')
+                : anchor.parentElement?.closest('blockquote')));
+            return {
+                bqText: bq.textContent,
+                cursorInBq: inBq,
+                liCount: document.querySelectorAll('#editor li').length,
+            };
+        });
+        expect(state.bqText).toBe('quoted');      // blockquote 内に br が入らない
+        expect(state.cursorInBq).toBe(false);      // カーソルはブロック外(継続行)
+        expect(state.liCount).toBe(2);
+    });
+
+    // TC-ILB-17: 1 個目の後に 2 個目のブロックを作成できる(連続作成)
+    // counterfactual: 現行は Shift+Enter が bq 内に br を入れるため 2 個目が作れない = RED
+    test('TC-ILB-17 second block can be created after the first in same li', async ({ page }) => {
+        await loadWithBq(page);
+        await cursorToEndOf(page, '#editor li blockquote');
+        await page.keyboard.press('Shift+Enter'); // 脱出 → 空継続行
+        await page.waitForTimeout(150);
+        await page.keyboard.type('```');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        const state = await page.evaluate(() => ({
+            bqInLi: document.querySelectorAll('#editor li blockquote').length,
+            preInLi: document.querySelectorAll('#editor li pre').length,
+            liCount: document.querySelectorAll('#editor li').length,
+        }));
+        expect(state.bqInLi).toBe(1);
+        expect(state.preInLi).toBe(1); // 2 個目(pre)が同 li 内に生成
+        expect(state.liCount).toBe(2);
+    });
+
+    // TC-ILB-18: li 内 pre 最終行の ↓ で継続行/段落が自動追加されない
+    // counterfactual: 現行は li 内に <p><br></p> が追加される = RED
+    test('TC-ILB-18 arrow-down at last line of in-li pre does not add lines', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item one\n  ```\n  code\n  ```\n- item two');
+            await new Promise(r => setTimeout(r, 300));
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        const before = await page.evaluate(() =>
+            document.querySelector('#editor li')!.childNodes.length);
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(200);
+        const after = await page.evaluate(() => ({
+            childCount: document.querySelector('#editor li')!.childNodes.length,
+            pCount: document.querySelectorAll('#editor li p').length,
+        }));
+        expect(after.pCount).toBe(0);              // p が湧かない
+        expect(after.childCount).toBe(before);     // DOM 不変
+    });
+
+    // TC-ILB-20: li 内 pre 内部(非空)の Backspace = 文字 1 個削除のみ(リスト不変)
+    // counterfactual: 現行はリスト系ハンドラ誤発動で親リスト解除・上行統合 = RED
+    test('TC-ILB-20 backspace inside non-empty in-li pre deletes one char only', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item one\n  ```\n  code\n  ```\n- item two');
+            await new Promise(r => setTimeout(r, 300));
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            listCount: document.querySelectorAll('#editor ul, #editor ol').length,
+            liCount: document.querySelectorAll('#editor li').length,
+            preInLi: document.querySelectorAll('#editor li pre').length,
+            codeText: document.querySelector('#editor li pre code')?.textContent,
+        }));
+        expect(state.listCount).toBeGreaterThanOrEqual(1); // リスト生存
+        expect(state.liCount).toBe(2);                     // li 統合が起きない
+        expect(state.preInLi).toBe(1);
+        expect(state.codeText).toBe('cod');                // 1 文字だけ消えた
+    });
+
+    // TC-ILB-21: 空の li 内ブロックで Backspace → ブロックだけ消えて継続行に戻る(li 不変)
+    // counterfactual: 現行はリスト破壊 or 何も起きない = RED
+    test('TC-ILB-21 backspace in empty in-li block removes only the block', async ({ page }) => {
+        // 空 blockquote を li 内に作る(palette 経由)
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item one\n  cont\n- item two');
+            await new Promise(r => setTimeout(r, 300));
+            const li = document.querySelector('#editor li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(li);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(150);
+        await page.evaluate(() => { (window as any).__paletteActionForTest?.('quote'); });
+        await page.waitForTimeout(200);
+        const mid = await page.evaluate(() => ({
+            bqInLi: document.querySelectorAll('#editor li blockquote').length,
+        }));
+        expect(mid.bqInLi).toBe(1);
+        // 空のまま Backspace
+        await cursorToEndOf(page, '#editor li blockquote');
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            bqInLi: document.querySelectorAll('#editor li blockquote').length,
+            liCount: document.querySelectorAll('#editor li').length,
+            liText: document.querySelector('#editor li')?.textContent?.trim(),
+            pInLi: document.querySelectorAll('#editor li p').length,
+        }));
+        expect(state.bqInLi).toBe(0);      // ブロックだけ消えた
+        expect(state.liCount).toBe(2);     // リスト構造不変
+        expect(state.pInLi).toBe(0);       // p 化しない(継続行に戻る)
+        expect(state.liText).toContain('item one'); // li 本文は不変
+    });
+
+    // TC-ILB-22: li 内 blockquote 非空・先頭の Backspace = guard(何もしない・リスト不変)
+    test('TC-ILB-22 backspace at start of non-empty in-li blockquote is guarded', async ({ page }) => {
+        await loadWithBq(page);
+        await page.evaluate(() => {
+            const bq = document.querySelector('#editor li blockquote')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(bq.firstChild!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            bqText: document.querySelector('#editor li blockquote')?.textContent,
+            liCount: document.querySelectorAll('#editor li').length,
+        }));
+        expect(state.bqText).toBe('quoted'); // 文字が消えない(guard)
+        expect(state.liCount).toBe(2);       // リスト不変
+    });
+
+    // TC-ILB-23: ブロック直後の継続行での Backspace = 継続行結合のみ(ブロック・リスト不変)
+    test('TC-ILB-23 backspace on continuation line after block keeps block and list', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item one\n  > quoted\n  tail\n- item two');
+            await new Promise(r => setTimeout(r, 300));
+            // tail(ブロック直後の継続行)の先頭にカーソル
+            const li = document.querySelector('#editor li')!;
+            let target: Node | null = null;
+            let seenBq = false;
+            for (const child of Array.from(li.childNodes)) {
+                if (child.nodeName === 'BLOCKQUOTE') { seenBq = true; continue; }
+                if (seenBq && child.nodeType === 3 && (child.textContent || '').trim()) {
+                    target = child; break;
+                }
+            }
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(target!, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            bqInLi: document.querySelectorAll('#editor li blockquote').length,
+            bqText: document.querySelector('#editor li blockquote')?.textContent,
+            liCount: document.querySelectorAll('#editor li').length,
+            liText: document.querySelector('#editor li')?.textContent,
+        }));
+        expect(state.bqInLi).toBe(1);           // ブロック不可侵
+        expect(state.bqText).toBe('quoted');
+        expect(state.liCount).toBe(2);          // 親リスト解除・上行統合が起きない
+        expect(state.liText).toContain('tail'); // tail は残る(結合 or そのまま)
+    });
+});
