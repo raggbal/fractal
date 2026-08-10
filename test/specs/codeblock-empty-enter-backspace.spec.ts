@@ -166,3 +166,46 @@ test.describe('Empty code block Enter/Backspace symmetry (FR-CB-01)', () => {
         expect(state.hasPre).toBe(true);
     });
 });
+
+// TC-CB-05 (FR-CB-01 × FR-LC-06 §5d smoke): li 内コードブロック内での Enter/Backspace が
+// 例外なく既存挙動で動く(li 境界特有の編集バグ修正はスコープ外 — smoke のみ)
+test.describe('In-li code block editing smoke (TC-CB-05)', () => {
+    test('TC-CB-05 enter and backspace inside in-li pre behave like top-level', async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+        const errors: string[] = [];
+        page.on('pageerror', err => errors.push(err.message));
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- item\n  ```\n  code line\n  ```');
+            await new Promise(r => setTimeout(r, 300));
+        });
+        // li 内 pre を編集モードにして末尾で Enter → タイプ → Backspace
+        await page.evaluate(async () => {
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            await new Promise(r => setTimeout(r, 100));
+        });
+        await page.keyboard.press('Enter');
+        await page.keyboard.type('x');
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            preInLi: document.querySelectorAll('#editor li pre').length,
+            liCount: document.querySelectorAll('#editor li').length,
+            codeText: document.querySelector('#editor li pre code')?.textContent,
+        }));
+        expect(state.preInLi).toBe(1);          // pre は li 内に生存
+        expect(state.liCount).toBe(1);          // リスト構造不変
+        expect(state.codeText).toContain('code line'); // 内容保持
+        expect(errors).toHaveLength(0);          // 例外なし
+    });
+});
