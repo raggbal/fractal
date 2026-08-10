@@ -2657,6 +2657,11 @@ class EditorInstance {
         let codeFenceChar = ''; // Track the fence character (backtick or tilde)
         let inTable = false;
         let tableRows = [];
+        // FR-LC-07 (sprint 20260810-183054): li 内ブロック構築の第 3 状態。
+        // listStack を閉じずに blockquote/fence を回収する({ type:'bq'|'fence', lines, indent, ... })。
+        // 閉じ条件: bq = 「> で始まらない行 or インデント不足」/ fence = 閉じ fence。
+        // 文書末尾で開いたままなら flush(データ喪失なし・安全側 = TC-ILB-15)。
+        let inLiBlock = null;
         let pendingTableColWidths = null; // Persistence (option C): widths for next table
         let pendingHeaderlessTable = false; // FR-TBL-02: headerless marker seen for next table
         let inBlockquote = false;
@@ -2690,6 +2695,27 @@ class EditorInstance {
                 result += '</li></' + listStack.pop().type + '>';
             }
             return result;
+        }
+
+        // FR-LC-07: 回収済み inLiBlock を li 内ブロックの html にして返す(状態は消費)。
+        function flushInLiBlock() {
+            if (!inLiBlock) return '';
+            let out = '';
+            if (inLiBlock.type === 'bq') {
+                const content = inLiBlock.lines.map(l => {
+                    const p = parseInline(l);
+                    return p === '' ? ' ' : p;
+                }).join('\n');
+                out = '<blockquote>' + content + '</blockquote>';
+            } else {
+                const codeText = inLiBlock.lines.join('\n');
+                const codeHtml = (!codeText || codeText === '')
+                    ? '<br>'
+                    : escapeHtml(codeText).replace(/\n/g, '<br>');
+                out = '<pre data-lang="' + escapeHtml(inLiBlock.lang) + '" data-mode="display"><code contenteditable="false">' + codeHtml + '</code></pre>';
+            }
+            inLiBlock = null;
+            return out;
         }
 
         function isTableRow(line) {
@@ -2833,6 +2859,36 @@ class EditorInstance {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+
+            // FR-LC-07: li 内ブロック回収中(第 3 状態)。fence 判定より先に処理する
+            // (li 内 fence の中身/閉じ fence はインデント付きで、0-indent fence 判定 :fenceMatch
+            //  には元々かからないが、bq の閉じ判定と行回収を一元化するためここで吸収)。
+            if (inLiBlock) {
+                const trimmed = line.trim();
+                if (inLiBlock.type === 'fence') {
+                    const closeMatch = trimmed.match(/^(\`{3,}|~{3,})\s*$/);
+                    if (closeMatch && closeMatch[1][0] === inLiBlock.fenceChar
+                        && closeMatch[1].length >= inLiBlock.fenceLen) {
+                        html += flushInLiBlock();
+                        continue;
+                    }
+                    // インデントを剥がして回収(開始 fence のインデント幅まで)
+                    let content = line;
+                    let stripped = 0;
+                    while (stripped < inLiBlock.indent && content.startsWith(' ')) {
+                        content = content.slice(1); stripped++;
+                    }
+                    inLiBlock.lines.push(content);
+                    continue;
+                }
+                // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
+                if (/^>\s?/.test(trimmed) && trimmed !== '') {
+                    inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
+                    continue;
+                }
+                html += flushInLiBlock();
+                // fallthrough: この行自体は通常処理へ
+            }
 
             // Handle code blocks (\`\`\`+ or ~~~+)
             // Match opening/closing fence: 3+ backticks or tildes
@@ -3069,6 +3125,27 @@ class EditorInstance {
                     const contIndentLevel = Math.floor(contIndentMatch[1].length / 2);
                     const deepestIndent = listStack[listStack.length - 1].indent;
                     if (contIndentLevel >= deepestIndent + 1) {
+                        // FR-LC-07 (sprint 20260810-183054): インデント行がブロック開始記法なら
+                        // li 内ブロック構築へ(第 3 状態 inLiBlock — listStack は閉じない)。
+                        // 0-indent fence はこの分岐に到達しない(deepestIndent+1 未満)ため
+                        // 既存の closeAllLists 解釈は 1 ケースも変わらない(TC-ILB-14)。
+                        const contTrimmed = line.trim();
+                        const liFence = contTrimmed.match(/^(\`{3,}|~{3,})(\w*)\s*$/);
+                        if (liFence) {
+                            inLiBlock = {
+                                type: 'fence',
+                                lang: liFence[2] || '',
+                                fenceChar: liFence[1][0],
+                                fenceLen: liFence[1].length,
+                                lines: [],
+                                indent: contIndentMatch[1].length,
+                            };
+                            continue;
+                        }
+                        if (/^>\s?/.test(contTrimmed)) {
+                            inLiBlock = { type: 'bq', lines: [contTrimmed.replace(/^>\s?/, '')], indent: contIndentMatch[1].length };
+                            continue;
+                        }
                         html += '<br>' + parseInline(line.trim());
                         continue;
                     }
@@ -3089,6 +3166,9 @@ class EditorInstance {
         }
 
         // Close any remaining open lists, tables, and blockquotes
+        // FR-LC-07: 閉じ fence なしで文書が終わった li 内ブロックを flush(データ喪失なし
+        // = TC-ILB-15)。closeAllLists の前に行う(li 内に入れるため)。
+        if (inLiBlock) html += flushInLiBlock();
         html += closeAllLists();
         if (inBlockquote) html += renderBlockquote(blockquoteLines);
         if (inTable) html += renderTable(tableRows);

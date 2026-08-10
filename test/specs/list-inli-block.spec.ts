@@ -359,3 +359,97 @@ test.describe('In-li block serialize (FR-LC-07)', () => {
         expect(iChild).toBeGreaterThan(iTail);
     });
 });
+
+// ---- TASK-10 (FR-LC-07 後半): li 内ブロックの parse + roundtrip ----
+
+test.describe('In-li block parse and roundtrip (FR-LC-07)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    async function roundtrip(page, md: string) {
+        return await page.evaluate(async (src: string) => {
+            (window as any).__testApi.setMarkdown(src);
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            return {
+                bqInLi: editor.querySelectorAll('li blockquote').length,
+                preInLi: editor.querySelectorAll('li pre').length,
+                topBq: editor.querySelectorAll(':scope > blockquote').length,
+                topPre: editor.querySelectorAll(':scope > pre').length,
+                liCount: editor.querySelectorAll('li').length,
+                bqText: editor.querySelector('li blockquote')?.textContent?.trim() ?? null,
+                preText: editor.querySelector('li pre code')?.textContent ?? null,
+                out: (window as any).__testApi.getMarkdown(),
+            };
+        }, md);
+    }
+
+    // TC-ILB-10: li 内 blockquote の完全 roundtrip
+    // counterfactual: parse 分岐を外すと > 行が inline 化(bqInLi=0)= RED
+    test('TC-ILB-10 in-li blockquote roundtrips', async ({ page }) => {
+        const md = '- item one\n  > quoted\n- item two';
+        const r = await roundtrip(page, md);
+        expect(r.bqInLi).toBe(1);
+        expect(r.topBq).toBe(0);
+        expect(r.liCount).toBe(2);
+        expect(r.bqText).toBe('quoted');
+        expect(r.out.trim()).toBe(md); // serialize(TASK-09)と往復安定
+    });
+
+    // TC-ILB-11: li 内 pre(複数行)の完全 roundtrip
+    test('TC-ILB-11 in-li pre roundtrips', async ({ page }) => {
+        const md = '- item\n  ```js\n  line1\n  line2\n  ```';
+        const r = await roundtrip(page, md);
+        expect(r.preInLi).toBe(1);
+        expect(r.topPre).toBe(0);
+        expect(r.preText).toContain('line1');
+        expect(r.preText).toContain('line2');
+        expect(r.out.trim()).toBe(md);
+    });
+
+    // TC-ILB-12: turndown(html-md-converter)出力形式の li 内 blockquote md を読める
+    // (turndown listItem は 4 幅インデント — 2 serializer 対称の番人)
+    test('TC-ILB-12 turndown-style 4-space indented in-li blockquote parses', async ({ page }) => {
+        const md = '-   item one\n    > quoted from web\n-   item two';
+        const r = await roundtrip(page, md);
+        expect(r.bqInLi).toBe(1);
+        expect(r.topBq).toBe(0);
+        expect(r.bqText).toBe('quoted from web');
+    });
+
+    // TC-ILB-14: リスト直後の 0-indent fence → 従来どおりリスト外コードブロック(番人)
+    test('TC-ILB-14 zero-indent fence after list stays top-level', async ({ page }) => {
+        const md = '- item\n```\ncode\n```';
+        const r = await roundtrip(page, md);
+        expect(r.preInLi).toBe(0);
+        expect(r.topPre).toBe(1);
+    });
+
+    // TC-ILB-15: 閉じ fence なしで文書が終わる li 内 fence → データ喪失なく flush
+    test('TC-ILB-15 unclosed in-li fence flushes without data loss', async ({ page }) => {
+        const md = '- item\n  ```\n  orphan code';
+        const r = await roundtrip(page, md);
+        // データ喪失なし: orphan code がどこかに残る(li 内 pre として flush)
+        expect(r.preInLi).toBe(1);
+        expect(r.preText).toContain('orphan code');
+    });
+
+    // TC-ILB-16: blockquote + 継続行 + nested list 共存の完全 roundtrip(子順保持)
+    test('TC-ILB-16 mixed continuation, block and nested list roundtrips', async ({ page }) => {
+        const md = '- head\n  > mid quote\n  tail cont\n  - child';
+        const r = await roundtrip(page, md);
+        expect(r.bqInLi).toBe(1);
+        expect(r.liCount).toBe(2); // head + child
+        const out = r.out.trim();
+        const iHead = out.indexOf('- head');
+        const iQuote = out.indexOf('> mid quote');
+        const iTail = out.indexOf('tail cont');
+        const iChild = out.indexOf('- child');
+        expect(iHead).toBeGreaterThanOrEqual(0);
+        expect(iQuote).toBeGreaterThan(iHead);
+        expect(iTail).toBeGreaterThan(iQuote);
+        expect(iChild).toBeGreaterThan(iTail);
+    });
+});
