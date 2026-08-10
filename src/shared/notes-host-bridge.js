@@ -572,6 +572,13 @@
                 position: position || null,
             });
         },
+        // FR-TF-20 (§4n 2026-08-10): md 📎 file リンク / subpage リンク → outliner drop 位置に取込
+        importMdFileLinkIntoOut: function(payload, outFileId, targetNodeId, position) {
+            api.postMessage({ type: 'importMdFileLinkIntoOut', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        importMdSubpageIntoOut: function(payload, outFileId, targetNodeId, position) {
+            api.postMessage({ type: 'importMdSubpageIntoOut', payload: payload, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
         // FR-TF-05b (§4e :97): outliner の file 添付 node → ツリーへ D&D（所有移し替え）。
         // node.filePath を disk から読むため flushOutlinerSync で src .out を最新化してから依頼。
         notesRegisterFileFromOutNode: function(payload, parentId, index) {

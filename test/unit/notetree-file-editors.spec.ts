@@ -855,4 +855,61 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(d.filter((x: any) => x.type === 'linkMdSubpageToMd').length).toBe(0);
     });
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 再オープン⑤ (2026-08-10): FR-TF-20 outliner drop 受け 2 MIME（TC-CN-04）
+    // ═══════════════════════════════════════════════════════════════════
+
+    test('TC-CN-04 md-filelink / md-subpage → outliner: dragover 受理 + 補助線 + drop で host 呼び出し', async ({ page }) => {
+        await loadEnv(page);
+        await initOutlinerWithFileNode(page);
+
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const out: any = {};
+            const nodeEl = document.querySelector('.outliner-node') as HTMLElement;
+            const rect = nodeEl.getBoundingClientRect();
+
+            const drive = (mime: string, payload: any) => {
+                w.__calls.length = 0;
+                const dt = new DataTransfer();
+                dt.setData(mime, JSON.stringify(payload));
+                // dragover: 受理（preventDefault）+ 補助線
+                const ov = new DragEvent('dragover', {
+                    bubbles: true, cancelable: true, dataTransfer: dt,
+                    clientX: rect.left + 5, clientY: rect.top + 1, // before 帯
+                });
+                nodeEl.dispatchEvent(ov);
+                const accepted = ov.defaultPrevented;
+                const indicator = !!document.querySelector('.outliner-drop-indicator');
+                // drop
+                nodeEl.dispatchEvent(new DragEvent('drop', {
+                    bubbles: true, cancelable: true, dataTransfer: dt,
+                    clientX: rect.left + 5, clientY: rect.top + 1,
+                }));
+                return { accepted, indicator, calls: w.__calls.slice() };
+            };
+
+            out.filelink = drive('application/x-fractal-md-filelink', { href: 'files/x.pdf', sourceMdPath: '/n/src.md' });
+            out.subpage = drive('application/x-fractal-md-subpage', { href: 'sub.md', sourceMdPath: '/n/src.md', title: 'Sub' });
+            return out;
+        });
+
+        // counterfactual: dragover 配線を外すと accepted=false で drop 不発 = RED
+        expect(r.filelink.accepted).toBe(true);
+        expect(r.filelink.indicator).toBe(true);
+        const fl = r.filelink.calls.filter((c: any) => c.type === 'importMdFileLinkIntoOut');
+        expect(fl.length).toBe(1);
+        expect(fl[0].args[0]).toEqual({ href: 'files/x.pdf', sourceMdPath: '/n/src.md' });
+        expect(fl[0].args[1]).toBe('OUT-1');   // outFileId
+        expect(fl[0].args[2]).toBe('n1');      // targetNodeId
+        expect(fl[0].args[3]).toBe('before');  // position
+
+        expect(r.subpage.accepted).toBe(true);
+        const sp = r.subpage.calls.filter((c: any) => c.type === 'importMdSubpageIntoOut');
+        expect(sp.length).toBe(1);
+        expect(sp[0].args[0].href).toBe('sub.md');
+        expect(sp[0].args[3]).toBe('before');
+    });
+
 });

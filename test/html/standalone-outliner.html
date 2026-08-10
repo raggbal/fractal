@@ -37055,7 +37055,10 @@ var Outliner = (function() {
                 var isTreeMdDrop = isTreeMdDragEvent(e);
                 // FR-TF-05a (§4d): ツリー file item drop も files drop と同じ位置解決経路で受ける。
                 var isTreeFileDrop = isTreeFileDragEvent(e);
-                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop) { return; }
+                // FR-TF-20 (§4n): md 📎 file リンク / subpage リンクの drop も同じ位置解決経路で受ける。
+                var isMdFlDrop = isMdFileLinkDragEvent(e);
+                var isMdSpDrop = !isMdFlDrop && isMdSubpageDragEvent(e);
+                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop && !isMdFlDrop && !isMdSpDrop) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
@@ -37088,6 +37091,10 @@ var Outliner = (function() {
                     handleTreeMdDrop(e, targetId, pos);
                 } else if (isTreeFileDrop) {
                     handleTreeFileDrop(e, targetId, pos);
+                } else if (isMdFlDrop) {
+                    handleMdFileLinkDrop(e, targetId, pos);
+                } else if (isMdSpDrop) {
+                    handleMdSubpageDrop(e, targetId, pos);
                 } else if (isFilesDragEvent(e)) {
                     handleFilesDrop(e, targetId, pos);
                 } else {
@@ -37111,6 +37118,13 @@ var Outliner = (function() {
             }
             // FR-TF-05a (§4d): ファイルツリー file item のドラッグも受理（同上・drop 発火のため）
             if (isTreeFileDragEvent(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                treeEl.classList.add('outliner-tree-drop-zone-active');
+                return;
+            }
+            // FR-TF-20 (§4n): md 📎 file リンク / subpage リンクのドラッグも受理（同上）
+            if (isMdFileLinkDragEvent(e) || isMdSubpageDragEvent(e)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 treeEl.classList.add('outliner-tree-drop-zone-active');
@@ -37279,6 +37293,44 @@ var Outliner = (function() {
         if (!notesBridgeForFile || !notesBridgeForFile.notesImportTreeFileAtPosition || !outFileId) return;
         notesBridgeForFile.notesImportTreeFileAtPosition(
             payload.id, outFileId, targetNodeId || null, position || null);
+    }
+
+    /** FR-TF-20 (§4n 2026-08-10 再オープン⑤): md editor 内の 📎 file リンク / subpage リンクの
+     *  drag を outliner でも受ける（従来は tree panel のみ受理 = マトリクス未実装セル）。
+     *  drop 位置は tree-md/file と同じ before/after/child 解決に合流。cross-note は host §4l。 */
+    var MD_FILELINK_MIME = 'application/x-fractal-md-filelink';
+    var MD_SUBPAGE_MIME = 'application/x-fractal-md-subpage';
+    function isMdFileLinkDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(MD_FILELINK_MIME) >= 0);
+    }
+    function isMdSubpageDragEvent(e) {
+        return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(MD_SUBPAGE_MIME) >= 0);
+    }
+    function handleMdFileLinkDrop(e, targetNodeId, position) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(MD_FILELINK_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.href || !payload.sourceMdPath) return;
+        var bridgeFL = window.notesHostBridge;
+        var outFileIdFL = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!bridgeFL || !bridgeFL.importMdFileLinkIntoOut || !outFileIdFL) return;
+        bridgeFL.importMdFileLinkIntoOut(payload, outFileIdFL, targetNodeId || null, position || null);
+    }
+    function handleMdSubpageDrop(e, targetNodeId, position) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData(MD_SUBPAGE_MIME) || ''; } catch (err) { /* ignore */ }
+        if (!raw) return;
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        if (!payload || !payload.href || !payload.sourceMdPath) return;
+        var bridgeSP = window.notesHostBridge;
+        var outFileIdSP = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!bridgeSP || !bridgeSP.importMdSubpageIntoOut || !outFileIdSP) return;
+        bridgeSP.importMdSubpageIntoOut(payload, outFileIdSP, targetNodeId || null, position || null);
     }
 
     /** Classify dropped file by extension */
@@ -39609,7 +39661,7 @@ var Outliner = (function() {
             // FR-TF-14 (§4i(3) 2026-08-10): ツリー md/file item の drag も node 上では
             // Files D&D と同じ補助線（before/after/child）を出す（zone 点線と共存）。
             // drop 側（capture handler :1197）が同じしきい値で位置解決する = 表示=挿入の一致。
-            if (isTreeMdDragEvent(e) || isTreeFileDragEvent(e)) {
+            if (isTreeMdDragEvent(e) || isTreeFileDragEvent(e) || isMdFileLinkDragEvent(e) || isMdSubpageDragEvent(e)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 var rectT = el.getBoundingClientRect();

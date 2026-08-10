@@ -131,6 +131,25 @@ const SIDEPANEL_DELEGATED_METHODS = [
     'linkMdSubpageToMd',
 ];
 
+// FR-TF-20 (§4n): outliner → host の direct-dispatch メソッド（handler 内 seam を直接呼ぶため
+// provider 層を持たない = 3 層検査）。TC-RG-01 の 4 層リストと別建て。
+const DIRECT_DISPATCH_METHODS = ['importMdFileLinkIntoOut', 'importMdSubpageIntoOut'];
+
+test('TC-RG-01b wiring: direct-dispatch 2 メソッドが webview→bridge→handler の 3 層に配線済み', () => {
+    const bridge = read('src/shared/notes-host-bridge.js');
+    const handler = read('src/shared/notes-message-handler.ts');
+    const webviewSrc = read('src/webview/outliner.js');
+    const gaps: string[] = [];
+    for (const m of DIRECT_DISPATCH_METHODS) {
+        if (!bridge.includes(`${m}: function`)) gaps.push(`bridge(method-def): ${m}`);
+        if (!bridge.includes(`type: '${m}'`)) gaps.push(`bridge(postMessage-type): ${m}`);
+        if (!handler.includes(`case '${m}'`)) gaps.push(`handler(case): ${m}`);
+        if (!handler.includes(`export function ${m}`)) gaps.push(`handler(seam): ${m}`);
+        if (!webviewSrc.includes(m)) gaps.push(`webview(call-site): ${m}`);
+    }
+    expect(gaps, `配線漏れ:\n${gaps.join('\n')}`).toEqual([]);
+});
+
 test('TC-RG-02 wiring(block): sidepanel 委譲メソッドが outlinerHostBridge / notesMarkdownHostBridge の両ブロックに定義済み', () => {
     const bridge = read('src/shared/notes-host-bridge.js');
     // ブロック分割: outlinerHostBridge ブロック = 26 行付近の Object.assign から

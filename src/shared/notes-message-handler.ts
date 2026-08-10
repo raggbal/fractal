@@ -1425,6 +1425,15 @@ export async function handleNotesMessage(
             break;
         }
         // FR-TF-05a (§4d)
+        // FR-TF-20 (§4n): md リンク → outliner drop 位置に取込
+        case 'importMdFileLinkIntoOut': {
+            importMdFileLinkIntoOut(fileManager, sender, message.payload, message.outFileId, message.targetNodeId ?? null, message.position ?? null);
+            break;
+        }
+        case 'importMdSubpageIntoOut': {
+            importMdSubpageIntoOut(fileManager, sender, message.payload, message.outFileId, message.targetNodeId ?? null, message.position ?? null);
+            break;
+        }
         case 'notesImportTreeFileAtPosition': {
             if (typeof platform.notesImportTreeFileAtPosition === 'function') {
                 await platform.notesImportTreeFileAtPosition(
@@ -2579,6 +2588,106 @@ export function treeFileImportAtPosition(
         sendFileListWithStructure(fileManager, sender);
     } catch (e) {
         console.error('[Notes] treeFileImportAtPosition error:', e);
+    }
+}
+
+/**
+ * FR-TF-20 (§4n): md 📎 file リンク → outliner の drop 位置に file 添付 node として取込。
+ * href を source md 基準 clamp → cross-note なら dest note（.out の note = fileManager）の files/ へコピー（§4l）→
+ * dropFilesResult 互換 postback（webview 既存処理が node 化）→ 元 md からアンカー除去。元実体温存。
+ */
+export function importMdFileLinkIntoOut(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string },
+    outFileId: string,
+    targetNodeId: string | null,
+    position: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+        const rel = path.relative(filesDir, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
+        if (!fs.existsSync(abs)) { return; }
+        const srcMainFolder = path.dirname(filesDir);
+        let entityAbs = abs;
+        if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), 'x.md'))) {
+            // drop 先 .out の note（= fileManager の note）が src md の note と別 → dest files/ へコピー
+            const dstName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
+            if (!dstName) { return; }
+            entityAbs = path.join(fileManager.getMdFilesDirPath(), dstName);
+        }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        const baseDir = outPath ? path.dirname(outPath) : fileManager.getMainFolderPath();
+        const relPath = path.relative(baseDir, entityAbs).replace(/\\/g, '/');
+        sender.postMessage({
+            type: 'dropFilesResult',
+            results: [{ kind: 'file', ok: true, title: path.basename(entityAbs), filePath: relPath }],
+            targetNodeId: targetNodeId ?? null,
+            position: position ?? null,
+        });
+        sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] importMdFileLinkIntoOut error:', e);
+    }
+}
+
+/**
+ * FR-TF-20 (§4n): md subpage リンク → outliner の drop 位置に page node として取込。
+ * 取込は既存 notesImportMdIntoOut と同じ「md → page node」だが、対象 md は tree item でなく
+ * source md からの相対 href で解決する。同一 note = md をそのまま page 化（コピーなし・md は
+ * mainFolder 直下 flat 前提）/ cross-note = dest note へ複製してから page 化。元 md からアンカー除去。
+ */
+export function importMdSubpageIntoOut(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string; title?: string },
+    outFileId: string,
+    targetNodeId: string | null,
+    position: string | null
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+        const abs = safeResolveUnderDir(srcMainFolder, path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded)));
+        if (!abs || !abs.endsWith('.md') || !fs.existsSync(abs)) { return; }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        if (!outPath) { return; }
+        const content = fs.readFileSync(abs, 'utf8');
+        const h1 = (content.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m) || [])[1];
+        const title = (h1 || payload.title || path.basename(abs, '.md')).trim();
+        // page md を dest note に確定（同一 note = 既存 md をそのまま / cross-note = 複製）
+        let pageMdAbs = abs;
+        if (isCrossNoteDrop(srcMainFolder, outPath)) {
+            const destDir = fileManager.getMainFolderPath();
+            const unique = generateUniqueFileNamePreserving(destDir, path.basename(abs));
+            pageMdAbs = path.join(destDir, unique);
+            fs.copyFileSync(abs, pageMdAbs);
+        }
+        const pageId = path.basename(pageMdAbs, '.md');
+        // .out へ page node 挿入（insertNodeAtDropPosition seam = FR-TF-14 と同じ）
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const newNodeId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        outData.nodes = outData.nodes || {};
+        outData.nodes[newNodeId] = {
+            id: newNodeId, parentId: null, children: [], text: title, tags: [],
+            isPage: true, pageId, collapsed: false, checked: null, subtext: '', images: [], filePath: null,
+        };
+        insertNodeAtDropPosition(outData, newNodeId, targetNodeId, position);
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        sender.postMessage({ type: 'removeSubpageLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
+    } catch (e) {
+        console.error('[Notes] importMdSubpageIntoOut error:', e);
     }
 }
 

@@ -698,4 +698,32 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(fs.existsSync(path.join(srcFiles, 'x.pdf'))).toBe(true);
     });
 
+
+    test('TC-CN-04(cross-note): 別 note md の 📎 リンク → outliner 取込で dest files/ へコピー + 元実体温存', () => {
+        const { importMdFileLinkIntoOut } = mh;
+        const srcNote = track(mkNote());
+        const dstNote = track(mkNote());
+        const fm = new NotesFileManager(dstNote); // drop 先 .out の note
+        const outPath = fm.createFile('OutDoc', null);
+        const outId = path.basename(outPath, '.out');
+        // src note の md + files/ 実体
+        const srcMd = path.join(srcNote, 'src.md');
+        fs.writeFileSync(srcMd, '[📎 y](files/y.pdf)\n', 'utf8');
+        const srcFiles = path.join(srcNote, 'files');
+        fs.mkdirSync(srcFiles, { recursive: true });
+        fs.writeFileSync(path.join(srcFiles, 'y.pdf'), 'Y');
+
+        const { sender, msgs } = spy();
+        importMdFileLinkIntoOut(fm, sender, { href: 'files/y.pdf', sourceMdPath: srcMd }, outId, null, null);
+
+        // dest note の files/ にコピー + dropFilesResult の filePath は dest 相対（../ 不含）
+        expect(fs.existsSync(path.join(dstNote, 'files', 'y.pdf'))).toBe(true);
+        const dr = msgs.find((m) => m.type === 'dropFilesResult');
+        expect(dr).toBeTruthy();
+        expect(String(dr.results[0].filePath).includes('..')).toBe(false);
+        // 元リンク除去 message + 元実体温存
+        expect(msgs.find((m) => m.type === 'removeFileLink')).toBeTruthy();
+        expect(fs.existsSync(path.join(srcFiles, 'y.pdf'))).toBe(true);
+    });
+
 });
