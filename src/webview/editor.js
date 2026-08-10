@@ -8808,15 +8808,11 @@ class EditorInstance {
                     if (exitBlock.tagName === 'PRE' && exitBlock.getAttribute('data-mode') === 'edit') {
                         enterDisplayMode(exitBlock);
                     }
+                    // ブロック直後は br 1 個で 1 視覚行になる(ブロック自体が行境界を成すため、
+                    // テキスト行間の FR-LC-02 と違い trailing 2 個目は不要 — rc.2 バグ 3 実測:
+                    // 2 個入れると 2 行増える)。
                     const exBr = document.createElement('br');
                     exitBlock.after(exBr);
-                    // 後続に実コンテンツが無ければ trailing <br> 対策の 2 個目(FR-LC-02 と同規則)
-                    let exHasAfter = false;
-                    for (let exN = exBr.nextSibling; exN; exN = exN.nextSibling) {
-                        if (exN.nodeType === 3 && exN.textContent !== '') { exHasAfter = true; break; }
-                        if (exN.nodeType === 1 && exN.tagName !== 'UL' && exN.tagName !== 'OL' && exN.tagName !== 'BR') { exHasAfter = true; break; }
-                    }
-                    if (!exHasAfter) exBr.after(document.createElement('br'));
                     const exNr = document.createRange();
                     exNr.setStartAfter(exBr);
                     exNr.collapse(true);
@@ -10571,6 +10567,43 @@ class EditorInstance {
                 return;
             }
             
+            // FR-LC-08d (sprint 20260810-183054 再オープン②): li 内ブロックの隣接行からの
+            // 矢印進入。li 内の継続行では currentElement が UL まで walk-up され、下の
+            // 「editor 直下 sibling への navigate」がブロックを素通りしていた(rc.2 バグ 2)。
+            // カーソル行の隣(直前/直後 sibling、<br> を挟んで)に PRE/BLOCKQUOTE があれば進入する。
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
+                const navEl = sel.anchorNode.nodeType === 3
+                    ? sel.anchorNode.parentElement : sel.anchorNode;
+                const navLi = navEl && navEl.closest ? navEl.closest('li') : null;
+                if (navLi && editor.contains(navLi) && !navEl.closest('pre, blockquote, table')) {
+                    // li 直下のカーソル基準 node を特定
+                    let navNode = sel.anchorNode;
+                    while (navNode && navNode.parentNode !== navLi && navNode !== navLi) {
+                        navNode = navNode.parentNode;
+                    }
+                    if (navNode && navNode !== navLi) {
+                        const dir = e.key === 'ArrowDown' ? 'nextSibling' : 'previousSibling';
+                        // <br> を 1 個まで飛ばして隣要素を見る
+                        let navAdj = navNode[dir];
+                        if (navAdj && navAdj.nodeName === 'BR') navAdj = navAdj[dir];
+                        if (navAdj && (navAdj.nodeName === 'PRE' || navAdj.nodeName === 'BLOCKQUOTE')) {
+                            e.preventDefault();
+                            if (navAdj.nodeName === 'PRE') {
+                                enterEditMode(navAdj);
+                                const navCode = navAdj.querySelector('code') || navAdj;
+                                if (e.key === 'ArrowDown') { setCursorToStart(navCode); }
+                                else { setCursorToEnd(navCode); }
+                            } else {
+                                if (e.key === 'ArrowDown') { setCursorToStart(navAdj); }
+                                else { setCursorToEnd(navAdj); }
+                            }
+                            scrollCursorIntoView();
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Outside blocks - check if we should enter a code block or blockquote
             let currentElement = sel.anchorNode;
             while (currentElement && currentElement !== editor && currentElement.nodeType !== 1) {
@@ -11545,24 +11578,61 @@ class EditorInstance {
                     return; // default に任せる
                 }
 
-                // FR-LC-08c: li 内ブロック「直後」の継続行先頭での Backspace = 直前の <br> を
-                // 1 個消すだけ(継続行結合)。ブロックは不可侵・リスト系ハンドラに流さない
-                // (流すと li 全体が上行に統合される誤動作 — 手動テスト実測)。
+                // FR-LC-08c 一般化(再オープン② 2026-08-11): 継続行の行頭 Backspace は
+                // ブロックの有無に関わらず「直前 <br> の除去 = 前の行との結合」に統一する。
+                // ここで吸収しないと NONEMPTY_LI_START が継続行先頭を li 先頭と誤認し、
+                // li 全体を親 li に統合する(rc.2 手動テスト バグ 1 の実測)。
+                // 直前 <br> のさらに前が PRE/BLOCKQUOTE の場合は <br> を消してブロック末尾へ
+                // カーソル移動(rc.2 バグ 4 —「自行を消してブロック最終行末端へ」)。
                 if (!bsBlock && bsEl && bsEl.closest) {
                     const bsCurLi = bsEl.closest('li');
                     if (bsCurLi && editor.contains(bsCurLi)
                         && range.startContainer.nodeType === 3
                         && range.startContainer.parentNode === bsCurLi
                         && range.startOffset === 0) {
-                        let bsPrev = range.startContainer.previousSibling;
+                        const bsPrev = range.startContainer.previousSibling;
                         if (bsPrev && bsPrev.nodeName === 'BR') {
+                            e.preventDefault();
                             const bsBeforeBr = bsPrev.previousSibling;
+                            bsPrev.remove();
                             if (bsBeforeBr && (bsBeforeBr.nodeName === 'PRE' || bsBeforeBr.nodeName === 'BLOCKQUOTE')) {
-                                e.preventDefault();
-                                bsPrev.remove();
-                                syncMarkdown();
-                                return;
+                                // ブロック末尾へ進入(pre は編集モードで code 末尾)
+                                if (bsBeforeBr.nodeName === 'PRE') {
+                                    enterEditMode(bsBeforeBr);
+                                    const bsCode = bsBeforeBr.querySelector('code') || bsBeforeBr;
+                                    setCursorToEnd(bsCode);
+                                } else {
+                                    setCursorToEnd(bsBeforeBr);
+                                }
                             }
+                            // それ以外(テキスト行同士)は <br> 除去だけで結合が成立し、
+                            // カーソルは現位置(結合点)に留まる
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+                    // カーソルが li 直下の空 <br> 行(text node なし)にいるケース:
+                    // Shift+Enter 直後の空行では anchorNode が li 自身になる。
+                    // startOffset 位置の直前 sibling が BR ならそれを消す(同上の規則)。
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer === bsCurLi
+                        && range.startOffset > 0) {
+                        const bsAt = bsCurLi.childNodes[range.startOffset - 1];
+                        if (bsAt && bsAt.nodeName === 'BR') {
+                            e.preventDefault();
+                            const bsBeforeBr2 = bsAt.previousSibling;
+                            bsAt.remove();
+                            if (bsBeforeBr2 && (bsBeforeBr2.nodeName === 'PRE' || bsBeforeBr2.nodeName === 'BLOCKQUOTE')) {
+                                if (bsBeforeBr2.nodeName === 'PRE') {
+                                    enterEditMode(bsBeforeBr2);
+                                    const bsCode2 = bsBeforeBr2.querySelector('code') || bsBeforeBr2;
+                                    setCursorToEnd(bsCode2);
+                                } else {
+                                    setCursorToEnd(bsBeforeBr2);
+                                }
+                            }
+                            syncMarkdown();
+                            return;
                         }
                     }
                 }
