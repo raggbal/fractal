@@ -12099,21 +12099,27 @@ class EditorInstance {
         return target;
     }
 
-    // select モードで table の外へ抜ける(上端↑ = 表の前 / 下端↓ = 表の後)
+    // select モードで table の外へ抜ける(上端↑ = 表の前 / 下端↓ = 表の後)。
+    // 隣接要素が無ければ段落を作って抜ける(旧 ArrowDown 経路 :11507 と同挙動 —
+    // key-operations.spec の既存契約「一番下のセルで表を抜けて下の要素に移動」)
     function tslExitTable(dir) {
         const table = tableSel.table;
         tslClear();
-        const target = dir < 0 ? table.previousElementSibling : table.nextElementSibling;
-        if (target) {
-            try {
-                const r = document.createRange();
-                r.selectNodeContents(target);
-                r.collapse(dir < 0 ? false : true);
-                const s = window.getSelection();
-                s.removeAllRanges();
-                s.addRange(r);
-            } catch (err) { /* noop */ }
+        let target = dir < 0 ? table.previousElementSibling : table.nextElementSibling;
+        if (!target) {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            if (dir < 0) table.before(p); else table.after(p);
+            target = p;
         }
+        try {
+            const r = document.createRange();
+            r.selectNodeContents(target);
+            r.collapse(dir < 0 ? false : true);
+            const s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+        } catch (err) { /* noop */ }
         hideTableToolbar();
     }
 
