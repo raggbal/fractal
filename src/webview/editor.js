@@ -3407,7 +3407,13 @@ class EditorInstance {
                             };
                             continue;
                         }
-                        if (/^>\s?/.test(contTrimmed)) {
+                        // 再オープン⑭c: bq 開始は「> 」(空白付き)のみ — top-level REGEX.quote
+                        // (/^> /)と対称。素の ">"(「> 」タイプ途中の literal text)を empty bq に
+                        // 化けさせない(undo snapshot の再レンダで text ">" が bq 化 → blockText
+                        // 不一致でカーソルが下の li に飛ぶ機序)。空 bq のシリアライズは
+                        // trailing space 付き「> 」(:8127)なので trim 前の line 本体で判定する。
+                        const contBody = line.slice(contIndentMatch[1].length);
+                        if (/^>\s/.test(contBody)) {
                             inLiBlock = { type: 'bq', lines: [contTrimmed.replace(/^>\s?/, '')], indent: contIndentMatch[1].length };
                             continue;
                         }

@@ -2701,3 +2701,53 @@ test('TC-ILB-78 undo past empty bq removes it and keeps cursor in same li', asyn
     expect(s.liIdx).toBe(2);
     expect(s.text).toBe('dsds');
 });
+
+// TC-ILB-78(再オープン⑭c): 空 bq からの undo 連打でカーソルが下の li に飛ばない。
+// 根本原因 = 「> 」タイプ途中の literal ">"(スペース無し)を継続行パーサが empty bq に
+// 化けさせ、snapshot 再レンダの blockText が保存時と不一致 → 別 li フォールバック。
+// 修正 = bq 開始判定を「> 」(空白必須)にし top-level REGEX.quote と対称化。
+// counterfactual: /^>\s?/ に戻すと U2 で liIdx=3 に飛び RED。
+test('TC-ILB-78 undo through empty bq keeps cursor in same li', async ({ page }) => {
+    test.setTimeout(120000);
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('- aaa\n  - sdsd\n    - d\n      dssdsds\n      dsds\n- dsdsd');
+        await new Promise(r => setTimeout(r, 300));
+        const walker = document.createTreeWalker(document.querySelector('#editor')!, NodeFilter.SHOW_TEXT);
+        let target: Text | null = null; let n: Node | null;
+        while ((n = walker.nextNode())) { if (n.textContent === 'dsds') target = n as Text; }
+        const sel = window.getSelection()!;
+        const r = document.createRange();
+        r.setStart(target!, 4); r.collapse(true);
+        sel.removeAllRanges(); sel.addRange(r);
+    });
+    await page.keyboard.press('Shift+Enter');
+    await page.waitForTimeout(300);
+    await page.keyboard.type('> ');
+    await page.waitForTimeout(500);
+    await page.keyboard.type('aaaa');
+    await page.waitForTimeout(700);
+
+    const snap = () => page.evaluate(() => {
+        const sel = window.getSelection()!;
+        if (!sel.rangeCount) return { lost: true } as any;
+        const a = sel.anchorNode!;
+        const el = a.nodeType === 1 ? (a as Element) : a.parentElement!;
+        const li = el.closest('li');
+        const lis = Array.from(document.querySelectorAll('#editor li'));
+        return { lost: false, liIdx: li ? lis.indexOf(li) : -1 } as any;
+    });
+    // undo 5 連打: 空 bq(U1)→ literal ">"(U2)→ 元テキスト(U3)まで全て同じ li に留まる
+    for (let i = 1; i <= 5; i++) {
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(600);
+        const s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.liIdx).toBe(2);
+    }
+    // 最終状態 = bq が消えて元の md に戻っている
+    const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+    expect(md).not.toContain('>');
+    expect(md).toContain('dsds');
+});
