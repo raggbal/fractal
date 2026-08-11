@@ -1627,3 +1627,171 @@ test.describe('In-li block arrow matrix (re-open 7)', () => {
         expect(r.text).toContain('tail1');
     });
 });
+
+// ---- 再オープン⑧(2026-08-11 rc.8): 画像 × ブロックの矢印マトリクス ----
+// 行モデルに「画像行」(IMG は atomic 視覚行・caret は li offset)を追加。
+
+test.describe('In-li image and block arrow matrix (re-open 8)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    const IMG_LI = 'head<br>cont'
+        + '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="a">'
+        + '<pre data-lang=""><code contenteditable="false">code</code></pre>'
+        + '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="b">'
+        + '<br>tail';
+
+    async function setup(page: Page) {
+        await page.evaluate((html) => {
+            document.getElementById('editor')!.innerHTML = '<ul><li>' + html + '</li></ul>';
+        }, IMG_LI);
+        await page.waitForTimeout(100);
+    }
+
+    function landing(page: Page) {
+        return page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const r = sel.getRangeAt(0);
+            const a = r.startContainer;
+            const el = a && (a.nodeType === 1 ? a as Element : a.parentElement);
+            const li = document.querySelector('#editor li')!;
+            let atImage: string | null = null;
+            if (a === li) {
+                const before = r.startOffset > 0 ? li.childNodes[r.startOffset - 1] : null;
+                const at = li.childNodes[r.startOffset] || null;
+                if (before && before.nodeName === 'IMG') atImage = (before as HTMLElement).getAttribute('alt');
+                else if (at && at.nodeName === 'IMG') atImage = (at as HTMLElement).getAttribute('alt');
+            }
+            return {
+                lost: false,
+                inPre: !!el?.closest('pre'),
+                atImage,
+                text: (a.textContent || '').substring(0, 8),
+            };
+        });
+    }
+
+    // (1a) TC-ILB-52: b 画像(ブロック直下)から ↑ → コードブロックに入る(a に飛ばない)
+    test('TC-ILB-52 up from image below block enters the block', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            const li = document.querySelector('#editor li')!;
+            const imgs = li.querySelectorAll('img');
+            const b = imgs[1];
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(li, Array.prototype.indexOf.call(li.childNodes, b) + 1); // b の直後 = b 画像行
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(250);
+        const r = await landing(page);
+        expect(r.inPre).toBe(true);
+    });
+
+    // (1b) TC-ILB-53: a 画像(ブロック直上)から ↓ → コードブロックに入る(b に飛ばない)
+    test('TC-ILB-53 down from image above block enters the block', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            const li = document.querySelector('#editor li')!;
+            const imgs = li.querySelectorAll('img');
+            const a = imgs[0];
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(li, Array.prototype.indexOf.call(li.childNodes, a)); // a の直前 = a 画像行
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(250);
+        const r = await landing(page);
+        expect(r.inPre).toBe(true);
+    });
+
+    // (2a) TC-ILB-54: ブロック内先頭で ↑ → a 画像行へ(リスト先頭に飛ばない)
+    test('TC-ILB-54 up from block first line lands on image a', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(code);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(250);
+        const r = await landing(page);
+        expect(r.atImage).toBe('a'); // a 画像行に止まる
+        expect(r.inPre).toBe(false);
+    });
+
+    // (2b) TC-ILB-55: ブロック内末尾で ↓ → b 画像行へ(次のリストに飛ばない)
+    test('TC-ILB-55 down from block last line lands on image b', async ({ page }) => {
+        await setup(page);
+        await page.evaluate(() => {
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(code);
+            r.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(250);
+        const r = await landing(page);
+        expect(r.atImage).toBe('b');
+        expect(r.inPre).toBe(false);
+    });
+
+    // blockquote 版: TC-ILB-56(画像 → bq 進入と bq → 画像着地)
+    test('TC-ILB-56 blockquote variant of image adjacency', async ({ page }) => {
+        await page.evaluate(() => {
+            document.getElementById('editor')!.innerHTML = '<ul><li>head<br>cont'
+                + '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="a">'
+                + '<blockquote>quoted</blockquote>'
+                + '<img src="data:image/png;base64,iVBORw0KGgoAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="b">'
+                + '<br>tail</li></ul>';
+        });
+        // a から ↓ → bq に入る
+        await page.evaluate(() => {
+            const li = document.querySelector('#editor li')!;
+            const a = li.querySelectorAll('img')[0];
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(li, Array.prototype.indexOf.call(li.childNodes, a));
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(250);
+        let state = await page.evaluate(() => {
+            const a = window.getSelection()!.anchorNode;
+            const el = a && (a.nodeType === 1 ? a as Element : a.parentElement);
+            return { inBq: !!el?.closest('blockquote') };
+        });
+        expect(state.inBq).toBe(true);
+        // bq 末尾から ↓ → b 画像行
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(250);
+        const r2 = await landing(page);
+        expect(r2.atImage).toBe('b');
+    });
+});

@@ -10548,6 +10548,15 @@ class EditorInstance {
                 // <br> は行を作らない(その先を見る)/ <br> の先がさらに <br> なら空行 /
                 // text は行 / PRE・BLOCKQUOTE はブロック。
                 const resolveAdjacentInLiLine = (dir) => {
+                    // IMG は独立した視覚行(再オープン⑧ rc.8: 画像がブロックに隣接すると
+                    // walker が知らない node 種で null → 素通り/リスト先頭へ飛んでいた)
+                    const classify = (n) => {
+                        if (!n) return null;
+                        if (n.nodeType === 3) return { kind: 'text', node: n };
+                        if (n.nodeName === 'IMG') return { kind: 'image', node: n };
+                        if (n.nodeName === 'PRE' || n.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n };
+                        return null;
+                    };
                     let n = blockNode[dir];
                     while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
                     if (!n) return null;
@@ -10556,13 +10565,9 @@ class EditorInstance {
                         while (n2 && n2.nodeType === 3 && n2.textContent.trim() === '') n2 = n2[dir];
                         if (!n2) return null;
                         if (n2.nodeName === 'BR') return { kind: 'blank', br: (dir === 'previousSibling' ? n2 : n) };
-                        if (n2.nodeType === 3) return { kind: 'text', node: n2 };
-                        if (n2.nodeName === 'PRE' || n2.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n2 };
-                        return null;
+                        return classify(n2);
                     }
-                    if (n.nodeType === 3) return { kind: 'text', node: n };
-                    if (n.nodeName === 'PRE' || n.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n };
-                    return null;
+                    return classify(n);
                 };
                 const enterAdjacentBlock = (blk, from) => {
                     if (blk.nodeName === 'PRE') {
@@ -10584,6 +10589,19 @@ class EditorInstance {
                 const moveToLiLine = (resolved, from) => {
                     // resolved: resolveAdjacentInLiLine の返り値(非 null)
                     if (resolved.kind === 'block') { enterAdjacentBlock(resolved.node, from); return; }
+                    if (resolved.kind === 'image') {
+                        // 画像行: 画像の直前(above から来た場合)/直後(below から来た場合)に
+                        // キャレットを置く(li offset。画像は contenteditable 内の atomic 要素)
+                        const liP = resolved.node.parentNode;
+                        const idx = Array.prototype.indexOf.call(liP.childNodes, resolved.node);
+                        const r = document.createRange();
+                        r.setStart(liP, from === 'above' ? idx : idx + 1);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
                     if (resolved.kind === 'text') {
                         const r = document.createRange();
                         if (from === 'above') r.setStart(resolved.node, 0);
@@ -10790,28 +10808,99 @@ class EditorInstance {
                         navNode = navNode.parentNode;
                     }
                     if (navNode === navLi && sel.rangeCount) {
-                        // 空行カーソル(li, offset)
+                        // li offset カーソル(空行 or 画像の前後 — 画像は atomic なので caret は
+                        // li offset に立つ)。再オープン⑧: 画像行を視覚行として扱う。
                         const off = sel.getRangeAt(0).startOffset;
-                        const atNode = navLi.childNodes[off];
-                        const beforeNode = off > 0 ? navLi.childNodes[off - 1] : null;
-                        if (e.key === 'ArrowUp' && beforeNode
-                            && (beforeNode.nodeName === 'PRE' || beforeNode.nodeName === 'BLOCKQUOTE')) {
-                            navEnterBlock(beforeNode, 'below');
-                            return;
+                        let atNode = navLi.childNodes[off] || null;
+                        let beforeNode = off > 0 ? navLi.childNodes[off - 1] : null;
+                        // caret が画像の前後にある場合、現在行 = その画像。↑ は画像の前の行、
+                        // ↓ は画像の後の行を見る(画像自身をスキップして解決)
+                        const curImg = (beforeNode && beforeNode.nodeName === 'IMG') ? beforeNode
+                            : (atNode && atNode.nodeName === 'IMG') ? atNode : null;
+                        if (e.key === 'ArrowUp') {
+                            let upFrom = curImg && beforeNode === curImg ? curImg.previousSibling
+                                : curImg ? curImg.previousSibling
+                                : beforeNode;
+                            while (upFrom && upFrom.nodeType === 3 && upFrom.textContent.trim() === '') upFrom = upFrom.previousSibling;
+                            if (upFrom && (upFrom.nodeName === 'PRE' || upFrom.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(upFrom, 'below');
+                                return;
+                            }
+                            if (upFrom && upFrom.nodeName === 'IMG') {
+                                // 画像行へ(画像の後ろに caret)
+                                e.preventDefault();
+                                const r = document.createRange();
+                                r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, upFrom) + 1);
+                                r.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(r);
+                                scrollCursorIntoView();
+                                return;
+                            }
                         }
-                        if (e.key === 'ArrowDown' && atNode && atNode.nodeName === 'BR') {
-                            let after = atNode.nextSibling;
-                            if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
-                                navEnterBlock(after, 'above');
-                                return;
-                            }
-                            if (after && after.nodeType === 3 && after.textContent !== '') {
-                                navToTextStart(after);
-                                return;
-                            }
-                            if (after && after.nodeName === 'BR') {
-                                navToBlankLine(after);
-                                return;
+                        if (e.key === 'ArrowDown') {
+                            let dnFrom = curImg && atNode === curImg ? curImg.nextSibling
+                                : curImg ? curImg.nextSibling
+                                : atNode;
+                            // 空行 BR の場合は BR の先を見る(従来挙動)
+                            if (dnFrom && dnFrom.nodeName === 'BR' && !curImg) {
+                                let after = dnFrom.nextSibling;
+                                while (after && after.nodeType === 3 && after.textContent.trim() === '') after = after.nextSibling;
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, after));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (after && after.nodeType === 3 && after.textContent !== '') {
+                                    navToTextStart(after);
+                                    return;
+                                }
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                            } else if (dnFrom) {
+                                while (dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent.trim() === '') dnFrom = dnFrom.nextSibling;
+                                if (dnFrom && (dnFrom.nodeName === 'PRE' || dnFrom.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(dnFrom, 'above');
+                                    return;
+                                }
+                                if (dnFrom && dnFrom.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, dnFrom));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent !== '') {
+                                    navToTextStart(dnFrom);
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeName === 'BR') {
+                                    // 画像直後の BR = 次行境界。その先を解決
+                                    let after2 = dnFrom.nextSibling;
+                                    while (after2 && after2.nodeType === 3 && after2.textContent.trim() === '') after2 = after2.nextSibling;
+                                    if (after2 && (after2.nodeName === 'PRE' || after2.nodeName === 'BLOCKQUOTE')) {
+                                        navEnterBlock(after2, 'above');
+                                        return;
+                                    }
+                                    if (after2 && after2.nodeType === 3 && after2.textContent !== '') {
+                                        navToTextStart(after2);
+                                        return;
+                                    }
+                                }
                             }
                         }
                     } else if (navNode && navNode !== navLi) {
@@ -10820,6 +10909,17 @@ class EditorInstance {
                             while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
                             return n;
                         };
+                        // 画像行へ caret を置く(再オープン⑧: before=true は画像の前 offset)
+                        const navToImage = (img, before) => {
+                            e.preventDefault();
+                            const r = document.createRange();
+                            const idx = Array.prototype.indexOf.call(navLi.childNodes, img);
+                            r.setStart(navLi, before ? idx : idx + 1);
+                            r.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(r);
+                            scrollCursorIntoView();
+                        };
                         if (e.key === 'ArrowDown') {
                             let adj = navSkipWs(navNode.nextSibling, 'nextSibling');
                             // ブロック前の <br> は行を作らない → 1 個飛ばして直下のブロックに進入
@@ -10827,6 +10927,10 @@ class EditorInstance {
                                 const after = navSkipWs(adj.nextSibling, 'nextSibling');
                                 if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
                                     navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    navToImage(after, true);
                                     return;
                                 }
                                 // br の次も br = 空行がある → 空行へ
@@ -10838,6 +10942,9 @@ class EditorInstance {
                             } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
                                 navEnterBlock(adj, 'above');
                                 return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, true);
+                                return;
                             }
                         } else {
                             let adj = navSkipWs(navNode.previousSibling, 'previousSibling');
@@ -10848,9 +10955,16 @@ class EditorInstance {
                                     navToBlankLine(adj);
                                     return;
                                 }
+                                if (before && before.nodeName === 'IMG') {
+                                    navToImage(before, false);
+                                    return;
+                                }
                                 // text/br は通常行 → browser default
                             } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
                                 navEnterBlock(adj, 'below');
+                                return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, false);
                                 return;
                             }
                         }
