@@ -9416,9 +9416,61 @@ class EditorInstance {
                     // Text after cursor goes to new item
                     // Nested lists stay with original item (NOT moved to new item)
                     e.preventDefault();
-                    
+
                     const range = sel.getRangeAt(0);
-                    
+
+                    // FR-LC-08 (sprint 20260810-183054 再オープン④): li 内ブロック(pre/blockquote)
+                    // を持つ li での Enter は「split」しない — split の extractContents がブロックを
+                    // 新 li に巻き込む/ブロック位置に別 li マーカーが湧く(rc.4 バグ 4/5)。
+                    // 代わりに: カーソル以降にブロックがある場合は「li 全体の後ろに空 li を追加」
+                    // (= 継続行の末端に新行を作る、のリスト行版)。
+                    {
+                        const liDirectBlocks = Array.from(listItem.children).filter(
+                            (c) => c.tagName === 'PRE' || c.tagName === 'BLOCKQUOTE');
+                        if (liDirectBlocks.length > 0) {
+                            // カーソルが li 直下ブロックより前にあるか判定
+                            let cn = range.startContainer;
+                            while (cn && cn.parentNode !== listItem && cn !== listItem) cn = cn.parentNode;
+                            const cnIdx = cn === listItem
+                                ? range.startOffset
+                                : Array.prototype.indexOf.call(listItem.childNodes, cn);
+                            const lastBlock = liDirectBlocks[liDirectBlocks.length - 1];
+                            const lastBlockIdx = Array.prototype.indexOf.call(listItem.childNodes, lastBlock);
+                            if (cnIdx <= lastBlockIdx) {
+                                // 1 行目(マーカー行)か継続行かで分岐: 1 行目 = カーソルより前に
+                                // li 直下 <br> が無い
+                                let enOnFirstLine = true;
+                                for (let i = 0; i < Math.min(cnIdx, listItem.childNodes.length); i++) {
+                                    if (listItem.childNodes[i].nodeName === 'BR') { enOnFirstLine = false; break; }
+                                }
+                                if (enOnFirstLine) {
+                                    // バグ 4: 1 行目での Enter = li は分割せず、空の新 li を
+                                    // li 全体(継続行 + ブロック含む)の後ろに追加
+                                    const enNewLi = document.createElement('li');
+                                    enNewLi.innerHTML = '<br>';
+                                    listItem.after(enNewLi);
+                                    setCursorToStart(enNewLi);
+                                } else {
+                                    // バグ 5: 継続行での Enter = 項目末尾(最終ブロックの下)に
+                                    // 空継続行を追加してカーソル移動(Shift+Enter 脱出と同じ配置 —
+                                    // 空行のカーソル正規位置 = br の直前 offset)
+                                    const enBr = document.createElement('br');
+                                    lastBlock.after(enBr);
+                                    const enR = document.createRange();
+                                    enR.setStart(listItem, Array.prototype.indexOf.call(listItem.childNodes, enBr));
+                                    enR.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(enR);
+                                }
+                                undoManager.saveSnapshot();
+                                markAsEdited();
+                                syncMarkdown();
+                                return;
+                            }
+                            // ブロックより後ろでの Enter は従来 split(ブロックを跨がない)に任せる
+                        }
+                    }
+
                     // Find nested lists in this item (they will stay with original item)
                     const nestedLists = Array.from(listItem.querySelectorAll(':scope > ul, :scope > ol'));
                     
@@ -10549,17 +10601,30 @@ class EditorInstance {
                                 setCursorToEnd(newP);
                             }
                         } else {
-                            // If this is a code block in edit mode, switch to display mode
-                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
-                                enterDisplayMode(blockNode);
-                            }
                             if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
-                                // FR-LC-08b/d (sprint 20260810-183054 再オープン③): li 内ブロックの
+                                // FR-LC-08b/d (sprint 20260810-183054 再オープン③/④): li 内ブロックの
                                 // ↓ 脱出は「直後の行」へ移動する。行モデル(実測): ブロック直後の
                                 // <br> は空行を 1 個作る(カーソル正規位置 = その <br> の直前 offset)。
-                                // 直後が text node ならその行頭へ。何も無ければ自動追加しない(no-op)。
+                                // 直後が text node ならその行頭へ。何も無ければ **完全 no-op**
+                                // (rc.4 バグ 3: enterDisplayMode を先に呼ぶと contenteditable が外れて
+                                // カーソルが消失していた — 脱出先が確定してから display 化する)。
                                 const liParent = blockNode.parentNode;
-                                const afterNode = blockNode.nextSibling;
+                                let afterNode = blockNode.nextSibling;
+                                // 実編集で挟まる空白 text node をスキップ(rc.4 バグ 1/2 の機序)
+                                while (afterNode && afterNode.nodeType === 3 && afterNode.textContent.trim() === '') {
+                                    afterNode = afterNode.nextSibling;
+                                }
+                                const dnExitDisplay = () => {
+                                    if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                        enterDisplayMode(blockNode);
+                                    }
+                                };
+                                // 脱出先がある場合のみ display 化(no-op 時は編集状態を維持)
+                                if (afterNode && (afterNode.nodeName === 'BR'
+                                    || (afterNode.nodeType === 3 && afterNode.textContent !== '')
+                                    || afterNode.nodeName === 'PRE' || afterNode.nodeName === 'BLOCKQUOTE')) {
+                                    dnExitDisplay();
+                                }
                                 if (afterNode && afterNode.nodeName === 'BR') {
                                     // 空行へ(br の直前 = li offset)
                                     const dnR = document.createRange();
@@ -10589,6 +10654,10 @@ class EditorInstance {
                                     logger.log('In-li block: nothing after, ArrowDown no-op (FR-LC-08b)');
                                 }
                             } else {
+                                // top-level: 従来どおり display 化してから脱出
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
+                                }
                                 const next = blockNode.nextElementSibling;
                                 logger.log('Next element:', next ? next.tagName : 'null');
                                 if (next) {
@@ -10685,11 +10754,16 @@ class EditorInstance {
                             }
                         }
                     } else if (navNode && navNode !== navLi) {
+                        // 実編集で挟まる空白 text node をスキップする sibling walker(rc.4 バグ 1/2)
+                        const navSkipWs = (n, dir) => {
+                            while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                            return n;
+                        };
                         if (e.key === 'ArrowDown') {
-                            let adj = navNode.nextSibling;
+                            let adj = navSkipWs(navNode.nextSibling, 'nextSibling');
                             // ブロック前の <br> は行を作らない → 1 個飛ばして直下のブロックに進入
                             if (adj && adj.nodeName === 'BR') {
-                                const after = adj.nextSibling;
+                                const after = navSkipWs(adj.nextSibling, 'nextSibling');
                                 if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
                                     navEnterBlock(after, 'above');
                                     return;
@@ -10705,9 +10779,9 @@ class EditorInstance {
                                 return;
                             }
                         } else {
-                            let adj = navNode.previousSibling;
+                            let adj = navSkipWs(navNode.previousSibling, 'previousSibling');
                             if (adj && adj.nodeName === 'BR') {
-                                const before = adj.previousSibling;
+                                const before = navSkipWs(adj.previousSibling, 'previousSibling');
                                 if (before && (before.nodeName === 'PRE' || before.nodeName === 'BLOCKQUOTE')) {
                                     // ブロック後の <br> = 空行 → ブロックに入らず空行に止まる
                                     navToBlankLine(adj);
@@ -11720,7 +11794,11 @@ class EditorInstance {
                         && range.startContainer.nodeType === 3
                         && range.startContainer.parentNode === bsCurLi
                         && range.startOffset === 0) {
-                        const bsPrev = range.startContainer.previousSibling;
+                        // 実編集で挟まる空白 text node をスキップ(rc.4 バグ 2)
+                        let bsPrev = range.startContainer.previousSibling;
+                        while (bsPrev && bsPrev.nodeType === 3 && bsPrev.textContent.trim() === '') {
+                            bsPrev = bsPrev.previousSibling;
+                        }
                         if (bsPrev && bsPrev.nodeName === 'BR') {
                             // (a) 直前の空行/行区切りと結合 — カーソルは行頭のまま
                             e.preventDefault();

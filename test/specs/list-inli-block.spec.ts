@@ -1140,3 +1140,183 @@ test.describe('In-li block line-model fixes (re-open 3)', () => {
         expect(state.inPre).toBe(true);      // カーソルはブロック末尾へ
     });
 });
+
+// ---- 再オープン④(2026-08-11 rc.4 手動テスト 5 バグ) ----
+
+test.describe('In-li block enter/arrow/cursor fixes (re-open 4)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // (3) TC-ILB-36: 後続なしのブロック内最終行で ↓ → カーソルがブロック内に残る(消えない)
+    test('TC-ILB-36 arrow-down with nothing after keeps cursor in block', async ({ page }) => {
+        await page.evaluate(() => {
+            document.getElementById('editor')!.innerHTML =
+                '<ul><li>item<pre data-lang="" data-mode="edit"><code contenteditable="true">x</code></pre></li></ul>';
+            const code = document.querySelector('#editor code') as HTMLElement;
+            code.focus();
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(code);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true, inPre: false, editMode: null };
+            const a = sel.anchorNode;
+            const el = a && (a.nodeType === 1 ? a as Element : a.parentElement);
+            return {
+                lost: false,
+                inPre: !!el?.closest('pre'),
+                editMode: document.querySelector('#editor pre')?.getAttribute('data-mode'),
+            };
+        });
+        expect(state.lost).toBe(false);
+        expect(state.inPre).toBe(true);       // カーソルはブロック内に残る
+        expect(state.editMode).toBe('edit');  // 表示モードに切り替わらない(タイプ継続可)
+    });
+
+    // (1) TC-ILB-37: 空白 text node が挟まっても隣接判定が働く(↓ でブロック進入)
+    test('TC-ILB-37 arrow-down enters block across whitespace text nodes', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>sdsd<br>sdsdsa'
+                + '<pre data-lang=""><code contenteditable="false">aadad</code></pre>ああ</li></ul>';
+            // 実編集で生まれる空白 text node を意図的に挿入
+            const li = editor.querySelector('li')!;
+            const pre = li.querySelector('pre')!;
+            li.insertBefore(document.createTextNode(''), pre);
+            li.insertBefore(document.createTextNode(' '), pre);
+            const t = Array.from(li.childNodes).find(n => n.nodeType === 3 && n.textContent!.includes('sdsdsa'))!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(t, 3);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => {
+            const a = window.getSelection()!.anchorNode;
+            const el = a && (a.nodeType === 1 ? a as Element : a.parentElement);
+            return { inPre: !!el?.closest('pre'), inLi: !!el?.closest('li') };
+        });
+        expect(state.inPre).toBe(true); // 素通り・document 末尾ジャンプしない
+    });
+
+    // (2) TC-ILB-38: 空白 text node が挟まってもブロック直下行の bk が正しく動く
+    test('TC-ILB-38 backspace below block works across whitespace text nodes', async ({ page }) => {
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>item<pre data-lang=""><code contenteditable="false">xyz</code></pre>after</li><li>two</li></ul>';
+            const li = editor.querySelector('li')!;
+            const t = Array.from(li.childNodes).find(n => n.nodeType === 3 && n.textContent!.includes('after'))!;
+            // pre と after の間に空白 text node
+            li.insertBefore(document.createTextNode(''), t);
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(t, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => ({
+            codeText: document.querySelector('#editor pre code')?.textContent,
+            liCount: document.querySelectorAll('#editor li').length,
+        }));
+        expect(state.codeText).toContain('after'); // ブロック末尾へ統合
+        expect(state.liCount).toBe(2);             // リスト不変
+    });
+
+    // (4) TC-ILB-39: ブロック持ち li の 1 行目末尾で Enter → li 全体の後ろに新 li(分割しない)
+    test('TC-ILB-39 enter on first line of block-bearing li appends new li after item', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsd\n  sdsdsa\n  ```\n  aadad\n  ```\n  ああ');
+            await new Promise(r => setTimeout(r, 300));
+            const li = document.querySelector('#editor li')!;
+            const t = li.firstChild!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(t, t.textContent!.length);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => {
+            const lis = document.querySelectorAll('#editor li');
+            const li0 = lis[0];
+            return {
+                liCount: lis.length,
+                li0HasPre: !!li0.querySelector('pre'),
+                li0Text: li0.textContent?.substring(0, 30),
+                li1Empty: lis[1] ? (lis[1].textContent || '').trim() === '' : null,
+                li1HasPre: lis[1] ? !!lis[1].querySelector('pre') : null,
+            };
+        });
+        expect(state.liCount).toBe(2);
+        expect(state.li0HasPre).toBe(true);     // 元 li は分割されない(ブロックも継続行も残る)
+        expect(state.li0Text).toContain('sdsd');
+        expect(state.li1Empty).toBe(true);      // 新 li は空で li 全体の後ろ
+        expect(state.li1HasPre).toBe(false);
+    });
+
+    // (5) TC-ILB-40: ブロック持ち li の継続行で Enter → 項目末尾(ブロック下)に新継続行
+    test('TC-ILB-40 enter on continuation line of block-bearing li adds line at item end', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsd\n  sdsdsa\n  ```\n  aadad\n  ```');
+            await new Promise(r => setTimeout(r, 300));
+            const li = document.querySelector('#editor li')!;
+            const t = Array.from(li.childNodes).find(n => n.nodeType === 3 && n.textContent!.includes('sdsdsa'))!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(t, t.textContent!.length);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        const state = await page.evaluate(() => {
+            const lis = document.querySelectorAll('#editor li');
+            const li0 = lis[0];
+            const pre = li0.querySelector('pre');
+            // カーソルは li 内・pre の後ろの行にある
+            const sel = window.getSelection()!;
+            const r = sel.getRangeAt(0);
+            let cursorAfterPre = false;
+            if (r.startContainer === li0) {
+                const idx = Array.prototype.indexOf.call(li0.childNodes, pre);
+                cursorAfterPre = r.startOffset > idx;
+            } else {
+                let n: Node | null = r.startContainer;
+                while (n && n.parentNode !== li0) n = n.parentNode;
+                if (n) {
+                    const idxPre = Array.prototype.indexOf.call(li0.childNodes, pre);
+                    const idxN = Array.prototype.indexOf.call(li0.childNodes, n);
+                    cursorAfterPre = idxN > idxPre;
+                }
+            }
+            return {
+                liCount: lis.length,
+                li0HasPre: !!pre,
+                preText: pre?.textContent,
+                cursorAfterPre,
+                markerCount: document.querySelectorAll('#editor li').length,
+            };
+        });
+        expect(state.liCount).toBe(1);           // li 分割されない(真ん中にマーカーが湧かない)
+        expect(state.li0HasPre).toBe(true);
+        expect(state.preText).toContain('aadad'); // ブロック不可侵
+        expect(state.cursorAfterPre).toBe(true);  // 新しい行はブロックの下
+    });
+});
