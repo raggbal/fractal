@@ -757,6 +757,28 @@ class EditorInstance {
             if (direction === 'up') {
                 var lastLi = getDeepestLastLi(target);
                 if (lastLi) {
+                    // FR-LC-08d (再オープン⑥ rc.6 バグ 3): 末尾 li の最終視覚行がブロック
+                    // (pre/blockquote)なら、その末尾に進入する。setCursorToLastLineStartByDOM は
+                    // li 直下 text を前提にしており、末尾ブロック + 空白 node の形でカーソルが
+                    // BR に落ちて迷子になっていた。
+                    var lastContent = lastLi.lastChild;
+                    while (lastContent && lastContent.nodeType === 3 && lastContent.textContent.trim() === '') {
+                        lastContent = lastContent.previousSibling;
+                    }
+                    if (lastContent && (lastContent.nodeName === 'PRE' || lastContent.nodeName === 'BLOCKQUOTE')) {
+                        if (lastContent.nodeName === 'PRE') {
+                            isNavigatingIntoBlock = true;
+                            enterEditMode(lastContent);
+                            var navUpCode = lastContent.querySelector('code');
+                            setTimeout(function () {
+                                if (navUpCode) setCursorToLastLineStartByDOM(navUpCode);
+                                resetNavigationFlag();
+                            }, 0);
+                        } else {
+                            setCursorToEnd(lastContent);
+                        }
+                        return true;
+                    }
                     setCursorToLastLineStartByDOM(lastLi);
                 } else {
                     setCursorToStart(target);
@@ -9428,29 +9450,20 @@ class EditorInstance {
                         const liDirectBlocks = Array.from(listItem.children).filter(
                             (c) => c.tagName === 'PRE' || c.tagName === 'BLOCKQUOTE');
                         if (liDirectBlocks.length > 0) {
-                            // カーソルが li 直下ブロックより前にあるか判定
-                            let cn = range.startContainer;
-                            while (cn && cn.parentNode !== listItem && cn !== listItem) cn = cn.parentNode;
-                            const cnIdx = cn === listItem
-                                ? range.startOffset
-                                : Array.prototype.indexOf.call(listItem.childNodes, cn);
-                            const lastBlock = liDirectBlocks[liDirectBlocks.length - 1];
-                            const lastBlockIdx = Array.prototype.indexOf.call(listItem.childNodes, lastBlock);
-                            if (cnIdx <= lastBlockIdx) {
-                                // 再オープン⑤(rc.5 バグ 1/2 のユーザー裁定): ブロックより前の
-                                // どの行(1 行目・継続行とも)で Enter しても、li は分割せず
-                                // **li 全体(継続行 + ブロック含む)の後ろに空リスト行を追加**し
-                                // カーソル移動する(TC-ILB-39/40/41)。
-                                const enNewLi = document.createElement('li');
-                                enNewLi.innerHTML = '<br>';
-                                listItem.after(enNewLi);
-                                setCursorToStart(enNewLi);
-                                undoManager.saveSnapshot();
-                                markAsEdited();
-                                syncMarkdown();
-                                return;
-                            }
-                            // ブロックより後ろでの Enter は従来 split(ブロックを跨がない)に任せる
+                            // 再オープン⑤/⑥(rc.5 バグ 1/2・rc.6 バグ 1 のユーザー裁定):
+                            // li 直下にブロック(pre/blockquote)を持つ li では、**どの行で Enter
+                            // しても li は分割せず、li 全体(継続行 + ブロック含む)の後ろに
+                            // 空リスト行を追加**しカーソル移動する(TC-ILB-39/40/41/43)。
+                            // split はブロック位置に li マーカーが湧く/継続行が分断される等、
+                            // どの位置でも構造破壊になるため全面禁止。
+                            const enNewLi = document.createElement('li');
+                            enNewLi.innerHTML = '<br>';
+                            listItem.after(enNewLi);
+                            setCursorToStart(enNewLi);
+                            undoManager.saveSnapshot();
+                            markAsEdited();
+                            syncMarkdown();
+                            return;
                         }
                     }
 
@@ -10632,14 +10645,25 @@ class EditorInstance {
                                     }
                                     scrollCursorIntoView();
                                 } else {
-                                    // 再オープン⑤(rc.5 バグ 3/4): li 内に後続なし。
-                                    // (a) 次の li があればその先頭へ(TC-ILB-42)
+                                    // 再オープン⑤/⑥(rc.5 バグ 3/4・rc.6 バグ 2): li 内に後続なし。
+                                    // フォールバック順: (a) 次の li 先頭(TC-ILB-42)→ (b) リスト全体の
+                                    // 次の要素(段落/ブロック等 — TC-ILB-44。勝手に空継続行を作らない)
+                                    // → (c) 文書末尾等でどこにも行けない時のみ空継続行を作って脱出
+                                    // (TC-ILB-36 — カーソル消失の防止)。
                                     const dnNextLi = liParent.nextElementSibling;
+                                    const dnRootList = (() => {
+                                        let l = liParent.parentNode; // ul/ol
+                                        while (l && l.parentNode && l.parentNode !== editor) l = l.parentNode;
+                                        return l && l.parentNode === editor ? l : null;
+                                    })();
+                                    const dnAfterList = dnRootList ? dnRootList.nextElementSibling : null;
                                     if (dnNextLi && dnNextLi.tagName === 'LI') {
                                         setCursorToStart(dnNextLi);
                                         scrollCursorIntoView();
+                                    } else if (dnAfterList) {
+                                        navigateToAdjacentElement(dnAfterList, 'down', false);
+                                        scrollCursorIntoView();
                                     } else {
-                                        // (b) 無ければ空継続行を作って脱出(TC-ILB-36)
                                         const dnBr = document.createElement('br');
                                         blockNode.after(dnBr);
                                         const dnR2 = document.createRange();
