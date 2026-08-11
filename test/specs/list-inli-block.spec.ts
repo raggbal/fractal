@@ -2691,8 +2691,17 @@ test('TC-ILB-78 undo past empty bq removes it and keeps cursor in same li', asyn
     expect(s.lost).toBe(false);
     expect(s.bq).toBe(true);
     expect(s.inBq).toBe(true);
-    // undo2: bq ごと消滅 + カーソルは dsds 行(同 li)— 「bq が消えず下の li へ」も
-    // 「bq は消えるが下の li へ」もどちらも RED になる
+    // undo2: bq が消え literal ">"(タイプ途中状態)へ。カーソルは同じ li — 「bq が
+    // 消えず下の li へ」も「bq は消えるが下の li へ」もどちらも RED になる。
+    // ※ TASK-32(bq 開始判定の空白必須化)後は bare ">" が bq でなくテキストとして
+    //   レンダされるため、この中間状態は canonical skip されず正当な 1 ステップになる
+    await page.keyboard.press('Meta+z');
+    await page.waitForTimeout(600);
+    s = await snap();
+    expect(s.lost).toBe(false);
+    expect(s.bq).toBe(false);
+    expect(s.liIdx).toBe(2);
+    // undo3: ">" も消え元テキスト行(同 li)へ完全復帰
     await page.keyboard.press('Meta+z');
     await page.waitForTimeout(600);
     s = await snap();
@@ -2702,12 +2711,12 @@ test('TC-ILB-78 undo past empty bq removes it and keeps cursor in same li', asyn
     expect(s.text).toBe('dsds');
 });
 
-// TC-ILB-78(再オープン⑭c): 空 bq からの undo 連打でカーソルが下の li に飛ばない。
+// TC-ILB-79(再オープン⑭c): 空 bq からの undo 連打でカーソルが下の li に飛ばない。
 // 根本原因 = 「> 」タイプ途中の literal ">"(スペース無し)を継続行パーサが empty bq に
 // 化けさせ、snapshot 再レンダの blockText が保存時と不一致 → 別 li フォールバック。
 // 修正 = bq 開始判定を「> 」(空白必須)にし top-level REGEX.quote と対称化。
 // counterfactual: /^>\s?/ に戻すと U2 で liIdx=3 に飛び RED。
-test('TC-ILB-78 undo through empty bq keeps cursor in same li', async ({ page }) => {
+test('TC-ILB-79 undo through empty bq keeps cursor in same li', async ({ page }) => {
     test.setTimeout(120000);
     await page.goto('http://localhost:3000/standalone-editor.html');
     await page.waitForSelector('#editor', { state: 'visible' });
