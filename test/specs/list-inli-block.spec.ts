@@ -2101,3 +2101,152 @@ test.describe('Cursor restore after undo (re-open 10b)', () => {
         expect(s.nearText2, 'cursor should be at/near text2, got: ' + s.anchorText).toBe(true);
     });
 });
+
+// ---- 再オープン⑪(2026-08-11 rc.12): undo スナップショット会計とコードブロック内復元 ----
+// 機序 3 点: (1) markdown 変数の rAF/setTimeout 遅延により snapshot が古い md を積み、
+// undo で直前操作ごと巻き戻る(fence 消滅・カーソルが下の li へ) (2) 明示 saveSnapshot 後も
+// typingTimer が生き残り直後のタイプの snapshot が欠落 (3) 空 code へのカーソル復元が
+// textOffset 境界で pre 外に解決 → preInfo(pre 番号 + 内部 offset)を別立て保存。
+
+test.describe('Undo snapshot accounting and in-pre cursor restore (re-open 11)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-66: ユーザーシナリオ(継続行 → fence 作成 → 中身タイプ → undo 連打)で
+    // 各 undo が 1 操作ずつ戻り、カーソルが正しい文脈に着地する
+    test('TC-ILB-66 undo chain steps back one edit at a time with correct cursor', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('3. A\n   dssdsd\n4. B');
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) { if ((node.textContent || '') === 'dssdsd') break; }
+            const sel = window.getSelection()!;
+            const rg = document.createRange();
+            rg.setStart(node!, 6); rg.collapse(true);
+            sel.removeAllRanges(); sel.addRange(rg);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(150);
+        await page.keyboard.type('```');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        await page.keyboard.type('aa');
+        await page.waitForTimeout(600);
+
+        const snap = async () => await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            const li = el?.closest('li');
+            const lis = Array.from(document.querySelectorAll('#editor li'));
+            return {
+                lost: false,
+                liIdx: li ? lis.indexOf(li) : -1,
+                inPre: !!el?.closest('pre'),
+                hasPre: !!document.querySelector('#editor li pre'),
+                codeText: document.querySelector('#editor li pre code')?.textContent ?? null,
+            };
+        });
+
+        // undo 1: aa が消える。カーソルは空の code 内(counterfactual: 旧実装は fence ごと消え
+        // 下の li に飛んでいた = snapshot 欠落)
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        let s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.hasPre).toBe(true);           // fence は残る(aa だけ戻る)
+        expect(s.inPre).toBe(true);            // カーソルは code 内(「入らない」の解消)
+        expect((s.codeText || '').replace(/\n/g, '')).toBe('');
+
+        // undo 2: fence が消えて ``` テキスト行(or 空継続行)へ。編集中の li に留まる
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.liIdx).toBe(0);               // 下のリスト行(4. B)に飛ばない
+        expect(s.hasPre).toBe(true);           // ``` テキスト行状態(fence DOM は snapshot 相応)
+
+        // undo 3: 初期状態へ。カーソルは元の編集行(dssdsd)付近
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.liIdx).toBe(0);
+    });
+
+    // TC-ILB-67: 継続行のタイプを undo → データが消えた行にカーソルが残る(下の li に行かない)
+    test('TC-ILB-67 undo of continuation typing keeps caret on that line', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- QAWA\n  SSDSD\n  ```\n  sdsds\n  ```\n  aaa\n- EEWEW');
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) { if ((node.textContent || '') === 'aaa') break; }
+            const sel = window.getSelection()!;
+            const rg = document.createRange();
+            rg.setStart(node!, 3); rg.collapse(true);
+            sel.removeAllRanges(); sel.addRange(rg);
+        });
+        await page.keyboard.type('XX');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            return {
+                lost: false,
+                anchorText: (a.textContent || '').substring(0, 8),
+                offset: sel.getRangeAt(0).startOffset,
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.anchorText).toBe('aaa');  // 同じ行に留まる(1 行下にずれない)
+        expect(s.offset).toBe(3);          // 元のカーソル位置
+    });
+
+    // TC-ILB-68: code 内タイプの undo → code 内・編集モードで復元(display で「入れない」の遮断)
+    test('TC-ILB-68 undo of typing inside code restores editable in-pre cursor', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- QAWA\n  ```\n  sdsds\n  ```\n- EEWEW');
+            await new Promise(r => setTimeout(r, 300));
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(code); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.type('ZZ');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            const pre = document.querySelector('#editor li pre');
+            return {
+                lost: false,
+                inPre: !!el?.closest('pre'),
+                preMode: pre?.getAttribute('data-mode'),
+                codeText: pre?.querySelector('code')?.textContent,
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.inPre).toBe(true);
+        expect(s.preMode).toBe('edit');     // 編集モード(キャレット可視・タイプ継続可)
+        expect(s.codeText).toContain('sdsds');
+    });
+});

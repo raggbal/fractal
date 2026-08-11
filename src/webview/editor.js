@@ -1222,33 +1222,53 @@ class EditorInstance {
         var TYPING_DEBOUNCE = 500;
         var _isUndoRedo = false;
 
-        var _preEditCursor = null; // beforeinput 時点(= markdown 変数と同時点)の cursor
-        function notePreEditCursor() { _preEditCursor = saveCursorState(); }
+        var _preEdit = null; // beforeinput 時点の { markdown, cursor }(完全同時点ペア)
+        function notePreEditCursor() {
+            // beforeinput 時点 = 直前の編集がすべて DOM に反映済み・今回のタイプは未反映。
+            // markdown 変数は遅延しうるので常に DOM から取り直す(再オープン⑪)。
+            _preEdit = { markdown: htmlToMarkdown(), cursor: saveCursorState() };
+        }
         function capture() {
             return { markdown: markdown, cursor: saveCursorState() };
         }
-        // input 経由の snapshot: markdown 変数は「変化前」なので cursor も変化前
-        //(beforeinput で保存した _preEditCursor)を対にする(再オープン⑩ undo カーソル迷子:
-        // 旧実装は markdown=旧 / cursor=新の不整合ペアで、undo 後のカーソルがタイプ分ずれて
-        // 別 li に飛んでいた)。
+        // input 経由の snapshot: beforeinput で保存した「変化前の md + cursor」同時点ペアを使う
+        //(再オープン⑩/⑪: markdown=旧 / cursor=新の不整合や rAF 遅延の古い md が、undo 後の
+        // カーソル飛び・直前操作ごと巻き戻る症状の正体だった)。
         function captureForInput() {
-            return { markdown: markdown, cursor: _preEditCursor || saveCursorState() };
+            if (_preEdit) return { markdown: _preEdit.markdown, cursor: _preEdit.cursor };
+            return capture();
         }
 
         function saveSnapshot() {
             if (_isUndoRedo) return;
+            // markdown 変数は rAF/setTimeout 同期で遅延しうる(pendingSync=false でも
+            // syncTimeout 待ちの間は古い)。snapshot は「現在の DOM と同時点」が絶対条件
+            // (古い md を積むと undo で直前の編集ごと巻き戻る — 再オープン⑪ fence 消滅の機序)
+            // なので、常に DOM から取り直す(cut ハンドラの precedent と同じ)。
+            markdown = htmlToMarkdown();
             var state = capture();
             if (undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown) return;
             undoStack.push(state);
             if (undoStack.length > MAX_STACK) undoStack.shift();
             redoStack.length = 0;
+            // 明示 snapshot = 編集の区切り。タイピング debounce を打ち切り、次の input が
+            // 新しい snapshot を積めるようにする(再オープン⑪: ``` タイプ → Enter(fence) →
+            // 直後のタイプ、で timer が跨いで生き残り fence 後の snapshot が欠けていた)
+            if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
             updateButtons();
         }
 
         function saveSnapshotDebounced() {
             if (_isUndoRedo) return;
             if (typingTimer) return;
-            // input 後に呼ばれるため markdown(変化前)と対になる変化前 cursor を使う
+            // input 後に呼ばれるため markdown(変化前)と対になる変化前 cursor を使う。
+            // ただし pendingSync(直前操作の rAF 未発火)なら、markdown 変数は「1 つ前の操作
+            // より古い」状態 = 変化前 cursor とすら不整合 → DOM から取り直すと「変化後」に
+            // なってしまうため、ここでは rAF を先取りして markdown を直前操作後の状態に
+            // 同期してから、beforeinput 時点の cursor と対にする… は不可能(DOM は既に変化後)。
+            // 実際上 beforeinput 時点の DOM = 直前操作後なので、_preEditCursor と
+            // 「beforeinput 時点で取得した markdown」を対にするのが正解 — beforeinput 側で
+            // markdown も先取りする(notePreEditCursor が md も保存)。
             var state = captureForInput();
             if (!(undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown)) {
                 undoStack.push(state);
@@ -2412,7 +2432,24 @@ class EditorInstance {
             preRange.setEnd(range.startContainer, range.startOffset);
             const preFrag = preRange.cloneContents();
             const textOffset = countCursorTextOffset(preFrag);
-            return { blockIndex, blockText, textOffset };
+            // 再オープン⑪: カーソルが pre/code 内なら「block 内の何番目の pre + pre 内 offset」も
+            // 保存する。空 code は text を産まず textOffset 境界が pre 外に解決されるため、
+            // pre 内カーソルはこちらを優先して復元する(undo でコードブロックに正しく入る)。
+            let preInfo = null;
+            const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+            const inPre = anchorEl && anchorEl.closest ? anchorEl.closest('pre') : null;
+            if (inPre && block.contains(inPre)) {
+                const allPres = Array.from(block.querySelectorAll('pre'));
+                const preIdx = allPres.indexOf(inPre);
+                const code = inPre.querySelector('code') || inPre;
+                const inRange = document.createRange();
+                inRange.setStart(code, 0);
+                try {
+                    inRange.setEnd(range.startContainer, range.startOffset);
+                    preInfo = { preIdx: preIdx, innerOffset: countCursorTextOffset(inRange.cloneContents()) };
+                } catch (e2) { /* pre 外終端等は無視 */ }
+            }
+            return { blockIndex, blockText, textOffset, preInfo };
         } catch (e) {
             logger.log('[Any MD] saveCursorState failed:', e);
             return null;
@@ -2542,8 +2579,39 @@ class EditorInstance {
         }
 
         try {
+            // 再オープン⑪: pre 内カーソルは preInfo 優先で復元(空 code でも正しく中に入る)
+            if (state.preInfo) {
+                const pres = Array.from(block.querySelectorAll('pre'));
+                const targetPre = pres[Math.min(state.preInfo.preIdx, pres.length - 1)];
+                if (targetPre) {
+                    if (targetPre.getAttribute('data-mode') !== 'edit') enterEditMode(targetPre);
+                    const code = targetPre.querySelector('code') || targetPre;
+                    const inner = findPositionByTextOffset(code, state.preInfo.innerOffset);
+                    const r2 = document.createRange();
+                    if (inner) { r2.setStart(inner.node, inner.offset); }
+                    else { r2.selectNodeContents(code); r2.collapse(false); }
+                    r2.collapse(true);
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r2);
+                    return;
+                }
+            }
+
             const position = findPositionByTextOffset(block, state.textOffset);
             if (!position) return;
+
+            // 再オープン⑪(undo でコードブロックにカーソルが「入らない」): 着地先が pre 内
+            // なのに display モードのままだと contenteditable が外れ、selection は張れても
+            // キャレットが見えず編集不能(= ユーザーには「カーソル消失」)。編集モードに
+            // 切り替えてから range を張る。
+            const posEl = position.node.nodeType === 3
+                ? position.node.parentElement
+                : position.node;
+            const posPre = posEl && posEl.closest ? posEl.closest('pre') : null;
+            if (posPre && posPre.getAttribute('data-mode') !== 'edit') {
+                enterEditMode(posPre);
+            }
 
             const range = document.createRange();
             range.setStart(position.node, position.offset);
