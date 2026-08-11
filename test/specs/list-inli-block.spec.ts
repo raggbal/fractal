@@ -2443,4 +2443,53 @@ test.describe('Undo cursor at blockquote boundaries (re-open 13)', () => {
         expect(s.inBq).toBe(true);
         expect(s.text).toBe('quoted');
     });
+
+    // TC-ILB-74: TC-ILB-71 の pre 版(ユーザーシナリオ「コードブロックでも再現」の番人)
+    test('TC-ILB-74 undo chain around pre keeps cursor in correct context', async ({ page }) => {
+        test.setTimeout(90000);
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- っd\n  - aaaa\n    sdsdsds\n    ```\n    aaaaa\n    ```\n    tail\n- sada\n  - sdsdsd');
+            await new Promise(r => setTimeout(r, 300));
+            const pre = document.querySelector('#editor li li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(code); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('sdsds');
+        await page.waitForTimeout(700);
+        const snap = async () => await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            const li = el?.closest('li');
+            const lis = Array.from(document.querySelectorAll('#editor li'));
+            return {
+                lost: false,
+                liIdx: li ? lis.indexOf(li) : -1,
+                inPre: !!el?.closest('pre'),
+            };
+        });
+        // u1: タイプが消える → カーソルは空継続行(pre 内でも下の li でもない)
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        let s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.inPre).toBe(false);  // pre に吸い込まれない
+        expect(s.liIdx).toBe(1);      // 編集中の li(下の sada に飛ばない)
+        // u2: 空継続行が消える → pre 内末尾へ進入
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.inPre).toBe(true);
+        expect(s.liIdx).toBe(1);
+    });
 });
