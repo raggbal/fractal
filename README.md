@@ -60,7 +60,8 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 ### Editing
 - **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
 - **Headings, lists, task lists, quotes, horizontal rules** — all standard markdown, keyboard-first
-- **Tables** — Drag any cell edge to resize columns; widths are saved into the file (as an HTML comment that doesn't affect other viewers). Tab to move between cells, Enter to add rows
+- **Tables** — Drag any cell edge to resize columns; widths are saved into the file (as an HTML comment that doesn't affect other viewers). Tab to move between cells, Enter to add rows. Toggle the header row on/off from the table toolbar — headerless tables stay GFM-compatible for other viewers
+- **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ``` ``` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
 - **Code blocks** — Syntax highlighting for 24+ languages, expandable into a VS Code editor tab
 - **Inline formatting** — Bold, italic, strikethrough, inline code, smart link creation
 - **Action palette** (`Cmd+/`) — Every formatting and insert action in one searchable menu
