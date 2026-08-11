@@ -2646,3 +2646,58 @@ test('TC-ILB-77 undo after typing below in-li code block keeps cursor in same li
         if (i >= 3) expect(s.inPre).toBe(true);
     }
 });
+
+// TC-ILB-78(再オープン⑭c): 空 bq まで undo した後さらに undo → bq が消えカーソルは
+// 元テキスト行(同 li)へ。no-op undo(bare ">" 遷移スナップショット)でカーソルだけ
+// 下の li に飛ぶ症状の番人。counterfactual: undo() の canonical no-op skip を外すと RED。
+test('TC-ILB-78 undo past empty bq removes it and keeps cursor in same li', async ({ page }) => {
+    test.setTimeout(120000);
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('- aaa\n  - sdsd\n    - d\n      dssdsds\n      dsds\n- dsdsd');
+        await new Promise(r => setTimeout(r, 300));
+        const walker = document.createTreeWalker(document.querySelector('#editor')!, NodeFilter.SHOW_TEXT);
+        let target: Text | null = null; let n: Node | null;
+        while ((n = walker.nextNode())) { if (n.textContent === 'dsds') target = n as Text; }
+        const sel = window.getSelection()!;
+        const r = document.createRange();
+        r.setStart(target!, 4); r.collapse(true);
+        sel.removeAllRanges(); sel.addRange(r);
+    });
+    await page.keyboard.press('Shift+Enter');
+    await page.waitForTimeout(300);
+    await page.keyboard.type('> ');
+    await page.waitForTimeout(500);
+    await page.keyboard.type('aaaa');
+    await page.waitForTimeout(700);
+
+    const snap = () => page.evaluate(() => {
+        const sel = window.getSelection()!;
+        const bq = document.querySelector('#editor blockquote');
+        if (!sel.rangeCount) return { lost: true } as any;
+        const a = sel.anchorNode!;
+        const el = a.nodeType === 1 ? (a as Element) : a.parentElement!;
+        const li = el.closest('li');
+        const lis = Array.from(document.querySelectorAll('#editor li'));
+        return { lost: false, bq: !!bq, liIdx: li ? lis.indexOf(li) : -1,
+            inBq: !!el.closest('blockquote'), text: a.nodeType === 3 ? a.textContent : null } as any;
+    });
+
+    // undo1: aaaa 消滅 → 空 bq 内
+    await page.keyboard.press('Meta+z');
+    await page.waitForTimeout(600);
+    let s = await snap();
+    expect(s.lost).toBe(false);
+    expect(s.bq).toBe(true);
+    expect(s.inBq).toBe(true);
+    // undo2: bq ごと消滅 + カーソルは dsds 行(同 li)— 「bq が消えず下の li へ」も
+    // 「bq は消えるが下の li へ」もどちらも RED になる
+    await page.keyboard.press('Meta+z');
+    await page.waitForTimeout(600);
+    s = await snap();
+    expect(s.lost).toBe(false);
+    expect(s.bq).toBe(false);
+    expect(s.liIdx).toBe(2);
+    expect(s.text).toBe('dsds');
+});

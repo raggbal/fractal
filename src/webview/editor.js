@@ -1289,10 +1289,20 @@ class EditorInstance {
                 // Without this, typing then immediately undoing captures stale markdown
                 // (debouncedSync hasn't fired yet), so redo restores the wrong state.
                 markdown = htmlToMarkdown();
+                var _preUndoCanonical = markdown;
                 redoStack.push(capture());
                 var state = undoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
+                // 再オープン⑭c: 非正準な遷移スナップショット(例: 「>」タイプ直後 = bare ">"。
+                // スペースで bq 化した「> 」と md 文字列は違うが再レンダ結果は同じ空 bq)を
+                // pop すると、見た目が変わらないのにカーソルだけ飛ぶ no-op undo になる。
+                // レンダ結果が undo 前と同一なら実質変化なし → さらに pop して実変化まで進む。
+                while (undoStack.length && htmlToMarkdown() === _preUndoCanonical) {
+                    state = undoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
                 // 再オープン⑭(実機のみ再現する undo カーソル飛び): focus が editor 外
                 //(toolbar ボタン / VS Code keybinding 経由)だと selection 復元後にブラウザが
                 // 勝手にキャレットを置き直す。復元前に focus を確保し、復元は同期 + rAF 後の
@@ -1321,10 +1331,18 @@ class EditorInstance {
             try {
                 clearTimeout(syncTimeout);
                 pendingSync = false;
+                markdown = htmlToMarkdown();
+                var _preRedoCanonical = markdown;
                 undoStack.push(capture());
                 var state = redoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
+                // 再オープン⑭c: undo 側と対称 — 非正準スナップショットの no-op redo を skip
+                while (redoStack.length && htmlToMarkdown() === _preRedoCanonical) {
+                    state = redoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
                 if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
                     editor.focus({ preventScroll: true });
                 }
@@ -1358,6 +1376,10 @@ class EditorInstance {
             updateButtons();
         }
 
+        // テスト診断用(標準 API 相当の read-only seam。__toggleTableHeaderForTest の precedent)
+        window.__undoStackForTest = function() {
+            return undoStack.map(function(s) { return { md: s.markdown, cursor: s.cursor }; });
+        };
         return {
             saveSnapshot: saveSnapshot,
             saveSnapshotDebounced: saveSnapshotDebounced,
