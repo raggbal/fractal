@@ -1258,6 +1258,14 @@ class EditorInstance {
             updateButtons();
         }
 
+        // FR-TSL: タイプ置換(select → edit)で「置換直後の空セル」を中間 snapshot に
+        // 積ませない — saveSnapshot(置換前)直後にバーストを開始し、続くタイプの
+        // input 由来 snapshot を debounce 窓で吸収する(置換 + タイプ = undo 1 step)
+        function beginTypingBurst() {
+            if (typingTimer) clearTimeout(typingTimer);
+            typingTimer = setTimeout(function() { typingTimer = null; }, TYPING_DEBOUNCE);
+        }
+
         function saveSnapshotDebounced() {
             if (_isUndoRedo) return;
             if (typingTimer) return;
@@ -1384,6 +1392,7 @@ class EditorInstance {
             saveSnapshot: saveSnapshot,
             saveSnapshotDebounced: saveSnapshotDebounced,
             notePreEditCursor: notePreEditCursor,
+            beginTypingBurst: beginTypingBurst,
             undo: undo,
             redo: redo,
             updateButtons: updateButtons,
@@ -2428,6 +2437,9 @@ class EditorInstance {
 
     function renderFromMarkdown() {
         logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        // FR-TSL: 再レンダで旧 DOM のセル参照が失効するため select 状態を対クリア
+        //(初期 render は tableSel の let 初期化前に走りうるため TDZ を try で吸収)
+        try { tslClear(); } catch (e) { /* not yet initialized */ }
         const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
@@ -4468,6 +4480,276 @@ class EditorInstance {
     let activeTableCell = null;
     let activeTable = null;
 
+    // FR-TSL (sprint 20260812-032645): table cell select/edit mode state machine.
+    // mode: null = 従来のキャレット編集(プログラム的配置・既存 TC 互換経路)。
+    // 'select' = セル自体が選択単位(キャレット不可視)。'edit' = セル内編集。
+    // one-shot 対クリア: table 外 click / Esc / 再レンダで必ず null に戻す。
+    let tableSel = { mode: null, table: null, anchor: null, focus: null, editBackup: null };
+
+    function tslCellPos(cell) {
+        const row = cell.parentElement;
+        const table = row.closest('table');
+        const rows = Array.from(table.rows);
+        return { r: rows.indexOf(row), c: cell.cellIndex, table, rows };
+    }
+
+    // 矩形範囲のセル集合(結合セルは anchor 起点で colspan/rowspan ぶん矩形を拡張)
+    function tslRangeCells() {
+        if (!tableSel.anchor || !tableSel.focus) return [];
+        const a = tslCellPos(tableSel.anchor);
+        const f = tslCellPos(tableSel.focus);
+        let r1 = Math.min(a.r, f.r), r2 = Math.max(a.r, f.r);
+        let c1 = Math.min(a.c, f.c), c2 = Math.max(a.c, f.c);
+        // span 拡張: 範囲に交差する結合セルを完全に含むまで矩形を広げる(Excel)
+        let grew = true;
+        while (grew) {
+            grew = false;
+            for (const row of a.rows) {
+                for (const cell of row.cells) {
+                    const p = tslCellPos(cell);
+                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                    const er = p.r + rs - 1, ec = p.c + cs - 1;
+                    const intersects = !(er < r1 || p.r > r2 || ec < c1 || p.c > c2);
+                    if (!intersects) continue;
+                    if (p.r < r1) { r1 = p.r; grew = true; }
+                    if (er > r2) { r2 = er; grew = true; }
+                    if (p.c < c1) { c1 = p.c; grew = true; }
+                    if (ec > c2) { c2 = ec; grew = true; }
+                }
+            }
+        }
+        const cells = [];
+        for (const row of a.rows) {
+            for (const cell of row.cells) {
+                const p = tslCellPos(cell);
+                if (p.r >= r1 && p.r <= r2 && p.c >= c1 && p.c <= c2) cells.push(cell);
+            }
+        }
+        return cells;
+    }
+
+    function tslPaintSelection() {
+        if (!tableSel.table) return;
+        tableSel.table.querySelectorAll('.tbl-cell-selected, .tbl-cell-range')
+            .forEach((el) => el.classList.remove('tbl-cell-selected', 'tbl-cell-range'));
+        const cells = tslRangeCells();
+        for (const cell of cells) cell.classList.add('tbl-cell-range');
+        if (tableSel.anchor) tableSel.anchor.classList.add('tbl-cell-selected');
+        if (tableSel.focus && tableSel.focus !== tableSel.anchor) {
+            tableSel.focus.classList.add('tbl-cell-selected');
+        }
+    }
+
+    function tslClear() {
+        if (tableSel.table) {
+            tableSel.table.classList.remove('tbl-select-mode');
+            tableSel.table.querySelectorAll('.tbl-cell-selected, .tbl-cell-range')
+                .forEach((el) => el.classList.remove('tbl-cell-selected', 'tbl-cell-range'));
+        }
+        tableSel = { mode: null, table: null, anchor: null, focus: null, editBackup: null };
+    }
+
+    function tslEnterSelect(cell) {
+        const table = cell.closest('table');
+        if (tableSel.table && tableSel.table !== table) tslClear();
+        tableSel.mode = 'select';
+        tableSel.table = table;
+        tableSel.anchor = cell;
+        tableSel.focus = cell;
+        tableSel.editBackup = null;
+        table.classList.add('tbl-select-mode');
+        tslPaintSelection();
+        // select 中はキャレットをセルから外す(collapse した selection は cell 内に置くが
+        // caret-color: transparent で不可視 — copy/paste イベントは editor に届き続ける)
+        try {
+            const r = document.createRange();
+            r.selectNodeContents(cell);
+            r.collapse(true);
+            const s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+        } catch (err) { /* noop */ }
+        activeTable = table;
+        activeTableCell = cell;
+        showTableToolbar(table);
+    }
+
+    function tslEnterEdit(cell, replaceContent) {
+        tableSel.mode = 'edit';
+        tableSel.editBackup = cell.innerHTML;
+        tableSel.table.classList.remove('tbl-select-mode');
+        tslPaintSelection();
+        if (replaceContent) {
+            undoManager.saveSnapshot();
+            cell.innerHTML = '<br>';
+            setCursorToStart(cell);
+            // 置換 + 続くタイプを undo 1 step に(空セル中間 snapshot を防ぐ)
+            undoManager.beginTypingBurst();
+        } else {
+            setCursorToEnd(cell);
+        }
+    }
+
+    // edit 確定(syncMarkdown)+ 隣接セルへ select 移動(nextCell=null なら同セル select)
+    function tslCommitEdit(nextCell) {
+        const cell = tableSel.anchor;
+        tableSel.editBackup = null;
+        syncMarkdown();
+        tslEnterSelect(nextCell || cell);
+    }
+
+    function tslNeighbor(cell, dr, dc) {
+        const p = tslCellPos(cell);
+        // 結合セルからの移動は span の端から数える
+        const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+        const tr = dr > 0 ? p.r + rs - 1 + dr : p.r + dr;
+        const tc = dc > 0 ? p.c + cs - 1 + dc : p.c + dc;
+        if (tr < 0 || tr >= p.rows.length) return null;
+        if (tc < 0) return null;
+        const row = p.rows[tr];
+        if (!row) return null;
+        let best = null;
+        for (const c of row.cells) {
+            const cp = tslCellPos(c);
+            const ce = cp.c + (c.colSpan || 1) - 1;
+            if (tc >= cp.c && tc <= ce) return c;
+            if (cp.c <= tc) best = c;
+        }
+        // 水平移動で行幅を越えた = 端(null を返し、Tab の行追加/移動判定に委ねる)。
+        // 垂直移動のみ rowspan 被覆の最近傍セルへフォールバック
+        if (dc !== 0) return null;
+        return best || row.cells[row.cells.length - 1] || null;
+    }
+
+    // select モードで table の外へ抜ける(上端↑ = 表の前 / 下端↓ = 表の後)
+    function tslExitTable(dir) {
+        const table = tableSel.table;
+        tslClear();
+        const target = dir < 0 ? table.previousElementSibling : table.nextElementSibling;
+        if (target) {
+            try {
+                const r = document.createRange();
+                r.selectNodeContents(target);
+                r.collapse(dir < 0 ? false : true);
+                const s = window.getSelection();
+                s.removeAllRanges();
+                s.addRange(r);
+            } catch (err) { /* noop */ }
+        }
+        hideTableToolbar();
+    }
+
+    // FR-TSL-03: 選択範囲の内容クリア(saveSnapshot 前置・undo 1 回)
+    function tslClearRangeContents() {
+        undoManager.saveSnapshot();
+        for (const cell of tslRangeCells()) cell.innerHTML = '<br>';
+        syncMarkdown();
+    }
+
+    // FR-TSL のキーディスパッチ。true を返したら呼び出し元 keydown はそこで終了
+    function tslHandleKeydown(e) {
+        const mode = tableSel.mode;
+        if (mode === 'select') {
+            // 修飾キー単体は素通し
+            if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(e.key)) return true;
+            if (e.key.startsWith('Arrow')) {
+                e.preventDefault();
+                const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+                const base = e.shiftKey ? tableSel.focus : tableSel.anchor;
+                const next = tslNeighbor(base, d[0], d[1]);
+                if (!next) {
+                    // 端 + 外向き: 上下は表を出る。左右端は留まる
+                    if (!e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                        tslExitTable(e.key === 'ArrowUp' ? -1 : 1);
+                    }
+                    return true;
+                }
+                if (e.shiftKey) {
+                    tableSel.focus = next;      // FR-TSL-02: anchor 起点の範囲拡張
+                    tslPaintSelection();
+                } else {
+                    tslEnterSelect(next);
+                }
+                return true;
+            }
+            if (e.key === 'Enter' || e.key === 'F2') {
+                e.preventDefault();
+                tslEnterEdit(tableSel.anchor, false);
+                return true;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const next = tslNeighbor(tableSel.anchor, 0, e.shiftKey ? -1 : 1);
+                if (next) { tslEnterSelect(next); return true; }
+                if (!e.shiftKey) {
+                    // 最終セルの Tab = 行追加(旧「Enter で行追加」の置き場・FR-TSL-01)
+                    const p = tslCellPos(tableSel.anchor);
+                    const lastRow = p.rows[p.rows.length - 1];
+                    if (tableSel.anchor.closest('tr') === lastRow) {
+                        undoManager.saveSnapshot();
+                        const newRow = document.createElement('tr');
+                        for (let i = 0; i < lastRow.cells.length; i++) {
+                            const td = document.createElement('td');
+                            td.setAttribute('contenteditable', 'true');
+                            td.innerHTML = '<br>';
+                            newRow.appendChild(td);
+                        }
+                        lastRow.after(newRow);
+                        syncMarkdown();
+                        tslEnterSelect(newRow.cells[0]);
+                    } else {
+                        const down = tslNeighbor(tableSel.anchor, 1, 0);
+                        if (down) tslEnterSelect(down.parentElement.cells[0]);
+                    }
+                }
+                return true;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                tslClear();
+                return true;
+            }
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                e.preventDefault();
+                tslClearRangeContents();
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) && ['c', 'x', 'v'].includes(e.key.toLowerCase())) {
+                // copy/cut/paste イベントハンドラ側(tableSel 分岐)に委譲 — preventDefault しない
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) || e.altKey) return false; // 他のショートカットは既存へ
+            if (e.key.length === 1) {
+                // FR-TSL-01: タイプ開始 = 内容置換で edit(Excel)。キー自体は流して入力させる
+                tslEnterEdit(tableSel.anchor, true);
+                return false;
+            }
+            return true;
+        }
+        if (mode === 'edit') {
+            const cell = tableSel.anchor;
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                tslCommitEdit(tslNeighbor(cell, 1, 0)); // 確定 + 下(Excel)。最下行は同セル
+                return true;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                tslCommitEdit(tslNeighbor(cell, 0, e.shiftKey ? -1 : 1));
+                return true;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (tableSel.editBackup !== null) cell.innerHTML = tableSel.editBackup; // 破棄(Excel)
+                tslEnterSelect(cell);
+                return true;
+            }
+            // Shift+Enter(セル内改行)・矢印(セル内移動)・文字入力は既存挙動へ素通し
+            return false;
+        }
+        return false;
+    }
+
     function createTableToolbar() {
         if (tableToolbar) return;
 
@@ -5236,6 +5518,14 @@ class EditorInstance {
         }
     });
 
+    // FR-TSL-01: セルのダブルクリック = edit モード直行(Excel / mindmap 同様)
+    editor.addEventListener('dblclick', function(e) {
+        const dblCell = e.target.closest ? e.target.closest('th, td') : null;
+        if (dblCell && editor.contains(dblCell) && tableSel.mode === 'select') {
+            tslEnterEdit(dblCell, false);
+        }
+    });
+
     // Image double-click → fullscreen overlay with pinch zoom (Mac touchpad pinch / wheel+ctrl)
     editor.addEventListener('dblclick', function(e) {
         var target = e.target;
@@ -5820,11 +6110,19 @@ class EditorInstance {
             if (table) {
                 showTableToolbar(table);
             }
-            
+
+            // FR-TSL-01: シングルクリック = select モード(edit 中の同一セル
+            // 再クリックはキャレット移動として素通し)。ダブルクリックは dblclick
+            // handler が edit へ直行させる。トリプルクリックは従来どおり全選択。
+            if (e.detail === 1 && !(tableSel.mode === 'edit' && tableSel.anchor === cell)) {
+                tslEnterSelect(cell);
+            }
+
             // Triple-click in table cell - select cell contents only (same behavior as Cmd+A)
             // This prevents browser's native line selection which can break table structure on paste
             if (e.detail === 3) {
                 e.preventDefault();
+                if (tableSel.mode === 'select') tslEnterEdit(cell, false);
                 const sel = window.getSelection();
                 const range = document.createRange();
                 range.selectNodeContents(cell);
@@ -5833,7 +6131,8 @@ class EditorInstance {
                 logger.log('Triple-click: Selected all in table cell');
             }
         } else {
-            // Clicked outside table - hide toolbar
+            // Clicked outside table - hide toolbar + select モード解除(one-shot クリア)
+            tslClear();
             hideTableToolbar();
         }
         
@@ -8387,6 +8686,14 @@ class EditorInstance {
                 }
             }
             return;
+        }
+
+        // FR-TSL: table cell select/edit モードのキー処理(既存 table 分岐より先取り。
+        // mode=null = プログラム的キャレット配置の従来経路は素通し = 既存 TC 互換)
+        if (tableSel.mode && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslHandleKeydown(e)) return;
+        } else if (tableSel.mode) {
+            tslClear(); // 再レンダで table が消えた stale state の対クリア
         }
 
         // Mark as actively editing for non-navigation keys
@@ -13916,6 +14223,11 @@ class EditorInstance {
     editor.addEventListener('compositionstart', function() {
         if (isSourceMode) return;
         undoManager.notePreEditCursor();
+        // FR-TSL-01: select モード中の IME 合成開始 = 「タイプ開始」= 内容置換で edit
+        //(再オープン⑭ の実測知見: 日本語入力の入口は keydown でなく composition)
+        if (tableSel.mode === 'select' && tableSel.anchor) {
+            tslEnterEdit(tableSel.anchor, true);
+        }
     });
 
     // Input handler - debounced sync for performance
