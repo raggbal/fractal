@@ -2385,7 +2385,10 @@ body {
 }
 
 /* FR-TBL-01 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
-   旧 CSS 非表示方式(data-headerless)は廃止。H トグルボタンの active 状態のみ。 */
+   旧 CSS 非表示方式(data-headerless)は廃止。H トグルボタンの active 状態のみ。
+   toolbar-activeBackground は light テーマで濃色になり文字が沈むため、
+   button の accent 色(背景 + 前景を対で指定)を使う。 */
 .table-toolbar button.active {
-    background: var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.31));
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #ffffff);
 }
