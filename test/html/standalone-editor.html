@@ -3138,11 +3138,10 @@ body {
     opacity: 0.85;
 }
 
-/* FR-TBL-01/02 (sprint 20260810-183054, ADRL-0052): headerless table.
-   DOM structure (thead/th + content) is preserved; hiding is display-only so
-   toggling the header back ON restores cells losslessly. */
-table[data-headerless="true"] tr:first-child:has(> th) {
-    display: none;
+/* FR-TBL-01 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
+   旧 CSS 非表示方式(data-headerless)は廃止。H トグルボタンの active 状態のみ。 */
+.table-toolbar button.active {
+    background: var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.31));
 }
 
     </style>
@@ -10400,21 +10399,28 @@ class EditorInstance {
             // Persistence (option C): if a `<!-- fractal-col-widths: ... -->` comment was seen
             // immediately before this table, render with table-layout: fixed + per-column widths.
             let tableHtml;
-            // FR-TBL-02: data-headerless attribute (structure kept, hiding is CSS-only)
-            const headerlessAttr = pendingHeaderlessTable ? ' data-headerless="true"' : '';
+            // FR-TBL-02 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
+            // マーカー付き table は th を一切作らない。md 上の header 行(separator 前)は
+            // 全セル空なら placeholder として捨て、内容があれば(外部編集・旧 v1.1.28 の
+            // 内容温存形式)通常行として body に降格する(データ喪失なし)。
+            const isHeaderlessTable = pendingHeaderlessTable;
             if (pendingTableColWidths && pendingTableColWidths.length > 0) {
                 const widthsAttr = pendingTableColWidths.join(',');
                 const totalWidth = pendingTableColWidths.reduce((s, w) => s + w, 0);
-                tableHtml = '<table' + headerlessAttr + ' data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
+                tableHtml = '<table data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
             } else {
-                tableHtml = '<table' + headerlessAttr + '>';
+                tableHtml = '<table>';
             }
             rows.forEach((row, idx) => {
                 // Skip separator row
                 if (isTableSeparator(row)) return;
-                
+
                 const cells = splitTableRow(row);
-                const isHeader = idx === 0;
+                if (isHeaderlessTable && idx === 0
+                    && cells.every((c) => c.trim() === '')) {
+                    return; // 空 placeholder header 行は DOM に出さない
+                }
+                const isHeader = idx === 0 && !isHeaderlessTable;
                 tableHtml += '<tr>';
                 cells.forEach((cell, colIdx) => {
                     const tag = isHeader ? 'th' : 'td';
@@ -11929,6 +11935,7 @@ class EditorInstance {
         tableToolbar.style.left = rect.left + 'px';
         tableToolbar.classList.add('visible');
         activeTable = table;
+        updateHeaderToggleState(table);
     }
 
     function hideTableToolbar() {
@@ -12251,40 +12258,43 @@ class EditorInstance {
         syncMarkdown();
     }
 
-    // FR-TBL-01 (ADRL-0052): toggle headerless display. Flips the data-headerless
-    // attribute only — th structure, cell content, textAlign and col-widths are all
-    // preserved (hiding is CSS-only), so toggling back ON restores losslessly.
+    // FR-TBL-01 rev2 (ADRL-0053): 構造変換トグル。ON = 先頭 td 行を th 化 /
+    // OFF = th 行を td 行に変換(内容・textAlign は通常行として残る)。
+    // headerless = th 不在の DOM が単一真実(CSS 非表示・data-headerless 属性は廃止)。
     function toggleTableHeader(table) {
         if (!table || !editor.contains(table)) return;
         // FR-TBL-01 受け入れ「undo 可能」: main toolbar dispatch (:13540 系) と同型に
         // 操作前スナップショットを積む(table-toolbar 系は従来 saveSnapshot を呼ばない
         // 非対称があった — reviewer iteration 1 SYSALIGN-1)。
         undoManager.saveSnapshot();
-        if (table.getAttribute('data-headerless') === 'true') {
-            table.removeAttribute('data-headerless');
-            // FR-TBL-01 改訂(2026-08-11 手動テスト裁定): ON 時に th 行の全セルが空
-            // (paste 由来 headerless 等)なら、空 th 行を出す代わりに body 1 行目を
-            // ヘッダーへ変換する(「1 行目をヘッダーに」のユーザー期待)。
-            // th に内容が残る場合(トグル OFF 由来)は従来どおり再表示のみ。
-            const rows = table.querySelectorAll('tr');
-            const thRow = rows.length > 0 && rows[0].querySelector('th') ? rows[0] : null;
-            const thAllEmpty = thRow && Array.prototype.every.call(
-                thRow.cells, (c) => (c.textContent || '').trim() === '');
-            if (thRow && thAllEmpty && rows.length > 1) {
-                const bodyRow = rows[1];
-                for (const td of Array.from(bodyRow.cells)) {
-                    const th = document.createElement('th');
-                    th.innerHTML = td.innerHTML;
-                    if (td.style.textAlign) th.style.textAlign = td.style.textAlign;
-                    th.setAttribute('contenteditable', 'true');
-                    bodyRow.replaceChild(th, td);
-                }
-                thRow.remove();
+        const convertRowCells = (row, toTag) => {
+            for (const cell of Array.from(row.cells)) {
+                if (cell.tagName.toLowerCase() === toTag) continue;
+                const repl = document.createElement(toTag);
+                repl.innerHTML = cell.innerHTML;
+                if (cell.style.textAlign) repl.style.textAlign = cell.style.textAlign;
+                if (cell.style.width) repl.style.width = cell.style.width;
+                repl.setAttribute('contenteditable', 'true');
+                row.replaceChild(repl, cell);
             }
-        } else {
-            table.setAttribute('data-headerless', 'true');
+        };
+        const thRow = table.querySelector('tr:has(> th)')
+            || (table.rows[0] && table.rows[0].querySelector('th') ? table.rows[0] : null);
+        if (thRow) {
+            // OFF: header 完全解除 → 通常行化
+            convertRowCells(thRow, 'td');
+        } else if (table.rows.length > 0) {
+            // ON: 先頭の通常行を header 化
+            convertRowCells(table.rows[0], 'th');
         }
+        updateHeaderToggleState(table);
         syncMarkdown();
+    }
+    // FR-TBL-01 rev2: toolbar「H」ボタンの active 状態 = table の実 header 有無
+    function updateHeaderToggleState(table) {
+        const btn = tableToolbar && tableToolbar.querySelector('[data-action="toggle-header"]');
+        if (!btn) return;
+        btn.classList.toggle('active', !!(table && table.querySelector('th')));
     }
     // テスト seam(TC-TBL-01 が toolbar handler の実体を直接駆動する)
     if (typeof window !== 'undefined') {
@@ -15490,13 +15500,26 @@ class EditorInstance {
         if (colWidthsAttr && /^\d+(,\d+)*$/.test(colWidthsAttr)) {
             md += '<!-- fractal-col-widths: ' + colWidthsAttr + ' -->\n';
         }
-        // FR-TBL-02 (ADRL-0052): headerless marker. Header row cells are still emitted
-        // with their content preserved (display-only hiding via CSS) so toggling the
-        // header back ON restores the original cells losslessly.
-        if (table.getAttribute('data-headerless') === 'true') {
+        // FR-TBL-02 rev2 (ADRL-0053): headerless = th 行が存在しない table。
+        // マーカー + 空 placeholder header 行 + separator + 全行 body で emit(GFM 互換)。
+        // placeholder は parse 側(renderTable)が捨てるため往復で行は増殖しない。
+        const isHeaderlessTable = !table.querySelector('th');
+        if (isHeaderlessTable) {
             md += '<!-- fractal-headerless-table -->\n';
+            const firstRow = table.querySelector('tr');
+            if (firstRow) {
+                const colCount = firstRow.cells.length;
+                const firstCells = Array.from(firstRow.cells);
+                md += '|' + ' |'.repeat(colCount) + '\n';
+                md += '| ' + firstCells.map((cell) => {
+                    const align = cell.style.textAlign || 'left';
+                    if (align === 'center') return ':---:';
+                    if (align === 'right') return '---:';
+                    return '---';
+                }).join(' | ') + ' |\n';
+            }
         }
-        let isFirstRow = true;
+        let isFirstRow = !isHeaderlessTable;
         let alignments = [];
         
         // Escape pipe characters in cell content for markdown output
