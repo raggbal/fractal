@@ -5,6 +5,11 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.29] - 2026-08-12
+
+### Changed
+- **Header toggle is now a structural conversion** (FR-TBL-01..03 rev2, ADRL-0053 supersedes ADRL-0052): the table toolbar's "H" button converts the top row into a header (ON) or fully demotes the header row into a normal first row (OFF) — no more hidden, CSS-suppressed header rows. The button's active state reflects whether the table actually has a header. Pasted tables without a heading row are now truly headerless (zero `th` rows). Markdown stays GFM-compatible via the marker plus an empty placeholder header row; files saved in the 1.1.28 format (marker + preserved header content) open with that content demoted to a visible first row, so nothing is lost.
+
 ## [1.1.28] - 2026-08-12
 
 ### Added
