@@ -19349,6 +19349,40 @@ class EditorInstance {
         (function wrapLeadingBareAsLi() {
             const kids = Array.from(tempDiv.childNodes);
             if (kids.length === 0) { return; }
+            // ケース 1.5 (再オープン⑨ rc.9 バグ 1/2): 選択が「単一 li の内側」に収まる場合、
+            // cloneContents は li 枠を剥がした bare content(text/br/pre/blockquote/img 混在)を
+            // 返す。継続行付き li の全選択コピーがマーカー無し md になり、paste で行ごとに
+            // 別 li 化(テキストのみ)/段落化(ブロック入り)していた。選択始点と終点が同一 li
+            // かつ fragment に BR かブロック(PRE/BLOCKQUOTE/IMG)を含む(= 複数視覚行)なら、
+            // 全体を「その li の親リスト型 > 単一 li」で包み直す(継続行構造ごと 1 項目として
+            // コピー)。単一視覚行の部分選択は従来どおりプレーン(TC-LC-14 回帰 pin)。
+            {
+                let s15 = range.startContainer;
+                if (s15.nodeType === 3) s15 = s15.parentElement;
+                let e15 = range.endContainer;
+                if (e15.nodeType === 3) e15 = e15.parentElement;
+                const startLi15 = s15 && s15.closest ? s15.closest('li') : null;
+                const endLi15 = e15 && e15.closest ? e15.closest('li') : null;
+                if (startLi15 && startLi15 === endLi15) {
+                    const kids15 = Array.from(tempDiv.childNodes);
+                    const hasLiWrapper = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'LI' || n.tagName === 'UL' || n.tagName === 'OL'));
+                    const hasMultiLine = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'BR' || n.tagName === 'PRE'
+                            || n.tagName === 'BLOCKQUOTE' || n.tagName === 'IMG'));
+                    if (!hasLiWrapper && hasMultiLine && kids15.length > 0) {
+                        const lt15 = (startLi15.parentElement
+                            && (startLi15.parentElement.tagName === 'OL' || startLi15.parentElement.tagName === 'UL'))
+                            ? startLi15.parentElement.tagName.toLowerCase() : 'ul';
+                        const wrapList15 = document.createElement(lt15);
+                        const wrapLi15 = document.createElement('li');
+                        for (const k of kids15) wrapLi15.appendChild(k);
+                        wrapList15.appendChild(wrapLi15);
+                        tempDiv.appendChild(wrapList15);
+                        return;
+                    }
+                }
+            }
             // ケース 2: 共通祖先がリストの場合、fragment は bare <li> 群（ul/ol ラッパなし）に
             // なる。standalone li 処理（marker '-' 固定）に落ちると ol 由来でも bullet 化する
             // ため、startLi の親リスト型で全体を包む（番号は連番に自動リセット = FR-OL-RULES）。

@@ -1795,3 +1795,121 @@ test.describe('In-li image and block arrow matrix (re-open 8)', () => {
         expect(r2.atImage).toBe('b');
     });
 });
+
+// ---- 再オープン⑨(2026-08-11 rc.9): 継続行付き単一 li のコピー&ペースト ----
+
+test.describe('Single-li copy with continuation lines (re-open 9)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    async function copyLi(page: Page) {
+        return await page.evaluate(() => {
+            const li = document.querySelector('#editor li')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(li);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            const dt = new DataTransfer();
+            const ev = new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true });
+            document.getElementById('editor')!.dispatchEvent(ev);
+            return { md: dt.getData('text/x-any-md'), html: dt.getData('text/html') };
+        });
+    }
+
+    async function pasteIntoEmptyLi(page: Page, md: string, html: string) {
+        await page.evaluate(async ({ md, html }) => {
+            (window as any).__testApi.setMarkdown('- target\n- other');
+            await new Promise(r => setTimeout(r, 300));
+            const li = document.querySelector('#editor li')!;
+            li.innerHTML = '<br>';
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(li, 0);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            const clipboardData = {
+                _data: { 'text/plain': md, 'text/html': html, 'text/x-any-md': md } as Record<string, string>,
+                getData: function (t: string) { return this._data[t] || ''; },
+                setData: function (t: string, v: string) { this._data[t] = v; },
+                items: [],
+            };
+            const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
+            Object.defineProperty(ev, 'clipboardData', { value: clipboardData, configurable: true });
+            document.getElementById('editor')!.dispatchEvent(ev);
+        }, { md, html });
+        await page.waitForTimeout(400);
+    }
+
+    // (2) TC-ILB-57: テキスト継続行のみの単一 li 全選択コピー → md がリスト形(マーカー + インデント)
+    test('TC-ILB-57 copying single li with text continuations serializes as one list item', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsd\n  s d s d\n  sdsd2\n- next');
+            await new Promise(r => setTimeout(r, 300));
+        });
+        const { md } = await copyLi(page);
+        // 1 リスト項目 + 継続行 2 本(counterfactual: 旧実装は "sdsd\ns d s d\nsdsd2" のベタ 3 行)
+        expect(md).toContain('- sdsd\n  s d s d\n  sdsd2');
+    });
+
+    // (2) TC-ILB-58: それを空 li に paste → 単一 li + 継続行として貼り付く(全行 li 化しない)
+    test('TC-ILB-58 pasting keeps single li with continuations', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsd\n  s d s d\n  sdsd2\n- next');
+            await new Promise(r => setTimeout(r, 300));
+        });
+        const { md, html } = await copyLi(page);
+        await pasteIntoEmptyLi(page, md, html);
+        const state = await page.evaluate(() => {
+            const lis = document.querySelectorAll('#editor li');
+            return {
+                liCount: lis.length,
+                li0Text: lis[0]?.textContent?.replace(/\s+/g, ' ').trim(),
+                li0BrCount: Array.from(lis[0]?.childNodes || []).filter(n => n.nodeName === 'BR').length,
+            };
+        });
+        expect(state.liCount).toBe(2);           // 貼り付け先 + other(行ごとに li 化しない)
+        expect(state.li0Text).toContain('sdsd');
+        expect(state.li0Text).toContain('s d s d');
+        expect(state.li0BrCount).toBeGreaterThanOrEqual(2); // 継続行構造を保持
+    });
+
+    // (1) TC-ILB-59: ブロック入り単一 li の全選択コピー → リスト項目 + li 内ブロックの md
+    test('TC-ILB-59 copying single li with in-li block serializes as list item with block', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  cont\n  ```\n  code\n  ```\n  tail\n- next');
+            await new Promise(r => setTimeout(r, 300));
+        });
+        const { md } = await copyLi(page);
+        expect(md).toContain('- head\n  cont');
+        expect(md).toContain('  ```\n  code\n  ```'); // インデント付き fence(li 内ブロック形)
+        expect(md).toContain('  tail');
+    });
+
+    // (1) TC-ILB-60: それを空 li に paste → li 内ブロック付き項目として貼り付く(段落化しない)
+    test('TC-ILB-60 pasting keeps in-li block inside the list item', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  cont\n  ```\n  code\n  ```\n  tail\n- next');
+            await new Promise(r => setTimeout(r, 300));
+        });
+        const { md, html } = await copyLi(page);
+        await pasteIntoEmptyLi(page, md, html);
+        const state = await page.evaluate(() => {
+            const editor = document.getElementById('editor')!;
+            return {
+                liCount: editor.querySelectorAll('li').length,
+                preInLi: editor.querySelectorAll('li pre').length,
+                topPre: editor.querySelectorAll(':scope > pre').length,
+                topP: Array.from(editor.querySelectorAll(':scope > p'))
+                    .filter(p => (p.textContent || '').trim() !== '').length,
+            };
+        });
+        expect(state.preInLi).toBe(1);  // ブロックは li 内(counterfactual: 旧実装は段落 + top-level pre)
+        expect(state.topPre).toBe(0);
+        expect(state.topP).toBe(0);     // 段落化しない
+        expect(state.liCount).toBe(2);
+    });
+});
