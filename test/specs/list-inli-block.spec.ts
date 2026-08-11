@@ -2323,3 +2323,124 @@ test.describe('Unclosed in-li fence must not swallow following lists (re-open 12
         }
     });
 });
+
+// ---- 再オープン⑬(2026-08-11 rc.14): bq 境界の undo カーソル + pre/bq 対称の総点検 ----
+
+test.describe('Undo cursor at blockquote boundaries (re-open 13)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-71: bq 直後の継続行タイプ → undo 連打の各段でカーソルが正しい文脈
+    // (境界一致で bq 内に吸い込まれない / 下の li に飛ばない)
+    test('TC-ILB-71 undo chain around bq keeps cursor in correct context', async ({ page }) => {
+        test.setTimeout(90000);
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- っd\n  - aaaa\n    sdsdsds\n    > aaaaa\n    tail\n- sada');
+            await new Promise(r => setTimeout(r, 300));
+            const bq = document.querySelector('#editor li li blockquote')!;
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(bq); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('sdsds');
+        await page.waitForTimeout(700);
+        const snap = async () => await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            const li = el?.closest('li');
+            const lis = Array.from(document.querySelectorAll('#editor li'));
+            return {
+                lost: false,
+                liIdx: li ? lis.indexOf(li) : -1,
+                inBq: !!el?.closest('blockquote'),
+                lastLiIdx: lis.length - 1,
+            };
+        });
+        // u1: sdsds が消える → カーソルは空継続行(bq の後・bq 内でも下の li でもない)
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        let s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.inBq).toBe(false);                 // bq 内に吸い込まれない(境界バグの番人)
+        expect(s.liIdx).toBe(1);                    // 編集中の li(下の sada に飛ばない)
+        // u2: 空継続行が消える → カーソルは bq 内末尾
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.inBq).toBe(true);                  // bq に正しく入る
+        expect(s.liIdx).toBe(1);
+    });
+
+    // TC-ILB-72: pre 版の同型(境界一致で pre 内に吸い込まれない)
+    test('TC-ILB-72 undo of typing after pre does not get sucked into pre', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- a\n  ```\n  code\n  ```\n  tail\n- b');
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) { if ((node.textContent || '') === 'tail') break; }
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(node!, 0); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.type('XY');
+        await page.waitForTimeout(700);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            return {
+                lost: false,
+                inPre: !!el?.closest('pre'),
+                nearTail: (a.textContent || '').includes('tail'),
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.inPre).toBe(false);   // pre に吸い込まれない
+        expect(s.nearTail).toBe(true); // tail 行に留まる
+    });
+
+    // TC-ILB-73: bq 内タイプの undo → bq 内に復元(pre の TC-ILB-68 の bq 版)
+    test('TC-ILB-73 undo of typing inside bq restores in-bq cursor', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- a\n  > quoted\n  tail\n- b');
+            await new Promise(r => setTimeout(r, 300));
+            const bq = document.querySelector('#editor li blockquote')!;
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(bq); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.type('ZZ');
+        await page.waitForTimeout(700);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            return {
+                lost: false,
+                inBq: !!el?.closest('blockquote'),
+                text: (a.textContent || '').substring(0, 8),
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.inBq).toBe(true);
+        expect(s.text).toBe('quoted');
+    });
+});

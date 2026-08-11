@@ -2437,19 +2437,22 @@ class EditorInstance {
             // pre 内カーソルはこちらを優先して復元する(undo でコードブロックに正しく入る)。
             let preInfo = null;
             const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
-            const inPre = anchorEl && anchorEl.closest ? anchorEl.closest('pre') : null;
-            if (inPre && block.contains(inPre)) {
-                const allPres = Array.from(block.querySelectorAll('pre'));
-                const preIdx = allPres.indexOf(inPre);
-                const code = inPre.querySelector('code') || inPre;
+            // 再オープン⑬: pre / blockquote 共通の「ブロック内カーソル」情報。
+            // ブロック外カーソルには inBlock:false を記録し、復元 walk の境界一致で
+            // ブロック内に吸い込まれるのを防ぐ(bq 直後の行 ⇄ bq 内末尾は textOffset が同値)。
+            const inBlk = anchorEl && anchorEl.closest ? anchorEl.closest('pre, blockquote') : null;
+            if (inBlk && block.contains(inBlk)) {
+                const allBlks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const blkIdx = allBlks.indexOf(inBlk);
+                const inner = inBlk.tagName === 'PRE' ? (inBlk.querySelector('code') || inBlk) : inBlk;
                 const inRange = document.createRange();
-                inRange.setStart(code, 0);
+                inRange.setStart(inner, 0);
                 try {
                     inRange.setEnd(range.startContainer, range.startOffset);
-                    preInfo = { preIdx: preIdx, innerOffset: countCursorTextOffset(inRange.cloneContents()) };
-                } catch (e2) { /* pre 外終端等は無視 */ }
+                    preInfo = { preIdx: blkIdx, innerOffset: countCursorTextOffset(inRange.cloneContents()), tag: inBlk.tagName };
+                } catch (e2) { /* ブロック外終端等は無視 */ }
             }
-            return { blockIndex, blockText, textOffset, preInfo };
+            return { blockIndex, blockText, textOffset, preInfo, outsideBlock: !inBlk };
         } catch (e) {
             logger.log('[Any MD] saveCursorState failed:', e);
             return null;
@@ -2494,13 +2497,23 @@ class EditorInstance {
     /**
      * Find a DOM position by walking text nodes until reaching the target offset.
      */
-    function findPositionByTextOffset(root, targetOffset) {
+    function findPositionByTextOffset(root, targetOffset, avoidBlockInterior) {
         let currentOffset = 0;
 
         function walk(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const len = node.textContent.length;
                 if (currentOffset + len >= targetOffset) {
+                    // 再オープン⑬: 保存時カーソルがブロック外だった場合、境界一致
+                    // (ブロック末尾 = 直後の外側と同 offset)でブロック内 text に
+                    // 着地させない — 外側の次位置を探し続ける
+                    if (avoidBlockInterior && currentOffset + len === targetOffset) {
+                        const pEl = node.parentElement;
+                        if (pEl && pEl.closest && pEl.closest('pre, blockquote')) {
+                            currentOffset += len;
+                            return null;
+                        }
+                    }
                     return { node: node, offset: targetOffset - currentOffset };
                 }
                 currentOffset += len;
@@ -2579,17 +2592,20 @@ class EditorInstance {
         }
 
         try {
-            // 再オープン⑪: pre 内カーソルは preInfo 優先で復元(空 code でも正しく中に入る)
+            // 再オープン⑪/⑬: ブロック(pre/blockquote)内カーソルは preInfo 優先で復元
             if (state.preInfo) {
-                const pres = Array.from(block.querySelectorAll('pre'));
-                const targetPre = pres[Math.min(state.preInfo.preIdx, pres.length - 1)];
-                if (targetPre) {
-                    if (targetPre.getAttribute('data-mode') !== 'edit') enterEditMode(targetPre);
-                    const code = targetPre.querySelector('code') || targetPre;
-                    const inner = findPositionByTextOffset(code, state.preInfo.innerOffset);
+                const blks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const targetBlk = blks[Math.min(state.preInfo.preIdx, blks.length - 1)];
+                if (targetBlk) {
+                    if (targetBlk.tagName === 'PRE' && targetBlk.getAttribute('data-mode') !== 'edit') {
+                        enterEditMode(targetBlk);
+                    }
+                    const inner0 = targetBlk.tagName === 'PRE'
+                        ? (targetBlk.querySelector('code') || targetBlk) : targetBlk;
+                    const inner = findPositionByTextOffset(inner0, state.preInfo.innerOffset);
                     const r2 = document.createRange();
                     if (inner) { r2.setStart(inner.node, inner.offset); }
-                    else { r2.selectNodeContents(code); r2.collapse(false); }
+                    else { r2.selectNodeContents(inner0); r2.collapse(false); }
                     r2.collapse(true);
                     const sel2 = window.getSelection();
                     sel2.removeAllRanges();
@@ -2598,7 +2614,7 @@ class EditorInstance {
                 }
             }
 
-            const position = findPositionByTextOffset(block, state.textOffset);
+            const position = findPositionByTextOffset(block, state.textOffset, state.outsideBlock === true);
             if (!position) return;
 
             // 再オープン⑪(undo でコードブロックにカーソルが「入らない」): 着地先が pre 内
