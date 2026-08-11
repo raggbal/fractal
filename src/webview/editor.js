@@ -2489,6 +2489,16 @@ class EditorInstance {
             || el.classList.contains('table-col-resize-handle'))) return true;
         return false;
     }
+    // 再オープン⑭: ブロック(pre/blockquote/ネストリスト)直前の <br> は行を作らない
+    //(行モデル)。ライブ DOM には Shift+Enter → ブロック化の経路でこの br が残るが、
+    // シリアライザは行として出さないため undo の再レンダ DOM からは消える。この br を
+    // 数えると保存(ライブ)と復元(再レンダ)で offset が 1 ズレ、カーソルが下の li に
+    // 飛ぶ(実測再現済み)。保存・復元・照合の全 walk で対称にスキップする。
+    function isCursorBrBeforeBlock(br) {
+        let n = br.nextSibling;
+        while (n && ((n.nodeType === 3 && !n.textContent.trim()) || isCursorUiNode(n))) n = n.nextSibling;
+        return !!(n && n.nodeType === 1 && /^(PRE|BLOCKQUOTE|UL|OL)$/.test(n.tagName));
+    }
     function cursorBlockText(block) {
         let out = '';
         (function walk(node) {
@@ -2496,7 +2506,10 @@ class EditorInstance {
                 if (child.nodeType === 3) { out += child.textContent; continue; }
                 if (child.nodeType !== 1) continue;
                 if (isCursorUiNode(child)) continue;
-                if (child.tagName === 'BR') { out += '\n'; continue; }
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) out += '\n';
+                    continue;
+                }
                 walk(child);
             }
         })(block);
@@ -2509,7 +2522,10 @@ class EditorInstance {
                 if (child.nodeType === 3) { count += child.textContent.length; continue; }
                 if (child.nodeType !== 1) continue;
                 if (isCursorUiNode(child)) continue;
-                if (child.tagName === 'BR') { count += 1; continue; }
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) count += 1;
+                    continue;
+                }
                 walk(child);
             }
         })(root);
@@ -2545,6 +2561,8 @@ class EditorInstance {
                 // 保存側 countCursorTextOffset と対称: UI 装飾を数えない(再オープン⑩)
                 if (isCursorUiNode(node)) return null;
                 if (node.tagName === 'BR') {
+                    // 再オープン⑭: ブロック直前 br は保存側が数えていないので復元側も数えない
+                    if (isCursorBrBeforeBlock(node)) return null;
                     // target が br 自身(cloneContents が (br,0) 終端で br を含めた +1)でも
                     // br 位置(= 空行/行頭)に着地させる(>= から +1 >= へ — 再オープン⑩)
                     if (currentOffset + 1 >= targetOffset) {

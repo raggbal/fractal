@@ -2578,3 +2578,71 @@ test.describe('Undo under IME composition and focus loss (re-open 14)', () => {
         expect(s.inBq).toBe(true); // XY タイプ前 = bq 内末尾へ
     });
 });
+
+// TC-ILB-77(再オープン⑭b 根本原因): ブロック直前 br はライブ DOM にのみ存在し
+// 再レンダで消える → offset/blockText 非対称でカーソルが下の li に飛ぶ(実測再現)。
+// counterfactual: isCursorBrBeforeBlock スキップを外すと undo1 で liIdx が変わり RED。
+test('TC-ILB-77 undo after typing below in-li code block keeps cursor in same li', async ({ page }) => {
+    test.setTimeout(120000);
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('- wdsds\n  - dds\n    sdsds\n    dss\n- dds\n- adssd');
+        await new Promise(r => setTimeout(r, 300));
+        const li = document.querySelector('#editor li li')!;
+        const walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT);
+        let target: Text | null = null; let n: Node | null;
+        while ((n = walker.nextNode())) { if (n.textContent === 'dss') target = n as Text; }
+        const sel = window.getSelection()!;
+        const r = document.createRange();
+        r.setStart(target!, 3); r.collapse(true);
+        sel.removeAllRanges(); sel.addRange(r);
+    });
+    await page.keyboard.press('Shift+Enter');
+    await page.waitForTimeout(300);
+    await page.keyboard.type('```');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
+    await page.keyboard.type('ss');
+    await page.waitForTimeout(700);
+    await page.keyboard.type('dsds');
+    await page.waitForTimeout(700);
+    await page.keyboard.press('Shift+Enter');
+    await page.waitForTimeout(400);
+    await page.keyboard.type('ddd');
+    await page.waitForTimeout(700);
+    await page.keyboard.type('dd');
+    await page.waitForTimeout(700);
+
+    const snap = () => page.evaluate(() => {
+        const sel = window.getSelection()!;
+        if (!sel.rangeCount) return { lost: true } as any;
+        const a = sel.anchorNode!;
+        const el = a.nodeType === 1 ? (a as Element) : a.parentElement!;
+        const li = el.closest('li');
+        const lis = Array.from(document.querySelectorAll('#editor li'));
+        return {
+            lost: false,
+            liIdx: li ? lis.indexOf(li) : -1,
+            inPre: !!el.closest('pre'),
+            text: a.nodeType === 3 ? a.textContent : null,
+        } as any;
+    });
+
+    // undo1: dd 消滅 → カーソルは同じ li の "ddd" 末尾(下の li に飛ばない = 画像 #74 の症状)
+    await page.keyboard.press('Meta+z');
+    await page.waitForTimeout(600);
+    let s = await snap();
+    expect(s.lost).toBe(false);
+    expect(s.liIdx).toBe(1);
+    expect(s.text).toBe('ddd');
+    // undo3〜5: code 内へ正しく入り続ける(liIdx 不変)
+    for (let i = 2; i <= 5; i++) {
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(600);
+        s = await snap();
+        expect(s.lost).toBe(false);
+        expect(s.liIdx).toBe(1);
+        if (i >= 3) expect(s.inPre).toBe(true);
+    }
+});
