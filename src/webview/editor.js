@@ -3025,22 +3025,43 @@ class EditorInstance {
                         html += flushInLiBlock();
                         continue;
                     }
-                    // インデントを剥がして回収(開始 fence のインデント幅まで)
-                    let content = line;
-                    let stripped = 0;
-                    while (stripped < inLiBlock.indent && content.startsWith(' ')) {
-                        content = content.slice(1); stripped++;
+                    // 再オープン⑫(undo でリスト郡が code に食われる): 回収は「継続行インデント
+                    // (開始 fence と同深度以上)を満たす行」に限定する。浅い行(リスト項目・
+                    // トップレベル等 = タイプ途中の未閉じ「```」の後に続く既存内容)が来たら、
+                    // ここまでの回収分を flush して fence 開始行をテキスト行として扱い直す
+                    //(開始「```」はユーザーがまだ書きかけの継続行テキスト)。
+                    {
+                        const lnIndent = line.match(/^(\s*)/)[1].length;
+                        if (trimmed !== '' && lnIndent < inLiBlock.indent) {
+                            // 開始 fence をテキスト継続行として復元 + 回収済み行を返却
+                            const fenceTxt = '```'.slice(0, inLiBlock.fenceLen)
+                                + (inLiBlock.lang || '');
+                            html += '<br>' + parseInline(fenceTxt);
+                            for (const rl of inLiBlock.lines) {
+                                html += '<br>' + parseInline(rl.trim());
+                            }
+                            inLiBlock = null;
+                            // fallthrough: この行(リスト項目等)は通常処理へ
+                        } else {
+                            // インデントを剥がして回収(開始 fence のインデント幅まで)
+                            let content = line;
+                            let stripped = 0;
+                            while (stripped < inLiBlock.indent && content.startsWith(' ')) {
+                                content = content.slice(1); stripped++;
+                            }
+                            inLiBlock.lines.push(content);
+                            continue;
+                        }
                     }
-                    inLiBlock.lines.push(content);
-                    continue;
+                } else {
+                    // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
+                    if (/^>\s?/.test(trimmed) && trimmed !== '') {
+                        inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
+                        continue;
+                    }
+                    html += flushInLiBlock();
+                    // fallthrough: この行自体は通常処理へ
                 }
-                // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
-                if (/^>\s?/.test(trimmed) && trimmed !== '') {
-                    inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
-                    continue;
-                }
-                html += flushInLiBlock();
-                // fallthrough: この行自体は通常処理へ
             }
 
             // Handle code blocks (\`\`\`+ or ~~~+)

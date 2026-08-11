@@ -2163,13 +2163,15 @@ test.describe('Undo snapshot accounting and in-pre cursor restore (re-open 11)',
         expect(s.inPre).toBe(true);            // カーソルは code 内(「入らない」の解消)
         expect((s.codeText || '').replace(/\n/g, '')).toBe('');
 
-        // undo 2: fence が消えて ``` テキスト行(or 空継続行)へ。編集中の li に留まる
+        // undo 2: fence が消えて ``` テキスト行へ。編集中の li に留まる
+        // (再オープン⑫: 未閉じ「```」はテキスト継続行として parse され pre 化しない —
+        //  後続リストを食わないための仕様。hasPre=false が正)
         await page.keyboard.press('Meta+z');
         await page.waitForTimeout(300);
         s = await snap();
         expect(s.lost).toBe(false);
         expect(s.liIdx).toBe(0);               // 下のリスト行(4. B)に飛ばない
-        expect(s.hasPre).toBe(true);           // ``` テキスト行状態(fence DOM は snapshot 相応)
+        expect(s.hasPre).toBe(false);          // ``` はテキスト行(pre 化しない)
 
         // undo 3: 初期状態へ。カーソルは元の編集行(dssdsd)付近
         await page.keyboard.press('Meta+z');
@@ -2248,5 +2250,76 @@ test.describe('Undo snapshot accounting and in-pre cursor restore (re-open 11)',
         expect(s.inPre).toBe(true);
         expect(s.preMode).toBe('edit');     // 編集モード(キャレット可視・タイプ継続可)
         expect(s.codeText).toContain('sdsds');
+    });
+});
+
+// ---- 再オープン⑫(2026-08-11 rc.13): 未閉じ li 内 fence がリスト郡を食う ----
+
+test.describe('Unclosed in-li fence must not swallow following lists (re-open 12)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-69: タイプ途中の「```」テキストを含む md(undo snapshot 形)を parse しても
+    // 後続リスト項目が code に食われない
+    test('TC-ILB-69 unclosed fence text keeps following list items intact', async ({ page }) => {
+        const r = await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  line1\n  ```\n- sdsd\n- fsfads');
+            await new Promise(r_ => setTimeout(r_, 300));
+            const code = document.querySelector('#editor li pre code');
+            return {
+                liCount: document.querySelectorAll('#editor li').length,
+                codeText: code ? (code.textContent || '') : null,
+                liTexts: Array.from(document.querySelectorAll('#editor li')).map(l => (l.textContent || '').substring(0, 12)),
+            };
+        });
+        expect(r.liCount).toBe(3); // head / sdsd / fsfads が全部リストのまま
+        expect(r.liTexts.join('|')).toContain('sdsd');
+        expect(r.liTexts.join('|')).toContain('fsfads');
+        // code に食われていない(counterfactual: 旧実装は codeText="- sdsd- fsfads")
+        expect((r.codeText || '')).not.toContain('sdsd');
+    });
+
+    // TC-ILB-70: ユーザーシナリオの undo 連打でリスト郡が code に入らない(全段検査)
+    test('TC-ILB-70 undo chain never swallows lists into code', async ({ page }) => {
+        test.setTimeout(90000);
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  line1\n- sdsd\n- fsfads');
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) { if ((node.textContent || '') === 'line1') break; }
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(node!, 5); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(150);
+        await page.keyboard.type('```');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        await page.keyboard.type('c1');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('after');
+        await page.waitForTimeout(600);
+        for (let i = 1; i <= 6; i++) {
+            await page.keyboard.press('Meta+z');
+            await page.waitForTimeout(300);
+            const s = await page.evaluate(() => {
+                const code = document.querySelector('#editor li pre code');
+                return {
+                    codeText: code ? (code.textContent || '') : '',
+                    liCount: document.querySelectorAll('#editor li').length,
+                };
+            });
+            // どの undo 段でも後続リストが code に食われない
+            expect(s.codeText, `undo ${i}: lists swallowed into code`).not.toContain('sdsd');
+            expect(s.liCount, `undo ${i}: list items lost`).toBeGreaterThanOrEqual(3);
+        }
     });
 });
