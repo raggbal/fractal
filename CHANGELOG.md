@@ -5,6 +5,20 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.28] - 2026-08-12
+
+### Added
+- **Headerless tables** (FR-TBL-01/02/03, ADRL-0052): a new "Header" toggle on the table toolbar hides the header row (turn it back ON to restore it — or, for tables pasted without a header, to promote the first row into a header). Pasted HTML tables that have no heading row now come in headerless instead of growing an empty header band. The markdown stays GFM-compatible: a `<!-- fractal-headerless-table -->` marker plus the preserved header row, so other editors still render a valid table.
+- **Blocks inside list continuation lines** (FR-LC-05..08): quote blocks and code blocks can now be created *inside* a list item's continuation lines (Shift+Enter lines) via `> ` / ``` \`\`\` \`\`\` autoformat, the `Cmd+/` palette, the toolbar, and `Ctrl+Shift+Q/K` — and they round-trip through markdown as nested li content. A full editing contract ships with it: arrow keys enter/leave the block reliably (including past adjacent images), Enter adds a list row after the item, Backspace follows the line model (empty block → shell removed, line start → merge with previous line), and list structure is never dissolved into the parent.
+
+### Fixed
+- **Excel range-paste no longer inserts a screenshot** into the last cell (FR-TBL-04): the Kiro paste path now applies the same "rich HTML wins over image" guard as the standard path. Copy-as-picture and screenshots still paste as images.
+- **Empty code block Enter/Backspace symmetry** (FR-CB-01): pressing Enter N times in an empty code block no longer accumulates irreversible newlines — Backspace removes them one at a time, and a truly empty block escapes to a paragraph. Saved markdown no longer gains newlines on each round-trip.
+- **Empty quote blocks can be deleted with Backspace** (FR-QB-01): a completely empty blockquote now escapes to a paragraph, same as code blocks. Quotes containing only an image or checkbox are protected (content ownership rule).
+- **Ctrl+T table insertion** called an undefined function and silently failed; it now inserts the same table as the toolbar (FR-TBL-05).
+- **Cmd+Z cursor stability in lists with in-li blocks** (re-opens ⑩..⑭): a long series of undo bugs was fixed at the root — undo snapshots are now captured as same-instant {markdown, cursor} pairs at beforeinput, always serialize the live DOM (no stale-variable snapshots), exclude UI decoration text from cursor offsets, restore into pre/blockquote interiors via block-index + inner-offset, skip the render-invisible `<br>` before a block symmetrically on save/restore, and no longer misparse a mid-typing bare `>` as an empty quote. Undo after editing around in-li blocks keeps the caret in the same list row and enters code blocks correctly.
+- **Kiro: Cmd long-press shortcut HUD** was verified working after the `isKiroEnv()` seam refactor (FR-KH-01); the earlier report traced to an outdated installed build.
+
 ## [1.1.27] - 2026-08-10
 
 ### Added

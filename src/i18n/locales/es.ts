@@ -93,6 +93,7 @@ export const webviewMessages = {
   alignLeft: 'Alinear a la izquierda',
   alignCenter: 'Alinear al centro',
   alignRight: 'Alinear a la derecha',
+  tableToggleHeader: 'Alternar fila de encabezado',
   // Status bar
   words: 'Palabras',
   characters: 'Caracteres',

@@ -3138,6 +3138,13 @@ body {
     opacity: 0.85;
 }
 
+/* FR-TBL-01/02 (sprint 20260810-183054, ADRL-0052): headerless table.
+   DOM structure (thead/th + content) is preserved; hiding is display-only so
+   toggling the header back ON restores cells losslessly. */
+table[data-headerless="true"] tr:first-child:has(> th) {
+    display: none;
+}
+
     </style>
 </head>
 <body>
@@ -4582,6 +4589,10 @@ function ensureTableHeaders(htmlString) {
             if (existingThead) existingThead.parentNode.removeChild(existingThead);
             var thead = doc.createElement('thead');
             var tr = doc.createElement('tr');
+            // FR-TBL-03 (sprint 20260810-183054): 注入 thead = 元 HTML に heading row が
+            // 無かった証跡。マーカー属性を付け、fractalHeaderlessTable rule が md 出力の
+            // table 直前に <!-- fractal-headerless-table --> を前置する。
+            tr.setAttribute('data-fractal-headerless', 'true');
             for (var ci = 0; ci < colCount; ci++) {
                 tr.appendChild(doc.createElement('th'));
             }
@@ -4595,13 +4606,30 @@ function ensureTableHeaders(htmlString) {
 }
 
 
-// HTML → Markdown 変換用 Turndown 独自 rule (8 個)
+// HTML → Markdown 変換用 Turndown 独自 rule (10 個)
 // fractal editor.js paste handler (v0.207.49) から抽出。
 //
-// 利用側: addCustomRules(turndownService) を呼ぶと 8 rule が登録される。
+// 利用側: addCustomRules(turndownService) を呼ぶと 10 rule が登録される。
 // 前提: turndownService が turndown-plugin-gfm を use() 済み。
 
 function addCustomRules(turndownService) {
+    // Rule 0 (FR-TBL-03, sprint 20260810-183054): headerless table.
+    // ensureTableHeaders が注入した thead(data-fractal-headerless 付き)を持つ table は、
+    // md 出力の直前に <!-- fractal-headerless-table --> を前置する(ADRL-0052)。
+    // 適用順の根拠(SYS-3 実装時検証): Rules.add は unshift(後勝ち)で、addCustomRules は
+    // gfm plugin の use() 後に呼ばれるため、この rule が gfm の rules.table より先に評価される。
+    // 変換自体は gfm table rule と同じ形(separator 行は tableRow rule が出す)。
+    turndownService.addRule('fractalHeaderlessTable', {
+        filter: function(node) {
+            return node.nodeName === 'TABLE'
+                && !!node.querySelector('tr[data-fractal-headerless]');
+        },
+        replacement: function(content) {
+            content = content.replace('\n\n', '\n');
+            return '\n\n<!-- fractal-headerless-table -->\n' + content + '\n\n';
+        }
+    });
+
     // Rule 1: Table cell の pipe escape + cell 内改行を <br> に変換
     turndownService.addRule('tableCellEscapePipe', {
         filter: ['th', 'td'],
@@ -7089,6 +7117,36 @@ if (typeof window !== 'undefined') {
 var DEFAULT_DELAY_MS = 800;
 var HUD_ID = 'fractal-shortcut-hud';
 
+// FR-KH-01 (sprint 20260810-183054): Kiro 判定 seam。
+// shared のこのファイルに置く理由: 3 面すべてで editor.js/outliner.js より前に注入されるため、
+// editor.js 非ロードの outliner 面でも HUD の Kiro 分岐が単独で動く（editor.js に置くと届かない）。
+// editor.js の Kiro paste 分岐は window.isKiroEnv() で消費する。
+// テスト注入: window.__kiroEnvOverride (boolean) が最優先。
+function isKiroEnv() {
+    if (typeof window !== 'undefined' && typeof window.__kiroEnvOverride === 'boolean') {
+        return window.__kiroEnvOverride;
+    }
+    return typeof navigator !== 'undefined' && !!navigator.userAgent && navigator.userAgent.includes('Kiro');
+}
+
+// FR-KH-01 検証 seam: window.__hudDebug = true で key/blur イベントを console 出力
+//（Kiro 実機での keydown ログ採取用。既定 OFF・恒久 seam）。
+function _hudDebugLog(kind, e) {
+    if (typeof window === 'undefined' || window.__hudDebug !== true) { return; }
+    try {
+        if (e && typeof e.key !== 'undefined') {
+            console.log('[hud-debug] ' + kind
+                + ' key=' + e.key
+                + ' metaKey=' + e.metaKey + ' ctrlKey=' + e.ctrlKey
+                + ' shiftKey=' + e.shiftKey + ' altKey=' + e.altKey
+                + ' repeat=' + e.repeat
+                + ' isTrusted=' + e.isTrusted);
+        } else {
+            console.log('[hud-debug] ' + kind);
+        }
+    } catch (err) { /* debug logging must never break input handling */ }
+}
+
 // mode 判定: keydown 対象が Meta（mac）か Control（win/linux）か。
 function _isTriggerKey(key) {
     return key === 'Meta' || key === 'Control';
@@ -7234,6 +7292,7 @@ function init(doc, mode) {
     }
 
     function onKeyDown(e) {
+        _hudDebugLog('keydown', e);
         // トリガーキー単独押下 → タイマー開始。
         if (_isTriggerKey(e.key)) {
             if (composing) { return; }
@@ -7250,6 +7309,7 @@ function init(doc, mode) {
     }
 
     function onKeyUp(e) {
+        _hudDebugLog('keyup', e);
         // トリガーキーを離した → HUD 消去 + タイマーキャンセル。
         if (_isTriggerKey(e.key)) {
             hideHud();
@@ -7262,7 +7322,7 @@ function init(doc, mode) {
 
     // cmd+tab 等でアプリ切替すると keyup が来ない → blur / visibilitychange でクリア（one-shot の対クリア契機）。
     if (typeof window !== 'undefined') {
-        window.addEventListener('blur', hideHud);
+        window.addEventListener('blur', function () { _hudDebugLog('blur'); hideHud(); });
     }
     doc.addEventListener('visibilitychange', function () {
         if (doc.hidden) { hideHud(); }
@@ -7286,6 +7346,7 @@ var _api = {
     init: init,
     HUD_ID: HUD_ID,
     DEFAULT_DELAY_MS: DEFAULT_DELAY_MS,
+    isKiroEnv: isKiroEnv,
     // pure helper（テスト用に露出）
     _isSoleModifier: _isSoleModifier,
     _isTriggerKey: _isTriggerKey,
@@ -7296,6 +7357,7 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 if (typeof window !== 'undefined') {
     window.ShortcutHud = _api;
+    window.isKiroEnv = isKiroEnv;
 }
 
     </script>
@@ -7514,6 +7576,28 @@ class SidePanelHostBridge {
     getCurrentFilePath() { return this.filePath; }
     onMessage(handler) { this._messageHandler = handler; }
     _sendMessage(msg) { if (this._messageHandler) this._messageHandler(msg); }
+}
+
+// FR-TBL-04 (sprint 20260810-183054): rich HTML 判定。paste ハンドラ内ローカルから
+// module スコープへ引き上げ(ロジック 1 バイト不変)— 非 Kiro paste 経路と Kiro keydown
+// 経路(navigator.clipboard.read)の両方から共有する(「共有判定を一部経路にだけ配線」の
+// 構造的解消)。rich = テキストや表を含む HTML。SVG 単体 / div>svg / img 単体は rich でない。
+function hasRichHtmlContent(h) {
+    if (!h) return false;
+    var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
+    // SVG のみ / div > svg のみ / img のみは rich でない
+    if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
+    if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
+    if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
+    // テキストや他要素が含まれていれば rich
+    var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
+    if (textContent.length > 0) return true;
+    // 複数 element (svg と img が並ぶ等) も rich 扱い
+    return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
+}
+// テスト seam(TC-KP-05 が module 化後の判定不変を検査する)
+if (typeof window !== 'undefined') {
+    window.__hasRichHtmlContentForTest = hasRichHtmlContent;
 }
 
 // EditorInstance class — Phase 2 skeleton wrapping legacy IIFE code
@@ -7992,6 +8076,12 @@ class EditorInstance {
         }
         if (tag === 'table') {
             var rows = target.querySelectorAll('tr');
+            // FR-TBL-01: skip hidden rows (headerless CSS hides the th row but the DOM
+            // remains — designer_failures 2026-08-02 "display:none but DOM lingers" class)
+            var visibleRows = Array.prototype.filter.call(rows, function (r) {
+                return r.offsetParent !== null;
+            });
+            if (visibleRows.length > 0) rows = visibleRows;
             if (rows.length > 0) {
                 var row = direction === 'up' ? rows[rows.length - 1] : rows[0];
                 var cell = row.cells[0];
@@ -8031,6 +8121,28 @@ class EditorInstance {
             if (direction === 'up') {
                 var lastLi = getDeepestLastLi(target);
                 if (lastLi) {
+                    // FR-LC-08d (再オープン⑥ rc.6 バグ 3): 末尾 li の最終視覚行がブロック
+                    // (pre/blockquote)なら、その末尾に進入する。setCursorToLastLineStartByDOM は
+                    // li 直下 text を前提にしており、末尾ブロック + 空白 node の形でカーソルが
+                    // BR に落ちて迷子になっていた。
+                    var lastContent = lastLi.lastChild;
+                    while (lastContent && lastContent.nodeType === 3 && lastContent.textContent.trim() === '') {
+                        lastContent = lastContent.previousSibling;
+                    }
+                    if (lastContent && (lastContent.nodeName === 'PRE' || lastContent.nodeName === 'BLOCKQUOTE')) {
+                        if (lastContent.nodeName === 'PRE') {
+                            isNavigatingIntoBlock = true;
+                            enterEditMode(lastContent);
+                            var navUpCode = lastContent.querySelector('code');
+                            setTimeout(function () {
+                                if (navUpCode) setCursorToLastLineStartByDOM(navUpCode);
+                                resetNavigationFlag();
+                            }, 0);
+                        } else {
+                            setCursorToEnd(lastContent);
+                        }
+                        return true;
+                    }
                     setCursorToLastLineStartByDOM(lastLi);
                 } else {
                     setCursorToStart(target);
@@ -8474,24 +8586,60 @@ class EditorInstance {
         var TYPING_DEBOUNCE = 500;
         var _isUndoRedo = false;
 
+        var _preEdit = null; // beforeinput 時点の { markdown, cursor }(完全同時点ペア)
+        function notePreEditCursor() {
+            // beforeinput 時点 = 直前の編集がすべて DOM に反映済み・今回のタイプは未反映。
+            // markdown 変数は遅延しうるので常に DOM から取り直す(再オープン⑪)。
+            _preEdit = { markdown: htmlToMarkdown(), cursor: saveCursorState() };
+        }
         function capture() {
             return { markdown: markdown, cursor: saveCursorState() };
+        }
+        // input 経由の snapshot: beforeinput で保存した「変化前の md + cursor」同時点ペアを使う
+        //(再オープン⑩/⑪: markdown=旧 / cursor=新の不整合や rAF 遅延の古い md が、undo 後の
+        // カーソル飛び・直前操作ごと巻き戻る症状の正体だった)。
+        function captureForInput() {
+            if (_preEdit) return { markdown: _preEdit.markdown, cursor: _preEdit.cursor };
+            return capture();
         }
 
         function saveSnapshot() {
             if (_isUndoRedo) return;
+            // markdown 変数は rAF/setTimeout 同期で遅延しうる(pendingSync=false でも
+            // syncTimeout 待ちの間は古い)。snapshot は「現在の DOM と同時点」が絶対条件
+            // (古い md を積むと undo で直前の編集ごと巻き戻る — 再オープン⑪ fence 消滅の機序)
+            // なので、常に DOM から取り直す(cut ハンドラの precedent と同じ)。
+            markdown = htmlToMarkdown();
             var state = capture();
             if (undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown) return;
             undoStack.push(state);
             if (undoStack.length > MAX_STACK) undoStack.shift();
             redoStack.length = 0;
+            // 明示 snapshot = 編集の区切り。タイピング debounce を打ち切り、次の input が
+            // 新しい snapshot を積めるようにする(再オープン⑪: ``` タイプ → Enter(fence) →
+            // 直後のタイプ、で timer が跨いで生き残り fence 後の snapshot が欠けていた)
+            if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
             updateButtons();
         }
 
         function saveSnapshotDebounced() {
             if (_isUndoRedo) return;
             if (typingTimer) return;
-            saveSnapshot();
+            // input 後に呼ばれるため markdown(変化前)と対になる変化前 cursor を使う。
+            // ただし pendingSync(直前操作の rAF 未発火)なら、markdown 変数は「1 つ前の操作
+            // より古い」状態 = 変化前 cursor とすら不整合 → DOM から取り直すと「変化後」に
+            // なってしまうため、ここでは rAF を先取りして markdown を直前操作後の状態に
+            // 同期してから、beforeinput 時点の cursor と対にする… は不可能(DOM は既に変化後)。
+            // 実際上 beforeinput 時点の DOM = 直前操作後なので、_preEditCursor と
+            // 「beforeinput 時点で取得した markdown」を対にするのが正解 — beforeinput 側で
+            // markdown も先取りする(notePreEditCursor が md も保存)。
+            var state = captureForInput();
+            if (!(undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown)) {
+                undoStack.push(state);
+                if (undoStack.length > MAX_STACK) undoStack.shift();
+                redoStack.length = 0;
+                updateButtons();
+            }
             typingTimer = setTimeout(function() { typingTimer = null; }, TYPING_DEBOUNCE);
         }
 
@@ -8505,11 +8653,34 @@ class EditorInstance {
                 // Without this, typing then immediately undoing captures stale markdown
                 // (debouncedSync hasn't fired yet), so redo restores the wrong state.
                 markdown = htmlToMarkdown();
+                var _preUndoCanonical = markdown;
                 redoStack.push(capture());
                 var state = undoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
-                if (state.cursor) restoreCursorState(state.cursor);
+                // 再オープン⑭c: 非正準な遷移スナップショット(例: 「>」タイプ直後 = bare ">"。
+                // スペースで bq 化した「> 」と md 文字列は違うが再レンダ結果は同じ空 bq)を
+                // pop すると、見た目が変わらないのにカーソルだけ飛ぶ no-op undo になる。
+                // レンダ結果が undo 前と同一なら実質変化なし → さらに pop して実変化まで進む。
+                while (undoStack.length && htmlToMarkdown() === _preUndoCanonical) {
+                    state = undoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
+                // 再オープン⑭(実機のみ再現する undo カーソル飛び): focus が editor 外
+                //(toolbar ボタン / VS Code keybinding 経由)だと selection 復元後にブラウザが
+                // 勝手にキャレットを置き直す。復元前に focus を確保し、復元は同期 + rAF 後の
+                // 再適用の二重で行う(実機の外部変更エコー等の非同期上書きに対する防御)。
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    restoreCursorState(state.cursor);
+                    var _undoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_undoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 hasUserEdited = true;
                 notifyChangeImmediate();
             } finally {
@@ -8524,10 +8695,27 @@ class EditorInstance {
             try {
                 clearTimeout(syncTimeout);
                 pendingSync = false;
+                markdown = htmlToMarkdown();
+                var _preRedoCanonical = markdown;
                 undoStack.push(capture());
                 var state = redoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
+                // 再オープン⑭c: undo 側と対称 — 非正準スナップショットの no-op redo を skip
+                while (redoStack.length && htmlToMarkdown() === _preRedoCanonical) {
+                    state = redoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    var _redoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_redoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 if (state.cursor) restoreCursorState(state.cursor);
                 hasUserEdited = true;
                 notifyChangeImmediate();
@@ -8552,9 +8740,14 @@ class EditorInstance {
             updateButtons();
         }
 
+        // テスト診断用(標準 API 相当の read-only seam。__toggleTableHeaderForTest の precedent)
+        window.__undoStackForTest = function() {
+            return undoStack.map(function(s) { return { md: s.markdown, cursor: s.cursor }; });
+        };
         return {
             saveSnapshot: saveSnapshot,
             saveSnapshotDebounced: saveSnapshotDebounced,
+            notePreEditCursor: notePreEditCursor,
             undo: undo,
             redo: redo,
             updateButtons: updateButtons,
@@ -9632,42 +9825,136 @@ class EditorInstance {
         if (blockIndex === -1) return null;
 
         // Save block text content for text-based matching (robust against insertions above)
-        const blockText = block.textContent || '';
+        // 再オープン⑩: UI 装飾を除いたテキストで比較(pre ヘッダの有無で不一致にならないように)
+        const blockText = cursorBlockText(block);
 
         // Calculate text offset within the block
+        // 再オープン⑩(undo カーソル迷子): 保存と復元でオフセットの数え方を完全対称にする。
+        // (a) <br> = 1(Range.toString は 0 と数えるため cloneContents で自前カウント)
+        // (b) UI テキスト(pre の code-block-header「⤢ plaintext Copy」・resize handle 等
+        //     contenteditable=false の装飾)は除外 — undo の再 render 直後はヘッダ未構築で
+        //     テキスト量が変わり、カーソルが後方の別 li に飛ぶ/消える機序だった。
         try {
             const preRange = document.createRange();
             preRange.setStart(block, 0);
             preRange.setEnd(range.startContainer, range.startOffset);
-            const textOffset = preRange.toString().length;
-            return { blockIndex, blockText, textOffset };
+            const preFrag = preRange.cloneContents();
+            const textOffset = countCursorTextOffset(preFrag);
+            // 再オープン⑪: カーソルが pre/code 内なら「block 内の何番目の pre + pre 内 offset」も
+            // 保存する。空 code は text を産まず textOffset 境界が pre 外に解決されるため、
+            // pre 内カーソルはこちらを優先して復元する(undo でコードブロックに正しく入る)。
+            let preInfo = null;
+            const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+            // 再オープン⑬: pre / blockquote 共通の「ブロック内カーソル」情報。
+            // ブロック外カーソルには inBlock:false を記録し、復元 walk の境界一致で
+            // ブロック内に吸い込まれるのを防ぐ(bq 直後の行 ⇄ bq 内末尾は textOffset が同値)。
+            const inBlk = anchorEl && anchorEl.closest ? anchorEl.closest('pre, blockquote') : null;
+            if (inBlk && block.contains(inBlk)) {
+                const allBlks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const blkIdx = allBlks.indexOf(inBlk);
+                const inner = inBlk.tagName === 'PRE' ? (inBlk.querySelector('code') || inBlk) : inBlk;
+                const inRange = document.createRange();
+                inRange.setStart(inner, 0);
+                try {
+                    inRange.setEnd(range.startContainer, range.startOffset);
+                    preInfo = { preIdx: blkIdx, innerOffset: countCursorTextOffset(inRange.cloneContents()), tag: inBlk.tagName };
+                } catch (e2) { /* ブロック外終端等は無視 */ }
+            }
+            return { blockIndex, blockText, textOffset, preInfo, outsideBlock: !inBlk };
         } catch (e) {
             logger.log('[Any MD] saveCursorState failed:', e);
             return null;
         }
     }
 
+    // カーソル保存/復元共通の「実テキスト量」カウント。UI 装飾(code-block-header /
+    // table-col-resize-handle / contenteditable=false の補助 div)を除外し、<br> を 1 と数える。
+    function isCursorUiNode(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el.classList && (el.classList.contains('code-block-header')
+            || el.classList.contains('table-col-resize-handle'))) return true;
+        return false;
+    }
+    // 再オープン⑭: ブロック(pre/blockquote/ネストリスト)直前の <br> は行を作らない
+    //(行モデル)。ライブ DOM には Shift+Enter → ブロック化の経路でこの br が残るが、
+    // シリアライザは行として出さないため undo の再レンダ DOM からは消える。この br を
+    // 数えると保存(ライブ)と復元(再レンダ)で offset が 1 ズレ、カーソルが下の li に
+    // 飛ぶ(実測再現済み)。保存・復元・照合の全 walk で対称にスキップする。
+    function isCursorBrBeforeBlock(br) {
+        let n = br.nextSibling;
+        while (n && ((n.nodeType === 3 && !n.textContent.trim()) || isCursorUiNode(n))) n = n.nextSibling;
+        return !!(n && n.nodeType === 1 && /^(PRE|BLOCKQUOTE|UL|OL)$/.test(n.tagName));
+    }
+    function cursorBlockText(block) {
+        let out = '';
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { out += child.textContent; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) out += '\n';
+                    continue;
+                }
+                walk(child);
+            }
+        })(block);
+        return out;
+    }
+    function countCursorTextOffset(root) {
+        let count = 0;
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { count += child.textContent.length; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) count += 1;
+                    continue;
+                }
+                walk(child);
+            }
+        })(root);
+        return count;
+    }
+
     /**
      * Find a DOM position by walking text nodes until reaching the target offset.
      */
-    function findPositionByTextOffset(root, targetOffset) {
+    function findPositionByTextOffset(root, targetOffset, avoidBlockInterior) {
         let currentOffset = 0;
 
         function walk(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const len = node.textContent.length;
                 if (currentOffset + len >= targetOffset) {
+                    // 再オープン⑬: 保存時カーソルがブロック外だった場合、境界一致
+                    // (ブロック末尾 = 直後の外側と同 offset)でブロック内 text に
+                    // 着地させない — 外側の次位置を探し続ける
+                    if (avoidBlockInterior && currentOffset + len === targetOffset) {
+                        const pEl = node.parentElement;
+                        if (pEl && pEl.closest && pEl.closest('pre, blockquote')) {
+                            currentOffset += len;
+                            return null;
+                        }
+                    }
                     return { node: node, offset: targetOffset - currentOffset };
                 }
                 currentOffset += len;
                 return null;
             }
             if (node.nodeType === Node.ELEMENT_NODE) {
+                // 保存側 countCursorTextOffset と対称: UI 装飾を数えない(再オープン⑩)
+                if (isCursorUiNode(node)) return null;
                 if (node.tagName === 'BR') {
-                    if (currentOffset >= targetOffset) {
+                    // 再オープン⑭: ブロック直前 br は保存側が数えていないので復元側も数えない
+                    if (isCursorBrBeforeBlock(node)) return null;
+                    // target が br 自身(cloneContents が (br,0) 終端で br を含めた +1)でも
+                    // br 位置(= 空行/行頭)に着地させる(>= から +1 >= へ — 再オープン⑩)
+                    if (currentOffset + 1 >= targetOffset) {
                         const parent = node.parentNode;
                         const idx = Array.from(parent.childNodes).indexOf(node);
-                        return { node: parent, offset: idx };
+                        return { node: parent, offset: currentOffset >= targetOffset ? idx : idx + 1 };
                     }
                     currentOffset += 1;
                     return null;
@@ -9706,7 +9993,7 @@ class EditorInstance {
         if (state.blockText) {
             var candidates = [];
             for (let i = 0; i < blocks.length; i++) {
-                if ((blocks[i].textContent || '') === state.blockText) {
+                if (cursorBlockText(blocks[i]) === state.blockText) {
                     candidates.push({ block: blocks[i], index: i });
                 }
             }
@@ -9731,8 +10018,42 @@ class EditorInstance {
         }
 
         try {
-            const position = findPositionByTextOffset(block, state.textOffset);
+            // 再オープン⑪/⑬: ブロック(pre/blockquote)内カーソルは preInfo 優先で復元
+            if (state.preInfo) {
+                const blks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const targetBlk = blks[Math.min(state.preInfo.preIdx, blks.length - 1)];
+                if (targetBlk) {
+                    if (targetBlk.tagName === 'PRE' && targetBlk.getAttribute('data-mode') !== 'edit') {
+                        enterEditMode(targetBlk);
+                    }
+                    const inner0 = targetBlk.tagName === 'PRE'
+                        ? (targetBlk.querySelector('code') || targetBlk) : targetBlk;
+                    const inner = findPositionByTextOffset(inner0, state.preInfo.innerOffset);
+                    const r2 = document.createRange();
+                    if (inner) { r2.setStart(inner.node, inner.offset); }
+                    else { r2.selectNodeContents(inner0); r2.collapse(false); }
+                    r2.collapse(true);
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r2);
+                    return;
+                }
+            }
+
+            const position = findPositionByTextOffset(block, state.textOffset, state.outsideBlock === true);
             if (!position) return;
+
+            // 再オープン⑪(undo でコードブロックにカーソルが「入らない」): 着地先が pre 内
+            // なのに display モードのままだと contenteditable が外れ、selection は張れても
+            // キャレットが見えず編集不能(= ユーザーには「カーソル消失」)。編集モードに
+            // 切り替えてから range を張る。
+            const posEl = position.node.nodeType === 3
+                ? position.node.parentElement
+                : position.node;
+            const posPre = posEl && posEl.closest ? posEl.closest('pre') : null;
+            if (posPre && posPre.getAttribute('data-mode') !== 'edit') {
+                enterEditMode(posPre);
+            }
 
             const range = document.createRange();
             range.setStart(position.node, position.offset);
@@ -9931,7 +10252,13 @@ class EditorInstance {
         let codeFenceChar = ''; // Track the fence character (backtick or tilde)
         let inTable = false;
         let tableRows = [];
+        // FR-LC-07 (sprint 20260810-183054): li 内ブロック構築の第 3 状態。
+        // listStack を閉じずに blockquote/fence を回収する({ type:'bq'|'fence', lines, indent, ... })。
+        // 閉じ条件: bq = 「> で始まらない行 or インデント不足」/ fence = 閉じ fence。
+        // 文書末尾で開いたままなら flush(データ喪失なし・安全側 = TC-ILB-15)。
+        let inLiBlock = null;
         let pendingTableColWidths = null; // Persistence (option C): widths for next table
+        let pendingHeaderlessTable = false; // FR-TBL-02: headerless marker seen for next table
         let inBlockquote = false;
         let blockquoteLines = [];
         
@@ -9963,6 +10290,27 @@ class EditorInstance {
                 result += '</li></' + listStack.pop().type + '>';
             }
             return result;
+        }
+
+        // FR-LC-07: 回収済み inLiBlock を li 内ブロックの html にして返す(状態は消費)。
+        function flushInLiBlock() {
+            if (!inLiBlock) return '';
+            let out = '';
+            if (inLiBlock.type === 'bq') {
+                const content = inLiBlock.lines.map(l => {
+                    const p = parseInline(l);
+                    return p === '' ? ' ' : p;
+                }).join('\n');
+                out = '<blockquote>' + content + '</blockquote>';
+            } else {
+                const codeText = inLiBlock.lines.join('\n');
+                const codeHtml = (!codeText || codeText === '')
+                    ? '<br>'
+                    : escapeHtml(codeText).replace(/\n/g, '<br>');
+                out = '<pre data-lang="' + escapeHtml(inLiBlock.lang) + '" data-mode="display"><code contenteditable="false">' + codeHtml + '</code></pre>';
+            }
+            inLiBlock = null;
+            return out;
         }
 
         function isTableRow(line) {
@@ -10052,12 +10400,14 @@ class EditorInstance {
             // Persistence (option C): if a `<!-- fractal-col-widths: ... -->` comment was seen
             // immediately before this table, render with table-layout: fixed + per-column widths.
             let tableHtml;
+            // FR-TBL-02: data-headerless attribute (structure kept, hiding is CSS-only)
+            const headerlessAttr = pendingHeaderlessTable ? ' data-headerless="true"' : '';
             if (pendingTableColWidths && pendingTableColWidths.length > 0) {
                 const widthsAttr = pendingTableColWidths.join(',');
                 const totalWidth = pendingTableColWidths.reduce((s, w) => s + w, 0);
-                tableHtml = '<table data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
+                tableHtml = '<table' + headerlessAttr + ' data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
             } else {
-                tableHtml = '<table>';
+                tableHtml = '<table' + headerlessAttr + '>';
             }
             rows.forEach((row, idx) => {
                 // Skip separator row
@@ -10084,6 +10434,8 @@ class EditorInstance {
             tableHtml += '</table>';
             // consume pending widths (only apply once)
             pendingTableColWidths = null;
+            // consume headerless flag (one-shot — must not leak to the next table)
+            pendingHeaderlessTable = false;
             return tableHtml;
         }
 
@@ -10102,6 +10454,57 @@ class EditorInstance {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+
+            // FR-LC-07: li 内ブロック回収中(第 3 状態)。fence 判定より先に処理する
+            // (li 内 fence の中身/閉じ fence はインデント付きで、0-indent fence 判定 :fenceMatch
+            //  には元々かからないが、bq の閉じ判定と行回収を一元化するためここで吸収)。
+            if (inLiBlock) {
+                const trimmed = line.trim();
+                if (inLiBlock.type === 'fence') {
+                    const closeMatch = trimmed.match(/^(\`{3,}|~{3,})\s*$/);
+                    if (closeMatch && closeMatch[1][0] === inLiBlock.fenceChar
+                        && closeMatch[1].length >= inLiBlock.fenceLen) {
+                        html += flushInLiBlock();
+                        continue;
+                    }
+                    // 再オープン⑫(undo でリスト郡が code に食われる): 回収は「継続行インデント
+                    // (開始 fence と同深度以上)を満たす行」に限定する。浅い行(リスト項目・
+                    // トップレベル等 = タイプ途中の未閉じ「```」の後に続く既存内容)が来たら、
+                    // ここまでの回収分を flush して fence 開始行をテキスト行として扱い直す
+                    //(開始「```」はユーザーがまだ書きかけの継続行テキスト)。
+                    {
+                        const lnIndent = line.match(/^(\s*)/)[1].length;
+                        if (trimmed !== '' && lnIndent < inLiBlock.indent) {
+                            // 開始 fence をテキスト継続行として復元 + 回収済み行を返却
+                            const fenceTxt = '```'.slice(0, inLiBlock.fenceLen)
+                                + (inLiBlock.lang || '');
+                            html += '<br>' + parseInline(fenceTxt);
+                            for (const rl of inLiBlock.lines) {
+                                html += '<br>' + parseInline(rl.trim());
+                            }
+                            inLiBlock = null;
+                            // fallthrough: この行(リスト項目等)は通常処理へ
+                        } else {
+                            // インデントを剥がして回収(開始 fence のインデント幅まで)
+                            let content = line;
+                            let stripped = 0;
+                            while (stripped < inLiBlock.indent && content.startsWith(' ')) {
+                                content = content.slice(1); stripped++;
+                            }
+                            inLiBlock.lines.push(content);
+                            continue;
+                        }
+                    }
+                } else {
+                    // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
+                    if (/^>\s?/.test(trimmed) && trimmed !== '') {
+                        inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
+                        continue;
+                    }
+                    html += flushInLiBlock();
+                    // fallthrough: この行自体は通常処理へ
+                }
+            }
 
             // Handle code blocks (\`\`\`+ or ~~~+)
             // Match opening/closing fence: 3+ backticks or tildes
@@ -10206,6 +10609,14 @@ class EditorInstance {
                 continue;
             }
 
+            // FR-TBL-02 (ADRL-0052): headerless marker right before a table. Detection is
+            // marker-only — an empty header row without the marker stays a normal table
+            // (a user's intentionally-empty header must not morph into headerless).
+            if (/^<!--\s*fractal-headerless-table\s*-->\s*$/.test(line)) {
+                pendingHeaderlessTable = true;
+                continue;
+            }
+
             // Handle markdown tables
             if (isTableRow(line) || (inTable && isTableSeparator(line))) {
                 if (inBlockquote) {
@@ -10288,6 +10699,19 @@ class EditorInstance {
             } else {
                 // Handle empty lines specially when in a list
                 if (line.trim() === '' && listStack.length > 0) {
+                    // FR-LC-08 (再オープン⑩ rc.10): インデント付き空白行(空継続行の serialize 形)
+                    // は「空の継続行」としてリストを閉じずに取り込む(roundtrip 安定 = undo の
+                    // md snapshot 再 render でリストが段落分解しない)。インデント無しの空行は
+                    // 従来どおり下の look-ahead(リスト終了判定)へ。
+                    {
+                        const blankIndent = line.match(/^(\s*)/)[1].length;
+                        const blankIndentLevel = Math.floor(blankIndent / 2);
+                        const deepestBlank = listStack[listStack.length - 1].indent;
+                        if (blankIndent > 0 && blankIndentLevel >= deepestBlank + 1) {
+                            html += '<br>';
+                            continue;
+                        }
+                    }
                     // Look ahead to find next non-empty line
                     let nextListItem = false;
                     let nextListIndent = 0;
@@ -10330,7 +10754,38 @@ class EditorInstance {
                     const contIndentLevel = Math.floor(contIndentMatch[1].length / 2);
                     const deepestIndent = listStack[listStack.length - 1].indent;
                     if (contIndentLevel >= deepestIndent + 1) {
-                        html += '<br>' + parseInline(line.trim());
+                        // FR-LC-07 (sprint 20260810-183054): インデント行がブロック開始記法なら
+                        // li 内ブロック構築へ(第 3 状態 inLiBlock — listStack は閉じない)。
+                        // 0-indent fence はこの分岐に到達しない(deepestIndent+1 未満)ため
+                        // 既存の closeAllLists 解釈は 1 ケースも変わらない(TC-ILB-14)。
+                        const contTrimmed = line.trim();
+                        const liFence = contTrimmed.match(/^(\`{3,}|~{3,})(\w*)\s*$/);
+                        if (liFence) {
+                            inLiBlock = {
+                                type: 'fence',
+                                lang: liFence[2] || '',
+                                fenceChar: liFence[1][0],
+                                fenceLen: liFence[1].length,
+                                lines: [],
+                                indent: contIndentMatch[1].length,
+                            };
+                            continue;
+                        }
+                        // 再オープン⑭c: bq 開始は「> 」(空白付き)のみ — top-level REGEX.quote
+                        // (/^> /)と対称。素の ">"(「> 」タイプ途中の literal text)を empty bq に
+                        // 化けさせない(undo snapshot の再レンダで text ">" が bq 化 → blockText
+                        // 不一致でカーソルが下の li に飛ぶ機序)。空 bq のシリアライズは
+                        // trailing space 付き「> 」(:8127)なので trim 前の line 本体で判定する。
+                        const contBody = line.slice(contIndentMatch[1].length);
+                        if (/^>\s/.test(contBody)) {
+                            inLiBlock = { type: 'bq', lines: [contTrimmed.replace(/^>\s?/, '')], indent: contIndentMatch[1].length };
+                            continue;
+                        }
+                        // 行モデル(再オープン③): ブロック直後の <br> は「空行」を作る。
+                        // md 上でブロックの次の行(空行なし)は br を挟まず直付きにする
+                        // (serialize 側 mdProcessListItemWithBlocks も直付きで emit = 対称)。
+                        const brPrefix = /(<\/pre>|<\/blockquote>)$/.test(html) ? '' : '<br>';
+                        html += brPrefix + parseInline(line.trim());
                         continue;
                     }
                 }
@@ -10350,6 +10805,9 @@ class EditorInstance {
         }
 
         // Close any remaining open lists, tables, and blockquotes
+        // FR-LC-07: 閉じ fence なしで文書が終わった li 内ブロックを flush(データ喪失なし
+        // = TC-ILB-15)。closeAllLists の前に行う(li 内に入れるため)。
+        if (inLiBlock) html += flushInLiBlock();
         html += closeAllLists();
         if (inBlockquote) html += renderBlockquote(blockquoteLines);
         if (inTable) html += renderTable(tableRows);
@@ -11385,6 +11843,9 @@ class EditorInstance {
             { action: 'align-left', title: i18n.alignLeft },
             { action: 'align-center', title: i18n.alignCenter },
             { action: 'align-right', title: i18n.alignRight },
+            null,
+            // FR-TBL-01: headerless toggle (display-only; th structure/content preserved)
+            { action: 'toggle-header', title: i18n.tableToggleHeader, text: 'H' },
         ];
         tableToolbarItems.forEach(function(item) {
             if (!item) {
@@ -11424,6 +11885,7 @@ class EditorInstance {
                 case 'align-left': setColumnAlignment('left'); break;
                 case 'align-center': setColumnAlignment('center'); break;
                 case 'align-right': setColumnAlignment('right'); break;
+                case 'toggle-header': if (activeTable) toggleTableHeader(activeTable); break;
             }
         });
 
@@ -11779,6 +12241,54 @@ class EditorInstance {
         addTableResizeHandles(table);
         
         syncMarkdown();
+    }
+
+    // FR-TBL-05: shared table insertion for palette case 'table' and Ctrl+T.
+    // (Ctrl+T previously called an undefined insertTable() — silent ReferenceError.)
+    function insertTableAtCursor() {
+        var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
+        document.execCommand('insertHTML', false, tableHtml);
+        syncMarkdown();
+    }
+
+    // FR-TBL-01 (ADRL-0052): toggle headerless display. Flips the data-headerless
+    // attribute only — th structure, cell content, textAlign and col-widths are all
+    // preserved (hiding is CSS-only), so toggling back ON restores losslessly.
+    function toggleTableHeader(table) {
+        if (!table || !editor.contains(table)) return;
+        // FR-TBL-01 受け入れ「undo 可能」: main toolbar dispatch (:13540 系) と同型に
+        // 操作前スナップショットを積む(table-toolbar 系は従来 saveSnapshot を呼ばない
+        // 非対称があった — reviewer iteration 1 SYSALIGN-1)。
+        undoManager.saveSnapshot();
+        if (table.getAttribute('data-headerless') === 'true') {
+            table.removeAttribute('data-headerless');
+            // FR-TBL-01 改訂(2026-08-11 手動テスト裁定): ON 時に th 行の全セルが空
+            // (paste 由来 headerless 等)なら、空 th 行を出す代わりに body 1 行目を
+            // ヘッダーへ変換する(「1 行目をヘッダーに」のユーザー期待)。
+            // th に内容が残る場合(トグル OFF 由来)は従来どおり再表示のみ。
+            const rows = table.querySelectorAll('tr');
+            const thRow = rows.length > 0 && rows[0].querySelector('th') ? rows[0] : null;
+            const thAllEmpty = thRow && Array.prototype.every.call(
+                thRow.cells, (c) => (c.textContent || '').trim() === '');
+            if (thRow && thAllEmpty && rows.length > 1) {
+                const bodyRow = rows[1];
+                for (const td of Array.from(bodyRow.cells)) {
+                    const th = document.createElement('th');
+                    th.innerHTML = td.innerHTML;
+                    if (td.style.textAlign) th.style.textAlign = td.style.textAlign;
+                    th.setAttribute('contenteditable', 'true');
+                    bodyRow.replaceChild(th, td);
+                }
+                thRow.remove();
+            }
+        } else {
+            table.setAttribute('data-headerless', 'true');
+        }
+        syncMarkdown();
+    }
+    // テスト seam(TC-TBL-01 が toolbar handler の実体を直接駆動する)
+    if (typeof window !== 'undefined') {
+        window.__toggleTableHeaderForTest = function (table) { toggleTableHeader(table); };
     }
 
     // Set column alignment for the current column
@@ -13053,11 +13563,68 @@ class EditorInstance {
             }
         }
         
+        // FR-LC-05/06 (sprint 20260810-183054): li 内(継続行)でのブロック作成。
+        // walk-up の前に判定する — walk-up は node をリスト全体にしてしまい、
+        // 「> 」でリスト全体が blockquote に置換される破壊事故(:replaceWith)の温床だった。
+        // 判定はカーソル行(li 直下 text node = 1 継続行)のテキストのみで行う。
+        if (liNode && liNode.tagName && liNode.tagName.toUpperCase() === 'LI') {
+            const liLine = getInLiLineInfo(sel);
+            if (liLine && liLine.textNode) {
+                const lineText = liLine.lineText;
+                // 「> 」→ li 内 blockquote(trigger: space)
+                // 行モデル(再オープン③): 記法行を block で置換すると、記法行の直後にあった
+                // 行区切り <br> が「block 直後の <br> = 余計な空行」に化ける(block 自体が行境界を
+                // 成すため)。置換後に直後 <br> を 1 個取り除く。
+                const liStripBrAfter = (blk) => {
+                    const nb = blk.nextSibling;
+                    if (nb && nb.nodeName === 'BR') nb.remove();
+                };
+                const liBqMatch = lineText.match(/^>\s?(.*)$/);
+                if (liBqMatch && trigger === 'space') {
+                    const rest = liBqMatch[1] || '';
+                    const liBq = document.createElement('blockquote');
+                    if (rest) {
+                        liBq.textContent = rest;
+                    } else {
+                        liBq.innerHTML = '<br>';
+                    }
+                    liLine.textNode.replaceWith(liBq);
+                    liStripBrAfter(liBq);
+                    setCursorToEnd(liBq);
+                    syncMarkdown();
+                    return true;
+                }
+                // 「```」+Enter → li 内 pre(言語タグ対応)
+                const liFenceMatch = lineText.match(/^\`\`\`(\w*)\s*$/);
+                if (liFenceMatch && trigger === 'enter') {
+                    const liPre = document.createElement('pre');
+                    liPre.setAttribute('data-lang', liFenceMatch[1] || '');
+                    liPre.setAttribute('data-mode', 'display');
+                    const liCode = document.createElement('code');
+                    liCode.setAttribute('contenteditable', 'false');
+                    liPre.appendChild(liCode);
+                    liLine.textNode.replaceWith(liPre);
+                    liStripBrAfter(liPre);
+                    setupCodeBlockUI(liPre);
+                    enterEditMode(liPre);
+                    syncMarkdown();
+                    return true;
+                }
+            }
+            // li 内だが行がブロック記法でない → 従来の変換(リスト型変換等)は上で処理済み。
+            // ここで walk-up に落とすとリスト全体置換の危険があるため、li 内は明示 return。
+            // (段落内 li = cursorInParagraph 系は既存分岐が先に処理している)
+            const liLineText = liLine ? liLine.lineText : '';
+            if (/^>\s?/.test(liLineText) || /^\`\`\`/.test(liLineText)) {
+                return false; // 記法はあるが textNode 特定不能 — 何もしない(安全側)
+            }
+        }
+
         // Get the current block element
         while (node && node !== editor && node.parentNode !== editor) {
             node = node.parentNode;
         }
-        
+
         if (!node || node === editor) return false;
 
         const text = node.textContent || '';
@@ -14337,7 +14904,90 @@ class EditorInstance {
         }
     }
 
+    // FR-LC-07 (sprint 20260810-183054): li 直下に blockquote/pre を持つ li の serialize。
+    // li 子を文書順に inline-run / block / nested-list に分類し、ブロックはマーカー幅
+    // スペースでインデントして emit(FR-LC-03 の継続行インデント規則と同一)。子順を保持する。
+    // ブロックなし li はこの関数に入らない(mdProcessListItem 冒頭の分岐 — byte 互換 NFR-03)。
+    function mdProcessListItemWithBlocks(li, indent, marker) {
+        const checkbox = li.querySelector(':scope > input[type="checkbox"]');
+        let markerPrefix;
+        if (checkbox) {
+            const checked = checkbox.checked ? 'x' : ' ';
+            markerPrefix = indent + '- [' + checked + '] ';
+        } else {
+            markerPrefix = indent + marker + ' ';
+        }
+        const contIndent = ' '.repeat(markerPrefix.length - indent.length);
+        const LC_BR = ' LCBR ';
+
+        // li 子を文書順にセグメント化
+        const segments = [];
+        let curInline = null;
+        for (const child of li.childNodes) {
+            if (child.nodeType === 1 && (child.tagName === 'UL' || child.tagName === 'OL')) {
+                segments.push({ type: 'list', node: child });
+                curInline = null;
+            } else if (child.nodeType === 1 && (child.tagName === 'BLOCKQUOTE' || child.tagName === 'PRE')) {
+                segments.push({ type: 'block', node: child });
+                curInline = null;
+            } else if (child.nodeType === 1 && child.tagName === 'INPUT') {
+                continue; // checkbox は markerPrefix で処理済み
+            } else {
+                if (!curInline) { curInline = { type: 'inline', nodes: [] }; segments.push(curInline); }
+                curInline.nodes.push(child);
+            }
+        }
+
+        // inline run → 行配列(既存の LC_BR 手法で <br> を行区切りに)
+        const inlineLines = (nodes) => {
+            const tmp = document.createElement('li');
+            for (const n of nodes) {
+                if (n.nodeType === 1 && n.tagName === 'BR') {
+                    tmp.appendChild(document.createTextNode(LC_BR));
+                } else {
+                    tmp.appendChild(n.cloneNode(true));
+                }
+            }
+            const text = mdGetInlineMarkdown(tmp).trim();
+            if (!text) return [];
+            return text.split(LC_BR).map(t => t.trim()).filter((t, i) => t !== '' || i === 0);
+        };
+
+        const contentLines = [];
+        let nestedOut = '';
+        for (const seg of segments) {
+            if (seg.type === 'inline') {
+                for (const l of inlineLines(seg.nodes)) contentLines.push(l);
+            } else if (seg.type === 'block') {
+                const blockMd = mdProcessNode(seg.node, '');
+                for (const l of blockMd.split('\n')) contentLines.push(l);
+                while (contentLines.length && contentLines[contentLines.length - 1] === '') contentLines.pop();
+            } else {
+                nestedOut += mdProcessNode(seg.node, indent + '  ');
+            }
+        }
+
+        let result;
+        if (contentLines.length === 0) {
+            result = markerPrefix + '\n';
+        } else {
+            result = markerPrefix + contentLines[0] + '\n';
+            for (let i = 1; i < contentLines.length; i++) {
+                result += indent + contIndent + contentLines[i] + '\n';
+            }
+        }
+        result += nestedOut;
+        return result;
+    }
+
     function mdProcessListItem(li, indent, marker) {
+        // FR-LC-07: li 直下ブロック(blockquote/pre)がある場合のみ新経路へ。
+        // 無い li は従来経路を 1 行も変えずに通す(byte 互換 NFR-03 = TC-ILB-13)。
+        const hasDirectBlock = Array.from(li.childNodes).some(
+            (c) => c.nodeType === 1 && (c.tagName === 'BLOCKQUOTE' || c.tagName === 'PRE'));
+        if (hasDirectBlock) {
+            return mdProcessListItemWithBlocks(li, indent, marker);
+        }
         let result = '';
         const checkbox = li.querySelector(':scope > input[type="checkbox"]');
         let nestedContent = '';
@@ -14839,6 +15489,12 @@ class EditorInstance {
         const colWidthsAttr = table.getAttribute('data-col-widths');
         if (colWidthsAttr && /^\d+(,\d+)*$/.test(colWidthsAttr)) {
             md += '<!-- fractal-col-widths: ' + colWidthsAttr + ' -->\n';
+        }
+        // FR-TBL-02 (ADRL-0052): headerless marker. Header row cells are still emitted
+        // with their content preserved (display-only hiding via CSS) so toggling the
+        // header back ON restores the original cells losslessly.
+        if (table.getAttribute('data-headerless') === 'true') {
+            md += '<!-- fractal-headerless-table -->\n';
         }
         let isFirstRow = true;
         let alignments = [];
@@ -15787,6 +16443,38 @@ class EditorInstance {
                 shiftKey: e.shiftKey
             });
             
+            // FR-LC-08b (sprint 20260810-183054 再オープン①): li 内 pre/blockquote 内の
+            // Shift+Enter = ブロック直後に空継続行を作ってカーソル脱出(top-level blockquote の
+            // Shift+Enter 脱出と同型を li 内に配線)。ブロック内改行は通常 Enter が担う。
+            if (e.shiftKey && listItem && !tableCell) {
+                const exitBlock = (preElement && listItem.contains(preElement) && preElement.closest('li') === listItem)
+                    ? preElement
+                    : (blockquoteElement && listItem.contains(blockquoteElement) && blockquoteElement.closest('li') === listItem)
+                        ? blockquoteElement : null;
+                if (exitBlock) {
+                    e.preventDefault();
+                    if (exitBlock.tagName === 'PRE' && exitBlock.getAttribute('data-mode') === 'edit') {
+                        enterDisplayMode(exitBlock);
+                    }
+                    // ブロック直後は br 1 個で 1 視覚行になる(ブロック自体が行境界を成すため、
+                    // テキスト行間の FR-LC-02 と違い trailing 2 個目は不要 — rc.2 バグ 3 実測)。
+                    // カーソルは br の「直前」(= 空行の正規位置。実測: br の後 = 次行の行頭に
+                    // なってしまう — rc.3 バグ 5)。
+                    const exBr = document.createElement('br');
+                    exitBlock.after(exBr);
+                    const exLi = exitBlock.parentNode;
+                    const exNr = document.createRange();
+                    exNr.setStart(exLi, Array.prototype.indexOf.call(exLi.childNodes, exBr));
+                    exNr.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(exNr);
+                    // snapshot は Enter ハンドラ冒頭(:8874)で積み済み(DOM 変更前)。
+                    markAsEdited();
+                    syncMarkdown();
+                    return;
+                }
+            }
+
             // sprint 20260806-035923 (FR-LC-02): リスト内 Shift+Enter = 項目内改行（継続行）。
             // li 内に <br> を挿入して同一項目の 2 行目にする（従来の「新 li 作成」は Enter と
             // 重複していたため置換 = ADRL 記録済み）。pre / table 内は従来どおり。
@@ -15815,7 +16503,7 @@ class EditorInstance {
                 lcNr.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(lcNr);
-                undoManager.saveSnapshot();
+                // snapshot は Enter ハンドラ冒頭で積み済み(DOM 変更前)。
                 markAsEdited();
                 syncMarkdown();
                 return;
@@ -16050,7 +16738,10 @@ class EditorInstance {
                     // The browser adds a sentinel \n only at the end; mid-content Enter
                     // does not produce a sentinel, so registering it would miscount lines.
                     const codeForSentinel = preElement.querySelector('code') || preElement;
-                    const textAfterInsert = codeForSentinel.textContent || '';
+                    // FR-CB-01: 正典 getCodePlainText(<br> を \n に数える)に統一。textContent は
+                    // 末尾が <br> の DOM で改行を数え落とす(測定済みケースでは等価・<br> 末尾エッジで
+                    // こちらが正確)。
+                    const textAfterInsert = getCodePlainText(codeForSentinel);
                     if (textAfterInsert.endsWith('\n')) {
                         const sentinelTarget = preElement.closest('.mermaid-wrapper') || preElement.closest('.math-wrapper') || preElement;
                         codeBlocksWithSentinel.add(sentinelTarget);
@@ -16086,6 +16777,19 @@ class EditorInstance {
             // Handle list item continuation (using closest() for proper nested list detection)
             if (listItem && editor.contains(listItem)) {
                 const list = listItem.parentNode;
+
+                // FR-LC-06 (sprint 20260810-183054): li 内の継続行が「```(lang)」なら
+                // li 内コードブロック作成(checkBlockPatterns の li 内 fence 分岐へ)。
+                // li の通常 Enter(項目分割)より先に判定する。
+                {
+                    const liLineForFence = getInLiLineInfo(window.getSelection());
+                    if (liLineForFence && liLineForFence.textNode
+                        && /^\`\`\`\w*\s*$/.test(liLineForFence.lineText)) {
+                        e.preventDefault();
+                        checkAllPatterns('enter');
+                        return;
+                    }
+                }
 
                 // Check for empty item - only check direct text content, not nested lists
                 const checkbox = listItem.querySelector(':scope > input[type="checkbox"]');
@@ -16347,9 +17051,37 @@ class EditorInstance {
                     // Text after cursor goes to new item
                     // Nested lists stay with original item (NOT moved to new item)
                     e.preventDefault();
-                    
+
                     const range = sel.getRangeAt(0);
-                    
+
+                    // FR-LC-08 (sprint 20260810-183054 再オープン④): li 内ブロック(pre/blockquote)
+                    // を持つ li での Enter は「split」しない — split の extractContents がブロックを
+                    // 新 li に巻き込む/ブロック位置に別 li マーカーが湧く(rc.4 バグ 4/5)。
+                    // 代わりに: カーソル以降にブロックがある場合は「li 全体の後ろに空 li を追加」
+                    // (= 継続行の末端に新行を作る、のリスト行版)。
+                    {
+                        const liDirectBlocks = Array.from(listItem.children).filter(
+                            (c) => c.tagName === 'PRE' || c.tagName === 'BLOCKQUOTE');
+                        if (liDirectBlocks.length > 0) {
+                            // 再オープン⑤/⑥(rc.5 バグ 1/2・rc.6 バグ 1 のユーザー裁定):
+                            // li 直下にブロック(pre/blockquote)を持つ li では、**どの行で Enter
+                            // しても li は分割せず、li 全体(継続行 + ブロック含む)の後ろに
+                            // 空リスト行を追加**しカーソル移動する(TC-ILB-39/40/41/43)。
+                            // split はブロック位置に li マーカーが湧く/継続行が分断される等、
+                            // どの位置でも構造破壊になるため全面禁止。
+                            // snapshot は DOM 変更前に積む(markdown 変数 = 変更前と cursor を
+                            // 同時点に保つ — 再オープン⑩ undo カーソル迷子の同型防止)
+                            undoManager.saveSnapshot();
+                            const enNewLi = document.createElement('li');
+                            enNewLi.innerHTML = '<br>';
+                            listItem.after(enNewLi);
+                            setCursorToStart(enNewLi);
+                            markAsEdited();
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+
                     // Find nested lists in this item (they will stay with original item)
                     const nestedLists = Array.from(listItem.querySelectorAll(':scope > ul, :scope > ol'));
                     
@@ -17310,8 +18042,12 @@ class EditorInstance {
                             moveCursorToLine(currentLine - 1);
                         } else {
                             // Move to cell above
-                            if (rowIndex > 0) {
-                                const prevRow = rows[rowIndex - 1];
+                            // FR-TBL-01: skip hidden rows (headerless hides the th row via CSS
+                            // but it remains in the DOM — never land the cursor inside it)
+                            let upIndex = rowIndex - 1;
+                            while (upIndex >= 0 && rows[upIndex].offsetParent === null) upIndex--;
+                            if (upIndex >= 0) {
+                                const prevRow = rows[upIndex];
                                 const targetCell = prevRow.cells[Math.min(cellIndex, prevRow.cells.length - 1)];
                                 if (targetCell) {
                                     activeTableCell = targetCell;
@@ -17420,17 +18156,114 @@ class EditorInstance {
                 logger.log('Arrow in block:', { key: e.key, currentLineIndex, totalLines, tag: blockNode.tagName, inSpecialWrapper: !!specialWrapperBlock });
                 // #endregion
                 
+                // FR-LC-08d (再オープン⑦): li 内ブロックからの脱出先を行モデルで解決する共通
+                // walker。dir='previousSibling'|'nextSibling'。返り値:
+                //   { kind:'text', node } | { kind:'blank', br } | { kind:'block', node } | null
+                // 規則(実測済み行モデル): 空白 text node は無視 / ブロックと自分の間の 1 個の
+                // <br> は行を作らない(その先を見る)/ <br> の先がさらに <br> なら空行 /
+                // text は行 / PRE・BLOCKQUOTE はブロック。
+                const resolveAdjacentInLiLine = (dir) => {
+                    // IMG は独立した視覚行(再オープン⑧ rc.8: 画像がブロックに隣接すると
+                    // walker が知らない node 種で null → 素通り/リスト先頭へ飛んでいた)
+                    const classify = (n) => {
+                        if (!n) return null;
+                        if (n.nodeType === 3) return { kind: 'text', node: n };
+                        if (n.nodeName === 'IMG') return { kind: 'image', node: n };
+                        if (n.nodeName === 'PRE' || n.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n };
+                        return null;
+                    };
+                    let n = blockNode[dir];
+                    while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                    if (!n) return null;
+                    if (n.nodeName === 'BR') {
+                        let n2 = n[dir];
+                        while (n2 && n2.nodeType === 3 && n2.textContent.trim() === '') n2 = n2[dir];
+                        if (!n2) return null;
+                        if (n2.nodeName === 'BR') return { kind: 'blank', br: (dir === 'previousSibling' ? n2 : n) };
+                        return classify(n2);
+                    }
+                    return classify(n);
+                };
+                const enterAdjacentBlock = (blk, from) => {
+                    if (blk.nodeName === 'PRE') {
+                        isNavigatingIntoBlock = true;
+                        enterEditMode(blk);
+                        const c = blk.querySelector('code');
+                        setTimeout(() => {
+                            if (c) {
+                                if (from === 'above') setCursorToFirstTextNode(c);
+                                else setCursorToLastLineStartByDOM(c);
+                            }
+                            resetNavigationFlag();
+                        }, 0);
+                    } else {
+                        if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                    }
+                    scrollCursorIntoView();
+                };
+                const moveToLiLine = (resolved, from) => {
+                    // resolved: resolveAdjacentInLiLine の返り値(非 null)
+                    if (resolved.kind === 'block') { enterAdjacentBlock(resolved.node, from); return; }
+                    if (resolved.kind === 'image') {
+                        // 画像行: 画像の直前(above から来た場合)/直後(below から来た場合)に
+                        // キャレットを置く(li offset。画像は contenteditable 内の atomic 要素)
+                        const liP = resolved.node.parentNode;
+                        const idx = Array.prototype.indexOf.call(liP.childNodes, resolved.node);
+                        const r = document.createRange();
+                        r.setStart(liP, from === 'above' ? idx : idx + 1);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
+                    if (resolved.kind === 'text') {
+                        const r = document.createRange();
+                        if (from === 'above') r.setStart(resolved.node, 0);
+                        else r.setStart(resolved.node, resolved.node.textContent.length);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
+                    // blank: 空行 = br の直前 offset
+                    const liP = blockNode.parentNode;
+                    const r = document.createRange();
+                    r.setStart(liP, Array.prototype.indexOf.call(liP.childNodes, resolved.br));
+                    r.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                    scrollCursorIntoView();
+                };
+
                 if (e.key === 'ArrowUp') {
                     if (currentLineIndex === 0) {
                         // At first line, exit block upward
                         e.preventDefault();
-                        
+
                         if (specialWrapperBlock) {
                             // Exit special wrapper - set display mode and go to previous sibling of wrapper
                             exitSpecialWrapperDisplayMode(specialWrapperBlock);
                             const prev = specialWrapperBlock.previousElementSibling;
                             if (prev) {
                                 navigateToAdjacentElement(prev, 'up', false);
+                            }
+                        } else if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                            // FR-LC-08d (再オープン⑦ rc.7 バグ 1): li 内ブロックの ↑ 脱出。
+                            // previousElementSibling は継続行 text を素通りして別ブロック/リスト先頭へ
+                            // 飛んでいた — 行モデル walker で直上の行(text/空行/ブロック)へ確実に移動。
+                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                enterDisplayMode(blockNode);
+                            }
+                            const upResolved = resolveAdjacentInLiLine('previousSibling');
+                            if (upResolved) {
+                                moveToLiLine(upResolved, 'below');
+                            } else {
+                                // li 内で最初の行 = li 自体の行頭相当。1 行目のテキストが無い形は
+                                // 稀だが、安全側で li 先頭へ
+                                setCursorToStart(blockNode.parentNode);
+                                scrollCursorIntoView();
                             }
                         } else {
                             // If this is a code block in edit mode, switch to display mode
@@ -17476,21 +18309,61 @@ class EditorInstance {
                                 setCursorToEnd(newP);
                             }
                         } else {
-                            // If this is a code block in edit mode, switch to display mode
-                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
-                                enterDisplayMode(blockNode);
-                            }
-                            const next = blockNode.nextElementSibling;
-                            logger.log('Next element:', next ? next.tagName : 'null');
-                            if (next) {
-                                navigateToAdjacentElement(next, 'down', false);
+                            if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                                // FR-LC-08b/d (再オープン⑦で walker に一本化): li 内ブロックの ↓ 脱出。
+                                // 直後の行(text/空行/ブロック — 組み合わせ不問)へ行モデル walker で
+                                // 確実に移動。li 内に後続なしなら 次 li → リスト全体の次要素 →
+                                // 空継続行(最終手段・カーソル消失防止)。
+                                const liParent = blockNode.parentNode;
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
+                                }
+                                const dnResolved = resolveAdjacentInLiLine('nextSibling');
+                                if (dnResolved) {
+                                    moveToLiLine(dnResolved, 'above');
+                                } else {
+                                    const dnNextLi = liParent.nextElementSibling;
+                                    const dnRootList = (() => {
+                                        let l = liParent.parentNode; // ul/ol
+                                        while (l && l.parentNode && l.parentNode !== editor) l = l.parentNode;
+                                        return l && l.parentNode === editor ? l : null;
+                                    })();
+                                    const dnAfterList = dnRootList ? dnRootList.nextElementSibling : null;
+                                    if (dnNextLi && dnNextLi.tagName === 'LI') {
+                                        setCursorToStart(dnNextLi);
+                                        scrollCursorIntoView();
+                                    } else if (dnAfterList) {
+                                        navigateToAdjacentElement(dnAfterList, 'down', false);
+                                        scrollCursorIntoView();
+                                    } else {
+                                        const dnBr = document.createElement('br');
+                                        blockNode.after(dnBr);
+                                        const dnR2 = document.createRange();
+                                        dnR2.setStart(liParent, Array.prototype.indexOf.call(liParent.childNodes, dnBr));
+                                        dnR2.collapse(true);
+                                        sel.removeAllRanges();
+                                        sel.addRange(dnR2);
+                                        scrollCursorIntoView();
+                                        syncMarkdown();
+                                    }
+                                }
                             } else {
-                                // No next element, create a new paragraph
-                                logger.log('Creating new paragraph');
-                                const newP = document.createElement('p');
-                                newP.innerHTML = '<br>';
-                                blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
-                                setCursorToFirstTextNode(newP);
+                                // top-level: 従来どおり display 化してから脱出
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
+                                }
+                                const next = blockNode.nextElementSibling;
+                                logger.log('Next element:', next ? next.tagName : 'null');
+                                if (next) {
+                                    navigateToAdjacentElement(next, 'down', false);
+                                } else {
+                                    // No next element, create a new paragraph
+                                    logger.log('Creating new paragraph');
+                                    const newP = document.createElement('p');
+                                    newP.innerHTML = '<br>';
+                                    blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
+                                    setCursorToFirstTextNode(newP);
+                                }
                             }
                         }
                     } else {
@@ -17504,6 +18377,216 @@ class EditorInstance {
                 return;
             }
             
+            // FR-LC-08d (sprint 20260810-183054 再オープン③): li 内ブロック周辺の矢印移動。
+            // 行モデル(実測 2026-08-11): ブロック(PRE/BLOCKQUOTE)の「前」の <br> は行を作らない/
+            // 「後」の <br> は空行を 1 個作る(空行のカーソル正規位置 = その <br> の直前 offset)。
+            // これに基づき: ↓ = 次行がブロックなら進入・空行なら空行へ / ↑ = 前行がブロック直付き
+            // なら末尾に進入・ブロック後の <br>(空行)ならブロックに入らず空行に止まる。
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
+                const navEl = sel.anchorNode.nodeType === 3
+                    ? sel.anchorNode.parentElement : sel.anchorNode;
+                const navLi = navEl && navEl.closest ? navEl.closest('li') : null;
+                if (navLi && editor.contains(navLi) && !navEl.closest('pre, blockquote, table')) {
+                    const navEnterBlock = (blk, from) => {
+                        e.preventDefault();
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            const c = blk.querySelector('code') || blk;
+                            if (from === 'above') setCursorToStart(c); else setCursorToEnd(c);
+                        } else {
+                            if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                        }
+                        scrollCursorIntoView();
+                    };
+                    const navToBlankLine = (brNode) => {
+                        // 空行 = br の直前 offset(li 直下)
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, brNode));
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    const navToTextStart = (t) => {
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(t, 0);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    // カーソル基準: li 直下 node(text)or li 自身(空行 = childNodes[offset] が BR)
+                    let navNode = sel.anchorNode;
+                    while (navNode && navNode.parentNode !== navLi && navNode !== navLi) {
+                        navNode = navNode.parentNode;
+                    }
+                    if (navNode === navLi && sel.rangeCount) {
+                        // li offset カーソル(空行 or 画像の前後 — 画像は atomic なので caret は
+                        // li offset に立つ)。再オープン⑧: 画像行を視覚行として扱う。
+                        const off = sel.getRangeAt(0).startOffset;
+                        let atNode = navLi.childNodes[off] || null;
+                        let beforeNode = off > 0 ? navLi.childNodes[off - 1] : null;
+                        // caret が画像の前後にある場合、現在行 = その画像。↑ は画像の前の行、
+                        // ↓ は画像の後の行を見る(画像自身をスキップして解決)
+                        const curImg = (beforeNode && beforeNode.nodeName === 'IMG') ? beforeNode
+                            : (atNode && atNode.nodeName === 'IMG') ? atNode : null;
+                        if (e.key === 'ArrowUp') {
+                            let upFrom = curImg && beforeNode === curImg ? curImg.previousSibling
+                                : curImg ? curImg.previousSibling
+                                : beforeNode;
+                            while (upFrom && upFrom.nodeType === 3 && upFrom.textContent.trim() === '') upFrom = upFrom.previousSibling;
+                            if (upFrom && (upFrom.nodeName === 'PRE' || upFrom.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(upFrom, 'below');
+                                return;
+                            }
+                            if (upFrom && upFrom.nodeName === 'IMG') {
+                                // 画像行へ(画像の後ろに caret)
+                                e.preventDefault();
+                                const r = document.createRange();
+                                r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, upFrom) + 1);
+                                r.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(r);
+                                scrollCursorIntoView();
+                                return;
+                            }
+                        }
+                        if (e.key === 'ArrowDown') {
+                            let dnFrom = curImg && atNode === curImg ? curImg.nextSibling
+                                : curImg ? curImg.nextSibling
+                                : atNode;
+                            // 空行 BR の場合は BR の先を見る(従来挙動)
+                            if (dnFrom && dnFrom.nodeName === 'BR' && !curImg) {
+                                let after = dnFrom.nextSibling;
+                                while (after && after.nodeType === 3 && after.textContent.trim() === '') after = after.nextSibling;
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, after));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (after && after.nodeType === 3 && after.textContent !== '') {
+                                    navToTextStart(after);
+                                    return;
+                                }
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                            } else if (dnFrom) {
+                                while (dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent.trim() === '') dnFrom = dnFrom.nextSibling;
+                                if (dnFrom && (dnFrom.nodeName === 'PRE' || dnFrom.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(dnFrom, 'above');
+                                    return;
+                                }
+                                if (dnFrom && dnFrom.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, dnFrom));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent !== '') {
+                                    navToTextStart(dnFrom);
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeName === 'BR') {
+                                    // 画像直後の BR = 次行境界。その先を解決
+                                    let after2 = dnFrom.nextSibling;
+                                    while (after2 && after2.nodeType === 3 && after2.textContent.trim() === '') after2 = after2.nextSibling;
+                                    if (after2 && (after2.nodeName === 'PRE' || after2.nodeName === 'BLOCKQUOTE')) {
+                                        navEnterBlock(after2, 'above');
+                                        return;
+                                    }
+                                    if (after2 && after2.nodeType === 3 && after2.textContent !== '') {
+                                        navToTextStart(after2);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (navNode && navNode !== navLi) {
+                        // 実編集で挟まる空白 text node をスキップする sibling walker(rc.4 バグ 1/2)
+                        const navSkipWs = (n, dir) => {
+                            while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                            return n;
+                        };
+                        // 画像行へ caret を置く(再オープン⑧: before=true は画像の前 offset)
+                        const navToImage = (img, before) => {
+                            e.preventDefault();
+                            const r = document.createRange();
+                            const idx = Array.prototype.indexOf.call(navLi.childNodes, img);
+                            r.setStart(navLi, before ? idx : idx + 1);
+                            r.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(r);
+                            scrollCursorIntoView();
+                        };
+                        if (e.key === 'ArrowDown') {
+                            let adj = navSkipWs(navNode.nextSibling, 'nextSibling');
+                            // ブロック前の <br> は行を作らない → 1 個飛ばして直下のブロックに進入
+                            if (adj && adj.nodeName === 'BR') {
+                                const after = navSkipWs(adj.nextSibling, 'nextSibling');
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    navToImage(after, true);
+                                    return;
+                                }
+                                // br の次も br = 空行がある → 空行へ
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                                // text は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'above');
+                                return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, true);
+                                return;
+                            }
+                        } else {
+                            let adj = navSkipWs(navNode.previousSibling, 'previousSibling');
+                            if (adj && adj.nodeName === 'BR') {
+                                const before = navSkipWs(adj.previousSibling, 'previousSibling');
+                                if (before && (before.nodeName === 'PRE' || before.nodeName === 'BLOCKQUOTE')) {
+                                    // ブロック後の <br> = 空行 → ブロックに入らず空行に止まる
+                                    navToBlankLine(adj);
+                                    return;
+                                }
+                                if (before && before.nodeName === 'IMG') {
+                                    navToImage(before, false);
+                                    return;
+                                }
+                                // text/br は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'below');
+                                return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Outside blocks - check if we should enter a code block or blockquote
             let currentElement = sel.anchorNode;
             while (currentElement && currentElement !== editor && currentElement.nodeType !== 1) {
@@ -18410,12 +19493,171 @@ class EditorInstance {
             // Selection deletion is handled in the early Backspace handler (around line 4083)
             // This handler only deals with collapsed selection
             if (!range.collapsed) return;
-            
+
+            // FR-LC-08c (sprint 20260810-183054 再オープン①): li 内 pre/blockquote の Backspace。
+            // getCurrentLine() は editor 直下まで walk-up するため li 内ブロックでは currentLine=UL
+            // となり、下の pre/blockquote 分岐に不達 → リスト系ハンドラが誤発動して親リスト解除・
+            // 上行統合が起きていた(手動テスト 2026-08-11)。closest でブロックを先に判定する。
+            {
+                const bsEl = range.startContainer.nodeType === 3
+                    ? range.startContainer.parentElement : range.startContainer;
+                const bsBlock = bsEl && bsEl.closest ? bsEl.closest('pre, blockquote') : null;
+                const bsLi = bsBlock && bsBlock.closest ? bsBlock.closest('li') : null;
+                if (bsBlock && bsLi && editor.contains(bsLi)) {
+                    if (bsBlock.tagName === 'PRE') {
+                        const bsCode = bsBlock.querySelector('code');
+                        const bsPlain = bsCode ? getCodePlainText(bsCode) : '';
+                        if (bsPlain === '' || bsPlain === '\n') {
+                            // 空の li 内 pre = ブロックだけ除去して継続行(空行)に戻る
+                            // (top-level の <p><br></p> 置換は li 内では構造破壊になるため置換しない)
+                            e.preventDefault();
+                            const bsBr = document.createElement('br');
+                            bsBlock.replaceWith(bsBr);
+                            const bsR = document.createRange();
+                            bsR.setStartAfter(bsBr);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        // 非空: 絶対先頭なら guard(top-level と同型)、それ以外は default(1 文字/改行削除)
+                        if (bsCode) {
+                            const bsRange = document.createRange();
+                            bsRange.selectNodeContents(bsCode);
+                            bsRange.setEnd(range.startContainer, range.startOffset);
+                            const bsBefore = bsRange.cloneContents();
+                            if ((bsBefore.textContent || '').length === 0 && !bsBefore.querySelector('br')) {
+                                e.preventDefault();
+                                return;
+                            }
+                        }
+                        return; // default に任せる(リスト系ハンドラへは流さない)
+                    }
+                    // BLOCKQUOTE
+                    const bsBqEmpty = (bsBlock.textContent || '').trim() === ''
+                        && !bsBlock.querySelector('img, input, table, pre, iframe');
+                    if (bsBqEmpty) {
+                        e.preventDefault();
+                        const bsBr = document.createElement('br');
+                        bsBlock.replaceWith(bsBr);
+                        const bsR = document.createRange();
+                        bsR.setStartAfter(bsBr);
+                        bsR.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(bsR);
+                        syncMarkdown();
+                        return;
+                    }
+                    // 非空 blockquote: 絶対先頭 guard(top-level :12172 系と同型)
+                    const bsCr = document.createRange();
+                    bsCr.selectNodeContents(bsBlock);
+                    bsCr.setEnd(range.startContainer, range.startOffset);
+                    const bsB = bsCr.cloneContents();
+                    if ((bsB.textContent || '').length === 0 && !bsB.querySelector('br')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    return; // default に任せる
+                }
+
+                // FR-LC-08c 一般化(再オープン③ 2026-08-11): 継続行の行頭 / 空行での Backspace。
+                // 行モデル(実測): ブロック後の <br> は空行を 1 個作る(空行カーソル = br の直前
+                // offset)。ブロック前の <br> は行を作らない。これに基づく規則:
+                //   (a) 行頭・直前が <br>          → その <br> を除去(前の空行と結合)。カーソルは
+                //       行頭に留まる(ブロック末尾へ飛ばない — rc.3 バグ 6)
+                //   (b) 行頭・直前がブロック直付き → 自行テキストをブロック末尾へ統合 + カーソル移動
+                //       (rc.3 バグ 7。従来はリスト系ハンドラ誤発動で親 li 統合)
+                //   (c) 空行(br の直前)・前がブロック → 空行の <br> だけ除去しブロック末尾へ
+                //       (rc.3 バグ 8。従来は browser default がブロック全体を削除)
+                if (!bsBlock && bsEl && bsEl.closest) {
+                    const bsCurLi = bsEl.closest('li');
+                    const bsEnterBlockEnd = (blk) => {
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            setCursorToEnd(blk.querySelector('code') || blk);
+                        } else {
+                            setCursorToEnd(blk);
+                        }
+                    };
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer.nodeType === 3
+                        && range.startContainer.parentNode === bsCurLi
+                        && range.startOffset === 0) {
+                        // 実編集で挟まる空白 text node をスキップ(rc.4 バグ 2)
+                        let bsPrev = range.startContainer.previousSibling;
+                        while (bsPrev && bsPrev.nodeType === 3 && bsPrev.textContent.trim() === '') {
+                            bsPrev = bsPrev.previousSibling;
+                        }
+                        if (bsPrev && bsPrev.nodeName === 'BR') {
+                            // (a) 直前の空行/行区切りと結合 — カーソルは行頭のまま
+                            e.preventDefault();
+                            const bsText = range.startContainer;
+                            bsPrev.remove();
+                            const bsR = document.createRange();
+                            bsR.setStart(bsText, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        if (bsPrev && (bsPrev.nodeName === 'PRE' || bsPrev.nodeName === 'BLOCKQUOTE')) {
+                            // (b) ブロック直付き行 = 自行テキストをブロック末尾へ統合
+                            e.preventDefault();
+                            const bsText = range.startContainer;
+                            const bsMoved = document.createTextNode(bsText.textContent || '');
+                            if (bsPrev.nodeName === 'PRE') {
+                                enterEditMode(bsPrev);
+                                (bsPrev.querySelector('code') || bsPrev).appendChild(bsMoved);
+                            } else {
+                                bsPrev.appendChild(bsMoved);
+                            }
+                            bsText.remove();
+                            const bsR = document.createRange();
+                            bsR.setStart(bsMoved, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+                    // 空行カーソル(anchorNode = li 自身)
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer === bsCurLi) {
+                        const bsOff = range.startOffset;
+                        const bsAtNode = bsCurLi.childNodes[bsOff];
+                        const bsBeforeNode = bsOff > 0 ? bsCurLi.childNodes[bsOff - 1] : null;
+                        // (c) 空行 = br の直前・前がブロック → br を消してブロック末尾へ
+                        if (bsAtNode && bsAtNode.nodeName === 'BR' && bsBeforeNode
+                            && (bsBeforeNode.nodeName === 'PRE' || bsBeforeNode.nodeName === 'BLOCKQUOTE')) {
+                            e.preventDefault();
+                            bsAtNode.remove();
+                            bsEnterBlockEnd(bsBeforeNode);
+                            syncMarkdown();
+                            return;
+                        }
+                        // カーソルが br の直後(旧配置)にいる場合: その br を除去(結合)
+                        if (bsBeforeNode && bsBeforeNode.nodeName === 'BR') {
+                            e.preventDefault();
+                            const bsBeforeBr2 = bsBeforeNode.previousSibling;
+                            bsBeforeNode.remove();
+                            if (bsBeforeBr2 && (bsBeforeBr2.nodeName === 'PRE' || bsBeforeBr2.nodeName === 'BLOCKQUOTE')) {
+                                bsEnterBlockEnd(bsBeforeBr2);
+                            }
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Try state machine handler first
             if (handleBackspaceOnList(e, sel, range)) {
                 return;
             }
-            
+
             const currentLine = getCurrentLine();
             if (!currentLine) return;
 
@@ -19405,9 +20647,13 @@ class EditorInstance {
                 // Convert empty code block back to paragraph, or block backspace at start of non-empty code block
                 if (tag === 'pre') {
                     const codeElement = currentLine.querySelector('code');
-                    const codeContent = codeElement ? codeElement.textContent : currentLine.textContent;
-                    // Check if code block is empty (only whitespace/newlines)
-                    const isEmpty = !codeContent || codeContent.trim() === '' || codeContent === '\n';
+                    // FR-CB-01 (sprint 20260810-183054): 空判定は正典 getCodePlainText(<br> を \n に
+                    // 数える)に統一。旧 textContent 判定は <br> ベース DOM(改行蓄積した空ブロックの
+                    // reload 後)で '' になり、改行 N 個が Backspace 1 回で全消しされていた。
+                    // 「真に空」= 改行蓄積なし(プレースホルダ <br> 1 個 or 完全空)の時だけ段落化し、
+                    // 改行が蓄積している間は非空ブロックと同じ扱い(先頭 guard / default の 1 個ずつ削除)。
+                    const codeContent = codeElement ? getCodePlainText(codeElement) : (currentLine.textContent || '');
+                    const isEmpty = codeContent === '' || codeContent === '\n';
 
                     logger.log('Backspace in pre:', { isEmpty, codeContent: JSON.stringify(codeContent) });
 
@@ -19476,6 +20722,21 @@ class EditorInstance {
                 // Range.toString() ignores <br>, so cloneContents() + querySelector('br')
                 // are used to also detect leading BR sentinels.
                 if (tag === 'blockquote') {
+                    // FR-QB-01 (sprint 20260810-183054): 完全に空(1 行 0 文字)の blockquote は
+                    // pre(上の isEmpty 分岐)と対称に <p><br></p> 化して脱出する(ae57510 の
+                    // guard 化時に脱落した非対称の回復)。img/checkbox/table/pre/iframe は
+                    // textContent 空でも content 扱い — 資産 1:1 保全(generator_failures 2026-07-28)。
+                    const bqIsEmpty = (currentLine.textContent || '').trim() === ''
+                        && !currentLine.querySelector('img, input, table, pre, iframe');
+                    if (bqIsEmpty) {
+                        e.preventDefault();
+                        const p = document.createElement('p');
+                        p.innerHTML = '<br>';
+                        currentLine.replaceWith(p);
+                        setCursorToEnd(p);
+                        syncMarkdown();
+                        return;
+                    }
                     const contentRange = document.createRange();
                     contentRange.selectNodeContents(currentLine);
                     contentRange.setEnd(range.startContainer, range.startOffset);
@@ -19979,6 +21240,22 @@ class EditorInstance {
             syncMarkdownSync();
             return;
         }
+    });
+
+    // beforeinput: undo snapshot 用に「編集前の cursor」を記録(markdown 変数と同時点。
+    // 再オープン⑩ — input 後の cursor と旧 markdown の不整合ペアが undo カーソル迷子の真因)
+    editor.addEventListener('beforeinput', function(e) {
+        if (isSourceMode) return;
+        // IME 合成中(insertCompositionText)は _preEdit を上書きしない — 合成開始前の
+        // 状態が「変化前」であり、合成途中の中間状態を変化前として積むと undo の
+        // カーソル/内容が合成途中に飛ぶ(再オープン⑭・日本語入力での undo 乱れ)。
+        if (e && (e.isComposing || e.inputType === 'insertCompositionText')) return;
+        undoManager.notePreEditCursor();
+    });
+    // 合成開始の直前状態を「変化前」として確保(compositionstart は beforeinput より先)
+    editor.addEventListener('compositionstart', function() {
+        if (isSourceMode) return;
+        undoManager.notePreEditCursor();
     });
 
     // Input handler - debounced sync for performance
@@ -20612,6 +21889,74 @@ class EditorInstance {
         });
     }
 
+    // FR-LC-05/06 (sprint 20260810-183054): ブロック挿入の対象解決ヘルパ。
+    // 4 経路(autoformat「> 」/「```」+Enter / palette・toolbar / Ctrl+Shift+Q/K)すべてが
+    // これを通る(N 経路一部配線クラスの構造的回避)。
+    // 返り値: { mode: 'top-level', node } = 現行挙動 / { mode: 'in-li', li } = li 内挿入。
+    // ネスト li も closest('li') で自然対応。table/pre 内は呼び出し元の既存 guard に委ねる。
+    function resolveBlockInsertionTarget(sel) {
+        if (!sel || !sel.rangeCount) return null;
+        let node = sel.anchorNode;
+        const el = node && (node.nodeType === 3 ? node.parentElement : node);
+        const li = el && el.closest ? el.closest('li') : null;
+        if (li && editor.contains(li)) {
+            return { mode: 'in-li', li: li };
+        }
+        // 現行の top-level walk-up
+        while (node && node !== editor && node.parentNode !== editor) {
+            node = node.parentNode;
+        }
+        if (!node || node === editor) return null;
+        return { mode: 'top-level', node: node };
+    }
+
+    // FR-LC-05/06: li 内カーソル行(継続行)の情報。anchorNode から li 直下の text node
+    // (inline 要素内なら li 直下までの祖先)を特定し、その行テキストを返す。
+    // li 直下 text node は <br> 区切りの 1 継続行に対応する(FR-LC 契約の DOM 形)。
+    function getInLiLineInfo(sel) {
+        if (!sel || !sel.rangeCount) return null;
+        let n = sel.anchorNode;
+        const el = n && (n.nodeType === 3 ? n.parentElement : n);
+        const li = el && el.closest ? el.closest('li') : null;
+        if (!li || !editor.contains(li)) return null;
+        // li 直下まで上がる
+        while (n && n.parentNode !== li && n !== li) n = n.parentNode;
+        if (n && n.parentNode === li && n.nodeType === 3) {
+            return { li: li, textNode: n, lineText: n.textContent || '' };
+        }
+        return { li: li, textNode: null, lineText: '' };
+    }
+
+    // FR-LC-05/06: li 内のカーソル位置(直近の <br> 境界 = 継続行位置)にブロックを挿入する。
+    // anchorNode が li 直下の text node のときはその直後、それ以外は li 末尾に append。
+    // 行テキストをブロック内へ移す経路(autoformat / Q/K)は呼び出し元が
+    // liLine.textNode.replaceWith(block) を直接行う — この関数は空ブロック挿入専用。
+    function insertBlockIntoLi(li, blockEl, sel) {
+        let anchorText = null;
+        if (sel && sel.rangeCount) {
+            let n = sel.anchorNode;
+            // li 直下まで上がる(inline 要素内なら親へ)
+            while (n && n.parentNode !== li && n !== li) n = n.parentNode;
+            if (n && n.parentNode === li && n.nodeType === 3) anchorText = n;
+        }
+        if (anchorText) {
+            anchorText.after(blockEl);
+        } else {
+            li.appendChild(blockEl);
+        }
+        // ブロック直前の空 <br>(Shift+Enter が作った空継続行)が残っていたら 1 個掃除
+        const prev = blockEl.previousSibling;
+        if (prev && prev.nodeName === 'BR' && blockEl.nextSibling === null) {
+            // 末尾挿入時のみ: <br> はブロック自体が行を成すので不要
+            prev.remove();
+        }
+    }
+
+    // テスト seam(TC-ILB-02/03/07 が palette/toolbar 共有 dispatcher を直接駆動する)
+    if (typeof window !== 'undefined') {
+        window.__paletteActionForTest = function (action) { dispatchToolbarAction(action); };
+    }
+
     // Shared action dispatcher used by both toolbar and command palette
     function dispatchToolbarAction(action) {
         switch (action) {
@@ -20670,18 +22015,25 @@ class EditorInstance {
                     convertToTaskList();
                 }
                 break;
-            case 'quote':
+            case 'quote': {
                 var bq = document.createElement('blockquote');
                 bq.innerHTML = '<br>';
-                var currentLine3 = getCurrentLine();
-                if (currentLine3) {
-                    currentLine3.after(bq);
+                // FR-LC-05: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
+                var bqTarget = resolveBlockInsertionTarget(window.getSelection());
+                if (bqTarget && bqTarget.mode === 'in-li') {
+                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection());
                 } else {
-                    editor.appendChild(bq);
+                    var currentLine3 = getCurrentLine();
+                    if (currentLine3) {
+                        currentLine3.after(bq);
+                    } else {
+                        editor.appendChild(bq);
+                    }
                 }
                 setCursorToEnd(bq);
                 syncMarkdown();
                 break;
+            }
             case 'codeblock': {
                 var pre = document.createElement('pre');
                 pre.setAttribute('data-lang', '');
@@ -20689,16 +22041,22 @@ class EditorInstance {
                 var codeEl = document.createElement('code');
                 codeEl.setAttribute('contenteditable', 'false');
                 pre.appendChild(codeEl);
-                var currentLine4 = getCurrentLine();
-                if (currentLine4) {
-                    var lineText = currentLine4.textContent?.trim() || '';
-                    if (lineText === '' || currentLine4.innerHTML === '<br>') {
-                        currentLine4.replaceWith(pre);
-                    } else {
-                        currentLine4.after(pre);
-                    }
+                // FR-LC-06: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
+                var preTarget = resolveBlockInsertionTarget(window.getSelection());
+                if (preTarget && preTarget.mode === 'in-li') {
+                    insertBlockIntoLi(preTarget.li, pre, window.getSelection());
                 } else {
-                    editor.appendChild(pre);
+                    var currentLine4 = getCurrentLine();
+                    if (currentLine4) {
+                        var lineText = currentLine4.textContent?.trim() || '';
+                        if (lineText === '' || currentLine4.innerHTML === '<br>') {
+                            currentLine4.replaceWith(pre);
+                        } else {
+                            currentLine4.after(pre);
+                        }
+                    } else {
+                        editor.appendChild(pre);
+                    }
                 }
                 setupCodeBlockUI(pre);
                 enterEditMode(pre);
@@ -20805,9 +22163,7 @@ class EditorInstance {
                 }
                 break;
             case 'table':
-                var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
-                document.execCommand('insertHTML', false, tableHtml);
-                syncMarkdown();
+                insertTableAtCursor();
                 break;
             case 'hr':
                 var hr = document.createElement('hr');
@@ -22267,7 +23623,11 @@ class EditorInstance {
         }
 
         // Handle paste shortcut for Kiro only
-        const isKiro = navigator.userAgent.includes('Kiro');
+        // FR-TBL-04: isKiroEnv seam(shortcut-hud.js が定義・window 公開)経由。
+        // HUD 未注入環境への防御 fallback として直読みを残す。
+        const isKiro = (typeof window.isKiroEnv === 'function')
+            ? window.isKiroEnv()
+            : navigator.userAgent.includes('Kiro');
         if (isMod && e.key === 'v' && isKiro && navigator.clipboard && navigator.clipboard.read) {
             logger.log('Cmd/Ctrl+V keydown detected (Kiro)');
 
@@ -22280,6 +23640,27 @@ class EditorInstance {
             (async () => {
                 try {
                     const items = await navigator.clipboard.read();
+
+                    // FR-TBL-04: rich HTML(表・テキスト)が image と同居しているときは
+                    // image を採用しない(非 Kiro paste 経路の hasRichHtmlContent と同判定 =
+                    // 共有 module 関数)。Excel 範囲コピーは text/html(表)+ image/png(範囲
+                    // スクリーンショット)を並列で載せるため、無条件 image 採用だと表の直後に
+                    // 画像が混入していた。SVG 単体・image のみ(スクリーンショット/図として
+                    // コピー)は従来どおり image を採用する(over-broad 抑止にしない)。
+                    let kiroHtmlText = '';
+                    for (const item of items) {
+                        if (item.types && item.types.includes('text/html')) {
+                            try {
+                                const htmlBlob = await item.getType('text/html');
+                                kiroHtmlText = await htmlBlob.text();
+                            } catch (htmlErr) { /* HTML 取得失敗は非 rich 扱いで続行 */ }
+                            break;
+                        }
+                    }
+                    if (hasRichHtmlContent(kiroHtmlText)) {
+                        logger.log('Rich HTML alongside image — skip image, paste event handles HTML (Kiro)');
+                        return;
+                    }
 
                     for (const item of items) {
                         for (const type of item.types) {
@@ -22433,11 +23814,12 @@ class EditorInstance {
             return;
         }
         
-        // Table (Ctrl+T)
+        // Table (Ctrl+T) — FR-TBL-05: was an undefined insertTable() (silent ReferenceError);
+        // now shares insertTableAtCursor() with the palette 'table' action.
         if (isMod && !e.shiftKey && keyIs('t')) {
             e.preventDefault();
             e.stopPropagation();
-            insertTable();
+            insertTableAtCursor();
             return;
         }
         
@@ -23041,13 +24423,32 @@ class EditorInstance {
     function convertToBlockquote() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
+        // FR-LC-05 (sprint 20260810-183054): li 内ではカーソル行(継続行)のみを
+        // li 内 blockquote 化する。旧 walk-up はリスト全体を node にして replaceWith で
+        // 丸ごと blockquote に置換していた(破壊的挙動の修正)。
+        const bqLiTarget = resolveBlockInsertionTarget(sel);
+        if (bqLiTarget && bqLiTarget.mode === 'in-li') {
+            const liLine = getInLiLineInfo(sel);
+            const blockquote = document.createElement('blockquote');
+            if (liLine && liLine.textNode && liLine.lineText.trim()) {
+                blockquote.textContent = liLine.lineText;
+                liLine.textNode.replaceWith(blockquote);
+            } else {
+                blockquote.innerHTML = '<br>';
+                insertBlockIntoLi(bqLiTarget.li, blockquote, sel);
+            }
+            setCursorToEnd(blockquote);
+            syncMarkdown();
+            return;
+        }
+
         let node = sel.anchorNode;
         while (node && node.parentNode !== editor) {
             node = node.parentNode;
         }
         if (!node || node === editor) return;
-        
+
         const blockquote = document.createElement('blockquote');
         // inline 要素保持（sprint 20260728-121645）
         fillWithExtracted(blockquote, cloneInlineFromNode(node));
@@ -23055,17 +24456,40 @@ class EditorInstance {
         setCursorToEnd(blockquote);
         syncMarkdown();
     }
-    
+
     function convertToCodeBlock() {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
-        
+
+        // FR-LC-06 (sprint 20260810-183054): li 内ではカーソル行のみを li 内 pre 化
+        // (convertToBlockquote と対称。旧 walk-up のリスト全体置換を修正)。
+        const preLiTarget = resolveBlockInsertionTarget(sel);
+        if (preLiTarget && preLiTarget.mode === 'in-li') {
+            const liLine = getInLiLineInfo(sel);
+            const pre = document.createElement('pre');
+            pre.setAttribute('data-lang', '');
+            const code = document.createElement('code');
+            if (liLine && liLine.textNode && liLine.lineText.trim()) {
+                code.textContent = liLine.lineText;
+                pre.appendChild(code);
+                liLine.textNode.replaceWith(pre);
+            } else {
+                code.innerHTML = '<br>';
+                pre.appendChild(code);
+                insertBlockIntoLi(preLiTarget.li, pre, sel);
+            }
+            setupCodeBlockUI(pre);
+            setCursorToEnd(code);
+            syncMarkdown();
+            return;
+        }
+
         let node = sel.anchorNode;
         while (node && node.parentNode !== editor) {
             node = node.parentNode;
         }
         if (!node || node === editor) return;
-        
+
         const text = node.textContent || '';
         const pre = document.createElement('pre');
         pre.setAttribute('data-lang', '');
@@ -25556,6 +26980,40 @@ class EditorInstance {
         (function wrapLeadingBareAsLi() {
             const kids = Array.from(tempDiv.childNodes);
             if (kids.length === 0) { return; }
+            // ケース 1.5 (再オープン⑨ rc.9 バグ 1/2): 選択が「単一 li の内側」に収まる場合、
+            // cloneContents は li 枠を剥がした bare content(text/br/pre/blockquote/img 混在)を
+            // 返す。継続行付き li の全選択コピーがマーカー無し md になり、paste で行ごとに
+            // 別 li 化(テキストのみ)/段落化(ブロック入り)していた。選択始点と終点が同一 li
+            // かつ fragment に BR かブロック(PRE/BLOCKQUOTE/IMG)を含む(= 複数視覚行)なら、
+            // 全体を「その li の親リスト型 > 単一 li」で包み直す(継続行構造ごと 1 項目として
+            // コピー)。単一視覚行の部分選択は従来どおりプレーン(TC-LC-14 回帰 pin)。
+            {
+                let s15 = range.startContainer;
+                if (s15.nodeType === 3) s15 = s15.parentElement;
+                let e15 = range.endContainer;
+                if (e15.nodeType === 3) e15 = e15.parentElement;
+                const startLi15 = s15 && s15.closest ? s15.closest('li') : null;
+                const endLi15 = e15 && e15.closest ? e15.closest('li') : null;
+                if (startLi15 && startLi15 === endLi15) {
+                    const kids15 = Array.from(tempDiv.childNodes);
+                    const hasLiWrapper = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'LI' || n.tagName === 'UL' || n.tagName === 'OL'));
+                    const hasMultiLine = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'BR' || n.tagName === 'PRE'
+                            || n.tagName === 'BLOCKQUOTE' || n.tagName === 'IMG'));
+                    if (!hasLiWrapper && hasMultiLine && kids15.length > 0) {
+                        const lt15 = (startLi15.parentElement
+                            && (startLi15.parentElement.tagName === 'OL' || startLi15.parentElement.tagName === 'UL'))
+                            ? startLi15.parentElement.tagName.toLowerCase() : 'ul';
+                        const wrapList15 = document.createElement(lt15);
+                        const wrapLi15 = document.createElement('li');
+                        for (const k of kids15) wrapLi15.appendChild(k);
+                        wrapList15.appendChild(wrapLi15);
+                        tempDiv.appendChild(wrapList15);
+                        return;
+                    }
+                }
+            }
             // ケース 2: 共通祖先がリストの場合、fragment は bare <li> 群（ul/ol ラッパなし）に
             // なる。standalone li 処理（marker '-' 固定）に落ちると ol 由来でも bullet 化する
             // ため、startLi の親リスト型で全体を包む（番号は連番に自動リセット = FR-OL-RULES）。
@@ -26074,19 +27532,7 @@ class EditorInstance {
         if (!kiroSkipImage) {
             const items = e.clipboardData?.items;
             const htmlSnapshot = e.clipboardData?.getData('text/html') || '';
-            function hasRichHtmlContent(h) {
-                if (!h) return false;
-                var trimmed = h.replace(/<!--[\s\S]*?-->/g, '').trim();
-                // SVG のみ / div > svg のみ / img のみは rich でない
-                if (/^<svg[\s>][\s\S]*<\/svg>\s*$/i.test(trimmed)) return false;
-                if (/^<div[^>]*>\s*<svg[\s>][\s\S]*<\/svg>\s*<\/div>\s*$/i.test(trimmed)) return false;
-                if (/^<img\b[^>]*\/?>\s*$/i.test(trimmed)) return false;
-                // テキストや他要素が含まれていれば rich
-                var textContent = trimmed.replace(/<svg[\s\S]*?<\/svg>/gi, '').replace(/<[^>]+>/g, '').trim();
-                if (textContent.length > 0) return true;
-                // 複数 element (svg と img が並ぶ等) も rich 扱い
-                return (trimmed.match(/<[a-zA-Z]/g) || []).length > 2;
-            }
+            // hasRichHtmlContent は module スコープの共有判定(FR-TBL-04 で Kiro 経路と共通化)
             const htmlIsRich = hasRichHtmlContent(htmlSnapshot);
             if (items) {
                 for (let i = 0; i < items.length; i++) {

@@ -24,6 +24,36 @@
 var DEFAULT_DELAY_MS = 800;
 var HUD_ID = 'fractal-shortcut-hud';
 
+// FR-KH-01 (sprint 20260810-183054): Kiro 判定 seam。
+// shared のこのファイルに置く理由: 3 面すべてで editor.js/outliner.js より前に注入されるため、
+// editor.js 非ロードの outliner 面でも HUD の Kiro 分岐が単独で動く（editor.js に置くと届かない）。
+// editor.js の Kiro paste 分岐は window.isKiroEnv() で消費する。
+// テスト注入: window.__kiroEnvOverride (boolean) が最優先。
+function isKiroEnv() {
+    if (typeof window !== 'undefined' && typeof window.__kiroEnvOverride === 'boolean') {
+        return window.__kiroEnvOverride;
+    }
+    return typeof navigator !== 'undefined' && !!navigator.userAgent && navigator.userAgent.includes('Kiro');
+}
+
+// FR-KH-01 検証 seam: window.__hudDebug = true で key/blur イベントを console 出力
+//（Kiro 実機での keydown ログ採取用。既定 OFF・恒久 seam）。
+function _hudDebugLog(kind, e) {
+    if (typeof window === 'undefined' || window.__hudDebug !== true) { return; }
+    try {
+        if (e && typeof e.key !== 'undefined') {
+            console.log('[hud-debug] ' + kind
+                + ' key=' + e.key
+                + ' metaKey=' + e.metaKey + ' ctrlKey=' + e.ctrlKey
+                + ' shiftKey=' + e.shiftKey + ' altKey=' + e.altKey
+                + ' repeat=' + e.repeat
+                + ' isTrusted=' + e.isTrusted);
+        } else {
+            console.log('[hud-debug] ' + kind);
+        }
+    } catch (err) { /* debug logging must never break input handling */ }
+}
+
 // mode 判定: keydown 対象が Meta（mac）か Control（win/linux）か。
 function _isTriggerKey(key) {
     return key === 'Meta' || key === 'Control';
@@ -169,6 +199,7 @@ function init(doc, mode) {
     }
 
     function onKeyDown(e) {
+        _hudDebugLog('keydown', e);
         // トリガーキー単独押下 → タイマー開始。
         if (_isTriggerKey(e.key)) {
             if (composing) { return; }
@@ -185,6 +216,7 @@ function init(doc, mode) {
     }
 
     function onKeyUp(e) {
+        _hudDebugLog('keyup', e);
         // トリガーキーを離した → HUD 消去 + タイマーキャンセル。
         if (_isTriggerKey(e.key)) {
             hideHud();
@@ -197,7 +229,7 @@ function init(doc, mode) {
 
     // cmd+tab 等でアプリ切替すると keyup が来ない → blur / visibilitychange でクリア（one-shot の対クリア契機）。
     if (typeof window !== 'undefined') {
-        window.addEventListener('blur', hideHud);
+        window.addEventListener('blur', function () { _hudDebugLog('blur'); hideHud(); });
     }
     doc.addEventListener('visibilitychange', function () {
         if (doc.hidden) { hideHud(); }
@@ -221,6 +253,7 @@ var _api = {
     init: init,
     HUD_ID: HUD_ID,
     DEFAULT_DELAY_MS: DEFAULT_DELAY_MS,
+    isKiroEnv: isKiroEnv,
     // pure helper（テスト用に露出）
     _isSoleModifier: _isSoleModifier,
     _isTriggerKey: _isTriggerKey,
@@ -231,4 +264,5 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 if (typeof window !== 'undefined') {
     window.ShortcutHud = _api;
+    window.isKiroEnv = isKiroEnv;
 }

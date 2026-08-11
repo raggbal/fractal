@@ -125,6 +125,7 @@ export interface WebviewMessages {
   addRowAbove: string;
   addRowBelow: string;
   deleteRow: string;
+  tableToggleHeader: string;
   // Status bar
   words: string;
   characters: string;

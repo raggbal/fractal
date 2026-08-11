@@ -2383,3 +2383,10 @@ body {
     text-align: right;
     opacity: 0.85;
 }
+
+/* FR-TBL-01/02 (sprint 20260810-183054, ADRL-0052): headerless table.
+   DOM structure (thead/th + content) is preserved; hiding is display-only so
+   toggling the header back ON restores cells losslessly. */
+table[data-headerless="true"] tr:first-child:has(> th) {
+    display: none;
+}
