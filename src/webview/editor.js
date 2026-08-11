@@ -3146,7 +3146,11 @@ class EditorInstance {
                             inLiBlock = { type: 'bq', lines: [contTrimmed.replace(/^>\s?/, '')], indent: contIndentMatch[1].length };
                             continue;
                         }
-                        html += '<br>' + parseInline(line.trim());
+                        // 行モデル(再オープン③): ブロック直後の <br> は「空行」を作る。
+                        // md 上でブロックの次の行(空行なし)は br を挟まず直付きにする
+                        // (serialize 側 mdProcessListItemWithBlocks も直付きで emit = 対称)。
+                        const brPrefix = /(<\/pre>|<\/blockquote>)$/.test(html) ? '' : '<br>';
+                        html += brPrefix + parseInline(line.trim());
                         continue;
                     }
                 }
@@ -5933,6 +5937,13 @@ class EditorInstance {
             if (liLine && liLine.textNode) {
                 const lineText = liLine.lineText;
                 // 「> 」→ li 内 blockquote(trigger: space)
+                // 行モデル(再オープン③): 記法行を block で置換すると、記法行の直後にあった
+                // 行区切り <br> が「block 直後の <br> = 余計な空行」に化ける(block 自体が行境界を
+                // 成すため)。置換後に直後 <br> を 1 個取り除く。
+                const liStripBrAfter = (blk) => {
+                    const nb = blk.nextSibling;
+                    if (nb && nb.nodeName === 'BR') nb.remove();
+                };
                 const liBqMatch = lineText.match(/^>\s?(.*)$/);
                 if (liBqMatch && trigger === 'space') {
                     const rest = liBqMatch[1] || '';
@@ -5943,6 +5954,7 @@ class EditorInstance {
                         liBq.innerHTML = '<br>';
                     }
                     liLine.textNode.replaceWith(liBq);
+                    liStripBrAfter(liBq);
                     setCursorToEnd(liBq);
                     syncMarkdown();
                     return true;
@@ -5957,6 +5969,7 @@ class EditorInstance {
                     liCode.setAttribute('contenteditable', 'false');
                     liPre.appendChild(liCode);
                     liLine.textNode.replaceWith(liPre);
+                    liStripBrAfter(liPre);
                     setupCodeBlockUI(liPre);
                     enterEditMode(liPre);
                     syncMarkdown();
@@ -8809,12 +8822,14 @@ class EditorInstance {
                         enterDisplayMode(exitBlock);
                     }
                     // ブロック直後は br 1 個で 1 視覚行になる(ブロック自体が行境界を成すため、
-                    // テキスト行間の FR-LC-02 と違い trailing 2 個目は不要 — rc.2 バグ 3 実測:
-                    // 2 個入れると 2 行増える)。
+                    // テキスト行間の FR-LC-02 と違い trailing 2 個目は不要 — rc.2 バグ 3 実測)。
+                    // カーソルは br の「直前」(= 空行の正規位置。実測: br の後 = 次行の行頭に
+                    // なってしまう — rc.3 バグ 5)。
                     const exBr = document.createElement('br');
                     exitBlock.after(exBr);
+                    const exLi = exitBlock.parentNode;
                     const exNr = document.createRange();
-                    exNr.setStartAfter(exBr);
+                    exNr.setStart(exLi, Array.prototype.indexOf.call(exLi.childNodes, exBr));
                     exNr.collapse(true);
                     sel.removeAllRanges();
                     sel.addRange(exNr);
@@ -10538,22 +10553,54 @@ class EditorInstance {
                             if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
                                 enterDisplayMode(blockNode);
                             }
-                            const next = blockNode.nextElementSibling;
-                            logger.log('Next element:', next ? next.tagName : 'null');
-                            if (next) {
-                                navigateToAdjacentElement(next, 'down', false);
-                            } else if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
-                                // FR-LC-08b (sprint 20260810-183054 再オープン①): li 内ブロックでは
-                                // ↓ で継続行/段落を自動追加しない(ブロック末尾に留まる)。
-                                // 下へ出たいときは Shift+Enter(ブロック直後に空継続行 + 脱出)。
-                                logger.log('In-li block: ArrowDown at last line is a no-op (FR-LC-08b)');
+                            if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                                // FR-LC-08b/d (sprint 20260810-183054 再オープン③): li 内ブロックの
+                                // ↓ 脱出は「直後の行」へ移動する。行モデル(実測): ブロック直後の
+                                // <br> は空行を 1 個作る(カーソル正規位置 = その <br> の直前 offset)。
+                                // 直後が text node ならその行頭へ。何も無ければ自動追加しない(no-op)。
+                                const liParent = blockNode.parentNode;
+                                const afterNode = blockNode.nextSibling;
+                                if (afterNode && afterNode.nodeName === 'BR') {
+                                    // 空行へ(br の直前 = li offset)
+                                    const dnR = document.createRange();
+                                    dnR.setStart(liParent, Array.prototype.indexOf.call(liParent.childNodes, afterNode));
+                                    dnR.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(dnR);
+                                    scrollCursorIntoView();
+                                } else if (afterNode && afterNode.nodeType === 3 && afterNode.textContent !== '') {
+                                    const dnR = document.createRange();
+                                    dnR.setStart(afterNode, 0);
+                                    dnR.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(dnR);
+                                    scrollCursorIntoView();
+                                } else if (afterNode && afterNode.nodeType === 1
+                                    && (afterNode.nodeName === 'PRE' || afterNode.nodeName === 'BLOCKQUOTE')) {
+                                    // 連続ブロック: 次のブロック先頭へ
+                                    if (afterNode.nodeName === 'PRE') {
+                                        enterEditMode(afterNode);
+                                        setCursorToStart(afterNode.querySelector('code') || afterNode);
+                                    } else {
+                                        setCursorToStart(afterNode);
+                                    }
+                                    scrollCursorIntoView();
+                                } else {
+                                    logger.log('In-li block: nothing after, ArrowDown no-op (FR-LC-08b)');
+                                }
                             } else {
-                                // No next element, create a new paragraph
-                                logger.log('Creating new paragraph');
-                                const newP = document.createElement('p');
-                                newP.innerHTML = '<br>';
-                                blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
-                                setCursorToFirstTextNode(newP);
+                                const next = blockNode.nextElementSibling;
+                                logger.log('Next element:', next ? next.tagName : 'null');
+                                if (next) {
+                                    navigateToAdjacentElement(next, 'down', false);
+                                } else {
+                                    // No next element, create a new paragraph
+                                    logger.log('Creating new paragraph');
+                                    const newP = document.createElement('p');
+                                    newP.innerHTML = '<br>';
+                                    blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
+                                    setCursorToFirstTextNode(newP);
+                                }
                             }
                         }
                     } else {
@@ -10567,38 +10614,110 @@ class EditorInstance {
                 return;
             }
             
-            // FR-LC-08d (sprint 20260810-183054 再オープン②): li 内ブロックの隣接行からの
-            // 矢印進入。li 内の継続行では currentElement が UL まで walk-up され、下の
-            // 「editor 直下 sibling への navigate」がブロックを素通りしていた(rc.2 バグ 2)。
-            // カーソル行の隣(直前/直後 sibling、<br> を挟んで)に PRE/BLOCKQUOTE があれば進入する。
+            // FR-LC-08d (sprint 20260810-183054 再オープン③): li 内ブロック周辺の矢印移動。
+            // 行モデル(実測 2026-08-11): ブロック(PRE/BLOCKQUOTE)の「前」の <br> は行を作らない/
+            // 「後」の <br> は空行を 1 個作る(空行のカーソル正規位置 = その <br> の直前 offset)。
+            // これに基づき: ↓ = 次行がブロックなら進入・空行なら空行へ / ↑ = 前行がブロック直付き
+            // なら末尾に進入・ブロック後の <br>(空行)ならブロックに入らず空行に止まる。
             if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
                 const navEl = sel.anchorNode.nodeType === 3
                     ? sel.anchorNode.parentElement : sel.anchorNode;
                 const navLi = navEl && navEl.closest ? navEl.closest('li') : null;
                 if (navLi && editor.contains(navLi) && !navEl.closest('pre, blockquote, table')) {
-                    // li 直下のカーソル基準 node を特定
+                    const navEnterBlock = (blk, from) => {
+                        e.preventDefault();
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            const c = blk.querySelector('code') || blk;
+                            if (from === 'above') setCursorToStart(c); else setCursorToEnd(c);
+                        } else {
+                            if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                        }
+                        scrollCursorIntoView();
+                    };
+                    const navToBlankLine = (brNode) => {
+                        // 空行 = br の直前 offset(li 直下)
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, brNode));
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    const navToTextStart = (t) => {
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(t, 0);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    // カーソル基準: li 直下 node(text)or li 自身(空行 = childNodes[offset] が BR)
                     let navNode = sel.anchorNode;
                     while (navNode && navNode.parentNode !== navLi && navNode !== navLi) {
                         navNode = navNode.parentNode;
                     }
-                    if (navNode && navNode !== navLi) {
-                        const dir = e.key === 'ArrowDown' ? 'nextSibling' : 'previousSibling';
-                        // <br> を 1 個まで飛ばして隣要素を見る
-                        let navAdj = navNode[dir];
-                        if (navAdj && navAdj.nodeName === 'BR') navAdj = navAdj[dir];
-                        if (navAdj && (navAdj.nodeName === 'PRE' || navAdj.nodeName === 'BLOCKQUOTE')) {
-                            e.preventDefault();
-                            if (navAdj.nodeName === 'PRE') {
-                                enterEditMode(navAdj);
-                                const navCode = navAdj.querySelector('code') || navAdj;
-                                if (e.key === 'ArrowDown') { setCursorToStart(navCode); }
-                                else { setCursorToEnd(navCode); }
-                            } else {
-                                if (e.key === 'ArrowDown') { setCursorToStart(navAdj); }
-                                else { setCursorToEnd(navAdj); }
-                            }
-                            scrollCursorIntoView();
+                    if (navNode === navLi && sel.rangeCount) {
+                        // 空行カーソル(li, offset)
+                        const off = sel.getRangeAt(0).startOffset;
+                        const atNode = navLi.childNodes[off];
+                        const beforeNode = off > 0 ? navLi.childNodes[off - 1] : null;
+                        if (e.key === 'ArrowUp' && beforeNode
+                            && (beforeNode.nodeName === 'PRE' || beforeNode.nodeName === 'BLOCKQUOTE')) {
+                            navEnterBlock(beforeNode, 'below');
                             return;
+                        }
+                        if (e.key === 'ArrowDown' && atNode && atNode.nodeName === 'BR') {
+                            let after = atNode.nextSibling;
+                            if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(after, 'above');
+                                return;
+                            }
+                            if (after && after.nodeType === 3 && after.textContent !== '') {
+                                navToTextStart(after);
+                                return;
+                            }
+                            if (after && after.nodeName === 'BR') {
+                                navToBlankLine(after);
+                                return;
+                            }
+                        }
+                    } else if (navNode && navNode !== navLi) {
+                        if (e.key === 'ArrowDown') {
+                            let adj = navNode.nextSibling;
+                            // ブロック前の <br> は行を作らない → 1 個飛ばして直下のブロックに進入
+                            if (adj && adj.nodeName === 'BR') {
+                                const after = adj.nextSibling;
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                // br の次も br = 空行がある → 空行へ
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                                // text は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'above');
+                                return;
+                            }
+                        } else {
+                            let adj = navNode.previousSibling;
+                            if (adj && adj.nodeName === 'BR') {
+                                const before = adj.previousSibling;
+                                if (before && (before.nodeName === 'PRE' || before.nodeName === 'BLOCKQUOTE')) {
+                                    // ブロック後の <br> = 空行 → ブロックに入らず空行に止まる
+                                    navToBlankLine(adj);
+                                    return;
+                                }
+                                // text/br は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'below');
+                                return;
+                            }
                         }
                     }
                 }
@@ -11578,58 +11697,86 @@ class EditorInstance {
                     return; // default に任せる
                 }
 
-                // FR-LC-08c 一般化(再オープン② 2026-08-11): 継続行の行頭 Backspace は
-                // ブロックの有無に関わらず「直前 <br> の除去 = 前の行との結合」に統一する。
-                // ここで吸収しないと NONEMPTY_LI_START が継続行先頭を li 先頭と誤認し、
-                // li 全体を親 li に統合する(rc.2 手動テスト バグ 1 の実測)。
-                // 直前 <br> のさらに前が PRE/BLOCKQUOTE の場合は <br> を消してブロック末尾へ
-                // カーソル移動(rc.2 バグ 4 —「自行を消してブロック最終行末端へ」)。
+                // FR-LC-08c 一般化(再オープン③ 2026-08-11): 継続行の行頭 / 空行での Backspace。
+                // 行モデル(実測): ブロック後の <br> は空行を 1 個作る(空行カーソル = br の直前
+                // offset)。ブロック前の <br> は行を作らない。これに基づく規則:
+                //   (a) 行頭・直前が <br>          → その <br> を除去(前の空行と結合)。カーソルは
+                //       行頭に留まる(ブロック末尾へ飛ばない — rc.3 バグ 6)
+                //   (b) 行頭・直前がブロック直付き → 自行テキストをブロック末尾へ統合 + カーソル移動
+                //       (rc.3 バグ 7。従来はリスト系ハンドラ誤発動で親 li 統合)
+                //   (c) 空行(br の直前)・前がブロック → 空行の <br> だけ除去しブロック末尾へ
+                //       (rc.3 バグ 8。従来は browser default がブロック全体を削除)
                 if (!bsBlock && bsEl && bsEl.closest) {
                     const bsCurLi = bsEl.closest('li');
+                    const bsEnterBlockEnd = (blk) => {
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            setCursorToEnd(blk.querySelector('code') || blk);
+                        } else {
+                            setCursorToEnd(blk);
+                        }
+                    };
                     if (bsCurLi && editor.contains(bsCurLi)
                         && range.startContainer.nodeType === 3
                         && range.startContainer.parentNode === bsCurLi
                         && range.startOffset === 0) {
                         const bsPrev = range.startContainer.previousSibling;
                         if (bsPrev && bsPrev.nodeName === 'BR') {
+                            // (a) 直前の空行/行区切りと結合 — カーソルは行頭のまま
                             e.preventDefault();
-                            const bsBeforeBr = bsPrev.previousSibling;
+                            const bsText = range.startContainer;
                             bsPrev.remove();
-                            if (bsBeforeBr && (bsBeforeBr.nodeName === 'PRE' || bsBeforeBr.nodeName === 'BLOCKQUOTE')) {
-                                // ブロック末尾へ進入(pre は編集モードで code 末尾)
-                                if (bsBeforeBr.nodeName === 'PRE') {
-                                    enterEditMode(bsBeforeBr);
-                                    const bsCode = bsBeforeBr.querySelector('code') || bsBeforeBr;
-                                    setCursorToEnd(bsCode);
-                                } else {
-                                    setCursorToEnd(bsBeforeBr);
-                                }
+                            const bsR = document.createRange();
+                            bsR.setStart(bsText, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        if (bsPrev && (bsPrev.nodeName === 'PRE' || bsPrev.nodeName === 'BLOCKQUOTE')) {
+                            // (b) ブロック直付き行 = 自行テキストをブロック末尾へ統合
+                            e.preventDefault();
+                            const bsText = range.startContainer;
+                            const bsMoved = document.createTextNode(bsText.textContent || '');
+                            if (bsPrev.nodeName === 'PRE') {
+                                enterEditMode(bsPrev);
+                                (bsPrev.querySelector('code') || bsPrev).appendChild(bsMoved);
+                            } else {
+                                bsPrev.appendChild(bsMoved);
                             }
-                            // それ以外(テキスト行同士)は <br> 除去だけで結合が成立し、
-                            // カーソルは現位置(結合点)に留まる
+                            bsText.remove();
+                            const bsR = document.createRange();
+                            bsR.setStart(bsMoved, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
                             syncMarkdown();
                             return;
                         }
                     }
-                    // カーソルが li 直下の空 <br> 行(text node なし)にいるケース:
-                    // Shift+Enter 直後の空行では anchorNode が li 自身になる。
-                    // startOffset 位置の直前 sibling が BR ならそれを消す(同上の規則)。
+                    // 空行カーソル(anchorNode = li 自身)
                     if (bsCurLi && editor.contains(bsCurLi)
-                        && range.startContainer === bsCurLi
-                        && range.startOffset > 0) {
-                        const bsAt = bsCurLi.childNodes[range.startOffset - 1];
-                        if (bsAt && bsAt.nodeName === 'BR') {
+                        && range.startContainer === bsCurLi) {
+                        const bsOff = range.startOffset;
+                        const bsAtNode = bsCurLi.childNodes[bsOff];
+                        const bsBeforeNode = bsOff > 0 ? bsCurLi.childNodes[bsOff - 1] : null;
+                        // (c) 空行 = br の直前・前がブロック → br を消してブロック末尾へ
+                        if (bsAtNode && bsAtNode.nodeName === 'BR' && bsBeforeNode
+                            && (bsBeforeNode.nodeName === 'PRE' || bsBeforeNode.nodeName === 'BLOCKQUOTE')) {
                             e.preventDefault();
-                            const bsBeforeBr2 = bsAt.previousSibling;
-                            bsAt.remove();
+                            bsAtNode.remove();
+                            bsEnterBlockEnd(bsBeforeNode);
+                            syncMarkdown();
+                            return;
+                        }
+                        // カーソルが br の直後(旧配置)にいる場合: その br を除去(結合)
+                        if (bsBeforeNode && bsBeforeNode.nodeName === 'BR') {
+                            e.preventDefault();
+                            const bsBeforeBr2 = bsBeforeNode.previousSibling;
+                            bsBeforeNode.remove();
                             if (bsBeforeBr2 && (bsBeforeBr2.nodeName === 'PRE' || bsBeforeBr2.nodeName === 'BLOCKQUOTE')) {
-                                if (bsBeforeBr2.nodeName === 'PRE') {
-                                    enterEditMode(bsBeforeBr2);
-                                    const bsCode2 = bsBeforeBr2.querySelector('code') || bsBeforeBr2;
-                                    setCursorToEnd(bsCode2);
-                                } else {
-                                    setCursorToEnd(bsBeforeBr2);
-                                }
+                                bsEnterBlockEnd(bsBeforeBr2);
                             }
                             syncMarkdown();
                             return;
