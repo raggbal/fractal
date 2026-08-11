@@ -2384,9 +2384,8 @@ body {
     opacity: 0.85;
 }
 
-/* FR-TBL-01/02 (sprint 20260810-183054, ADRL-0052): headerless table.
-   DOM structure (thead/th + content) is preserved; hiding is display-only so
-   toggling the header back ON restores cells losslessly. */
-table[data-headerless="true"] tr:first-child:has(> th) {
-    display: none;
+/* FR-TBL-01 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
+   旧 CSS 非表示方式(data-headerless)は廃止。H トグルボタンの active 状態のみ。 */
+.table-toolbar button.active {
+    background: var(--vscode-toolbar-activeBackground, rgba(90, 93, 94, 0.31));
 }
