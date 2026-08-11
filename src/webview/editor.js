@@ -9437,31 +9437,14 @@ class EditorInstance {
                             const lastBlock = liDirectBlocks[liDirectBlocks.length - 1];
                             const lastBlockIdx = Array.prototype.indexOf.call(listItem.childNodes, lastBlock);
                             if (cnIdx <= lastBlockIdx) {
-                                // 1 行目(マーカー行)か継続行かで分岐: 1 行目 = カーソルより前に
-                                // li 直下 <br> が無い
-                                let enOnFirstLine = true;
-                                for (let i = 0; i < Math.min(cnIdx, listItem.childNodes.length); i++) {
-                                    if (listItem.childNodes[i].nodeName === 'BR') { enOnFirstLine = false; break; }
-                                }
-                                if (enOnFirstLine) {
-                                    // バグ 4: 1 行目での Enter = li は分割せず、空の新 li を
-                                    // li 全体(継続行 + ブロック含む)の後ろに追加
-                                    const enNewLi = document.createElement('li');
-                                    enNewLi.innerHTML = '<br>';
-                                    listItem.after(enNewLi);
-                                    setCursorToStart(enNewLi);
-                                } else {
-                                    // バグ 5: 継続行での Enter = 項目末尾(最終ブロックの下)に
-                                    // 空継続行を追加してカーソル移動(Shift+Enter 脱出と同じ配置 —
-                                    // 空行のカーソル正規位置 = br の直前 offset)
-                                    const enBr = document.createElement('br');
-                                    lastBlock.after(enBr);
-                                    const enR = document.createRange();
-                                    enR.setStart(listItem, Array.prototype.indexOf.call(listItem.childNodes, enBr));
-                                    enR.collapse(true);
-                                    sel.removeAllRanges();
-                                    sel.addRange(enR);
-                                }
+                                // 再オープン⑤(rc.5 バグ 1/2 のユーザー裁定): ブロックより前の
+                                // どの行(1 行目・継続行とも)で Enter しても、li は分割せず
+                                // **li 全体(継続行 + ブロック含む)の後ろに空リスト行を追加**し
+                                // カーソル移動する(TC-ILB-39/40/41)。
+                                const enNewLi = document.createElement('li');
+                                enNewLi.innerHTML = '<br>';
+                                listItem.after(enNewLi);
+                                setCursorToStart(enNewLi);
                                 undoManager.saveSnapshot();
                                 markAsEdited();
                                 syncMarkdown();
@@ -10619,12 +10602,10 @@ class EditorInstance {
                                         enterDisplayMode(blockNode);
                                     }
                                 };
-                                // 脱出先がある場合のみ display 化(no-op 時は編集状態を維持)
-                                if (afterNode && (afterNode.nodeName === 'BR'
-                                    || (afterNode.nodeType === 3 && afterNode.textContent !== '')
-                                    || afterNode.nodeName === 'PRE' || afterNode.nodeName === 'BLOCKQUOTE')) {
-                                    dnExitDisplay();
-                                }
+                                // 脱出先の確定(再オープン⑤ = rc.5 バグ 3/4): li 内の afterNode が
+                                // 無い場合も、(a) 次の li があればその先頭へ (b) 無ければ空継続行を
+                                // 作って脱出する(旧 no-op はユーザー期待に反した)。
+                                dnExitDisplay();
                                 if (afterNode && afterNode.nodeName === 'BR') {
                                     // 空行へ(br の直前 = li offset)
                                     const dnR = document.createRange();
@@ -10651,7 +10632,24 @@ class EditorInstance {
                                     }
                                     scrollCursorIntoView();
                                 } else {
-                                    logger.log('In-li block: nothing after, ArrowDown no-op (FR-LC-08b)');
+                                    // 再オープン⑤(rc.5 バグ 3/4): li 内に後続なし。
+                                    // (a) 次の li があればその先頭へ(TC-ILB-42)
+                                    const dnNextLi = liParent.nextElementSibling;
+                                    if (dnNextLi && dnNextLi.tagName === 'LI') {
+                                        setCursorToStart(dnNextLi);
+                                        scrollCursorIntoView();
+                                    } else {
+                                        // (b) 無ければ空継続行を作って脱出(TC-ILB-36)
+                                        const dnBr = document.createElement('br');
+                                        blockNode.after(dnBr);
+                                        const dnR2 = document.createRange();
+                                        dnR2.setStart(liParent, Array.prototype.indexOf.call(liParent.childNodes, dnBr));
+                                        dnR2.collapse(true);
+                                        sel.removeAllRanges();
+                                        sel.addRange(dnR2);
+                                        scrollCursorIntoView();
+                                        syncMarkdown();
+                                    }
                                 }
                             } else {
                                 // top-level: 従来どおり display 化してから脱出
