@@ -11881,44 +11881,63 @@ class EditorInstance {
     // one-shot 対クリア: table 外 click / Esc / 再レンダで必ず null に戻す。
     let tableSel = { mode: null, table: null, anchor: null, focus: null, editBackup: null };
 
+    // table のグリッドマップ(rowspan/colspan の被覆を展開した (r,c) → 実セル)。
+    // cellIndex は span があるとグリッド列とズレるため、常にこのマップで座標を解く
+    function tslGridMap(table) {
+        const rows = Array.from(table.rows);
+        const grid = []; // grid[r][c] = cell(anchor が被覆域全域に入る)
+        const posOf = new Map(); // cell → {r,c}(anchor 位置)
+        for (let r = 0; r < rows.length; r++) grid.push([]);
+        for (let r = 0; r < rows.length; r++) {
+            let c = 0;
+            for (const cell of rows[r].cells) {
+                while (grid[r][c] !== undefined) c++;
+                posOf.set(cell, { r, c });
+                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                for (let i = 0; i < rs; i++) {
+                    for (let j = 0; j < cs; j++) {
+                        if (grid[r + i]) grid[r + i][c + j] = cell;
+                    }
+                }
+                c += cs;
+            }
+        }
+        return { grid, posOf, rows };
+    }
+
     function tslCellPos(cell) {
         const row = cell.parentElement;
         const table = row.closest('table');
-        const rows = Array.from(table.rows);
-        return { r: rows.indexOf(row), c: cell.cellIndex, table, rows };
+        const m = tslGridMap(table);
+        const p = m.posOf.get(cell) || { r: Array.from(table.rows).indexOf(row), c: cell.cellIndex };
+        return { r: p.r, c: p.c, table, rows: m.rows, grid: m.grid };
     }
 
-    // 矩形範囲のセル集合(結合セルは anchor 起点で colspan/rowspan ぶん矩形を拡張)
+    // 矩形範囲のセル集合(FR-TSL-02: 交差する結合セルを完全に含むまで矩形拡張 = Excel)
     function tslRangeCells() {
-        if (!tableSel.anchor || !tableSel.focus) return [];
-        const a = tslCellPos(tableSel.anchor);
-        const f = tslCellPos(tableSel.focus);
+        if (!tableSel.anchor || !tableSel.focus || !tableSel.table) return [];
+        const m = tslGridMap(tableSel.table);
+        const a = m.posOf.get(tableSel.anchor);
+        const f = m.posOf.get(tableSel.focus);
+        if (!a || !f) return [];
         let r1 = Math.min(a.r, f.r), r2 = Math.max(a.r, f.r);
         let c1 = Math.min(a.c, f.c), c2 = Math.max(a.c, f.c);
-        // span 拡張: 範囲に交差する結合セルを完全に含むまで矩形を広げる(Excel)
         let grew = true;
         while (grew) {
             grew = false;
-            for (const row of a.rows) {
-                for (const cell of row.cells) {
-                    const p = tslCellPos(cell);
-                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
-                    const er = p.r + rs - 1, ec = p.c + cs - 1;
-                    const intersects = !(er < r1 || p.r > r2 || ec < c1 || p.c > c2);
-                    if (!intersects) continue;
-                    if (p.r < r1) { r1 = p.r; grew = true; }
-                    if (er > r2) { r2 = er; grew = true; }
-                    if (p.c < c1) { c1 = p.c; grew = true; }
-                    if (ec > c2) { c2 = ec; grew = true; }
-                }
+            for (const [cell, p] of m.posOf) {
+                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                const er = p.r + rs - 1, ec = p.c + cs - 1;
+                if (er < r1 || p.r > r2 || ec < c1 || p.c > c2) continue;
+                if (p.r < r1) { r1 = p.r; grew = true; }
+                if (er > r2) { r2 = er; grew = true; }
+                if (p.c < c1) { c1 = p.c; grew = true; }
+                if (ec > c2) { c2 = ec; grew = true; }
             }
         }
         const cells = [];
-        for (const row of a.rows) {
-            for (const cell of row.cells) {
-                const p = tslCellPos(cell);
-                if (p.r >= r1 && p.r <= r2 && p.c >= c1 && p.c <= c2) cells.push(cell);
-            }
+        for (const [cell, p] of m.posOf) {
+            if (p.r >= r1 && p.r <= r2 && p.c >= c1 && p.c <= c2) cells.push(cell);
         }
         return cells;
     }
@@ -11995,25 +12014,16 @@ class EditorInstance {
 
     function tslNeighbor(cell, dr, dc) {
         const p = tslCellPos(cell);
-        // 結合セルからの移動は span の端から数える
+        // 結合セルからの移動は span の端から数える。被覆位置に入る場合は grid が
+        // anchor を返すため自然に anchor 着地(FR-TMG-02 / TC-TMG-11)
         const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
         const tr = dr > 0 ? p.r + rs - 1 + dr : p.r + dr;
         const tc = dc > 0 ? p.c + cs - 1 + dc : p.c + dc;
-        if (tr < 0 || tr >= p.rows.length) return null;
-        if (tc < 0) return null;
-        const row = p.rows[tr];
-        if (!row) return null;
-        let best = null;
-        for (const c of row.cells) {
-            const cp = tslCellPos(c);
-            const ce = cp.c + (c.colSpan || 1) - 1;
-            if (tc >= cp.c && tc <= ce) return c;
-            if (cp.c <= tc) best = c;
-        }
-        // 水平移動で行幅を越えた = 端(null を返し、Tab の行追加/移動判定に委ねる)。
-        // 垂直移動のみ rowspan 被覆の最近傍セルへフォールバック
-        if (dc !== 0) return null;
-        return best || row.cells[row.cells.length - 1] || null;
+        if (tr < 0 || tr >= p.rows.length || tc < 0) return null;
+        const target = p.grid[tr] ? p.grid[tr][tc] : undefined;
+        if (target === undefined) return null; // 行幅外(右端)
+        if (target === cell) return null;      // 自分の span 内 = 端
+        return target;
     }
 
     // select モードで table の外へ抜ける(上端↑ = 表の前 / 下端↓ = 表の後)
@@ -12034,11 +12044,102 @@ class EditorInstance {
         hideTableToolbar();
     }
 
-    // FR-TSL-03: 選択範囲の内容クリア(saveSnapshot 前置・undo 1 回)
+    // FR-TSL-03: 選択範囲の内容クリア(saveSnapshot 前置・undo 1 回。span は維持 = REQ-6 裁定)
     function tslClearRangeContents() {
         undoManager.saveSnapshot();
         for (const cell of tslRangeCells()) cell.innerHTML = '<br>';
         syncMarkdown();
+    }
+
+    // FR-TSL-03: 範囲 paste。clipboard の text/html table 断片 or TSV を 2D 配列化し
+    // anchor 起点で上書き(下はみ出し = 行追加 / 右はみ出し = 切捨て — 裁定 #7)。
+    // 交差する結合セルは事前 unmerge(REQ-6 裁定・挿入削除と同じ決定論)
+    function tslHandlePaste(e) {
+        const cd = e.clipboardData;
+        if (!cd) return false;
+        let matrix = null;
+        const html = cd.getData('text/html');
+        if (html && /<table[\s>]/i.test(html)) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const srcTable = tmp.querySelector('table');
+            if (srcTable) {
+                matrix = Array.from(srcTable.rows).map((row) =>
+                    Array.from(row.cells).map((c) => c.innerHTML));
+            }
+        }
+        if (!matrix) {
+            const text = cd.getData('text/plain');
+            if (!text) return false;
+            if (text.includes('\t') || text.includes('\n')) {
+                matrix = text.replace(/\n$/, '').split('\n').map((l) => l.split('\t').map(escapeHtml));
+            } else {
+                matrix = [[escapeHtml(text)]]; // 単一テキスト = anchor 置換
+            }
+        }
+        e.preventDefault();
+        undoManager.saveSnapshot();
+        const anchor = tableSel.anchor;
+        const p = tslCellPos(anchor);
+        const table = p.table;
+        // 貼付先範囲に交差する span を事前 unmerge
+        const destR2 = p.r + matrix.length - 1;
+        const destC2 = p.c + Math.max(...matrix.map((r) => r.length)) - 1;
+        table.querySelectorAll('[colspan], [rowspan]').forEach((cell) => {
+            const cp = tslCellPos(cell);
+            const er = cp.r + (cell.rowSpan || 1) - 1, ec = cp.c + (cell.colSpan || 1) - 1;
+            if (!(er < p.r || cp.r > destR2 || ec < p.c || cp.c > destC2)) tslUnmergeCell(cell);
+        });
+        const rows = Array.from(table.rows);
+        const colCount = rows[0] ? rows[0].cells.length : 0;
+        for (let i = 0; i < matrix.length; i++) {
+            let row = rows[p.r + i];
+            if (!row) {
+                // 下はみ出し = 行追加
+                row = document.createElement('tr');
+                for (let k = 0; k < colCount; k++) {
+                    const td = document.createElement('td');
+                    td.setAttribute('contenteditable', 'true');
+                    td.innerHTML = '<br>';
+                    row.appendChild(td);
+                }
+                table.rows[table.rows.length - 1].after(row);
+                rows.push(row);
+            }
+            for (let j = 0; j < matrix[i].length; j++) {
+                const cell = row.cells[p.c + j];
+                if (!cell) break; // 右はみ出し = 切捨て
+                cell.innerHTML = matrix[i][j] || '<br>';
+            }
+        }
+        syncMarkdown();
+        tslPaintSelection();
+        return true;
+    }
+
+    // 結合セルの span 解除 + 空セル復元(unmerge の共通実体。TASK-03 の UI からも呼ぶ)
+    function tslUnmergeCell(cell) {
+        const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+        if (rs === 1 && cs === 1) return;
+        const p = tslCellPos(cell);
+        cell.removeAttribute('rowspan');
+        cell.removeAttribute('colspan');
+        for (let r = p.r; r < p.r + rs; r++) {
+            const row = p.rows[r];
+            if (!row) continue;
+            for (let c = p.c; c < p.c + cs; c++) {
+                if (r === p.r && c === p.c) continue;
+                // グリッド位置 c に実セルを挿入(その行で c より左のセル数を数えて位置決め)
+                const td = document.createElement(row.querySelector('th') && r === 0 ? 'th' : 'td');
+                td.setAttribute('contenteditable', 'true');
+                td.innerHTML = '<br>';
+                let insertBefore = null;
+                for (const exist of row.cells) {
+                    if (tslCellPos(exist).c > c) { insertBefore = exist; break; }
+                }
+                row.insertBefore(td, insertBefore);
+            }
+        }
     }
 
     // FR-TSL のキーディスパッチ。true を返したら呼び出し元 keydown はそこで終了
@@ -12921,6 +13022,72 @@ class EditorInstance {
         }
     });
 
+    // FR-TSL-02: マウスドラッグで範囲選択(mousedown で即 select 開始 = Excel。
+    // click 待ちだとドラッグ中に mode が立たず mouseover 追跡が効かない)
+    let tslDragging = false;
+    editor.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        const cell = e.target.closest ? e.target.closest('th, td') : null;
+        // 列リサイズ帯(セル右端 6px)は既存リサイズに譲る
+        if (cell && editor.contains(cell) && !findCellEdgeAt(e.target, e.clientX)
+            && !(tableSel.mode === 'edit' && tableSel.anchor === cell)
+            && e.detail === 1) {
+            tslEnterSelect(cell);
+            tslDragging = true;
+        }
+    });
+    editor.addEventListener('mouseover', function(e) {
+        if (!tslDragging) return;
+        const cell = e.target.closest ? e.target.closest('th, td') : null;
+        if (!cell || !editor.contains(cell)) return;
+        if (tableSel.mode !== 'select' || !tableSel.anchor) return;
+        if (cell.closest('table') !== tableSel.table) return;
+        if (cell !== tableSel.focus) {
+            tableSel.focus = cell;
+            tslPaintSelection();
+            // ドラッグ中のネイティブテキスト選択を抑止(セル矩形選択が真実)
+            try { window.getSelection().removeAllRanges(); } catch (err) { /* noop */ }
+        }
+    });
+    document.addEventListener('mouseup', function() { tslDragging = false; });
+
+    // FR-TSL-04: 文書レベル選択の table 縦断正規化(mouseup 契機)。
+    // 全跨ぎ = table 全体を包含 / 途中まで = 交差行群に行単位で正規化
+    editor.addEventListener('mouseup', function() {
+        setTimeout(function() {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+            const range = sel.getRangeAt(0);
+            const startCell = (range.startContainer.nodeType === 3
+                ? range.startContainer.parentElement : range.startContainer);
+            const endCell = (range.endContainer.nodeType === 3
+                ? range.endContainer.parentElement : range.endContainer);
+            const startTable = startCell && startCell.closest ? startCell.closest('table') : null;
+            const endTable = endCell && endCell.closest ? endCell.closest('table') : null;
+            if (startTable === endTable) return; // table 内 or table 非関与
+            // 選択と交差する editor 直下の table を列挙
+            for (const table of editor.querySelectorAll('table')) {
+                if (!range.intersectsNode(table)) continue;
+                const inStart = startTable === table;
+                const inEnd = endTable === table;
+                if (!inStart && !inEnd) continue; // table 全体が中に包まれている = 全選択済み
+                try {
+                    if (inEnd) {
+                        // 前方から table 途中まで → 終端をその行の末尾に正規化(行単位)
+                        const row = endCell.closest('tr');
+                        range.setEndAfter(row);
+                    } else {
+                        // table 途中から後方へ → 始端をその行の先頭に正規化
+                        const row = startCell.closest('tr');
+                        range.setStartBefore(row);
+                    }
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                } catch (err) { /* noop */ }
+            }
+        }, 0);
+    });
+
     // Image double-click → fullscreen overlay with pinch zoom (Mac touchpad pinch / wheel+ctrl)
     editor.addEventListener('dblclick', function(e) {
         var target = e.target;
@@ -13509,7 +13676,11 @@ class EditorInstance {
             // FR-TSL-01: シングルクリック = select モード(edit 中の同一セル
             // 再クリックはキャレット移動として素通し)。ダブルクリックは dblclick
             // handler が edit へ直行させる。トリプルクリックは従来どおり全選択。
-            if (e.detail === 1 && !(tableSel.mode === 'edit' && tableSel.anchor === cell)) {
+            // ドラッグ範囲選択直後の click(mouseup 由来)は範囲を潰さない。
+            const isRangeDragEnd = tableSel.mode === 'select'
+                && tableSel.anchor !== tableSel.focus && cell === tableSel.focus;
+            if (e.detail === 1 && !isRangeDragEnd
+                && !(tableSel.mode === 'edit' && tableSel.anchor === cell)) {
                 tslEnterSelect(cell);
             }
 
@@ -13526,9 +13697,15 @@ class EditorInstance {
                 logger.log('Triple-click: Selected all in table cell');
             }
         } else {
-            // Clicked outside table - hide toolbar + select モード解除(one-shot クリア)
-            tslClear();
-            hideTableToolbar();
+            // ドラッグ選択後の click は祖先(table/tr)で発火し cell=null になる。
+            // table 内なら選択を保持し、真に table 外の click だけクリアする
+            const inSelTable = tableSel.table && e.target.closest
+                && e.target.closest('table') === tableSel.table;
+            if (!inSelTable) {
+                // Clicked outside table - hide toolbar + select モード解除(one-shot クリア)
+                tslClear();
+                hideTableToolbar();
+            }
         }
         
         // Handle code block edit mode exit on click outside
@@ -27290,6 +27467,45 @@ class EditorInstance {
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
+
+        // FR-TSL-04: 部分行選択で table が剥がれた断片(tr/td が table 枠なしで来る)は
+        // 元 table の header + separator を付けた md table 断片として出力する
+        const bareTrs = (() => {
+            const trs = tempDiv.querySelectorAll('tr');
+            if (!trs.length) return null;
+            if (tempDiv.querySelector('table')) return null; // table 枠ごと選択 = 通常経路
+            return trs;
+        })();
+        if (bareTrs) {
+            const anchorEl = range.startContainer.nodeType === 3
+                ? range.startContainer.parentElement : range.startContainer;
+            let srcTable = anchorEl && anchorEl.closest ? anchorEl.closest('table') : null;
+            if (!srcTable) {
+                const endEl = range.endContainer.nodeType === 3
+                    ? range.endContainer.parentElement : range.endContainer;
+                srcTable = endEl && endEl.closest ? endEl.closest('table') : null;
+            }
+            if (srcTable) {
+                const headerRow = srcTable.querySelector('tr');
+                const colCount = headerRow ? headerRow.cells.length : bareTrs[0].cells.length;
+                const cellMd = (cell) => (cell.textContent || '').replace(/\n/g, ' ').replace(/\|/g, '\\|').trim();
+                let md = '';
+                const hasHeader = !!srcTable.querySelector('th');
+                if (hasHeader && !bareTrs[0].querySelector('th')) {
+                    md += '| ' + Array.from(headerRow.cells).map(cellMd).join(' | ') + ' |\n';
+                    md += '|' + ' --- |'.repeat(colCount) + '\n';
+                }
+                let firstBodyEmitted = false;
+                for (const tr of bareTrs) {
+                    md += '| ' + Array.from(tr.cells).map(cellMd).join(' | ') + ' |\n';
+                    if (!firstBodyEmitted && tr.querySelector('th')) {
+                        md += '|' + ' --- |'.repeat(colCount) + '\n';
+                    }
+                    firstBodyEmitted = true;
+                }
+                return { md: md, selectedHtml: tempDiv.innerHTML };
+            }
+        }
         
         // Handle triple-click selection: when selection ends at offset 0 of next element,
         // remove the trailing empty element that was included
@@ -27707,12 +27923,68 @@ class EditorInstance {
         return { md: md, selectedHtml: selectedHtml };
     }
 
+    // FR-TSL-03: select モードの範囲 copy/cut/paste(セル矩形単位・Excel 互換)
+    function tslWriteClipboard(e) {
+        const cells = tslRangeCells();
+        if (!cells.length) return false;
+        // 矩形の行列に整列(グリッド座標でソート)
+        const grid = new Map();
+        let rMin = Infinity, rMax = -Infinity, cMin = Infinity, cMax = -Infinity;
+        for (const cell of cells) {
+            const p = tslCellPos(cell);
+            rMin = Math.min(rMin, p.r); rMax = Math.max(rMax, p.r);
+            cMin = Math.min(cMin, p.c); cMax = Math.max(cMax, p.c);
+            grid.set(p.r + ':' + p.c, cell);
+        }
+        const cellPlain = (cell) => (cell ? cell.textContent.replace(/\n/g, ' ').trim() : '');
+        const tsvRows = [];
+        let htmlRows = '';
+        for (let r = rMin; r <= rMax; r++) {
+            const tsvCols = [];
+            let rowHtml = '';
+            for (let c = cMin; c <= cMax; c++) {
+                const cell = grid.get(r + ':' + c);
+                tsvCols.push(cellPlain(cell));
+                const tag = cell && cell.tagName === 'TH' ? 'th' : 'td';
+                const span = cell
+                    ? ((cell.colSpan > 1 ? ' colspan="' + cell.colSpan + '"' : '')
+                        + (cell.rowSpan > 1 ? ' rowspan="' + cell.rowSpan + '"' : ''))
+                    : '';
+                if (cell || !grid.has(r + ':' + c)) {
+                    // 被覆位置(span 内)はセルを出さない: grid に無く、かつ左/上の span が覆う
+                    if (!cell && coveredBySpan(r, c)) continue;
+                    rowHtml += '<' + tag + span + '>' + (cell ? cell.innerHTML : '<br>') + '</' + tag + '>';
+                }
+            }
+            tsvRows.push(tsvCols.join('\t'));
+            htmlRows += '<tr>' + rowHtml + '</tr>';
+        }
+        function coveredBySpan(r, c) {
+            for (const cell of cells) {
+                const p = tslCellPos(cell);
+                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                if (r >= p.r && r < p.r + rs && c >= p.c && c < p.c + cs
+                    && !(r === p.r && c === p.c)) return true;
+            }
+            return false;
+        }
+        e.clipboardData.setData('text/plain', tsvRows.join('\n'));
+        e.clipboardData.setData('text/html', '<table>' + htmlRows + '</table>');
+        e.preventDefault();
+        return true;
+    }
+
     editor.addEventListener('copy', function(e) {
         if (isSourceMode) return;
-        
+
+        // FR-TSL-03: select モード = セル矩形コピー(TSV + html table 断片)
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslWriteClipboard(e)) return;
+        }
+
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
+
         e.preventDefault();
         
         // Get the selected HTML
@@ -27746,6 +28018,14 @@ class EditorInstance {
     // 「text- child」連結 md を吐き、deleteContents の空 li 殻（•/○/▪）が残っていた。
     editor.addEventListener('cut', function(e) {
         if (isSourceMode) return;
+
+        // FR-TSL-03: select モード = 矩形コピー + 内容クリア(行削除ではない)
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslWriteClipboard(e)) {
+                tslClearRangeContents();
+                return;
+            }
+        }
 
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
@@ -27874,6 +28154,12 @@ class EditorInstance {
         if (window.__fractalPasteInFlight) { e.preventDefault(); return; }
         window.__fractalPasteInFlight = true;
         setTimeout(function() { window.__fractalPasteInFlight = false; }, 0);
+
+        // FR-TSL-03: select モード = 範囲 paste(anchor 起点上書き・下はみ出し行追加・
+        // 右はみ出し切捨て)。table 断片/TSV 以外の単一テキストは anchor 置換
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslHandlePaste(e)) return;
+        }
 
         // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
         // here so text/HTML paste still works when clipboard has no image.

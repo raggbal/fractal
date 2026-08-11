@@ -216,3 +216,121 @@ test.describe('Table select/edit mode (FR-TSL-01)', () => {
         expect(md).toContain('a1<br>L2'); // セル内改行の md 形(既存)
     });
 });
+
+// ---- TASK-02: 範囲選択・範囲操作・縦断正規化(FR-TSL-02/03/04) ----
+
+test.describe('Table range selection and operations (FR-TSL-02/03/04)', () => {
+    // TC-TSL-07: Shift+Arrow で矩形範囲拡張 → Delete でクリア → undo 復帰
+    test('TC-TSL-07 shift+arrow range, Delete clears, undo restores', async ({ page }) => {
+        await setupTable(page);
+        await clickBodyCell(page, 0, 0);
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Shift+ArrowDown');
+        await page.waitForTimeout(100);
+        let s = await snapSel(page);
+        expect(s.rangeTexts.sort()).toEqual(['a1', 'a2', 'b1', 'b2']);
+        await page.keyboard.press('Delete');
+        await page.waitForTimeout(300);
+        let md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).not.toContain('a1');
+        expect(md).toContain('c1'); // 範囲外は不変
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).toContain('a1');
+        expect(md).toContain('b2');
+    });
+
+    // TC-TSL-08: マウスドラッグで範囲選択(real mouse)
+    test('TC-TSL-08 mouse drag selects a range', async ({ page }) => {
+        await setupTable(page);
+        const boxes = await page.evaluate(() => {
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            const c1 = table.rows[1].cells[0].getBoundingClientRect();
+            const c2 = table.rows[2].cells[1].getBoundingClientRect();
+            return {
+                from: { x: c1.x + c1.width / 2, y: c1.y + c1.height / 2 },
+                to: { x: c2.x + c2.width / 2, y: c2.y + c2.height / 2 },
+            };
+        });
+        await page.mouse.move(boxes.from.x, boxes.from.y);
+        await page.mouse.down();
+        await page.mouse.move(boxes.to.x, boxes.to.y, { steps: 5 });
+        await page.mouse.up();
+        await page.waitForTimeout(150);
+        const s = await snapSel(page);
+        expect(s.rangeTexts.sort()).toEqual(['a1', 'a2', 'b1', 'b2']);
+    });
+
+    // TC-TSL-09: 範囲 copy = TSV + html。cut = クリア。paste = anchor 起点(下はみ出し行追加・右切捨て)
+    test('TC-TSL-09 range copy/cut/paste with overflow rules', async ({ page }) => {
+        await setupTable(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |');
+        await clickBodyCell(page, 0, 0);
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Shift+ArrowDown');
+        // copy の clipboardData を合成イベントで捕捉
+        const copied = await page.evaluate(() => {
+            const store: Record<string, string> = {};
+            const e = new ClipboardEvent('copy', { bubbles: true, cancelable: true });
+            Object.defineProperty(e, 'clipboardData', {
+                value: { setData: (t: string, v: string) => { store[t] = v; }, getData: () => '' },
+            });
+            document.querySelector('#editor')!.dispatchEvent(e);
+            return store;
+        });
+        expect(copied['text/plain']).toBe('a1\tb1\na2\tb2');
+        expect(copied['text/html']).toContain('<table>');
+        expect(copied['text/html']).toContain('a1');
+        // paste: 2x2 TSV を (1,1) 起点で貼る → 右列は切捨て・下は行追加
+        await clickBodyCell(page, 1, 1); // b2 セル
+        await page.evaluate(() => {
+            const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+            Object.defineProperty(e, 'clipboardData', {
+                value: {
+                    getData: (t: string) => t === 'text/plain' ? 'X1\tY1\nX2\tY2' : '',
+                },
+            });
+            document.querySelector('#editor')!.dispatchEvent(e);
+        });
+        await page.waitForTimeout(300);
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).toContain('| a2 | X1 |'); // anchor 上書き(Y1 は右はみ出し切捨て)
+        expect(md).toContain('X2');           // 下はみ出し = 行追加
+        expect(md).not.toContain('Y1');
+    });
+
+    // TC-TSL-11: 縦断選択の正規化 + 部分行コピーの md 書式(header + separator + 選択行)
+    test('TC-TSL-11 cross-table selection normalizes to rows; partial copy keeps header', async ({ page }) => {
+        await setupTable(page, 'before\n\n| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |\n| a3 | b3 |');
+        // 表の前の段落から 2 行目セルまで実マウスで選択
+        const pts = await page.evaluate(() => {
+            const p = document.querySelector('#editor p')!;
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            const pb = p.getBoundingClientRect();
+            const cb = table.rows[2].cells[0].getBoundingClientRect(); // a2 行
+            return {
+                from: { x: pb.x + 5, y: pb.y + pb.height / 2 },
+                to: { x: cb.x + cb.width / 2, y: cb.y + cb.height / 2 },
+            };
+        });
+        await page.mouse.move(pts.from.x, pts.from.y);
+        await page.mouse.down();
+        await page.mouse.move(pts.to.x, pts.to.y, { steps: 8 });
+        await page.mouse.up();
+        await page.waitForTimeout(200);
+        // 正規化: 終端が a2 行の末尾(行単位)まで拡張されている
+        const copied = await page.evaluate(() => {
+            const store: Record<string, string> = {};
+            const e = new ClipboardEvent('copy', { bubbles: true, cancelable: true });
+            Object.defineProperty(e, 'clipboardData', {
+                value: { setData: (t: string, v: string) => { store[t] = v; }, getData: () => '' },
+            });
+            document.querySelector('#editor')!.dispatchEvent(e);
+            return store;
+        });
+        const md = copied['text/markdown'] || copied['text/plain'] || '';
+        // 行単位正規化により b2(a2 行の末尾セル)まで含まれる
+        expect(md).toContain('b2');
+        expect(md).not.toContain('a3'); // 選択外の行は含まれない
+    });
+});
