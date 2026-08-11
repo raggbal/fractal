@@ -1511,3 +1511,119 @@ test.describe('In-li block enter-below and cross-element arrows (re-open 6)', ()
         expect(state.inLi).toBe(true);
     });
 });
+
+// ---- 再オープン⑦(2026-08-11 rc.7): ↑/↓ × 隣接要素の全マトリクス ----
+// 同一失敗クラス(矢印の隣接判定)の指摘が続いたため、点修正をやめマトリクスで固定する
+// (designer_failures 2026-08-09「同一クラス 2 回でマトリクス展開」)。
+// 軸: 方向(↑/↓) × 隣接(テキスト行 / 空行 / pre / blockquote) + ブロック組合せ(pre-pre / bq-bq / pre-bq / bq-pre)
+
+test.describe('In-li block arrow matrix (re-open 7)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // ブロック(1 個目)にカーソルを置いて矢印を押し、着地点を返す共通ドライバ
+    async function arrowFromBlock(page: Page, liHtml: string, opts: {
+        blockIndex: number; dir: 'ArrowUp' | 'ArrowDown'; atLine: 'first' | 'last';
+    }) {
+        await page.evaluate(({ html, blockIndex }) => {
+            const editor = document.getElementById('editor')!;
+            editor.innerHTML = '<ul><li>' + html + '</li></ul>';
+            const blocks = editor.querySelectorAll('li > pre, li > blockquote');
+            const blk = blocks[blockIndex] as HTMLElement;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            if (blk.tagName === 'PRE') {
+                blk.setAttribute('data-mode', 'edit');
+                const code = blk.querySelector('code')!;
+                code.setAttribute('contenteditable', 'true');
+                (code as HTMLElement).focus();
+                range.selectNodeContents(code);
+            } else {
+                range.selectNodeContents(blk);
+            }
+            range.collapse((window as any).__collapseToStart);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }, { html: liHtml, blockIndex: opts.blockIndex });
+        await page.evaluate((toStart) => { (window as any).__collapseToStart = toStart; }, opts.atLine === 'first');
+        // collapse 適用(再セット)
+        await page.evaluate(({ blockIndex, toStart }) => {
+            const blocks = document.querySelectorAll('#editor li > pre, #editor li > blockquote');
+            const blk = blocks[blockIndex] as HTMLElement;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            const target = blk.tagName === 'PRE' ? blk.querySelector('code')! : blk;
+            range.selectNodeContents(target);
+            range.collapse(toStart);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }, { blockIndex: opts.blockIndex, toStart: opts.atLine === 'first' });
+        await page.keyboard.press(opts.dir);
+        await page.waitForTimeout(250);
+        return await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode;
+            const el = a && (a.nodeType === 1 ? a as Element : a.parentElement);
+            const pre = el?.closest('pre');
+            const bq = el?.closest('blockquote');
+            const blocks = Array.from(document.querySelectorAll('#editor li > pre, #editor li > blockquote'));
+            return {
+                lost: false,
+                landing: pre ? 'pre' : bq ? 'blockquote' : 'line',
+                blockIdx: pre ? blocks.indexOf(pre) : bq ? blocks.indexOf(bq) : -1,
+                text: (a?.textContent || '').substring(0, 10),
+            };
+        });
+    }
+
+    const PRE = (t: string) => `<pre data-lang=""><code contenteditable="false">${t}</code></pre>`;
+    const BQ = (t: string) => `<blockquote>${t}</blockquote>`;
+
+    // TC-ILB-46: ↑ でブロック直上のテキスト継続行へ(rc.7 バグ 1 の主訴)
+    test('TC-ILB-46 up from block first line goes to text line directly above', async ({ page }) => {
+        const r = await arrowFromBlock(page, 'head<br>cont1<br>cont2' + PRE('code'), { blockIndex: 0, dir: 'ArrowUp', atLine: 'first' });
+        expect(r.landing).toBe('line');
+        expect(r.text).toContain('cont2'); // すぐ上の継続行(cont1 や head に飛ばない)
+    });
+
+    // TC-ILB-47: pre→pre 連続で ↑(下の pre から上の pre 末尾へ)
+    test('TC-ILB-47 up from second pre enters first pre', async ({ page }) => {
+        const r = await arrowFromBlock(page, 'head' + PRE('aaa') + PRE('bbb'), { blockIndex: 1, dir: 'ArrowUp', atLine: 'first' });
+        expect(r.landing).toBe('pre');
+        expect(r.blockIdx).toBe(0);
+    });
+
+    // TC-ILB-48: bq→bq 連続で ↓(上の bq から下の bq 先頭へ)
+    test('TC-ILB-48 down from first bq enters second bq', async ({ page }) => {
+        const r = await arrowFromBlock(page, 'head' + BQ('aaa') + BQ('bbb'), { blockIndex: 0, dir: 'ArrowDown', atLine: 'last' });
+        expect(r.landing).toBe('blockquote');
+        expect(r.blockIdx).toBe(1);
+    });
+
+    // TC-ILB-49: pre→bq 混在で ↓ / bq→pre 混在で ↑
+    test('TC-ILB-49 mixed pre/bq adjacency works both directions', async ({ page }) => {
+        const down = await arrowFromBlock(page, 'head' + PRE('aaa') + BQ('bbb'), { blockIndex: 0, dir: 'ArrowDown', atLine: 'last' });
+        expect(down.landing).toBe('blockquote');
+        const up = await arrowFromBlock(page, 'head' + BQ('aaa') + PRE('bbb'), { blockIndex: 1, dir: 'ArrowUp', atLine: 'first' });
+        expect(up.landing).toBe('blockquote');
+        expect(up.blockIdx).toBe(0);
+    });
+
+    // TC-ILB-50: 空行を挟む ↑/↓ は空行に止まる(素通りも進入もしない)
+    test('TC-ILB-50 blank line between blocks stops the caret', async ({ page }) => {
+        const down = await arrowFromBlock(page, 'head' + PRE('aaa') + '<br><br>tail', { blockIndex: 0, dir: 'ArrowDown', atLine: 'last' });
+        expect(down.landing).toBe('line'); // 空行(li 直下)に止まる
+        const up = await arrowFromBlock(page, 'head<br><br>' + PRE('aaa'), { blockIndex: 0, dir: 'ArrowUp', atLine: 'first' });
+        expect(up.landing).toBe('line');
+    });
+
+    // TC-ILB-51: ↓ でブロック直下のテキスト継続行へ(46 の対称)
+    test('TC-ILB-51 down from block last line goes to text line directly below', async ({ page }) => {
+        const r = await arrowFromBlock(page, 'head' + PRE('code') + 'tail1<br>tail2', { blockIndex: 0, dir: 'ArrowDown', atLine: 'last' });
+        expect(r.landing).toBe('line');
+        expect(r.text).toContain('tail1');
+    });
+});

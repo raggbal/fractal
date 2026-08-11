@@ -10541,17 +10541,96 @@ class EditorInstance {
                 logger.log('Arrow in block:', { key: e.key, currentLineIndex, totalLines, tag: blockNode.tagName, inSpecialWrapper: !!specialWrapperBlock });
                 // #endregion
                 
+                // FR-LC-08d (再オープン⑦): li 内ブロックからの脱出先を行モデルで解決する共通
+                // walker。dir='previousSibling'|'nextSibling'。返り値:
+                //   { kind:'text', node } | { kind:'blank', br } | { kind:'block', node } | null
+                // 規則(実測済み行モデル): 空白 text node は無視 / ブロックと自分の間の 1 個の
+                // <br> は行を作らない(その先を見る)/ <br> の先がさらに <br> なら空行 /
+                // text は行 / PRE・BLOCKQUOTE はブロック。
+                const resolveAdjacentInLiLine = (dir) => {
+                    let n = blockNode[dir];
+                    while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                    if (!n) return null;
+                    if (n.nodeName === 'BR') {
+                        let n2 = n[dir];
+                        while (n2 && n2.nodeType === 3 && n2.textContent.trim() === '') n2 = n2[dir];
+                        if (!n2) return null;
+                        if (n2.nodeName === 'BR') return { kind: 'blank', br: (dir === 'previousSibling' ? n2 : n) };
+                        if (n2.nodeType === 3) return { kind: 'text', node: n2 };
+                        if (n2.nodeName === 'PRE' || n2.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n2 };
+                        return null;
+                    }
+                    if (n.nodeType === 3) return { kind: 'text', node: n };
+                    if (n.nodeName === 'PRE' || n.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n };
+                    return null;
+                };
+                const enterAdjacentBlock = (blk, from) => {
+                    if (blk.nodeName === 'PRE') {
+                        isNavigatingIntoBlock = true;
+                        enterEditMode(blk);
+                        const c = blk.querySelector('code');
+                        setTimeout(() => {
+                            if (c) {
+                                if (from === 'above') setCursorToFirstTextNode(c);
+                                else setCursorToLastLineStartByDOM(c);
+                            }
+                            resetNavigationFlag();
+                        }, 0);
+                    } else {
+                        if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                    }
+                    scrollCursorIntoView();
+                };
+                const moveToLiLine = (resolved, from) => {
+                    // resolved: resolveAdjacentInLiLine の返り値(非 null)
+                    if (resolved.kind === 'block') { enterAdjacentBlock(resolved.node, from); return; }
+                    if (resolved.kind === 'text') {
+                        const r = document.createRange();
+                        if (from === 'above') r.setStart(resolved.node, 0);
+                        else r.setStart(resolved.node, resolved.node.textContent.length);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
+                    // blank: 空行 = br の直前 offset
+                    const liP = blockNode.parentNode;
+                    const r = document.createRange();
+                    r.setStart(liP, Array.prototype.indexOf.call(liP.childNodes, resolved.br));
+                    r.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                    scrollCursorIntoView();
+                };
+
                 if (e.key === 'ArrowUp') {
                     if (currentLineIndex === 0) {
                         // At first line, exit block upward
                         e.preventDefault();
-                        
+
                         if (specialWrapperBlock) {
                             // Exit special wrapper - set display mode and go to previous sibling of wrapper
                             exitSpecialWrapperDisplayMode(specialWrapperBlock);
                             const prev = specialWrapperBlock.previousElementSibling;
                             if (prev) {
                                 navigateToAdjacentElement(prev, 'up', false);
+                            }
+                        } else if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                            // FR-LC-08d (再オープン⑦ rc.7 バグ 1): li 内ブロックの ↑ 脱出。
+                            // previousElementSibling は継続行 text を素通りして別ブロック/リスト先頭へ
+                            // 飛んでいた — 行モデル walker で直上の行(text/空行/ブロック)へ確実に移動。
+                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                enterDisplayMode(blockNode);
+                            }
+                            const upResolved = resolveAdjacentInLiLine('previousSibling');
+                            if (upResolved) {
+                                moveToLiLine(upResolved, 'below');
+                            } else {
+                                // li 内で最初の行 = li 自体の行頭相当。1 行目のテキストが無い形は
+                                // 稀だが、安全側で li 先頭へ
+                                setCursorToStart(blockNode.parentNode);
+                                scrollCursorIntoView();
                             }
                         } else {
                             // If this is a code block in edit mode, switch to display mode
@@ -10598,58 +10677,18 @@ class EditorInstance {
                             }
                         } else {
                             if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
-                                // FR-LC-08b/d (sprint 20260810-183054 再オープン③/④): li 内ブロックの
-                                // ↓ 脱出は「直後の行」へ移動する。行モデル(実測): ブロック直後の
-                                // <br> は空行を 1 個作る(カーソル正規位置 = その <br> の直前 offset)。
-                                // 直後が text node ならその行頭へ。何も無ければ **完全 no-op**
-                                // (rc.4 バグ 3: enterDisplayMode を先に呼ぶと contenteditable が外れて
-                                // カーソルが消失していた — 脱出先が確定してから display 化する)。
+                                // FR-LC-08b/d (再オープン⑦で walker に一本化): li 内ブロックの ↓ 脱出。
+                                // 直後の行(text/空行/ブロック — 組み合わせ不問)へ行モデル walker で
+                                // 確実に移動。li 内に後続なしなら 次 li → リスト全体の次要素 →
+                                // 空継続行(最終手段・カーソル消失防止)。
                                 const liParent = blockNode.parentNode;
-                                let afterNode = blockNode.nextSibling;
-                                // 実編集で挟まる空白 text node をスキップ(rc.4 バグ 1/2 の機序)
-                                while (afterNode && afterNode.nodeType === 3 && afterNode.textContent.trim() === '') {
-                                    afterNode = afterNode.nextSibling;
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
                                 }
-                                const dnExitDisplay = () => {
-                                    if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
-                                        enterDisplayMode(blockNode);
-                                    }
-                                };
-                                // 脱出先の確定(再オープン⑤ = rc.5 バグ 3/4): li 内の afterNode が
-                                // 無い場合も、(a) 次の li があればその先頭へ (b) 無ければ空継続行を
-                                // 作って脱出する(旧 no-op はユーザー期待に反した)。
-                                dnExitDisplay();
-                                if (afterNode && afterNode.nodeName === 'BR') {
-                                    // 空行へ(br の直前 = li offset)
-                                    const dnR = document.createRange();
-                                    dnR.setStart(liParent, Array.prototype.indexOf.call(liParent.childNodes, afterNode));
-                                    dnR.collapse(true);
-                                    sel.removeAllRanges();
-                                    sel.addRange(dnR);
-                                    scrollCursorIntoView();
-                                } else if (afterNode && afterNode.nodeType === 3 && afterNode.textContent !== '') {
-                                    const dnR = document.createRange();
-                                    dnR.setStart(afterNode, 0);
-                                    dnR.collapse(true);
-                                    sel.removeAllRanges();
-                                    sel.addRange(dnR);
-                                    scrollCursorIntoView();
-                                } else if (afterNode && afterNode.nodeType === 1
-                                    && (afterNode.nodeName === 'PRE' || afterNode.nodeName === 'BLOCKQUOTE')) {
-                                    // 連続ブロック: 次のブロック先頭へ
-                                    if (afterNode.nodeName === 'PRE') {
-                                        enterEditMode(afterNode);
-                                        setCursorToStart(afterNode.querySelector('code') || afterNode);
-                                    } else {
-                                        setCursorToStart(afterNode);
-                                    }
-                                    scrollCursorIntoView();
+                                const dnResolved = resolveAdjacentInLiLine('nextSibling');
+                                if (dnResolved) {
+                                    moveToLiLine(dnResolved, 'above');
                                 } else {
-                                    // 再オープン⑤/⑥(rc.5 バグ 3/4・rc.6 バグ 2): li 内に後続なし。
-                                    // フォールバック順: (a) 次の li 先頭(TC-ILB-42)→ (b) リスト全体の
-                                    // 次の要素(段落/ブロック等 — TC-ILB-44。勝手に空継続行を作らない)
-                                    // → (c) 文書末尾等でどこにも行けない時のみ空継続行を作って脱出
-                                    // (TC-ILB-36 — カーソル消失の防止)。
                                     const dnNextLi = liParent.nextElementSibling;
                                     const dnRootList = (() => {
                                         let l = liParent.parentNode; // ul/ol
