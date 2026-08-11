@@ -2907,6 +2907,7 @@ class EditorInstance {
         let inLiBlock = null;
         let pendingTableColWidths = null; // Persistence (option C): widths for next table
         let pendingHeaderlessTable = false; // FR-TBL-02: headerless marker seen for next table
+        let pendingMergedTable = false; // FR-TMG-01 (ADRL-0054): merged marker seen for next table
         let inBlockquote = false;
         let blockquoteLines = [];
         
@@ -3060,18 +3061,64 @@ class EditorInstance {
             } else {
                 tableHtml = '<table>';
             }
+            // FR-TMG-01 (ADRL-0054): マーカー gate 下で `<`(左結合)/`^`(上結合)を解釈。
+            // 2 パス: まずセル文字列グリッドを作り span を解決 → HTML を組む。
+            // 不正形(1 列目 `<`・先頭 body 行 `^`・参照先が被覆位置)はリテラルに残す。
+            const isMergedTable = pendingMergedTable;
+            const contentRows = [];
             rows.forEach((row, idx) => {
-                // Skip separator row
                 if (isTableSeparator(row)) return;
-
                 const cells = splitTableRow(row);
-                if (isHeaderlessTable && idx === 0
+                if (isHeaderlessTable && contentRows.length === 0 && idx === 0
                     && cells.every((c) => c.trim() === '')) {
                     return; // 空 placeholder header 行は DOM に出さない
                 }
-                const isHeader = idx === 0 && !isHeaderlessTable;
+                contentRows.push({ cells, isHeader: idx === 0 && !isHeaderlessTable });
+            });
+            // span 解決: spanMap[r][c] = {cs, rs}(anchor)| 'covered' | undefined(通常)
+            const spanMap = contentRows.map((r) => r.cells.map(() => undefined));
+            if (isMergedTable) {
+                const bodyStart = contentRows.findIndex((r) => !r.isHeader);
+                for (let r = 0; r < contentRows.length; r++) {
+                    if (contentRows[r].isHeader) continue; // ヘッダー行は結合不可
+                    for (let c = 0; c < contentRows[r].cells.length; c++) {
+                        const tok = contentRows[r].cells[c].trim();
+                        if (tok === '<' && c > 0) {
+                            // 左方の anchor(同行・連鎖可)へ colspan 加算
+                            let ac = c - 1;
+                            while (ac > 0 && spanMap[r][ac] === 'covered') ac--;
+                            if (spanMap[r][ac] !== 'covered' && !contentRows[r].isHeader) {
+                                if (!spanMap[r][ac]) spanMap[r][ac] = { cs: 1, rs: 1 };
+                                spanMap[r][ac].cs++;
+                                spanMap[r][c] = 'covered';
+                            }
+                        } else if (tok === '^' && r > bodyStart) {
+                            // 上方の anchor(同列・連鎖可)へ rowspan 加算
+                            let ar = r - 1;
+                            while (ar > bodyStart && spanMap[ar][c] === 'covered') ar--;
+                            if (contentRows[ar] && !contentRows[ar].isHeader && spanMap[ar][c] !== 'covered') {
+                                if (!spanMap[ar][c]) spanMap[ar][c] = { cs: 1, rs: 1 };
+                                // 2D 結合: anchor の rs はこの行までの距離
+                                spanMap[ar][c].rs = Math.max(spanMap[ar][c].rs, r - ar + 1);
+                                spanMap[r][c] = 'covered';
+                                // anchor が colspan を持つ場合、右方の被覆も同時に covered 化
+                                for (let k = 1; k < (spanMap[ar][c].cs || 1); k++) {
+                                    if (spanMap[r][c + k] !== undefined) continue;
+                                    if (contentRows[r].cells[c + k] !== undefined
+                                        && contentRows[r].cells[c + k].trim() === '^') {
+                                        spanMap[r][c + k] = 'covered';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            contentRows.forEach((rowInfo, r) => {
+                const { cells, isHeader } = rowInfo;
                 tableHtml += '<tr>';
                 cells.forEach((cell, colIdx) => {
+                    if (spanMap[r][colIdx] === 'covered') return; // 被覆位置はセルを出さない
                     const tag = isHeader ? 'th' : 'td';
                     const cellContent = parseInline(cell.trim());
                     const align = alignments[colIdx] || 'left';
@@ -3082,7 +3129,11 @@ class EditorInstance {
                         styleParts.push('width:' + pendingTableColWidths[colIdx] + 'px');
                     }
                     const style = styleParts.length > 0 ? ' style="' + styleParts.join(';') + '"' : '';
-                    tableHtml += '<' + tag + style + ' contenteditable="true">' + (cellContent || '<br>') + '</' + tag + '>';
+                    const sp = spanMap[r][colIdx];
+                    const spanAttr = sp && typeof sp === 'object'
+                        ? (sp.cs > 1 ? ' colspan="' + sp.cs + '"' : '') + (sp.rs > 1 ? ' rowspan="' + sp.rs + '"' : '')
+                        : '';
+                    tableHtml += '<' + tag + spanAttr + style + ' contenteditable="true">' + (cellContent || '<br>') + '</' + tag + '>';
                 });
                 tableHtml += '</tr>';
             });
@@ -3091,6 +3142,7 @@ class EditorInstance {
             pendingTableColWidths = null;
             // consume headerless flag (one-shot — must not leak to the next table)
             pendingHeaderlessTable = false;
+            pendingMergedTable = false; // one-shot(次の table に漏らさない)
             return tableHtml;
         }
 
@@ -3269,6 +3321,13 @@ class EditorInstance {
             // (a user's intentionally-empty header must not morph into headerless).
             if (/^<!--\s*fractal-headerless-table\s*-->\s*$/.test(line)) {
                 pendingHeaderlessTable = true;
+                continue;
+            }
+
+            // FR-TMG-01 (ADRL-0054): merged marker — gate for `<`/`^` merge tokens.
+            // Without the marker those characters stay literal (existing data safety).
+            if (/^<!--\s*fractal-merged-table\s*-->\s*$/.test(line)) {
+                pendingMergedTable = true;
                 continue;
             }
 
@@ -4722,6 +4781,102 @@ class EditorInstance {
         return true;
     }
 
+    // FR-TMG-02: 範囲選択を 1 セルに結合(左上の内容のみ残す = Excel)。th 含む選択は no-op
+    function tslMergeSelection() {
+        if (tableSel.mode !== 'select') return;
+        const cells = tslRangeCells();
+        if (cells.length < 2) return;
+        if (cells.some((c) => c.tagName === 'TH')) return; // ヘッダー行は結合不可
+        undoManager.saveSnapshot();
+        const m = tslGridMap(tableSel.table);
+        let anchor = cells[0], ap = m.posOf.get(cells[0]);
+        let r2 = ap.r, c2 = ap.c;
+        for (const cell of cells) {
+            const p = m.posOf.get(cell);
+            if (p.r < ap.r || (p.r === ap.r && p.c < ap.c)) { anchor = cell; ap = p; }
+            r2 = Math.max(r2, p.r + (cell.rowSpan || 1) - 1);
+            c2 = Math.max(c2, p.c + (cell.colSpan || 1) - 1);
+        }
+        for (const cell of cells) {
+            if (cell !== anchor) cell.remove();
+        }
+        const rs = r2 - ap.r + 1, cs = c2 - ap.c + 1;
+        if (rs > 1) anchor.setAttribute('rowspan', String(rs)); else anchor.removeAttribute('rowspan');
+        if (cs > 1) anchor.setAttribute('colspan', String(cs)); else anchor.removeAttribute('colspan');
+        syncMarkdown();
+        tslEnterSelect(anchor);
+    }
+
+    // FR-TMG-02: 選択(範囲内)の結合セルを解除
+    function tslUnmergeSelection() {
+        if (tableSel.mode !== 'select') return;
+        const spanned = tslRangeCells().filter((c) => (c.rowSpan || 1) > 1 || (c.colSpan || 1) > 1);
+        if (!spanned.length) return;
+        undoManager.saveSnapshot();
+        for (const cell of spanned) tslUnmergeCell(cell);
+        syncMarkdown();
+        tslPaintSelection();
+    }
+
+    // FR-TMG-02: 行/列の挿入・削除が結合領域に交差する場合の事前 unmerge(決定論・データ安全側)。
+    // 既存 6 関数の冒頭から呼ぶ。axis='row' なら行 index、'col' なら列 index に交差する span を解除
+    function tslUnmergeIntersecting(table, axis, index) {
+        if (!table || !table.querySelector('[colspan], [rowspan]')) return;
+        const m = tslGridMap(table);
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            if (rs === 1 && cs === 1) continue;
+            const hit = axis === 'row'
+                ? (index >= p.r && index <= p.r + rs - 1)
+                : (index >= p.c && index <= p.c + cs - 1);
+            if (hit) tslUnmergeCell(cell);
+        }
+    }
+
+    // FR-TFL-01: 行フィルタ(表示のみ・md 不変。ヘッダー常時表示・rowspan グループ単位判定)
+    function applyTableRowFilter(table, query) {
+        const q = (query || '').trim().toLowerCase();
+        const rows = Array.from(table.rows);
+        // rowspan グループ: anchor 行 → 終端行の範囲を先に解く
+        const m = tslGridMap(table);
+        const groupEnd = rows.map((_, r) => r);
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1;
+            if (rs > 1) {
+                for (let r = p.r; r < p.r + rs; r++) {
+                    groupEnd[p.r] = Math.max(groupEnd[p.r], p.r + rs - 1);
+                }
+            }
+        }
+        rows.forEach((row) => row.classList.remove('tbl-row-filtered'));
+        if (!q) return;
+        for (let r = 0; r < rows.length; r++) {
+            if (rows[r].querySelector('th')) continue; // ヘッダー常時表示
+            // グループ(r..groupEnd 最大)のどれかにヒットすれば表示
+            let end = r;
+            for (const [cell, p] of m.posOf) {
+                const rs = cell.rowSpan || 1;
+                if (rs > 1 && r >= p.r && r <= p.r + rs - 1) end = Math.max(end, p.r + rs - 1);
+            }
+            let hit = false;
+            for (let g = r; g <= end; g++) {
+                if ((rows[g].textContent || '').toLowerCase().includes(q)) { hit = true; break; }
+            }
+            if (!hit) {
+                for (let g = r; g <= end; g++) rows[g].classList.add('tbl-row-filtered');
+            }
+            r = end;
+        }
+    }
+
+    // FR-TFL-01: 行追加系操作の前にフィルタ解除(絞り込み中の構造操作は全行文脈で)
+    function clearTableRowFilter(table) {
+        if (!table) return;
+        table.querySelectorAll('.tbl-row-filtered').forEach((r) => r.classList.remove('tbl-row-filtered'));
+        const input = tableToolbar && tableToolbar.querySelector('.table-filter-input');
+        if (input) input.value = '';
+    }
+
     // 結合セルの span 解除 + 空セル復元(unmerge の共通実体。TASK-03 の UI からも呼ぶ)
     function tslUnmergeCell(cell) {
         const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
@@ -4872,12 +5027,29 @@ class EditorInstance {
             null,
             // FR-TBL-01: headerless toggle (display-only; th structure/content preserved)
             { action: 'toggle-header', title: i18n.tableToggleHeader, text: 'H' },
+            null,
+            // FR-TMG-02: セル結合/解除(範囲選択が前提。ADRL-0054)
+            { action: 'merge-cells', title: i18n.tableMergeCells, text: '⊞' },
+            { action: 'unmerge-cells', title: i18n.tableUnmergeCells, text: '⊟' },
+            null,
+            // FR-TFL-01: 行フィルタ(検索テキスト)
+            { action: 'filter-input', isInput: true },
         ];
         tableToolbarItems.forEach(function(item) {
             if (!item) {
                 var sep = document.createElement('span');
                 sep.className = 'separator';
                 tableToolbar.appendChild(sep);
+            } else if (item.isInput) {
+                // FR-TFL-01: 行フィルタの検索 input(表示のみ・md 不変)
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'table-filter-input';
+                input.placeholder = i18n.tableFilterRows || 'Filter rows';
+                input.addEventListener('input', function() {
+                    if (activeTable) applyTableRowFilter(activeTable, input.value);
+                });
+                tableToolbar.appendChild(input);
             } else {
                 var btn = document.createElement('button');
                 btn.dataset.action = item.action;
@@ -4893,6 +5065,8 @@ class EditorInstance {
         });
 
         tableToolbar.addEventListener('mousedown', function(e) {
+            // filter input はフォーカスを受ける必要がある(preventDefault しない)
+            if (e.target && e.target.classList && e.target.classList.contains('table-filter-input')) return;
             e.preventDefault(); // Prevent losing focus from table
         });
 
@@ -4912,6 +5086,8 @@ class EditorInstance {
                 case 'align-center': setColumnAlignment('center'); break;
                 case 'align-right': setColumnAlignment('right'); break;
                 case 'toggle-header': if (activeTable) toggleTableHeader(activeTable); break;
+                case 'merge-cells': tslMergeSelection(); break;
+                case 'unmerge-cells': tslUnmergeSelection(); break;
             }
         });
 
@@ -4996,7 +5172,15 @@ class EditorInstance {
             logger.log('Table elements not in DOM, skipping deleteTableColumn');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'col', _p.c);
+            clearTableRowFilter(_t);
+        }
+
         const cellIndex = activeTableCell.cellIndex;
         if (cellIndex < 0) return;
         
@@ -5040,7 +5224,15 @@ class EditorInstance {
             logger.log('Table elements not in DOM, skipping deleteTableRow');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'row', _p.r);
+            clearTableRowFilter(_t);
+        }
+
         const row = activeTableCell.closest('tr');
         if (!row) return;
         
@@ -5085,7 +5277,15 @@ class EditorInstance {
             logger.log('activeTableCell not in DOM, skipping insertTableRowBelow');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'row', _p.r);
+            clearTableRowFilter(_t);
+        }
+
         const row = activeTableCell.closest('tr');
         if (!row) return;
         
@@ -5121,7 +5321,15 @@ class EditorInstance {
             logger.log('activeTableCell not in DOM, skipping insertTableRowAbove');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'row', _p.r);
+            clearTableRowFilter(_t);
+        }
+
         const row = activeTableCell.closest('tr');
         if (!row) return;
         
@@ -5166,7 +5374,15 @@ class EditorInstance {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnRight');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'col', _p.c);
+            clearTableRowFilter(_t);
+        }
+
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
         
@@ -5224,7 +5440,15 @@ class EditorInstance {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnLeft');
             return;
         }
-        
+                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
+        // + FR-TFL-01: 構造操作前にフィルタ解除
+        {
+            const _t = activeTableCell.closest('table');
+            const _p = tslCellPos(activeTableCell);
+            tslUnmergeIntersecting(_t, 'col', _p.c);
+            clearTableRowFilter(_t);
+        }
+
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
         
@@ -8718,21 +8942,44 @@ class EditorInstance {
             return innerContent;
         }
         
+        // FR-TMG-01 (ADRL-0054): span を持つ table はマーカー + `<`/`^` トークンで emit。
+        // グリッド展開(被覆位置 → anchor 参照)を先に作り、被覆位置は同行 anchor なら `<`、
+        // 上方 anchor なら `^` を出す(列数は全行一定 = GFM 互換)。
+        const hasSpans = !!table.querySelector('[colspan], [rowspan]');
+        let mergeGrid = null;
+        if (hasSpans) {
+            md = '<!-- fractal-merged-table -->\n' + md;
+            mergeGrid = [];
+            const trList = Array.from(rows);
+            for (let r = 0; r < trList.length; r++) mergeGrid.push([]);
+            for (let r = 0; r < trList.length; r++) {
+                let c = 0;
+                for (const cell of trList[r].cells) {
+                    while (mergeGrid[r][c] !== undefined) c++;
+                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                    for (let i = 0; i < rs; i++) {
+                        for (let j = 0; j < cs; j++) {
+                            if (!mergeGrid[r + i]) continue;
+                            mergeGrid[r + i][c + j] =
+                                (i === 0 && j === 0) ? { cell } : (i === 0 ? '<' : '^');
+                        }
+                    }
+                    c += cs;
+                }
+            }
+        }
+
         rows.forEach((row, rowIndex) => {
             const cells = row.querySelectorAll('th, td');
             const cellContents = [];
-            
-            cells.forEach((cell, colIdx) => {
+
+            const cellToMd = (cell, colIdx) => {
                 // Get alignment info from td cells (first data row)
                 if (rowIndex === 1 && cell.tagName === 'TD') {
                     const align = cell.style.textAlign || 'left';
                     alignments[colIdx] = align;
                 }
-                // For header row, check if there's alignment set (for new tables)
-                if (rowIndex === 0 && alignments.length === 0) {
-                    // Will be filled by data rows
-                }
-                
+
                 // Process cell content with proper pipe escaping.
                 // BUG-FIX: 空 cell (`<td><br></td>`) は markdown 出力時に **空** にする
                 //   ('<br>' は contenteditable の表示確保用にのみ使う)。
@@ -8752,9 +8999,24 @@ class EditorInstance {
                 } else {
                     cellText = processCellContent(cell);
                 }
-                cellContents.push(cellText.trim() || ' ');
-            });
-            
+                return cellText.trim() || ' ';
+            };
+
+            if (mergeGrid) {
+                // グリッド走査: anchor はセル内容、被覆位置は `<`/`^` を emit
+                const gridRow = mergeGrid[rowIndex] || [];
+                for (let c = 0; c < gridRow.length; c++) {
+                    const g = gridRow[c];
+                    if (g && g.cell) cellContents.push(cellToMd(g.cell, c));
+                    else if (g === '<' || g === '^') cellContents.push(g);
+                    else cellContents.push(' ');
+                }
+            } else {
+                cells.forEach((cell, colIdx) => {
+                    cellContents.push(cellToMd(cell, colIdx));
+                });
+            }
+
             md += '| ' + cellContents.join(' | ') + ' |\n';
             
             // Add separator row after header with alignment markers

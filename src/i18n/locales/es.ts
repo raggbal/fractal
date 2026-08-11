@@ -94,6 +94,9 @@ export const webviewMessages = {
   alignCenter: 'Alinear al centro',
   alignRight: 'Alinear a la derecha',
   tableToggleHeader: 'Alternar fila de encabezado',
+  tableMergeCells: 'Combinar celdas',
+  tableUnmergeCells: 'Separar celdas',
+  tableFilterRows: 'Filtrar filas',
   // Status bar
   words: 'Palabras',
   characters: 'Caracteres',
