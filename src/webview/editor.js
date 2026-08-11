@@ -1222,8 +1222,17 @@ class EditorInstance {
         var TYPING_DEBOUNCE = 500;
         var _isUndoRedo = false;
 
+        var _preEditCursor = null; // beforeinput 時点(= markdown 変数と同時点)の cursor
+        function notePreEditCursor() { _preEditCursor = saveCursorState(); }
         function capture() {
             return { markdown: markdown, cursor: saveCursorState() };
+        }
+        // input 経由の snapshot: markdown 変数は「変化前」なので cursor も変化前
+        //(beforeinput で保存した _preEditCursor)を対にする(再オープン⑩ undo カーソル迷子:
+        // 旧実装は markdown=旧 / cursor=新の不整合ペアで、undo 後のカーソルがタイプ分ずれて
+        // 別 li に飛んでいた)。
+        function captureForInput() {
+            return { markdown: markdown, cursor: _preEditCursor || saveCursorState() };
         }
 
         function saveSnapshot() {
@@ -1239,7 +1248,14 @@ class EditorInstance {
         function saveSnapshotDebounced() {
             if (_isUndoRedo) return;
             if (typingTimer) return;
-            saveSnapshot();
+            // input 後に呼ばれるため markdown(変化前)と対になる変化前 cursor を使う
+            var state = captureForInput();
+            if (!(undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown)) {
+                undoStack.push(state);
+                if (undoStack.length > MAX_STACK) undoStack.shift();
+                redoStack.length = 0;
+                updateButtons();
+            }
             typingTimer = setTimeout(function() { typingTimer = null; }, TYPING_DEBOUNCE);
         }
 
@@ -1303,6 +1319,7 @@ class EditorInstance {
         return {
             saveSnapshot: saveSnapshot,
             saveSnapshotDebounced: saveSnapshotDebounced,
+            notePreEditCursor: notePreEditCursor,
             undo: undo,
             redo: redo,
             updateButtons: updateButtons,
@@ -2380,19 +2397,61 @@ class EditorInstance {
         if (blockIndex === -1) return null;
 
         // Save block text content for text-based matching (robust against insertions above)
-        const blockText = block.textContent || '';
+        // 再オープン⑩: UI 装飾を除いたテキストで比較(pre ヘッダの有無で不一致にならないように)
+        const blockText = cursorBlockText(block);
 
         // Calculate text offset within the block
+        // 再オープン⑩(undo カーソル迷子): 保存と復元でオフセットの数え方を完全対称にする。
+        // (a) <br> = 1(Range.toString は 0 と数えるため cloneContents で自前カウント)
+        // (b) UI テキスト(pre の code-block-header「⤢ plaintext Copy」・resize handle 等
+        //     contenteditable=false の装飾)は除外 — undo の再 render 直後はヘッダ未構築で
+        //     テキスト量が変わり、カーソルが後方の別 li に飛ぶ/消える機序だった。
         try {
             const preRange = document.createRange();
             preRange.setStart(block, 0);
             preRange.setEnd(range.startContainer, range.startOffset);
-            const textOffset = preRange.toString().length;
+            const preFrag = preRange.cloneContents();
+            const textOffset = countCursorTextOffset(preFrag);
             return { blockIndex, blockText, textOffset };
         } catch (e) {
             logger.log('[Any MD] saveCursorState failed:', e);
             return null;
         }
+    }
+
+    // カーソル保存/復元共通の「実テキスト量」カウント。UI 装飾(code-block-header /
+    // table-col-resize-handle / contenteditable=false の補助 div)を除外し、<br> を 1 と数える。
+    function isCursorUiNode(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el.classList && (el.classList.contains('code-block-header')
+            || el.classList.contains('table-col-resize-handle'))) return true;
+        return false;
+    }
+    function cursorBlockText(block) {
+        let out = '';
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { out += child.textContent; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') { out += '\n'; continue; }
+                walk(child);
+            }
+        })(block);
+        return out;
+    }
+    function countCursorTextOffset(root) {
+        let count = 0;
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { count += child.textContent.length; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') { count += 1; continue; }
+                walk(child);
+            }
+        })(root);
+        return count;
     }
 
     /**
@@ -2411,11 +2470,15 @@ class EditorInstance {
                 return null;
             }
             if (node.nodeType === Node.ELEMENT_NODE) {
+                // 保存側 countCursorTextOffset と対称: UI 装飾を数えない(再オープン⑩)
+                if (isCursorUiNode(node)) return null;
                 if (node.tagName === 'BR') {
-                    if (currentOffset >= targetOffset) {
+                    // target が br 自身(cloneContents が (br,0) 終端で br を含めた +1)でも
+                    // br 位置(= 空行/行頭)に着地させる(>= から +1 >= へ — 再オープン⑩)
+                    if (currentOffset + 1 >= targetOffset) {
                         const parent = node.parentNode;
                         const idx = Array.from(parent.childNodes).indexOf(node);
-                        return { node: parent, offset: idx };
+                        return { node: parent, offset: currentOffset >= targetOffset ? idx : idx + 1 };
                     }
                     currentOffset += 1;
                     return null;
@@ -2454,7 +2517,7 @@ class EditorInstance {
         if (state.blockText) {
             var candidates = [];
             for (let i = 0; i < blocks.length; i++) {
-                if ((blocks[i].textContent || '') === state.blockText) {
+                if (cursorBlockText(blocks[i]) === state.blockText) {
                     candidates.push({ block: blocks[i], index: i });
                 }
             }
@@ -8868,7 +8931,7 @@ class EditorInstance {
                     exNr.collapse(true);
                     sel.removeAllRanges();
                     sel.addRange(exNr);
-                    undoManager.saveSnapshot();
+                    // snapshot は Enter ハンドラ冒頭(:8874)で積み済み(DOM 変更前)。
                     markAsEdited();
                     syncMarkdown();
                     return;
@@ -8903,7 +8966,7 @@ class EditorInstance {
                 lcNr.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(lcNr);
-                undoManager.saveSnapshot();
+                // snapshot は Enter ハンドラ冒頭で積み済み(DOM 変更前)。
                 markAsEdited();
                 syncMarkdown();
                 return;
@@ -9469,11 +9532,13 @@ class EditorInstance {
                             // 空リスト行を追加**しカーソル移動する(TC-ILB-39/40/41/43)。
                             // split はブロック位置に li マーカーが湧く/継続行が分断される等、
                             // どの位置でも構造破壊になるため全面禁止。
+                            // snapshot は DOM 変更前に積む(markdown 変数 = 変更前と cursor を
+                            // 同時点に保つ — 再オープン⑩ undo カーソル迷子の同型防止)
+                            undoManager.saveSnapshot();
                             const enNewLi = document.createElement('li');
                             enNewLi.innerHTML = '<br>';
                             listItem.after(enNewLi);
                             setCursorToStart(enNewLi);
-                            undoManager.saveSnapshot();
                             markAsEdited();
                             syncMarkdown();
                             return;
@@ -13638,6 +13703,13 @@ class EditorInstance {
             syncMarkdownSync();
             return;
         }
+    });
+
+    // beforeinput: undo snapshot 用に「編集前の cursor」を記録(markdown 変数と同時点。
+    // 再オープン⑩ — input 後の cursor と旧 markdown の不整合ペアが undo カーソル迷子の真因)
+    editor.addEventListener('beforeinput', function() {
+        if (isSourceMode) return;
+        undoManager.notePreEditCursor();
     });
 
     // Input handler - debounced sync for performance

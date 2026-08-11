@@ -2008,3 +2008,96 @@ test.describe('Blank continuation roundtrip and undo (re-open 10)', () => {
         expect(state.topPre).toBe(0);
     });
 });
+
+// ---- 再オープン⑩続(2026-08-11): undo 後のカーソル位置 ----
+// 機序: pre の UI ヘッダ(⤢ plaintext Copy = テキスト 15 文字)が saveCursorState の
+// textOffset に混入。undo の再 render 直後はヘッダ未構築のため offset がずれ、
+// カーソルが後方の別 li(next 等)へ飛ぶ/消える。UI テキストを保存・復元の両側で除外する。
+
+test.describe('Cursor restore after undo (re-open 10b)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-64: ユーザーシナリオ = pre 内 Shift+Enter → text1 → Enter → text2 → Enter → Cmd+Z×3
+    // 各 undo でカーソルが editor 内の編集文脈(元の li 付近)に留まる
+    test('TC-ILB-64 cursor survives repeated undo after block+continuation editing', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  ```\n  code\n  ```\n- next');
+            await new Promise(r => setTimeout(r, 300));
+            const pre = document.querySelector('#editor li pre')!;
+            const code = pre.querySelector('code')!;
+            pre.setAttribute('data-mode', 'edit');
+            code.setAttribute('contenteditable', 'true');
+            (code as HTMLElement).focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(code); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('text1');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('text2');
+        await page.waitForTimeout(600);
+        for (let i = 1; i <= 3; i++) {
+            await page.keyboard.press('Meta+z');
+            await page.waitForTimeout(300);
+            const s = await page.evaluate(() => {
+                const sel = window.getSelection()!;
+                if (!sel.rangeCount) return { lost: true, inFirstLi: false };
+                const a = sel.anchorNode!;
+                const el = a.nodeType === 1 ? a as Element : a.parentElement;
+                const li = el?.closest('li');
+                const lis = document.querySelectorAll('#editor li');
+                const idx = li ? Array.from(lis).indexOf(li) : -1;
+                return {
+                    lost: !el?.closest('#editor'),
+                    // 編集文脈 = 元 li(0)か、Enter で作った空 li(1)。最後の li(next)に
+                    // 飛んだらカーソル迷子(旧バグの症状)
+                    inEditedContext: idx >= 0 && idx < lis.length - 1,
+                };
+            });
+            expect(s.lost, `undo ${i}: cursor lost`).toBe(false);
+            expect(s.inEditedContext, `undo ${i}: cursor jumped to unrelated li`).toBe(true);
+        }
+    });
+
+    // TC-ILB-65: pre より後ろの継続行でタイプ → undo → カーソルが同じ行に戻る
+    test('TC-ILB-65 cursor returns to same continuation line after undo', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- head\n  ```\n  code\n  ```\n  text1\n  text2\n- next');
+            await new Promise(r => setTimeout(r, 300));
+            const editor = document.getElementById('editor')!;
+            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) { if ((node.textContent || '').includes('text2')) break; }
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(node!, node!.textContent!.length);
+            r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.type('XY');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            return {
+                lost: false,
+                anchorText: (a.textContent || ''),
+                nearText2: (a.textContent || '').includes('text2')
+                    || ((a.nodeType === 1 ? a as Element : a.parentElement)?.textContent || '').includes('text2'),
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.nearText2, 'cursor should be at/near text2, got: ' + s.anchorText).toBe(true);
+    });
+});
