@@ -1913,3 +1913,98 @@ test.describe('Single-li copy with continuation lines (re-open 9)', () => {
         expect(state.liCount).toBe(2);
     });
 });
+
+// ---- 再オープン⑩(2026-08-11 rc.10): undo と空継続行の roundtrip ----
+// 機序: 空継続行の serialize 形「(インデントのみの行)」を parse が「空行 = リスト終了」と
+// 解釈し roundtrip 不安定。undo は md 文字列 snapshot の再 render なので、この不安定が
+// 「undo するとリストが段落に分解される」バグとして露出していた(undo 自体は正常)。
+
+test.describe('Blank continuation roundtrip and undo (re-open 10)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-61: 空継続行(インデント付き空白行)の md が roundtrip 安定
+    // counterfactual: 現行 parse は空白行でリストを閉じ、リストが段落分解 = RED
+    test('TC-ILB-61 indented blank continuation line roundtrips stably', async ({ page }) => {
+        const md = '- sdsds\n  > dada\n  \n  dsds\n- next\n';
+        const r = await page.evaluate(async (src) => {
+            (window as any).__testApi.setMarkdown(src);
+            await new Promise(r_ => setTimeout(r_, 300));
+            return {
+                md: (window as any).__testApi.getMarkdown(),
+                liCount: document.querySelectorAll('#editor li').length,
+                topPNonEmpty: Array.from(document.querySelectorAll('#editor > p'))
+                    .filter(p_ => (p_.textContent || '').trim() !== '').length,
+                bqInLi: document.querySelectorAll('#editor li blockquote').length,
+            };
+        }, md);
+        expect(r.liCount).toBe(2);   // リストが分解されない
+        expect(r.bqInLi).toBe(1);    // bq は li 内のまま
+        expect(r.topPNonEmpty).toBe(0); // 段落化しない(md 末尾 \n 由来の空 p は既存仕様)
+        expect(r.md).toBe(md);       // byte 安定
+    });
+
+    // TC-ILB-62: Shift+Enter(空継続行)→ タイプ → Cmd+Z でバグらず直前状態に戻る
+    test('TC-ILB-62 undo after typing on blank continuation restores structure', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsds\n  > dada\n  > sdsd\n  dsds\n- next');
+            await new Promise(r => setTimeout(r, 300));
+            const bq = document.querySelector('#editor li blockquote')!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(bq);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('aaa');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const state = await page.evaluate(() => ({
+            liCount: document.querySelectorAll('#editor li').length,
+            bqInLi: document.querySelectorAll('#editor li blockquote').length,
+            topP: Array.from(document.querySelectorAll('#editor > p'))
+                .filter(p => (p.textContent || '').trim() !== '').length,
+            md: (window as any).__testApi.getMarkdown(),
+        }));
+        expect(state.liCount).toBe(2);   // リスト構造が保たれる(段落分解しない)
+        expect(state.bqInLi).toBe(1);    // bq が li 内のまま(「> sds」のテキスト化が起きない)
+        expect(state.topP).toBe(0);
+        expect(state.md).not.toContain('\n\n> '); // bq が li 外に出ていない
+    });
+
+    // TC-ILB-63: コードブロック版(同型)
+    test('TC-ILB-63 undo after typing works with code block variant', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- sdsds\n  ```\n  dada\n  ```\n  dsds\n- next');
+            await new Promise(r => setTimeout(r, 300));
+            const li = document.querySelector('#editor li')!;
+            const t = Array.from(li.childNodes).find(n => n.nodeType === 3 && n.textContent!.includes('dsds'))!;
+            const sel = window.getSelection()!;
+            const range = document.createRange();
+            range.setStart(t, t.textContent!.length);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press('Shift+Enter');
+        await page.waitForTimeout(200);
+        await page.keyboard.type('bbb');
+        await page.waitForTimeout(600);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(300);
+        const state = await page.evaluate(() => ({
+            liCount: document.querySelectorAll('#editor li').length,
+            preInLi: document.querySelectorAll('#editor li pre').length,
+            topPre: document.querySelectorAll('#editor > pre').length,
+        }));
+        expect(state.liCount).toBe(2);
+        expect(state.preInLi).toBe(1);  // pre が li 内のまま
+        expect(state.topPre).toBe(0);
+    });
+});

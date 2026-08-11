@@ -3105,6 +3105,19 @@ class EditorInstance {
             } else {
                 // Handle empty lines specially when in a list
                 if (line.trim() === '' && listStack.length > 0) {
+                    // FR-LC-08 (再オープン⑩ rc.10): インデント付き空白行(空継続行の serialize 形)
+                    // は「空の継続行」としてリストを閉じずに取り込む(roundtrip 安定 = undo の
+                    // md snapshot 再 render でリストが段落分解しない)。インデント無しの空行は
+                    // 従来どおり下の look-ahead(リスト終了判定)へ。
+                    {
+                        const blankIndent = line.match(/^(\s*)/)[1].length;
+                        const blankIndentLevel = Math.floor(blankIndent / 2);
+                        const deepestBlank = listStack[listStack.length - 1].indent;
+                        if (blankIndent > 0 && blankIndentLevel >= deepestBlank + 1) {
+                            html += '<br>';
+                            continue;
+                        }
+                    }
                     // Look ahead to find next non-empty line
                     let nextListItem = false;
                     let nextListIndent = 0;
