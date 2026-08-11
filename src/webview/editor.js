@@ -1293,7 +1293,20 @@ class EditorInstance {
                 var state = undoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
-                if (state.cursor) restoreCursorState(state.cursor);
+                // 再オープン⑭(実機のみ再現する undo カーソル飛び): focus が editor 外
+                //(toolbar ボタン / VS Code keybinding 経由)だと selection 復元後にブラウザが
+                // 勝手にキャレットを置き直す。復元前に focus を確保し、復元は同期 + rAF 後の
+                // 再適用の二重で行う(実機の外部変更エコー等の非同期上書きに対する防御)。
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    restoreCursorState(state.cursor);
+                    var _undoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_undoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 hasUserEdited = true;
                 notifyChangeImmediate();
             } finally {
@@ -1312,6 +1325,15 @@ class EditorInstance {
                 var state = redoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    var _redoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_redoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 if (state.cursor) restoreCursorState(state.cursor);
                 hasUserEdited = true;
                 notifyChangeImmediate();
@@ -13812,7 +13834,16 @@ class EditorInstance {
 
     // beforeinput: undo snapshot 用に「編集前の cursor」を記録(markdown 変数と同時点。
     // 再オープン⑩ — input 後の cursor と旧 markdown の不整合ペアが undo カーソル迷子の真因)
-    editor.addEventListener('beforeinput', function() {
+    editor.addEventListener('beforeinput', function(e) {
+        if (isSourceMode) return;
+        // IME 合成中(insertCompositionText)は _preEdit を上書きしない — 合成開始前の
+        // 状態が「変化前」であり、合成途中の中間状態を変化前として積むと undo の
+        // カーソル/内容が合成途中に飛ぶ(再オープン⑭・日本語入力での undo 乱れ)。
+        if (e && (e.isComposing || e.inputType === 'insertCompositionText')) return;
+        undoManager.notePreEditCursor();
+    });
+    // 合成開始の直前状態を「変化前」として確保(compositionstart は beforeinput より先)
+    editor.addEventListener('compositionstart', function() {
         if (isSourceMode) return;
         undoManager.notePreEditCursor();
     });

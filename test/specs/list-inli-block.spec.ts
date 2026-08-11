@@ -2493,3 +2493,88 @@ test.describe('Undo cursor at blockquote boundaries (re-open 13)', () => {
         expect(s.liIdx).toBe(1);
     });
 });
+
+// ---- 再オープン⑭(2026-08-11 rc.15): IME 合成と focus 喪失下の undo ----
+
+test.describe('Undo under IME composition and focus loss (re-open 14)', () => {
+    test.beforeEach(async ({ page }) => {
+        await page.goto('http://localhost:3000/standalone-editor.html');
+        await page.waitForSelector('#editor', { state: 'visible' });
+    });
+
+    // TC-ILB-75: IME 合成入力(っd)を undo → bq 内に正しく復元(合成途中状態に飛ばない)
+    test('TC-ILB-75 undo of IME composition restores in-bq cursor', async ({ page }) => {
+        test.setTimeout(90000);
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- asdada\n  - csds\n    asasa\n    > adada\n    sdsdsd\n  - asdasdfa');
+            await new Promise(r => setTimeout(r, 300));
+            const bq = document.querySelector('#editor li li blockquote')!;
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(bq); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        const client = await page.context().newCDPSession(page);
+        await client.send('Input.imeSetComposition', { text: 'っ', selectionStart: 1, selectionEnd: 1 });
+        await page.waitForTimeout(100);
+        await client.send('Input.imeSetComposition', { text: 'っd', selectionStart: 2, selectionEnd: 2 });
+        await page.waitForTimeout(100);
+        await client.send('Input.insertText', { text: 'っd' });
+        await page.waitForTimeout(700);
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(400);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            const li = el?.closest('li');
+            const lis = Array.from(document.querySelectorAll('#editor li'));
+            return {
+                lost: false,
+                inBq: !!el?.closest('blockquote'),
+                liIdx: li ? lis.indexOf(li) : -1,
+                bqText: document.querySelector('#editor li li blockquote')?.textContent,
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.bqText).toBe('adada');  // 合成分が消える
+        expect(s.inBq).toBe(true);        // カーソルは bq 内(下の li に飛ばない)
+    });
+
+    // TC-ILB-76: focus が editor 外(toolbar クリック相当)でも undo でカーソルが editor 内に復元
+    test('TC-ILB-76 undo with focus outside editor restores caret inside', async ({ page }) => {
+        await page.evaluate(async () => {
+            (window as any).__testApi.setMarkdown('- a\n  > q\n  tail\n- b');
+            await new Promise(r => setTimeout(r, 300));
+            const bq = document.querySelector('#editor li blockquote')!;
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.selectNodeContents(bq); r.collapse(false);
+            sel.removeAllRanges(); sel.addRange(r);
+        });
+        await page.keyboard.type('XY');
+        await page.waitForTimeout(700);
+        // focus を外部へ(toolbar ボタン相当)→ toolbar undo と同じ経路で undoManager を駆動
+        await page.evaluate(() => {
+            (document.activeElement as HTMLElement)?.blur?.();
+            document.body.focus?.();
+        });
+        await page.keyboard.press('Meta+z');
+        await page.waitForTimeout(400);
+        const s = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            if (!sel.rangeCount) return { lost: true } as any;
+            const a = sel.anchorNode!;
+            const el = a.nodeType === 1 ? a as Element : a.parentElement;
+            return {
+                lost: false,
+                inEditor: !!el?.closest('#editor'),
+                inBq: !!el?.closest('blockquote'),
+            };
+        });
+        expect(s.lost).toBe(false);
+        expect(s.inEditor).toBe(true);
+        expect(s.inBq).toBe(true); // XY タイプ前 = bq 内末尾へ
+    });
+});
