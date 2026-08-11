@@ -5138,6 +5138,8 @@ class EditorInstance {
         if (tableToolbar) {
             tableToolbar.classList.remove('visible');
         }
+        // FR-TFL-01: toolbar 非表示 = table を離れた → フィルタをクリア(one-shot 対クリア)
+        if (activeTable) clearTableRowFilter(activeTable);
         activeTable = null;
     }
 

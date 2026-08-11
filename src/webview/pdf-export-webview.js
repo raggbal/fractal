@@ -57,6 +57,20 @@
         // 1. clone（deep）。以降 clone のみを操作し元 DOM は read-only（NFR-PDF-04）
         var clone = editorEl.cloneNode(true);
 
+        // 1.5 FR-TFL-01 (sprint 20260812-032645): table 行フィルタは表示のみの状態 —
+        //     PDF はフィルタ無視で全行出力する(class を剥がすだけで display:none が外れる)
+        try {
+            var filtered = clone.querySelectorAll('tr.tbl-row-filtered');
+            for (var fi = 0; fi < filtered.length; fi++) {
+                filtered[fi].classList.remove('tbl-row-filtered');
+            }
+            // select モードの視覚状態も PDF に出さない
+            var selArtifacts = clone.querySelectorAll('.tbl-cell-selected, .tbl-cell-range, .tbl-select-mode');
+            for (var ai = 0; ai < selArtifacts.length; ai++) {
+                selArtifacts[ai].classList.remove('tbl-cell-selected', 'tbl-cell-range', 'tbl-select-mode');
+            }
+        } catch (_f) { /* noop */ }
+
         // 2. checkbox の checked property を clone 側の checked 属性へ焼き付け
         //    （cloneNode は property を保存しない → property の checked を属性に転写）
         //    対応付けは querySelectorAll の同一 index（元 editorEl / clone で DOM 構造が一致する前提）
