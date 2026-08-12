@@ -294,9 +294,8 @@ From an outliner, type `@page` at the end of a node (or press `Cmd+Enter`) to ha
 - Click any `#tag` to filter; pin frequent tags for one-click filtering
 - Tabs and navigation history (`Opt+←/→`) work like a browser
 
-### Using the editors standalone (without Notes)
-- **Markdown**: right-click any `.md` → **"Open with Fractal Note"**. To make it the default: right-click → **Open With…** → **Configure default editor** → **Fractal Note**
-- **Outliner**: `.out` files open in Fractal Note automatically. Create one anywhere with the command palette: `Fractal Note: New Outliner File`
+### Using the markdown editor standalone (without Notes)
+Right-click any `.md` → **"Open with Fractal Note"**. To make it the default: right-click → **Open With…** → **Configure default editor** → **Fractal Note**
 
 ### Learning the ropes
 - **Long-press cmd (Ctrl on Windows)** — a shortcut overlay (HUD) pops up for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss. This is the fastest way to discover features

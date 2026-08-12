@@ -297,9 +297,8 @@ npm run compile
 - `#tag` クリックで即フィルタ。よく使うタグはピン留めしてワンクリック絞り込み
 - タブとナビゲーション履歴（`Opt+←/→`）はブラウザ感覚で使えます
 
-### エディタを単体で使う（Notes なし）
-- **マークダウン**: 任意の `.md` を右クリック → **"Open with Fractal Note"**。デフォルトにするには: 右クリック → **Open With…** → **Configure default editor** → **Fractal Note**
-- **アウトライナー**: `.out` ファイルは自動的に Fractal Note で開きます。コマンドパレットの `Fractal Note: New Outliner File` でどこにでも作成可能
+### マークダウンエディタを単体で使う（Notes なし）
+任意の `.md` を右クリック → **"Open with Fractal Note"**。デフォルトにするには: 右クリック → **Open With…** → **Configure default editor** → **Fractal Note**
 
 ### 操作を覚えるには
 - **cmd（Windows: Ctrl）を単独で長押し** — 表示中のビュー（Markdown / Outliner / Mindmap / Database）に応じたショートカット一覧（HUD）がポップアップ。キーを離すと消えます。機能を発見する最速の方法です
