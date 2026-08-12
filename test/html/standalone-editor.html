@@ -12235,26 +12235,35 @@ class EditorInstance {
                 if (cell) cell.innerHTML = matrix[i][j] || '<br>';
             }
         }
-        // 再オープン② bug(2): コピー元の結合を貼り付け先で再現(範囲内に収まるもののみ・
-        // 列切捨てで欠けた span は幅を丸める。th 行には結合を作らない)
+        // 再オープン② bug(2)/再オープン③: コピー元の結合を貼り付け先で再現。
+        // 🔴 被覆セルの削除は「span 適用前の単一 grid スナップショット」から実参照で
+        // 集めてから行う — 1 個消すたびに grid を再計算すると(span 未適用のため)残りの
+        // セルが左に詰まり、誤削除(内容セル喪失)+ 消し残し(幽霊列)になる(実測 = 再オープン③)
         for (const sp of srcSpans) {
-            const ar = p.r + sp.r, ac = p.c + sp.c;
             const m3 = tslGridMap(table);
+            const ar = p.r + sp.r, ac = p.c + sp.c;
             if (ar >= m3.rows.length || ac >= colCount) continue;
             const anchorCell = m3.grid[ar] && m3.grid[ar][ac];
             if (!anchorCell || anchorCell.tagName === 'TH') continue;
             const rs = Math.min(sp.rs, m3.rows.length - ar);
             const cs = Math.min(sp.cs, colCount - ac);
             if (rs <= 1 && cs <= 1) continue;
-            // 対象矩形の他セルを remove して span を張る(tslMergeSelection と同じ手順)
-            for (let i = 0; i < rs; i++) {
+            const victims = new Set();
+            let blocked = false;
+            for (let i = 0; i < rs && !blocked; i++) {
                 for (let j = 0; j < cs; j++) {
                     if (i === 0 && j === 0) continue;
-                    const cur = tslGridMap(table);
-                    const victim = cur.grid[ar + i] && cur.grid[ar + i][ac + j];
-                    if (victim && victim !== anchorCell && victim.tagName !== 'TH') victim.remove();
+                    const v = m3.grid[ar + i] ? m3.grid[ar + i][ac + j] : undefined;
+                    if (v === anchorCell) continue;
+                    if (!v || v.tagName === 'TH' || (v.rowSpan || 1) > 1 || (v.colSpan || 1) > 1) {
+                        blocked = true; // th や既存 span と衝突する再現はスキップ(安全側)
+                        break;
+                    }
+                    victims.add(v);
                 }
             }
+            if (blocked) continue;
+            victims.forEach((v) => v.remove());
             if (rs > 1) anchorCell.setAttribute('rowspan', String(rs));
             if (cs > 1) anchorCell.setAttribute('colspan', String(cs));
         }
@@ -24055,6 +24064,9 @@ class EditorInstance {
     function toggleSourceMode() {
         isSourceMode = !isSourceMode;
         if (isSourceMode) {
+            // 再オープン③: table toolbar / select 状態は WYSIWYG 面のもの — source 化で消す
+            tslClear();
+            hideTableToolbar();
             sourceEditor.value = markdown;
             sourceEditor.style.display = 'block';
             editor.style.display = 'none';

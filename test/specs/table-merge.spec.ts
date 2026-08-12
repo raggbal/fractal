@@ -369,3 +369,106 @@ test('TC-TMG-14 copy/paste of a range containing merged cells reproduces the spa
     const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
     expect(md).toContain('| ^ | ^ | c2 |');
 });
+
+// 再オープン③: 3x3 結合 + 隣接列の範囲を下に貼ると幽霊列 + 内容喪失(victim 削除の
+// 逐次 grid 再計算バグ)。列数一致・全内容保持・span 再現を counterfactual で固定
+test('TC-TMG-15 pasting a 3x3-merged range below keeps column count and all contents', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    // ユーザー報告と同構造: 4 列・ノートブック = 3 列 × 3 行結合・対象列に s/っっd/あああ
+    await setup(page, M + '\n| 分類 | Header | スキャナ | 対象 |\n| --- | --- | --- | --- |\n| シークレット |  | git-secrets | Git 検出 |\n| ノートブック | < | < | s |\n| ^ | ^ | ^ | っっd |\n| ^ | ^ | ^ | あああ |\n|  |  |  |  |');
+    // ノートブック(grid 2,0)から 対象列(grid 2..4, 3)まで範囲選択
+    const box = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const cell = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.includes('ノートブック'))!;
+        const b = cell.getBoundingClientRect();
+        return { x: b.x + 30, y: b.y + 10 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Shift+ArrowRight'); // 対象列へ拡張(矩形は 3 行 4 列に成長)
+    await page.keyboard.press('Meta+c');
+    await page.waitForTimeout(300);
+    // 最下行(空行)の先頭セルへ paste
+    const box2 = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const lastRow = t.rows[t.rows.length - 1];
+        const b = lastRow.cells[0].getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    await page.mouse.click(box2.x, box2.y);
+    await page.waitForTimeout(150);
+    const clip = await page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            if (item.types.includes('text/html')) return await (await item.getType('text/html')).text();
+        }
+        return '';
+    });
+    await page.evaluate((html) => {
+        const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'clipboardData', {
+            value: { getData: (t: string) => t === 'text/html' ? html : '' },
+        });
+        document.querySelector('#editor')!.dispatchEvent(e);
+    }, clip);
+    await page.waitForTimeout(400);
+    const st = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        // grid 幅 = rowspan 被覆込みで展開して数える(幽霊列検出)
+        const rows = Array.from(t.rows);
+        const grid: any[][] = rows.map(() => []);
+        rows.forEach((row, r) => {
+            let c = 0;
+            for (const cell of Array.from(row.cells)) {
+                while (grid[r][c] !== undefined) c++;
+                for (let i = 0; i < (cell.rowSpan || 1); i++) {
+                    for (let j = 0; j < (cell.colSpan || 1); j++) {
+                        if (grid[r + i]) grid[r + i][c + j] = 1;
+                    }
+                }
+                c += (cell.colSpan || 1);
+            }
+        });
+        const widths = grid.map(g => g.length);
+        const notes = Array.from(t.querySelectorAll('td')).filter(c => c.textContent?.includes('ノートブック'));
+        const bodyText = t.textContent || '';
+        return {
+            widths,
+            noteCount: notes.length,
+            noteSpans: notes.map(n => `${n.colSpan}x${n.rowSpan}`),
+            countTsuD: (bodyText.match(/っっｄ|っっd/g) || []).length,
+            countAaa: (bodyText.match(/あああ/g) || []).length,
+        };
+    });
+    // 全行の grid 幅が 4 で一致(幽霊 5 列目が生えない)
+    expect(new Set(st.widths).size).toBe(1);
+    expect(st.widths[0]).toBe(4);
+    // 結合が 2 箇所(元 + 貼り付け)とも 3x3
+    expect(st.noteCount).toBe(2);
+    expect(st.noteSpans).toEqual(['3x3', '3x3']);
+    // 内容が 1 個も落ちない(s / っっd / あああ が元 + 貼り付けの 2 組)
+    expect(st.countTsuD).toBe(2);
+    expect(st.countAaa).toBe(2);
+    // md 往復も列数一致(全行 | 区切り 4 セル)
+    const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+    const tableLines = md.split('\n').filter((l: string) => l.startsWith('|'));
+    const colCounts = tableLines.map((l: string) => l.split('|').length - 2);
+    expect(new Set(colCounts).size).toBe(1);
+});
+
+// 再オープン③: source mode 切替で table toolbar が消える
+test('TC-TSL-18 switching to source mode hides the table toolbar', async ({ page }) => {
+    await setup(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |');
+    await clickBodyCell(page, 0, 0); // toolbar 表示 + select モード
+    let visible = await page.evaluate(() =>
+        document.querySelector('.table-toolbar')?.classList.contains('visible'));
+    expect(visible).toBe(true);
+    await page.evaluate(() => {
+        // standalone は source ボタンが無いため instance メソッド経由(実 UI と同一実体)
+        (window as any).EditorInstance.instances[0]._toggleSourceMode();
+    });
+    await page.waitForTimeout(200);
+    visible = await page.evaluate(() =>
+        document.querySelector('.table-toolbar')?.classList.contains('visible'));
+    expect(visible).toBe(false);
+});
