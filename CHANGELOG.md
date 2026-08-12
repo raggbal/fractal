@@ -5,6 +5,23 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-08-13
+
+### Fixed
+- **Host-side messages are now localized** (sprint 20260813-073112-host-message-i18n): the flat-layout migration gate screen (title, description, summary labels, Migrate/Retry buttons, progress/failure text — plus the HTML `lang` attribute), the migration-completed toasts (backup path / recovery guidance / unresolved-item warning), and the translation & terminology error/success messages were hardcoded in Japanese. All of them now go through the i18n layer with keys registered in all 7 locales (en / ja / es / fr / ko / zh-CN / zh-TW). A repository-wide guard test (TC-HMI-04) keeps new hardcoded Japanese out of `src/`.
+
+## [1.2.0] - 2026-08-13
+
+### Fixed
+- **Archiving tasks to Daily Notes no longer resurrects the old per-outliner layout** (sprint 20260812-171126-dailynotes-flat-archive): `dailynotes.out` created without flat-layout hints caused the archive handler to copy page markdown into a legacy `<note>/dailynotes/` folder, which then re-triggered the migration gate on the next open. `ensureDailyNotesFile` now writes the flat hints (`pageDir: "."` etc.), and the archive destination is resolved through the canonical flat-layout resolvers (`resolvePagesDir` / `resolveFilesDir`) so writes always land where the reader looks — including genuine legacy notes.
+- **fractal:// page links resolve flat-layout pages**: `resolvePagePath` (the in-app page-link resolver) still used the old `./<basename>` → `./pages` fallback and never looked at the note root, so page links into hint-less flat `.out` files silently failed to open. It now uses the canonical `resolvePageFilePath`.
+
+### Added
+- **Shortcut coverage**: the README gained an Excel-like table select-mode shortcut table, and the long-press-cmd shortcut HUD now lists the table select-mode keys (markdown editor) and the v1.1.31 mindmap copy/cut/paste + image-delete keys (mindmap view).
+
+### Changed
+- README (en/ja): new "Getting started" walkthrough (create a note → add content → find it again), Export bundle section, AWS (S3 sync / Amazon Translate) and PDF export settings tables, Database/Mindmap views mentioned in Key visuals, and marketplace keywords expanded.
+
 ## [1.1.31] - 2026-08-12
 
 ### Added
