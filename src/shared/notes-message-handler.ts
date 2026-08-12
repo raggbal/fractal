@@ -8,7 +8,7 @@ import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
-import { resolveFilesDirForMd, resolvePagesDir } from './flat-layout';
+import { resolveFilesDir, resolveFilesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
@@ -1655,20 +1655,18 @@ export async function handleNotesMessage(
                 if (!archiveData.nodes) archiveData.nodes = {};
                 if (!archiveData.rootIds) archiveData.rootIds = [];
 
-                // Dest dirs (dailynotes.out)
-                // pageDir / fileDir は archiveData に明示があればそれを尊重、なければ
-                // Notes mode 既定 (<basename> / <basename>/files) を archive ファイルの
-                // basename を使って resolve する。
+                // Dest dirs (dailynotes.out) — 読み取り正典 flat-layout で解決する
+                // (hint 最優先 → legacy 実在 → flat)。旧 `./${basename}` フォールバックは
+                // hint 無し .out に対して旧 per-outliner レイアウトを新規に作ってしまい
+                // 移行ゲートが再発する (sprint 20260812-171126)。本体が読む場所に書く。
                 const destOutDir = path.dirname(archiveFilePath);
-                const archiveBasename = path.basename(archiveFilePath, '.out');
-                const archivePageDirRel = (archiveData.pageDir as string) || `./${archiveBasename}`;
-                const destPagesDir = path.isAbsolute(archivePageDirRel)
-                    ? archivePageDirRel
-                    : path.resolve(destOutDir, archivePageDirRel);
-                const archiveFileDirRel = (archiveData.fileDir as string) || `./${archiveBasename}/files`;
-                const destFileDir = path.isAbsolute(archiveFileDirRel)
-                    ? archiveFileDirRel
-                    : path.resolve(destOutDir, archiveFileDirRel);
+                const archiveHints = {
+                    pageDir: archiveData.pageDir as string | undefined,
+                    imageDir: archiveData.imageDir as string | undefined,
+                    fileDir: archiveData.fileDir as string | undefined,
+                };
+                const destPagesDir = resolvePagesDir(archiveFilePath, destOutDir, archiveHints);
+                const destFileDir = resolveFilesDir(archiveFilePath, destOutDir, archiveHints);
 
                 const today = new Date();
                 const archYear = String(today.getFullYear());
