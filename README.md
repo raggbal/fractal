@@ -63,7 +63,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
 - **Headings, lists, task lists, quotes, horizontal rules** — all standard markdown, keyboard-first
 - **Tables** — Excel-like cell selection: click selects a cell, arrows move, Shift+arrows / drag / Shift+click select ranges, and cmd+c/x/v interoperate with spreadsheets (TSV + HTML both ways). Enter/typing edits a cell; Tab moves right (last cell appends a row). Merge/unmerge cells from the toolbar (persisted as GFM-compatible markdown with a marker comment), filter rows with the toolbar search box (display-only), resize columns by dragging cell edges, and toggle the header row on/off — all markdown stays compatible with other viewers
-- **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ``` ``` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
+- **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ` ` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
 - **Code blocks** — Syntax highlighting for 24+ languages, expandable into a VS Code editor tab
 - **Inline formatting** — Bold, italic, strikethrough, inline code, smart link creation
 - **Action palette** (`Cmd+/`) — Every formatting and insert action in one searchable menu
@@ -78,6 +78,11 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **Smart page breaks** — Breaks before `h1`/`h2` by default, but not before the first `h1` or the first `h2` right after an `h1` — chapters flow naturally
 - **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) overrides the built-in print style; set `fractal.pdfIncludeDefaultStyles: false` to replace it entirely. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
 - **Local & dependency-free** — Uses your installed Chrome/Edge headlessly; no network access during export, nothing added to the extension bundle
+
+### Export bundle — take a document out of the note
+Notes keep files flat with note-relative links, so copying a single `.md` out by hand breaks its images and subpages. **Export bundle** packs everything into one portable folder:
+- Right-click an outliner node (or use the side-panel button on a markdown page) → **Export bundle**
+- The page plus its **subpages (recursive), linked pages, images, and attachments** are copied into a single folder, with all links rewritten to be self-contained — ready to share, publish, or drop into another tool
 
 ### Diagrams & math
 - **Mermaid** — Rendered inline; click to edit the source
@@ -97,7 +102,7 @@ Create and edit draw.io diagrams without leaving VS Code.
 
 ### Subpages
 Embed markdown pages inside markdown pages, like Notion. A subpage isn't a mere link — it's **owned by its parent**, and that ownership follows the parent everywhere:
-
+![assets/images/1786518644715.png](assets/images/copy-1786518687773-1786518644715.png)
 - `Cmd+/`** → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
 - Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
 - `Cmd+click` to open it as a standalone document in a **new tab**
