@@ -176,7 +176,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
-- **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal Note. Click to jump
+- **In-app links** — Copy a link to any node or page (right-click a node / tree item → **Copy In-App Link**, or 🔗 in the side-panel header) and paste it anywhere in Fractal Note. Click to jump
 - **Cross-note copy & paste with assets** — Copy markdown containing images, 📎 attachments, or subpage links and paste it into another note (md or outliner): the linked files are duplicated into the destination note and links keep working. Pasting into an outliner turns whole-line links into proper attachment / image / page nodes
 - **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
 
@@ -275,27 +275,33 @@ Core features work without AWS. To use S3 sync and Amazon Translate, just config
 
 ## 🚀 Getting started
 
-### Notes (recommended)
-1. Click the **Fractal Note** icon in the activity bar
-2. Add any folder to register it as a note
-3. Click the note to open the three-pane UI — outliners, pages, and folders are all created from there
+### 1. Create your first note (recommended)
+1. Click the **Fractal Note** icon in the activity bar (left edge of VS Code)
+2. Click **+ Add Notes Folder** and pick (or create) an empty folder — say `~/notes/work`. That folder is now a **note**
+3. Click the note name — the three-pane UI opens: **file tree (left) / editor (center) / outline & side panel (right)**
 
-### Markdown editor
-1. Right-click any `.md` → **"Open with Fractal Note"**
-2. Or make it the default: right-click a `.md` → **Open With…** → **Configure default editor** → **Fractal Note**
+### 2. Add content to the note
+Everything is created from the file tree on the left — right-click it (or a folder inside it):
+- **New Outline here** — creates an outliner (`.out`). Start typing; Enter adds a node, Tab indents
+- **New Markdown here** — creates a markdown page and opens it in the WYSIWYG editor
+- **New Subfolder** — folders are virtual (the files on disk stay flat), so reorganize freely
+- Or just **drag files in** — drop a `.md` from Finder / VS Code Explorer (hold Shift for Explorer) to import it; drop a PDF, Excel, or any other file to attach it
 
-### Outliner
-- `.out` files open in Fractal Note automatically
-- Create one from the command palette: `Fractal Note: New Outliner File`
+From an outliner, type `@page` at the end of a node (or press `Cmd+Enter`) to hang a markdown page off that node — this is the core Fractal Note workflow: **outline the structure, write the details in pages**.
 
-### In-app links
-- Right-click an outliner node → **Copy In-App Link**
-- Also available from the file-tree right-click (out/md), the Outliner header Menu, and the md editor toolbar (links to a whole outliner or a note md)
-- Use 🔗 in the side-panel header to create a link to the current page
-- Paste it anywhere in Fractal Note — click to jump
+### 3. Find it again
+- `Cmd+P`-style cross-note search lives at the top of the file tree — it matches node text and markdown bodies
+- Click any `#tag` to filter; pin frequent tags for one-click filtering
+- Tabs and navigation history (`Opt+←/→`) work like a browser
 
-### Shortcut HUD
-- **Long-press cmd (Ctrl on Windows)** to pop up a keyboard-shortcut overlay for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss
+### Using the editors standalone (without Notes)
+- **Markdown**: right-click any `.md` → **"Open with Fractal Note"**. To make it the default: right-click → **Open With…** → **Configure default editor** → **Fractal Note**
+- **Outliner**: `.out` files open in Fractal Note automatically. Create one anywhere with the command palette: `Fractal Note: New Outliner File`
+
+### Learning the ropes
+- **Long-press cmd (Ctrl on Windows)** — a shortcut overlay (HUD) pops up for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss. This is the fastest way to discover features
+- `Cmd+/` in the markdown editor opens the **action palette** — every formatting and insert action, searchable
+- The full shortcut list is below
 
 ---
 
