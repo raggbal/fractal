@@ -101,3 +101,35 @@ test.describe('Table row filter (FR-TFL-01)', () => {
         }
     });
 });
+
+// 再オープン① bug(7): filter input クリックで toolbar が消えず入力できる
+test('TC-TFL-07 clicking the filter input keeps the toolbar and accepts input', async ({ page }) => {
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('| H1 | H2 |\n| --- | --- |\n| Apple | red |\n| Banana | yellow |');
+        await new Promise(r => setTimeout(r, 300));
+        const table = document.querySelector('#editor table') as HTMLTableElement;
+        (table.rows[1].cells[0] as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    // input を実クリック → focusout の 200ms delay 後も toolbar が残る
+    const box = await page.evaluate(() => {
+        const el = document.querySelector('.table-toolbar .table-filter-input') as HTMLElement;
+        const b = el.getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(400); // focusout delay 200ms を跨ぐ
+    const visible = await page.evaluate(() =>
+        document.querySelector('.table-toolbar')?.classList.contains('visible'));
+    expect(visible).toBe(true);
+    // 実タイプでフィルタが効く
+    await page.keyboard.type('red');
+    await page.waitForTimeout(200);
+    const rows = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        return Array.from(t.rows).filter(r => !r.classList.contains('tbl-row-filtered')).length;
+    });
+    expect(rows).toBe(2); // header + Apple
+});

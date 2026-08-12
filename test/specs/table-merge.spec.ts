@@ -132,21 +132,94 @@ test.describe('Table cell merge (FR-TMG)', () => {
         expect(g![1][1]).toBe('TD:^:1x1');  // 先頭 body 行 ^ = リテラル
     });
 
-    // TC-TMG-07: 行挿入/行削除/列挿入/列削除の 4 パターンが交差 span を事前 unmerge
-    test('TC-TMG-07 row/col insert/delete unmerge intersecting spans (4 patterns)', async ({ page }) => {
+    // TC-TMG-07 rev(再オープン① bug(6)): 行/列の挿入・削除は Excel 準拠で span を伸縮する
+    // - 結合内側への挿入 = span +1(新セルは結合の外側にのみ生成)
+    // - 交差行/列の削除 = span -1(anchor 行削除は内容が次行へ移設)
+    test('TC-TMG-07 row/col insert/delete stretch or shrink spans (Excel)', async ({ page }) => {
         const merged = M + '\n| H1 | H2 | H3 |\n| --- | --- | --- |\n| big | < | c1 |\n| ^ | ^ | c2 |\n| a3 | b3 | c3 |';
-        const actions = ['add-row-below', 'del-row', 'add-col-right', 'del-col'];
-        for (const action of actions) {
-            await setup(page, merged);
-            await clickBodyCell(page, 0, 0); // 結合セル(交差位置)を active に
-            await page.evaluate((a) => {
-                (document.querySelector(`.table-toolbar [data-action="${a}"]`) as HTMLElement).click();
-            }, action);
-            await page.waitForTimeout(300);
-            const spans = await page.evaluate(() =>
-                document.querySelectorAll('#editor table [colspan], #editor table [rowspan]').length);
-            expect(spans, `action=${action} should unmerge first`).toBe(0);
-        }
+        // (a-1) 結合セルから Row↓ = 結合の終端の下に挿入(span は伸びない・新行はフル列)
+        await setup(page, merged);
+        await clickBodyCell(page, 0, 0);
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="add-row-below"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        let st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big')!;
+            return { rs: big.rowSpan, cs: big.colSpan, rows: t.rows.length,
+                     newRowCells: t.rows[3].cells.length };
+        });
+        expect(st.rs).toBe(2);       // 結合の外に挿入 = 伸びない
+        expect(st.cs).toBe(2);
+        expect(st.rows).toBe(5);
+        expect(st.newRowCells).toBe(3); // 結合外なのでフル列
+
+        // (a-2) 結合の内側の行(c2 セル)から Row↑ = 境界を跨ぐ挿入 → rowspan 2→3
+        await setup(page, merged);
+        await clickBodyCell(page, 1, 0); // c2(grid 行 1 の結合外セル)
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="add-row-above"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big')!;
+            return { rs: big.rowSpan, cs: big.colSpan, rows: t.rows.length,
+                     newRowCells: t.rows[2].cells.length };
+        });
+        expect(st.rs).toBe(3);       // 内側挿入 = 伸びる(Excel)
+        expect(st.rows).toBe(5);
+        expect(st.newRowCells).toBe(1); // 結合が覆う 2 列ぶんはセルを作らない
+
+        // (b) 交差行の削除(2 行目 = big の被覆行)→ rowspan 3→2・big は残る
+        await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            // 新行(grid 行 2)の唯一のセル(結合外)を active に
+            (t.rows[2].cells[0] as HTMLElement).click();
+        });
+        await page.waitForTimeout(150);
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="del-row"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big')!;
+            return { rs: big.rowSpan, rows: t.rows.length };
+        });
+        expect(st.rs).toBe(2);
+        expect(st.rows).toBe(4);
+
+        // (c) 列追加(結合セル上で Col→)→ colspan は伸びない(右端の外側に挿入)
+        await setup(page, merged);
+        await clickBodyCell(page, 0, 0);
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="add-col-right"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big')!;
+            return { cs: big.colSpan, headerCells: t.rows[0].cells.length };
+        });
+        expect(st.cs).toBe(2); // span の右外に挿入 = 伸びない
+        expect(st.headerCells).toBe(4);
+
+        // (d) 交差列の削除(big の被覆列 = grid 列 1 のセル c1 側から del-col)
+        await setup(page, merged);
+        await clickBodyCell(page, 0, 0); // big(grid 0..1 を占有)
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="del-col"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big');
+            return { cs: big ? big.colSpan : -1, headerCells: t.rows[0].cells.length };
+        });
+        expect(st.cs).toBe(1);       // colspan 2→1(交差列 -1)
+        expect(st.headerCells).toBe(2);
     });
 
     // TC-TMG-08: 3 マーカー併存(headerless + col-widths + merged)の往復(2 順序)
@@ -205,5 +278,48 @@ test.describe('Table cell merge (FR-TMG)', () => {
         const sel = await page.evaluate(() =>
             document.querySelector('#editor table .tbl-cell-selected')?.textContent?.trim());
         expect(sel).toBe('big');
+    });
+});
+
+// ---- 再オープン①(2026-08-12 手動テスト) ----
+
+test.describe('Table merge re-open 1 fixes', () => {
+    // bug(1): 横結合 `<` の直下行の `^` が別区画の anchor へ誤連鎖して縦結合になるバグ
+    test('TC-TMG-12 user-reported layout: < stays horizontal, ^ merges correct column', async ({ page }) => {
+        const md = M + '\n| 分類 | スキャナ | 対象 |\n| --- | --- | --- |\n| シークレット | git-secrets | Git ヒストリ |\n| ノートブック | < | Jupyter コード |\n| ^ | ^ |   |';
+        await setup(page, md);
+        const g = await gridInfo(page);
+        // ノートブック = colspan 2(横)+ rowspan 2(下の ^ 2 個が同区画へ)
+        expect(g![2][0]).toBe('TD:ノートブック:2x2');
+        // git-secrets は 1x1 のまま(誤結合しない — 画像のバグは git-secrets が縦に伸びた)
+        expect(g![1][1]).toBe('TD:git-secrets:1x1');
+        expect(g![1][0]).toBe('TD:シークレット:1x1');
+        // 往復安定
+        const out = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        await setup(page, out);
+        expect(await gridInfo(page)).toEqual(g);
+    });
+
+    // bug(4): col-widths 固定幅 table への列追加はデフォルト幅(100px)が付く
+    test('TC-TMG-13 column insert into fixed-width table gets a visible default width', async ({ page }) => {
+        await setup(page, '<!-- fractal-col-widths: 120,180 -->\n| H1 | H2 |\n| --- | --- |\n| a1 | b1 |');
+        await clickBodyCell(page, 0, 0);
+        await page.evaluate(() => {
+            (document.querySelector('.table-toolbar [data-action="add-col-right"]') as HTMLElement).click();
+        });
+        await page.waitForTimeout(300);
+        const st = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            return {
+                widths: t.getAttribute('data-col-widths'),
+                newCellWidth: (t.rows[1].cells[1] as HTMLElement).style.width,
+                tableWidth: t.style.width,
+            };
+        });
+        expect(st.widths).toBe('120,100,180'); // 挿入位置にデフォルト 100
+        expect(st.newCellWidth).toBe('100px');
+        expect(st.tableWidth).toBe('400px');   // 合計も更新
+        const out = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(out).toContain('fractal-col-widths: 120,100,180');
     });
 });

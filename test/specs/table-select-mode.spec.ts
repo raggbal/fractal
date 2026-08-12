@@ -334,3 +334,62 @@ test.describe('Table range selection and operations (FR-TSL-02/03/04)', () => {
         expect(md).not.toContain('a3'); // 選択外の行は含まれない
     });
 });
+
+// ---- 再オープン①(2026-08-12 手動テスト) ----
+
+test.describe('Table select mode re-open 1 fixes', () => {
+    // bug(2): edit 中の IME 変換確定 Enter でセルを出ない
+    test('TC-TSL-15 IME-confirm Enter does not commit the cell', async ({ page }) => {
+        await setupTable(page);
+        await clickBodyCell(page, 0, 0);
+        await page.keyboard.press('Enter'); // edit
+        await page.waitForTimeout(100);
+        // isComposing な Enter を合成(かな変換確定)
+        await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const cell = (sel.anchorNode!.nodeType === 3
+                ? sel.anchorNode!.parentElement : sel.anchorNode) as Element;
+            const e = new KeyboardEvent('keydown', {
+                key: 'Enter', code: 'Enter', bubbles: true, cancelable: true,
+            });
+            Object.defineProperty(e, 'isComposing', { value: true });
+            cell.dispatchEvent(e);
+        });
+        await page.waitForTimeout(150);
+        const s = await page.evaluate(() => {
+            const table = document.querySelector('#editor table') as HTMLTableElement;
+            return { selectMode: table.classList.contains('tbl-select-mode') };
+        });
+        expect(s.selectMode).toBe(false); // edit のまま(セル確定していない)
+    });
+
+    // bug(3): 逆向き範囲選択でも paste 起点は範囲の左上
+    test('TC-TSL-16 paste anchors at top-left of selection regardless of drag direction', async ({ page }) => {
+        await setupTable(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |');
+        await clickBodyCell(page, 1, 1); // b2 から逆向きに選択
+        await page.keyboard.press('Shift+ArrowLeft');
+        await page.keyboard.press('Shift+ArrowUp');
+        await page.evaluate(() => {
+            const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+            Object.defineProperty(e, 'clipboardData', {
+                value: { getData: (t: string) => t === 'text/plain' ? 'X1\tY1\nX2\tY2' : '' },
+            });
+            document.querySelector('#editor')!.dispatchEvent(e);
+        });
+        await page.waitForTimeout(300);
+        const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md).toContain('| X1 | Y1 |'); // 左上(a1)起点で 2x2 充填
+        expect(md).toContain('| X2 | Y2 |');
+    });
+
+    // bug(5): 先頭列の Shift+Tab = 上の行の末尾セルへ
+    test('TC-TSL-17 Shift+Tab at first column wraps to previous row end', async ({ page }) => {
+        await setupTable(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |');
+        await clickBodyCell(page, 1, 0); // a2(2 行目先頭)
+        await page.keyboard.press('Shift+Tab');
+        await page.waitForTimeout(100);
+        const sel = await page.evaluate(() =>
+            document.querySelector('#editor table .tbl-cell-selected')?.textContent?.trim());
+        expect(sel).toBe('b1'); // 上の行の末尾
+    });
+});

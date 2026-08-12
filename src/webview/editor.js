@@ -3075,42 +3075,54 @@ class EditorInstance {
                 }
                 contentRows.push({ cells, isHeader: idx === 0 && !isHeaderlessTable });
             });
-            // span 解決: spanMap[r][c] = {cs, rs}(anchor)| 'covered' | undefined(通常)
+            // span 解決(再オープン① bug(1) 修正): cover[r][c] = その位置を覆う anchor 座標。
+            // `<` は「左位置の実効 anchor が同一行にある」場合のみ colspan 加算、
+            // `^` は「直上位置の実効 anchor」へ rowspan 加算(横結合の被覆セルを
+            // 突き抜けて別区画の anchor に到達する旧 walk のバグを排除)。
+            // 不正形(条件を満たさないトークン)はリテラルとして残す。
             const spanMap = contentRows.map((r) => r.cells.map(() => undefined));
             if (isMergedTable) {
-                const bodyStart = contentRows.findIndex((r) => !r.isHeader);
+                const anchors = new Map(); // 'r:c' -> {cs, rs}
+                const cover = contentRows.map((r) => r.cells.map(() => null)); // null | {ar, ac}
+                const effAnchor = (r, c) => {
+                    if (r < 0 || !contentRows[r] || c < 0 || c >= contentRows[r].cells.length) return null;
+                    if (cover[r][c]) return cover[r][c];
+                    return { ar: r, ac: c }; // 実セル位置自身が anchor
+                };
                 for (let r = 0; r < contentRows.length; r++) {
                     if (contentRows[r].isHeader) continue; // ヘッダー行は結合不可
                     for (let c = 0; c < contentRows[r].cells.length; c++) {
+                        if (cover[r][c]) continue; // 既に 2D 展開で消費済み
                         const tok = contentRows[r].cells[c].trim();
                         if (tok === '<' && c > 0) {
-                            // 左方の anchor(同行・連鎖可)へ colspan 加算
-                            let ac = c - 1;
-                            while (ac > 0 && spanMap[r][ac] === 'covered') ac--;
-                            if (spanMap[r][ac] !== 'covered' && !contentRows[r].isHeader) {
-                                if (!spanMap[r][ac]) spanMap[r][ac] = { cs: 1, rs: 1 };
-                                spanMap[r][ac].cs++;
-                                spanMap[r][c] = 'covered';
+                            const left = effAnchor(r, c - 1);
+                            // 同一行の anchor のみ有効(縦結合の被覆を横に伸ばす形は不正 = リテラル)
+                            if (left && left.ar === r && !contentRows[left.ar].isHeader) {
+                                const key = left.ar + ':' + left.ac;
+                                const a = anchors.get(key) || { cs: 1, rs: 1 };
+                                a.cs++;
+                                anchors.set(key, a);
+                                cover[r][c] = { ar: left.ar, ac: left.ac };
                             }
-                        } else if (tok === '^' && r > bodyStart) {
-                            // 上方の anchor(同列・連鎖可)へ rowspan 加算
-                            let ar = r - 1;
-                            while (ar > bodyStart && spanMap[ar][c] === 'covered') ar--;
-                            if (contentRows[ar] && !contentRows[ar].isHeader && spanMap[ar][c] !== 'covered') {
-                                if (!spanMap[ar][c]) spanMap[ar][c] = { cs: 1, rs: 1 };
-                                // 2D 結合: anchor の rs はこの行までの距離
-                                spanMap[ar][c].rs = Math.max(spanMap[ar][c].rs, r - ar + 1);
-                                spanMap[r][c] = 'covered';
-                                // anchor が colspan を持つ場合、右方の被覆も同時に covered 化
-                                for (let k = 1; k < (spanMap[ar][c].cs || 1); k++) {
-                                    if (spanMap[r][c + k] !== undefined) continue;
-                                    if (contentRows[r].cells[c + k] !== undefined
-                                        && contentRows[r].cells[c + k].trim() === '^') {
-                                        spanMap[r][c + k] = 'covered';
-                                    }
-                                }
+                        } else if (tok === '^' && r > 0) {
+                            const up = effAnchor(r - 1, c);
+                            if (up && contentRows[up.ar] && !contentRows[up.ar].isHeader) {
+                                const key = up.ar + ':' + up.ac;
+                                const a = anchors.get(key) || { cs: 1, rs: 1 };
+                                a.rs = Math.max(a.rs, r - up.ar + 1);
+                                anchors.set(key, a);
+                                cover[r][c] = { ar: up.ar, ac: up.ac };
                             }
                         }
+                    }
+                }
+                for (const [key, a] of anchors) {
+                    const [ar, ac] = key.split(':').map(Number);
+                    spanMap[ar][ac] = a;
+                }
+                for (let r = 0; r < cover.length; r++) {
+                    for (let c = 0; c < cover[r].length; c++) {
+                        if (cover[r][c]) spanMap[r][c] = 'covered';
                     }
                 }
             }
@@ -4749,7 +4761,19 @@ class EditorInstance {
         }
         e.preventDefault();
         undoManager.saveSnapshot();
-        const anchor = tableSel.anchor;
+        // 再オープン① bug(3): 貼り付け起点 = 現在選択の左上(逆向き範囲選択でも Excel と同じ)
+        let anchor = tableSel.anchor;
+        {
+            const m = tslGridMap(tableSel.table);
+            let best = null;
+            for (const cell of tslRangeCells()) {
+                const cp = m.posOf.get(cell);
+                if (!best || cp.r < best.p.r || (cp.r === best.p.r && cp.c < best.p.c)) {
+                    best = { cell, p: cp };
+                }
+            }
+            if (best) anchor = best.cell;
+        }
         const p = tslCellPos(anchor);
         const table = p.table;
         // 貼付先範囲に交差する span を事前 unmerge
@@ -4760,28 +4784,36 @@ class EditorInstance {
             const er = cp.r + (cell.rowSpan || 1) - 1, ec = cp.c + (cell.colSpan || 1) - 1;
             if (!(er < p.r || cp.r > destR2 || ec < p.c || cp.c > destC2)) tslUnmergeCell(cell);
         });
-        const rows = Array.from(table.rows);
-        const colCount = rows[0] ? rows[0].cells.length : 0;
+        // grid 座標で充填(unmerge 後に map を取り直す。cellIndex ずれ防止 = bug(3))。
+        // 列は増やさない(右はみ出し切捨て)・行は増やしてよい
+        let m2 = tslGridMap(table);
+        const colCount = m2.grid[0] ? m2.grid[0].length : 0;
         for (let i = 0; i < matrix.length; i++) {
-            let row = rows[p.r + i];
-            if (!row) {
+            if (p.r + i >= m2.rows.length) {
                 // 下はみ出し = 行追加
-                row = document.createElement('tr');
+                const row = document.createElement('tr');
                 for (let k = 0; k < colCount; k++) {
                     const td = document.createElement('td');
                     td.setAttribute('contenteditable', 'true');
                     td.innerHTML = '<br>';
+                    tslApplyColWidth(table, td, k);
                     row.appendChild(td);
                 }
                 table.rows[table.rows.length - 1].after(row);
-                rows.push(row);
+                m2 = tslGridMap(table);
             }
             for (let j = 0; j < matrix[i].length; j++) {
-                const cell = row.cells[p.c + j];
-                if (!cell) break; // 右はみ出し = 切捨て
-                cell.innerHTML = matrix[i][j] || '<br>';
+                if (p.c + j >= colCount) break; // 右はみ出し = 切捨て(列は増やさない)
+                const cell = m2.grid[p.r + i] ? m2.grid[p.r + i][p.c + j] : null;
+                if (cell) cell.innerHTML = matrix[i][j] || '<br>';
             }
         }
+        // 貼り付け結果の範囲を選択状態に(Excel と同じフィードバック)
+        const mAfter = tslGridMap(table);
+        const lastR = Math.min(p.r + matrix.length - 1, mAfter.rows.length - 1);
+        const lastC = Math.min(p.c + Math.max(...matrix.map((r) => r.length)) - 1, colCount - 1);
+        tableSel.anchor = (mAfter.grid[p.r] && mAfter.grid[p.r][p.c]) || anchor;
+        tableSel.focus = (mAfter.grid[lastR] && mAfter.grid[lastR][lastC]) || tableSel.anchor;
         syncMarkdown();
         tslPaintSelection();
         return true;
@@ -4824,19 +4856,135 @@ class EditorInstance {
         tslPaintSelection();
     }
 
-    // FR-TMG-02: 行/列の挿入・削除が結合領域に交差する場合の事前 unmerge(決定論・データ安全側)。
-    // 既存 6 関数の冒頭から呼ぶ。axis='row' なら行 index、'col' なら列 index に交差する span を解除
-    function tslUnmergeIntersecting(table, axis, index) {
-        if (!table || !table.querySelector('[colspan], [rowspan]')) return;
+    // FR-TMG-02 rev(再オープン① bug(6)): 行/列の挿入・削除は Excel 準拠で span を伸縮する。
+    // - 挿入境界を跨ぐ span → +1(結合が伸びる)。境界外 → 影響なし
+    // - 削除行/列に交差する span → -1(縮む)。anchor 行/列の削除は anchor を次へ移設
+    // grid 座標(tslGridMap)が単一真実。span なし table では従来と同一の観測挙動。
+
+    // 新しい行を「grid 行 ri の位置」に挿入(既存 ri 行は下へ)
+    function tslInsertRowAt(table, ri) {
         const m = tslGridMap(table);
+        const colCount = m.grid[0] ? m.grid[0].length : 0;
+        const crossingCols = new Set(); // 境界 (ri-1|ri) を跨ぐ縦 span が覆う grid 列
         for (const [cell, p] of m.posOf) {
             const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
-            if (rs === 1 && cs === 1) continue;
-            const hit = axis === 'row'
-                ? (index >= p.r && index <= p.r + rs - 1)
-                : (index >= p.c && index <= p.c + cs - 1);
-            if (hit) tslUnmergeCell(cell);
+            if (p.r < ri && p.r + rs - 1 >= ri) {
+                cell.rowSpan = rs + 1; // 結合の内側に挿入 = 伸ばす(Excel)
+                for (let j = 0; j < cs; j++) crossingCols.add(p.c + j);
+            }
         }
+        const newTr = document.createElement('tr');
+        for (let c = 0; c < colCount; c++) {
+            if (crossingCols.has(c)) continue;
+            const td = document.createElement('td');
+            td.setAttribute('contenteditable', 'true');
+            td.innerHTML = '<br>';
+            tslApplyColWidth(table, td, c);
+            newTr.appendChild(td);
+        }
+        if (ri >= m.rows.length) m.rows[m.rows.length - 1].after(newTr);
+        else m.rows[ri].before(newTr);
+        return newTr;
+    }
+
+    // grid 行 r を削除(交差 span は -1・anchor 行削除は次行へ移設)
+    function tslDeleteRowAt(table, r) {
+        const m = tslGridMap(table);
+        const tr = m.rows[r];
+        if (!tr) return;
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1;
+            if (rs > 1 && p.r <= r && p.r + rs - 1 >= r) {
+                const nrs = rs - 1;
+                if (p.r === r) {
+                    // anchor が削除行: 内容ごと次行へ移設(Excel の結合維持)
+                    const nextTr = m.rows[r + 1];
+                    if (nextTr) {
+                        if (nrs <= 1) cell.removeAttribute('rowspan');
+                        else cell.setAttribute('rowspan', String(nrs));
+                        let before = null;
+                        for (const c2 of nextTr.cells) {
+                            const cp = m.posOf.get(c2);
+                            if (cp && cp.c > p.c) { before = c2; break; }
+                        }
+                        nextTr.insertBefore(cell, before);
+                    }
+                } else {
+                    if (nrs <= 1) cell.removeAttribute('rowspan');
+                    else cell.setAttribute('rowspan', String(nrs));
+                }
+            }
+        }
+        tr.remove();
+    }
+
+    // 新しい列を「grid 列 ci の位置」に挿入(既存 ci 列は右へ)
+    function tslInsertColAt(table, ci) {
+        const m = tslGridMap(table);
+        const crossingRows = new Set(); // 境界 (ci-1|ci) を跨ぐ横 span が覆う grid 行
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            if (p.c < ci && p.c + cs - 1 >= ci) {
+                cell.colSpan = cs + 1; // 結合の内側に挿入 = 伸ばす(Excel)
+                for (let i = 0; i < rs; i++) crossingRows.add(p.r + i);
+            }
+        }
+        const created = [];
+        for (let r = 0; r < m.rows.length; r++) {
+            if (crossingRows.has(r)) continue;
+            const row = m.rows[r];
+            const isHeader = !!row.querySelector('th');
+            const newCell = document.createElement(isHeader ? 'th' : 'td');
+            newCell.setAttribute('contenteditable', 'true');
+            newCell.innerHTML = isHeader ? 'Header' : '<br>';
+            let before = null;
+            for (const c2 of row.cells) {
+                const cp = m.posOf.get(c2);
+                if (cp && cp.c >= ci) { before = c2; break; }
+            }
+            row.insertBefore(newCell, before);
+            created.push({ r, cell: newCell });
+        }
+        tslSpliceColWidths(table, ci, 'insert');
+        for (const { cell } of created) tslApplyColWidth(table, cell, ci);
+        return created;
+    }
+
+    // grid 列 c を削除(交差 span は -1・cs=1 のセルは rowspan ごと削除)
+    function tslDeleteColAt(table, c) {
+        const m = tslGridMap(table);
+        for (const [cell, p] of m.posOf) {
+            const cs = cell.colSpan || 1;
+            if (p.c <= c && p.c + cs - 1 >= c) {
+                if (cs > 1) {
+                    const ncs = cs - 1;
+                    if (ncs <= 1) cell.removeAttribute('colspan');
+                    else cell.setAttribute('colspan', String(ncs));
+                } else {
+                    cell.remove(); // 縦 span 含めこの列のセルは列ごと消える(Excel)
+                }
+            }
+        }
+        tslSpliceColWidths(table, c, 'delete');
+    }
+
+    // 再オープン① bug(4): 固定幅 table(data-col-widths)への列追加はデフォルト幅を与える
+    const TBL_DEFAULT_COL_WIDTH = 100;
+    function tslSpliceColWidths(table, ci, op) {
+        const attr = table.getAttribute('data-col-widths');
+        if (!attr || !/^\d+(,\d+)*$/.test(attr)) return;
+        const ws = attr.split(',').map((s) => parseInt(s, 10));
+        if (op === 'insert') ws.splice(ci, 0, TBL_DEFAULT_COL_WIDTH);
+        else ws.splice(ci, 1);
+        table.setAttribute('data-col-widths', ws.join(','));
+        const total = ws.reduce((s, w) => s + w, 0);
+        if (table.style.width) table.style.width = total + 'px';
+    }
+    function tslApplyColWidth(table, cell, ci) {
+        const attr = table.getAttribute('data-col-widths');
+        if (!attr || !/^\d+(,\d+)*$/.test(attr)) return;
+        const ws = attr.split(',').map((s) => parseInt(s, 10));
+        if (ws[ci]) cell.style.width = ws[ci] + 'px';
     }
 
     // FR-TFL-01: 行フィルタ(表示のみ・md 不変。ヘッダー常時表示・rowspan グループ単位判定)
@@ -4960,8 +5108,18 @@ class EditorInstance {
                         syncMarkdown();
                         tslEnterSelect(newRow.cells[0]);
                     } else {
+                        // 行末 Tab = 次行の先頭へ
                         const down = tslNeighbor(tableSel.anchor, 1, 0);
                         if (down) tslEnterSelect(down.parentElement.cells[0]);
+                    }
+                } else {
+                    // 再オープン① bug(5): 先頭列の Shift+Tab = 上の行の末尾セルへ
+                    const p = tslCellPos(tableSel.anchor);
+                    if (p.r > 0) {
+                        const upRow = p.rows[p.r - 1];
+                        if (upRow && upRow.cells.length > 0) {
+                            tslEnterSelect(upRow.cells[upRow.cells.length - 1]);
+                        }
                     }
                 }
                 return true;
@@ -4990,6 +5148,9 @@ class EditorInstance {
         }
         if (mode === 'edit') {
             const cell = tableSel.anchor;
+            // 再オープン① bug(2): IME 変換確定の Enter(isComposing / keyCode 229)は
+            // セル確定でなく IME に渡す(かな確定で下行に飛ぶバグ)
+            if (e.isComposing || e.keyCode === 229) return false;
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 tslCommitEdit(tslNeighbor(cell, 1, 0)); // 確定 + 下(Excel)。最下行は同セル
@@ -5174,336 +5335,163 @@ class EditorInstance {
 
     function deleteTableColumn() {
         if (!activeTableCell || !activeTable) return;
-        
-        // Verify elements are still in DOM
         if (!editor.contains(activeTableCell) || !editor.contains(activeTable)) {
             logger.log('Table elements not in DOM, skipping deleteTableColumn');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'col', _p.c);
-            clearTableRowFilter(_t);
-        }
-
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return;
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = activeTable.querySelectorAll('tr');
-        
-        // Don't delete if only one column
-        if (rows[0] && rows[0].cells.length <= 1) return;
-        
-        // Store rowIndex before deleting
-        const rowIndex = Array.from(rows).indexOf(currentRow);
-        
-        rows.forEach(row => {
-            if (row.cells[cellIndex]) {
-                row.cells[cellIndex].remove();
-            }
-        });
-        
-        // Move activeTableCell to adjacent cell in the SAME row
-        const updatedRows = activeTable.querySelectorAll('tr');
-        const targetRow = updatedRows[rowIndex];
+        clearTableRowFilter(activeTable);
+        const m0 = tslGridMap(activeTable);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (m0.grid[0] && m0.grid[0].length <= 1) return; // 最後の 1 列は消さない
+        undoManager.saveSnapshot();
+        const rowIndex = p0.r;
+        // Excel 準拠(再オープン① bug(6)): 交差 span は -1・単幅セルは列ごと削除
+        tslDeleteColAt(activeTable, p0.c);
+        const m1 = tslGridMap(activeTable);
+        const targetRow = m1.rows[Math.min(rowIndex, m1.rows.length - 1)];
         if (targetRow && targetRow.cells.length > 0) {
-            // Stay in the same row, move to left (new last column if was at end)
-            const newIndex = Math.min(cellIndex, targetRow.cells.length - 1);
-            if (newIndex >= 0 && targetRow.cells[newIndex]) {
-                activeTableCell = targetRow.cells[newIndex];
-                setCursorToEnd(activeTableCell);
+            const gc = Math.min(p0.c, (m1.grid[rowIndex] || []).length - 1);
+            const landing = (m1.grid[rowIndex] && m1.grid[rowIndex][gc]) || targetRow.cells[targetRow.cells.length - 1];
+            if (landing) {
+                activeTableCell = landing;
+                setCursorToEnd(landing);
             }
         }
-        
         syncMarkdown();
     }
 
     function deleteTableRow() {
         if (!activeTableCell || !activeTable) return;
-        
-        // Verify elements are still in DOM
         if (!editor.contains(activeTableCell) || !editor.contains(activeTable)) {
             logger.log('Table elements not in DOM, skipping deleteTableRow');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'row', _p.r);
-            clearTableRowFilter(_t);
+        clearTableRowFilter(activeTable);
+        const m0 = tslGridMap(activeTable);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (m0.rows.length <= 1) return;
+        if (p0.r === 0 && m0.rows[0].querySelector('th')) return; // ヘッダー行は消さない
+        undoManager.saveSnapshot();
+        // Excel 準拠(再オープン① bug(6)): 交差縦 span は -1・anchor 行削除は移設
+        tslDeleteRowAt(activeTable, p0.r);
+        const m1 = tslGridMap(activeTable);
+        const tr = Math.min(Math.max(1, p0.r - 1), m1.rows.length - 1);
+        const landing = (m1.grid[tr] && (m1.grid[tr][p0.c] || m1.grid[tr][0]))
+            || (m1.rows[tr] && m1.rows[tr].cells[0]);
+        if (landing) {
+            activeTableCell = landing;
+            setCursorToEnd(landing);
         }
-
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        // Don't delete header row or if only one row
-        const rows = activeTable.querySelectorAll('tr');
-        if (rows.length <= 1) return;
-        if (row === rows[0]) return; // Don't delete header
-        
-        const rowIndex = Array.from(rows).indexOf(row);
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return;
-        
-        row.remove();
-        
-        // Move activeTableCell to adjacent row
-        const newRows = activeTable.querySelectorAll('tr');
-        if (newRows.length > 0) {
-            // Try to select same column in previous row (or the row above deleted one)
-            // If was last row, go to new last row
-            const newRowIndex = Math.min(rowIndex, newRows.length - 1);
-            // Prefer row above if not header
-            const targetRowIndex = newRowIndex > 0 ? Math.max(1, rowIndex - 1) : newRowIndex;
-            const newRow = newRows[targetRowIndex] || newRows[newRowIndex];
-            
-            if (newRow && newRow.cells[cellIndex]) {
-                activeTableCell = newRow.cells[cellIndex];
-                setCursorToEnd(activeTableCell);
-            } else if (newRow && newRow.cells[0]) {
-                activeTableCell = newRow.cells[0];
-                setCursorToEnd(activeTableCell);
-            }
-        }
-        
         syncMarkdown();
     }
 
     function insertTableRowBelow() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableRowBelow');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'row', _p.r);
-            clearTableRowFilter(_t);
-        }
-
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        const table = row.closest('table');
+        const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const colCount = row.cells.length;
-        if (colCount === 0) return;
-        
-        const newRow = document.createElement('tr');
-        
-        for (let i = 0; i < colCount; i++) {
-            const cell = document.createElement('td');
-            cell.setAttribute('contenteditable', 'true');
-            cell.innerHTML = '<br>';
-            newRow.appendChild(cell);
-        }
-        
-        row.after(newRow);
-        // Update activeTableCell to the new row's cell at same column
-        const cellIndex = activeTableCell.cellIndex;
-        activeTableCell = newRow.cells[cellIndex] || newRow.cells[0];
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        // 挿入位置 = active セルの span 終端の直下(Excel: 結合セル上からは結合の下に入る)
+        const ri = p0.r + (activeTableCell.rowSpan || 1);
+        const newTr = tslInsertRowAt(table, ri);
         activeTable = table;
-        setCursorToEnd(activeTableCell);
+        if (newTr && newTr.cells.length > 0) {
+            const m1 = tslGridMap(table);
+            const landing = (m1.grid[ri] && m1.grid[ri][p0.c]) || newTr.cells[0];
+            activeTableCell = landing;
+            setCursorToEnd(landing);
+        }
         syncMarkdown();
     }
 
     function insertTableRowAbove() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableRowAbove');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'row', _p.r);
-            clearTableRowFilter(_t);
-        }
-
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        const table = row.closest('table');
+        const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        // Check if current row is header row (first row)
-        const rows = table.querySelectorAll('tr');
-        const isHeaderRow = rows.length > 0 && row === rows[0];
-        
-        if (isHeaderRow) {
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (p0.r === 0 && m0.rows[0].querySelector('th')) {
             logger.log('Cannot insert row above header row');
-            return; // Do nothing if in header row
+            return;
         }
-        
-        const colCount = row.cells.length;
-        if (colCount === 0) return;
-        
-        const newRow = document.createElement('tr');
-        
-        for (let i = 0; i < colCount; i++) {
-            const cell = document.createElement('td');
-            cell.setAttribute('contenteditable', 'true');
-            cell.innerHTML = '<br>';
-            newRow.appendChild(cell);
-        }
-        
-        row.before(newRow);
-        // Update activeTableCell to the new row's cell at same column
-        const cellIndex = activeTableCell.cellIndex;
-        activeTableCell = newRow.cells[cellIndex] || newRow.cells[0];
+        undoManager.saveSnapshot();
+        const newTr = tslInsertRowAt(table, p0.r);
         activeTable = table;
-        setCursorToEnd(activeTableCell);
+        if (newTr && newTr.cells.length > 0) {
+            const m1 = tslGridMap(table);
+            const landing = (m1.grid[p0.r] && m1.grid[p0.r][p0.c]) || newTr.cells[0];
+            activeTableCell = landing;
+            setCursorToEnd(landing);
+        }
         syncMarkdown();
     }
 
     function insertTableColumnRight() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnRight');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'col', _p.c);
-            clearTableRowFilter(_t);
-        }
-
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return; // Invalid cell index
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = table.querySelectorAll('tr');
-        if (rows.length === 0) return;
-        
-        // Store current row index for later lookup
-        const currentRowIndex = Array.from(rows).indexOf(currentRow);
-        
-        let newCellInCurrentRow = null;
-        
-        rows.forEach((row, rowIndex) => {
-            const isHeader = rowIndex === 0;
-            const newCell = document.createElement(isHeader ? 'th' : 'td');
-            newCell.setAttribute('contenteditable', 'true');
-            newCell.innerHTML = isHeader ? 'Header' : '<br>';
-            
-            // Insert after current cell (to the right)
-            if (cellIndex + 1 < row.cells.length) {
-                row.cells[cellIndex + 1].before(newCell);
-            } else {
-                row.appendChild(newCell);
-            }
-            
-            // Track the new cell in current row
-            if (rowIndex === currentRowIndex) {
-                newCellInCurrentRow = newCell;
-            }
-        });
-        
-        // Move cursor to the new column in current row
-        if (newCellInCurrentRow && editor.contains(newCellInCurrentRow)) {
-            activeTableCell = newCellInCurrentRow;
-            activeTable = table;
-            setCursorToEnd(newCellInCurrentRow);
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        // 挿入位置 = active セルの span 右端の直右(Excel)
+        const ci = p0.c + (activeTableCell.colSpan || 1);
+        tslInsertColAt(table, ci);
+        activeTable = table;
+        const m1 = tslGridMap(table);
+        const landing = m1.grid[p0.r] && m1.grid[p0.r][ci];
+        if (landing && editor.contains(landing)) {
+            activeTableCell = landing;
+            setCursorToEnd(landing);
         }
-        
-        // Re-add resize handles after adding column
-        addTableResizeHandles(table);
-        
         syncMarkdown();
+        initializeAllTableResizeHandles();
     }
 
     function insertTableColumnLeft() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnLeft');
             return;
         }
-                // FR-TMG-02: 交差する結合セルを事前 unmerge(4 パターン共通の決定論・TC-TMG-07)
-        // + FR-TFL-01: 構造操作前にフィルタ解除
-        {
-            const _t = activeTableCell.closest('table');
-            const _p = tslCellPos(activeTableCell);
-            tslUnmergeIntersecting(_t, 'col', _p.c);
-            clearTableRowFilter(_t);
-        }
-
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return; // Invalid cell index
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = table.querySelectorAll('tr');
-        if (rows.length === 0) return;
-        
-        // Store current row index for later lookup
-        const currentRowIndex = Array.from(rows).indexOf(currentRow);
-        
-        let newCellInCurrentRow = null;
-        
-        rows.forEach((row, rowIndex) => {
-            const isHeader = rowIndex === 0;
-            const newCell = document.createElement(isHeader ? 'th' : 'td');
-            newCell.setAttribute('contenteditable', 'true');
-            newCell.innerHTML = isHeader ? 'Header' : '<br>';
-            
-            // Insert before current cell (to the left)
-            row.cells[cellIndex].before(newCell);
-            
-            // Track the new cell in current row
-            if (rowIndex === currentRowIndex) {
-                newCellInCurrentRow = newCell;
-            }
-        });
-        
-        // Move cursor to the new column in current row
-        if (newCellInCurrentRow && editor.contains(newCellInCurrentRow)) {
-            activeTableCell = newCellInCurrentRow;
-            activeTable = table;
-            setCursorToEnd(newCellInCurrentRow);
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        tslInsertColAt(table, p0.c);
+        activeTable = table;
+        const m1 = tslGridMap(table);
+        const landing = m1.grid[p0.r] && m1.grid[p0.r][p0.c];
+        if (landing && editor.contains(landing)) {
+            activeTableCell = landing;
+            setCursorToEnd(landing);
         }
-        
-        // Re-add resize handles after adding column
-        addTableResizeHandles(table);
-        
         syncMarkdown();
+        initializeAllTableResizeHandles();
     }
-
-    // FR-TBL-05: shared table insertion for palette case 'table' and Ctrl+T.
-    // (Ctrl+T previously called an undefined insertTable() — silent ReferenceError.)
     function insertTableAtCursor() {
         var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
         document.execCommand('insertHTML', false, tableHtml);
@@ -6568,6 +6556,12 @@ class EditorInstance {
     editor.addEventListener('focusout', function(e) {
         // Delay hiding to allow button clicks
         setTimeout(() => {
+            // 再オープン① bug(7): filter input へのフォーカス移動で toolbar を消さない
+            //(input は toolbar 内 = editor 外なので selection 判定では守れない)
+            if (tableToolbar && document.activeElement
+                && tableToolbar.contains(document.activeElement)) {
+                return;
+            }
             const sel = window.getSelection();
             if (sel && sel.rangeCount > 0) {
                 const node = sel.anchorNode;
