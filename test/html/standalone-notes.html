@@ -36668,6 +36668,9 @@ var Outliner = (function() {
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
                     // FR-OIP-01: stale listener ガード用(paste listener が現 view を確認する)
                     getViewMode: function () { return VIEW_MODE; },
+                    // FR-MMI-01: mindmap 画像の click 選択が outliner の selectedImageInfo
+                    // state を共有するための host adapter(削除は既存 document keydown が担う)
+                    imageSelectHost: function () { return _outlinerImageHost(); },
                     // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
                     // outliner の正典 3 点セット(writeClipboardWithHtml + internalClipboard +
                     // host.saveOutlinerClipboard)と pasteNodesFromText(資産契約内蔵)を
@@ -45080,6 +45083,14 @@ var Outliner = (function() {
                 saveSnapshot();
                 var imgNodeId = selectedImageInfo.nodeId;
                 model.removeImage(imgNodeId, selectedImageInfo.index);
+                // FR-MMI-01: mindmap には .outliner-images コンテナが無い(別描画)ため
+                // renderTree で全再描画(outlinerImageSaved の mindmap フォールバックと同型)
+                if (VIEW_MODE === 'mindmap') {
+                    clearImageSelection();
+                    scheduleSyncToHost();
+                    renderTree();
+                    return;
+                }
                 var imgC = document.querySelector('.outliner-images[data-node-id="' + imgNodeId + '"]');
                 if (imgC) { renderNodeImages(imgC, model.getNode(imgNodeId)); }
                 clearImageSelection();

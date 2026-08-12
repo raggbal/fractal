@@ -382,6 +382,24 @@ var MindmapRender = (function() {
                         OutlinerCell.showImageOverlay(this.src);
                     }
                 });
+                // FR-MMI-01 (sprint 20260812-110538): click 選択 → Delete で削除できるように
+                // outliner の selectedImageInfo state を共有(ctx.imageSelectHost =
+                // _outlinerImageHost)。削除自体は outliner.js の既存 document keydown
+                // (Delete && selectedImageInfo → model.removeImage)が view 非依存で効く。
+                (function(imgEl, imgNodeId, imgIndex) {
+                    imgEl.addEventListener('click', function(ev) {
+                        ev.stopPropagation(); // node click(focusNode)に伝播させない
+                        if (!ctx.imageSelectHost) { return; }
+                        var h = ctx.imageSelectHost();
+                        if (typeof OutlinerCell !== 'undefined' && OutlinerCell.clearImageSelection) {
+                            OutlinerCell.clearImageSelection(h);
+                        }
+                        imgEl.classList.add('is-selected');
+                        if (h.setSelectedImageInfo) {
+                            h.setSelectedImageInfo({ nodeId: imgNodeId, index: imgIndex, element: imgEl });
+                        }
+                    });
+                })(img, nodeId, ii);
                 imgWrap.appendChild(img);
             }
             box.appendChild(imgWrap);

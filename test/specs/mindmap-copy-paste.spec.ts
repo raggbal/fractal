@@ -166,3 +166,42 @@ test('TC-MMC-05 mindmap copy (subtree with meta) pastes into outliner view as no
     expect(counts.parents).toBe(2); // 元 + 貼り付け(node として)
     expect(counts.grands).toBe(2);  // 階層ごと貼られている
 });
+
+// ---- FR-MMI-01: mindmap 画像の選択・削除 ----
+
+test('TC-MMI-01 image click selects; Delete removes; undo restores', async ({ page }) => {
+    await setup(page);
+    await init(page, tree());
+    const img = page.locator('.mindmap-node-images img').first();
+    await img.click();
+    await page.waitForTimeout(100);
+    const sel = await page.evaluate(() => {
+        const el = document.querySelector('.mindmap-node-images img.is-selected') as HTMLElement;
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { outline: cs.outlineWidth, shadow: cs.boxShadow !== 'none' };
+    });
+    expect(sel).not.toBeNull();
+    expect(sel!.outline).not.toBe('0px');
+    // Delete で除去(c1 は画像 2 枚 → 1 枚に)
+    await page.keyboard.press('Delete');
+    await page.waitForTimeout(300);
+    let count = await page.evaluate(() =>
+        document.querySelectorAll('.mindmap-node-images img').length);
+    expect(count).toBe(1);
+    await page.keyboard.press('Meta+z');
+    await page.waitForTimeout(300);
+    count = await page.evaluate(() =>
+        document.querySelectorAll('.mindmap-node-images img').length);
+    expect(count).toBe(2); // undo 復帰
+});
+
+test('TC-MMI-02 dblclick lightbox still works (selection non-interfering)', async ({ page }) => {
+    await setup(page);
+    await init(page, tree());
+    await page.locator('.mindmap-node-images img').first().dblclick();
+    await page.waitForTimeout(200);
+    const overlay = await page.evaluate(() =>
+        !!document.querySelector('.outliner-image-overlay, .image-overlay, [class*="overlay"]'));
+    expect(overlay).toBe(true);
+});
