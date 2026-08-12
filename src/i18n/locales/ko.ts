@@ -94,6 +94,9 @@ export const webviewMessages = {
   alignCenter: '가운데 정렬',
   alignRight: '오른쪽 정렬',
   tableToggleHeader: '헤더 행 표시/숨기기',
+  tableMergeCells: '셀 병합',
+  tableUnmergeCells: '병합 해제',
+  tableFilterRows: '행 필터',
   // Status bar
   words: '단어',
   characters: '문자',

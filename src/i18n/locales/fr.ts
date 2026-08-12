@@ -94,6 +94,9 @@ export const webviewMessages = {
   alignCenter: 'Aligner au centre',
   alignRight: 'Aligner à droite',
   tableToggleHeader: 'Basculer la ligne d\'en-tête',
+  tableMergeCells: 'Fusionner les cellules',
+  tableUnmergeCells: 'Annuler la fusion',
+  tableFilterRows: 'Filtrer les lignes',
   // Status bar
   words: 'Mots',
   characters: 'Caractères',

@@ -2392,3 +2392,32 @@ body {
     background: var(--vscode-button-background, #0e639c);
     color: var(--vscode-button-foreground, #ffffff);
 }
+
+/* FR-TSL (sprint 20260812-032645): table cell select/edit モード。
+   select 中はキャレット不可視(selection 自体は cell 内に置く = copy イベント経路の維持)。 */
+table.tbl-select-mode th,
+table.tbl-select-mode td {
+    caret-color: transparent;
+}
+th.tbl-cell-selected,
+td.tbl-cell-selected {
+    outline: 2px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: -2px;
+}
+th.tbl-cell-range,
+td.tbl-cell-range {
+    background: var(--vscode-editor-selectionBackground, rgba(51, 153, 255, 0.25));
+}
+/* FR-TFL: 行フィルタの非表示行 */
+tr.tbl-row-filtered {
+    display: none;
+}
+.table-toolbar input.table-filter-input {
+    border: 1px solid var(--border-color, #ccc);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    width: 110px;
+    background: var(--bg-color, #fff);
+    color: var(--text-color, #333);
+}

@@ -112,6 +112,9 @@ export const webviewMessages = {
   alignCenter: '中央寄せ',
   alignRight: '右寄せ',
   tableToggleHeader: 'ヘッダー行の表示/非表示',
+  tableMergeCells: 'セルを結合',
+  tableUnmergeCells: '結合を解除',
+  tableFilterRows: '行を絞り込み',
   // Status bar
   words: '単語数',
   characters: '文字数',

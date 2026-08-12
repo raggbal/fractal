@@ -94,6 +94,9 @@ export const webviewMessages = {
   alignCenter: '置中對齊',
   alignRight: '靠右對齊',
   tableToggleHeader: '切換表頭列',
+  tableMergeCells: '合併儲存格',
+  tableUnmergeCells: '取消合併',
+  tableFilterRows: '篩選列',
   // Status bar
   words: '字數',
   characters: '字元數',

@@ -1416,10 +1416,10 @@ function ensureTableHeaders(htmlString) {
 }
 
 
-// HTML → Markdown 変換用 Turndown 独自 rule (10 個)
+// HTML → Markdown 変換用 Turndown 独自 rule (11 個)
 // fractal editor.js paste handler (v0.207.49) から抽出。
 //
-// 利用側: addCustomRules(turndownService) を呼ぶと 10 rule が登録される。
+// 利用側: addCustomRules(turndownService) を呼ぶと 11 rule が登録される。
 // 前提: turndownService が turndown-plugin-gfm を use() 済み。
 
 function addCustomRules(turndownService) {
@@ -1437,6 +1437,91 @@ function addCustomRules(turndownService) {
         replacement: function(content) {
             content = content.replace('\n\n', '\n');
             return '\n\n<!-- fractal-headerless-table -->\n' + content + '\n\n';
+        }
+    });
+
+    // Rule 0.5 (再オープン④, ADRL-0054): 外部 HTML(Excel 等)の colspan/rowspan table。
+    // 自前でグリッド展開して <!-- fractal-merged-table --> + `<`/`^` トークンで emit する
+    // (gfm の tableRow/tableCell rule は span を平坦化して列がずれる)。
+    // 行数 1(span 実質無効)や th 行内 span のみの table は対象外(gfm に委ねる)。
+    turndownService.addRule('fractalMergedTablePaste', {
+        filter: function(node) {
+            if (node.nodeName !== 'TABLE') return false;
+            var spanned = node.querySelectorAll('td[colspan], td[rowspan], th[colspan], th[rowspan]');
+            for (var i = 0; i < spanned.length; i++) {
+                var c = spanned[i];
+                if ((parseInt(c.getAttribute('colspan') || '1', 10) > 1)
+                    || (parseInt(c.getAttribute('rowspan') || '1', 10) > 1)) return true;
+            }
+            return false;
+        },
+        replacement: function(content, node) {
+            // グリッド展開(rowspan/colspan の被覆位置を追跡)
+            var rows = node.rows;
+            var grid = [];
+            var r, c, i, j;
+            for (r = 0; r < rows.length; r++) grid.push([]);
+            for (r = 0; r < rows.length; r++) {
+                var cells = rows[r].cells;
+                var gc = 0;
+                for (c = 0; c < cells.length; c++) {
+                    while (grid[r][gc] !== undefined) gc++;
+                    var cell = cells[c];
+                    var cs = parseInt(cell.getAttribute('colspan') || '1', 10) || 1;
+                    var rs = parseInt(cell.getAttribute('rowspan') || '1', 10) || 1;
+                    for (i = 0; i < rs; i++) {
+                        for (j = 0; j < cs; j++) {
+                            if (!grid[r + i]) continue;
+                            grid[r + i][gc + j] = (i === 0 && j === 0)
+                                ? { cell: cell }
+                                : (i === 0 ? '<' : '^');
+                        }
+                    }
+                    gc += cs;
+                }
+            }
+            var colN = 0;
+            for (r = 0; r < grid.length; r++) colN = Math.max(colN, grid[r].length);
+            var cellText = function(cell) {
+                var t = (cell.textContent || '').replace(/\s+/g, ' ').trim();
+                return t.replace(/\|/g, '\\|');
+            };
+            var firstRowAllTh = rows.length > 0 && rows[0].cells.length > 0
+                && Array.prototype.every.call(rows[0].cells, function(c2) { return c2.nodeName === 'TH'; });
+            var md = '\n\n<!-- fractal-merged-table -->\n';
+            var headerless = !firstRowAllTh;
+            if (headerless) md += '<!-- fractal-headerless-table -->\n|' + new Array(colN + 1).join('  |') + '\n';
+            for (r = 0; r < grid.length; r++) {
+                var line = [];
+                for (c = 0; c < colN; c++) {
+                    var g = grid[r][c];
+                    if (g === undefined) line.push(' ');
+                    else if (g === '<' || g === '^') {
+                        // ヘッダー行内の span はトークン不可(結合はヘッダー不可)→ 空セル
+                        line.push((r === 0 && firstRowAllTh) ? ' ' : g);
+                    } else line.push(cellText(g.cell) || ' ');
+                }
+                md += '| ' + line.join(' | ') + ' |\n';
+                if (r === 0 && (firstRowAllTh || headerless)) {
+                    if (firstRowAllTh) md += '|' + new Array(colN + 1).join(' --- |') + '\n';
+                }
+                if (r === 0 && headerless) {
+                    // headerless の separator は placeholder 行の直後に出す必要がある
+                }
+            }
+            if (headerless) {
+                // placeholder 行の直後に separator を差し込む(行 2 位置)
+                var lines = md.split('\n');
+                var phIdx = -1;
+                for (i = 0; i < lines.length; i++) {
+                    if (/^\|(\s+\|)+$/.test(lines[i])) { phIdx = i; break; }
+                }
+                if (phIdx >= 0) {
+                    lines.splice(phIdx + 1, 0, '|' + new Array(colN + 1).join(' --- |'));
+                    md = lines.join('\n');
+                }
+            }
+            return md + '\n';
         }
     });
 

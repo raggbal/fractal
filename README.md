@@ -60,7 +60,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 ### Editing
 - **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
 - **Headings, lists, task lists, quotes, horizontal rules** — all standard markdown, keyboard-first
-- **Tables** — Drag any cell edge to resize columns; widths are saved into the file (as an HTML comment that doesn't affect other viewers). Tab to move between cells, Enter to add rows. Toggle the header row on/off from the table toolbar — headerless tables stay GFM-compatible for other viewers
+- **Tables** — Excel-like cell selection: click selects a cell, arrows move, Shift+arrows / drag / Shift+click select ranges, and cmd+c/x/v interoperate with spreadsheets (TSV + HTML both ways). Enter/typing edits a cell; Tab moves right (last cell appends a row). Merge/unmerge cells from the toolbar (persisted as GFM-compatible markdown with a marker comment), filter rows with the toolbar search box (display-only), resize columns by dragging cell edges, and toggle the header row on/off — all markdown stays compatible with other viewers
 - **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ``` ``` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
 - **Code blocks** — Syntax highlighting for 24+ languages, expandable into a VS Code editor tab
 - **Inline formatting** — Bold, italic, strikethrough, inline code, smart link creation
@@ -308,7 +308,7 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | `Cmd+T` / `Cmd+Shift+I` | Insert table / insert image |
 | `Cmd+F` / `Cmd+H` | Find / replace |
 | `Cmd+S` / `Cmd+Z` / `Cmd+Shift+Z` | Save / undo / redo |
-| `Tab` / `Shift+Tab` | Tables: move between cells; lists: indent / outdent |
+| `Tab` / `Shift+Tab` | Tables: move between cells (Tab on the last cell adds a row); lists: indent / outdent |
 | `Shift+Enter` | Lists: line break within the item (continuation line) |
 | `Opt+←` / `Opt+→` | Side-panel back / forward (side panel only) |
 

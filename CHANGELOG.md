@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.30] - 2026-08-12
+
+### Added
+- **Excel-like cell select/edit modes for tables** (FR-TSL): clicking a cell now selects it (accent outline, no caret) — arrows move between cells, Shift+arrows / mouse drag / Shift+click extend a rectangular range, and typing replaces the content (Enter/F2/double-click edit it). In edit mode, Enter commits and returns to select on the same cell, Tab commits and moves right, Esc discards, and arrows stay inside the cell. Tab on the last cell appends a row (replacing the old Enter-adds-row binding; programmatic caret placement keeps the legacy behavior).
+- **Range clipboard operations** (FR-TSL-03): cmd+c/x/v on a cell range work like Excel — TSV + HTML table fragments interoperate with spreadsheets both ways, paste fills from the range's top-left, grows rows downward and adds columns as needed so nothing is silently clipped, and reproduces copied merge structures. All undoable in one step.
+- **Cell merging** (FR-TMG, ADRL-0054): merge/unmerge buttons on the table toolbar, persisted in markdown as a `<!-- fractal-merged-table -->` marker plus `<` (merge left) / `^` (merge up) tokens — gated by the marker so existing documents containing literal `<`/`^` cells never change meaning. Row/column insert/delete stretch or shrink spans like Excel; pasting Excel HTML with merged cells reproduces the merges; column resizing is span-aware.
+- **Table row filter** (FR-TFL): a search box on the table toolbar narrows visible rows (case-insensitive, header always shown, rowspan groups matched as a unit). Display-only — the markdown is untouched, PDF export prints all rows, and the filter auto-clears on structural edits and pastes (merge/unmerge are disabled while filtering).
+
+### Fixed
+- Cursor jumping out of tables via the legacy arrow-exit path when no element followed the table (a paragraph is now created, matching the old behavior).
 ## [1.1.29] - 2026-08-12
 
 ### Changed

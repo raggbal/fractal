@@ -112,6 +112,9 @@ export const webviewMessages = {
   alignCenter: 'Align center',
   alignRight: 'Align right',
   tableToggleHeader: 'Toggle header row',
+  tableMergeCells: 'Merge cells',
+  tableUnmergeCells: 'Unmerge cells',
+  tableFilterRows: 'Filter rows',
   // Status bar
   words: 'Words',
   characters: 'Characters',
