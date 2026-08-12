@@ -355,7 +355,10 @@ test('TC-MG-08 gate 経路の操作は outline.note を生成しない（loadStr
 });
 
 // TC-MG-05: gate HTML が summary + 移行ボタン(runFlatMigration) + 失敗表示/再試行を含む
+// (sprint 20260813-073112 で i18n 化 — 文言 assert は initLocale('ja') を明示して従来文言を検証)
 test('TC-MG-05 gate HTML が必要要素を含む', () => {
+    const { initLocale } = require('../../src/i18n/messages');
+    initLocale('ja', 'ja');
     const fakeWebview = { cspSource: 'vscode-resource:', asWebviewUri: (u: any) => u } as any;
     const fakeUri = {} as any;
     const html = getNotesMigrationGateContent(fakeWebview, fakeUri, { pages: 12, images: 8, files: 3, total: 23 }, 'myNote');
@@ -368,15 +371,21 @@ test('TC-MG-05 gate HTML が必要要素を含む', () => {
     // 移行ボタン + runFlatMigration postMessage
     expect(html).toContain("postMessage({ type: 'runFlatMigration' })");
     expect(html).toContain('id="mg-migrate"');
+    // ja locale の移行ボタンラベル (ボタン要素内 — コメント行ではなく実 UI に載ることを pin)
+    expect(html).toContain(`type="button">移行する</button>`);
 });
 
 // TC-MG-06: gate HTML が migrationFailed を listen して理由 + 再試行を出す JS を持つ
+// (sprint 20260813-073112 で i18n 化 — retry ラベルは btn.textContent 代入行で検証。
+//  旧 assert toContain('再試行') はテンプレート内コメントにもヒットする偽 green だった)
 test('TC-MG-06 gate HTML が migrationFailed を処理する', () => {
+    const { initLocale } = require('../../src/i18n/messages');
+    initLocale('ja', 'ja');
     const fakeWebview = { cspSource: 'vscode-resource:', asWebviewUri: (u: any) => u } as any;
     const html = getNotesMigrationGateContent(fakeWebview, {} as any, { pages: 1, images: 0, files: 0, total: 1 }, 'n');
     expect(html).toContain("m.type !== 'migrationFailed'");   // 受信ハンドラ
     expect(html).toContain("addEventListener('message'");      // message listen
-    expect(html).toContain('再試行');                          // retry ラベル
+    expect(html).toContain("btn.textContent = '再試行'");      // retry ラベル (実代入行)
     expect(html).toContain('id="mg-fail-reasons"');            // 理由表示領域
 });
 
