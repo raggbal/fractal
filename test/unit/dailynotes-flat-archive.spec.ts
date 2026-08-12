@@ -17,10 +17,11 @@ import * as path from 'path';
 import { NotesFileManager } from '../../src/shared/notes-file-manager';
 import { FLAT_OUT_HINTS } from '../../src/shared/flat-layout';
 
-// notes-message-handler は mindmap-export-host 経由で `vscode` を top-level import する。
-// case 'notesArchiveTasks' 経路自体は vscode を触らないため、require('vscode') を空 stub して
-// 実 handler を require する（先例: test/unit/pdf-export-host.spec.ts TC-PDF-64）。
-function requireHandlerWithVscodeStub(): (msg: any, fm: any, sender: any, platform: any) => Promise<void> {
+// notes-message-handler / notesEditorProvider は `vscode` を top-level import する
+// (前者は mindmap-export-host 経由)。検証対象の経路自体は vscode を触らないため、
+// require('vscode') を空 stub して実モジュールを require する
+// (先例: test/unit/pdf-export-host.spec.ts TC-PDF-64)。
+function requireWithVscodeStub(modulePath: string): any {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const Module = require('module');
     const origLoad = Module._load;
@@ -28,9 +29,9 @@ function requireHandlerWithVscodeStub(): (msg: any, fm: any, sender: any, platfo
         if (request === 'vscode') {
             return {
                 workspace: { getConfiguration: () => ({ get: () => undefined }) },
-                Uri: { file: (p: string) => ({ fsPath: p }) },
+                Uri: { file: (p: string) => ({ fsPath: p }), joinPath: () => ({}) },
                 commands: { executeCommand: () => {} },
-                window: {}, env: {}, ViewColumn: {},
+                window: {}, env: {}, ViewColumn: {}, EventEmitter: class {},
             };
         }
         // eslint-disable-next-line prefer-rest-params
@@ -38,10 +39,14 @@ function requireHandlerWithVscodeStub(): (msg: any, fm: any, sender: any, platfo
     };
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        return require('../../src/shared/notes-message-handler').handleNotesMessage;
+        return require(modulePath);
     } finally {
         Module._load = origLoad;
     }
+}
+
+function requireHandlerWithVscodeStub(): (msg: any, fm: any, sender: any, platform: any) => Promise<void> {
+    return requireWithVscodeStub('../../src/shared/notes-message-handler').handleNotesMessage;
 }
 
 const noopSender = { postMessage: () => {} } as any;
@@ -180,5 +185,34 @@ test.describe('dailynotes flat archive', () => {
 
         // 本体の読み取り (resolvePagesDir) が返す legacy dir に書かれている
         expect(fs.existsSync(path.join(tempDir, 'dailynotes', 'pg2.md'))).toBe(true);
+    });
+
+    // TC-DNF-06: resolvePagePath (fractal:// page リンク解決) が flat page md を解決する
+    test('TC-DNF-06 resolvePagePath が hint 無し flat .out の note 直下 page md を返す', () => {
+        const { NotesEditorProvider } = requireWithVscodeStub('../../src/notesEditorProvider');
+        const resolvePagePath = NotesEditorProvider.prototype.resolvePagePath;
+
+        // (1) flat 実データ形: hint 無し .out + note 直下 page md
+        fs.writeFileSync(path.join(tempDir, 'x.out'), JSON.stringify({
+            version: 1, rootIds: [], nodes: {},
+        }), 'utf8');
+        fs.writeFileSync(path.join(tempDir, 'pg9.md'), '# flat page\n', 'utf8');
+        const flat = resolvePagePath.call({}, tempDir, 'x', 'pg9');
+        expect(flat).toBe(path.join(tempDir, 'pg9.md'));
+
+        // (2) legacy 変種: <note>/y/<pageId>.md 実在 + note 直下 .md 無しなら legacy を返す
+        //     (読み取り正典 resolvePageFilePath と一致)
+        const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dnf-legacy-'));
+        try {
+            fs.writeFileSync(path.join(legacyDir, 'y.out'), JSON.stringify({
+                version: 1, rootIds: [], nodes: {},
+            }), 'utf8');
+            fs.mkdirSync(path.join(legacyDir, 'y'), { recursive: true });
+            fs.writeFileSync(path.join(legacyDir, 'y', 'pg9.md'), '# legacy page\n', 'utf8');
+            const legacy = resolvePagePath.call({}, legacyDir, 'y', 'pg9');
+            expect(legacy).toBe(path.join(legacyDir, 'y', 'pg9.md'));
+        } finally {
+            fs.rmSync(legacyDir, { recursive: true, force: true });
+        }
     });
 });
