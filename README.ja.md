@@ -439,7 +439,35 @@ npm run compile
 | `fractal.showOpenInTextEditor` | Open in Text Editor ボタンの表示 | `true` |
 | `fractal.enableDebugLogging` | ブラウザコンソールへのデバッグログ | `false` |
 
-このほか S3 同期（`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`）と翻訳（`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`、`translateSourceLang` / `translateTargetLang`、カスタム用語集）の設定があります。画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
+### S3 同期（AWS）
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.s3AccessKeyId` | S3 同期用の AWS アクセスキー ID | `""` |
+| `fractal.s3SecretAccessKey` | S3 同期用の AWS シークレットアクセスキー | `""` |
+| `fractal.s3Region` | S3 同期用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
+
+### 翻訳（Amazon Translate）
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.transAccessKeyId` | Amazon Translate 用の AWS アクセスキー ID | `""` |
+| `fractal.transSecretAccessKey` | Amazon Translate 用の AWS シークレットアクセスキー | `""` |
+| `fractal.transRegion` | Amazon Translate 用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
+| `fractal.translateSourceLang` | 既定の翻訳元言語 | `en` |
+| `fractal.translateTargetLang` | 既定の翻訳先言語 | `ja` |
+| `fractal.translateTerminologyName` | Amazon Translate に登録済みのカスタム用語集名 | `""` |
+| `fractal.translateTerminologyFile` | 登録するカスタム用語集ファイル（CSV / TMX）のパス | `""` |
+
+### PDF エクスポート
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.pdfStyles` | エクスポート PDF に適用する追加 CSS ファイルパス | `[]` |
+| `fractal.pdfIncludeDefaultStyles` | 組み込み印刷スタイルシートを含める | `true` |
+| `fractal.pdfBrowserPath` | Chromium 系ブラウザ実行ファイルの明示パス | `""`（自動検出） |
+
+画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
 
 UI は **英語、日本語、簡体字/繁体字中国語、韓国語、スペイン語、フランス語** にローカライズされています（`fractal.language`、`default` で VS Code に追従）。
 

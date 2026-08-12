@@ -434,7 +434,35 @@ Type a markdown pattern and it converts in place: `# ` for headings, `- ` for li
 | `fractal.showOpenInTextEditor` | Show the Open in Text Editor button | `true` |
 | `fractal.enableDebugLogging` | Debug logging to the browser console | `false` |
 
-There are also settings for S3 sync (`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`) and translation (`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`, `translateSourceLang` / `translateTargetLang`, custom terminology). Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
+### S3 sync (AWS)
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.s3AccessKeyId` | AWS Access Key ID for S3 sync | `""` |
+| `fractal.s3SecretAccessKey` | AWS Secret Access Key for S3 sync | `""` |
+| `fractal.s3Region` | AWS region for S3 sync (e.g. `ap-northeast-1`) | `us-east-1` |
+
+### Translation (Amazon Translate)
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.transAccessKeyId` | AWS Access Key ID for Amazon Translate | `""` |
+| `fractal.transSecretAccessKey` | AWS Secret Access Key for Amazon Translate | `""` |
+| `fractal.transRegion` | AWS region for Amazon Translate (e.g. `ap-northeast-1`) | `us-east-1` |
+| `fractal.translateSourceLang` | Default source language | `en` |
+| `fractal.translateTargetLang` | Default target language | `ja` |
+| `fractal.translateTerminologyName` | Custom Terminology name registered in Amazon Translate | `""` |
+| `fractal.translateTerminologyFile` | Path to a Custom Terminology file (CSV / TMX) to register | `""` |
+
+### PDF export
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.pdfStyles` | Additional CSS file paths applied to the exported PDF | `[]` |
+| `fractal.pdfIncludeDefaultStyles` | Include the built-in print stylesheet | `true` |
+| `fractal.pdfBrowserPath` | Explicit path to a Chromium-based browser executable | `""` (auto-detect) |
+
+Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
 
 The UI is localized in **English, Japanese, Simplified/Traditional Chinese, Korean, Spanish, and French** (`fractal.language`; `default` follows VS Code).
 
