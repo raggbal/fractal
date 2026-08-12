@@ -297,3 +297,49 @@ test('TC-MDD-05 icon payload shape matches editor.js receiver contract', async (
     expect('outFileKey' in payloads.file).toBe(true);
     expect(payloads.file.nodeId).toBe('f1');
 });
+
+// 再オープン①(3): 同一ファイル updateData(D&D 取込反映)で viewport(zoom/pan)を維持
+test('TC-MDD-10 same-file updateData preserves mindmap viewport (drop does not jump)', async ({ page }) => {
+    await setup(page);
+    await init(page, tree());
+    // outFileKey を確立(currentOutFileKey は updateData で注入される)
+    await page.evaluate((d) => {
+        (window as any).__hostMessageHandler({
+            type: 'updateData', data: d, fileChangeId: 'seed', outFileKey: '/test/mm.out',
+        });
+    }, tree());
+    await page.waitForTimeout(300);
+    // zoom/pan を変更
+    await page.evaluate(() => {
+        (window as any).MindmapRender.updateViewport({ scale: 1.6, translateX: 240, translateY: 130 });
+    });
+    await page.waitForTimeout(100);
+    // 同一ファイル(同じ outFileKey)の updateData = host の D&D 取込反映と同型
+    await page.evaluate((d) => {
+        (window as any).__hostMessageHandler({
+            type: 'updateData', data: d, fileChangeId: 'dnd-1', outFileKey: '/test/mm.out',
+        });
+    }, tree());
+    await page.waitForTimeout(300);
+    const vp = await page.evaluate(() => (window as any).MindmapRender.getViewport());
+    // counterfactual: 復元を外すと scale=1/translate=0 に戻り RED
+    expect(vp.scale).toBeCloseTo(1.6, 1);
+    expect(Math.round(vp.translateX)).toBe(240);
+    expect(Math.round(vp.translateY)).toBe(130);
+});
+
+// 再オープン①(1): 📎/📄 icon click で開く(outliner パリティ)
+test('TC-MDD-11 file icon click opens attached file; page icon click opens page', async ({ page }) => {
+    await setup(page);
+    await init(page, tree());
+    await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
+    await page.locator('.mindmap-node[data-node-id="f1"] .mindmap-node-icon').click();
+    await page.waitForTimeout(150);
+    let msgs = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
+    expect(msgs).toContain('openAttachedFile');
+    await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
+    await page.locator('.mindmap-node[data-node-id="p1"] .mindmap-node-icon').click();
+    await page.waitForTimeout(150);
+    msgs = await page.evaluate(() => (window as any).__testApi.messages.map((m: any) => m.type));
+    expect(msgs.some((t: string) => /openPage/i.test(t))).toBe(true);
+});

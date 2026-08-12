@@ -348,6 +348,14 @@ var MindmapRender = (function() {
             var pi = document.createElementNS(XHTMLNS, 'span');
             pi.setAttribute('class', 'mindmap-node-icon');
             pi.textContent = '📄'; // 📄
+            // 再オープン①(1): icon click = page を開く(outliner の 📄 click と対称)
+            (function(iconEl, nid) {
+                iconEl.style.cursor = 'pointer';
+                iconEl.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    if (ctx.openPage) { ctx.openPage(nid); }
+                });
+            })(pi, nodeId);
             if (node.pageId && ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
                 pi.setAttribute('draggable', 'true');
                 pi.style.cursor = 'grab';
@@ -372,6 +380,15 @@ var MindmapRender = (function() {
             var fi = document.createElementNS(XHTMLNS, 'span');
             fi.setAttribute('class', 'mindmap-node-icon');
             fi.textContent = '📎'; // 📎
+            // 再オープン①(1): icon click = 添付ファイルを開く(outliner の 📎 click と対称)
+            (function(iconEl, nid) {
+                iconEl.style.cursor = 'pointer';
+                iconEl.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    var h = _lastCtx && _lastCtx.host;
+                    if (h && typeof h.openAttachedFile === 'function') { h.openAttachedFile(nid); }
+                });
+            })(fi, nodeId);
             if (ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
                 fi.setAttribute('draggable', 'true');
                 fi.style.cursor = 'grab';

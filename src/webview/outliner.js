@@ -9235,8 +9235,21 @@ var Outliner = (function() {
                         // stale paste/keydown listener が新ファイル(outliner view)でも発火し
                         // 画像 paste の二重貼付になる。切替前に必ず destroy(冪等・mindmap を
                         // 再表示する場合は renderTree 内の attach が再配線するので安全)。
-                        if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
-                            try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+                        // 再オープン①(3): **同一ファイルの updateData**(D&D 取込等の host 直接
+                        // 書換の反映)では viewport(zoom/pan)を保存し renderTree 後に復元する
+                        // (destroy → render で viewport が初期化され「drop すると画面が飛ぶ」
+                        // = 最重要報告の機序。別ファイル切替は初期 viewport が正なので復元しない)
+                        var _sameFileUpdate = (msg.outFileKey !== undefined
+                            && currentOutFileKey && msg.outFileKey === currentOutFileKey);
+                        var _savedViewport = null;
+                        if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined') {
+                            if (_sameFileUpdate && MindmapRender.getViewport) {
+                                var _vp = MindmapRender.getViewport();
+                                _savedViewport = { scale: _vp.scale, translateX: _vp.translateX, translateY: _vp.translateY };
+                            }
+                            if (MindmapRender.destroy) {
+                                try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+                            }
                         }
                         // FR-MMI-01: 旧ファイルの画像選択 state(selectedImageInfo)が残ると
                         // 新ファイルで Delete が誤削除する(one-shot 対クリア — TC-MMI-03)
@@ -9297,6 +9310,12 @@ var Outliner = (function() {
                             } else if (savedFocus && model.getNode(savedFocus)) {
                                 focusNode(savedFocus);
                             }
+                        }
+                        // 再オープン①(3): 同一ファイル updateData(D&D 取込反映等)では
+                        // 保存した mindmap viewport(zoom/pan)を復元 — drop で画面が飛ばない
+                        if (_savedViewport && VIEW_MODE === 'mindmap'
+                            && typeof MindmapRender !== 'undefined' && MindmapRender.updateViewport) {
+                            try { MindmapRender.updateViewport(_savedViewport); } catch (eV) { /* noop */ }
                         }
                         if (msg.scopeToNodeId && isDailyNotes) {
                             var dayNode = model.getNode(msg.scopeToNodeId);
