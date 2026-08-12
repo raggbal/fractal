@@ -12149,14 +12149,32 @@ class EditorInstance {
         const cd = e.clipboardData;
         if (!cd) return false;
         let matrix = null;
+        let srcSpans = []; // {r, c, rs, cs} — 貼り付け後に再結合する(Excel)
         const html = cd.getData('text/html');
         if (html && /<table[\s>]/i.test(html)) {
             const tmp = document.createElement('div');
             tmp.innerHTML = html;
             const srcTable = tmp.querySelector('table');
             if (srcTable) {
-                matrix = Array.from(srcTable.rows).map((row) =>
-                    Array.from(row.cells).map((c) => c.innerHTML));
+                // 再オープン② bug(2): span 付き table を grid 展開(被覆位置 = 空)。
+                // cells の素朴な走査は colspan/rowspan で列がずれ充填が壊れる
+                const sm = tslGridMap(srcTable);
+                const rowsN = sm.grid.length;
+                const colsN = sm.grid[0] ? sm.grid[0].length : 0;
+                matrix = [];
+                for (let r = 0; r < rowsN; r++) {
+                    const line = [];
+                    for (let c = 0; c < colsN; c++) {
+                        const cell = sm.grid[r][c];
+                        const p = cell ? sm.posOf.get(cell) : null;
+                        line.push(cell && p && p.r === r && p.c === c ? cell.innerHTML : '');
+                    }
+                    matrix.push(line);
+                }
+                for (const [cell, p] of sm.posOf) {
+                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                    if (rs > 1 || cs > 1) srcSpans.push({ r: p.r, c: p.c, rs, cs });
+                }
             }
         }
         if (!matrix) {
@@ -12216,6 +12234,29 @@ class EditorInstance {
                 const cell = m2.grid[p.r + i] ? m2.grid[p.r + i][p.c + j] : null;
                 if (cell) cell.innerHTML = matrix[i][j] || '<br>';
             }
+        }
+        // 再オープン② bug(2): コピー元の結合を貼り付け先で再現(範囲内に収まるもののみ・
+        // 列切捨てで欠けた span は幅を丸める。th 行には結合を作らない)
+        for (const sp of srcSpans) {
+            const ar = p.r + sp.r, ac = p.c + sp.c;
+            const m3 = tslGridMap(table);
+            if (ar >= m3.rows.length || ac >= colCount) continue;
+            const anchorCell = m3.grid[ar] && m3.grid[ar][ac];
+            if (!anchorCell || anchorCell.tagName === 'TH') continue;
+            const rs = Math.min(sp.rs, m3.rows.length - ar);
+            const cs = Math.min(sp.cs, colCount - ac);
+            if (rs <= 1 && cs <= 1) continue;
+            // 対象矩形の他セルを remove して span を張る(tslMergeSelection と同じ手順)
+            for (let i = 0; i < rs; i++) {
+                for (let j = 0; j < cs; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const cur = tslGridMap(table);
+                    const victim = cur.grid[ar + i] && cur.grid[ar + i][ac + j];
+                    if (victim && victim !== anchorCell && victim.tagName !== 'TH') victim.remove();
+                }
+            }
+            if (rs > 1) anchorCell.setAttribute('rowspan', String(rs));
+            if (cs > 1) anchorCell.setAttribute('colspan', String(cs));
         }
         // 貼り付け結果の範囲を選択状態に(Excel と同じフィードバック)
         const mAfter = tslGridMap(table);
@@ -12543,8 +12584,16 @@ class EditorInstance {
                 tslClearRangeContents();
                 return true;
             }
-            if ((e.metaKey || e.ctrlKey) && ['c', 'x', 'v'].includes(e.key.toLowerCase())) {
-                // copy/cut/paste イベントハンドラ側(tableSel 分岐)に委譲 — preventDefault しない
+            if ((e.metaKey || e.ctrlKey) && ['c', 'x'].includes(e.key.toLowerCase())) {
+                // 再オープン②: select モードは selection が collapsed のため cmd+c で
+                // copy イベントが発火しない → keydown 駆動で navigator.clipboard に書く
+                e.preventDefault();
+                tslCopyRangeToClipboard(e.key.toLowerCase() === 'x');
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+                // paste はブラウザがイベントを発火する(collapsed selection でも paste は来る)
+                // → paste ハンドラの tslHandlePaste 分岐に委譲。preventDefault しない
                 return true;
             }
             if ((e.metaKey || e.ctrlKey) || e.altKey) return false; // 他のショートカットは既存へ
@@ -28202,18 +28251,22 @@ class EditorInstance {
     }
 
     // FR-TSL-03: select モードの範囲 copy/cut/paste(セル矩形単位・Excel 互換)
-    function tslWriteClipboard(e) {
+    // 範囲の TSV + html table 断片を構築(grid 座標が単一真実・span 保持)
+    function tslBuildClipboardPayload() {
         const cells = tslRangeCells();
-        if (!cells.length) return false;
-        // 矩形の行列に整列(グリッド座標でソート)
-        const grid = new Map();
+        if (!cells.length) return null;
+        const m = tslGridMap(tableSel.table);
         let rMin = Infinity, rMax = -Infinity, cMin = Infinity, cMax = -Infinity;
+        const anchorAt = new Map(); // 'r:c'(anchor 位置)→ cell
         for (const cell of cells) {
-            const p = tslCellPos(cell);
-            rMin = Math.min(rMin, p.r); rMax = Math.max(rMax, p.r);
-            cMin = Math.min(cMin, p.c); cMax = Math.max(cMax, p.c);
-            grid.set(p.r + ':' + p.c, cell);
+            const p = m.posOf.get(cell);
+            if (!p) continue;
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            rMin = Math.min(rMin, p.r); rMax = Math.max(rMax, p.r + rs - 1);
+            cMin = Math.min(cMin, p.c); cMax = Math.max(cMax, p.c + cs - 1);
+            anchorAt.set(p.r + ':' + p.c, cell);
         }
+        if (rMin === Infinity) return null;
         const cellPlain = (cell) => (cell ? cell.textContent.replace(/\n/g, ' ').trim() : '');
         const tsvRows = [];
         let htmlRows = '';
@@ -28221,33 +28274,61 @@ class EditorInstance {
             const tsvCols = [];
             let rowHtml = '';
             for (let c = cMin; c <= cMax; c++) {
-                const cell = grid.get(r + ':' + c);
-                tsvCols.push(cellPlain(cell));
-                const tag = cell && cell.tagName === 'TH' ? 'th' : 'td';
-                const span = cell
-                    ? ((cell.colSpan > 1 ? ' colspan="' + cell.colSpan + '"' : '')
-                        + (cell.rowSpan > 1 ? ' rowspan="' + cell.rowSpan + '"' : ''))
-                    : '';
-                if (cell || !grid.has(r + ':' + c)) {
-                    // 被覆位置(span 内)はセルを出さない: grid に無く、かつ左/上の span が覆う
-                    if (!cell && coveredBySpan(r, c)) continue;
-                    rowHtml += '<' + tag + span + '>' + (cell ? cell.innerHTML : '<br>') + '</' + tag + '>';
+                const anchor = anchorAt.get(r + ':' + c);
+                const gridCell = m.grid[r] ? m.grid[r][c] : undefined;
+                if (anchor) {
+                    tsvCols.push(cellPlain(anchor));
+                    const tag = anchor.tagName === 'TH' ? 'th' : 'td';
+                    const span = (anchor.colSpan > 1 ? ' colspan="' + anchor.colSpan + '"' : '')
+                        + (anchor.rowSpan > 1 ? ' rowspan="' + anchor.rowSpan + '"' : '');
+                    rowHtml += '<' + tag + span + '>' + anchor.innerHTML + '</' + tag + '>';
+                } else if (gridCell && anchorAt.has((m.posOf.get(gridCell) || {}).r + ':' + (m.posOf.get(gridCell) || {}).c)) {
+                    // 範囲内 anchor の被覆位置: html にはセルを出さない(span が覆う)。TSV は空
+                    tsvCols.push('');
+                } else {
+                    // 範囲内の通常セル(anchor 位置だが tslRangeCells 済のはず)or 空
+                    tsvCols.push(cellPlain(gridCell));
+                    rowHtml += '<td>' + (gridCell ? gridCell.innerHTML : '<br>') + '</td>';
                 }
             }
             tsvRows.push(tsvCols.join('\t'));
             htmlRows += '<tr>' + rowHtml + '</tr>';
         }
-        function coveredBySpan(r, c) {
-            for (const cell of cells) {
-                const p = tslCellPos(cell);
-                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
-                if (r >= p.r && r < p.r + rs && c >= p.c && c < p.c + cs
-                    && !(r === p.r && c === p.c)) return true;
+        return {
+            plain: tsvRows.join('\n'),
+            html: '<table data-fractal-cells="1">' + htmlRows + '</table>',
+        };
+    }
+
+    // 再オープン②: copy/cut を keydown 駆動に(select モードは selection が collapsed の
+    // ため cmd+c で copy イベント自体が発火しない — 合成イベント TC では検出不能の機序)。
+    // navigator.clipboard.write で TSV + html を書く(スクショ等の stale 内容の貼付を防ぐ)
+    function tslCopyRangeToClipboard(alsoCut) {
+        const payload = tslBuildClipboardPayload();
+        if (!payload) return false;
+        try {
+            if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+                const item = new ClipboardItem({
+                    'text/plain': new Blob([payload.plain], { type: 'text/plain' }),
+                    'text/html': new Blob([payload.html], { type: 'text/html' }),
+                });
+                navigator.clipboard.write([item]).catch(() => {
+                    if (navigator.clipboard.writeText) navigator.clipboard.writeText(payload.plain);
+                });
+            } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(payload.plain);
             }
-            return false;
-        }
-        e.clipboardData.setData('text/plain', tsvRows.join('\n'));
-        e.clipboardData.setData('text/html', '<table>' + htmlRows + '</table>');
+        } catch (err) { /* clipboard 不可の環境では黙って諦める(select 継続) */ }
+        if (alsoCut) tslClearRangeContents();
+        return true;
+    }
+
+    // copy/cut イベント経由(コンテキストメニュー等・selection が張れている場合)用
+    function tslWriteClipboard(e) {
+        const payload = tslBuildClipboardPayload();
+        if (!payload) return false;
+        e.clipboardData.setData('text/plain', payload.plain);
+        e.clipboardData.setData('text/html', payload.html);
         e.preventDefault();
         return true;
     }

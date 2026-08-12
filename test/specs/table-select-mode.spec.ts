@@ -262,40 +262,43 @@ test.describe('Table range selection and operations (FR-TSL-02/03/04)', () => {
         expect(s.rangeTexts.sort()).toEqual(['a1', 'a2', 'b1', 'b2']);
     });
 
-    // TC-TSL-09: 範囲 copy = TSV + html。cut = クリア。paste = anchor 起点(下はみ出し行追加・右切捨て)
-    test('TC-TSL-09 range copy/cut/paste with overflow rules', async ({ page }) => {
+    // TC-TSL-09 rev(再オープン② bug(1)): cmd+c は実キーで navigator.clipboard に書く
+    // (select モードは selection collapsed のため copy イベントが発火しない — 合成
+    //  ClipboardEvent の旧 TC は false-green だった)。paste も実キー相当の流れで検証
+    test('TC-TSL-09 real cmd+c writes clipboard; cmd+v fills from top-left with overflow rules', async ({ page, context }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
         await setupTable(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |');
         await clickBodyCell(page, 0, 0);
         await page.keyboard.press('Shift+ArrowRight');
         await page.keyboard.press('Shift+ArrowDown');
-        // copy の clipboardData を合成イベントで捕捉
-        const copied = await page.evaluate(() => {
-            const store: Record<string, string> = {};
-            const e = new ClipboardEvent('copy', { bubbles: true, cancelable: true });
-            Object.defineProperty(e, 'clipboardData', {
-                value: { setData: (t: string, v: string) => { store[t] = v; }, getData: () => '' },
-            });
-            document.querySelector('#editor')!.dispatchEvent(e);
-            return store;
+        await page.keyboard.press('Meta+c'); // 実キー
+        await page.waitForTimeout(300);
+        const clip = await page.evaluate(async () => {
+            const items = await navigator.clipboard.read();
+            const out: Record<string, string> = {};
+            for (const item of items) {
+                for (const t of item.types) {
+                    out[t] = await (await item.getType(t)).text();
+                }
+            }
+            return out;
         });
-        expect(copied['text/plain']).toBe('a1\tb1\na2\tb2');
-        expect(copied['text/html']).toContain('<table>');
-        expect(copied['text/html']).toContain('a1');
-        // paste: 2x2 TSV を (1,1) 起点で貼る → 右列は切捨て・下は行追加
-        await clickBodyCell(page, 1, 1); // b2 セル
+        expect(clip['text/plain']).toBe('a1\tb1\na2\tb2');
+        expect(clip['text/html']).toContain('a1');
+        expect(clip['text/html']).toContain('<table');
+        // cmd+v: (1,1) 起点 → 右列切捨て・下はみ出し行追加(paste イベント経由)
+        await clickBodyCell(page, 1, 1);
         await page.evaluate(() => {
             const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
             Object.defineProperty(e, 'clipboardData', {
-                value: {
-                    getData: (t: string) => t === 'text/plain' ? 'X1\tY1\nX2\tY2' : '',
-                },
+                value: { getData: (t: string) => t === 'text/plain' ? 'X1\tY1\nX2\tY2' : '' },
             });
             document.querySelector('#editor')!.dispatchEvent(e);
         });
         await page.waitForTimeout(300);
         const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
-        expect(md).toContain('| a2 | X1 |'); // anchor 上書き(Y1 は右はみ出し切捨て)
-        expect(md).toContain('X2');           // 下はみ出し = 行追加
+        expect(md).toContain('| a2 | X1 |');
+        expect(md).toContain('X2');
         expect(md).not.toContain('Y1');
     });
 

@@ -323,3 +323,49 @@ test.describe('Table merge re-open 1 fixes', () => {
         expect(out).toContain('fractal-col-widths: 120,100,180');
     });
 });
+
+// 再オープン② bug(2): 結合セル含む範囲の copy → paste で構造ごと再現される
+test('TC-TMG-14 copy/paste of a range containing merged cells reproduces the spans', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await setup(page, M + '\n| H1 | H2 | H3 |\n| --- | --- | --- |\n| big | < | c1 |\n| ^ | ^ | c2 |\n| a3 | b3 | c3 |\n| a4 | b4 | c4 |');
+    // big(2x2)+ c1/c2 を含む範囲を選択して実 cmd+c
+    await clickBodyCell(page, 0, 0); // big
+    await page.keyboard.press('Shift+ArrowRight'); // c1 列まで(矩形拡張で 2 行 3 列)
+    await page.keyboard.press('Meta+c');
+    await page.waitForTimeout(300);
+    const clip = await page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            if (item.types.includes('text/html')) {
+                return await (await item.getType('text/html')).text();
+            }
+        }
+        return '';
+    });
+    expect(clip).toContain('colspan="2"');
+    expect(clip).toContain('rowspan="2"');
+    expect(clip).toContain('big');
+    // a3 起点に paste(html 経由)→ big の 2x2 が再現される
+    await clickBodyCell(page, 2, 0); // a3(grid 行 3)
+    await page.evaluate((html) => {
+        const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'clipboardData', {
+            value: { getData: (t: string) => t === 'text/html' ? html : '' },
+        });
+        document.querySelector('#editor')!.dispatchEvent(e);
+    }, clip);
+    await page.waitForTimeout(400);
+    const st = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const bigs = Array.from(t.querySelectorAll('td')).filter(c => c.textContent?.trim() === 'big');
+        return {
+            count: bigs.length,
+            spans: bigs.map(b => `${b.colSpan}x${b.rowSpan}`),
+            rows: t.rows.length,
+        };
+    });
+    expect(st.count).toBe(2);                     // 元 + 貼り付け先
+    expect(st.spans).toEqual(['2x2', '2x2']);     // 結合構造ごと再現
+    const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+    expect(md).toContain('| ^ | ^ | c2 |');
+});
