@@ -129,7 +129,7 @@ Switch with the view toggle:
 
 1. **Outliner view** — Classic bullet tree. Unlimited nesting, collapse/expand, subtree scoping with breadcrumbs
 2. **Database view** — Your outline as a Notion-like database (tree table). Text and tag (multi-select) columns, plus optional **Date / Date & Time columns** with a native date picker
-3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit), node colors and shapes, boundaries (groups), and relationship lines
+3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit, copy/cut/paste with descendants), node colors and shapes, boundaries (groups), relationship lines — plus image attach/delete and drag & drop of 📄/📎 nodes to and from the note tree and markdown editors
 
 ### Organize with tags & search
 - `#tag` and `@tag` are auto-highlighted; click to filter instantly
@@ -362,7 +362,10 @@ The outliner column supports all of the outliner shortcuts above. In addition:
 | `Cmd+Shift+L` | Cycle layout (radial → right → left → balanced) |
 | `Cmd+Enter` | Open / create the page |
 | `Cmd+Shift+X` / `Cmd+Shift+Option+X` | Add / toggle checkbox — remove checkbox |
-| `Cmd+V` | Attach a pasted image to the node |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut the node with all descendants / paste as children of the focused node (same asset rules as the outliner) |
+| `Cmd+V` (image in clipboard) | Attach a pasted image to the node |
+| Click image + `Delete` | Select an attached image (accent outline) and remove it |
+| Click 📄 / 📎 | Open the page / attached file (icons are also draggable to the note tree and markdown editors) |
 | `Cmd+A` / `Cmd+Z` | Select all / undo |
 | `Cmd+wheel` | Zoom (toolbar ＋/−/Fit also available) |
 | Drag | Empty space: pan; node: re-parent (top ⅓ = previous sibling, bottom ⅓ = next sibling, middle = child) |
