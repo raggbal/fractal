@@ -111,6 +111,14 @@ var Outliner = (function() {
             if (prev === 'mindmap' && mode !== 'mindmap' &&
                 typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
                 MindmapRender.destroy();
+                // FR-MMC (sprint 20260812-110538): mindmap の focusNode は selectedNodeIds に
+                // フォーカス node を add する(mindmap-interactions :142-144)。outliner に
+                // 戻った後もこれが残ると、paste の「複数選択時: 選択ノードを置換」分岐が
+                // 誤発動して選択残留 node の subtree が削除される(実測)。view を跨ぐ
+                // selection は意味を持たないためクリアする。
+                if (selectedNodeIds && selectedNodeIds.size > 0) {
+                    selectedNodeIds.clear();
+                }
             }
             renderTree();
         }
@@ -1890,6 +1898,82 @@ var Outliner = (function() {
                     },
                     // Mindmap interactions が使う outliner 内部フック
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    // FR-OIP-01: stale listener ガード用(paste listener が現 view を確認する)
+                    getViewMode: function () { return VIEW_MODE; },
+                    // FR-MMI-01: mindmap 画像の click 選択が outliner の selectedImageInfo
+                    // state を共有するための host adapter(削除は既存 document keydown が担う)
+                    imageSelectHost: function () { return _outlinerImageHost(); },
+                    // FR-MDD-01/03: 📄/📎 アイコン dragstart の payload 素材
+                    getOutFileKey: function () { return currentOutFileKey; },
+                    isNotesMode: function () { return isNotesMode(); },
+                    // FR-MDD-02/04: 受け 4 経路(判定 + handler を outliner から共有)
+                    isTreeMdDragEvent: function (e) { return isTreeMdDragEvent(e); },
+                    isTreeFileDragEvent: function (e) { return isTreeFileDragEvent(e); },
+                    isMdFileLinkDrag: function (e) { return isMdFileLinkDragEvent(e); },
+                    isMdSubpageDrag: function (e) { return isMdSubpageDragEvent(e); },
+                    handleTreeMdDrop: function (e, targetNodeId, position) { return handleTreeMdDrop(e, targetNodeId, position); },
+                    handleTreeFileDrop: function (e, targetNodeId, position) { return handleTreeFileDrop(e, targetNodeId, position); },
+                    handleMdFileLinkDrop: function (e, targetNodeId, position) { return handleMdFileLinkDrop(e, targetNodeId, position); },
+                    handleMdSubpageDrop: function (e, targetNodeId, position) { return handleMdSubpageDrop(e, targetNodeId, position); },
+                    // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
+                    // outliner の正典 3 点セット(writeClipboardWithHtml + internalClipboard +
+                    // host.saveOutlinerClipboard)と pasteNodesFromText(資産契約内蔵)を
+                    // ctx フックで共有する(再実装禁止 — Store 非消費/resolveCrossPasteCut の
+                    // 契約重複実装 = consumeIfCut クラス再発リスク)。
+                    copySubtreeToClipboard: function (nodeId, isCut) {
+                        var nodes = getSubtreeNodesData(nodeId);
+                        if (!nodes.length) { return false; }
+                        // plain text = tab インデント形式(getSelectedText と同じ規約・\n は空白潰し)
+                        var lines = [];
+                        for (var i = 0; i < nodes.length; i++) {
+                            var indent = new Array(nodes[i].level + 1).join('\t');
+                            lines.push(indent + String(nodes[i].text || '').replace(/\n/g, ' '));
+                        }
+                        var plainText = lines.join('\n');
+                        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(plainText, nodes, !!isCut, copyId);
+                        internalClipboard = {
+                            plainText: plainText,
+                            isCut: !!isCut,
+                            nodes: nodes,
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyId
+                        };
+                        host.saveOutlinerClipboard(plainText, !!isCut, nodes);
+                        return true;
+                    },
+                    // cut の後始末(subtree 削除)。copy とは分離(mindmap 側が copy 成功後に呼ぶ)
+                    removeSubtree: function (nodeId) {
+                        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+                        var parent = model.getNode(nodeId) ? model.getNode(nodeId).parentId : null;
+                        model.removeNode(nodeId);
+                        if (focusedNodeId === nodeId) { focusedNodeId = parent || null; }
+                        scheduleSyncToHost();
+                        renderTree();
+                    },
+                    // paste イベントから「targetNodeId の子末尾」へ挿入(handleNodePaste の
+                    // 源選定〜pasteNodesFromText と同じ経路。挿入位置だけ子固定)
+                    pasteIntoNodeFromEvent: function (e, targetNodeId) {
+                        var clipText = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+                        if (!clipText) { return false; }
+                        e.preventDefault();
+                        var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
+                        var crossMeta = extractOutlinerClipboardMeta(htmlData);
+                        var sel = OutlinerClipSelect.selectClipSource(internalClipboard, crossMeta, clipText);
+                        if (!sel) { sel = { source: 'external', nodes: null, isCut: false, sourceOutFileKey: null }; }
+                        if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
+                            internalClipboard = null;
+                        }
+                        try { saveSnapshot(null, 'action'); } catch (e2) { /* noop */ }
+                        var target = model.getNode(targetNodeId);
+                        var kids = target && target.children ? target.children : [];
+                        var afterId = kids.length ? kids[kids.length - 1] : null;
+                        pasteNodesFromText(clipText, targetNodeId, afterId,
+                            sel.nodes, sel.isCut, sel.sourceOutFileKey || null, false);
+                        scheduleSyncToHost();
+                        renderTree();
+                        return true;
+                    },
                     // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
                     // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
                     isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
@@ -4456,6 +4540,8 @@ var Outliner = (function() {
                 var clipItem = e.clipboardData.items[ci];
                 if (clipItem.kind === 'file' && clipItem.type.startsWith('image/')) {
                     e.preventDefault();
+                    // FR-OIP-01: バブリング先の listener(stale mindmap paste 等)への防波堤
+                    e.stopPropagation();
                     var imgFile = clipItem.getAsFile();
                     if (imgFile) {
                         var reader = new FileReader();
@@ -7079,6 +7165,18 @@ var Outliner = (function() {
                 hideContextMenu();
             }
         });
+
+        // FR-OIP-02 (sprint 20260812-110538): 画像選択の解除契機を追加 — 画像以外の
+        // クリックで選択解除(従来は別画像 click / text focus / 削除後のみで選択が残存)
+        document.addEventListener('click', function(e) {
+            if (!selectedImageInfo) { return; }
+            var t = e.target;
+            if (t && t.closest && (t.closest('.outliner-image-thumb')
+                || t.closest('.mindmap-node-images'))) { return; } // 画像自身は選択処理に委ねる
+            if (typeof OutlinerCell !== 'undefined' && OutlinerCell.clearImageSelection) {
+                OutlinerCell.clearImageSelection(_outlinerImageHost());
+            }
+        });
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
@@ -8986,6 +9084,11 @@ var Outliner = (function() {
     function applySyncedData(newData) {
         // Notes ファイル切替 path と同等処理（listener teardown せず init 再呼び出ししない）
         if (newData) {
+            // FR-OIP-01: updateData 経路と同じ stale mindmap listener 封鎖(冪等 destroy)
+            if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+            }
+            selectedImageInfo = null; // FR-MMI-01: stale 画像選択の対クリア
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
             rawDataExtras = captureRawDataExtras(newData);
@@ -9127,6 +9230,30 @@ var Outliner = (function() {
                         queuedExternalUpdate = null;
 
                         var savedFocus = focusedNodeId;
+                        // FR-OIP-01 (sprint 20260812-110538): ファイル切替は mindmap の treeEl
+                        // listener を teardown しない(leak)ため、旧ファイルが mindmap だった場合
+                        // stale paste/keydown listener が新ファイル(outliner view)でも発火し
+                        // 画像 paste の二重貼付になる。切替前に必ず destroy(冪等・mindmap を
+                        // 再表示する場合は renderTree 内の attach が再配線するので安全)。
+                        // 再オープン①(3): **同一ファイルの updateData**(D&D 取込等の host 直接
+                        // 書換の反映)では viewport(zoom/pan)を保存し renderTree 後に復元する
+                        // (destroy → render で viewport が初期化され「drop すると画面が飛ぶ」
+                        // = 最重要報告の機序。別ファイル切替は初期 viewport が正なので復元しない)
+                        var _sameFileUpdate = (msg.outFileKey !== undefined
+                            && currentOutFileKey && msg.outFileKey === currentOutFileKey);
+                        var _savedViewport = null;
+                        if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined') {
+                            if (_sameFileUpdate && MindmapRender.getViewport) {
+                                var _vp = MindmapRender.getViewport();
+                                _savedViewport = { scale: _vp.scale, translateX: _vp.translateX, translateY: _vp.translateY };
+                            }
+                            if (MindmapRender.destroy) {
+                                try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+                            }
+                        }
+                        // FR-MMI-01: 旧ファイルの画像選択 state(selectedImageInfo)が残ると
+                        // 新ファイルで Delete が誤削除する(one-shot 対クリア — TC-MMI-03)
+                        selectedImageInfo = null;
                         model = new OutlinerModel(msg.data);
                         // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
                         //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
@@ -9183,6 +9310,12 @@ var Outliner = (function() {
                             } else if (savedFocus && model.getNode(savedFocus)) {
                                 focusNode(savedFocus);
                             }
+                        }
+                        // 再オープン①(3): 同一ファイル updateData(D&D 取込反映等)では
+                        // 保存した mindmap viewport(zoom/pan)を復元 — drop で画面が飛ばない
+                        if (_savedViewport && VIEW_MODE === 'mindmap'
+                            && typeof MindmapRender !== 'undefined' && MindmapRender.updateViewport) {
+                            try { MindmapRender.updateViewport(_savedViewport); } catch (eV) { /* noop */ }
                         }
                         if (msg.scopeToNodeId && isDailyNotes) {
                             var dayNode = model.getNode(msg.scopeToNodeId);
@@ -10217,6 +10350,14 @@ var Outliner = (function() {
                 saveSnapshot();
                 var imgNodeId = selectedImageInfo.nodeId;
                 model.removeImage(imgNodeId, selectedImageInfo.index);
+                // FR-MMI-01: mindmap には .outliner-images コンテナが無い(別描画)ため
+                // renderTree で全再描画(outlinerImageSaved の mindmap フォールバックと同型)
+                if (VIEW_MODE === 'mindmap') {
+                    clearImageSelection();
+                    scheduleSyncToHost();
+                    renderTree();
+                    return;
+                }
                 var imgC = document.querySelector('.outliner-images[data-node-id="' + imgNodeId + '"]');
                 if (imgC) { renderNodeImages(imgC, model.getNode(imgNodeId)); }
                 clearImageSelection();

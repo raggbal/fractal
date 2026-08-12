@@ -337,15 +337,75 @@ var MindmapRender = (function() {
         if (ctx.focusedNodeId === nodeId) { box.classList.add('is-focused'); }
 
         // アイコン (Page / File)
+        // FR-MDD-01/03 (sprint 20260812-110538): 📄/📎 アイコンを HTML5 draggable にし、
+        // outliner の icon dragstart(:3634/:3668 系)と同一 MIME/payload を送る。
+        // mindmap node 全体(SVG g)は HTML5 drag が起動しないが、foreignObject 内の
+        // XHTML 子要素は dragstart が発火する(PoC 実測 2026-08-12)。mindmap 内部 D&D
+        // (mouse ベース)との競合はアイコン上の mousedown を stopPropagation で遮断。
+        // 受け側(notes-file-panel / editor.js)は既存のまま。Notes モード時のみ
+        // (payload の outFileKey が cross 解決の前提 — outliner icon と同条件)。
         if (node.isPage) {
             var pi = document.createElementNS(XHTMLNS, 'span');
             pi.setAttribute('class', 'mindmap-node-icon');
             pi.textContent = '📄'; // 📄
+            // 再オープン①(1): icon click = page を開く(outliner の 📄 click と対称)
+            (function(iconEl, nid) {
+                iconEl.style.cursor = 'pointer';
+                iconEl.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    if (ctx.openPage) { ctx.openPage(nid); }
+                });
+            })(pi, nodeId);
+            if (node.pageId && ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
+                pi.setAttribute('draggable', 'true');
+                pi.style.cursor = 'grab';
+                (function(iconEl, dragNode) {
+                    iconEl.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+                    iconEl.addEventListener('dragstart', function(ev) {
+                        ev.stopPropagation();
+                        ev.dataTransfer.effectAllowed = 'copyMove';
+                        try {
+                            ev.dataTransfer.setData('application/x-fractal-out-node-page', JSON.stringify({
+                                outFileKey: ctx.getOutFileKey(),
+                                nodeId: dragNode.id,
+                                pageId: dragNode.pageId,
+                                title: dragNode.text || '',
+                            }));
+                        } catch (err) { /* ignore */ }
+                    });
+                })(pi, node);
+            }
             box.appendChild(pi);
         } else if (node.filePath) {
             var fi = document.createElementNS(XHTMLNS, 'span');
             fi.setAttribute('class', 'mindmap-node-icon');
             fi.textContent = '📎'; // 📎
+            // 再オープン①(1): icon click = 添付ファイルを開く(outliner の 📎 click と対称)
+            (function(iconEl, nid) {
+                iconEl.style.cursor = 'pointer';
+                iconEl.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    var h = _lastCtx && _lastCtx.host;
+                    if (h && typeof h.openAttachedFile === 'function') { h.openAttachedFile(nid); }
+                });
+            })(fi, nodeId);
+            if (ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
+                fi.setAttribute('draggable', 'true');
+                fi.style.cursor = 'grab';
+                (function(iconEl, dragNode) {
+                    iconEl.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+                    iconEl.addEventListener('dragstart', function(ev) {
+                        ev.stopPropagation();
+                        ev.dataTransfer.effectAllowed = 'copyMove';
+                        try {
+                            ev.dataTransfer.setData('application/x-fractal-out-node-file', JSON.stringify({
+                                outFileKey: ctx.getOutFileKey(),
+                                nodeId: dragNode.id,
+                            }));
+                        } catch (err) { /* ignore */ }
+                    });
+                })(fi, node);
+            }
             box.appendChild(fi);
         }
 
@@ -382,6 +442,24 @@ var MindmapRender = (function() {
                         OutlinerCell.showImageOverlay(this.src);
                     }
                 });
+                // FR-MMI-01 (sprint 20260812-110538): click 選択 → Delete で削除できるように
+                // outliner の selectedImageInfo state を共有(ctx.imageSelectHost =
+                // _outlinerImageHost)。削除自体は outliner.js の既存 document keydown
+                // (Delete && selectedImageInfo → model.removeImage)が view 非依存で効く。
+                (function(imgEl, imgNodeId, imgIndex) {
+                    imgEl.addEventListener('click', function(ev) {
+                        ev.stopPropagation(); // node click(focusNode)に伝播させない
+                        if (!ctx.imageSelectHost) { return; }
+                        var h = ctx.imageSelectHost();
+                        if (typeof OutlinerCell !== 'undefined' && OutlinerCell.clearImageSelection) {
+                            OutlinerCell.clearImageSelection(h);
+                        }
+                        imgEl.classList.add('is-selected');
+                        if (h.setSelectedImageInfo) {
+                            h.setSelectedImageInfo({ nodeId: imgNodeId, index: imgIndex, element: imgEl });
+                        }
+                    });
+                })(img, nodeId, ii);
                 imgWrap.appendChild(img);
             }
             box.appendChild(imgWrap);

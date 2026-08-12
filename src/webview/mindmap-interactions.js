@@ -503,6 +503,33 @@ var MindmapInteractions = (function() {
             // undo/redo は outliner グローバルに委ねる
             if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) { return; }
 
+            // FR-MMC-01 (sprint 20260812-110538, ADRL-0056): 非編集 node の cmd+c/x =
+            // 選択 node + 全子孫 subtree を outliner 正典 3 点セットでクリップボードへ
+            // (ctx.copySubtreeToClipboard = writeClipboardWithHtml + internalClipboard +
+            //  host.saveOutlinerClipboard)。mindmap は単一選択のみのため常に subtree 単位。
+            // cmd+v は keydown では処理しない(clipboardData は paste イベントでのみ取得可
+            //  = outliner :5599 と同じ理由。treeEl paste listener 側で受ける)
+            if (mod && !e.shiftKey && (e.key === 'c' || e.key === 'C') && !isTitle) {
+                var selText = window.getSelection();
+                if (selText && !selText.isCollapsed) { return; } // テキスト選択は OS に委ねる
+                if (ctx.copySubtreeToClipboard) {
+                    e.preventDefault();
+                    ctx.copySubtreeToClipboard(nodeId, false);
+                }
+                return;
+            }
+            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle) {
+                var selTextX = window.getSelection();
+                if (selTextX && !selTextX.isCollapsed) { return; }
+                if (ctx.copySubtreeToClipboard && ctx.removeSubtree) {
+                    e.preventDefault();
+                    if (ctx.copySubtreeToClipboard(nodeId, true)) {
+                        ctx.removeSubtree(nodeId); // copy 成功後に削除(outliner cut と同順序)
+                    }
+                }
+                return;
+            }
+
             // Cmd+Enter → 添付を開く (outliner と同じ挙動, iteration 29 / TASK-76)。
             //   [J] isPage (md 添付) → openPage = side panel md editor で開く (既存)。
             //   [I] filePath (file 添付) → host.openAttachedFile = 外部アプリで開く (新規追加)。
@@ -1308,9 +1335,21 @@ var MindmapInteractions = (function() {
         var isAnyFilesDrag = ctx.isAnyFilesDragEvent || function() { return false; };
         var isFinderDrag = ctx.isFilesDragEvent || function() { return false; };
         var isVscodeDrag = ctx.isVscodeUriDragEvent || function() { return false; };
+        // FR-MDD-02/04 (sprint 20260812-110538): tree md/file・md editor リンクの受け 4 種
+        // (判定 + handler を outliner から ctx 共有 — ADRL-0056。受理は既存外部 files と同じ
+        //  dragover/drop に合流し、drop 位置語彙も同じ before/after/child)
+        var isTreeMd = ctx.isTreeMdDragEvent || function() { return false; };
+        var isTreeFile = ctx.isTreeFileDragEvent || function() { return false; };
+        var isMdFileLink = ctx.isMdFileLinkDrag || function() { return false; };
+        var isMdSubpage = ctx.isMdSubpageDrag || function() { return false; };
+        function isMindmapAcceptedDrag(e) {
+            return isAnyFilesDrag(e) || isTreeMd(e) || isTreeFile(e) || isMdFileLink(e) || isMdSubpage(e);
+        }
 
         on(treeEl, 'dragover', function(e) {
-            if (!isAnyFilesDrag(e)) { return; } // 外部ファイル drag のみ（内部 node D&D は mouse ベース）
+            // SYS-3 (design-review): paste listener と対称の stale ガード(destroy 漏れ時の防波堤)
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; }
+            if (!isMindmapAcceptedDrag(e)) { return; } // 受理対象のみ（内部 node D&D は mouse ベース）
             e.preventDefault();
             if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
             clearFileDropMarks();
@@ -1327,16 +1366,31 @@ var MindmapInteractions = (function() {
         on(treeEl, 'dragleave', function(e) {
             if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
         });
+        // ADRL-0031 (design-review SYS-2): webview に drop/dragend が届かないケース
+        // (VS Code 横取り・外部へ抜ける drag)の window 終了安全網。on() 経由 = detach で解除
+        on(window, 'dragend', function() { clearFileDropMarks(); });
+        on(window, 'drop', function() { clearFileDropMarks(); }, true);
         on(treeEl, 'drop', function(e) {
-            if (!isAnyFilesDrag(e)) { return; }
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; } // SYS-3 対称ガード
+            if (!isMindmapAcceptedDrag(e)) { return; }
             e.preventDefault();
             clearFileDropMarks();
             var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
             if (!nodeEl) { return; } // 空白への外部 drop は何もしない（node ターゲット必須）
             var targetId = nodeEl.getAttribute('data-node-id');
             var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
-            // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
-            if (isFinderDrag(e) && ctx.handleFilesDrop) {
+            // FR-MDD-02/04: custom MIME を Files より先に dispatch(outliner capture drop
+            // :1237-1250 と同順。Excel 等が Files と custom を同時に積むケースの排他)
+            if (isTreeMd(e) && ctx.handleTreeMdDrop) {
+                ctx.handleTreeMdDrop(e, targetId, pos);
+            } else if (isTreeFile(e) && ctx.handleTreeFileDrop) {
+                ctx.handleTreeFileDrop(e, targetId, pos);
+            } else if (isMdFileLink(e) && ctx.handleMdFileLinkDrop) {
+                ctx.handleMdFileLinkDrop(e, targetId, pos);
+            } else if (isMdSubpage(e) && ctx.handleMdSubpageDrop) {
+                ctx.handleMdSubpageDrop(e, targetId, pos);
+            } else if (isFinderDrag(e) && ctx.handleFilesDrop) {
+                // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
                 ctx.handleFilesDrop(e, targetId, pos);
             } else if (isVscodeDrag(e) && ctx.handleVscodeUrisDrop) {
                 ctx.handleVscodeUrisDrop(e, targetId, pos);
@@ -1348,6 +1402,14 @@ var MindmapInteractions = (function() {
         // contenteditable への native 画像 paste（巨大 img が本文に入る/テキスト上に来る不安定）を preventDefault で抑止。
         // テキスト paste は preventDefault しない（既存の text paste 挙動を維持）。
         on(treeEl, 'paste', function(e) {
+            // FR-OIP-01 (sprint 20260812-110538): 二重貼付の防波堤 2 点。
+            // (1) defaultPrevented — outliner の handleNodePaste が先に処理した paste の
+            //     バブリングを二重処理しない(X 系 keydown fallback :428 と同パターン)
+            // (2) VIEW_MODE ガード — notes のファイル切替(updateData)は mindmap listener を
+            //     teardown しないため、outliner view でもこの listener が stale 生存する。
+            //     mindmap 表示中でなければ即 return(ctx.getViewMode は outliner.js への live closure)
+            if (e.defaultPrevented) { return; }
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; }
             var nid = getFocused ? getFocused() : null;
             if (!nid) { return; }
             var items = (e.clipboardData && e.clipboardData.items) || [];
@@ -1366,7 +1428,20 @@ var MindmapInteractions = (function() {
                         };
                         reader.readAsDataURL(f);
                     })(nid);
+                    return; // 画像 paste はここで完結(テキスト分岐に落とさない)
                 }
+            }
+            // FR-MMC-02 (sprint 20260812-110538): テキスト/node paste — 非編集時のみ
+            // フォーカス node の子として挿入(outliner の handleNodePaste 経路 =
+            // 源選定 OutlinerClipSelect → pasteNodesFromText を ctx フックで共有。
+            // 資産契約〔同一 note c=複製/x=流用・cross-note=常に複製〕は既存分岐に内蔵)。
+            // 編集中(is-editing)は contenteditable のテキスト paste に委ねる。
+            var pasteTextEl = textElOf(nid);
+            if (pasteTextEl && pasteTextEl.classList && pasteTextEl.classList.contains('is-editing')) {
+                return;
+            }
+            if (ctx.pasteIntoNodeFromEvent) {
+                ctx.pasteIntoNodeFromEvent(e, nid);
             }
         });
 

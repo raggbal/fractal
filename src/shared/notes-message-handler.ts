@@ -13,6 +13,7 @@ import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
 import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
+import { removeMdAnchorFromFile } from './md-anchor-remove';
 import { ExportOptions } from './md-export-core';
 
 /**
@@ -2632,6 +2633,7 @@ export function importMdFileLinkIntoOut(
             targetNodeId: targetNodeId ?? null,
             position: position ?? null,
         });
+        removeMdAnchorFromFile(payload.sourceMdPath, payload.href); // fs が単一真実(再オープン①(2))
         sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
     } catch (e) {
         console.error('[Notes] importMdFileLinkIntoOut error:', e);
@@ -2687,6 +2689,7 @@ export function importMdSubpageIntoOut(
             fileManager.openFile(outPath);
             sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
         }
+        removeMdAnchorFromFile(payload.sourceMdPath, payload.href); // fs が単一真実(再オープン①(2))
         sender.postMessage({ type: 'removeSubpageLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
     } catch (e) {
         console.error('[Notes] importMdSubpageIntoOut error:', e);
