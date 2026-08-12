@@ -503,6 +503,33 @@ var MindmapInteractions = (function() {
             // undo/redo は outliner グローバルに委ねる
             if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) { return; }
 
+            // FR-MMC-01 (sprint 20260812-110538, ADRL-0056): 非編集 node の cmd+c/x =
+            // 選択 node + 全子孫 subtree を outliner 正典 3 点セットでクリップボードへ
+            // (ctx.copySubtreeToClipboard = writeClipboardWithHtml + internalClipboard +
+            //  host.saveOutlinerClipboard)。mindmap は単一選択のみのため常に subtree 単位。
+            // cmd+v は keydown では処理しない(clipboardData は paste イベントでのみ取得可
+            //  = outliner :5599 と同じ理由。treeEl paste listener 側で受ける)
+            if (mod && !e.shiftKey && (e.key === 'c' || e.key === 'C') && !isTitle) {
+                var selText = window.getSelection();
+                if (selText && !selText.isCollapsed) { return; } // テキスト選択は OS に委ねる
+                if (ctx.copySubtreeToClipboard) {
+                    e.preventDefault();
+                    ctx.copySubtreeToClipboard(nodeId, false);
+                }
+                return;
+            }
+            if (mod && !e.shiftKey && (e.key === 'x' || e.key === 'X') && !isTitle) {
+                var selTextX = window.getSelection();
+                if (selTextX && !selTextX.isCollapsed) { return; }
+                if (ctx.copySubtreeToClipboard && ctx.removeSubtree) {
+                    e.preventDefault();
+                    if (ctx.copySubtreeToClipboard(nodeId, true)) {
+                        ctx.removeSubtree(nodeId); // copy 成功後に削除(outliner cut と同順序)
+                    }
+                }
+                return;
+            }
+
             // Cmd+Enter → 添付を開く (outliner と同じ挙動, iteration 29 / TASK-76)。
             //   [J] isPage (md 添付) → openPage = side panel md editor で開く (既存)。
             //   [I] filePath (file 添付) → host.openAttachedFile = 外部アプリで開く (新規追加)。
@@ -1374,7 +1401,20 @@ var MindmapInteractions = (function() {
                         };
                         reader.readAsDataURL(f);
                     })(nid);
+                    return; // 画像 paste はここで完結(テキスト分岐に落とさない)
                 }
+            }
+            // FR-MMC-02 (sprint 20260812-110538): テキスト/node paste — 非編集時のみ
+            // フォーカス node の子として挿入(outliner の handleNodePaste 経路 =
+            // 源選定 OutlinerClipSelect → pasteNodesFromText を ctx フックで共有。
+            // 資産契約〔同一 note c=複製/x=流用・cross-note=常に複製〕は既存分岐に内蔵)。
+            // 編集中(is-editing)は contenteditable のテキスト paste に委ねる。
+            var pasteTextEl = textElOf(nid);
+            if (pasteTextEl && pasteTextEl.classList && pasteTextEl.classList.contains('is-editing')) {
+                return;
+            }
+            if (ctx.pasteIntoNodeFromEvent) {
+                ctx.pasteIntoNodeFromEvent(e, nid);
             }
         });
 

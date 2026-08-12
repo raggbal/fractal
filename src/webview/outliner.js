@@ -111,6 +111,14 @@ var Outliner = (function() {
             if (prev === 'mindmap' && mode !== 'mindmap' &&
                 typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
                 MindmapRender.destroy();
+                // FR-MMC (sprint 20260812-110538): mindmap の focusNode は selectedNodeIds に
+                // フォーカス node を add する(mindmap-interactions :142-144)。outliner に
+                // 戻った後もこれが残ると、paste の「複数選択時: 選択ノードを置換」分岐が
+                // 誤発動して選択残留 node の subtree が削除される(実測)。view を跨ぐ
+                // selection は意味を持たないためクリアする。
+                if (selectedNodeIds && selectedNodeIds.size > 0) {
+                    selectedNodeIds.clear();
+                }
             }
             renderTree();
         }
@@ -1892,6 +1900,65 @@ var Outliner = (function() {
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
                     // FR-OIP-01: stale listener ガード用(paste listener が現 view を確認する)
                     getViewMode: function () { return VIEW_MODE; },
+                    // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
+                    // outliner の正典 3 点セット(writeClipboardWithHtml + internalClipboard +
+                    // host.saveOutlinerClipboard)と pasteNodesFromText(資産契約内蔵)を
+                    // ctx フックで共有する(再実装禁止 — Store 非消費/resolveCrossPasteCut の
+                    // 契約重複実装 = consumeIfCut クラス再発リスク)。
+                    copySubtreeToClipboard: function (nodeId, isCut) {
+                        var nodes = getSubtreeNodesData(nodeId);
+                        if (!nodes.length) { return false; }
+                        // plain text = tab インデント形式(getSelectedText と同じ規約・\n は空白潰し)
+                        var lines = [];
+                        for (var i = 0; i < nodes.length; i++) {
+                            var indent = new Array(nodes[i].level + 1).join('\t');
+                            lines.push(indent + String(nodes[i].text || '').replace(/\n/g, ' '));
+                        }
+                        var plainText = lines.join('\n');
+                        var copyId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                        writeClipboardWithHtml(plainText, nodes, !!isCut, copyId);
+                        internalClipboard = {
+                            plainText: plainText,
+                            isCut: !!isCut,
+                            nodes: nodes,
+                            sourceOutFileKey: currentOutFileKey,
+                            copyId: copyId
+                        };
+                        host.saveOutlinerClipboard(plainText, !!isCut, nodes);
+                        return true;
+                    },
+                    // cut の後始末(subtree 削除)。copy とは分離(mindmap 側が copy 成功後に呼ぶ)
+                    removeSubtree: function (nodeId) {
+                        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+                        var parent = model.getNode(nodeId) ? model.getNode(nodeId).parentId : null;
+                        model.removeNode(nodeId);
+                        if (focusedNodeId === nodeId) { focusedNodeId = parent || null; }
+                        scheduleSyncToHost();
+                        renderTree();
+                    },
+                    // paste イベントから「targetNodeId の子末尾」へ挿入(handleNodePaste の
+                    // 源選定〜pasteNodesFromText と同じ経路。挿入位置だけ子固定)
+                    pasteIntoNodeFromEvent: function (e, targetNodeId) {
+                        var clipText = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+                        if (!clipText) { return false; }
+                        e.preventDefault();
+                        var htmlData = e.clipboardData ? e.clipboardData.getData('text/html') : '';
+                        var crossMeta = extractOutlinerClipboardMeta(htmlData);
+                        var sel = OutlinerClipSelect.selectClipSource(internalClipboard, crossMeta, clipText);
+                        if (!sel) { sel = { source: 'external', nodes: null, isCut: false, sourceOutFileKey: null }; }
+                        if (sel.source === 'internal' && internalClipboard && internalClipboard.isCut) {
+                            internalClipboard = null;
+                        }
+                        try { saveSnapshot(null, 'action'); } catch (e2) { /* noop */ }
+                        var target = model.getNode(targetNodeId);
+                        var kids = target && target.children ? target.children : [];
+                        var afterId = kids.length ? kids[kids.length - 1] : null;
+                        pasteNodesFromText(clipText, targetNodeId, afterId,
+                            sel.nodes, sel.isCut, sel.sourceOutFileKey || null, false);
+                        scheduleSyncToHost();
+                        renderTree();
+                        return true;
+                    },
                     // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
                     // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
                     isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
