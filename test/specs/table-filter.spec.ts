@@ -210,3 +210,40 @@ test('TC-TFL-09 paste while filtered clears the filter first', async ({ page }) 
     expect(st.inputVal).toBe('');
     expect(st.rows).toBe(4); // header + 3(行追加が正しく反映)
 });
+
+// 再オープン⑥: フィルタ中は Unmerge も不可
+test('TC-TFL-10 unmerge is a no-op while filter is active', async ({ page }) => {
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('<!-- fractal-merged-table -->\n| H1 | H2 |\n| --- | --- |\n| big | < |\n| Apple | red |\n| Banana | yellow |');
+        await new Promise(r => setTimeout(r, 300));
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        (t.rows[1].cells[0] as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+        const input = document.querySelector('.table-toolbar .table-filter-input') as HTMLInputElement;
+        input.value = 'big';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(150);
+    // 結合セル(big)を実クリックで select → Unmerge
+    const box = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const big = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'big')!;
+        const b = big.getBoundingClientRect();
+        return { x: b.x + 10, y: b.y + 10 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+        (document.querySelector('.table-toolbar [data-action="unmerge-cells"]') as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    const span = await page.evaluate(() => {
+        const big = Array.from(document.querySelectorAll('#editor td')).find(c => c.textContent?.trim() === 'big') as HTMLTableCellElement;
+        return `${big.colSpan}x${big.rowSpan}`;
+    });
+    expect(span).toBe('2x1'); // no-op(結合維持)
+});

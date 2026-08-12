@@ -12402,6 +12402,8 @@ class EditorInstance {
     // FR-TMG-02: 選択(範囲内)の結合セルを解除
     function tslUnmergeSelection() {
         if (tableSel.mode !== 'select') return;
+        // 再オープン⑥: フィルタ中の結合解除も不可(復元セルが非表示行に混ざり構造が壊れる)
+        if (tableSel.table && tableSel.table.querySelector('.tbl-row-filtered')) return;
         const spanned = tslRangeCells().filter((c) => (c.rowSpan || 1) > 1 || (c.colSpan || 1) > 1);
         if (!spanned.length) return;
         undoManager.saveSnapshot();
