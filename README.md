@@ -96,10 +96,13 @@ Create and edit draw.io diagrams without leaving VS Code.
 - **Automatic re-render** — However you edited it, the diagram in your open document redraws itself the instant you save. A seamless edit loop — just bounce between editors
 
 ### Subpages
+Embed markdown pages inside markdown pages, like Notion. A subpage isn't a mere link — it's **owned by its parent**, and that ownership follows the parent everywhere:
+
 - `Cmd+/`** → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
 - Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
 - `Cmd+click` to open it as a standalone document in a **new tab**
 - Pages within pages — build hierarchies as deep as you like
+- **Subpages travel with their parent** — copy a parent (node copy/paste, cross-note paste, "Move to Other Note") and its subpages are duplicated or moved along with it, images and attachments included, with links rewritten so nothing breaks. Delete the parent and orphaned subpages are collected by Clean Unused Files
 
 ### AI-friendly: live sync of external changes
 When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — modifies the file you have open:
