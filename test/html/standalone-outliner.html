@@ -37402,6 +37402,8 @@ var MindmapInteractions = (function() {
         }
 
         on(treeEl, 'dragover', function(e) {
+            // SYS-3 (design-review): paste listener と対称の stale ガード(destroy 漏れ時の防波堤)
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; }
             if (!isMindmapAcceptedDrag(e)) { return; } // 受理対象のみ（内部 node D&D は mouse ベース）
             e.preventDefault();
             if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
@@ -37419,7 +37421,12 @@ var MindmapInteractions = (function() {
         on(treeEl, 'dragleave', function(e) {
             if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
         });
+        // ADRL-0031 (design-review SYS-2): webview に drop/dragend が届かないケース
+        // (VS Code 横取り・外部へ抜ける drag)の window 終了安全網。on() 経由 = detach で解除
+        on(window, 'dragend', function() { clearFileDropMarks(); });
+        on(window, 'drop', function() { clearFileDropMarks(); }, true);
         on(treeEl, 'drop', function(e) {
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; } // SYS-3 対称ガード
             if (!isMindmapAcceptedDrag(e)) { return; }
             e.preventDefault();
             clearFileDropMarks();
