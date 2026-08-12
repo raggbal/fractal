@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.31] - 2026-08-12
+
+### Added
+- **Mindmap operation parity with the outliner** (FR-MMC/MMI/MDD): cmd+C/X/V on a mindmap node now copies/cuts the node *with all descendants* and pastes as children of the focused node, sharing the outliner's clipboard machinery (same asset contract: copy duplicates attachments within a note, cut reuses them, cross-note always duplicates). Node images can be click-selected (clear accent outline) and deleted with Delete. The 📄/📎 icons are draggable to the note tree and markdown editors (and back), and clicking them opens the page/attached file.
+
+### Fixed
+- **Pasting an image into an outliner node duplicated it** — a stale mindmap paste listener survived file switches and re-processed the same paste; fixed with listener guards, teardown on file switch, and a single-dispatcher message bridge.
+- **Selected images are now clearly visible** (accent outline + shadow) and deselect when clicking elsewhere.
+- **Dropping md/file links into the mindmap left the link in the source document** — link removal is now done on disk by the host (the old webview-echo approach silently failed when the source editor wasn't open).
+- **Dropping into the mindmap no longer resets the view** — zoom/pan is preserved across the drop-induced data refresh.
 ## [1.1.30] - 2026-08-12
 
 ### Added
