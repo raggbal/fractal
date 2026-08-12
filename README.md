@@ -328,6 +328,17 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | `Shift+Enter` | Lists: line break within the item (continuation line) |
 | `Opt+←` / `Opt+→` | Side-panel back / forward (side panel only) |
 
+Tables have an Excel-like **select mode** (click a cell to enter it):
+
+| Shortcut | Action |
+| --- | --- |
+| `↑↓←→` | Move between cells (up/down at the table edge leaves the table) |
+| `Shift+↑↓←→` / `Shift+Click` / drag | Extend a rectangular range selection |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut / paste the range — interoperates with Excel & Google Sheets (TSV + HTML, merged cells reproduced) |
+| `Enter` / `F2` / type | Edit the cell (typing replaces the content) |
+| `Enter` / `Tab` / `Esc` (while editing) | Commit and return to select / commit and move right / discard |
+| `Delete` | Clear the contents of the selected range |
+
 ### Outliner view
 
 | Shortcut | Action |
