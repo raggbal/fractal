@@ -73,8 +73,8 @@ test.describe('Table select/edit mode (FR-TSL-01)', () => {
         expect(out.inTable).toBe(false);
     });
 
-    // TC-TSL-03: Enter → edit(内容保持)→ Enter → 確定 + 下セル select(Excel)
-    test('TC-TSL-03 Enter edits (content kept), Enter commits and moves down', async ({ page }) => {
+    // TC-TSL-03 rev(再オープン⑤(5)): Enter → edit(内容保持)→ Enter → 確定 + 同セル select
+    test('TC-TSL-03 Enter edits (content kept), Enter commits staying on the cell', async ({ page }) => {
         await setupTable(page);
         await clickBodyCell(page, 0, 1);
         await page.keyboard.press('Enter');
@@ -86,7 +86,7 @@ test.describe('Table select/edit mode (FR-TSL-01)', () => {
         await page.waitForTimeout(200);
         s = await snapSel(page);
         expect(s.selectMode).toBe(true);
-        expect(s.selectedText).toBe('b2'); // 下のセルへ
+        expect(s.selectedText).toBe('b1X'); // 同セルに留まる(下移動しない — ユーザー裁定)
         const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
         expect(md).toContain('b1X');
     });
@@ -399,5 +399,65 @@ test.describe('Table select mode re-open 1 fixes', () => {
         const sel = await page.evaluate(() =>
             document.querySelector('#editor table .tbl-cell-selected')?.textContent?.trim());
         expect(sel).toBe('b1'); // 上の行の末尾
+    });
+});
+
+// ---- 再オープン⑤(2026-08-12) ----
+
+test.describe('Table re-open 5 fixes', () => {
+    // (1) Shift+click = anchor から click セルまでの矩形範囲
+    test('TC-TSL-19 shift+click extends selection from active cell', async ({ page }) => {
+        await setupTable(page);
+        await clickBodyCell(page, 0, 0); // a1
+        const box = await page.evaluate(() => {
+            const t = document.querySelector('#editor table') as HTMLTableElement;
+            const b = t.rows[2].cells[1].getBoundingClientRect(); // b2
+            return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        });
+        await page.keyboard.down('Shift');
+        await page.mouse.click(box.x, box.y);
+        await page.keyboard.up('Shift');
+        await page.waitForTimeout(150);
+        const s = await snapSel(page);
+        expect(s.rangeTexts.sort()).toEqual(['a1', 'a2', 'b1', 'b2']);
+    });
+
+    // (4) edit 中の矢印はセルから出ない(端で止まる)
+    test('TC-TSL-20 arrows in edit mode stay inside the cell', async ({ page }) => {
+        await setupTable(page);
+        await clickBodyCell(page, 0, 1); // b1
+        await page.keyboard.press('Enter'); // edit(キャレット末尾)
+        await page.keyboard.press('ArrowRight'); // 末尾 → 出ようとする
+        await page.keyboard.press('ArrowDown');  // 同上
+        await page.waitForTimeout(150);
+        let cur = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const el = sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode as Element;
+            return (el as Element)?.closest?.('td, th')?.textContent?.trim();
+        });
+        expect(cur).toBe('b1'); // セルから出ていない
+        await page.keyboard.press('Home');
+        await page.keyboard.press('ArrowLeft'); // 先頭 → 出ようとする
+        await page.keyboard.press('ArrowUp');
+        await page.waitForTimeout(150);
+        cur = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const el = sel.anchorNode?.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode as Element;
+            return (el as Element)?.closest?.('td, th')?.textContent?.trim();
+        });
+        expect(cur).toBe('b1');
+    });
+
+    // (5) edit Enter = 確定して同セル select(下移動しない)
+    test('TC-TSL-21 Enter commits and stays on the same cell in select mode', async ({ page }) => {
+        await setupTable(page);
+        await clickBodyCell(page, 0, 1); // b1
+        await page.keyboard.press('Enter');
+        await page.keyboard.type('X');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        const s = await snapSel(page);
+        expect(s.selectMode).toBe(true);
+        expect(s.selectedText).toBe('b1X'); // 同セルに留まる
     });
 });

@@ -12273,6 +12273,8 @@ class EditorInstance {
         }
         e.preventDefault();
         undoManager.saveSnapshot();
+        // 再オープン⑤(3): 貼り付けは行/列を増やしうる → フィルタ即解除(表示バグ防止)
+        clearTableRowFilter(tableSel.table);
         // 再オープン① bug(3): 貼り付け起点 = 現在選択の左上(逆向き範囲選択でも Excel と同じ)
         let anchor = tableSel.anchor;
         {
@@ -12372,6 +12374,8 @@ class EditorInstance {
     // FR-TMG-02: 範囲選択を 1 セルに結合(左上の内容のみ残す = Excel)。th 含む選択は no-op
     function tslMergeSelection() {
         if (tableSel.mode !== 'select') return;
+        // 再オープン⑤(2): フィルタ中の結合は非表示行と交差して構造が壊れる → 不可
+        if (tableSel.table && tableSel.table.querySelector('.tbl-row-filtered')) return;
         const cells = tslRangeCells();
         if (cells.length < 2) return;
         if (cells.some((c) => c.tagName === 'TH')) return; // ヘッダー行は結合不可
@@ -12711,7 +12715,8 @@ class EditorInstance {
             if (e.isComposing || e.keyCode === 229) return false;
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                tslCommitEdit(tslNeighbor(cell, 1, 0)); // 確定 + 下(Excel)。最下行は同セル
+                // 再オープン⑤(5): 確定して同セルの select に戻る(下移動しない — ユーザー裁定)
+                tslCommitEdit(null);
                 return true;
             }
             if (e.key === 'Tab') {
@@ -12725,7 +12730,33 @@ class EditorInstance {
                 tslEnterSelect(cell);
                 return true;
             }
-            // Shift+Enter(セル内改行)・矢印(セル内移動)・文字入力は既存挙動へ素通し
+            // 再オープン⑤(4): edit 中の矢印はセル内に閉じ込める — セル端で隣接セルへ
+            // キャレットが抜ける(edit のまま別セルに移る)のを防ぐ。端でなければ素通し
+            if (e.key.startsWith('Arrow')) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount) {
+                    const r = sel.getRangeAt(0);
+                    const atStart = (() => {
+                        const t = document.createRange();
+                        t.selectNodeContents(cell);
+                        t.setEnd(r.startContainer, r.startOffset);
+                        return t.toString() === '';
+                    })();
+                    const atEnd = (() => {
+                        const t = document.createRange();
+                        t.selectNodeContents(cell);
+                        t.setStart(r.endContainer, r.endOffset);
+                        return t.toString() === '';
+                    })();
+                    if (((e.key === 'ArrowLeft' || e.key === 'ArrowUp') && atStart)
+                        || ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && atEnd)) {
+                        e.preventDefault(); // セル端 = それ以上動かさない(セルから出ない)
+                        return true;
+                    }
+                }
+                return false; // セル内移動は素通し
+            }
+            // Shift+Enter(セル内改行)・文字入力は既存挙動へ素通し
             return false;
         }
         return false;
@@ -13223,6 +13254,22 @@ class EditorInstance {
         // table.width を **先に** 設定 (sum >= cells の合計 → ブラウザが他列を縮めない)
         table.style.width = totalWidth + 'px';
 
+        // 再オープン⑤(6): span がある table は「行内 index」でなく grid 座標で幅を適用
+        // (被覆行では cells[i] が別列を指し縦線がガタガタになる)。span セルの幅は
+        // 覆う grid 列の合計。table-layout:fixed は先頭行が列幅を決めるため、先頭行に
+        // 実セルが無い grid 列は <colgroup> で決めるのが本筋だが、既存資産(先頭 = th 行
+        // フル列)の前提では先頭行適用 + 各行の span 合計適用で一致する
+        if (table.querySelector('[colspan], [rowspan]')) {
+            const m = tslGridMap(table);
+            for (const [cell, p] of m.posOf) {
+                const cs = cell.colSpan || 1;
+                let w = 0;
+                for (let j = 0; j < cs; j++) w += widths[p.c + j] || minWidth;
+                cell.style.width = w + 'px';
+            }
+            return;
+        }
+
         // 全 row に同じ widths 配列を適用
         const allRows = table.querySelectorAll('tr');
         allRows.forEach((row) => {
@@ -13244,7 +13291,14 @@ class EditorInstance {
 
         resizingCell = cell;
         resizingTable = cell.closest('table');
-        resizingColIndex = cell.cellIndex;
+        // 再オープン⑤(6): span がある table では cellIndex でなく grid 列(掴んだ右端)を使う
+        if (resizingTable && resizingTable.querySelector('[colspan], [rowspan]')) {
+            const mR = tslGridMap(resizingTable);
+            const pR = mR.posOf.get(cell);
+            resizingColIndex = pR ? pR.c + (cell.colSpan || 1) - 1 : cell.cellIndex;
+        } else {
+            resizingColIndex = cell.cellIndex;
+        }
 
         if (resizingTable) {
             initializeTableColumnWidths(resizingTable);
@@ -13258,10 +13312,19 @@ class EditorInstance {
         if (resizingTable) {
             // Clear any hover state first
             resizingTable.querySelectorAll('.col-resize-hover').forEach((c) => c.classList.remove('col-resize-hover'));
-            resizingTable.querySelectorAll('tr').forEach((row) => {
-                const c = row.cells[resizingColIndex];
-                if (c) c.classList.add('col-resize-resizing');
-            });
+            if (resizingTable.querySelector('[colspan], [rowspan]')) {
+                const mH = tslGridMap(resizingTable);
+                for (const [c2, p2] of mH.posOf) {
+                    if (p2.c + (c2.colSpan || 1) - 1 === resizingColIndex) {
+                        c2.classList.add('col-resize-resizing');
+                    }
+                }
+            } else {
+                resizingTable.querySelectorAll('tr').forEach((row) => {
+                    const c = row.cells[resizingColIndex];
+                    if (c) c.classList.add('col-resize-resizing');
+                });
+            }
         }
         document.body.classList.add('table-resizing');
 
@@ -13284,7 +13347,21 @@ class EditorInstance {
             // Compute newWidth = mouse X − cell's left edge (absolute, viewport-relative)
             // → cell's right edge always aligns with mouse cursor (clamped to min-width).
             const cellRect = resizingCell.getBoundingClientRect();
-            const newWidth = resizingPendingClientX - cellRect.left;
+            let newWidth = resizingPendingClientX - cellRect.left;
+            // 再オープン⑤(6): span セルを掴んだ場合、newWidth は span 全幅 →
+            // 右端 grid 列単独の幅に直す(他列の現行幅を引く)
+            const csR = resizingCell.colSpan || 1;
+            if (csR > 1) {
+                const mW = tslGridMap(resizingTable);
+                const pW = mW.posOf.get(resizingCell);
+                const headerCells = resizingTable.querySelector('tr').querySelectorAll('th, td');
+                if (pW) {
+                    for (let j = 0; j < csR - 1; j++) {
+                        const hc = headerCells[pW.c + j];
+                        newWidth -= hc ? hc.offsetWidth : 80;
+                    }
+                }
+            }
             updateColumnWidth(resizingTable, resizingColIndex, newWidth);
         });
     }
@@ -13366,6 +13443,22 @@ class EditorInstance {
         const table = cell.closest('table');
         if (!table) return;
         clearColHover(table);
+        // 再オープン⑤(6): cellIndex は colspan/rowspan があると grid 列とズレて
+        // 縦線がガタガタになる。grid 座標で「掴んだセルの右端 grid 列」を求め、
+        // 各行で「右端がその grid 列に一致するセル」にだけ hover を付ける
+        // (結合セルを横断する位置の線は掴めない = Excel と同じ)
+        if (table.querySelector('[colspan], [rowspan]')) {
+            const m = tslGridMap(table);
+            const p = m.posOf.get(cell);
+            if (!p) return;
+            const edgeCol = p.c + (cell.colSpan || 1) - 1; // 掴んだ右端の grid 列
+            for (const [c2, p2] of m.posOf) {
+                if (p2.c + (c2.colSpan || 1) - 1 === edgeCol) {
+                    c2.classList.add('col-resize-hover');
+                }
+            }
+            return;
+        }
         const colIdx = cell.cellIndex;
         table.querySelectorAll('tr').forEach((row) => {
             const c = row.cells[colIdx];
@@ -13413,9 +13506,11 @@ class EditorInstance {
     editor.addEventListener('mousedown', function(e) {
         if (e.button !== 0) return;
         const cell = e.target.closest ? e.target.closest('th, td') : null;
-        // 列リサイズ帯(セル右端 6px)は既存リサイズに譲る
+        // 列リサイズ帯(セル右端 6px)は既存リサイズに譲る。
+        // Shift+click は範囲拡張(click handler)なので anchor を潰さない(再オープン⑤(1))
         if (cell && editor.contains(cell) && !findCellEdgeAt(e.target, e.clientX)
             && !(tableSel.mode === 'edit' && tableSel.anchor === cell)
+            && !(e.shiftKey && tableSel.mode === 'select')
             && e.detail === 1) {
             tslEnterSelect(cell);
             tslDragging = true;
@@ -14062,9 +14157,16 @@ class EditorInstance {
             // 再クリックはキャレット移動として素通し)。ダブルクリックは dblclick
             // handler が edit へ直行させる。トリプルクリックは従来どおり全選択。
             // ドラッグ範囲選択直後の click(mouseup 由来)は範囲を潰さない。
+            // 再オープン⑤(1): Shift+click = active セル(anchor)から click セルまでの矩形範囲
             const isRangeDragEnd = tableSel.mode === 'select'
                 && tableSel.anchor !== tableSel.focus && cell === tableSel.focus;
-            if (e.detail === 1 && !isRangeDragEnd
+            if (e.shiftKey && tableSel.mode === 'select' && tableSel.anchor
+                && cell.closest('table') === tableSel.table) {
+                e.preventDefault();
+                tableSel.focus = cell;
+                tslPaintSelection();
+                try { window.getSelection().removeAllRanges(); } catch (err) { /* noop */ }
+            } else if (e.detail === 1 && !isRangeDragEnd
                 && !(tableSel.mode === 'edit' && tableSel.anchor === cell)) {
                 tslEnterSelect(cell);
             }

@@ -133,3 +133,80 @@ test('TC-TFL-07 clicking the filter input keeps the toolbar and accepts input', 
     });
     expect(rows).toBe(2); // header + Apple
 });
+
+// ---- 再オープン⑤ ----
+
+// (2) フィルタ中は Merge 不可
+test('TC-TFL-08 merge is a no-op while filter is active', async ({ page }) => {
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('| H1 | H2 |\n| --- | --- |\n| Apple | red |\n| Banana | yellow |\n| Cherry | red |');
+        await new Promise(r => setTimeout(r, 300));
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        (t.rows[1].cells[0] as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+        const input = document.querySelector('.table-toolbar .table-filter-input') as HTMLInputElement;
+        input.value = 'red';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(150);
+    // Apple から Cherry(表示上は隣接・実際は Banana を跨ぐ)へ範囲選択して Merge
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.keyboard.press('Shift+ArrowDown');
+    await page.evaluate(() => {
+        (document.querySelector('.table-toolbar [data-action="merge-cells"]') as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    const spans = await page.evaluate(() =>
+        document.querySelectorAll('#editor table [colspan], #editor table [rowspan]').length);
+    expect(spans).toBe(0); // no-op
+});
+
+// (3) フィルタ中の paste = フィルタ即解除(行/列が増えても表示が壊れない)
+test('TC-TFL-09 paste while filtered clears the filter first', async ({ page }) => {
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(async () => {
+        (window as any).__testApi.setMarkdown('| H1 | H2 |\n| --- | --- |\n| Apple | red |\n| Banana | yellow |');
+        await new Promise(r => setTimeout(r, 300));
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        (t.rows[1].cells[0] as HTMLElement).click();
+    });
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+        const input = document.querySelector('.table-toolbar .table-filter-input') as HTMLInputElement;
+        input.value = 'red';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(150);
+    // Apple セルを実クリックで select 状態に(programmatic click は detail=0 で mode=null)
+    const box = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const b = t.rows[1].cells[0].getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(150);
+    await page.evaluate(() => {
+        const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'clipboardData', {
+            value: { getData: (t: string) => t === 'text/plain' ? 'X1\nX2\nX3' : '' },
+        });
+        document.querySelector('#editor')!.dispatchEvent(e);
+    });
+    await page.waitForTimeout(300);
+    const st = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        return {
+            filtered: t.querySelectorAll('.tbl-row-filtered').length,
+            inputVal: (document.querySelector('.table-toolbar .table-filter-input') as HTMLInputElement)?.value,
+            rows: t.rows.length,
+        };
+    });
+    expect(st.filtered).toBe(0); // フィルタ解除済み(全行表示)
+    expect(st.inputVal).toBe('');
+    expect(st.rows).toBe(4); // header + 3(行追加が正しく反映)
+});

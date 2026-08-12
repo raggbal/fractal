@@ -594,3 +594,21 @@ test('TC-TMG-18 pasting external HTML with spans reproduces merged cells', async
     expect(st.md).toContain('| merged | < | c1 |');
     expect(st.md).toContain('| ^ | ^ | c2 |');
 });
+
+// 再オープン⑤(6): 結合セルがあるときの列リサイズ hover が grid 列単位で揃う
+test('TC-TMG-19 column resize hover aligns on grid columns with merged cells', async ({ page }) => {
+    await setup(page, M + '\n| H1 | H2 | H3 |\n| --- | --- | --- |\n| big | < | c1 |\n| ^ | ^ | c2 |\n| a3 | b3 | c3 |');
+    // b3(grid 列 1)の右端に hover → 右端が grid 列 1 のセルにだけ hover が付く
+    const pos = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const b3 = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === 'b3')!;
+        const r = b3.getBoundingClientRect();
+        return { x: r.right - 3, y: r.y + r.height / 2 };
+    });
+    await page.mouse.move(pos.x, pos.y);
+    await page.waitForTimeout(100);
+    const hovers = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('#editor .col-resize-hover')).map(c => c.textContent?.trim()));
+    // grid 列 1 を右端に持つセル = H2, big(colspan2 で右端が列 1), b3
+    expect(hovers?.sort()).toEqual(['H2', 'b3', 'big']);
+});
