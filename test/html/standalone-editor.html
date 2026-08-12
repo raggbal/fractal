@@ -5584,16 +5584,20 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         // ★ handler は bridge インスタンスごとに保持(editor 用と outliner 用の別 bridge が
         //   同居する webview で互いの handler を上書きしないため)。
         onMessage: (function() {
-            if (!window.__spBridgeMsgHandlers) {
-                window.__spBridgeMsgHandlers = new Map();
-                window.addEventListener('message', function(e) {
-                    window.__spBridgeMsgHandlers.forEach(function(h) {
-                        try { h(e.data); } catch (err) { /* handler 間の隔離 */ }
-                    });
-                });
-            }
             var key = {}; // この bridge インスタンス固有のキー
-            return function(handler) { window.__spBridgeMsgHandlers.set(key, handler); };
+            return function(handler) {
+                // dispatcher の遅延初期化(unit テストの window shim は addEventListener を
+                // 持たないため、factory 実行時でなく onMessage 初回呼び出し時に配線する)
+                if (!window.__spBridgeMsgHandlers) {
+                    window.__spBridgeMsgHandlers = new Map();
+                    window.addEventListener('message', function(e) {
+                        window.__spBridgeMsgHandlers.forEach(function(h) {
+                            try { h(e.data); } catch (err) { /* handler 間の隔離 */ }
+                        });
+                    });
+                }
+                window.__spBridgeMsgHandlers.set(key, handler);
+            };
         })()
     };
 };
