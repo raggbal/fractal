@@ -1890,6 +1890,8 @@ var Outliner = (function() {
                     },
                     // Mindmap interactions が使う outliner 内部フック
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    // FR-OIP-01: stale listener ガード用(paste listener が現 view を確認する)
+                    getViewMode: function () { return VIEW_MODE; },
                     // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
                     // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
                     isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
@@ -4456,6 +4458,8 @@ var Outliner = (function() {
                 var clipItem = e.clipboardData.items[ci];
                 if (clipItem.kind === 'file' && clipItem.type.startsWith('image/')) {
                     e.preventDefault();
+                    // FR-OIP-01: バブリング先の listener(stale mindmap paste 等)への防波堤
+                    e.stopPropagation();
                     var imgFile = clipItem.getAsFile();
                     if (imgFile) {
                         var reader = new FileReader();
@@ -7079,6 +7083,18 @@ var Outliner = (function() {
                 hideContextMenu();
             }
         });
+
+        // FR-OIP-02 (sprint 20260812-110538): 画像選択の解除契機を追加 — 画像以外の
+        // クリックで選択解除(従来は別画像 click / text focus / 削除後のみで選択が残存)
+        document.addEventListener('click', function(e) {
+            if (!selectedImageInfo) { return; }
+            var t = e.target;
+            if (t && t.closest && (t.closest('.outliner-image-thumb')
+                || t.closest('.mindmap-node-images'))) { return; } // 画像自身は選択処理に委ねる
+            if (typeof OutlinerCell !== 'undefined' && OutlinerCell.clearImageSelection) {
+                OutlinerCell.clearImageSelection(_outlinerImageHost());
+            }
+        });
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
@@ -8986,6 +9002,10 @@ var Outliner = (function() {
     function applySyncedData(newData) {
         // Notes ファイル切替 path と同等処理（listener teardown せず init 再呼び出ししない）
         if (newData) {
+            // FR-OIP-01: updateData 経路と同じ stale mindmap listener 封鎖(冪等 destroy)
+            if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+            }
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
             rawDataExtras = captureRawDataExtras(newData);
@@ -9127,6 +9147,14 @@ var Outliner = (function() {
                         queuedExternalUpdate = null;
 
                         var savedFocus = focusedNodeId;
+                        // FR-OIP-01 (sprint 20260812-110538): ファイル切替は mindmap の treeEl
+                        // listener を teardown しない(leak)ため、旧ファイルが mindmap だった場合
+                        // stale paste/keydown listener が新ファイル(outliner view)でも発火し
+                        // 画像 paste の二重貼付になる。切替前に必ず destroy(冪等・mindmap を
+                        // 再表示する場合は renderTree 内の attach が再配線するので安全)。
+                        if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                            try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+                        }
                         model = new OutlinerModel(msg.data);
                         // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
                         //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの

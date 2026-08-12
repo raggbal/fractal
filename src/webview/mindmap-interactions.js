@@ -1348,6 +1348,14 @@ var MindmapInteractions = (function() {
         // contenteditable への native 画像 paste（巨大 img が本文に入る/テキスト上に来る不安定）を preventDefault で抑止。
         // テキスト paste は preventDefault しない（既存の text paste 挙動を維持）。
         on(treeEl, 'paste', function(e) {
+            // FR-OIP-01 (sprint 20260812-110538): 二重貼付の防波堤 2 点。
+            // (1) defaultPrevented — outliner の handleNodePaste が先に処理した paste の
+            //     バブリングを二重処理しない(X 系 keydown fallback :428 と同パターン)
+            // (2) VIEW_MODE ガード — notes のファイル切替(updateData)は mindmap listener を
+            //     teardown しないため、outliner view でもこの listener が stale 生存する。
+            //     mindmap 表示中でなければ即 return(ctx.getViewMode は outliner.js への live closure)
+            if (e.defaultPrevented) { return; }
+            if (ctx.getViewMode && ctx.getViewMode() !== 'mindmap') { return; }
             var nid = getFocused ? getFocused() : null;
             if (!nid) { return; }
             var items = (e.clipboardData && e.clipboardData.items) || [];

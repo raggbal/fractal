@@ -3026,11 +3026,42 @@ body {
     opacity: 0.85;
 }
 
-/* FR-TBL-01/02 (sprint 20260810-183054, ADRL-0052): headerless table.
-   DOM structure (thead/th + content) is preserved; hiding is display-only so
-   toggling the header back ON restores cells losslessly. */
-table[data-headerless="true"] tr:first-child:has(> th) {
+/* FR-TBL-01 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
+   旧 CSS 非表示方式(data-headerless)は廃止。H トグルボタンの active 状態のみ。
+   toolbar-activeBackground は light テーマで濃色になり文字が沈むため、
+   button の accent 色(背景 + 前景を対で指定)を使う。 */
+.table-toolbar button.active {
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #ffffff);
+}
+
+/* FR-TSL (sprint 20260812-032645): table cell select/edit モード。
+   select 中はキャレット不可視(selection 自体は cell 内に置く = copy イベント経路の維持)。 */
+table.tbl-select-mode th,
+table.tbl-select-mode td {
+    caret-color: transparent;
+}
+th.tbl-cell-selected,
+td.tbl-cell-selected {
+    outline: 2px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset: -2px;
+}
+th.tbl-cell-range,
+td.tbl-cell-range {
+    background: var(--vscode-editor-selectionBackground, rgba(51, 153, 255, 0.25));
+}
+/* FR-TFL: 行フィルタの非表示行 */
+tr.tbl-row-filtered {
     display: none;
+}
+.table-toolbar input.table-filter-input {
+    border: 1px solid var(--border-color, #ccc);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    width: 110px;
+    background: var(--bg-color, #fff);
+    color: var(--text-color, #333);
 }
 </style>
     <style>/* =============================================
@@ -4460,8 +4491,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 0.85;
 }
 
+/* FR-OIP-02 (sprint 20260812-110538): border-color のみでは選択が判別しづらい →
+   accent outline + 半透明 shadow で明確化 */
 .outliner-image-thumb.is-selected {
     border-color: var(--outliner-accent-fg, #2196F3);
+    outline: 2px solid var(--outliner-accent-fg, #2196F3);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.25);
 }
 
 .outliner-image-thumb.is-dragging {
@@ -7434,10 +7470,10 @@ function ensureTableHeaders(htmlString) {
 }
 
 
-// HTML → Markdown 変換用 Turndown 独自 rule (8 個)
+// HTML → Markdown 変換用 Turndown 独自 rule (11 個)
 // fractal editor.js paste handler (v0.207.49) から抽出。
 //
-// 利用側: addCustomRules(turndownService) を呼ぶと 8 rule が登録される。
+// 利用側: addCustomRules(turndownService) を呼ぶと 11 rule が登録される。
 // 前提: turndownService が turndown-plugin-gfm を use() 済み。
 
 function addCustomRules(turndownService) {
@@ -7455,6 +7491,91 @@ function addCustomRules(turndownService) {
         replacement: function(content) {
             content = content.replace('\n\n', '\n');
             return '\n\n<!-- fractal-headerless-table -->\n' + content + '\n\n';
+        }
+    });
+
+    // Rule 0.5 (再オープン④, ADRL-0054): 外部 HTML(Excel 等)の colspan/rowspan table。
+    // 自前でグリッド展開して <!-- fractal-merged-table --> + `<`/`^` トークンで emit する
+    // (gfm の tableRow/tableCell rule は span を平坦化して列がずれる)。
+    // 行数 1(span 実質無効)や th 行内 span のみの table は対象外(gfm に委ねる)。
+    turndownService.addRule('fractalMergedTablePaste', {
+        filter: function(node) {
+            if (node.nodeName !== 'TABLE') return false;
+            var spanned = node.querySelectorAll('td[colspan], td[rowspan], th[colspan], th[rowspan]');
+            for (var i = 0; i < spanned.length; i++) {
+                var c = spanned[i];
+                if ((parseInt(c.getAttribute('colspan') || '1', 10) > 1)
+                    || (parseInt(c.getAttribute('rowspan') || '1', 10) > 1)) return true;
+            }
+            return false;
+        },
+        replacement: function(content, node) {
+            // グリッド展開(rowspan/colspan の被覆位置を追跡)
+            var rows = node.rows;
+            var grid = [];
+            var r, c, i, j;
+            for (r = 0; r < rows.length; r++) grid.push([]);
+            for (r = 0; r < rows.length; r++) {
+                var cells = rows[r].cells;
+                var gc = 0;
+                for (c = 0; c < cells.length; c++) {
+                    while (grid[r][gc] !== undefined) gc++;
+                    var cell = cells[c];
+                    var cs = parseInt(cell.getAttribute('colspan') || '1', 10) || 1;
+                    var rs = parseInt(cell.getAttribute('rowspan') || '1', 10) || 1;
+                    for (i = 0; i < rs; i++) {
+                        for (j = 0; j < cs; j++) {
+                            if (!grid[r + i]) continue;
+                            grid[r + i][gc + j] = (i === 0 && j === 0)
+                                ? { cell: cell }
+                                : (i === 0 ? '<' : '^');
+                        }
+                    }
+                    gc += cs;
+                }
+            }
+            var colN = 0;
+            for (r = 0; r < grid.length; r++) colN = Math.max(colN, grid[r].length);
+            var cellText = function(cell) {
+                var t = (cell.textContent || '').replace(/\s+/g, ' ').trim();
+                return t.replace(/\|/g, '\\|');
+            };
+            var firstRowAllTh = rows.length > 0 && rows[0].cells.length > 0
+                && Array.prototype.every.call(rows[0].cells, function(c2) { return c2.nodeName === 'TH'; });
+            var md = '\n\n<!-- fractal-merged-table -->\n';
+            var headerless = !firstRowAllTh;
+            if (headerless) md += '<!-- fractal-headerless-table -->\n|' + new Array(colN + 1).join('  |') + '\n';
+            for (r = 0; r < grid.length; r++) {
+                var line = [];
+                for (c = 0; c < colN; c++) {
+                    var g = grid[r][c];
+                    if (g === undefined) line.push(' ');
+                    else if (g === '<' || g === '^') {
+                        // ヘッダー行内の span はトークン不可(結合はヘッダー不可)→ 空セル
+                        line.push((r === 0 && firstRowAllTh) ? ' ' : g);
+                    } else line.push(cellText(g.cell) || ' ');
+                }
+                md += '| ' + line.join(' | ') + ' |\n';
+                if (r === 0 && (firstRowAllTh || headerless)) {
+                    if (firstRowAllTh) md += '|' + new Array(colN + 1).join(' --- |') + '\n';
+                }
+                if (r === 0 && headerless) {
+                    // headerless の separator は placeholder 行の直後に出す必要がある
+                }
+            }
+            if (headerless) {
+                // placeholder 行の直後に separator を差し込む(行 2 位置)
+                var lines = md.split('\n');
+                var phIdx = -1;
+                for (i = 0; i < lines.length; i++) {
+                    if (/^\|(\s+\|)+$/.test(lines[i])) { phIdx = i; break; }
+                }
+                if (phIdx >= 0) {
+                    lines.splice(phIdx + 1, 0, '|' + new Array(colN + 1).join(' --- |'));
+                    md = lines.join('\n');
+                }
+            }
+            return md + '\n';
         }
     });
 
@@ -8292,11 +8413,27 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
 
         // メッセージ受信
-        onMessage: function(handler) {
-            window.addEventListener('message', function(e) {
-                handler(e.data);
-            });
-        }
+        // FR-OIP-01 (sprint 20260812-110538): 旧実装は onMessage を呼ぶたびに window
+        // listener を新規登録し、onMessage(...) の再呼び出し(init 再実行等)で listener が
+        // 累積 → 1 broadcast を N ハンドラが受信し同一処理が N 回走る(画像 paste 二重貼付の
+        // standalone 面の機序)。notes-host-bridge.js の v0.207.81 正典と同型の
+        // 「単一 window listener + 最新 handler のみ保持」に是正。
+        // ★ dispatcher は window グローバル 1 個(この factory 自体が bridge ごとに複数回
+        //   呼ばれるため、per-factory の IIFE では listener が factory 数ぶん残る)。
+        // ★ handler は bridge インスタンスごとに保持(editor 用と outliner 用の別 bridge が
+        //   同居する webview で互いの handler を上書きしないため)。
+        onMessage: (function() {
+            if (!window.__spBridgeMsgHandlers) {
+                window.__spBridgeMsgHandlers = new Map();
+                window.addEventListener('message', function(e) {
+                    window.__spBridgeMsgHandlers.forEach(function(h) {
+                        try { h(e.data); } catch (err) { /* handler 間の隔離 */ }
+                    });
+                });
+            }
+            var key = {}; // この bridge インスタンス固有のキー
+            return function(handler) { window.__spBridgeMsgHandlers.set(key, handler); };
+        })()
     };
 };
 
@@ -10604,6 +10741,28 @@ class EditorInstance {
             if (direction === 'up') {
                 var lastLi = getDeepestLastLi(target);
                 if (lastLi) {
+                    // FR-LC-08d (再オープン⑥ rc.6 バグ 3): 末尾 li の最終視覚行がブロック
+                    // (pre/blockquote)なら、その末尾に進入する。setCursorToLastLineStartByDOM は
+                    // li 直下 text を前提にしており、末尾ブロック + 空白 node の形でカーソルが
+                    // BR に落ちて迷子になっていた。
+                    var lastContent = lastLi.lastChild;
+                    while (lastContent && lastContent.nodeType === 3 && lastContent.textContent.trim() === '') {
+                        lastContent = lastContent.previousSibling;
+                    }
+                    if (lastContent && (lastContent.nodeName === 'PRE' || lastContent.nodeName === 'BLOCKQUOTE')) {
+                        if (lastContent.nodeName === 'PRE') {
+                            isNavigatingIntoBlock = true;
+                            enterEditMode(lastContent);
+                            var navUpCode = lastContent.querySelector('code');
+                            setTimeout(function () {
+                                if (navUpCode) setCursorToLastLineStartByDOM(navUpCode);
+                                resetNavigationFlag();
+                            }, 0);
+                        } else {
+                            setCursorToEnd(lastContent);
+                        }
+                        return true;
+                    }
                     setCursorToLastLineStartByDOM(lastLi);
                 } else {
                     setCursorToStart(target);
@@ -11047,24 +11206,68 @@ class EditorInstance {
         var TYPING_DEBOUNCE = 500;
         var _isUndoRedo = false;
 
+        var _preEdit = null; // beforeinput 時点の { markdown, cursor }(完全同時点ペア)
+        function notePreEditCursor() {
+            // beforeinput 時点 = 直前の編集がすべて DOM に反映済み・今回のタイプは未反映。
+            // markdown 変数は遅延しうるので常に DOM から取り直す(再オープン⑪)。
+            _preEdit = { markdown: htmlToMarkdown(), cursor: saveCursorState() };
+        }
         function capture() {
             return { markdown: markdown, cursor: saveCursorState() };
+        }
+        // input 経由の snapshot: beforeinput で保存した「変化前の md + cursor」同時点ペアを使う
+        //(再オープン⑩/⑪: markdown=旧 / cursor=新の不整合や rAF 遅延の古い md が、undo 後の
+        // カーソル飛び・直前操作ごと巻き戻る症状の正体だった)。
+        function captureForInput() {
+            if (_preEdit) return { markdown: _preEdit.markdown, cursor: _preEdit.cursor };
+            return capture();
         }
 
         function saveSnapshot() {
             if (_isUndoRedo) return;
+            // markdown 変数は rAF/setTimeout 同期で遅延しうる(pendingSync=false でも
+            // syncTimeout 待ちの間は古い)。snapshot は「現在の DOM と同時点」が絶対条件
+            // (古い md を積むと undo で直前の編集ごと巻き戻る — 再オープン⑪ fence 消滅の機序)
+            // なので、常に DOM から取り直す(cut ハンドラの precedent と同じ)。
+            markdown = htmlToMarkdown();
             var state = capture();
             if (undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown) return;
             undoStack.push(state);
             if (undoStack.length > MAX_STACK) undoStack.shift();
             redoStack.length = 0;
+            // 明示 snapshot = 編集の区切り。タイピング debounce を打ち切り、次の input が
+            // 新しい snapshot を積めるようにする(再オープン⑪: ``` タイプ → Enter(fence) →
+            // 直後のタイプ、で timer が跨いで生き残り fence 後の snapshot が欠けていた)
+            if (typingTimer) { clearTimeout(typingTimer); typingTimer = null; }
             updateButtons();
+        }
+
+        // FR-TSL: タイプ置換(select → edit)で「置換直後の空セル」を中間 snapshot に
+        // 積ませない — saveSnapshot(置換前)直後にバーストを開始し、続くタイプの
+        // input 由来 snapshot を debounce 窓で吸収する(置換 + タイプ = undo 1 step)
+        function beginTypingBurst() {
+            if (typingTimer) clearTimeout(typingTimer);
+            typingTimer = setTimeout(function() { typingTimer = null; }, TYPING_DEBOUNCE);
         }
 
         function saveSnapshotDebounced() {
             if (_isUndoRedo) return;
             if (typingTimer) return;
-            saveSnapshot();
+            // input 後に呼ばれるため markdown(変化前)と対になる変化前 cursor を使う。
+            // ただし pendingSync(直前操作の rAF 未発火)なら、markdown 変数は「1 つ前の操作
+            // より古い」状態 = 変化前 cursor とすら不整合 → DOM から取り直すと「変化後」に
+            // なってしまうため、ここでは rAF を先取りして markdown を直前操作後の状態に
+            // 同期してから、beforeinput 時点の cursor と対にする… は不可能(DOM は既に変化後)。
+            // 実際上 beforeinput 時点の DOM = 直前操作後なので、_preEditCursor と
+            // 「beforeinput 時点で取得した markdown」を対にするのが正解 — beforeinput 側で
+            // markdown も先取りする(notePreEditCursor が md も保存)。
+            var state = captureForInput();
+            if (!(undoStack.length > 0 && undoStack[undoStack.length - 1].markdown === state.markdown)) {
+                undoStack.push(state);
+                if (undoStack.length > MAX_STACK) undoStack.shift();
+                redoStack.length = 0;
+                updateButtons();
+            }
             typingTimer = setTimeout(function() { typingTimer = null; }, TYPING_DEBOUNCE);
         }
 
@@ -11078,11 +11281,34 @@ class EditorInstance {
                 // Without this, typing then immediately undoing captures stale markdown
                 // (debouncedSync hasn't fired yet), so redo restores the wrong state.
                 markdown = htmlToMarkdown();
+                var _preUndoCanonical = markdown;
                 redoStack.push(capture());
                 var state = undoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
-                if (state.cursor) restoreCursorState(state.cursor);
+                // 再オープン⑭c: 非正準な遷移スナップショット(例: 「>」タイプ直後 = bare ">"。
+                // スペースで bq 化した「> 」と md 文字列は違うが再レンダ結果は同じ空 bq)を
+                // pop すると、見た目が変わらないのにカーソルだけ飛ぶ no-op undo になる。
+                // レンダ結果が undo 前と同一なら実質変化なし → さらに pop して実変化まで進む。
+                while (undoStack.length && htmlToMarkdown() === _preUndoCanonical) {
+                    state = undoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
+                // 再オープン⑭(実機のみ再現する undo カーソル飛び): focus が editor 外
+                //(toolbar ボタン / VS Code keybinding 経由)だと selection 復元後にブラウザが
+                // 勝手にキャレットを置き直す。復元前に focus を確保し、復元は同期 + rAF 後の
+                // 再適用の二重で行う(実機の外部変更エコー等の非同期上書きに対する防御)。
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    restoreCursorState(state.cursor);
+                    var _undoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_undoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 hasUserEdited = true;
                 notifyChangeImmediate();
             } finally {
@@ -11097,10 +11323,27 @@ class EditorInstance {
             try {
                 clearTimeout(syncTimeout);
                 pendingSync = false;
+                markdown = htmlToMarkdown();
+                var _preRedoCanonical = markdown;
                 undoStack.push(capture());
                 var state = redoStack.pop();
                 markdown = state.markdown;
                 renderFromMarkdown();
+                // 再オープン⑭c: undo 側と対称 — 非正準スナップショットの no-op redo を skip
+                while (redoStack.length && htmlToMarkdown() === _preRedoCanonical) {
+                    state = redoStack.pop();
+                    markdown = state.markdown;
+                    renderFromMarkdown();
+                }
+                if (document.activeElement !== editor && !editor.contains(document.activeElement)) {
+                    editor.focus({ preventScroll: true });
+                }
+                if (state.cursor) {
+                    var _redoCursor = state.cursor;
+                    requestAnimationFrame(function () {
+                        try { restoreCursorState(_redoCursor); } catch (e2) { /* noop */ }
+                    });
+                }
                 if (state.cursor) restoreCursorState(state.cursor);
                 hasUserEdited = true;
                 notifyChangeImmediate();
@@ -11125,9 +11368,15 @@ class EditorInstance {
             updateButtons();
         }
 
+        // テスト診断用(標準 API 相当の read-only seam。__toggleTableHeaderForTest の precedent)
+        window.__undoStackForTest = function() {
+            return undoStack.map(function(s) { return { md: s.markdown, cursor: s.cursor }; });
+        };
         return {
             saveSnapshot: saveSnapshot,
             saveSnapshotDebounced: saveSnapshotDebounced,
+            notePreEditCursor: notePreEditCursor,
+            beginTypingBurst: beginTypingBurst,
             undo: undo,
             redo: redo,
             updateButtons: updateButtons,
@@ -12172,6 +12421,9 @@ class EditorInstance {
 
     function renderFromMarkdown() {
         logger.log('[Any MD] renderFromMarkdown: markdown length:', markdown.length);
+        // FR-TSL: 再レンダで旧 DOM のセル参照が失効するため select 状態を対クリア
+        //(初期 render は tableSel の let 初期化前に走りうるため TDZ を try で吸収)
+        try { tslClear(); } catch (e) { /* not yet initialized */ }
         const html = markdownToHtmlFragment(markdown);
         logger.log('[Any MD] renderFromMarkdown: html length:', html.length, 'first 100 chars:', html.substring(0, 100));
         editor.innerHTML = html || '<p><br></p>';
@@ -12205,42 +12457,136 @@ class EditorInstance {
         if (blockIndex === -1) return null;
 
         // Save block text content for text-based matching (robust against insertions above)
-        const blockText = block.textContent || '';
+        // 再オープン⑩: UI 装飾を除いたテキストで比較(pre ヘッダの有無で不一致にならないように)
+        const blockText = cursorBlockText(block);
 
         // Calculate text offset within the block
+        // 再オープン⑩(undo カーソル迷子): 保存と復元でオフセットの数え方を完全対称にする。
+        // (a) <br> = 1(Range.toString は 0 と数えるため cloneContents で自前カウント)
+        // (b) UI テキスト(pre の code-block-header「⤢ plaintext Copy」・resize handle 等
+        //     contenteditable=false の装飾)は除外 — undo の再 render 直後はヘッダ未構築で
+        //     テキスト量が変わり、カーソルが後方の別 li に飛ぶ/消える機序だった。
         try {
             const preRange = document.createRange();
             preRange.setStart(block, 0);
             preRange.setEnd(range.startContainer, range.startOffset);
-            const textOffset = preRange.toString().length;
-            return { blockIndex, blockText, textOffset };
+            const preFrag = preRange.cloneContents();
+            const textOffset = countCursorTextOffset(preFrag);
+            // 再オープン⑪: カーソルが pre/code 内なら「block 内の何番目の pre + pre 内 offset」も
+            // 保存する。空 code は text を産まず textOffset 境界が pre 外に解決されるため、
+            // pre 内カーソルはこちらを優先して復元する(undo でコードブロックに正しく入る)。
+            let preInfo = null;
+            const anchorEl = anchorNode.nodeType === 3 ? anchorNode.parentElement : anchorNode;
+            // 再オープン⑬: pre / blockquote 共通の「ブロック内カーソル」情報。
+            // ブロック外カーソルには inBlock:false を記録し、復元 walk の境界一致で
+            // ブロック内に吸い込まれるのを防ぐ(bq 直後の行 ⇄ bq 内末尾は textOffset が同値)。
+            const inBlk = anchorEl && anchorEl.closest ? anchorEl.closest('pre, blockquote') : null;
+            if (inBlk && block.contains(inBlk)) {
+                const allBlks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const blkIdx = allBlks.indexOf(inBlk);
+                const inner = inBlk.tagName === 'PRE' ? (inBlk.querySelector('code') || inBlk) : inBlk;
+                const inRange = document.createRange();
+                inRange.setStart(inner, 0);
+                try {
+                    inRange.setEnd(range.startContainer, range.startOffset);
+                    preInfo = { preIdx: blkIdx, innerOffset: countCursorTextOffset(inRange.cloneContents()), tag: inBlk.tagName };
+                } catch (e2) { /* ブロック外終端等は無視 */ }
+            }
+            return { blockIndex, blockText, textOffset, preInfo, outsideBlock: !inBlk };
         } catch (e) {
             logger.log('[Any MD] saveCursorState failed:', e);
             return null;
         }
     }
 
+    // カーソル保存/復元共通の「実テキスト量」カウント。UI 装飾(code-block-header /
+    // table-col-resize-handle / contenteditable=false の補助 div)を除外し、<br> を 1 と数える。
+    function isCursorUiNode(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el.classList && (el.classList.contains('code-block-header')
+            || el.classList.contains('table-col-resize-handle'))) return true;
+        return false;
+    }
+    // 再オープン⑭: ブロック(pre/blockquote/ネストリスト)直前の <br> は行を作らない
+    //(行モデル)。ライブ DOM には Shift+Enter → ブロック化の経路でこの br が残るが、
+    // シリアライザは行として出さないため undo の再レンダ DOM からは消える。この br を
+    // 数えると保存(ライブ)と復元(再レンダ)で offset が 1 ズレ、カーソルが下の li に
+    // 飛ぶ(実測再現済み)。保存・復元・照合の全 walk で対称にスキップする。
+    function isCursorBrBeforeBlock(br) {
+        let n = br.nextSibling;
+        while (n && ((n.nodeType === 3 && !n.textContent.trim()) || isCursorUiNode(n))) n = n.nextSibling;
+        return !!(n && n.nodeType === 1 && /^(PRE|BLOCKQUOTE|UL|OL)$/.test(n.tagName));
+    }
+    function cursorBlockText(block) {
+        let out = '';
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { out += child.textContent; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) out += '\n';
+                    continue;
+                }
+                walk(child);
+            }
+        })(block);
+        return out;
+    }
+    function countCursorTextOffset(root) {
+        let count = 0;
+        (function walk(node) {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) { count += child.textContent.length; continue; }
+                if (child.nodeType !== 1) continue;
+                if (isCursorUiNode(child)) continue;
+                if (child.tagName === 'BR') {
+                    if (!isCursorBrBeforeBlock(child)) count += 1;
+                    continue;
+                }
+                walk(child);
+            }
+        })(root);
+        return count;
+    }
+
     /**
      * Find a DOM position by walking text nodes until reaching the target offset.
      */
-    function findPositionByTextOffset(root, targetOffset) {
+    function findPositionByTextOffset(root, targetOffset, avoidBlockInterior) {
         let currentOffset = 0;
 
         function walk(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const len = node.textContent.length;
                 if (currentOffset + len >= targetOffset) {
+                    // 再オープン⑬: 保存時カーソルがブロック外だった場合、境界一致
+                    // (ブロック末尾 = 直後の外側と同 offset)でブロック内 text に
+                    // 着地させない — 外側の次位置を探し続ける
+                    if (avoidBlockInterior && currentOffset + len === targetOffset) {
+                        const pEl = node.parentElement;
+                        if (pEl && pEl.closest && pEl.closest('pre, blockquote')) {
+                            currentOffset += len;
+                            return null;
+                        }
+                    }
                     return { node: node, offset: targetOffset - currentOffset };
                 }
                 currentOffset += len;
                 return null;
             }
             if (node.nodeType === Node.ELEMENT_NODE) {
+                // 保存側 countCursorTextOffset と対称: UI 装飾を数えない(再オープン⑩)
+                if (isCursorUiNode(node)) return null;
                 if (node.tagName === 'BR') {
-                    if (currentOffset >= targetOffset) {
+                    // 再オープン⑭: ブロック直前 br は保存側が数えていないので復元側も数えない
+                    if (isCursorBrBeforeBlock(node)) return null;
+                    // target が br 自身(cloneContents が (br,0) 終端で br を含めた +1)でも
+                    // br 位置(= 空行/行頭)に着地させる(>= から +1 >= へ — 再オープン⑩)
+                    if (currentOffset + 1 >= targetOffset) {
                         const parent = node.parentNode;
                         const idx = Array.from(parent.childNodes).indexOf(node);
-                        return { node: parent, offset: idx };
+                        return { node: parent, offset: currentOffset >= targetOffset ? idx : idx + 1 };
                     }
                     currentOffset += 1;
                     return null;
@@ -12279,7 +12625,7 @@ class EditorInstance {
         if (state.blockText) {
             var candidates = [];
             for (let i = 0; i < blocks.length; i++) {
-                if ((blocks[i].textContent || '') === state.blockText) {
+                if (cursorBlockText(blocks[i]) === state.blockText) {
                     candidates.push({ block: blocks[i], index: i });
                 }
             }
@@ -12304,8 +12650,42 @@ class EditorInstance {
         }
 
         try {
-            const position = findPositionByTextOffset(block, state.textOffset);
+            // 再オープン⑪/⑬: ブロック(pre/blockquote)内カーソルは preInfo 優先で復元
+            if (state.preInfo) {
+                const blks = Array.from(block.querySelectorAll('pre, blockquote'));
+                const targetBlk = blks[Math.min(state.preInfo.preIdx, blks.length - 1)];
+                if (targetBlk) {
+                    if (targetBlk.tagName === 'PRE' && targetBlk.getAttribute('data-mode') !== 'edit') {
+                        enterEditMode(targetBlk);
+                    }
+                    const inner0 = targetBlk.tagName === 'PRE'
+                        ? (targetBlk.querySelector('code') || targetBlk) : targetBlk;
+                    const inner = findPositionByTextOffset(inner0, state.preInfo.innerOffset);
+                    const r2 = document.createRange();
+                    if (inner) { r2.setStart(inner.node, inner.offset); }
+                    else { r2.selectNodeContents(inner0); r2.collapse(false); }
+                    r2.collapse(true);
+                    const sel2 = window.getSelection();
+                    sel2.removeAllRanges();
+                    sel2.addRange(r2);
+                    return;
+                }
+            }
+
+            const position = findPositionByTextOffset(block, state.textOffset, state.outsideBlock === true);
             if (!position) return;
+
+            // 再オープン⑪(undo でコードブロックにカーソルが「入らない」): 着地先が pre 内
+            // なのに display モードのままだと contenteditable が外れ、selection は張れても
+            // キャレットが見えず編集不能(= ユーザーには「カーソル消失」)。編集モードに
+            // 切り替えてから range を張る。
+            const posEl = position.node.nodeType === 3
+                ? position.node.parentElement
+                : position.node;
+            const posPre = posEl && posEl.closest ? posEl.closest('pre') : null;
+            if (posPre && posPre.getAttribute('data-mode') !== 'edit') {
+                enterEditMode(posPre);
+            }
 
             const range = document.createRange();
             range.setStart(position.node, position.offset);
@@ -12511,6 +12891,7 @@ class EditorInstance {
         let inLiBlock = null;
         let pendingTableColWidths = null; // Persistence (option C): widths for next table
         let pendingHeaderlessTable = false; // FR-TBL-02: headerless marker seen for next table
+        let pendingMergedTable = false; // FR-TMG-01 (ADRL-0054): merged marker seen for next table
         let inBlockquote = false;
         let blockquoteLines = [];
         
@@ -12652,23 +13033,88 @@ class EditorInstance {
             // Persistence (option C): if a `<!-- fractal-col-widths: ... -->` comment was seen
             // immediately before this table, render with table-layout: fixed + per-column widths.
             let tableHtml;
-            // FR-TBL-02: data-headerless attribute (structure kept, hiding is CSS-only)
-            const headerlessAttr = pendingHeaderlessTable ? ' data-headerless="true"' : '';
+            // FR-TBL-02 rev2 (ADRL-0053): headerless = th 不在の DOM が単一真実。
+            // マーカー付き table は th を一切作らない。md 上の header 行(separator 前)は
+            // 全セル空なら placeholder として捨て、内容があれば(外部編集・旧 v1.1.28 の
+            // 内容温存形式)通常行として body に降格する(データ喪失なし)。
+            const isHeaderlessTable = pendingHeaderlessTable;
             if (pendingTableColWidths && pendingTableColWidths.length > 0) {
                 const widthsAttr = pendingTableColWidths.join(',');
                 const totalWidth = pendingTableColWidths.reduce((s, w) => s + w, 0);
-                tableHtml = '<table' + headerlessAttr + ' data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
+                tableHtml = '<table data-col-widths="' + widthsAttr + '" style="table-layout:fixed;width:' + totalWidth + 'px;">';
             } else {
-                tableHtml = '<table' + headerlessAttr + '>';
+                tableHtml = '<table>';
             }
+            // FR-TMG-01 (ADRL-0054): マーカー gate 下で `<`(左結合)/`^`(上結合)を解釈。
+            // 2 パス: まずセル文字列グリッドを作り span を解決 → HTML を組む。
+            // 不正形(1 列目 `<`・先頭 body 行 `^`・参照先が被覆位置)はリテラルに残す。
+            const isMergedTable = pendingMergedTable;
+            const contentRows = [];
             rows.forEach((row, idx) => {
-                // Skip separator row
                 if (isTableSeparator(row)) return;
-                
                 const cells = splitTableRow(row);
-                const isHeader = idx === 0;
+                if (isHeaderlessTable && contentRows.length === 0 && idx === 0
+                    && cells.every((c) => c.trim() === '')) {
+                    return; // 空 placeholder header 行は DOM に出さない
+                }
+                contentRows.push({ cells, isHeader: idx === 0 && !isHeaderlessTable });
+            });
+            // span 解決(再オープン① bug(1) 修正): cover[r][c] = その位置を覆う anchor 座標。
+            // `<` は「左位置の実効 anchor が同一行にある」場合のみ colspan 加算、
+            // `^` は「直上位置の実効 anchor」へ rowspan 加算(横結合の被覆セルを
+            // 突き抜けて別区画の anchor に到達する旧 walk のバグを排除)。
+            // 不正形(条件を満たさないトークン)はリテラルとして残す。
+            const spanMap = contentRows.map((r) => r.cells.map(() => undefined));
+            if (isMergedTable) {
+                const anchors = new Map(); // 'r:c' -> {cs, rs}
+                const cover = contentRows.map((r) => r.cells.map(() => null)); // null | {ar, ac}
+                const effAnchor = (r, c) => {
+                    if (r < 0 || !contentRows[r] || c < 0 || c >= contentRows[r].cells.length) return null;
+                    if (cover[r][c]) return cover[r][c];
+                    return { ar: r, ac: c }; // 実セル位置自身が anchor
+                };
+                for (let r = 0; r < contentRows.length; r++) {
+                    if (contentRows[r].isHeader) continue; // ヘッダー行は結合不可
+                    for (let c = 0; c < contentRows[r].cells.length; c++) {
+                        if (cover[r][c]) continue; // 既に 2D 展開で消費済み
+                        const tok = contentRows[r].cells[c].trim();
+                        if (tok === '<' && c > 0) {
+                            const left = effAnchor(r, c - 1);
+                            // 同一行の anchor のみ有効(縦結合の被覆を横に伸ばす形は不正 = リテラル)
+                            if (left && left.ar === r && !contentRows[left.ar].isHeader) {
+                                const key = left.ar + ':' + left.ac;
+                                const a = anchors.get(key) || { cs: 1, rs: 1 };
+                                a.cs++;
+                                anchors.set(key, a);
+                                cover[r][c] = { ar: left.ar, ac: left.ac };
+                            }
+                        } else if (tok === '^' && r > 0) {
+                            const up = effAnchor(r - 1, c);
+                            if (up && contentRows[up.ar] && !contentRows[up.ar].isHeader) {
+                                const key = up.ar + ':' + up.ac;
+                                const a = anchors.get(key) || { cs: 1, rs: 1 };
+                                a.rs = Math.max(a.rs, r - up.ar + 1);
+                                anchors.set(key, a);
+                                cover[r][c] = { ar: up.ar, ac: up.ac };
+                            }
+                        }
+                    }
+                }
+                for (const [key, a] of anchors) {
+                    const [ar, ac] = key.split(':').map(Number);
+                    spanMap[ar][ac] = a;
+                }
+                for (let r = 0; r < cover.length; r++) {
+                    for (let c = 0; c < cover[r].length; c++) {
+                        if (cover[r][c]) spanMap[r][c] = 'covered';
+                    }
+                }
+            }
+            contentRows.forEach((rowInfo, r) => {
+                const { cells, isHeader } = rowInfo;
                 tableHtml += '<tr>';
                 cells.forEach((cell, colIdx) => {
+                    if (spanMap[r][colIdx] === 'covered') return; // 被覆位置はセルを出さない
                     const tag = isHeader ? 'th' : 'td';
                     const cellContent = parseInline(cell.trim());
                     const align = alignments[colIdx] || 'left';
@@ -12679,7 +13125,11 @@ class EditorInstance {
                         styleParts.push('width:' + pendingTableColWidths[colIdx] + 'px');
                     }
                     const style = styleParts.length > 0 ? ' style="' + styleParts.join(';') + '"' : '';
-                    tableHtml += '<' + tag + style + ' contenteditable="true">' + (cellContent || '<br>') + '</' + tag + '>';
+                    const sp = spanMap[r][colIdx];
+                    const spanAttr = sp && typeof sp === 'object'
+                        ? (sp.cs > 1 ? ' colspan="' + sp.cs + '"' : '') + (sp.rs > 1 ? ' rowspan="' + sp.rs + '"' : '')
+                        : '';
+                    tableHtml += '<' + tag + spanAttr + style + ' contenteditable="true">' + (cellContent || '<br>') + '</' + tag + '>';
                 });
                 tableHtml += '</tr>';
             });
@@ -12688,6 +13138,7 @@ class EditorInstance {
             pendingTableColWidths = null;
             // consume headerless flag (one-shot — must not leak to the next table)
             pendingHeaderlessTable = false;
+            pendingMergedTable = false; // one-shot(次の table に漏らさない)
             return tableHtml;
         }
 
@@ -12719,22 +13170,43 @@ class EditorInstance {
                         html += flushInLiBlock();
                         continue;
                     }
-                    // インデントを剥がして回収(開始 fence のインデント幅まで)
-                    let content = line;
-                    let stripped = 0;
-                    while (stripped < inLiBlock.indent && content.startsWith(' ')) {
-                        content = content.slice(1); stripped++;
+                    // 再オープン⑫(undo でリスト郡が code に食われる): 回収は「継続行インデント
+                    // (開始 fence と同深度以上)を満たす行」に限定する。浅い行(リスト項目・
+                    // トップレベル等 = タイプ途中の未閉じ「```」の後に続く既存内容)が来たら、
+                    // ここまでの回収分を flush して fence 開始行をテキスト行として扱い直す
+                    //(開始「```」はユーザーがまだ書きかけの継続行テキスト)。
+                    {
+                        const lnIndent = line.match(/^(\s*)/)[1].length;
+                        if (trimmed !== '' && lnIndent < inLiBlock.indent) {
+                            // 開始 fence をテキスト継続行として復元 + 回収済み行を返却
+                            const fenceTxt = '```'.slice(0, inLiBlock.fenceLen)
+                                + (inLiBlock.lang || '');
+                            html += '<br>' + parseInline(fenceTxt);
+                            for (const rl of inLiBlock.lines) {
+                                html += '<br>' + parseInline(rl.trim());
+                            }
+                            inLiBlock = null;
+                            // fallthrough: この行(リスト項目等)は通常処理へ
+                        } else {
+                            // インデントを剥がして回収(開始 fence のインデント幅まで)
+                            let content = line;
+                            let stripped = 0;
+                            while (stripped < inLiBlock.indent && content.startsWith(' ')) {
+                                content = content.slice(1); stripped++;
+                            }
+                            inLiBlock.lines.push(content);
+                            continue;
+                        }
                     }
-                    inLiBlock.lines.push(content);
-                    continue;
+                } else {
+                    // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
+                    if (/^>\s?/.test(trimmed) && trimmed !== '') {
+                        inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
+                        continue;
+                    }
+                    html += flushInLiBlock();
+                    // fallthrough: この行自体は通常処理へ
                 }
-                // bq: 「> で始まる行」なら回収継続、それ以外で閉じて現行処理に落とす
-                if (/^>\s?/.test(trimmed) && trimmed !== '') {
-                    inLiBlock.lines.push(trimmed.replace(/^>\s?/, ''));
-                    continue;
-                }
-                html += flushInLiBlock();
-                // fallthrough: この行自体は通常処理へ
             }
 
             // Handle code blocks (\`\`\`+ or ~~~+)
@@ -12848,6 +13320,13 @@ class EditorInstance {
                 continue;
             }
 
+            // FR-TMG-01 (ADRL-0054): merged marker — gate for `<`/`^` merge tokens.
+            // Without the marker those characters stay literal (existing data safety).
+            if (/^<!--\s*fractal-merged-table\s*-->\s*$/.test(line)) {
+                pendingMergedTable = true;
+                continue;
+            }
+
             // Handle markdown tables
             if (isTableRow(line) || (inTable && isTableSeparator(line))) {
                 if (inBlockquote) {
@@ -12930,6 +13409,19 @@ class EditorInstance {
             } else {
                 // Handle empty lines specially when in a list
                 if (line.trim() === '' && listStack.length > 0) {
+                    // FR-LC-08 (再オープン⑩ rc.10): インデント付き空白行(空継続行の serialize 形)
+                    // は「空の継続行」としてリストを閉じずに取り込む(roundtrip 安定 = undo の
+                    // md snapshot 再 render でリストが段落分解しない)。インデント無しの空行は
+                    // 従来どおり下の look-ahead(リスト終了判定)へ。
+                    {
+                        const blankIndent = line.match(/^(\s*)/)[1].length;
+                        const blankIndentLevel = Math.floor(blankIndent / 2);
+                        const deepestBlank = listStack[listStack.length - 1].indent;
+                        if (blankIndent > 0 && blankIndentLevel >= deepestBlank + 1) {
+                            html += '<br>';
+                            continue;
+                        }
+                    }
                     // Look ahead to find next non-empty line
                     let nextListItem = false;
                     let nextListIndent = 0;
@@ -12989,11 +13481,21 @@ class EditorInstance {
                             };
                             continue;
                         }
-                        if (/^>\s?/.test(contTrimmed)) {
+                        // 再オープン⑭c: bq 開始は「> 」(空白付き)のみ — top-level REGEX.quote
+                        // (/^> /)と対称。素の ">"(「> 」タイプ途中の literal text)を empty bq に
+                        // 化けさせない(undo snapshot の再レンダで text ">" が bq 化 → blockText
+                        // 不一致でカーソルが下の li に飛ぶ機序)。空 bq のシリアライズは
+                        // trailing space 付き「> 」(:8127)なので trim 前の line 本体で判定する。
+                        const contBody = line.slice(contIndentMatch[1].length);
+                        if (/^>\s/.test(contBody)) {
                             inLiBlock = { type: 'bq', lines: [contTrimmed.replace(/^>\s?/, '')], indent: contIndentMatch[1].length };
                             continue;
                         }
-                        html += '<br>' + parseInline(line.trim());
+                        // 行モデル(再オープン③): ブロック直後の <br> は「空行」を作る。
+                        // md 上でブロックの次の行(空行なし)は br を挟まず直付きにする
+                        // (serialize 側 mdProcessListItemWithBlocks も直付きで emit = 対称)。
+                        const brPrefix = /(<\/pre>|<\/blockquote>)$/.test(html) ? '' : '<br>';
+                        html += brPrefix + parseInline(line.trim());
                         continue;
                     }
                 }
@@ -14033,6 +14535,725 @@ class EditorInstance {
     let activeTableCell = null;
     let activeTable = null;
 
+    // FR-TSL (sprint 20260812-032645): table cell select/edit mode state machine.
+    // mode: null = 従来のキャレット編集(プログラム的配置・既存 TC 互換経路)。
+    // 'select' = セル自体が選択単位(キャレット不可視)。'edit' = セル内編集。
+    // one-shot 対クリア: table 外 click / Esc / 再レンダで必ず null に戻す。
+    let tableSel = { mode: null, table: null, anchor: null, focus: null, editBackup: null };
+
+    // table のグリッドマップ(rowspan/colspan の被覆を展開した (r,c) → 実セル)。
+    // cellIndex は span があるとグリッド列とズレるため、常にこのマップで座標を解く
+    function tslGridMap(table) {
+        const rows = Array.from(table.rows);
+        const grid = []; // grid[r][c] = cell(anchor が被覆域全域に入る)
+        const posOf = new Map(); // cell → {r,c}(anchor 位置)
+        for (let r = 0; r < rows.length; r++) grid.push([]);
+        for (let r = 0; r < rows.length; r++) {
+            let c = 0;
+            for (const cell of rows[r].cells) {
+                while (grid[r][c] !== undefined) c++;
+                posOf.set(cell, { r, c });
+                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                for (let i = 0; i < rs; i++) {
+                    for (let j = 0; j < cs; j++) {
+                        if (grid[r + i]) grid[r + i][c + j] = cell;
+                    }
+                }
+                c += cs;
+            }
+        }
+        return { grid, posOf, rows };
+    }
+
+    function tslCellPos(cell) {
+        const row = cell.parentElement;
+        const table = row.closest('table');
+        const m = tslGridMap(table);
+        const p = m.posOf.get(cell) || { r: Array.from(table.rows).indexOf(row), c: cell.cellIndex };
+        return { r: p.r, c: p.c, table, rows: m.rows, grid: m.grid };
+    }
+
+    // 矩形範囲のセル集合(FR-TSL-02: 交差する結合セルを完全に含むまで矩形拡張 = Excel)
+    function tslRangeCells() {
+        if (!tableSel.anchor || !tableSel.focus || !tableSel.table) return [];
+        const m = tslGridMap(tableSel.table);
+        const a = m.posOf.get(tableSel.anchor);
+        const f = m.posOf.get(tableSel.focus);
+        if (!a || !f) return [];
+        let r1 = Math.min(a.r, f.r), r2 = Math.max(a.r, f.r);
+        let c1 = Math.min(a.c, f.c), c2 = Math.max(a.c, f.c);
+        let grew = true;
+        while (grew) {
+            grew = false;
+            for (const [cell, p] of m.posOf) {
+                const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                const er = p.r + rs - 1, ec = p.c + cs - 1;
+                if (er < r1 || p.r > r2 || ec < c1 || p.c > c2) continue;
+                if (p.r < r1) { r1 = p.r; grew = true; }
+                if (er > r2) { r2 = er; grew = true; }
+                if (p.c < c1) { c1 = p.c; grew = true; }
+                if (ec > c2) { c2 = ec; grew = true; }
+            }
+        }
+        const cells = [];
+        for (const [cell, p] of m.posOf) {
+            if (p.r >= r1 && p.r <= r2 && p.c >= c1 && p.c <= c2) cells.push(cell);
+        }
+        return cells;
+    }
+
+    function tslPaintSelection() {
+        if (!tableSel.table) return;
+        tableSel.table.querySelectorAll('.tbl-cell-selected, .tbl-cell-range')
+            .forEach((el) => el.classList.remove('tbl-cell-selected', 'tbl-cell-range'));
+        const cells = tslRangeCells();
+        for (const cell of cells) cell.classList.add('tbl-cell-range');
+        if (tableSel.anchor) tableSel.anchor.classList.add('tbl-cell-selected');
+        if (tableSel.focus && tableSel.focus !== tableSel.anchor) {
+            tableSel.focus.classList.add('tbl-cell-selected');
+        }
+    }
+
+    function tslClear() {
+        if (tableSel.table) {
+            tableSel.table.classList.remove('tbl-select-mode');
+            tableSel.table.querySelectorAll('.tbl-cell-selected, .tbl-cell-range')
+                .forEach((el) => el.classList.remove('tbl-cell-selected', 'tbl-cell-range'));
+        }
+        tableSel = { mode: null, table: null, anchor: null, focus: null, editBackup: null };
+    }
+
+    function tslEnterSelect(cell) {
+        const table = cell.closest('table');
+        if (tableSel.table && tableSel.table !== table) tslClear();
+        tableSel.mode = 'select';
+        tableSel.table = table;
+        tableSel.anchor = cell;
+        tableSel.focus = cell;
+        tableSel.editBackup = null;
+        table.classList.add('tbl-select-mode');
+        tslPaintSelection();
+        // select 中はキャレットをセルから外す(collapse した selection は cell 内に置くが
+        // caret-color: transparent で不可視 — copy/paste イベントは editor に届き続ける)
+        try {
+            const r = document.createRange();
+            r.selectNodeContents(cell);
+            r.collapse(true);
+            const s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+        } catch (err) { /* noop */ }
+        activeTable = table;
+        activeTableCell = cell;
+        showTableToolbar(table);
+    }
+
+    function tslEnterEdit(cell, replaceContent) {
+        tableSel.mode = 'edit';
+        tableSel.editBackup = cell.innerHTML;
+        tableSel.table.classList.remove('tbl-select-mode');
+        tslPaintSelection();
+        if (replaceContent) {
+            undoManager.saveSnapshot();
+            cell.innerHTML = '<br>';
+            setCursorToStart(cell);
+            // 置換 + 続くタイプを undo 1 step に(空セル中間 snapshot を防ぐ)
+            undoManager.beginTypingBurst();
+        } else {
+            setCursorToEnd(cell);
+        }
+    }
+
+    // edit 確定(syncMarkdown)+ 隣接セルへ select 移動(nextCell=null なら同セル select)
+    function tslCommitEdit(nextCell) {
+        const cell = tableSel.anchor;
+        tableSel.editBackup = null;
+        syncMarkdown();
+        tslEnterSelect(nextCell || cell);
+    }
+
+    function tslNeighbor(cell, dr, dc) {
+        const p = tslCellPos(cell);
+        // 結合セルからの移動は span の端から数える。被覆位置に入る場合は grid が
+        // anchor を返すため自然に anchor 着地(FR-TMG-02 / TC-TMG-11)
+        const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+        const tr = dr > 0 ? p.r + rs - 1 + dr : p.r + dr;
+        const tc = dc > 0 ? p.c + cs - 1 + dc : p.c + dc;
+        if (tr < 0 || tr >= p.rows.length || tc < 0) return null;
+        const target = p.grid[tr] ? p.grid[tr][tc] : undefined;
+        if (target === undefined) return null; // 行幅外(右端)
+        if (target === cell) return null;      // 自分の span 内 = 端
+        return target;
+    }
+
+    // select モードで table の外へ抜ける(上端↑ = 表の前 / 下端↓ = 表の後)。
+    // 隣接要素が無ければ段落を作って抜ける(旧 ArrowDown 経路 :11507 と同挙動 —
+    // key-operations.spec の既存契約「一番下のセルで表を抜けて下の要素に移動」)
+    function tslExitTable(dir) {
+        const table = tableSel.table;
+        tslClear();
+        let target = dir < 0 ? table.previousElementSibling : table.nextElementSibling;
+        if (!target) {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            if (dir < 0) table.before(p); else table.after(p);
+            target = p;
+        }
+        try {
+            const r = document.createRange();
+            r.selectNodeContents(target);
+            r.collapse(dir < 0 ? false : true);
+            const s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+        } catch (err) { /* noop */ }
+        hideTableToolbar();
+    }
+
+    // FR-TSL-03: 選択範囲の内容クリア(saveSnapshot 前置・undo 1 回。span は維持 = REQ-6 裁定)
+    function tslClearRangeContents() {
+        undoManager.saveSnapshot();
+        for (const cell of tslRangeCells()) cell.innerHTML = '<br>';
+        syncMarkdown();
+    }
+
+    // FR-TSL-03: 範囲 paste。clipboard の text/html table 断片 or TSV を 2D 配列化し
+    // anchor 起点で上書き(下はみ出し = 行追加 / 右はみ出し = 切捨て — 裁定 #7)。
+    // 交差する結合セルは事前 unmerge(REQ-6 裁定・挿入削除と同じ決定論)
+    function tslHandlePaste(e) {
+        const cd = e.clipboardData;
+        if (!cd) return false;
+        let matrix = null;
+        let srcSpans = []; // {r, c, rs, cs} — 貼り付け後に再結合する(Excel)
+        const html = cd.getData('text/html');
+        if (html && /<table[\s>]/i.test(html)) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const srcTable = tmp.querySelector('table');
+            if (srcTable) {
+                // 再オープン② bug(2): span 付き table を grid 展開(被覆位置 = 空)。
+                // cells の素朴な走査は colspan/rowspan で列がずれ充填が壊れる
+                const sm = tslGridMap(srcTable);
+                const rowsN = sm.grid.length;
+                const colsN = sm.grid[0] ? sm.grid[0].length : 0;
+                matrix = [];
+                for (let r = 0; r < rowsN; r++) {
+                    const line = [];
+                    for (let c = 0; c < colsN; c++) {
+                        const cell = sm.grid[r][c];
+                        const p = cell ? sm.posOf.get(cell) : null;
+                        line.push(cell && p && p.r === r && p.c === c ? cell.innerHTML : '');
+                    }
+                    matrix.push(line);
+                }
+                for (const [cell, p] of sm.posOf) {
+                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                    if (rs > 1 || cs > 1) srcSpans.push({ r: p.r, c: p.c, rs, cs });
+                }
+            }
+        }
+        if (!matrix) {
+            const text = cd.getData('text/plain');
+            if (!text) return false;
+            if (text.includes('\t') || text.includes('\n')) {
+                matrix = text.replace(/\n$/, '').split('\n').map((l) => l.split('\t').map(escapeHtml));
+            } else {
+                matrix = [[escapeHtml(text)]]; // 単一テキスト = anchor 置換
+            }
+        }
+        e.preventDefault();
+        undoManager.saveSnapshot();
+        // 再オープン⑤(3): 貼り付けは行/列を増やしうる → フィルタ即解除(表示バグ防止)
+        clearTableRowFilter(tableSel.table);
+        // 再オープン① bug(3): 貼り付け起点 = 現在選択の左上(逆向き範囲選択でも Excel と同じ)
+        let anchor = tableSel.anchor;
+        {
+            const m = tslGridMap(tableSel.table);
+            let best = null;
+            for (const cell of tslRangeCells()) {
+                const cp = m.posOf.get(cell);
+                if (!best || cp.r < best.p.r || (cp.r === best.p.r && cp.c < best.p.c)) {
+                    best = { cell, p: cp };
+                }
+            }
+            if (best) anchor = best.cell;
+        }
+        const p = tslCellPos(anchor);
+        const table = p.table;
+        // 貼付先範囲に交差する span を事前 unmerge
+        const destR2 = p.r + matrix.length - 1;
+        const destC2 = p.c + Math.max(...matrix.map((r) => r.length)) - 1;
+        table.querySelectorAll('[colspan], [rowspan]').forEach((cell) => {
+            const cp = tslCellPos(cell);
+            const er = cp.r + (cell.rowSpan || 1) - 1, ec = cp.c + (cell.colSpan || 1) - 1;
+            if (!(er < p.r || cp.r > destR2 || ec < p.c || cp.c > destC2)) tslUnmergeCell(cell);
+        });
+        // grid 座標で充填(unmerge 後に map を取り直す。cellIndex ずれ防止 = bug(3))。
+        // 再オープン④裁定: 右はみ出しは切捨てでなく**列を必要数追加して全部貼る**(Excel 準拠。
+        // 旧「切捨て」は選択内容の右下が黙って欠ける = ユーザー最新指示で改訂)。下も行追加
+        const srcCols = Math.max(...matrix.map((r) => r.length));
+        let m2 = tslGridMap(table);
+        let colCount = m2.grid[0] ? m2.grid[0].length : 0;
+        while (colCount < p.c + srcCols) {
+            tslInsertColAt(table, colCount); // 右端に列追加(col-widths はデフォルト幅で伸びる)
+            colCount++;
+        }
+        m2 = tslGridMap(table);
+        for (let i = 0; i < matrix.length; i++) {
+            if (p.r + i >= m2.rows.length) {
+                // 下はみ出し = 行追加
+                const row = document.createElement('tr');
+                for (let k = 0; k < colCount; k++) {
+                    const td = document.createElement('td');
+                    td.setAttribute('contenteditable', 'true');
+                    td.innerHTML = '<br>';
+                    tslApplyColWidth(table, td, k);
+                    row.appendChild(td);
+                }
+                table.rows[table.rows.length - 1].after(row);
+                m2 = tslGridMap(table);
+            }
+            for (let j = 0; j < matrix[i].length; j++) {
+                const cell = m2.grid[p.r + i] ? m2.grid[p.r + i][p.c + j] : null;
+                if (cell) cell.innerHTML = matrix[i][j] || '<br>';
+            }
+        }
+        // 再オープン② bug(2)/再オープン③: コピー元の結合を貼り付け先で再現。
+        // 🔴 被覆セルの削除は「span 適用前の単一 grid スナップショット」から実参照で
+        // 集めてから行う — 1 個消すたびに grid を再計算すると(span 未適用のため)残りの
+        // セルが左に詰まり、誤削除(内容セル喪失)+ 消し残し(幽霊列)になる(実測 = 再オープン③)
+        for (const sp of srcSpans) {
+            const m3 = tslGridMap(table);
+            const ar = p.r + sp.r, ac = p.c + sp.c;
+            if (ar >= m3.rows.length || ac >= colCount) continue;
+            const anchorCell = m3.grid[ar] && m3.grid[ar][ac];
+            if (!anchorCell || anchorCell.tagName === 'TH') continue;
+            const rs = Math.min(sp.rs, m3.rows.length - ar);
+            const cs = Math.min(sp.cs, colCount - ac);
+            if (rs <= 1 && cs <= 1) continue;
+            const victims = new Set();
+            let blocked = false;
+            for (let i = 0; i < rs && !blocked; i++) {
+                for (let j = 0; j < cs; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const v = m3.grid[ar + i] ? m3.grid[ar + i][ac + j] : undefined;
+                    if (v === anchorCell) continue;
+                    if (!v || v.tagName === 'TH' || (v.rowSpan || 1) > 1 || (v.colSpan || 1) > 1) {
+                        blocked = true; // th や既存 span と衝突する再現はスキップ(安全側)
+                        break;
+                    }
+                    victims.add(v);
+                }
+            }
+            if (blocked) continue;
+            victims.forEach((v) => v.remove());
+            if (rs > 1) anchorCell.setAttribute('rowspan', String(rs));
+            if (cs > 1) anchorCell.setAttribute('colspan', String(cs));
+        }
+        // 貼り付け結果の範囲を選択状態に(Excel と同じフィードバック)
+        const mAfter = tslGridMap(table);
+        const lastR = Math.min(p.r + matrix.length - 1, mAfter.rows.length - 1);
+        const lastC = Math.min(p.c + Math.max(...matrix.map((r) => r.length)) - 1, colCount - 1);
+        tableSel.anchor = (mAfter.grid[p.r] && mAfter.grid[p.r][p.c]) || anchor;
+        tableSel.focus = (mAfter.grid[lastR] && mAfter.grid[lastR][lastC]) || tableSel.anchor;
+        syncMarkdown();
+        tslPaintSelection();
+        return true;
+    }
+
+    // FR-TMG-02: 範囲選択を 1 セルに結合(左上の内容のみ残す = Excel)。th 含む選択は no-op
+    function tslMergeSelection() {
+        if (tableSel.mode !== 'select') return;
+        // 再オープン⑤(2): フィルタ中の結合は非表示行と交差して構造が壊れる → 不可
+        if (tableSel.table && tableSel.table.querySelector('.tbl-row-filtered')) return;
+        const cells = tslRangeCells();
+        if (cells.length < 2) return;
+        if (cells.some((c) => c.tagName === 'TH')) return; // ヘッダー行は結合不可
+        undoManager.saveSnapshot();
+        const m = tslGridMap(tableSel.table);
+        let anchor = cells[0], ap = m.posOf.get(cells[0]);
+        let r2 = ap.r, c2 = ap.c;
+        for (const cell of cells) {
+            const p = m.posOf.get(cell);
+            if (p.r < ap.r || (p.r === ap.r && p.c < ap.c)) { anchor = cell; ap = p; }
+            r2 = Math.max(r2, p.r + (cell.rowSpan || 1) - 1);
+            c2 = Math.max(c2, p.c + (cell.colSpan || 1) - 1);
+        }
+        for (const cell of cells) {
+            if (cell !== anchor) cell.remove();
+        }
+        const rs = r2 - ap.r + 1, cs = c2 - ap.c + 1;
+        if (rs > 1) anchor.setAttribute('rowspan', String(rs)); else anchor.removeAttribute('rowspan');
+        if (cs > 1) anchor.setAttribute('colspan', String(cs)); else anchor.removeAttribute('colspan');
+        syncMarkdown();
+        tslEnterSelect(anchor);
+    }
+
+    // FR-TMG-02: 選択(範囲内)の結合セルを解除
+    function tslUnmergeSelection() {
+        if (tableSel.mode !== 'select') return;
+        // 再オープン⑥: フィルタ中の結合解除も不可(復元セルが非表示行に混ざり構造が壊れる)
+        if (tableSel.table && tableSel.table.querySelector('.tbl-row-filtered')) return;
+        const spanned = tslRangeCells().filter((c) => (c.rowSpan || 1) > 1 || (c.colSpan || 1) > 1);
+        if (!spanned.length) return;
+        undoManager.saveSnapshot();
+        for (const cell of spanned) tslUnmergeCell(cell);
+        syncMarkdown();
+        tslPaintSelection();
+    }
+
+    // FR-TMG-02 rev(再オープン① bug(6)): 行/列の挿入・削除は Excel 準拠で span を伸縮する。
+    // - 挿入境界を跨ぐ span → +1(結合が伸びる)。境界外 → 影響なし
+    // - 削除行/列に交差する span → -1(縮む)。anchor 行/列の削除は anchor を次へ移設
+    // grid 座標(tslGridMap)が単一真実。span なし table では従来と同一の観測挙動。
+
+    // 新しい行を「grid 行 ri の位置」に挿入(既存 ri 行は下へ)
+    function tslInsertRowAt(table, ri) {
+        const m = tslGridMap(table);
+        const colCount = m.grid[0] ? m.grid[0].length : 0;
+        const crossingCols = new Set(); // 境界 (ri-1|ri) を跨ぐ縦 span が覆う grid 列
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            if (p.r < ri && p.r + rs - 1 >= ri) {
+                cell.rowSpan = rs + 1; // 結合の内側に挿入 = 伸ばす(Excel)
+                for (let j = 0; j < cs; j++) crossingCols.add(p.c + j);
+            }
+        }
+        const newTr = document.createElement('tr');
+        for (let c = 0; c < colCount; c++) {
+            if (crossingCols.has(c)) continue;
+            const td = document.createElement('td');
+            td.setAttribute('contenteditable', 'true');
+            td.innerHTML = '<br>';
+            tslApplyColWidth(table, td, c);
+            newTr.appendChild(td);
+        }
+        if (ri >= m.rows.length) m.rows[m.rows.length - 1].after(newTr);
+        else m.rows[ri].before(newTr);
+        return newTr;
+    }
+
+    // grid 行 r を削除(交差 span は -1・anchor 行削除は次行へ移設)
+    function tslDeleteRowAt(table, r) {
+        const m = tslGridMap(table);
+        const tr = m.rows[r];
+        if (!tr) return;
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1;
+            if (rs > 1 && p.r <= r && p.r + rs - 1 >= r) {
+                const nrs = rs - 1;
+                if (p.r === r) {
+                    // anchor が削除行: 内容ごと次行へ移設(Excel の結合維持)
+                    const nextTr = m.rows[r + 1];
+                    if (nextTr) {
+                        if (nrs <= 1) cell.removeAttribute('rowspan');
+                        else cell.setAttribute('rowspan', String(nrs));
+                        let before = null;
+                        for (const c2 of nextTr.cells) {
+                            const cp = m.posOf.get(c2);
+                            if (cp && cp.c > p.c) { before = c2; break; }
+                        }
+                        nextTr.insertBefore(cell, before);
+                    }
+                } else {
+                    if (nrs <= 1) cell.removeAttribute('rowspan');
+                    else cell.setAttribute('rowspan', String(nrs));
+                }
+            }
+        }
+        tr.remove();
+    }
+
+    // 新しい列を「grid 列 ci の位置」に挿入(既存 ci 列は右へ)
+    function tslInsertColAt(table, ci) {
+        const m = tslGridMap(table);
+        const crossingRows = new Set(); // 境界 (ci-1|ci) を跨ぐ横 span が覆う grid 行
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            if (p.c < ci && p.c + cs - 1 >= ci) {
+                cell.colSpan = cs + 1; // 結合の内側に挿入 = 伸ばす(Excel)
+                for (let i = 0; i < rs; i++) crossingRows.add(p.r + i);
+            }
+        }
+        const created = [];
+        for (let r = 0; r < m.rows.length; r++) {
+            if (crossingRows.has(r)) continue;
+            const row = m.rows[r];
+            const isHeader = !!row.querySelector('th');
+            const newCell = document.createElement(isHeader ? 'th' : 'td');
+            newCell.setAttribute('contenteditable', 'true');
+            newCell.innerHTML = isHeader ? 'Header' : '<br>';
+            let before = null;
+            for (const c2 of row.cells) {
+                const cp = m.posOf.get(c2);
+                if (cp && cp.c >= ci) { before = c2; break; }
+            }
+            row.insertBefore(newCell, before);
+            created.push({ r, cell: newCell });
+        }
+        tslSpliceColWidths(table, ci, 'insert');
+        for (const { cell } of created) tslApplyColWidth(table, cell, ci);
+        return created;
+    }
+
+    // grid 列 c を削除(交差 span は -1・cs=1 のセルは rowspan ごと削除)
+    function tslDeleteColAt(table, c) {
+        const m = tslGridMap(table);
+        for (const [cell, p] of m.posOf) {
+            const cs = cell.colSpan || 1;
+            if (p.c <= c && p.c + cs - 1 >= c) {
+                if (cs > 1) {
+                    const ncs = cs - 1;
+                    if (ncs <= 1) cell.removeAttribute('colspan');
+                    else cell.setAttribute('colspan', String(ncs));
+                } else {
+                    cell.remove(); // 縦 span 含めこの列のセルは列ごと消える(Excel)
+                }
+            }
+        }
+        tslSpliceColWidths(table, c, 'delete');
+    }
+
+    // 再オープン① bug(4): 固定幅 table(data-col-widths)への列追加はデフォルト幅を与える
+    const TBL_DEFAULT_COL_WIDTH = 100;
+    function tslSpliceColWidths(table, ci, op) {
+        const attr = table.getAttribute('data-col-widths');
+        if (!attr || !/^\d+(,\d+)*$/.test(attr)) return;
+        const ws = attr.split(',').map((s) => parseInt(s, 10));
+        if (op === 'insert') ws.splice(ci, 0, TBL_DEFAULT_COL_WIDTH);
+        else ws.splice(ci, 1);
+        table.setAttribute('data-col-widths', ws.join(','));
+        const total = ws.reduce((s, w) => s + w, 0);
+        if (table.style.width) table.style.width = total + 'px';
+    }
+    function tslApplyColWidth(table, cell, ci) {
+        const attr = table.getAttribute('data-col-widths');
+        if (!attr || !/^\d+(,\d+)*$/.test(attr)) return;
+        const ws = attr.split(',').map((s) => parseInt(s, 10));
+        if (ws[ci]) cell.style.width = ws[ci] + 'px';
+    }
+
+    // FR-TFL-01: 行フィルタ(表示のみ・md 不変。ヘッダー常時表示・rowspan グループ単位判定)
+    function applyTableRowFilter(table, query) {
+        const q = (query || '').trim().toLowerCase();
+        const rows = Array.from(table.rows);
+        // rowspan グループ: anchor 行 → 終端行の範囲を先に解く
+        const m = tslGridMap(table);
+        const groupEnd = rows.map((_, r) => r);
+        for (const [cell, p] of m.posOf) {
+            const rs = cell.rowSpan || 1;
+            if (rs > 1) {
+                for (let r = p.r; r < p.r + rs; r++) {
+                    groupEnd[p.r] = Math.max(groupEnd[p.r], p.r + rs - 1);
+                }
+            }
+        }
+        rows.forEach((row) => row.classList.remove('tbl-row-filtered'));
+        if (!q) return;
+        for (let r = 0; r < rows.length; r++) {
+            if (rows[r].querySelector('th')) continue; // ヘッダー常時表示
+            // グループ(r..groupEnd 最大)のどれかにヒットすれば表示
+            let end = r;
+            for (const [cell, p] of m.posOf) {
+                const rs = cell.rowSpan || 1;
+                if (rs > 1 && r >= p.r && r <= p.r + rs - 1) end = Math.max(end, p.r + rs - 1);
+            }
+            let hit = false;
+            for (let g = r; g <= end; g++) {
+                if ((rows[g].textContent || '').toLowerCase().includes(q)) { hit = true; break; }
+            }
+            if (!hit) {
+                for (let g = r; g <= end; g++) rows[g].classList.add('tbl-row-filtered');
+            }
+            r = end;
+        }
+    }
+
+    // FR-TFL-01: 行追加系操作の前にフィルタ解除(絞り込み中の構造操作は全行文脈で)
+    function clearTableRowFilter(table) {
+        if (!table) return;
+        table.querySelectorAll('.tbl-row-filtered').forEach((r) => r.classList.remove('tbl-row-filtered'));
+        const input = tableToolbar && tableToolbar.querySelector('.table-filter-input');
+        if (input) input.value = '';
+    }
+
+    // 結合セルの span 解除 + 空セル復元(unmerge の共通実体。TASK-03 の UI からも呼ぶ)
+    function tslUnmergeCell(cell) {
+        const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+        if (rs === 1 && cs === 1) return;
+        const p = tslCellPos(cell);
+        cell.removeAttribute('rowspan');
+        cell.removeAttribute('colspan');
+        for (let r = p.r; r < p.r + rs; r++) {
+            const row = p.rows[r];
+            if (!row) continue;
+            for (let c = p.c; c < p.c + cs; c++) {
+                if (r === p.r && c === p.c) continue;
+                // グリッド位置 c に実セルを挿入(その行で c より左のセル数を数えて位置決め)
+                const td = document.createElement(row.querySelector('th') && r === 0 ? 'th' : 'td');
+                td.setAttribute('contenteditable', 'true');
+                td.innerHTML = '<br>';
+                let insertBefore = null;
+                for (const exist of row.cells) {
+                    if (tslCellPos(exist).c > c) { insertBefore = exist; break; }
+                }
+                row.insertBefore(td, insertBefore);
+            }
+        }
+    }
+
+    // FR-TSL のキーディスパッチ。true を返したら呼び出し元 keydown はそこで終了
+    function tslHandleKeydown(e) {
+        const mode = tableSel.mode;
+        if (mode === 'select') {
+            // 修飾キー単体は素通し
+            if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(e.key)) return true;
+            if (e.key.startsWith('Arrow')) {
+                e.preventDefault();
+                const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+                const base = e.shiftKey ? tableSel.focus : tableSel.anchor;
+                const next = tslNeighbor(base, d[0], d[1]);
+                if (!next) {
+                    // 端 + 外向き: 上下は表を出る。左右端は留まる
+                    if (!e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                        tslExitTable(e.key === 'ArrowUp' ? -1 : 1);
+                    }
+                    return true;
+                }
+                if (e.shiftKey) {
+                    tableSel.focus = next;      // FR-TSL-02: anchor 起点の範囲拡張
+                    tslPaintSelection();
+                } else {
+                    tslEnterSelect(next);
+                }
+                return true;
+            }
+            if (e.key === 'Enter' || e.key === 'F2') {
+                e.preventDefault();
+                tslEnterEdit(tableSel.anchor, false);
+                return true;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const next = tslNeighbor(tableSel.anchor, 0, e.shiftKey ? -1 : 1);
+                if (next) { tslEnterSelect(next); return true; }
+                if (!e.shiftKey) {
+                    // 最終セルの Tab = 行追加(旧「Enter で行追加」の置き場・FR-TSL-01)
+                    const p = tslCellPos(tableSel.anchor);
+                    const lastRow = p.rows[p.rows.length - 1];
+                    if (tableSel.anchor.closest('tr') === lastRow) {
+                        undoManager.saveSnapshot();
+                        const newRow = document.createElement('tr');
+                        for (let i = 0; i < lastRow.cells.length; i++) {
+                            const td = document.createElement('td');
+                            td.setAttribute('contenteditable', 'true');
+                            td.innerHTML = '<br>';
+                            newRow.appendChild(td);
+                        }
+                        lastRow.after(newRow);
+                        syncMarkdown();
+                        tslEnterSelect(newRow.cells[0]);
+                    } else {
+                        // 行末 Tab = 次行の先頭へ
+                        const down = tslNeighbor(tableSel.anchor, 1, 0);
+                        if (down) tslEnterSelect(down.parentElement.cells[0]);
+                    }
+                } else {
+                    // 再オープン① bug(5): 先頭列の Shift+Tab = 上の行の末尾セルへ
+                    const p = tslCellPos(tableSel.anchor);
+                    if (p.r > 0) {
+                        const upRow = p.rows[p.r - 1];
+                        if (upRow && upRow.cells.length > 0) {
+                            tslEnterSelect(upRow.cells[upRow.cells.length - 1]);
+                        }
+                    }
+                }
+                return true;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                tslClear();
+                return true;
+            }
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                e.preventDefault();
+                tslClearRangeContents();
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) && ['c', 'x'].includes(e.key.toLowerCase())) {
+                // 再オープン②: select モードは selection が collapsed のため cmd+c で
+                // copy イベントが発火しない → keydown 駆動で navigator.clipboard に書く
+                e.preventDefault();
+                tslCopyRangeToClipboard(e.key.toLowerCase() === 'x');
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
+                // paste はブラウザがイベントを発火する(collapsed selection でも paste は来る)
+                // → paste ハンドラの tslHandlePaste 分岐に委譲。preventDefault しない
+                return true;
+            }
+            if ((e.metaKey || e.ctrlKey) || e.altKey) return false; // 他のショートカットは既存へ
+            if (e.key.length === 1) {
+                // FR-TSL-01: タイプ開始 = 内容置換で edit(Excel)。キー自体は流して入力させる
+                tslEnterEdit(tableSel.anchor, true);
+                return false;
+            }
+            return true;
+        }
+        if (mode === 'edit') {
+            const cell = tableSel.anchor;
+            // 再オープン① bug(2): IME 変換確定の Enter(isComposing / keyCode 229)は
+            // セル確定でなく IME に渡す(かな確定で下行に飛ぶバグ)
+            if (e.isComposing || e.keyCode === 229) return false;
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                // 再オープン⑤(5): 確定して同セルの select に戻る(下移動しない — ユーザー裁定)
+                tslCommitEdit(null);
+                return true;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                tslCommitEdit(tslNeighbor(cell, 0, e.shiftKey ? -1 : 1));
+                return true;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (tableSel.editBackup !== null) cell.innerHTML = tableSel.editBackup; // 破棄(Excel)
+                tslEnterSelect(cell);
+                return true;
+            }
+            // 再オープン⑤(4): edit 中の矢印はセル内に閉じ込める — セル端で隣接セルへ
+            // キャレットが抜ける(edit のまま別セルに移る)のを防ぐ。端でなければ素通し
+            if (e.key.startsWith('Arrow')) {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount) {
+                    const r = sel.getRangeAt(0);
+                    const atStart = (() => {
+                        const t = document.createRange();
+                        t.selectNodeContents(cell);
+                        t.setEnd(r.startContainer, r.startOffset);
+                        return t.toString() === '';
+                    })();
+                    const atEnd = (() => {
+                        const t = document.createRange();
+                        t.selectNodeContents(cell);
+                        t.setStart(r.endContainer, r.endOffset);
+                        return t.toString() === '';
+                    })();
+                    if (((e.key === 'ArrowLeft' || e.key === 'ArrowUp') && atStart)
+                        || ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && atEnd)) {
+                        e.preventDefault(); // セル端 = それ以上動かさない(セルから出ない)
+                        return true;
+                    }
+                }
+                return false; // セル内移動は素通し
+            }
+            // Shift+Enter(セル内改行)・文字入力は既存挙動へ素通し
+            return false;
+        }
+        return false;
+    }
+
     function createTableToolbar() {
         if (tableToolbar) return;
 
@@ -14054,12 +15275,29 @@ class EditorInstance {
             null,
             // FR-TBL-01: headerless toggle (display-only; th structure/content preserved)
             { action: 'toggle-header', title: i18n.tableToggleHeader, text: 'H' },
+            null,
+            // FR-TMG-02: セル結合/解除(範囲選択が前提。ADRL-0054)
+            { action: 'merge-cells', title: i18n.tableMergeCells, text: '⊞' },
+            { action: 'unmerge-cells', title: i18n.tableUnmergeCells, text: '⊟' },
+            null,
+            // FR-TFL-01: 行フィルタ(検索テキスト)
+            { action: 'filter-input', isInput: true },
         ];
         tableToolbarItems.forEach(function(item) {
             if (!item) {
                 var sep = document.createElement('span');
                 sep.className = 'separator';
                 tableToolbar.appendChild(sep);
+            } else if (item.isInput) {
+                // FR-TFL-01: 行フィルタの検索 input(表示のみ・md 不変)
+                var input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'table-filter-input';
+                input.placeholder = i18n.tableFilterRows || 'Filter rows';
+                input.addEventListener('input', function() {
+                    if (activeTable) applyTableRowFilter(activeTable, input.value);
+                });
+                tableToolbar.appendChild(input);
             } else {
                 var btn = document.createElement('button');
                 btn.dataset.action = item.action;
@@ -14075,6 +15313,8 @@ class EditorInstance {
         });
 
         tableToolbar.addEventListener('mousedown', function(e) {
+            // filter input はフォーカスを受ける必要がある(preventDefault しない)
+            if (e.target && e.target.classList && e.target.classList.contains('table-filter-input')) return;
             e.preventDefault(); // Prevent losing focus from table
         });
 
@@ -14094,6 +15334,8 @@ class EditorInstance {
                 case 'align-center': setColumnAlignment('center'); break;
                 case 'align-right': setColumnAlignment('right'); break;
                 case 'toggle-header': if (activeTable) toggleTableHeader(activeTable); break;
+                case 'merge-cells': tslMergeSelection(); break;
+                case 'unmerge-cells': tslUnmergeSelection(); break;
             }
         });
 
@@ -14137,12 +15379,15 @@ class EditorInstance {
         tableToolbar.style.left = rect.left + 'px';
         tableToolbar.classList.add('visible');
         activeTable = table;
+        updateHeaderToggleState(table);
     }
 
     function hideTableToolbar() {
         if (tableToolbar) {
             tableToolbar.classList.remove('visible');
         }
+        // FR-TFL-01: toolbar 非表示 = table を離れた → フィルタをクリア(one-shot 対クリア)
+        if (activeTable) clearTableRowFilter(activeTable);
         activeTable = null;
     }
 
@@ -14171,305 +15416,208 @@ class EditorInstance {
 
     function deleteTableColumn() {
         if (!activeTableCell || !activeTable) return;
-        
-        // Verify elements are still in DOM
         if (!editor.contains(activeTableCell) || !editor.contains(activeTable)) {
             logger.log('Table elements not in DOM, skipping deleteTableColumn');
             return;
         }
-        
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return;
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = activeTable.querySelectorAll('tr');
-        
-        // Don't delete if only one column
-        if (rows[0] && rows[0].cells.length <= 1) return;
-        
-        // Store rowIndex before deleting
-        const rowIndex = Array.from(rows).indexOf(currentRow);
-        
-        rows.forEach(row => {
-            if (row.cells[cellIndex]) {
-                row.cells[cellIndex].remove();
-            }
-        });
-        
-        // Move activeTableCell to adjacent cell in the SAME row
-        const updatedRows = activeTable.querySelectorAll('tr');
-        const targetRow = updatedRows[rowIndex];
+        clearTableRowFilter(activeTable);
+        const m0 = tslGridMap(activeTable);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (m0.grid[0] && m0.grid[0].length <= 1) return; // 最後の 1 列は消さない
+        undoManager.saveSnapshot();
+        const rowIndex = p0.r;
+        // Excel 準拠(再オープン① bug(6)): 交差 span は -1・単幅セルは列ごと削除
+        tslDeleteColAt(activeTable, p0.c);
+        const m1 = tslGridMap(activeTable);
+        const targetRow = m1.rows[Math.min(rowIndex, m1.rows.length - 1)];
         if (targetRow && targetRow.cells.length > 0) {
-            // Stay in the same row, move to left (new last column if was at end)
-            const newIndex = Math.min(cellIndex, targetRow.cells.length - 1);
-            if (newIndex >= 0 && targetRow.cells[newIndex]) {
-                activeTableCell = targetRow.cells[newIndex];
-                setCursorToEnd(activeTableCell);
+            const gc = Math.min(p0.c, (m1.grid[rowIndex] || []).length - 1);
+            const landing = (m1.grid[rowIndex] && m1.grid[rowIndex][gc]) || targetRow.cells[targetRow.cells.length - 1];
+            if (landing) {
+                activeTableCell = landing;
+                // 再オープン④: 削除後の着地セルを select 枠で可視化(連続削除できるように)
+                tslEnterSelect(landing);
             }
         }
-        
         syncMarkdown();
     }
 
     function deleteTableRow() {
         if (!activeTableCell || !activeTable) return;
-        
-        // Verify elements are still in DOM
         if (!editor.contains(activeTableCell) || !editor.contains(activeTable)) {
             logger.log('Table elements not in DOM, skipping deleteTableRow');
             return;
         }
-        
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        // Don't delete header row or if only one row
-        const rows = activeTable.querySelectorAll('tr');
-        if (rows.length <= 1) return;
-        if (row === rows[0]) return; // Don't delete header
-        
-        const rowIndex = Array.from(rows).indexOf(row);
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return;
-        
-        row.remove();
-        
-        // Move activeTableCell to adjacent row
-        const newRows = activeTable.querySelectorAll('tr');
-        if (newRows.length > 0) {
-            // Try to select same column in previous row (or the row above deleted one)
-            // If was last row, go to new last row
-            const newRowIndex = Math.min(rowIndex, newRows.length - 1);
-            // Prefer row above if not header
-            const targetRowIndex = newRowIndex > 0 ? Math.max(1, rowIndex - 1) : newRowIndex;
-            const newRow = newRows[targetRowIndex] || newRows[newRowIndex];
-            
-            if (newRow && newRow.cells[cellIndex]) {
-                activeTableCell = newRow.cells[cellIndex];
-                setCursorToEnd(activeTableCell);
-            } else if (newRow && newRow.cells[0]) {
-                activeTableCell = newRow.cells[0];
-                setCursorToEnd(activeTableCell);
-            }
+        clearTableRowFilter(activeTable);
+        const m0 = tslGridMap(activeTable);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (m0.rows.length <= 1) return;
+        if (p0.r === 0 && m0.rows[0].querySelector('th')) return; // ヘッダー行は消さない
+        undoManager.saveSnapshot();
+        // Excel 準拠(再オープン① bug(6)): 交差縦 span は -1・anchor 行削除は移設
+        tslDeleteRowAt(activeTable, p0.r);
+        const m1 = tslGridMap(activeTable);
+        const tr = Math.min(Math.max(1, p0.r - 1), m1.rows.length - 1);
+        const landing = (m1.grid[tr] && (m1.grid[tr][p0.c] || m1.grid[tr][0]))
+            || (m1.rows[tr] && m1.rows[tr].cells[0]);
+        if (landing) {
+            activeTableCell = landing;
+            // 再オープン④: 削除後の着地セルを select 枠で可視化(連続削除できるように)
+            tslEnterSelect(landing);
         }
-        
         syncMarkdown();
     }
 
     function insertTableRowBelow() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableRowBelow');
             return;
         }
-        
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        const table = row.closest('table');
+        const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const colCount = row.cells.length;
-        if (colCount === 0) return;
-        
-        const newRow = document.createElement('tr');
-        
-        for (let i = 0; i < colCount; i++) {
-            const cell = document.createElement('td');
-            cell.setAttribute('contenteditable', 'true');
-            cell.innerHTML = '<br>';
-            newRow.appendChild(cell);
-        }
-        
-        row.after(newRow);
-        // Update activeTableCell to the new row's cell at same column
-        const cellIndex = activeTableCell.cellIndex;
-        activeTableCell = newRow.cells[cellIndex] || newRow.cells[0];
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        // 挿入位置 = active セルの span 終端の直下(Excel: 結合セル上からは結合の下に入る)
+        const ri = p0.r + (activeTableCell.rowSpan || 1);
+        const newTr = tslInsertRowAt(table, ri);
         activeTable = table;
-        setCursorToEnd(activeTableCell);
+        if (newTr && newTr.cells.length > 0) {
+            const m1 = tslGridMap(table);
+            const landing = (m1.grid[ri] && m1.grid[ri][p0.c]) || newTr.cells[0];
+            activeTableCell = landing;
+            setCursorToEnd(landing);
+        }
         syncMarkdown();
     }
 
     function insertTableRowAbove() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableRowAbove');
             return;
         }
-        
-        const row = activeTableCell.closest('tr');
-        if (!row) return;
-        
-        const table = row.closest('table');
+        const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        // Check if current row is header row (first row)
-        const rows = table.querySelectorAll('tr');
-        const isHeaderRow = rows.length > 0 && row === rows[0];
-        
-        if (isHeaderRow) {
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        if (p0.r === 0 && m0.rows[0].querySelector('th')) {
             logger.log('Cannot insert row above header row');
-            return; // Do nothing if in header row
+            return;
         }
-        
-        const colCount = row.cells.length;
-        if (colCount === 0) return;
-        
-        const newRow = document.createElement('tr');
-        
-        for (let i = 0; i < colCount; i++) {
-            const cell = document.createElement('td');
-            cell.setAttribute('contenteditable', 'true');
-            cell.innerHTML = '<br>';
-            newRow.appendChild(cell);
-        }
-        
-        row.before(newRow);
-        // Update activeTableCell to the new row's cell at same column
-        const cellIndex = activeTableCell.cellIndex;
-        activeTableCell = newRow.cells[cellIndex] || newRow.cells[0];
+        undoManager.saveSnapshot();
+        const newTr = tslInsertRowAt(table, p0.r);
         activeTable = table;
-        setCursorToEnd(activeTableCell);
+        if (newTr && newTr.cells.length > 0) {
+            const m1 = tslGridMap(table);
+            const landing = (m1.grid[p0.r] && m1.grid[p0.r][p0.c]) || newTr.cells[0];
+            activeTableCell = landing;
+            setCursorToEnd(landing);
+        }
         syncMarkdown();
     }
 
     function insertTableColumnRight() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnRight');
             return;
         }
-        
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return; // Invalid cell index
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = table.querySelectorAll('tr');
-        if (rows.length === 0) return;
-        
-        // Store current row index for later lookup
-        const currentRowIndex = Array.from(rows).indexOf(currentRow);
-        
-        let newCellInCurrentRow = null;
-        
-        rows.forEach((row, rowIndex) => {
-            const isHeader = rowIndex === 0;
-            const newCell = document.createElement(isHeader ? 'th' : 'td');
-            newCell.setAttribute('contenteditable', 'true');
-            newCell.innerHTML = isHeader ? 'Header' : '<br>';
-            
-            // Insert after current cell (to the right)
-            if (cellIndex + 1 < row.cells.length) {
-                row.cells[cellIndex + 1].before(newCell);
-            } else {
-                row.appendChild(newCell);
-            }
-            
-            // Track the new cell in current row
-            if (rowIndex === currentRowIndex) {
-                newCellInCurrentRow = newCell;
-            }
-        });
-        
-        // Move cursor to the new column in current row
-        if (newCellInCurrentRow && editor.contains(newCellInCurrentRow)) {
-            activeTableCell = newCellInCurrentRow;
-            activeTable = table;
-            setCursorToEnd(newCellInCurrentRow);
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        // 挿入位置 = active セルの span 右端の直右(Excel)
+        const ci = p0.c + (activeTableCell.colSpan || 1);
+        tslInsertColAt(table, ci);
+        activeTable = table;
+        const m1 = tslGridMap(table);
+        const landing = m1.grid[p0.r] && m1.grid[p0.r][ci];
+        if (landing && editor.contains(landing)) {
+            activeTableCell = landing;
+            setCursorToEnd(landing);
         }
-        
-        // Re-add resize handles after adding column
-        addTableResizeHandles(table);
-        
         syncMarkdown();
+        initializeAllTableResizeHandles();
     }
 
     function insertTableColumnLeft() {
         if (!activeTableCell) return;
-        
-        // Verify activeTableCell is still in DOM
         if (!editor.contains(activeTableCell)) {
             logger.log('activeTableCell not in DOM, skipping insertTableColumnLeft');
             return;
         }
-        
         const table = activeTableCell.closest('table');
         if (!table || !editor.contains(table)) return;
-        
-        const cellIndex = activeTableCell.cellIndex;
-        if (cellIndex < 0) return; // Invalid cell index
-        
-        const currentRow = activeTableCell.closest('tr');
-        if (!currentRow) return;
-        
-        const rows = table.querySelectorAll('tr');
-        if (rows.length === 0) return;
-        
-        // Store current row index for later lookup
-        const currentRowIndex = Array.from(rows).indexOf(currentRow);
-        
-        let newCellInCurrentRow = null;
-        
-        rows.forEach((row, rowIndex) => {
-            const isHeader = rowIndex === 0;
-            const newCell = document.createElement(isHeader ? 'th' : 'td');
-            newCell.setAttribute('contenteditable', 'true');
-            newCell.innerHTML = isHeader ? 'Header' : '<br>';
-            
-            // Insert before current cell (to the left)
-            row.cells[cellIndex].before(newCell);
-            
-            // Track the new cell in current row
-            if (rowIndex === currentRowIndex) {
-                newCellInCurrentRow = newCell;
-            }
-        });
-        
-        // Move cursor to the new column in current row
-        if (newCellInCurrentRow && editor.contains(newCellInCurrentRow)) {
-            activeTableCell = newCellInCurrentRow;
-            activeTable = table;
-            setCursorToEnd(newCellInCurrentRow);
+        clearTableRowFilter(table);
+        const m0 = tslGridMap(table);
+        const p0 = m0.posOf.get(activeTableCell);
+        if (!p0) return;
+        undoManager.saveSnapshot();
+        tslInsertColAt(table, p0.c);
+        activeTable = table;
+        const m1 = tslGridMap(table);
+        const landing = m1.grid[p0.r] && m1.grid[p0.r][p0.c];
+        if (landing && editor.contains(landing)) {
+            activeTableCell = landing;
+            setCursorToEnd(landing);
         }
-        
-        // Re-add resize handles after adding column
-        addTableResizeHandles(table);
-        
         syncMarkdown();
+        initializeAllTableResizeHandles();
     }
-
-    // FR-TBL-05: shared table insertion for palette case 'table' and Ctrl+T.
-    // (Ctrl+T previously called an undefined insertTable() — silent ReferenceError.)
     function insertTableAtCursor() {
         var tableHtml = '<table><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell</td><td>Cell</td></tr></table>';
         document.execCommand('insertHTML', false, tableHtml);
         syncMarkdown();
     }
 
-    // FR-TBL-01 (ADRL-0052): toggle headerless display. Flips the data-headerless
-    // attribute only — th structure, cell content, textAlign and col-widths are all
-    // preserved (hiding is CSS-only), so toggling back ON restores losslessly.
+    // FR-TBL-01 rev2 (ADRL-0053): 構造変換トグル。ON = 先頭 td 行を th 化 /
+    // OFF = th 行を td 行に変換(内容・textAlign は通常行として残る)。
+    // headerless = th 不在の DOM が単一真実(CSS 非表示・data-headerless 属性は廃止)。
     function toggleTableHeader(table) {
         if (!table || !editor.contains(table)) return;
-        if (table.getAttribute('data-headerless') === 'true') {
-            table.removeAttribute('data-headerless');
-        } else {
-            table.setAttribute('data-headerless', 'true');
+        // FR-TBL-01 受け入れ「undo 可能」: main toolbar dispatch (:13540 系) と同型に
+        // 操作前スナップショットを積む(table-toolbar 系は従来 saveSnapshot を呼ばない
+        // 非対称があった — reviewer iteration 1 SYSALIGN-1)。
+        undoManager.saveSnapshot();
+        const convertRowCells = (row, toTag) => {
+            for (const cell of Array.from(row.cells)) {
+                if (cell.tagName.toLowerCase() === toTag) continue;
+                const repl = document.createElement(toTag);
+                repl.innerHTML = cell.innerHTML;
+                if (cell.style.textAlign) repl.style.textAlign = cell.style.textAlign;
+                if (cell.style.width) repl.style.width = cell.style.width;
+                repl.setAttribute('contenteditable', 'true');
+                row.replaceChild(repl, cell);
+            }
+        };
+        const thRow = table.querySelector('tr:has(> th)')
+            || (table.rows[0] && table.rows[0].querySelector('th') ? table.rows[0] : null);
+        if (thRow) {
+            // OFF: header 完全解除 → 通常行化
+            convertRowCells(thRow, 'td');
+        } else if (table.rows.length > 0) {
+            // ON: 先頭の通常行を header 化
+            convertRowCells(table.rows[0], 'th');
         }
+        updateHeaderToggleState(table);
         syncMarkdown();
+    }
+    // FR-TBL-01 rev2: toolbar「H」ボタンの active 状態 = table の実 header 有無
+    function updateHeaderToggleState(table) {
+        const btn = tableToolbar && tableToolbar.querySelector('[data-action="toggle-header"]');
+        if (!btn) return;
+        btn.classList.toggle('active', !!(table && table.querySelector('th')));
     }
     // テスト seam(TC-TBL-01 が toolbar handler の実体を直接駆動する)
     if (typeof window !== 'undefined') {
@@ -14598,6 +15746,22 @@ class EditorInstance {
         // table.width を **先に** 設定 (sum >= cells の合計 → ブラウザが他列を縮めない)
         table.style.width = totalWidth + 'px';
 
+        // 再オープン⑤(6): span がある table は「行内 index」でなく grid 座標で幅を適用
+        // (被覆行では cells[i] が別列を指し縦線がガタガタになる)。span セルの幅は
+        // 覆う grid 列の合計。table-layout:fixed は先頭行が列幅を決めるため、先頭行に
+        // 実セルが無い grid 列は <colgroup> で決めるのが本筋だが、既存資産(先頭 = th 行
+        // フル列)の前提では先頭行適用 + 各行の span 合計適用で一致する
+        if (table.querySelector('[colspan], [rowspan]')) {
+            const m = tslGridMap(table);
+            for (const [cell, p] of m.posOf) {
+                const cs = cell.colSpan || 1;
+                let w = 0;
+                for (let j = 0; j < cs; j++) w += widths[p.c + j] || minWidth;
+                cell.style.width = w + 'px';
+            }
+            return;
+        }
+
         // 全 row に同じ widths 配列を適用
         const allRows = table.querySelectorAll('tr');
         allRows.forEach((row) => {
@@ -14619,7 +15783,14 @@ class EditorInstance {
 
         resizingCell = cell;
         resizingTable = cell.closest('table');
-        resizingColIndex = cell.cellIndex;
+        // 再オープン⑤(6): span がある table では cellIndex でなく grid 列(掴んだ右端)を使う
+        if (resizingTable && resizingTable.querySelector('[colspan], [rowspan]')) {
+            const mR = tslGridMap(resizingTable);
+            const pR = mR.posOf.get(cell);
+            resizingColIndex = pR ? pR.c + (cell.colSpan || 1) - 1 : cell.cellIndex;
+        } else {
+            resizingColIndex = cell.cellIndex;
+        }
 
         if (resizingTable) {
             initializeTableColumnWidths(resizingTable);
@@ -14633,10 +15804,19 @@ class EditorInstance {
         if (resizingTable) {
             // Clear any hover state first
             resizingTable.querySelectorAll('.col-resize-hover').forEach((c) => c.classList.remove('col-resize-hover'));
-            resizingTable.querySelectorAll('tr').forEach((row) => {
-                const c = row.cells[resizingColIndex];
-                if (c) c.classList.add('col-resize-resizing');
-            });
+            if (resizingTable.querySelector('[colspan], [rowspan]')) {
+                const mH = tslGridMap(resizingTable);
+                for (const [c2, p2] of mH.posOf) {
+                    if (p2.c + (c2.colSpan || 1) - 1 === resizingColIndex) {
+                        c2.classList.add('col-resize-resizing');
+                    }
+                }
+            } else {
+                resizingTable.querySelectorAll('tr').forEach((row) => {
+                    const c = row.cells[resizingColIndex];
+                    if (c) c.classList.add('col-resize-resizing');
+                });
+            }
         }
         document.body.classList.add('table-resizing');
 
@@ -14659,7 +15839,21 @@ class EditorInstance {
             // Compute newWidth = mouse X − cell's left edge (absolute, viewport-relative)
             // → cell's right edge always aligns with mouse cursor (clamped to min-width).
             const cellRect = resizingCell.getBoundingClientRect();
-            const newWidth = resizingPendingClientX - cellRect.left;
+            let newWidth = resizingPendingClientX - cellRect.left;
+            // 再オープン⑤(6): span セルを掴んだ場合、newWidth は span 全幅 →
+            // 右端 grid 列単独の幅に直す(他列の現行幅を引く)
+            const csR = resizingCell.colSpan || 1;
+            if (csR > 1) {
+                const mW = tslGridMap(resizingTable);
+                const pW = mW.posOf.get(resizingCell);
+                const headerCells = resizingTable.querySelector('tr').querySelectorAll('th, td');
+                if (pW) {
+                    for (let j = 0; j < csR - 1; j++) {
+                        const hc = headerCells[pW.c + j];
+                        newWidth -= hc ? hc.offsetWidth : 80;
+                    }
+                }
+            }
             updateColumnWidth(resizingTable, resizingColIndex, newWidth);
         });
     }
@@ -14741,6 +15935,22 @@ class EditorInstance {
         const table = cell.closest('table');
         if (!table) return;
         clearColHover(table);
+        // 再オープン⑤(6): cellIndex は colspan/rowspan があると grid 列とズレて
+        // 縦線がガタガタになる。grid 座標で「掴んだセルの右端 grid 列」を求め、
+        // 各行で「右端がその grid 列に一致するセル」にだけ hover を付ける
+        // (結合セルを横断する位置の線は掴めない = Excel と同じ)
+        if (table.querySelector('[colspan], [rowspan]')) {
+            const m = tslGridMap(table);
+            const p = m.posOf.get(cell);
+            if (!p) return;
+            const edgeCol = p.c + (cell.colSpan || 1) - 1; // 掴んだ右端の grid 列
+            for (const [c2, p2] of m.posOf) {
+                if (p2.c + (c2.colSpan || 1) - 1 === edgeCol) {
+                    c2.classList.add('col-resize-hover');
+                }
+            }
+            return;
+        }
         const colIdx = cell.cellIndex;
         table.querySelectorAll('tr').forEach((row) => {
             const c = row.cells[colIdx];
@@ -14772,6 +15982,82 @@ class EditorInstance {
                 showTableToolbar(table);
             }
         }
+    });
+
+    // FR-TSL-01: セルのダブルクリック = edit モード直行(Excel / mindmap 同様)
+    editor.addEventListener('dblclick', function(e) {
+        const dblCell = e.target.closest ? e.target.closest('th, td') : null;
+        if (dblCell && editor.contains(dblCell) && tableSel.mode === 'select') {
+            tslEnterEdit(dblCell, false);
+        }
+    });
+
+    // FR-TSL-02: マウスドラッグで範囲選択(mousedown で即 select 開始 = Excel。
+    // click 待ちだとドラッグ中に mode が立たず mouseover 追跡が効かない)
+    let tslDragging = false;
+    editor.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return;
+        const cell = e.target.closest ? e.target.closest('th, td') : null;
+        // 列リサイズ帯(セル右端 6px)は既存リサイズに譲る。
+        // Shift+click は範囲拡張(click handler)なので anchor を潰さない(再オープン⑤(1))
+        if (cell && editor.contains(cell) && !findCellEdgeAt(e.target, e.clientX)
+            && !(tableSel.mode === 'edit' && tableSel.anchor === cell)
+            && !(e.shiftKey && tableSel.mode === 'select')
+            && e.detail === 1) {
+            tslEnterSelect(cell);
+            tslDragging = true;
+        }
+    });
+    editor.addEventListener('mouseover', function(e) {
+        if (!tslDragging) return;
+        const cell = e.target.closest ? e.target.closest('th, td') : null;
+        if (!cell || !editor.contains(cell)) return;
+        if (tableSel.mode !== 'select' || !tableSel.anchor) return;
+        if (cell.closest('table') !== tableSel.table) return;
+        if (cell !== tableSel.focus) {
+            tableSel.focus = cell;
+            tslPaintSelection();
+            // ドラッグ中のネイティブテキスト選択を抑止(セル矩形選択が真実)
+            try { window.getSelection().removeAllRanges(); } catch (err) { /* noop */ }
+        }
+    });
+    document.addEventListener('mouseup', function() { tslDragging = false; });
+
+    // FR-TSL-04: 文書レベル選択の table 縦断正規化(mouseup 契機)。
+    // 全跨ぎ = table 全体を包含 / 途中まで = 交差行群に行単位で正規化
+    editor.addEventListener('mouseup', function() {
+        setTimeout(function() {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+            const range = sel.getRangeAt(0);
+            const startCell = (range.startContainer.nodeType === 3
+                ? range.startContainer.parentElement : range.startContainer);
+            const endCell = (range.endContainer.nodeType === 3
+                ? range.endContainer.parentElement : range.endContainer);
+            const startTable = startCell && startCell.closest ? startCell.closest('table') : null;
+            const endTable = endCell && endCell.closest ? endCell.closest('table') : null;
+            if (startTable === endTable) return; // table 内 or table 非関与
+            // 選択と交差する editor 直下の table を列挙
+            for (const table of editor.querySelectorAll('table')) {
+                if (!range.intersectsNode(table)) continue;
+                const inStart = startTable === table;
+                const inEnd = endTable === table;
+                if (!inStart && !inEnd) continue; // table 全体が中に包まれている = 全選択済み
+                try {
+                    if (inEnd) {
+                        // 前方から table 途中まで → 終端をその行の末尾に正規化(行単位)
+                        const row = endCell.closest('tr');
+                        range.setEndAfter(row);
+                    } else {
+                        // table 途中から後方へ → 始端をその行の先頭に正規化
+                        const row = startCell.closest('tr');
+                        range.setStartBefore(row);
+                    }
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                } catch (err) { /* noop */ }
+            }
+        }, 0);
     });
 
     // Image double-click → fullscreen overlay with pinch zoom (Mac touchpad pinch / wheel+ctrl)
@@ -15358,11 +16644,30 @@ class EditorInstance {
             if (table) {
                 showTableToolbar(table);
             }
-            
+
+            // FR-TSL-01: シングルクリック = select モード(edit 中の同一セル
+            // 再クリックはキャレット移動として素通し)。ダブルクリックは dblclick
+            // handler が edit へ直行させる。トリプルクリックは従来どおり全選択。
+            // ドラッグ範囲選択直後の click(mouseup 由来)は範囲を潰さない。
+            // 再オープン⑤(1): Shift+click = active セル(anchor)から click セルまでの矩形範囲
+            const isRangeDragEnd = tableSel.mode === 'select'
+                && tableSel.anchor !== tableSel.focus && cell === tableSel.focus;
+            if (e.shiftKey && tableSel.mode === 'select' && tableSel.anchor
+                && cell.closest('table') === tableSel.table) {
+                e.preventDefault();
+                tableSel.focus = cell;
+                tslPaintSelection();
+                try { window.getSelection().removeAllRanges(); } catch (err) { /* noop */ }
+            } else if (e.detail === 1 && !isRangeDragEnd
+                && !(tableSel.mode === 'edit' && tableSel.anchor === cell)) {
+                tslEnterSelect(cell);
+            }
+
             // Triple-click in table cell - select cell contents only (same behavior as Cmd+A)
             // This prevents browser's native line selection which can break table structure on paste
             if (e.detail === 3) {
                 e.preventDefault();
+                if (tableSel.mode === 'select') tslEnterEdit(cell, false);
                 const sel = window.getSelection();
                 const range = document.createRange();
                 range.selectNodeContents(cell);
@@ -15371,8 +16676,15 @@ class EditorInstance {
                 logger.log('Triple-click: Selected all in table cell');
             }
         } else {
-            // Clicked outside table - hide toolbar
-            hideTableToolbar();
+            // ドラッグ選択後の click は祖先(table/tr)で発火し cell=null になる。
+            // table 内なら選択を保持し、真に table 外の click だけクリアする
+            const inSelTable = tableSel.table && e.target.closest
+                && e.target.closest('table') === tableSel.table;
+            if (!inSelTable) {
+                // Clicked outside table - hide toolbar + select モード解除(one-shot クリア)
+                tslClear();
+                hideTableToolbar();
+            }
         }
         
         // Handle code block edit mode exit on click outside
@@ -15398,6 +16710,12 @@ class EditorInstance {
     editor.addEventListener('focusout', function(e) {
         // Delay hiding to allow button clicks
         setTimeout(() => {
+            // 再オープン① bug(7): filter input へのフォーカス移動で toolbar を消さない
+            //(input は toolbar 内 = editor 外なので selection 判定では守れない)
+            if (tableToolbar && document.activeElement
+                && tableToolbar.contains(document.activeElement)) {
+                return;
+            }
             const sel = window.getSelection();
             if (sel && sel.rangeCount > 0) {
                 const node = sel.anchorNode;
@@ -15757,6 +17075,13 @@ class EditorInstance {
             if (liLine && liLine.textNode) {
                 const lineText = liLine.lineText;
                 // 「> 」→ li 内 blockquote(trigger: space)
+                // 行モデル(再オープン③): 記法行を block で置換すると、記法行の直後にあった
+                // 行区切り <br> が「block 直後の <br> = 余計な空行」に化ける(block 自体が行境界を
+                // 成すため)。置換後に直後 <br> を 1 個取り除く。
+                const liStripBrAfter = (blk) => {
+                    const nb = blk.nextSibling;
+                    if (nb && nb.nodeName === 'BR') nb.remove();
+                };
                 const liBqMatch = lineText.match(/^>\s?(.*)$/);
                 if (liBqMatch && trigger === 'space') {
                     const rest = liBqMatch[1] || '';
@@ -15767,6 +17092,7 @@ class EditorInstance {
                         liBq.innerHTML = '<br>';
                     }
                     liLine.textNode.replaceWith(liBq);
+                    liStripBrAfter(liBq);
                     setCursorToEnd(liBq);
                     syncMarkdown();
                     return true;
@@ -15781,6 +17107,7 @@ class EditorInstance {
                     liCode.setAttribute('contenteditable', 'false');
                     liPre.appendChild(liCode);
                     liLine.textNode.replaceWith(liPre);
+                    liStripBrAfter(liPre);
                     setupCodeBlockUI(liPre);
                     enterEditMode(liPre);
                     syncMarkdown();
@@ -17666,13 +18993,26 @@ class EditorInstance {
         if (colWidthsAttr && /^\d+(,\d+)*$/.test(colWidthsAttr)) {
             md += '<!-- fractal-col-widths: ' + colWidthsAttr + ' -->\n';
         }
-        // FR-TBL-02 (ADRL-0052): headerless marker. Header row cells are still emitted
-        // with their content preserved (display-only hiding via CSS) so toggling the
-        // header back ON restores the original cells losslessly.
-        if (table.getAttribute('data-headerless') === 'true') {
+        // FR-TBL-02 rev2 (ADRL-0053): headerless = th 行が存在しない table。
+        // マーカー + 空 placeholder header 行 + separator + 全行 body で emit(GFM 互換)。
+        // placeholder は parse 側(renderTable)が捨てるため往復で行は増殖しない。
+        const isHeaderlessTable = !table.querySelector('th');
+        if (isHeaderlessTable) {
             md += '<!-- fractal-headerless-table -->\n';
+            const firstRow = table.querySelector('tr');
+            if (firstRow) {
+                const colCount = firstRow.cells.length;
+                const firstCells = Array.from(firstRow.cells);
+                md += '|' + ' |'.repeat(colCount) + '\n';
+                md += '| ' + firstCells.map((cell) => {
+                    const align = cell.style.textAlign || 'left';
+                    if (align === 'center') return ':---:';
+                    if (align === 'right') return '---:';
+                    return '---';
+                }).join(' | ') + ' |\n';
+            }
         }
-        let isFirstRow = true;
+        let isFirstRow = !isHeaderlessTable;
         let alignments = [];
         
         // Escape pipe characters in cell content for markdown output
@@ -17758,21 +19098,44 @@ class EditorInstance {
             return innerContent;
         }
         
+        // FR-TMG-01 (ADRL-0054): span を持つ table はマーカー + `<`/`^` トークンで emit。
+        // グリッド展開(被覆位置 → anchor 参照)を先に作り、被覆位置は同行 anchor なら `<`、
+        // 上方 anchor なら `^` を出す(列数は全行一定 = GFM 互換)。
+        const hasSpans = !!table.querySelector('[colspan], [rowspan]');
+        let mergeGrid = null;
+        if (hasSpans) {
+            md = '<!-- fractal-merged-table -->\n' + md;
+            mergeGrid = [];
+            const trList = Array.from(rows);
+            for (let r = 0; r < trList.length; r++) mergeGrid.push([]);
+            for (let r = 0; r < trList.length; r++) {
+                let c = 0;
+                for (const cell of trList[r].cells) {
+                    while (mergeGrid[r][c] !== undefined) c++;
+                    const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+                    for (let i = 0; i < rs; i++) {
+                        for (let j = 0; j < cs; j++) {
+                            if (!mergeGrid[r + i]) continue;
+                            mergeGrid[r + i][c + j] =
+                                (i === 0 && j === 0) ? { cell } : (i === 0 ? '<' : '^');
+                        }
+                    }
+                    c += cs;
+                }
+            }
+        }
+
         rows.forEach((row, rowIndex) => {
             const cells = row.querySelectorAll('th, td');
             const cellContents = [];
-            
-            cells.forEach((cell, colIdx) => {
+
+            const cellToMd = (cell, colIdx) => {
                 // Get alignment info from td cells (first data row)
                 if (rowIndex === 1 && cell.tagName === 'TD') {
                     const align = cell.style.textAlign || 'left';
                     alignments[colIdx] = align;
                 }
-                // For header row, check if there's alignment set (for new tables)
-                if (rowIndex === 0 && alignments.length === 0) {
-                    // Will be filled by data rows
-                }
-                
+
                 // Process cell content with proper pipe escaping.
                 // BUG-FIX: 空 cell (`<td><br></td>`) は markdown 出力時に **空** にする
                 //   ('<br>' は contenteditable の表示確保用にのみ使う)。
@@ -17792,9 +19155,24 @@ class EditorInstance {
                 } else {
                     cellText = processCellContent(cell);
                 }
-                cellContents.push(cellText.trim() || ' ');
-            });
-            
+                return cellText.trim() || ' ';
+            };
+
+            if (mergeGrid) {
+                // グリッド走査: anchor はセル内容、被覆位置は `<`/`^` を emit
+                const gridRow = mergeGrid[rowIndex] || [];
+                for (let c = 0; c < gridRow.length; c++) {
+                    const g = gridRow[c];
+                    if (g && g.cell) cellContents.push(cellToMd(g.cell, c));
+                    else if (g === '<' || g === '^') cellContents.push(g);
+                    else cellContents.push(' ');
+                }
+            } else {
+                cells.forEach((cell, colIdx) => {
+                    cellContents.push(cellToMd(cell, colIdx));
+                });
+            }
+
             md += '| ' + cellContents.join(' | ') + ' |\n';
             
             // Add separator row after header with alignment markers
@@ -17903,6 +19281,14 @@ class EditorInstance {
                 }
             }
             return;
+        }
+
+        // FR-TSL: table cell select/edit モードのキー処理(既存 table 分岐より先取り。
+        // mode=null = プログラム的キャレット配置の従来経路は素通し = 既存 TC 互換)
+        if (tableSel.mode && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslHandleKeydown(e)) return;
+        } else if (tableSel.mode) {
+            tslClear(); // 再レンダで table が消えた stale state の対クリア
         }
 
         // Mark as actively editing for non-navigation keys
@@ -18619,6 +20005,38 @@ class EditorInstance {
                 shiftKey: e.shiftKey
             });
             
+            // FR-LC-08b (sprint 20260810-183054 再オープン①): li 内 pre/blockquote 内の
+            // Shift+Enter = ブロック直後に空継続行を作ってカーソル脱出(top-level blockquote の
+            // Shift+Enter 脱出と同型を li 内に配線)。ブロック内改行は通常 Enter が担う。
+            if (e.shiftKey && listItem && !tableCell) {
+                const exitBlock = (preElement && listItem.contains(preElement) && preElement.closest('li') === listItem)
+                    ? preElement
+                    : (blockquoteElement && listItem.contains(blockquoteElement) && blockquoteElement.closest('li') === listItem)
+                        ? blockquoteElement : null;
+                if (exitBlock) {
+                    e.preventDefault();
+                    if (exitBlock.tagName === 'PRE' && exitBlock.getAttribute('data-mode') === 'edit') {
+                        enterDisplayMode(exitBlock);
+                    }
+                    // ブロック直後は br 1 個で 1 視覚行になる(ブロック自体が行境界を成すため、
+                    // テキスト行間の FR-LC-02 と違い trailing 2 個目は不要 — rc.2 バグ 3 実測)。
+                    // カーソルは br の「直前」(= 空行の正規位置。実測: br の後 = 次行の行頭に
+                    // なってしまう — rc.3 バグ 5)。
+                    const exBr = document.createElement('br');
+                    exitBlock.after(exBr);
+                    const exLi = exitBlock.parentNode;
+                    const exNr = document.createRange();
+                    exNr.setStart(exLi, Array.prototype.indexOf.call(exLi.childNodes, exBr));
+                    exNr.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(exNr);
+                    // snapshot は Enter ハンドラ冒頭(:8874)で積み済み(DOM 変更前)。
+                    markAsEdited();
+                    syncMarkdown();
+                    return;
+                }
+            }
+
             // sprint 20260806-035923 (FR-LC-02): リスト内 Shift+Enter = 項目内改行（継続行）。
             // li 内に <br> を挿入して同一項目の 2 行目にする（従来の「新 li 作成」は Enter と
             // 重複していたため置換 = ADRL 記録済み）。pre / table 内は従来どおり。
@@ -18647,7 +20065,7 @@ class EditorInstance {
                 lcNr.collapse(true);
                 sel.removeAllRanges();
                 sel.addRange(lcNr);
-                undoManager.saveSnapshot();
+                // snapshot は Enter ハンドラ冒頭で積み済み(DOM 変更前)。
                 markAsEdited();
                 syncMarkdown();
                 return;
@@ -19195,9 +20613,37 @@ class EditorInstance {
                     // Text after cursor goes to new item
                     // Nested lists stay with original item (NOT moved to new item)
                     e.preventDefault();
-                    
+
                     const range = sel.getRangeAt(0);
-                    
+
+                    // FR-LC-08 (sprint 20260810-183054 再オープン④): li 内ブロック(pre/blockquote)
+                    // を持つ li での Enter は「split」しない — split の extractContents がブロックを
+                    // 新 li に巻き込む/ブロック位置に別 li マーカーが湧く(rc.4 バグ 4/5)。
+                    // 代わりに: カーソル以降にブロックがある場合は「li 全体の後ろに空 li を追加」
+                    // (= 継続行の末端に新行を作る、のリスト行版)。
+                    {
+                        const liDirectBlocks = Array.from(listItem.children).filter(
+                            (c) => c.tagName === 'PRE' || c.tagName === 'BLOCKQUOTE');
+                        if (liDirectBlocks.length > 0) {
+                            // 再オープン⑤/⑥(rc.5 バグ 1/2・rc.6 バグ 1 のユーザー裁定):
+                            // li 直下にブロック(pre/blockquote)を持つ li では、**どの行で Enter
+                            // しても li は分割せず、li 全体(継続行 + ブロック含む)の後ろに
+                            // 空リスト行を追加**しカーソル移動する(TC-ILB-39/40/41/43)。
+                            // split はブロック位置に li マーカーが湧く/継続行が分断される等、
+                            // どの位置でも構造破壊になるため全面禁止。
+                            // snapshot は DOM 変更前に積む(markdown 変数 = 変更前と cursor を
+                            // 同時点に保つ — 再オープン⑩ undo カーソル迷子の同型防止)
+                            undoManager.saveSnapshot();
+                            const enNewLi = document.createElement('li');
+                            enNewLi.innerHTML = '<br>';
+                            listItem.after(enNewLi);
+                            setCursorToStart(enNewLi);
+                            markAsEdited();
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+
                     // Find nested lists in this item (they will stay with original item)
                     const nestedLists = Array.from(listItem.querySelectorAll(':scope > ul, :scope > ol'));
                     
@@ -20272,17 +21718,114 @@ class EditorInstance {
                 logger.log('Arrow in block:', { key: e.key, currentLineIndex, totalLines, tag: blockNode.tagName, inSpecialWrapper: !!specialWrapperBlock });
                 // #endregion
                 
+                // FR-LC-08d (再オープン⑦): li 内ブロックからの脱出先を行モデルで解決する共通
+                // walker。dir='previousSibling'|'nextSibling'。返り値:
+                //   { kind:'text', node } | { kind:'blank', br } | { kind:'block', node } | null
+                // 規則(実測済み行モデル): 空白 text node は無視 / ブロックと自分の間の 1 個の
+                // <br> は行を作らない(その先を見る)/ <br> の先がさらに <br> なら空行 /
+                // text は行 / PRE・BLOCKQUOTE はブロック。
+                const resolveAdjacentInLiLine = (dir) => {
+                    // IMG は独立した視覚行(再オープン⑧ rc.8: 画像がブロックに隣接すると
+                    // walker が知らない node 種で null → 素通り/リスト先頭へ飛んでいた)
+                    const classify = (n) => {
+                        if (!n) return null;
+                        if (n.nodeType === 3) return { kind: 'text', node: n };
+                        if (n.nodeName === 'IMG') return { kind: 'image', node: n };
+                        if (n.nodeName === 'PRE' || n.nodeName === 'BLOCKQUOTE') return { kind: 'block', node: n };
+                        return null;
+                    };
+                    let n = blockNode[dir];
+                    while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                    if (!n) return null;
+                    if (n.nodeName === 'BR') {
+                        let n2 = n[dir];
+                        while (n2 && n2.nodeType === 3 && n2.textContent.trim() === '') n2 = n2[dir];
+                        if (!n2) return null;
+                        if (n2.nodeName === 'BR') return { kind: 'blank', br: (dir === 'previousSibling' ? n2 : n) };
+                        return classify(n2);
+                    }
+                    return classify(n);
+                };
+                const enterAdjacentBlock = (blk, from) => {
+                    if (blk.nodeName === 'PRE') {
+                        isNavigatingIntoBlock = true;
+                        enterEditMode(blk);
+                        const c = blk.querySelector('code');
+                        setTimeout(() => {
+                            if (c) {
+                                if (from === 'above') setCursorToFirstTextNode(c);
+                                else setCursorToLastLineStartByDOM(c);
+                            }
+                            resetNavigationFlag();
+                        }, 0);
+                    } else {
+                        if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                    }
+                    scrollCursorIntoView();
+                };
+                const moveToLiLine = (resolved, from) => {
+                    // resolved: resolveAdjacentInLiLine の返り値(非 null)
+                    if (resolved.kind === 'block') { enterAdjacentBlock(resolved.node, from); return; }
+                    if (resolved.kind === 'image') {
+                        // 画像行: 画像の直前(above から来た場合)/直後(below から来た場合)に
+                        // キャレットを置く(li offset。画像は contenteditable 内の atomic 要素)
+                        const liP = resolved.node.parentNode;
+                        const idx = Array.prototype.indexOf.call(liP.childNodes, resolved.node);
+                        const r = document.createRange();
+                        r.setStart(liP, from === 'above' ? idx : idx + 1);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
+                    if (resolved.kind === 'text') {
+                        const r = document.createRange();
+                        if (from === 'above') r.setStart(resolved.node, 0);
+                        else r.setStart(resolved.node, resolved.node.textContent.length);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                        return;
+                    }
+                    // blank: 空行 = br の直前 offset
+                    const liP = blockNode.parentNode;
+                    const r = document.createRange();
+                    r.setStart(liP, Array.prototype.indexOf.call(liP.childNodes, resolved.br));
+                    r.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                    scrollCursorIntoView();
+                };
+
                 if (e.key === 'ArrowUp') {
                     if (currentLineIndex === 0) {
                         // At first line, exit block upward
                         e.preventDefault();
-                        
+
                         if (specialWrapperBlock) {
                             // Exit special wrapper - set display mode and go to previous sibling of wrapper
                             exitSpecialWrapperDisplayMode(specialWrapperBlock);
                             const prev = specialWrapperBlock.previousElementSibling;
                             if (prev) {
                                 navigateToAdjacentElement(prev, 'up', false);
+                            }
+                        } else if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                            // FR-LC-08d (再オープン⑦ rc.7 バグ 1): li 内ブロックの ↑ 脱出。
+                            // previousElementSibling は継続行 text を素通りして別ブロック/リスト先頭へ
+                            // 飛んでいた — 行モデル walker で直上の行(text/空行/ブロック)へ確実に移動。
+                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                enterDisplayMode(blockNode);
+                            }
+                            const upResolved = resolveAdjacentInLiLine('previousSibling');
+                            if (upResolved) {
+                                moveToLiLine(upResolved, 'below');
+                            } else {
+                                // li 内で最初の行 = li 自体の行頭相当。1 行目のテキストが無い形は
+                                // 稀だが、安全側で li 先頭へ
+                                setCursorToStart(blockNode.parentNode);
+                                scrollCursorIntoView();
                             }
                         } else {
                             // If this is a code block in edit mode, switch to display mode
@@ -20328,21 +21871,61 @@ class EditorInstance {
                                 setCursorToEnd(newP);
                             }
                         } else {
-                            // If this is a code block in edit mode, switch to display mode
-                            if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
-                                enterDisplayMode(blockNode);
-                            }
-                            const next = blockNode.nextElementSibling;
-                            logger.log('Next element:', next ? next.tagName : 'null');
-                            if (next) {
-                                navigateToAdjacentElement(next, 'down', false);
+                            if (blockNode.parentNode && blockNode.parentNode.tagName === 'LI') {
+                                // FR-LC-08b/d (再オープン⑦で walker に一本化): li 内ブロックの ↓ 脱出。
+                                // 直後の行(text/空行/ブロック — 組み合わせ不問)へ行モデル walker で
+                                // 確実に移動。li 内に後続なしなら 次 li → リスト全体の次要素 →
+                                // 空継続行(最終手段・カーソル消失防止)。
+                                const liParent = blockNode.parentNode;
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
+                                }
+                                const dnResolved = resolveAdjacentInLiLine('nextSibling');
+                                if (dnResolved) {
+                                    moveToLiLine(dnResolved, 'above');
+                                } else {
+                                    const dnNextLi = liParent.nextElementSibling;
+                                    const dnRootList = (() => {
+                                        let l = liParent.parentNode; // ul/ol
+                                        while (l && l.parentNode && l.parentNode !== editor) l = l.parentNode;
+                                        return l && l.parentNode === editor ? l : null;
+                                    })();
+                                    const dnAfterList = dnRootList ? dnRootList.nextElementSibling : null;
+                                    if (dnNextLi && dnNextLi.tagName === 'LI') {
+                                        setCursorToStart(dnNextLi);
+                                        scrollCursorIntoView();
+                                    } else if (dnAfterList) {
+                                        navigateToAdjacentElement(dnAfterList, 'down', false);
+                                        scrollCursorIntoView();
+                                    } else {
+                                        const dnBr = document.createElement('br');
+                                        blockNode.after(dnBr);
+                                        const dnR2 = document.createRange();
+                                        dnR2.setStart(liParent, Array.prototype.indexOf.call(liParent.childNodes, dnBr));
+                                        dnR2.collapse(true);
+                                        sel.removeAllRanges();
+                                        sel.addRange(dnR2);
+                                        scrollCursorIntoView();
+                                        syncMarkdown();
+                                    }
+                                }
                             } else {
-                                // No next element, create a new paragraph
-                                logger.log('Creating new paragraph');
-                                const newP = document.createElement('p');
-                                newP.innerHTML = '<br>';
-                                blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
-                                setCursorToFirstTextNode(newP);
+                                // top-level: 従来どおり display 化してから脱出
+                                if (blockNode.tagName.toLowerCase() === 'pre' && blockNode.getAttribute('data-mode') === 'edit') {
+                                    enterDisplayMode(blockNode);
+                                }
+                                const next = blockNode.nextElementSibling;
+                                logger.log('Next element:', next ? next.tagName : 'null');
+                                if (next) {
+                                    navigateToAdjacentElement(next, 'down', false);
+                                } else {
+                                    // No next element, create a new paragraph
+                                    logger.log('Creating new paragraph');
+                                    const newP = document.createElement('p');
+                                    newP.innerHTML = '<br>';
+                                    blockNode.parentNode.insertBefore(newP, blockNode.nextSibling);
+                                    setCursorToFirstTextNode(newP);
+                                }
                             }
                         }
                     } else {
@@ -20356,6 +21939,216 @@ class EditorInstance {
                 return;
             }
             
+            // FR-LC-08d (sprint 20260810-183054 再オープン③): li 内ブロック周辺の矢印移動。
+            // 行モデル(実測 2026-08-11): ブロック(PRE/BLOCKQUOTE)の「前」の <br> は行を作らない/
+            // 「後」の <br> は空行を 1 個作る(空行のカーソル正規位置 = その <br> の直前 offset)。
+            // これに基づき: ↓ = 次行がブロックなら進入・空行なら空行へ / ↑ = 前行がブロック直付き
+            // なら末尾に進入・ブロック後の <br>(空行)ならブロックに入らず空行に止まる。
+            if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.shiftKey) {
+                const navEl = sel.anchorNode.nodeType === 3
+                    ? sel.anchorNode.parentElement : sel.anchorNode;
+                const navLi = navEl && navEl.closest ? navEl.closest('li') : null;
+                if (navLi && editor.contains(navLi) && !navEl.closest('pre, blockquote, table')) {
+                    const navEnterBlock = (blk, from) => {
+                        e.preventDefault();
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            const c = blk.querySelector('code') || blk;
+                            if (from === 'above') setCursorToStart(c); else setCursorToEnd(c);
+                        } else {
+                            if (from === 'above') setCursorToStart(blk); else setCursorToEnd(blk);
+                        }
+                        scrollCursorIntoView();
+                    };
+                    const navToBlankLine = (brNode) => {
+                        // 空行 = br の直前 offset(li 直下)
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, brNode));
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    const navToTextStart = (t) => {
+                        e.preventDefault();
+                        const r = document.createRange();
+                        r.setStart(t, 0);
+                        r.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r);
+                        scrollCursorIntoView();
+                    };
+                    // カーソル基準: li 直下 node(text)or li 自身(空行 = childNodes[offset] が BR)
+                    let navNode = sel.anchorNode;
+                    while (navNode && navNode.parentNode !== navLi && navNode !== navLi) {
+                        navNode = navNode.parentNode;
+                    }
+                    if (navNode === navLi && sel.rangeCount) {
+                        // li offset カーソル(空行 or 画像の前後 — 画像は atomic なので caret は
+                        // li offset に立つ)。再オープン⑧: 画像行を視覚行として扱う。
+                        const off = sel.getRangeAt(0).startOffset;
+                        let atNode = navLi.childNodes[off] || null;
+                        let beforeNode = off > 0 ? navLi.childNodes[off - 1] : null;
+                        // caret が画像の前後にある場合、現在行 = その画像。↑ は画像の前の行、
+                        // ↓ は画像の後の行を見る(画像自身をスキップして解決)
+                        const curImg = (beforeNode && beforeNode.nodeName === 'IMG') ? beforeNode
+                            : (atNode && atNode.nodeName === 'IMG') ? atNode : null;
+                        if (e.key === 'ArrowUp') {
+                            let upFrom = curImg && beforeNode === curImg ? curImg.previousSibling
+                                : curImg ? curImg.previousSibling
+                                : beforeNode;
+                            while (upFrom && upFrom.nodeType === 3 && upFrom.textContent.trim() === '') upFrom = upFrom.previousSibling;
+                            if (upFrom && (upFrom.nodeName === 'PRE' || upFrom.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(upFrom, 'below');
+                                return;
+                            }
+                            if (upFrom && upFrom.nodeName === 'IMG') {
+                                // 画像行へ(画像の後ろに caret)
+                                e.preventDefault();
+                                const r = document.createRange();
+                                r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, upFrom) + 1);
+                                r.collapse(true);
+                                sel.removeAllRanges();
+                                sel.addRange(r);
+                                scrollCursorIntoView();
+                                return;
+                            }
+                        }
+                        if (e.key === 'ArrowDown') {
+                            let dnFrom = curImg && atNode === curImg ? curImg.nextSibling
+                                : curImg ? curImg.nextSibling
+                                : atNode;
+                            // 空行 BR の場合は BR の先を見る(従来挙動)
+                            if (dnFrom && dnFrom.nodeName === 'BR' && !curImg) {
+                                let after = dnFrom.nextSibling;
+                                while (after && after.nodeType === 3 && after.textContent.trim() === '') after = after.nextSibling;
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, after));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (after && after.nodeType === 3 && after.textContent !== '') {
+                                    navToTextStart(after);
+                                    return;
+                                }
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                            } else if (dnFrom) {
+                                while (dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent.trim() === '') dnFrom = dnFrom.nextSibling;
+                                if (dnFrom && (dnFrom.nodeName === 'PRE' || dnFrom.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(dnFrom, 'above');
+                                    return;
+                                }
+                                if (dnFrom && dnFrom.nodeName === 'IMG') {
+                                    e.preventDefault();
+                                    const r = document.createRange();
+                                    r.setStart(navLi, Array.prototype.indexOf.call(navLi.childNodes, dnFrom));
+                                    r.collapse(true);
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    scrollCursorIntoView();
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeType === 3 && dnFrom.textContent !== '') {
+                                    navToTextStart(dnFrom);
+                                    return;
+                                }
+                                if (curImg && dnFrom && dnFrom.nodeName === 'BR') {
+                                    // 画像直後の BR = 次行境界。その先を解決
+                                    let after2 = dnFrom.nextSibling;
+                                    while (after2 && after2.nodeType === 3 && after2.textContent.trim() === '') after2 = after2.nextSibling;
+                                    if (after2 && (after2.nodeName === 'PRE' || after2.nodeName === 'BLOCKQUOTE')) {
+                                        navEnterBlock(after2, 'above');
+                                        return;
+                                    }
+                                    if (after2 && after2.nodeType === 3 && after2.textContent !== '') {
+                                        navToTextStart(after2);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (navNode && navNode !== navLi) {
+                        // 実編集で挟まる空白 text node をスキップする sibling walker(rc.4 バグ 1/2)
+                        const navSkipWs = (n, dir) => {
+                            while (n && n.nodeType === 3 && n.textContent.trim() === '') n = n[dir];
+                            return n;
+                        };
+                        // 画像行へ caret を置く(再オープン⑧: before=true は画像の前 offset)
+                        const navToImage = (img, before) => {
+                            e.preventDefault();
+                            const r = document.createRange();
+                            const idx = Array.prototype.indexOf.call(navLi.childNodes, img);
+                            r.setStart(navLi, before ? idx : idx + 1);
+                            r.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(r);
+                            scrollCursorIntoView();
+                        };
+                        if (e.key === 'ArrowDown') {
+                            let adj = navSkipWs(navNode.nextSibling, 'nextSibling');
+                            // ブロック前の <br> は行を作らない → 1 個飛ばして直下のブロックに進入
+                            if (adj && adj.nodeName === 'BR') {
+                                const after = navSkipWs(adj.nextSibling, 'nextSibling');
+                                if (after && (after.nodeName === 'PRE' || after.nodeName === 'BLOCKQUOTE')) {
+                                    navEnterBlock(after, 'above');
+                                    return;
+                                }
+                                if (after && after.nodeName === 'IMG') {
+                                    navToImage(after, true);
+                                    return;
+                                }
+                                // br の次も br = 空行がある → 空行へ
+                                if (after && after.nodeName === 'BR') {
+                                    navToBlankLine(after);
+                                    return;
+                                }
+                                // text は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'above');
+                                return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, true);
+                                return;
+                            }
+                        } else {
+                            let adj = navSkipWs(navNode.previousSibling, 'previousSibling');
+                            if (adj && adj.nodeName === 'BR') {
+                                const before = navSkipWs(adj.previousSibling, 'previousSibling');
+                                if (before && (before.nodeName === 'PRE' || before.nodeName === 'BLOCKQUOTE')) {
+                                    // ブロック後の <br> = 空行 → ブロックに入らず空行に止まる
+                                    navToBlankLine(adj);
+                                    return;
+                                }
+                                if (before && before.nodeName === 'IMG') {
+                                    navToImage(before, false);
+                                    return;
+                                }
+                                // text/br は通常行 → browser default
+                            } else if (adj && (adj.nodeName === 'PRE' || adj.nodeName === 'BLOCKQUOTE')) {
+                                navEnterBlock(adj, 'below');
+                                return;
+                            } else if (adj && adj.nodeName === 'IMG') {
+                                navToImage(adj, false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Outside blocks - check if we should enter a code block or blockquote
             let currentElement = sel.anchorNode;
             while (currentElement && currentElement !== editor && currentElement.nodeType !== 1) {
@@ -21262,12 +23055,171 @@ class EditorInstance {
             // Selection deletion is handled in the early Backspace handler (around line 4083)
             // This handler only deals with collapsed selection
             if (!range.collapsed) return;
-            
+
+            // FR-LC-08c (sprint 20260810-183054 再オープン①): li 内 pre/blockquote の Backspace。
+            // getCurrentLine() は editor 直下まで walk-up するため li 内ブロックでは currentLine=UL
+            // となり、下の pre/blockquote 分岐に不達 → リスト系ハンドラが誤発動して親リスト解除・
+            // 上行統合が起きていた(手動テスト 2026-08-11)。closest でブロックを先に判定する。
+            {
+                const bsEl = range.startContainer.nodeType === 3
+                    ? range.startContainer.parentElement : range.startContainer;
+                const bsBlock = bsEl && bsEl.closest ? bsEl.closest('pre, blockquote') : null;
+                const bsLi = bsBlock && bsBlock.closest ? bsBlock.closest('li') : null;
+                if (bsBlock && bsLi && editor.contains(bsLi)) {
+                    if (bsBlock.tagName === 'PRE') {
+                        const bsCode = bsBlock.querySelector('code');
+                        const bsPlain = bsCode ? getCodePlainText(bsCode) : '';
+                        if (bsPlain === '' || bsPlain === '\n') {
+                            // 空の li 内 pre = ブロックだけ除去して継続行(空行)に戻る
+                            // (top-level の <p><br></p> 置換は li 内では構造破壊になるため置換しない)
+                            e.preventDefault();
+                            const bsBr = document.createElement('br');
+                            bsBlock.replaceWith(bsBr);
+                            const bsR = document.createRange();
+                            bsR.setStartAfter(bsBr);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        // 非空: 絶対先頭なら guard(top-level と同型)、それ以外は default(1 文字/改行削除)
+                        if (bsCode) {
+                            const bsRange = document.createRange();
+                            bsRange.selectNodeContents(bsCode);
+                            bsRange.setEnd(range.startContainer, range.startOffset);
+                            const bsBefore = bsRange.cloneContents();
+                            if ((bsBefore.textContent || '').length === 0 && !bsBefore.querySelector('br')) {
+                                e.preventDefault();
+                                return;
+                            }
+                        }
+                        return; // default に任せる(リスト系ハンドラへは流さない)
+                    }
+                    // BLOCKQUOTE
+                    const bsBqEmpty = (bsBlock.textContent || '').trim() === ''
+                        && !bsBlock.querySelector('img, input, table, pre, iframe');
+                    if (bsBqEmpty) {
+                        e.preventDefault();
+                        const bsBr = document.createElement('br');
+                        bsBlock.replaceWith(bsBr);
+                        const bsR = document.createRange();
+                        bsR.setStartAfter(bsBr);
+                        bsR.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(bsR);
+                        syncMarkdown();
+                        return;
+                    }
+                    // 非空 blockquote: 絶対先頭 guard(top-level :12172 系と同型)
+                    const bsCr = document.createRange();
+                    bsCr.selectNodeContents(bsBlock);
+                    bsCr.setEnd(range.startContainer, range.startOffset);
+                    const bsB = bsCr.cloneContents();
+                    if ((bsB.textContent || '').length === 0 && !bsB.querySelector('br')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    return; // default に任せる
+                }
+
+                // FR-LC-08c 一般化(再オープン③ 2026-08-11): 継続行の行頭 / 空行での Backspace。
+                // 行モデル(実測): ブロック後の <br> は空行を 1 個作る(空行カーソル = br の直前
+                // offset)。ブロック前の <br> は行を作らない。これに基づく規則:
+                //   (a) 行頭・直前が <br>          → その <br> を除去(前の空行と結合)。カーソルは
+                //       行頭に留まる(ブロック末尾へ飛ばない — rc.3 バグ 6)
+                //   (b) 行頭・直前がブロック直付き → 自行テキストをブロック末尾へ統合 + カーソル移動
+                //       (rc.3 バグ 7。従来はリスト系ハンドラ誤発動で親 li 統合)
+                //   (c) 空行(br の直前)・前がブロック → 空行の <br> だけ除去しブロック末尾へ
+                //       (rc.3 バグ 8。従来は browser default がブロック全体を削除)
+                if (!bsBlock && bsEl && bsEl.closest) {
+                    const bsCurLi = bsEl.closest('li');
+                    const bsEnterBlockEnd = (blk) => {
+                        if (blk.nodeName === 'PRE') {
+                            enterEditMode(blk);
+                            setCursorToEnd(blk.querySelector('code') || blk);
+                        } else {
+                            setCursorToEnd(blk);
+                        }
+                    };
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer.nodeType === 3
+                        && range.startContainer.parentNode === bsCurLi
+                        && range.startOffset === 0) {
+                        // 実編集で挟まる空白 text node をスキップ(rc.4 バグ 2)
+                        let bsPrev = range.startContainer.previousSibling;
+                        while (bsPrev && bsPrev.nodeType === 3 && bsPrev.textContent.trim() === '') {
+                            bsPrev = bsPrev.previousSibling;
+                        }
+                        if (bsPrev && bsPrev.nodeName === 'BR') {
+                            // (a) 直前の空行/行区切りと結合 — カーソルは行頭のまま
+                            e.preventDefault();
+                            const bsText = range.startContainer;
+                            bsPrev.remove();
+                            const bsR = document.createRange();
+                            bsR.setStart(bsText, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                        if (bsPrev && (bsPrev.nodeName === 'PRE' || bsPrev.nodeName === 'BLOCKQUOTE')) {
+                            // (b) ブロック直付き行 = 自行テキストをブロック末尾へ統合
+                            e.preventDefault();
+                            const bsText = range.startContainer;
+                            const bsMoved = document.createTextNode(bsText.textContent || '');
+                            if (bsPrev.nodeName === 'PRE') {
+                                enterEditMode(bsPrev);
+                                (bsPrev.querySelector('code') || bsPrev).appendChild(bsMoved);
+                            } else {
+                                bsPrev.appendChild(bsMoved);
+                            }
+                            bsText.remove();
+                            const bsR = document.createRange();
+                            bsR.setStart(bsMoved, 0);
+                            bsR.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(bsR);
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+                    // 空行カーソル(anchorNode = li 自身)
+                    if (bsCurLi && editor.contains(bsCurLi)
+                        && range.startContainer === bsCurLi) {
+                        const bsOff = range.startOffset;
+                        const bsAtNode = bsCurLi.childNodes[bsOff];
+                        const bsBeforeNode = bsOff > 0 ? bsCurLi.childNodes[bsOff - 1] : null;
+                        // (c) 空行 = br の直前・前がブロック → br を消してブロック末尾へ
+                        if (bsAtNode && bsAtNode.nodeName === 'BR' && bsBeforeNode
+                            && (bsBeforeNode.nodeName === 'PRE' || bsBeforeNode.nodeName === 'BLOCKQUOTE')) {
+                            e.preventDefault();
+                            bsAtNode.remove();
+                            bsEnterBlockEnd(bsBeforeNode);
+                            syncMarkdown();
+                            return;
+                        }
+                        // カーソルが br の直後(旧配置)にいる場合: その br を除去(結合)
+                        if (bsBeforeNode && bsBeforeNode.nodeName === 'BR') {
+                            e.preventDefault();
+                            const bsBeforeBr2 = bsBeforeNode.previousSibling;
+                            bsBeforeNode.remove();
+                            if (bsBeforeBr2 && (bsBeforeBr2.nodeName === 'PRE' || bsBeforeBr2.nodeName === 'BLOCKQUOTE')) {
+                                bsEnterBlockEnd(bsBeforeBr2);
+                            }
+                            syncMarkdown();
+                            return;
+                        }
+                    }
+                }
+            }
+
             // Try state machine handler first
             if (handleBackspaceOnList(e, sel, range)) {
                 return;
             }
-            
+
             const currentLine = getCurrentLine();
             if (!currentLine) return;
 
@@ -22852,6 +24804,27 @@ class EditorInstance {
         }
     });
 
+    // beforeinput: undo snapshot 用に「編集前の cursor」を記録(markdown 変数と同時点。
+    // 再オープン⑩ — input 後の cursor と旧 markdown の不整合ペアが undo カーソル迷子の真因)
+    editor.addEventListener('beforeinput', function(e) {
+        if (isSourceMode) return;
+        // IME 合成中(insertCompositionText)は _preEdit を上書きしない — 合成開始前の
+        // 状態が「変化前」であり、合成途中の中間状態を変化前として積むと undo の
+        // カーソル/内容が合成途中に飛ぶ(再オープン⑭・日本語入力での undo 乱れ)。
+        if (e && (e.isComposing || e.inputType === 'insertCompositionText')) return;
+        undoManager.notePreEditCursor();
+    });
+    // 合成開始の直前状態を「変化前」として確保(compositionstart は beforeinput より先)
+    editor.addEventListener('compositionstart', function() {
+        if (isSourceMode) return;
+        undoManager.notePreEditCursor();
+        // FR-TSL-01: select モード中の IME 合成開始 = 「タイプ開始」= 内容置換で edit
+        //(再オープン⑭ の実測知見: 日本語入力の入口は keydown でなく composition)
+        if (tableSel.mode === 'select' && tableSel.anchor) {
+            tslEnterEdit(tableSel.anchor, true);
+        }
+    });
+
     // Input handler - debounced sync for performance
     editor.addEventListener('input', function(e) {
         if (isSourceMode) return;
@@ -23523,8 +25496,9 @@ class EditorInstance {
 
     // FR-LC-05/06: li 内のカーソル位置(直近の <br> 境界 = 継続行位置)にブロックを挿入する。
     // anchorNode が li 直下の text node のときはその直後、それ以外は li 末尾に append。
-    // 挿入位置の継続行テキスト(consumeLine=true 時)はブロック内へ移す(autoformat / Q/K 経路)。
-    function insertBlockIntoLi(li, blockEl, sel, consumeLineText) {
+    // 行テキストをブロック内へ移す経路(autoformat / Q/K)は呼び出し元が
+    // liLine.textNode.replaceWith(block) を直接行う — この関数は空ブロック挿入専用。
+    function insertBlockIntoLi(li, blockEl, sel) {
         let anchorText = null;
         if (sel && sel.rangeCount) {
             let n = sel.anchorNode;
@@ -23532,10 +25506,7 @@ class EditorInstance {
             while (n && n.parentNode !== li && n !== li) n = n.parentNode;
             if (n && n.parentNode === li && n.nodeType === 3) anchorText = n;
         }
-        if (consumeLineText && anchorText) {
-            // 継続行テキストをブロックへ移す(行テキスト全体)
-            anchorText.replaceWith(blockEl);
-        } else if (anchorText) {
+        if (anchorText) {
             anchorText.after(blockEl);
         } else {
             li.appendChild(blockEl);
@@ -23617,7 +25588,7 @@ class EditorInstance {
                 // FR-LC-05: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
                 var bqTarget = resolveBlockInsertionTarget(window.getSelection());
                 if (bqTarget && bqTarget.mode === 'in-li') {
-                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection(), false);
+                    insertBlockIntoLi(bqTarget.li, bq, window.getSelection());
                 } else {
                     var currentLine3 = getCurrentLine();
                     if (currentLine3) {
@@ -23640,7 +25611,7 @@ class EditorInstance {
                 // FR-LC-06: li 内なら li 内ネスト挿入(4 経路共通ヘルパ)
                 var preTarget = resolveBlockInsertionTarget(window.getSelection());
                 if (preTarget && preTarget.mode === 'in-li') {
-                    insertBlockIntoLi(preTarget.li, pre, window.getSelection(), false);
+                    insertBlockIntoLi(preTarget.li, pre, window.getSelection());
                 } else {
                     var currentLine4 = getCurrentLine();
                     if (currentLine4) {
@@ -24780,6 +26751,9 @@ class EditorInstance {
     function toggleSourceMode() {
         isSourceMode = !isSourceMode;
         if (isSourceMode) {
+            // 再オープン③: table toolbar / select 状態は WYSIWYG 面のもの — source 化で消す
+            tslClear();
+            hideTableToolbar();
             sourceEditor.value = markdown;
             sourceEditor.style.display = 'block';
             editor.style.display = 'none';
@@ -26032,7 +28006,7 @@ class EditorInstance {
                 liLine.textNode.replaceWith(blockquote);
             } else {
                 blockquote.innerHTML = '<br>';
-                insertBlockIntoLi(bqLiTarget.li, blockquote, sel, false);
+                insertBlockIntoLi(bqLiTarget.li, blockquote, sel);
             }
             setCursorToEnd(blockquote);
             syncMarkdown();
@@ -26072,7 +28046,7 @@ class EditorInstance {
             } else {
                 code.innerHTML = '<br>';
                 pre.appendChild(code);
-                insertBlockIntoLi(preLiTarget.li, pre, sel, false);
+                insertBlockIntoLi(preLiTarget.li, pre, sel);
             }
             setupCodeBlockUI(pre);
             setCursorToEnd(code);
@@ -28519,6 +30493,45 @@ class EditorInstance {
         const fragment = range.cloneContents();
         const tempDiv = document.createElement('div');
         tempDiv.appendChild(fragment);
+
+        // FR-TSL-04: 部分行選択で table が剥がれた断片(tr/td が table 枠なしで来る)は
+        // 元 table の header + separator を付けた md table 断片として出力する
+        const bareTrs = (() => {
+            const trs = tempDiv.querySelectorAll('tr');
+            if (!trs.length) return null;
+            if (tempDiv.querySelector('table')) return null; // table 枠ごと選択 = 通常経路
+            return trs;
+        })();
+        if (bareTrs) {
+            const anchorEl = range.startContainer.nodeType === 3
+                ? range.startContainer.parentElement : range.startContainer;
+            let srcTable = anchorEl && anchorEl.closest ? anchorEl.closest('table') : null;
+            if (!srcTable) {
+                const endEl = range.endContainer.nodeType === 3
+                    ? range.endContainer.parentElement : range.endContainer;
+                srcTable = endEl && endEl.closest ? endEl.closest('table') : null;
+            }
+            if (srcTable) {
+                const headerRow = srcTable.querySelector('tr');
+                const colCount = headerRow ? headerRow.cells.length : bareTrs[0].cells.length;
+                const cellMd = (cell) => (cell.textContent || '').replace(/\n/g, ' ').replace(/\|/g, '\\|').trim();
+                let md = '';
+                const hasHeader = !!srcTable.querySelector('th');
+                if (hasHeader && !bareTrs[0].querySelector('th')) {
+                    md += '| ' + Array.from(headerRow.cells).map(cellMd).join(' | ') + ' |\n';
+                    md += '|' + ' --- |'.repeat(colCount) + '\n';
+                }
+                let firstBodyEmitted = false;
+                for (const tr of bareTrs) {
+                    md += '| ' + Array.from(tr.cells).map(cellMd).join(' | ') + ' |\n';
+                    if (!firstBodyEmitted && tr.querySelector('th')) {
+                        md += '|' + ' --- |'.repeat(colCount) + '\n';
+                    }
+                    firstBodyEmitted = true;
+                }
+                return { md: md, selectedHtml: tempDiv.innerHTML };
+            }
+        }
         
         // Handle triple-click selection: when selection ends at offset 0 of next element,
         // remove the trailing empty element that was included
@@ -28576,6 +30589,40 @@ class EditorInstance {
         (function wrapLeadingBareAsLi() {
             const kids = Array.from(tempDiv.childNodes);
             if (kids.length === 0) { return; }
+            // ケース 1.5 (再オープン⑨ rc.9 バグ 1/2): 選択が「単一 li の内側」に収まる場合、
+            // cloneContents は li 枠を剥がした bare content(text/br/pre/blockquote/img 混在)を
+            // 返す。継続行付き li の全選択コピーがマーカー無し md になり、paste で行ごとに
+            // 別 li 化(テキストのみ)/段落化(ブロック入り)していた。選択始点と終点が同一 li
+            // かつ fragment に BR かブロック(PRE/BLOCKQUOTE/IMG)を含む(= 複数視覚行)なら、
+            // 全体を「その li の親リスト型 > 単一 li」で包み直す(継続行構造ごと 1 項目として
+            // コピー)。単一視覚行の部分選択は従来どおりプレーン(TC-LC-14 回帰 pin)。
+            {
+                let s15 = range.startContainer;
+                if (s15.nodeType === 3) s15 = s15.parentElement;
+                let e15 = range.endContainer;
+                if (e15.nodeType === 3) e15 = e15.parentElement;
+                const startLi15 = s15 && s15.closest ? s15.closest('li') : null;
+                const endLi15 = e15 && e15.closest ? e15.closest('li') : null;
+                if (startLi15 && startLi15 === endLi15) {
+                    const kids15 = Array.from(tempDiv.childNodes);
+                    const hasLiWrapper = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'LI' || n.tagName === 'UL' || n.tagName === 'OL'));
+                    const hasMultiLine = kids15.some((n) => n.nodeType === 1
+                        && (n.tagName === 'BR' || n.tagName === 'PRE'
+                            || n.tagName === 'BLOCKQUOTE' || n.tagName === 'IMG'));
+                    if (!hasLiWrapper && hasMultiLine && kids15.length > 0) {
+                        const lt15 = (startLi15.parentElement
+                            && (startLi15.parentElement.tagName === 'OL' || startLi15.parentElement.tagName === 'UL'))
+                            ? startLi15.parentElement.tagName.toLowerCase() : 'ul';
+                        const wrapList15 = document.createElement(lt15);
+                        const wrapLi15 = document.createElement('li');
+                        for (const k of kids15) wrapLi15.appendChild(k);
+                        wrapList15.appendChild(wrapLi15);
+                        tempDiv.appendChild(wrapList15);
+                        return;
+                    }
+                }
+            }
             // ケース 2: 共通祖先がリストの場合、fragment は bare <li> 群（ul/ol ラッパなし）に
             // なる。standalone li 処理（marker '-' 固定）に落ちると ol 由来でも bullet 化する
             // ため、startLi の親リスト型で全体を包む（番号は連番に自動リセット = FR-OL-RULES）。
@@ -28902,12 +30949,100 @@ class EditorInstance {
         return { md: md, selectedHtml: selectedHtml };
     }
 
+    // FR-TSL-03: select モードの範囲 copy/cut/paste(セル矩形単位・Excel 互換)
+    // 範囲の TSV + html table 断片を構築(grid 座標が単一真実・span 保持)
+    function tslBuildClipboardPayload() {
+        const cells = tslRangeCells();
+        if (!cells.length) return null;
+        const m = tslGridMap(tableSel.table);
+        let rMin = Infinity, rMax = -Infinity, cMin = Infinity, cMax = -Infinity;
+        const anchorAt = new Map(); // 'r:c'(anchor 位置)→ cell
+        for (const cell of cells) {
+            const p = m.posOf.get(cell);
+            if (!p) continue;
+            const rs = cell.rowSpan || 1, cs = cell.colSpan || 1;
+            rMin = Math.min(rMin, p.r); rMax = Math.max(rMax, p.r + rs - 1);
+            cMin = Math.min(cMin, p.c); cMax = Math.max(cMax, p.c + cs - 1);
+            anchorAt.set(p.r + ':' + p.c, cell);
+        }
+        if (rMin === Infinity) return null;
+        const cellPlain = (cell) => (cell ? cell.textContent.replace(/\n/g, ' ').trim() : '');
+        const tsvRows = [];
+        let htmlRows = '';
+        for (let r = rMin; r <= rMax; r++) {
+            const tsvCols = [];
+            let rowHtml = '';
+            for (let c = cMin; c <= cMax; c++) {
+                const anchor = anchorAt.get(r + ':' + c);
+                const gridCell = m.grid[r] ? m.grid[r][c] : undefined;
+                if (anchor) {
+                    tsvCols.push(cellPlain(anchor));
+                    const tag = anchor.tagName === 'TH' ? 'th' : 'td';
+                    const span = (anchor.colSpan > 1 ? ' colspan="' + anchor.colSpan + '"' : '')
+                        + (anchor.rowSpan > 1 ? ' rowspan="' + anchor.rowSpan + '"' : '');
+                    rowHtml += '<' + tag + span + '>' + anchor.innerHTML + '</' + tag + '>';
+                } else if (gridCell && anchorAt.has((m.posOf.get(gridCell) || {}).r + ':' + (m.posOf.get(gridCell) || {}).c)) {
+                    // 範囲内 anchor の被覆位置: html にはセルを出さない(span が覆う)。TSV は空
+                    tsvCols.push('');
+                } else {
+                    // 範囲内の通常セル(anchor 位置だが tslRangeCells 済のはず)or 空
+                    tsvCols.push(cellPlain(gridCell));
+                    rowHtml += '<td>' + (gridCell ? gridCell.innerHTML : '<br>') + '</td>';
+                }
+            }
+            tsvRows.push(tsvCols.join('\t'));
+            htmlRows += '<tr>' + rowHtml + '</tr>';
+        }
+        return {
+            plain: tsvRows.join('\n'),
+            html: '<table data-fractal-cells="1">' + htmlRows + '</table>',
+        };
+    }
+
+    // 再オープン②: copy/cut を keydown 駆動に(select モードは selection が collapsed の
+    // ため cmd+c で copy イベント自体が発火しない — 合成イベント TC では検出不能の機序)。
+    // navigator.clipboard.write で TSV + html を書く(スクショ等の stale 内容の貼付を防ぐ)
+    function tslCopyRangeToClipboard(alsoCut) {
+        const payload = tslBuildClipboardPayload();
+        if (!payload) return false;
+        try {
+            if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+                const item = new ClipboardItem({
+                    'text/plain': new Blob([payload.plain], { type: 'text/plain' }),
+                    'text/html': new Blob([payload.html], { type: 'text/html' }),
+                });
+                navigator.clipboard.write([item]).catch(() => {
+                    if (navigator.clipboard.writeText) navigator.clipboard.writeText(payload.plain);
+                });
+            } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(payload.plain);
+            }
+        } catch (err) { /* clipboard 不可の環境では黙って諦める(select 継続) */ }
+        if (alsoCut) tslClearRangeContents();
+        return true;
+    }
+
+    // copy/cut イベント経由(コンテキストメニュー等・selection が張れている場合)用
+    function tslWriteClipboard(e) {
+        const payload = tslBuildClipboardPayload();
+        if (!payload) return false;
+        e.clipboardData.setData('text/plain', payload.plain);
+        e.clipboardData.setData('text/html', payload.html);
+        e.preventDefault();
+        return true;
+    }
+
     editor.addEventListener('copy', function(e) {
         if (isSourceMode) return;
-        
+
+        // FR-TSL-03: select モード = セル矩形コピー(TSV + html table 断片)
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslWriteClipboard(e)) return;
+        }
+
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-        
+
         e.preventDefault();
         
         // Get the selected HTML
@@ -28941,6 +31076,14 @@ class EditorInstance {
     // 「text- child」連結 md を吐き、deleteContents の空 li 殻（•/○/▪）が残っていた。
     editor.addEventListener('cut', function(e) {
         if (isSourceMode) return;
+
+        // FR-TSL-03: select モード = 矩形コピー + 内容クリア(行削除ではない)
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslWriteClipboard(e)) {
+                tslClearRangeContents();
+                return;
+            }
+        }
 
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
@@ -29069,6 +31212,12 @@ class EditorInstance {
         if (window.__fractalPasteInFlight) { e.preventDefault(); return; }
         window.__fractalPasteInFlight = true;
         setTimeout(function() { window.__fractalPasteInFlight = false; }, 0);
+
+        // FR-TSL-03: select モード = 範囲 paste(anchor 起点上書き・下はみ出し行追加・
+        // 右はみ出し切捨て)。table 断片/TSV 以外の単一テキストは anchor 置換
+        if (tableSel.mode === 'select' && tableSel.table && editor.contains(tableSel.table)) {
+            if (tslHandlePaste(e)) return;
+        }
 
         // Kiro: keydown Clipboard API path handles images. Skip only image-file detection
         // here so text/HTML paste still works when clipboard has no image.
@@ -34509,6 +36658,8 @@ var Outliner = (function() {
                     },
                     // Mindmap interactions が使う outliner 内部フック
                     pushUndo: function () { try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ } },
+                    // FR-OIP-01: stale listener ガード用(paste listener が現 view を確認する)
+                    getViewMode: function () { return VIEW_MODE; },
                     // FR-MT-04 (ADRL-0002): task filter 述語。render が layout compute の第 5 引数に橋渡し。
                     // layout は意味論 (taskFilter/checked) を知らず nodeId→bool の述語として消費するだけ。
                     isHiddenByTaskFilter: function (id) { return isHiddenByTaskFilter(id); },
@@ -37075,6 +39226,8 @@ var Outliner = (function() {
                 var clipItem = e.clipboardData.items[ci];
                 if (clipItem.kind === 'file' && clipItem.type.startsWith('image/')) {
                     e.preventDefault();
+                    // FR-OIP-01: バブリング先の listener(stale mindmap paste 等)への防波堤
+                    e.stopPropagation();
                     var imgFile = clipItem.getAsFile();
                     if (imgFile) {
                         var reader = new FileReader();
@@ -39698,6 +41851,18 @@ var Outliner = (function() {
                 hideContextMenu();
             }
         });
+
+        // FR-OIP-02 (sprint 20260812-110538): 画像選択の解除契機を追加 — 画像以外の
+        // クリックで選択解除(従来は別画像 click / text focus / 削除後のみで選択が残存)
+        document.addEventListener('click', function(e) {
+            if (!selectedImageInfo) { return; }
+            var t = e.target;
+            if (t && t.closest && (t.closest('.outliner-image-thumb')
+                || t.closest('.mindmap-node-images'))) { return; } // 画像自身は選択処理に委ねる
+            if (typeof OutlinerCell !== 'undefined' && OutlinerCell.clearImageSelection) {
+                OutlinerCell.clearImageSelection(_outlinerImageHost());
+            }
+        });
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
@@ -41605,6 +43770,10 @@ var Outliner = (function() {
     function applySyncedData(newData) {
         // Notes ファイル切替 path と同等処理（listener teardown せず init 再呼び出ししない）
         if (newData) {
+            // FR-OIP-01: updateData 経路と同じ stale mindmap listener 封鎖(冪等 destroy)
+            if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+            }
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
             rawDataExtras = captureRawDataExtras(newData);
@@ -41746,6 +43915,14 @@ var Outliner = (function() {
                         queuedExternalUpdate = null;
 
                         var savedFocus = focusedNodeId;
+                        // FR-OIP-01 (sprint 20260812-110538): ファイル切替は mindmap の treeEl
+                        // listener を teardown しない(leak)ため、旧ファイルが mindmap だった場合
+                        // stale paste/keydown listener が新ファイル(outliner view)でも発火し
+                        // 画像 paste の二重貼付になる。切替前に必ず destroy(冪等・mindmap を
+                        // 再表示する場合は renderTree 内の attach が再配線するので安全)。
+                        if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
+                            try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
+                        }
                         model = new OutlinerModel(msg.data);
                         // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
                         //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの

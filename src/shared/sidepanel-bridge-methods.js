@@ -233,10 +233,26 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
 
         // メッセージ受信
-        onMessage: function(handler) {
-            window.addEventListener('message', function(e) {
-                handler(e.data);
-            });
-        }
+        // FR-OIP-01 (sprint 20260812-110538): 旧実装は onMessage を呼ぶたびに window
+        // listener を新規登録し、onMessage(...) の再呼び出し(init 再実行等)で listener が
+        // 累積 → 1 broadcast を N ハンドラが受信し同一処理が N 回走る(画像 paste 二重貼付の
+        // standalone 面の機序)。notes-host-bridge.js の v0.207.81 正典と同型の
+        // 「単一 window listener + 最新 handler のみ保持」に是正。
+        // ★ dispatcher は window グローバル 1 個(この factory 自体が bridge ごとに複数回
+        //   呼ばれるため、per-factory の IIFE では listener が factory 数ぶん残る)。
+        // ★ handler は bridge インスタンスごとに保持(editor 用と outliner 用の別 bridge が
+        //   同居する webview で互いの handler を上書きしないため)。
+        onMessage: (function() {
+            if (!window.__spBridgeMsgHandlers) {
+                window.__spBridgeMsgHandlers = new Map();
+                window.addEventListener('message', function(e) {
+                    window.__spBridgeMsgHandlers.forEach(function(h) {
+                        try { h(e.data); } catch (err) { /* handler 間の隔離 */ }
+                    });
+                });
+            }
+            var key = {}; // この bridge インスタンス固有のキー
+            return function(handler) { window.__spBridgeMsgHandlers.set(key, handler); };
+        })()
     };
 };

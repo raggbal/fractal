@@ -1425,8 +1425,13 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     opacity: 0.85;
 }
 
+/* FR-OIP-02 (sprint 20260812-110538): border-color のみでは選択が判別しづらい →
+   accent outline + 半透明 shadow で明確化 */
 .outliner-image-thumb.is-selected {
     border-color: var(--outliner-accent-fg, #2196F3);
+    outline: 2px solid var(--outliner-accent-fg, #2196F3);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.25);
 }
 
 .outliner-image-thumb.is-dragging {
