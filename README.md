@@ -33,6 +33,7 @@ It also supports Notion-style **subpages** (distinct from plain links), so you c
 
 ### Outliner editor
 A Dynalist-class outliner. Folders, tags, and full-text search across both outline node text and markdown bodies.
+The same outline can also be switched into a **Database view** (a Notion-like table) and a **Mindmap view** (an editable SVG mindmap).
 ![assets/images/1785071780563.png](assets/images/1785071780563.png)
 
 ---
