@@ -35103,15 +35103,58 @@ var MindmapRender = (function() {
         if (ctx.focusedNodeId === nodeId) { box.classList.add('is-focused'); }
 
         // アイコン (Page / File)
+        // FR-MDD-01/03 (sprint 20260812-110538): 📄/📎 アイコンを HTML5 draggable にし、
+        // outliner の icon dragstart(:3634/:3668 系)と同一 MIME/payload を送る。
+        // mindmap node 全体(SVG g)は HTML5 drag が起動しないが、foreignObject 内の
+        // XHTML 子要素は dragstart が発火する(PoC 実測 2026-08-12)。mindmap 内部 D&D
+        // (mouse ベース)との競合はアイコン上の mousedown を stopPropagation で遮断。
+        // 受け側(notes-file-panel / editor.js)は既存のまま。Notes モード時のみ
+        // (payload の outFileKey が cross 解決の前提 — outliner icon と同条件)。
         if (node.isPage) {
             var pi = document.createElementNS(XHTMLNS, 'span');
             pi.setAttribute('class', 'mindmap-node-icon');
             pi.textContent = '📄'; // 📄
+            if (node.pageId && ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
+                pi.setAttribute('draggable', 'true');
+                pi.style.cursor = 'grab';
+                (function(iconEl, dragNode) {
+                    iconEl.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+                    iconEl.addEventListener('dragstart', function(ev) {
+                        ev.stopPropagation();
+                        ev.dataTransfer.effectAllowed = 'copyMove';
+                        try {
+                            ev.dataTransfer.setData('application/x-fractal-out-node-page', JSON.stringify({
+                                outFileKey: ctx.getOutFileKey(),
+                                nodeId: dragNode.id,
+                                pageId: dragNode.pageId,
+                                title: dragNode.text || '',
+                            }));
+                        } catch (err) { /* ignore */ }
+                    });
+                })(pi, node);
+            }
             box.appendChild(pi);
         } else if (node.filePath) {
             var fi = document.createElementNS(XHTMLNS, 'span');
             fi.setAttribute('class', 'mindmap-node-icon');
             fi.textContent = '📎'; // 📎
+            if (ctx.getOutFileKey && ctx.isNotesMode && ctx.isNotesMode()) {
+                fi.setAttribute('draggable', 'true');
+                fi.style.cursor = 'grab';
+                (function(iconEl, dragNode) {
+                    iconEl.addEventListener('mousedown', function(ev) { ev.stopPropagation(); });
+                    iconEl.addEventListener('dragstart', function(ev) {
+                        ev.stopPropagation();
+                        ev.dataTransfer.effectAllowed = 'copyMove';
+                        try {
+                            ev.dataTransfer.setData('application/x-fractal-out-node-file', JSON.stringify({
+                                outFileKey: ctx.getOutFileKey(),
+                                nodeId: dragNode.id,
+                            }));
+                        } catch (err) { /* ignore */ }
+                    });
+                })(fi, node);
+            }
             box.appendChild(fi);
         }
 
@@ -37343,9 +37386,19 @@ var MindmapInteractions = (function() {
         var isAnyFilesDrag = ctx.isAnyFilesDragEvent || function() { return false; };
         var isFinderDrag = ctx.isFilesDragEvent || function() { return false; };
         var isVscodeDrag = ctx.isVscodeUriDragEvent || function() { return false; };
+        // FR-MDD-02/04 (sprint 20260812-110538): tree md/file・md editor リンクの受け 4 種
+        // (判定 + handler を outliner から ctx 共有 — ADRL-0056。受理は既存外部 files と同じ
+        //  dragover/drop に合流し、drop 位置語彙も同じ before/after/child)
+        var isTreeMd = ctx.isTreeMdDragEvent || function() { return false; };
+        var isTreeFile = ctx.isTreeFileDragEvent || function() { return false; };
+        var isMdFileLink = ctx.isMdFileLinkDrag || function() { return false; };
+        var isMdSubpage = ctx.isMdSubpageDrag || function() { return false; };
+        function isMindmapAcceptedDrag(e) {
+            return isAnyFilesDrag(e) || isTreeMd(e) || isTreeFile(e) || isMdFileLink(e) || isMdSubpage(e);
+        }
 
         on(treeEl, 'dragover', function(e) {
-            if (!isAnyFilesDrag(e)) { return; } // 外部ファイル drag のみ（内部 node D&D は mouse ベース）
+            if (!isMindmapAcceptedDrag(e)) { return; } // 受理対象のみ（内部 node D&D は mouse ベース）
             e.preventDefault();
             if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
             clearFileDropMarks();
@@ -37363,15 +37416,25 @@ var MindmapInteractions = (function() {
             if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
         });
         on(treeEl, 'drop', function(e) {
-            if (!isAnyFilesDrag(e)) { return; }
+            if (!isMindmapAcceptedDrag(e)) { return; }
             e.preventDefault();
             clearFileDropMarks();
             var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
             if (!nodeEl) { return; } // 空白への外部 drop は何もしない（node ターゲット必須）
             var targetId = nodeEl.getAttribute('data-node-id');
             var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
-            // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
-            if (isFinderDrag(e) && ctx.handleFilesDrop) {
+            // FR-MDD-02/04: custom MIME を Files より先に dispatch(outliner capture drop
+            // :1237-1250 と同順。Excel 等が Files と custom を同時に積むケースの排他)
+            if (isTreeMd(e) && ctx.handleTreeMdDrop) {
+                ctx.handleTreeMdDrop(e, targetId, pos);
+            } else if (isTreeFile(e) && ctx.handleTreeFileDrop) {
+                ctx.handleTreeFileDrop(e, targetId, pos);
+            } else if (isMdFileLink(e) && ctx.handleMdFileLinkDrop) {
+                ctx.handleMdFileLinkDrop(e, targetId, pos);
+            } else if (isMdSubpage(e) && ctx.handleMdSubpageDrop) {
+                ctx.handleMdSubpageDrop(e, targetId, pos);
+            } else if (isFinderDrag(e) && ctx.handleFilesDrop) {
+                // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
                 ctx.handleFilesDrop(e, targetId, pos);
             } else if (isVscodeDrag(e) && ctx.handleVscodeUrisDrop) {
                 ctx.handleVscodeUrisDrop(e, targetId, pos);
@@ -40503,6 +40566,18 @@ var Outliner = (function() {
                     // FR-MMI-01: mindmap 画像の click 選択が outliner の selectedImageInfo
                     // state を共有するための host adapter(削除は既存 document keydown が担う)
                     imageSelectHost: function () { return _outlinerImageHost(); },
+                    // FR-MDD-01/03: 📄/📎 アイコン dragstart の payload 素材
+                    getOutFileKey: function () { return currentOutFileKey; },
+                    isNotesMode: function () { return isNotesMode(); },
+                    // FR-MDD-02/04: 受け 4 経路(判定 + handler を outliner から共有)
+                    isTreeMdDragEvent: function (e) { return isTreeMdDragEvent(e); },
+                    isTreeFileDragEvent: function (e) { return isTreeFileDragEvent(e); },
+                    isMdFileLinkDrag: function (e) { return isMdFileLinkDragEvent(e); },
+                    isMdSubpageDrag: function (e) { return isMdSubpageDragEvent(e); },
+                    handleTreeMdDrop: function (e, targetNodeId, position) { return handleTreeMdDrop(e, targetNodeId, position); },
+                    handleTreeFileDrop: function (e, targetNodeId, position) { return handleTreeFileDrop(e, targetNodeId, position); },
+                    handleMdFileLinkDrop: function (e, targetNodeId, position) { return handleMdFileLinkDrop(e, targetNodeId, position); },
+                    handleMdSubpageDrop: function (e, targetNodeId, position) { return handleMdSubpageDrop(e, targetNodeId, position); },
                     // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
                     // outliner の正典 3 点セット(writeClipboardWithHtml + internalClipboard +
                     // host.saveOutlinerClipboard)と pasteNodesFromText(資産契約内蔵)を

@@ -1335,9 +1335,19 @@ var MindmapInteractions = (function() {
         var isAnyFilesDrag = ctx.isAnyFilesDragEvent || function() { return false; };
         var isFinderDrag = ctx.isFilesDragEvent || function() { return false; };
         var isVscodeDrag = ctx.isVscodeUriDragEvent || function() { return false; };
+        // FR-MDD-02/04 (sprint 20260812-110538): tree md/file・md editor リンクの受け 4 種
+        // (判定 + handler を outliner から ctx 共有 — ADRL-0056。受理は既存外部 files と同じ
+        //  dragover/drop に合流し、drop 位置語彙も同じ before/after/child)
+        var isTreeMd = ctx.isTreeMdDragEvent || function() { return false; };
+        var isTreeFile = ctx.isTreeFileDragEvent || function() { return false; };
+        var isMdFileLink = ctx.isMdFileLinkDrag || function() { return false; };
+        var isMdSubpage = ctx.isMdSubpageDrag || function() { return false; };
+        function isMindmapAcceptedDrag(e) {
+            return isAnyFilesDrag(e) || isTreeMd(e) || isTreeFile(e) || isMdFileLink(e) || isMdSubpage(e);
+        }
 
         on(treeEl, 'dragover', function(e) {
-            if (!isAnyFilesDrag(e)) { return; } // 外部ファイル drag のみ（内部 node D&D は mouse ベース）
+            if (!isMindmapAcceptedDrag(e)) { return; } // 受理対象のみ（内部 node D&D は mouse ベース）
             e.preventDefault();
             if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
             clearFileDropMarks();
@@ -1355,15 +1365,25 @@ var MindmapInteractions = (function() {
             if (e.target === treeEl || !treeEl.contains(e.relatedTarget)) { clearFileDropMarks(); }
         });
         on(treeEl, 'drop', function(e) {
-            if (!isAnyFilesDrag(e)) { return; }
+            if (!isMindmapAcceptedDrag(e)) { return; }
             e.preventDefault();
             clearFileDropMarks();
             var nodeEl = fileDropTargetAt(e.clientX, e.clientY);
             if (!nodeEl) { return; } // 空白への外部 drop は何もしない（node ターゲット必須）
             var targetId = nodeEl.getAttribute('data-node-id');
             var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
-            // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
-            if (isFinderDrag(e) && ctx.handleFilesDrop) {
+            // FR-MDD-02/04: custom MIME を Files より先に dispatch(outliner capture drop
+            // :1237-1250 と同順。Excel 等が Files と custom を同時に積むケースの排他)
+            if (isTreeMd(e) && ctx.handleTreeMdDrop) {
+                ctx.handleTreeMdDrop(e, targetId, pos);
+            } else if (isTreeFile(e) && ctx.handleTreeFileDrop) {
+                ctx.handleTreeFileDrop(e, targetId, pos);
+            } else if (isMdFileLink(e) && ctx.handleMdFileLinkDrop) {
+                ctx.handleMdFileLinkDrop(e, targetId, pos);
+            } else if (isMdSubpage(e) && ctx.handleMdSubpageDrop) {
+                ctx.handleMdSubpageDrop(e, targetId, pos);
+            } else if (isFinderDrag(e) && ctx.handleFilesDrop) {
+                // 結果反映（node 生成 + 添付 + renderTree）は outliner の dropFilesResult ハンドラが行う（mindmap 対応済み）
                 ctx.handleFilesDrop(e, targetId, pos);
             } else if (isVscodeDrag(e) && ctx.handleVscodeUrisDrop) {
                 ctx.handleVscodeUrisDrop(e, targetId, pos);

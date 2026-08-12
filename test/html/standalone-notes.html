@@ -36671,6 +36671,18 @@ var Outliner = (function() {
                     // FR-MMI-01: mindmap 画像の click 選択が outliner の selectedImageInfo
                     // state を共有するための host adapter(削除は既存 document keydown が担う)
                     imageSelectHost: function () { return _outlinerImageHost(); },
+                    // FR-MDD-01/03: 📄/📎 アイコン dragstart の payload 素材
+                    getOutFileKey: function () { return currentOutFileKey; },
+                    isNotesMode: function () { return isNotesMode(); },
+                    // FR-MDD-02/04: 受け 4 経路(判定 + handler を outliner から共有)
+                    isTreeMdDragEvent: function (e) { return isTreeMdDragEvent(e); },
+                    isTreeFileDragEvent: function (e) { return isTreeFileDragEvent(e); },
+                    isMdFileLinkDrag: function (e) { return isMdFileLinkDragEvent(e); },
+                    isMdSubpageDrag: function (e) { return isMdSubpageDragEvent(e); },
+                    handleTreeMdDrop: function (e, targetNodeId, position) { return handleTreeMdDrop(e, targetNodeId, position); },
+                    handleTreeFileDrop: function (e, targetNodeId, position) { return handleTreeFileDrop(e, targetNodeId, position); },
+                    handleMdFileLinkDrop: function (e, targetNodeId, position) { return handleMdFileLinkDrop(e, targetNodeId, position); },
+                    handleMdSubpageDrop: function (e, targetNodeId, position) { return handleMdSubpageDrop(e, targetNodeId, position); },
                     // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
                     // outliner の正典 3 点セット(writeClipboardWithHtml + internalClipboard +
                     // host.saveOutlinerClipboard)と pasteNodesFromText(資産契約内蔵)を
