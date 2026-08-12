@@ -7075,7 +7075,12 @@ var SHORTCUTS_MD = [
         { keys: 'Cmd+.', desc: 'Toggle source mode' },
         { keys: 'Cmd+Shift+.', desc: 'Open in VS Code text editor' },
         { keys: 'Cmd+\\', desc: 'Toggle sidebar' },
+        { keys: 'Shift+Enter', desc: 'Lists: line break within the item' },
         { keys: 'Tab / Shift+Tab', desc: 'Indent / outdent (lists); move cell (tables)' },
+        { keys: '↑↓←→', desc: 'Tables: move between cells (select mode)' },
+        { keys: 'Shift+↑↓←→ / Shift+Click', desc: 'Tables: extend range selection' },
+        { keys: 'Enter / F2 / type', desc: 'Tables: edit cell (typing replaces)' },
+        { keys: 'Esc', desc: 'Tables: discard edit / leave select mode' },
         { keys: 'Opt+← / Opt+→', desc: 'Side-panel back / forward' },
     ] },
     { category: 'search', items: [
@@ -7155,7 +7160,9 @@ var SHORTCUTS_MINDMAP = [
         { keys: 'Enter / Tab / Esc', desc: 'Commit edit' },
         { keys: 'Delete / Backspace', desc: 'Delete node (or group)' },
         { keys: 'Option+↑/↓', desc: 'Swap with sibling' },
+        { keys: 'Cmd+C / Cmd+X / Cmd+V', desc: 'Copy / cut node with descendants / paste as children' },
         { keys: 'Cmd+V', desc: 'Paste image onto node' },
+        { keys: 'Click image + Delete', desc: 'Select attached image and remove it' },
     ] },
     { category: 'navigation', items: [
         { keys: '↑↓←→', desc: 'Move between nodes (spatial)' },

@@ -33,6 +33,7 @@ Notionのような心地よい入力ができるMarkdown エディター。基�
 
 ### アウトライナーエディタ
 Dynalist クラスのアウトライナー。フォルダ、タグ、そしてアウトラインノードとマークダウン本文の横断フルテキスト検索。
+同じアウトラインを **データベースビュー**（Notion 的なテーブル）と **マインドマップビュー**（編集可能な SVG マインドマップ）に切り替えて表示・編集することも可能。
 ![assets/images/1785071780563.png](assets/images/1785071780563.png)
 
 
@@ -178,7 +179,7 @@ Fractal Note は **note** 単位で情報を管理します。アクティビテ
 - **タブ** — note 内で複数のアウトライナーや md をブラウザライクなタブで切り替え。タブ名はタイトル / H1 に追従、md タブは右クリックで VS Code タブとしても開ける
 - **Recent（履歴）** — 最近開いたファイルの一覧からワンクリックで復帰
 - **Daily Notes** — ワンクリックの日次ジャーナル。年/月/日の階層を自動作成、`<` `>` ナビゲーションとカレンダーピッカー付き
-- **アプリ内リンク** — 任意のノードやページへのリンクをコピーし、Fractal Note 内のどこにでもペースト。クリックでジャンプ
+- **アプリ内リンク** — 任意のノードやページへのリンクをコピーし（ノードやツリー項目の右クリック → **Copy In-App Link**、またはサイドパネルヘッダの 🔗）、Fractal Note 内のどこにでもペースト。クリックでジャンプ
 - **note を跨ぐアセット込みコピー & ペースト** — 画像・📎 添付・サブページリンクを含むマークダウンをコピーして別の note（md でもアウトライナーでも）にペーストすると、リンク先ファイルが宛先 note に複製され、リンクは切れずに動き続けます。アウトライナーへのペーストでは、行全体のリンクが添付 / 画像 / ページノードに変換されます
 - **お掃除機能** — "Clean Unused Files" で孤立した画像・ページ・添付を検出してゴミ箱へ。"Move to Other Note" でページをアセットごと別の note へ移動
 
@@ -277,27 +278,32 @@ npm run compile
 
 ## 🚀 はじめかた
 
-### Notes（おすすめ）
-1. アクティビティバーの **Fractal Note** アイコンをクリック
-2. 任意のフォルダを追加して note として登録
-3. note をクリックして3ペイン UI を開く — アウトライナー、ページ、フォルダはそこから作成できます
+### 1. 最初の note を作る（おすすめ）
+1. アクティビティバー（VS Code 左端）の **Fractal Note** アイコンをクリック
+2. **+ Add Notes Folder** で空のフォルダを選択（または新規作成）— 例えば `~/notes/work`。このフォルダが **note** になります
+3. note 名をクリックすると 3 ペイン UI が開きます: **ファイルツリー（左）/ エディタ（中央）/ アウトライン & サイドパネル（右）**
 
-### マークダウンエディタ
-1. 任意の `.md` を右クリック → **"Open with Fractal Note"**
-2. またはデフォルトに設定: `.md` を右クリック → **Open With…** → **Configure default editor** → **Fractal Note**
+### 2. note に中身を作る
+すべて左のファイルツリーから作ります — note（またはその中のフォルダ）を右クリック:
+- **New Outline here** — アウトライナー（`.out`）を作成。そのまま入力開始、Enter でノード追加、Tab でインデント
+- **New Markdown here** — マークダウンページを作成し WYSIWYG エディタで開く
+- **New Subfolder** — フォルダは仮想（ディスク上のファイルはフラットのまま）なので自由に整理し直せます
+- または**ファイルをドラッグ**するだけ — Finder / VS Code エクスプローラ（エクスプローラからは Shift 押しながら）から `.md` をドロップすると取り込み。PDF・Excel など任意のファイルをドロップすると添付になります
 
-### アウトライナー
-- `.out` ファイルは自動的に Fractal Note で開きます
-- コマンドパレットから作成: `Fractal Note: New Outliner File`
+アウトライナーでは、ノード末尾に `@page` と入力（または `Cmd+Enter`）するとそのノードにマークダウンページがぶら下がります — これが Fractal Note の中核ワークフロー: **構造はアウトラインで、詳細はページで書く**。
 
-### アプリ内リンク
-- アウトライナーのノードを右クリック → **Copy In-App Link**
-- ファイルツリーの out/md 右クリック・Outliner ヘッダーの Menu・md エディタのツールバーからもコピー可能（outliner 全体 / note md へのリンク）
-- サイドパネルヘッダの 🔗 で現在のページへのリンクを作成
-- Fractal Note 内のどこにでもペースト — クリックでジャンプ
+### 3. あとから見つける
+- ファイルツリー上部の横断検索 — ノードのテキストとマークダウン本文の両方にヒット
+- `#tag` クリックで即フィルタ。よく使うタグはピン留めしてワンクリック絞り込み
+- タブとナビゲーション履歴（`Opt+←/→`）はブラウザ感覚で使えます
 
-### ショートカット一覧 HUD
-- **cmd（Windows: Ctrl）を単独で長押し**すると、表示中のビュー（Markdown / Outliner / Mindmap / Database）に応じたショートカット一覧がポップアップ。キーを離すと消えます
+### マークダウンエディタを単体で使う（Notes なし）
+任意の `.md` を右クリック → **"Open with Fractal Note"**。デフォルトにするには: 右クリック → **Open With…** → **Configure default editor** → **Fractal Note**
+
+### 操作を覚えるには
+- **cmd（Windows: Ctrl）を単独で長押し** — 表示中のビュー（Markdown / Outliner / Mindmap / Database）に応じたショートカット一覧（HUD）がポップアップ。キーを離すと消えます。機能を発見する最速の方法です
+- マークダウンエディタで `Cmd+/` — **アクションパレット**（全ての書式・挿入アクションを検索可能なメニューで）
+- ショートカットの全一覧はこの下の節にあります
 
 ---
 
@@ -324,6 +330,17 @@ npm run compile
 | `Tab` / `Shift+Tab` | テーブル: セル移動（最終セルの Tab で行追加）、リスト: インデント / アウトデント |
 | `Shift+Enter` | リスト: 項目内改行（継続行） |
 | `Opt+←` / `Opt+→` | サイドパネルの戻る / 進む（サイドパネル内のみ） |
+
+テーブルには Excel ライクな**選択モード**があります（セルをクリックで開始）:
+
+| ショートカット | アクション |
+| --- | --- |
+| `↑↓←→` | セル間移動（表の上下端ではテーブルの外へ出る） |
+| `Shift+↑↓←→` / `Shift+クリック` / ドラッグ | 矩形の範囲選択を拡張 |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | 範囲のコピー / カット / ペースト — Excel・Google スプレッドシートと相互運用（TSV + HTML、セル結合も再現） |
+| `Enter` / `F2` / 文字入力 | セルを編集（文字入力は内容を置換） |
+| `Enter` / `Tab` / `Esc`（編集中） | 確定して選択に戻る / 確定して右へ / 破棄 |
+| `Delete` | 選択範囲の内容をクリア |
 
 ### アウトライナービュー
 
@@ -438,7 +455,35 @@ npm run compile
 | `fractal.showOpenInTextEditor` | Open in Text Editor ボタンの表示 | `true` |
 | `fractal.enableDebugLogging` | ブラウザコンソールへのデバッグログ | `false` |
 
-このほか S3 同期（`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`）と翻訳（`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`、`translateSourceLang` / `translateTargetLang`、カスタム用語集）の設定があります。画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
+### S3 同期（AWS）
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.s3AccessKeyId` | S3 同期用の AWS アクセスキー ID | `""` |
+| `fractal.s3SecretAccessKey` | S3 同期用の AWS シークレットアクセスキー | `""` |
+| `fractal.s3Region` | S3 同期用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
+
+### 翻訳（Amazon Translate）
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.transAccessKeyId` | Amazon Translate 用の AWS アクセスキー ID | `""` |
+| `fractal.transSecretAccessKey` | Amazon Translate 用の AWS シークレットアクセスキー | `""` |
+| `fractal.transRegion` | Amazon Translate 用の AWS リージョン（例 `ap-northeast-1`） | `us-east-1` |
+| `fractal.translateSourceLang` | 既定の翻訳元言語 | `en` |
+| `fractal.translateTargetLang` | 既定の翻訳先言語 | `ja` |
+| `fractal.translateTerminologyName` | Amazon Translate に登録済みのカスタム用語集名 | `""` |
+| `fractal.translateTerminologyFile` | 登録するカスタム用語集ファイル（CSV / TMX）のパス | `""` |
+
+### PDF エクスポート
+
+| 設定 | 説明 | デフォルト |
+| --- | --- | --- |
+| `fractal.pdfStyles` | エクスポート PDF に適用する追加 CSS ファイルパス | `[]` |
+| `fractal.pdfIncludeDefaultStyles` | 組み込み印刷スタイルシートを含める | `true` |
+| `fractal.pdfBrowserPath` | Chromium 系ブラウザ実行ファイルの明示パス | `""`（自動検出） |
+
+画像・添付の保存先は設定ではなく規約で固定（note 内は共有 `images/` / `files/`、note 外の standalone md は `.fractal.json` サイドカーで指定）。
 
 UI は **英語、日本語、簡体字/繁体字中国語、韓国語、スペイン語、フランス語** にローカライズされています（`fractal.language`、`default` で VS Code に追従）。
 

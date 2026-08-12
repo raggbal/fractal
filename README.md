@@ -33,6 +33,7 @@ It also supports Notion-style **subpages** (distinct from plain links), so you c
 
 ### Outliner editor
 A Dynalist-class outliner. Folders, tags, and full-text search across both outline node text and markdown bodies.
+The same outline can also be switched into a **Database view** (a Notion-like table) and a **Mindmap view** (an editable SVG mindmap).
 ![assets/images/1785071780563.png](assets/images/1785071780563.png)
 
 ---
@@ -175,7 +176,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
-- **In-app links** — Copy a link to any node or page and paste it anywhere in Fractal Note. Click to jump
+- **In-app links** — Copy a link to any node or page (right-click a node / tree item → **Copy In-App Link**, or 🔗 in the side-panel header) and paste it anywhere in Fractal Note. Click to jump
 - **Cross-note copy & paste with assets** — Copy markdown containing images, 📎 attachments, or subpage links and paste it into another note (md or outliner): the linked files are duplicated into the destination note and links keep working. Pasting into an outliner turns whole-line links into proper attachment / image / page nodes
 - **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
 
@@ -274,27 +275,32 @@ Core features work without AWS. To use S3 sync and Amazon Translate, just config
 
 ## 🚀 Getting started
 
-### Notes (recommended)
-1. Click the **Fractal Note** icon in the activity bar
-2. Add any folder to register it as a note
-3. Click the note to open the three-pane UI — outliners, pages, and folders are all created from there
+### 1. Create your first note (recommended)
+1. Click the **Fractal Note** icon in the activity bar (left edge of VS Code)
+2. Click **+ Add Notes Folder** and pick (or create) an empty folder — say `~/notes/work`. That folder is now a **note**
+3. Click the note name — the three-pane UI opens: **file tree (left) / editor (center) / outline & side panel (right)**
 
-### Markdown editor
-1. Right-click any `.md` → **"Open with Fractal Note"**
-2. Or make it the default: right-click a `.md` → **Open With…** → **Configure default editor** → **Fractal Note**
+### 2. Add content to the note
+Everything is created from the file tree on the left — right-click it (or a folder inside it):
+- **New Outline here** — creates an outliner (`.out`). Start typing; Enter adds a node, Tab indents
+- **New Markdown here** — creates a markdown page and opens it in the WYSIWYG editor
+- **New Subfolder** — folders are virtual (the files on disk stay flat), so reorganize freely
+- Or just **drag files in** — drop a `.md` from Finder / VS Code Explorer (hold Shift for Explorer) to import it; drop a PDF, Excel, or any other file to attach it
 
-### Outliner
-- `.out` files open in Fractal Note automatically
-- Create one from the command palette: `Fractal Note: New Outliner File`
+From an outliner, type `@page` at the end of a node (or press `Cmd+Enter`) to hang a markdown page off that node — this is the core Fractal Note workflow: **outline the structure, write the details in pages**.
 
-### In-app links
-- Right-click an outliner node → **Copy In-App Link**
-- Also available from the file-tree right-click (out/md), the Outliner header Menu, and the md editor toolbar (links to a whole outliner or a note md)
-- Use 🔗 in the side-panel header to create a link to the current page
-- Paste it anywhere in Fractal Note — click to jump
+### 3. Find it again
+- `Cmd+P`-style cross-note search lives at the top of the file tree — it matches node text and markdown bodies
+- Click any `#tag` to filter; pin frequent tags for one-click filtering
+- Tabs and navigation history (`Opt+←/→`) work like a browser
 
-### Shortcut HUD
-- **Long-press cmd (Ctrl on Windows)** to pop up a keyboard-shortcut overlay for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss
+### Using the markdown editor standalone (without Notes)
+Right-click any `.md` → **"Open with Fractal Note"**. To make it the default: right-click → **Open With…** → **Configure default editor** → **Fractal Note**
+
+### Learning the ropes
+- **Long-press cmd (Ctrl on Windows)** — a shortcut overlay (HUD) pops up for the current view (Markdown / Outliner / Mindmap / Database). Release to dismiss. This is the fastest way to discover features
+- `Cmd+/` in the markdown editor opens the **action palette** — every formatting and insert action, searchable
+- The full shortcut list is below
 
 ---
 
@@ -321,6 +327,17 @@ A quick reference. (Mac notation; almost every shortcut also works with `Ctrl` i
 | `Tab` / `Shift+Tab` | Tables: move between cells (Tab on the last cell adds a row); lists: indent / outdent |
 | `Shift+Enter` | Lists: line break within the item (continuation line) |
 | `Opt+←` / `Opt+→` | Side-panel back / forward (side panel only) |
+
+Tables have an Excel-like **select mode** (click a cell to enter it):
+
+| Shortcut | Action |
+| --- | --- |
+| `↑↓←→` | Move between cells (up/down at the table edge leaves the table) |
+| `Shift+↑↓←→` / `Shift+Click` / drag | Extend a rectangular range selection |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut / paste the range — interoperates with Excel & Google Sheets (TSV + HTML, merged cells reproduced) |
+| `Enter` / `F2` / type | Edit the cell (typing replaces the content) |
+| `Enter` / `Tab` / `Esc` (while editing) | Commit and return to select / commit and move right / discard |
+| `Delete` | Clear the contents of the selected range |
 
 ### Outliner view
 
@@ -433,7 +450,35 @@ Type a markdown pattern and it converts in place: `# ` for headings, `- ` for li
 | `fractal.showOpenInTextEditor` | Show the Open in Text Editor button | `true` |
 | `fractal.enableDebugLogging` | Debug logging to the browser console | `false` |
 
-There are also settings for S3 sync (`fractal.s3AccessKeyId` / `s3SecretAccessKey` / `s3Region`) and translation (`fractal.transAccessKeyId` / `transSecretAccessKey` / `transRegion`, `translateSourceLang` / `translateTargetLang`, custom terminology). Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
+### S3 sync (AWS)
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.s3AccessKeyId` | AWS Access Key ID for S3 sync | `""` |
+| `fractal.s3SecretAccessKey` | AWS Secret Access Key for S3 sync | `""` |
+| `fractal.s3Region` | AWS region for S3 sync (e.g. `ap-northeast-1`) | `us-east-1` |
+
+### Translation (Amazon Translate)
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.transAccessKeyId` | AWS Access Key ID for Amazon Translate | `""` |
+| `fractal.transSecretAccessKey` | AWS Secret Access Key for Amazon Translate | `""` |
+| `fractal.transRegion` | AWS region for Amazon Translate (e.g. `ap-northeast-1`) | `us-east-1` |
+| `fractal.translateSourceLang` | Default source language | `en` |
+| `fractal.translateTargetLang` | Default target language | `ja` |
+| `fractal.translateTerminologyName` | Custom Terminology name registered in Amazon Translate | `""` |
+| `fractal.translateTerminologyFile` | Path to a Custom Terminology file (CSV / TMX) to register | `""` |
+
+### PDF export
+
+| Setting | Description | Default |
+| --- | --- | --- |
+| `fractal.pdfStyles` | Additional CSS file paths applied to the exported PDF | `[]` |
+| `fractal.pdfIncludeDefaultStyles` | Include the built-in print stylesheet | `true` |
+| `fractal.pdfBrowserPath` | Explicit path to a Chromium-based browser executable | `""` (auto-detect) |
+
+Image and attachment destinations are fixed by convention rather than by settings (shared `images/` / `files/` inside a note; standalone md outside a note uses the `.fractal.json` sidecar).
 
 The UI is localized in **English, Japanese, Simplified/Traditional Chinese, Korean, Spanish, and French** (`fractal.language`; `default` follows VS Code).
 
