@@ -595,13 +595,12 @@ export class NotesEditorProvider {
                     const broken = (plan.unresolved || []);
                     if (broken.length > 0) {
                         vscode.window.showWarningMessage(
-                            `フラットレイアウトへの移行が完了しました。ただし参照先が見つからなかった項目があります（実体が存在せず、旧フォルダは削除しました）: ${broken.slice(0, 5).join(' / ')}${broken.length > 5 ? ` ほか${broken.length - 5}件` : ''}。` +
-                            `移行前の状態は「${backupPath}」にバックアップされています。`
+                            t('migrationDoneUnresolved') + `${broken.slice(0, 5).join(' / ')}${broken.length > 5 ? ` (+${broken.length - 5})` : ''} — ` +
+                            t('migrationDoneBackup') + backupPath
                         );
                     } else {
                         vscode.window.showInformationMessage(
-                            `フラットレイアウトへの移行が完了しました。移行前の状態は「${backupPath}」にバックアップされています。` +
-                            `問題があれば、このノートフォルダを削除し、バックアップフォルダを元の場所に戻してください。`
+                            t('migrationDoneBackup') + backupPath + t('migrationDoneRecovery')
                         );
                     }
                 } catch (e) {
@@ -1867,14 +1866,14 @@ export class NotesEditorProvider {
                 // → outline file: ~/notes/<outlineId>.out、 親 node = pageId に紐づく node
                 const outFilePath = fileManager.getCurrentFilePath();
                 if (!outFilePath || !fs.existsSync(outFilePath)) {
-                    vscode.window.showErrorMessage('保存対象の outliner ファイルが見つかりません');
-                    sender.postMessage({ type: 'translateSaveError', message: '保存対象の outliner ファイルが見つかりません' });
+                    vscode.window.showErrorMessage(t('translateSaveNoOutFile'));
+                    sender.postMessage({ type: 'translateSaveError', message: t('translateSaveNoOutFile') });
                     return;
                 }
                 const pagesDir = fileManager.getPagesDirPath();
                 if (!pagesDir) {
-                    vscode.window.showErrorMessage('Pages directory を解決できません');
-                    sender.postMessage({ type: 'translateSaveError', message: 'Pages directory を解決できません' });
+                    vscode.window.showErrorMessage(t('translateSaveFailedPagesDir'));
+                    sender.postMessage({ type: 'translateSaveError', message: t('translateSaveFailedPagesDir') });
                     return;
                 }
 
@@ -1886,7 +1885,7 @@ export class NotesEditorProvider {
                 try {
                     outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
                 } catch (e) {
-                    vscode.window.showErrorMessage('Outliner ファイルの parse に失敗しました');
+                    vscode.window.showErrorMessage(t('translateSaveFailedParse'));
                     sender.postMessage({ type: 'translateSaveError', message: 'Outliner JSON parse 失敗' });
                     return;
                 }
@@ -1949,7 +1948,7 @@ export class NotesEditorProvider {
                 const newJsonString = JSON.stringify(outData, null, 2);
                 fs.writeFileSync(outFilePath, newJsonString, 'utf8');
                 fileManager.openFile(outFilePath); // bump fileChangeId + sync lastJsonString
-                vscode.window.showInformationMessage(`翻訳結果を保存しました: ${safeTitle}（${path.relative(path.dirname(outFilePath), newPagePath)}）`);
+                vscode.window.showInformationMessage(t('translateSaved') + `${safeTitle} (${path.relative(path.dirname(outFilePath), newPagePath)})`);
 
                 // 7. webview に直接 updateData を送って UI 即時反映 (新 fileChangeId 付き)
                 sender.postMessage({

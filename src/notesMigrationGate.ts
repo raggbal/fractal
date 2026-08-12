@@ -1,4 +1,7 @@
 import type * as vscode from 'vscode';
+// t/getLocale は vscode 非依存（locale ファイルの静的 require のみ）なので import しても
+// unit テストで gate HTML を検証できる（テスト側は initLocale を先に呼ぶ）。
+import { t, getLocale } from './i18n/messages';
 
 // getNonce をここに inline する（webviewContent.ts から import すると vscode の実行時依存を引き込み、
 // vscode 非依存の unit テストで gate HTML を検証できなくなるため。中身は webviewContent.ts:9 と同一）。
@@ -34,8 +37,11 @@ export function getNotesMigrationGateContent(
 ): string {
     const nonce = getNonce();
     const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // webview 内 JS は t() を呼べないため、動的文言（unknown error / retry）も生成時に焼き込む。
+    // JS 文字列リテラルに入る値はシングルクォートを es で潰す。
+    const js = (s: string) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     return `<!DOCTYPE html>
-<html lang="ja">
+<html lang="${esc(getLocale())}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -87,20 +93,20 @@ export function getNotesMigrationGateContent(
 <body>
   <div class="mg-card">
     <div class="mg-icon">📦</div>
-    <h1 class="mg-title">このノートを新レイアウトに移行します</h1>
+    <h1 class="mg-title">${esc(t('mgTitle'))}</h1>
     <p class="mg-folder">${esc(folderName)}</p>
-    <p class="mg-desc">このノートは旧レイアウトです。ノートを開く前に、ページ・画像・ファイルを新しいフラット構成へ移行します。</p>
+    <p class="mg-desc">${esc(t('mgDesc'))}</p>
     <div class="mg-summary">
-      <span>ページ<b>${summary.pages}</b></span>
-      <span>画像<b>${summary.images}</b></span>
-      <span>ファイル<b>${summary.files}</b></span>
+      <span>${esc(t('mgSummaryPages'))}<b>${summary.pages}</b></span>
+      <span>${esc(t('mgSummaryImages'))}<b>${summary.images}</b></span>
+      <span>${esc(t('mgSummaryFiles'))}<b>${summary.files}</b></span>
     </div>
     <div>
-      <button id="mg-migrate" type="button">移行する</button>
+      <button id="mg-migrate" type="button">${esc(t('mgMigrate'))}</button>
     </div>
-    <div class="mg-spin" id="mg-spin">移行中… しばらくお待ちください</div>
+    <div class="mg-spin" id="mg-spin">${esc(t('mgMigrating'))}</div>
     <div class="mg-fail" id="mg-fail">
-      <div>⚠️ 移行できませんでした:</div>
+      <div>${esc(t('mgFailed'))}</div>
       <ul id="mg-fail-reasons"></ul>
     </div>
   </div>
@@ -125,7 +131,7 @@ export function getNotesMigrationGateContent(
       if (!m || m.type !== 'migrationFailed') { return; }
       spin.classList.remove('is-shown');
       reasonsEl.innerHTML = '';
-      var reasons = (m.reasons && m.reasons.length) ? m.reasons : ['不明なエラー'];
+      var reasons = (m.reasons && m.reasons.length) ? m.reasons : ['${js(t('mgUnknownError'))}'];
       for (var i = 0; i < reasons.length; i++) {
         var li = document.createElement('li');
         li.textContent = String(reasons[i]);
@@ -133,7 +139,7 @@ export function getNotesMigrationGateContent(
       }
       fail.classList.add('is-shown');
       btn.disabled = false;
-      btn.textContent = '再試行';
+      btn.textContent = '${js(t('mgRetry'))}';
     });
   })();
 </script>
