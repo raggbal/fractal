@@ -87,10 +87,12 @@ test.describe('host message i18n', () => {
                 if (!/\.(ts|js)$/.test(e.name)) continue;
                 const lines = fs.readFileSync(p, 'utf8').split('\n');
                 lines.forEach((line, i) => {
-                    // コメント行は除外 (行頭 // / * のみ。行内コメントの誤除外を避けるため保守的に)
+                    // コメント行 + 行内コメント (// 以降) を除外し、コード部分のみ検査する
+                    // (ユーザー可視の文字列リテラルの検出が目的。コメントの日本語はスコープ外)
                     const trimmed = line.trim();
                     if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return;
-                    if (jaPattern.test(line)) offenders.push(`${path.relative(ROOT, p)}:${i + 1}`);
+                    const codePart = line.split('//')[0];
+                    if (jaPattern.test(codePart)) offenders.push(`${path.relative(ROOT, p)}:${i + 1}`);
                 });
             }
         };

@@ -48,7 +48,14 @@ export interface Messages {
   translateSaveFailedPagesDir: string;
   translateSaveFailedParse: string;
   translateSaveFailed: string;
+  translateSaveNoOutFile: string;
+  translateSaved: string;
   terminologyUpdateFailed: string;
+  terminologyUpdated: string;
+  terminologyUploading: string;
+  terminologyFileNotSet: string;
+  terminologyNameNotSet: string;
+  terminologyCredentialsNotSet: string;
   reload: string;
   ignore: string;
   enterUrl: string;

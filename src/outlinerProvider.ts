@@ -1429,7 +1429,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             await vscode.workspace.applyEdit(edit);
                             await document.save();
 
-                            vscode.window.showInformationMessage(`翻訳結果を保存しました: ${h1Title}（${path.relative(path.dirname(document.uri.fsPath), newPagePath)}）`);
+                            vscode.window.showInformationMessage(t('translateSaved') + `${h1Title} (${path.relative(path.dirname(document.uri.fsPath), newPagePath)})`);
                             webviewPanel.webview.postMessage({
                                 type: 'translateSaveOk',
                                 newNodeId,
@@ -1440,7 +1440,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             });
                         } catch (err: any) {
                             console.error('[Translate] saveTranslationToOutlinerNode error:', err);
-                            vscode.window.showErrorMessage('翻訳結果の保存に失敗しました: ' + (err?.message || String(err)));
+                            vscode.window.showErrorMessage(t('translateSaveFailed') + (err?.message || String(err)));
                             webviewPanel.webview.postMessage({ type: 'translateSaveError', message: err?.message || String(err) });
                         }
                         break;

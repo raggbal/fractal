@@ -168,15 +168,15 @@ export function activate(context: vscode.ExtensionContext) {
             const region = config.get<string>('transRegion', 'us-east-1').trim();
 
             if (!rawPath) {
-                vscode.window.showErrorMessage('fractal.translateTerminologyFile が未設定です');
+                vscode.window.showErrorMessage(t('terminologyFileNotSet'));
                 return;
             }
             if (!name) {
-                vscode.window.showErrorMessage('fractal.translateTerminologyName が未設定です');
+                vscode.window.showErrorMessage(t('terminologyNameNotSet'));
                 return;
             }
             if (!accessKeyId || !secretAccessKey) {
-                vscode.window.showErrorMessage('AWS credentials (transAccessKeyId / transSecretAccessKey) が未設定です');
+                vscode.window.showErrorMessage(t('terminologyCredentialsNotSet'));
                 return;
             }
 
@@ -184,17 +184,17 @@ export function activate(context: vscode.ExtensionContext) {
             const filePath = resolveTerminologyPath(rawPath, wsRoot);
 
             await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '翻訳辞書を Amazon Translate に upload 中…' },
+                { location: vscode.ProgressLocation.Notification, title: t('terminologyUploading') },
                 async () => {
                     try {
                         const result = await importTerminology({
                             name, filePath, accessKeyId, secretAccessKey, region,
                         });
                         const cnt = typeof result.termCount === 'number' ? ` (${result.termCount} terms)` : '';
-                        vscode.window.showInformationMessage(`翻訳辞書 "${result.name}" を更新しました${cnt}`);
+                        vscode.window.showInformationMessage(t('terminologyUpdated') + `"${result.name}"${cnt}`);
                     } catch (err: any) {
                         const msg = err?.message || String(err);
-                        vscode.window.showErrorMessage('翻訳辞書の更新に失敗しました: ' + msg);
+                        vscode.window.showErrorMessage(t('terminologyUpdateFailed') + msg);
                     }
                 }
             );
