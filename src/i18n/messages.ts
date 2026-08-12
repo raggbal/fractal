@@ -29,6 +29,26 @@ export interface Messages {
   pdfExportCssSkipped: string;
   imageDirChanged: string;
   fileModifiedExternally: string;
+  // 移行ゲート + 移行完了 toast + 翻訳系エラー (sprint 20260813-073112-host-message-i18n)。
+  // migrationDone* の interpolation は trailing-separator 方式 (pdfExportDone と同じ):
+  // `t('migrationDoneBackup') + backupPath + t('migrationDoneRecovery')` のように値を挟んで連結する。
+  mgTitle: string;
+  mgDesc: string;
+  mgSummaryPages: string;
+  mgSummaryImages: string;
+  mgSummaryFiles: string;
+  mgMigrate: string;
+  mgMigrating: string;
+  mgFailed: string;
+  mgUnknownError: string;
+  mgRetry: string;
+  migrationDoneBackup: string;
+  migrationDoneRecovery: string;
+  migrationDoneUnresolved: string;
+  translateSaveFailedPagesDir: string;
+  translateSaveFailedParse: string;
+  translateSaveFailed: string;
+  terminologyUpdateFailed: string;
   reload: string;
   ignore: string;
   enterUrl: string;
