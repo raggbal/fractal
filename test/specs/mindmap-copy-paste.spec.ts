@@ -205,3 +205,58 @@ test('TC-MMI-02 dblclick lightbox still works (selection non-interfering)', asyn
         !!document.querySelector('.outliner-image-overlay, .image-overlay, [class*="overlay"]'));
     expect(overlay).toBe(true);
 });
+
+// design-review TDD-1(major): FR-MMC-01「(逆も)」= outliner copy → mindmap paste 方向
+test('TC-MMC-07 outliner copy pastes into mindmap view', async ({ page }) => {
+    await setup(page);
+    const data = tree();
+    (data as any).viewMode = 'outliner';
+    await init(page, data);
+    // outliner view で c2 subtree を copy(単一 node・file 添付)
+    await page.evaluate(async () => {
+        const textEl = document.querySelector('.outliner-text[data-node-id="c2"]') as HTMLElement;
+        textEl.focus();
+        const sel = window.getSelection()!;
+        sel.removeAllRanges(); // collapsed = 単一 node copy 経路
+    });
+    await page.keyboard.press('Meta+c');
+    await page.waitForTimeout(200);
+    // mindmap へ切替 → n9 にフォーカスして paste
+    await page.evaluate(() => { (window as any).Outliner.setViewMode('mindmap'); });
+    await page.waitForTimeout(300);
+    await focusNode(page, 'n9');
+    await page.evaluate(async () => {
+        const tree = document.querySelector('.outliner-tree')!;
+        const dt = new DataTransfer();
+        dt.setData('text/plain', 'Child B');
+        tree.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+        await new Promise(r => setTimeout(r, 400));
+    });
+    const count = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.mindmap-node-text'))
+            .filter(el => el.textContent?.trim() === 'Child B').length);
+    expect(count).toBe(2); // 元 c2 + n9 の子に貼られた分
+});
+
+// design-review TDD-2: 画像選択状態がファイル切替で残留しない(one-shot 対クリア)
+test('TC-MMI-03 image selection clears on file switch', async ({ page }) => {
+    await setup(page);
+    await init(page, tree());
+    await page.locator('.mindmap-node-images img').first().click();
+    await page.waitForTimeout(100);
+    let info = await page.evaluate(() =>
+        !!document.querySelector('.mindmap-node-images img.is-selected'));
+    expect(info).toBe(true);
+    // updateData でファイル切替 → 選択 state が stale 残留して Delete 誤爆しない
+    await page.evaluate((d) => {
+        (window as any).__hostMessageHandler({ type: 'updateData', data: d, fileChangeId: 'sw-1' });
+    }, tree());
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(() =>
+        document.querySelectorAll('.mindmap-node-images img').length);
+    await page.keyboard.press('Delete'); // stale selectedImageInfo なら誤削除される
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() =>
+        document.querySelectorAll('.mindmap-node-images img').length);
+    expect(after).toBe(before); // 誤削除なし
+});

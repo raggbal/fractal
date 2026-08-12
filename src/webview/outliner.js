@@ -9088,6 +9088,7 @@ var Outliner = (function() {
             if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
                 try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
             }
+            selectedImageInfo = null; // FR-MMI-01: stale 画像選択の対クリア
             model = new OutlinerModel(newData);
             searchEngine = new OutlinerSearch.SearchEngine(model);
             rawDataExtras = captureRawDataExtras(newData);
@@ -9237,6 +9238,9 @@ var Outliner = (function() {
                         if (VIEW_MODE === 'mindmap' && typeof MindmapRender !== 'undefined' && MindmapRender.destroy) {
                             try { MindmapRender.destroy(); } catch (eD) { /* noop */ }
                         }
+                        // FR-MMI-01: 旧ファイルの画像選択 state(selectedImageInfo)が残ると
+                        // 新ファイルで Delete が誤削除する(one-shot 対クリア — TC-MMI-03)
+                        selectedImageInfo = null;
                         model = new OutlinerModel(msg.data);
                         // sprint 20260724-063158 (FR-TP-03): VIEW_MODE residual 是正。ファイル切替で model が
                         //   変わったら VIEW_MODE を新 model の viewMode から再読込する（従来は再読込されず前タブの
