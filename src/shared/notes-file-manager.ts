@@ -2214,11 +2214,15 @@ export class NotesFileManager {
         const filePath = path.join(this.mainFolderPath, 'dailynotes.out');
 
         if (!fs.existsSync(filePath)) {
-            // pageDir / fileDir / imageDir は Notes mode default で <basename> 配下に
-            // 自動 resolve されるため、ここでは書き込まない (system 全体で一貫した命名規則)。
+            // notes-flat-storage (2026-07-07): 新規 .out は flat 規約 (createOutlineFile と同一)。
+            // ヒント無しだと notesArchiveTasks 等の書き込み側が旧 <basename>/ レイアウトを
+            // 新規に作ってしまい移行ゲートが再発する (sprint 20260812-171126)。
             const initialData = {
                 version: 1,
                 title: 'Daily Notes',
+                pageDir: flatLayout.FLAT_OUT_HINTS.pageDir,
+                imageDir: flatLayout.FLAT_OUT_HINTS.imageDir,
+                fileDir: flatLayout.FLAT_OUT_HINTS.fileDir,
                 rootIds: [] as string[],
                 nodes: {} as Record<string, unknown>,
             };

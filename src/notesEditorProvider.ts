@@ -29,7 +29,7 @@ import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-b
 // editorProvider が既に同 import を使う先例に倣う（outlinerProvider は notes/editor を import し返さないため新規循環なし）。
 import { buildPdfExportDeps } from './outlinerProvider';
 import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
-import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
+import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolvePageFilePath, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
@@ -2835,22 +2835,14 @@ export class NotesEditorProvider {
         try {
             outData = JSON.parse(fs.readFileSync(outFilePath, 'utf8'));
         } catch { /* ignore */ }
-        // Resolve pageDir: 1) .out JSON 内 pageDir → 2) ./<basename>/ (convention) → 3) ./pages (legacy)
-        // sprint 20260509-185557: VSCode 設定 outlinerPageDir 撤廃に伴い convention 経路を採用
-        const outDir = path.dirname(outFilePath);
-        const basename = path.basename(outFilePath, '.out');
-        let resolvedPageDir: string;
-        if (outData?.pageDir) {
-            const pageDir = outData.pageDir as string;
-            resolvedPageDir = path.isAbsolute(pageDir) ? pageDir : path.resolve(outDir, pageDir);
-        } else {
-            const newDefaultDir = path.resolve(outDir, basename);
-            const legacyDir = path.resolve(outDir, 'pages');
-            resolvedPageDir = (!fs.existsSync(newDefaultDir) && fs.existsSync(legacyDir))
-                ? legacyDir
-                : newDefaultDir;
-        }
-        const pagePath = path.join(resolvedPageDir, `${pageId}.md`);
+        // 読み取り正典 flat-layout で解決 (hint 最優先 → legacy 実在 → flat)。
+        // 旧手書き解決 (hint → ./<basename> → ./pages) は flat (note 直下) を見ず、
+        // hint 無し flat .out の page リンクが解決失敗していた (sprint 20260812-171126 TASK-03)。
+        const pagePath = resolvePageFilePath(outFilePath, pageId, noteFolderPath, {
+            pageDir: outData?.pageDir as string | undefined,
+            imageDir: outData?.imageDir as string | undefined,
+            fileDir: outData?.fileDir as string | undefined,
+        });
         return fs.existsSync(pagePath) ? pagePath : null;
     }
 

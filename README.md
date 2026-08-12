@@ -12,7 +12,7 @@
 
 ## Why Fractal Note
 
-- ✍️ **WYSIWYG Markdown** — Edit and read at the same time. No split preview, no raw markup. Tables, code blocks, Mermaid, math, draw.io — all rendered live.
+- ✍️ **WYSIWYG Markdown** — Edit and read at the same time. No split preview, no raw markup. Tables (Excel-like editing, **cell merging included**), code blocks, Mermaid, math, draw.io — all rendered live.
 - 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
 - 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
@@ -50,6 +50,8 @@ A Dynalist-class outliner. Folders, tags, and full-text search across both outli
 
 Tying it all together is **Notes** — a folder-scoped workspace (virtual tree, cross-file search, tabs, Daily Notes, S3 sync). Markdown pages open from both the markdown editor and the outliner. Subpages open in the **side panel** by default, or as standalone documents in a **new tab**.
 
+**Every file lives in one place, and moves freely.** Not just `.md` and `.out` — attach any file (PDF, Excel, images, …) to a note, and move it between the **note tree, outliner nodes, and markdown documents** with simple drag & drop or copy/cut/paste shortcuts. Ownership follows the move automatically, links keep working, and cross-note moves copy the assets for you — no manual file wrangling.
+
 ---
 
 ## 📝 Markdown editor (.md)
@@ -61,7 +63,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **Seamless live preview** — Markdown renders the moment you type it. Switch to **source mode** anytime (`Cmd+.`)
 - **Headings, lists, task lists, quotes, horizontal rules** — all standard markdown, keyboard-first
 - **Tables** — Excel-like cell selection: click selects a cell, arrows move, Shift+arrows / drag / Shift+click select ranges, and cmd+c/x/v interoperate with spreadsheets (TSV + HTML both ways). Enter/typing edits a cell; Tab moves right (last cell appends a row). Merge/unmerge cells from the toolbar (persisted as GFM-compatible markdown with a marker comment), filter rows with the toolbar search box (display-only), resize columns by dragging cell edges, and toggle the header row on/off — all markdown stays compatible with other viewers
-- **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ``` ``` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
+- **Blocks inside list items** — Quote and code blocks can live inside a list item's continuation lines (Shift+Enter), created via `> ` / ` ` ``` autoformat, the palette, or shortcuts, and they survive markdown round-trips
 - **Code blocks** — Syntax highlighting for 24+ languages, expandable into a VS Code editor tab
 - **Inline formatting** — Bold, italic, strikethrough, inline code, smart link creation
 - **Action palette** (`Cmd+/`) — Every formatting and insert action in one searchable menu
@@ -76,6 +78,11 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 - **Smart page breaks** — Breaks before `h1`/`h2` by default, but not before the first `h1` or the first `h2` right after an `h1` — chapters flow naturally
 - **Your own stylesheet** — `fractal.pdfStyles` (array of CSS file paths) overrides the built-in print style; set `fractal.pdfIncludeDefaultStyles: false` to replace it entirely. Page breaks are plain CSS (`break-before`), so you can disable or extend them freely
 - **Local & dependency-free** — Uses your installed Chrome/Edge headlessly; no network access during export, nothing added to the extension bundle
+
+### Export bundle — take a document out of the note
+Notes keep files flat with note-relative links, so copying a single `.md` out by hand breaks its images and subpages. **Export bundle** packs everything into one portable folder:
+- Right-click an outliner node (or use the side-panel button on a markdown page) → **Export bundle**
+- The page plus its **subpages (recursive), linked pages, images, and attachments** are copied into a single folder, with all links rewritten to be self-contained — ready to share, publish, or drop into another tool
 
 ### Diagrams & math
 - **Mermaid** — Rendered inline; click to edit the source
@@ -94,10 +101,13 @@ Create and edit draw.io diagrams without leaving VS Code.
 - **Automatic re-render** — However you edited it, the diagram in your open document redraws itself the instant you save. A seamless edit loop — just bounce between editors
 
 ### Subpages
+Embed markdown pages inside markdown pages, like Notion. A subpage isn't a mere link — it's **owned by its parent**, and that ownership follows the parent everywhere:
+![assets/images/1786518644715.png](assets/images/copy-1786518687773-1786518644715.png)
 - `Cmd+/`** → Add Page** (or `Cmd+N`) — Create a child markdown page and insert a link at the cursor
 - Click a `.md` link to open it in a **Notion-style side-peek panel** with full WYSIWYG editing, including back/forward navigation (`Opt+←` / `Opt+→`)
 - `Cmd+click` to open it as a standalone document in a **new tab**
 - Pages within pages — build hierarchies as deep as you like
+- **Subpages travel with their parent** — copy a parent (node copy/paste, cross-note paste, "Move to Other Note") and its subpages are duplicated or moved along with it, images and attachments included, with links rewritten so nothing breaks. Delete the parent and orphaned subpages are collected by Clean Unused Files
 
 ### AI-friendly: live sync of external changes
 When an AI assistant (Claude Code, Cursor, Kiro, …) — or anything else — modifies the file you have open:
@@ -129,7 +139,7 @@ Switch with the view toggle:
 
 1. **Outliner view** — Classic bullet tree. Unlimited nesting, collapse/expand, subtree scoping with breadcrumbs
 2. **Database view** — Your outline as a Notion-like database (tree table). Text and tag (multi-select) columns, plus optional **Date / Date & Time columns** with a native date picker
-3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit), node colors and shapes, boundaries (groups), and relationship lines
+3. **Mindmap mode** — The same `.out` rendered as an SVG mindmap. Four layouts (radial / left / right / balanced), keyboard-centric editing (navigation, sibling/child insert, swap, type-to-edit, copy/cut/paste with descendants), node colors and shapes, boundaries (groups), relationship lines — plus image attach/delete and drag & drop of 📄/📎 nodes to and from the note tree and markdown editors
 
 ### Organize with tags & search
 - `#tag` and `@tag` are auto-highlighted; click to filter instantly
@@ -362,7 +372,10 @@ The outliner column supports all of the outliner shortcuts above. In addition:
 | `Cmd+Shift+L` | Cycle layout (radial → right → left → balanced) |
 | `Cmd+Enter` | Open / create the page |
 | `Cmd+Shift+X` / `Cmd+Shift+Option+X` | Add / toggle checkbox — remove checkbox |
-| `Cmd+V` | Attach a pasted image to the node |
+| `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut the node with all descendants / paste as children of the focused node (same asset rules as the outliner) |
+| `Cmd+V` (image in clipboard) | Attach a pasted image to the node |
+| Click image + `Delete` | Select an attached image (accent outline) and remove it |
+| Click 📄 / 📎 | Open the page / attached file (icons are also draggable to the note tree and markdown editors) |
 | `Cmd+A` / `Cmd+Z` | Select all / undo |
 | `Cmd+wheel` | Zoom (toolbar ＋/−/Fit also available) |
 | Drag | Empty space: pan; node: re-parent (top ⅓ = previous sibling, bottom ⅓ = next sibling, middle = child) |
