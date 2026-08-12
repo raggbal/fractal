@@ -286,7 +286,7 @@ test.describe('Table range selection and operations (FR-TSL-02/03/04)', () => {
         expect(clip['text/plain']).toBe('a1\tb1\na2\tb2');
         expect(clip['text/html']).toContain('a1');
         expect(clip['text/html']).toContain('<table');
-        // cmd+v: (1,1) 起点 → 右列切捨て・下はみ出し行追加(paste イベント経由)
+        // cmd+v: (1,1) 起点 → 右はみ出しは列を追加して全部貼る(再オープン④裁定)・下は行追加
         await clickBodyCell(page, 1, 1);
         await page.evaluate(() => {
             const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
@@ -297,9 +297,14 @@ test.describe('Table range selection and operations (FR-TSL-02/03/04)', () => {
         });
         await page.waitForTimeout(300);
         const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
-        expect(md).toContain('| a2 | X1 |');
+        expect(md).toContain('| a2 | X1 | Y1 |'); // 列が 1 本増えて全部貼られる
         expect(md).toContain('X2');
-        expect(md).not.toContain('Y1');
+        expect(md).toContain('Y2');
+        // 全行の列数が一致(3 列)
+        const lines = md.split('\n').filter((l: string) => l.startsWith('|') && !l.includes('---'));
+        const counts = lines.map((l: string) => l.split('|').length - 2);
+        expect(new Set(counts).size).toBe(1);
+        expect(counts[0]).toBe(3);
     });
 
     // TC-TSL-11: 縦断選択の正規化 + 部分行コピーの md 書式(header + separator + 選択行)

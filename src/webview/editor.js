@@ -4803,9 +4803,16 @@ class EditorInstance {
             if (!(er < p.r || cp.r > destR2 || ec < p.c || cp.c > destC2)) tslUnmergeCell(cell);
         });
         // grid 座標で充填(unmerge 後に map を取り直す。cellIndex ずれ防止 = bug(3))。
-        // 列は増やさない(右はみ出し切捨て)・行は増やしてよい
+        // 再オープン④裁定: 右はみ出しは切捨てでなく**列を必要数追加して全部貼る**(Excel 準拠。
+        // 旧「切捨て」は選択内容の右下が黙って欠ける = ユーザー最新指示で改訂)。下も行追加
+        const srcCols = Math.max(...matrix.map((r) => r.length));
         let m2 = tslGridMap(table);
-        const colCount = m2.grid[0] ? m2.grid[0].length : 0;
+        let colCount = m2.grid[0] ? m2.grid[0].length : 0;
+        while (colCount < p.c + srcCols) {
+            tslInsertColAt(table, colCount); // 右端に列追加(col-widths はデフォルト幅で伸びる)
+            colCount++;
+        }
+        m2 = tslGridMap(table);
         for (let i = 0; i < matrix.length; i++) {
             if (p.r + i >= m2.rows.length) {
                 // 下はみ出し = 行追加
@@ -4821,7 +4828,6 @@ class EditorInstance {
                 m2 = tslGridMap(table);
             }
             for (let j = 0; j < matrix[i].length; j++) {
-                if (p.c + j >= colCount) break; // 右はみ出し = 切捨て(列は増やさない)
                 const cell = m2.grid[p.r + i] ? m2.grid[p.r + i][p.c + j] : null;
                 if (cell) cell.innerHTML = matrix[i][j] || '<br>';
             }
@@ -5413,7 +5419,8 @@ class EditorInstance {
             const landing = (m1.grid[rowIndex] && m1.grid[rowIndex][gc]) || targetRow.cells[targetRow.cells.length - 1];
             if (landing) {
                 activeTableCell = landing;
-                setCursorToEnd(landing);
+                // 再オープン④: 削除後の着地セルを select 枠で可視化(連続削除できるように)
+                tslEnterSelect(landing);
             }
         }
         syncMarkdown();
@@ -5440,7 +5447,8 @@ class EditorInstance {
             || (m1.rows[tr] && m1.rows[tr].cells[0]);
         if (landing) {
             activeTableCell = landing;
-            setCursorToEnd(landing);
+            // 再オープン④: 削除後の着地セルを select 枠で可視化(連続削除できるように)
+            tslEnterSelect(landing);
         }
         syncMarkdown();
     }

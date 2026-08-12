@@ -472,3 +472,125 @@ test('TC-TSL-18 switching to source mode hides the table toolbar', async ({ page
         document.querySelector('.table-toolbar')?.classList.contains('visible'));
     expect(visible).toBe(false);
 });
+
+// ---- 再オープン④(2026-08-12) ----
+
+// (1) 右はみ出し裁定改訂: 列を必要数追加して選択内容を全部貼る(Excel 準拠)
+test('TC-TMG-16 paste extends columns when content overflows right (no silent clipping)', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await setup(page, M + '\n| No | 指摘 | 対応 |\n| --- | --- | --- |\n| 2 | < | すでに修正済み |\n| ^ | ^ | 指摘は妥当 |\n| 4 | 認証が粗い | 修正しない |');
+    // 2(2x2)+ 右列 2 セルをコピー
+    const box = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const cell = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === '2')!;
+        const b = cell.getBoundingClientRect();
+        return { x: b.x + 10, y: b.y + 10 };
+    });
+    await page.mouse.click(box.x, box.y);
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Shift+ArrowRight');
+    await page.keyboard.press('Meta+c');
+    await page.waitForTimeout(300);
+    const clip = await page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            if (item.types.includes('text/html')) return await (await item.getType('text/html')).text();
+        }
+        return '';
+    });
+    // grid 1 列目(認証が粗い)起点に paste → 3 列必要だが残り 2 列 → 1 列自動追加で全部貼る
+    const box2 = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const target = Array.from(t.querySelectorAll('td')).find(c => c.textContent?.trim() === '認証が粗い')!;
+        const b = target.getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    });
+    await page.mouse.click(box2.x, box2.y);
+    await page.waitForTimeout(150);
+    await page.evaluate((html) => {
+        const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'clipboardData', {
+            value: { getData: (t: string) => t === 'text/html' ? html : '' },
+        });
+        document.querySelector('#editor')!.dispatchEvent(e);
+    }, clip);
+    await page.waitForTimeout(400);
+    const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+    // 右下(指摘は妥当)が落ちない + 4 列に拡張
+    expect(md).toContain('指摘は妥当');
+    const tableLines = md.split('\n').filter((l: string) => l.startsWith('|') && !l.includes('---'));
+    const counts = tableLines.map((l: string) => l.split('|').length - 2);
+    expect(new Set(counts).size).toBe(1);
+    expect(counts[0]).toBe(4); // 3 列 → 4 列(必要分だけ追加)
+    // 貼り付け側の内容 2 組目
+    expect((md.match(/すでに修正済み/g) || []).length).toBe(2);
+    expect((md.match(/指摘は妥当/g) || []).length).toBe(2);
+});
+
+// (2) 行/列削除後の着地セルが select 枠で見える(連続削除)
+test('TC-TMG-17 delete row/col keeps a visible selected landing cell', async ({ page }) => {
+    await setup(page, '| H1 | H2 |\n| --- | --- |\n| a1 | b1 |\n| a2 | b2 |\n| a3 | b3 |');
+    await clickBodyCell(page, 1, 0); // a2
+    await page.evaluate(() => {
+        (document.querySelector('.table-toolbar [data-action="del-row"]') as HTMLElement).click();
+    });
+    await page.waitForTimeout(300);
+    let sel = await page.evaluate(() => ({
+        text: document.querySelector('#editor .tbl-cell-selected')?.textContent?.trim() ?? null,
+        mode: (document.querySelector('#editor table') as HTMLTableElement).classList.contains('tbl-select-mode'),
+    }));
+    expect(sel.mode).toBe(true);
+    expect(sel.text).toBe('a1'); // 上の行の同列に着地・枠が見える
+    // 連続削除(そのまま del-row)
+    await page.evaluate(() => {
+        (document.querySelector('.table-toolbar [data-action="del-row"]') as HTMLElement).click();
+    });
+    await page.waitForTimeout(300);
+    sel = await page.evaluate(() => ({
+        text: document.querySelector('#editor .tbl-cell-selected')?.textContent?.trim() ?? null,
+    }));
+    expect(sel.text).toBe('a3'); // 続けて削除できている
+});
+
+// (3) Excel 由来の colspan/rowspan HTML paste → 結合再現(マーカー + トークン md)
+test('TC-TMG-18 pasting external HTML with spans reproduces merged cells', async ({ page }) => {
+    await page.goto('http://localhost:3000/standalone-editor.html');
+    await page.waitForSelector('#editor', { state: 'visible' });
+    await page.evaluate(() => {
+        const editor = document.getElementById('editor')!;
+        editor.innerHTML = '<p><br></p>';
+        const p = editor.querySelector('p')!;
+        const r = document.createRange();
+        r.selectNodeContents(p); r.collapse(true);
+        const s = window.getSelection()!;
+        s.removeAllRanges(); s.addRange(r);
+    });
+    await page.waitForTimeout(100);
+    await page.evaluate(() => {
+        const html = '<table><tr><th>H1</th><th>H2</th><th>H3</th></tr>'
+            + '<tr><td colspan="2" rowspan="2">merged</td><td>c1</td></tr>'
+            + '<tr><td>c2</td></tr></table>';
+        const clipboardData = {
+            _data: { 'text/plain': '', 'text/html': html } as Record<string, string>,
+            getData: function (t: string) { return this._data[t] || ''; },
+            setData: function (t: string, v: string) { this._data[t] = v; },
+            items: [],
+        };
+        const e = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'clipboardData', { value: clipboardData });
+        document.getElementById('editor')!.dispatchEvent(e);
+    });
+    await page.waitForTimeout(400);
+    const st = await page.evaluate(() => {
+        const t = document.querySelector('#editor table') as HTMLTableElement;
+        const merged = Array.from(t?.querySelectorAll('td') || []).find(c => c.textContent?.trim() === 'merged');
+        return {
+            md: (window as any).__testApi.getMarkdown(),
+            span: merged ? `${merged.colSpan}x${merged.rowSpan}` : null,
+        };
+    });
+    expect(st.md).toContain('fractal-merged-table');
+    expect(st.span).toBe('2x2'); // Excel の結合が DOM でも再現
+    expect(st.md).toContain('| merged | < | c1 |');
+    expect(st.md).toContain('| ^ | ^ | c2 |');
+});
