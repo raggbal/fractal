@@ -47,6 +47,16 @@ export class DocExtractCache {
         return path.join(this.cacheDir, `${key}.json`);
     }
 
+    /**
+     * 実体削除に連動してキャッシュエントリを消す（SEC-3: 削除済み添付の本文テキストを
+     * globalStorage に残さない — ライフサイクル対称性）。best-effort（失敗は削除を止めない）。
+     */
+    evict(absPath: string): void {
+        const cachePath = this.cacheFilePath(absPath);
+        if (!cachePath) { return; }
+        try { fs.rmSync(cachePath, { force: true }); } catch { /* best-effort */ }
+    }
+
     async getOrExtract(absPath: string): Promise<ExtractResult> {
         let stat: fs.Stats;
         try {

@@ -142,3 +142,34 @@ test.describe('DocExtractCache（ADRL-0058）', () => {
         expect(cached.length).toBe(1);
     });
 });
+
+test.describe('DocExtractCache.evict（TASK-13 / SEC-3）', () => {
+    test('TC-DS-44: evict 後にキャッシュファイル不在 + 次回 getOrExtract は再抽出', async () => {
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-evict-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-evict-store-'));
+        try {
+            const file = path.join(noteDir, 'secret.docx');
+            fs.writeFileSync(file, 'confidential-bytes');
+            const calls: string[] = [];
+            const cache = new DocExtractCache(cacheDir, async (buf, ext) => {
+                calls.push(ext);
+                return { lines: ['機密テキスト'], truncated: false };
+            });
+            await cache.getOrExtract(file);
+            expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json')).length).toBe(1);
+
+            cache.evict(file);
+            // 抽出済み本文テキストが globalStorage 相当から消える（SEC-3 の核）
+            expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json')).length).toBe(0);
+
+            await cache.getOrExtract(file);              // 次回は再抽出
+            expect(calls.length).toBe(2);
+
+            // cacheDir=null でも evict は例外を出さない
+            new DocExtractCache(null).evict(file);
+        } finally {
+            fs.rmSync(noteDir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});

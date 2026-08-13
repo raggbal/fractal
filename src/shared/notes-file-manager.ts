@@ -276,6 +276,9 @@ export class NotesFileManager {
                     vscode.Uri.file(entityPath),
                     { useTrash: true, recursive: false }
                 );
+                // SEC-3: 抽出テキストキャッシュも実体削除に連動して evict
+                //（削除済み添付の本文テキストを globalStorage に残さない）
+                this.docCache.evict(entityPath);
             }
             this.removeItemFromStructure(structure, itemId);
             this.saveStructure();
@@ -1591,6 +1594,9 @@ export class NotesFileManager {
                     new Set<string>([itemId, newId]),
                     [{ absPath: srcEntity, recursive: false, isSharedAsset: true }]
                 );
+                // SEC-3: src 実体が削除されうる経路なのでキャッシュも evict（temporal に残っても
+                // mtime 不一致で無効化されるが、本文テキストを残さない対称性を優先）
+                this.docCache.evict(srcEntity);
             }
             // else: 残留 file item がまだ同実体を参照 → src 実体温存（削除しない）
         } catch (e) {

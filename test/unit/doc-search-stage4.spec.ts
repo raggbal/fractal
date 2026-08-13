@@ -177,3 +177,45 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
         expect(events.filter((e) => e === 'partial').length).toBeGreaterThan(0);
     });
 });
+
+test.describe('削除連動 evict（TASK-13 / SEC-3）', () => {
+    test('TC-DS-45: deleteTreeFile 後に抽出キャッシュが cacheDir に残存しない', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-evict-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-evict-cache-'));
+        // deleteTreeFile は require('vscode') する → Module._load stub（TC-TF-08 と同型）
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const Module = require('module');
+        const origLoad = Module._load;
+        Module._load = function (request: string) {
+            if (request === 'vscode') {
+                return {
+                    workspace: {
+                        fs: { delete: async (uri: { fsPath: string }) => { fs.rmSync(uri.fsPath, { force: true, recursive: true }); } },
+                        getConfiguration: () => ({ get: () => undefined }),
+                    },
+                    Uri: { file: (p: string) => ({ fsPath: p }) },
+                };
+            }
+            // eslint-disable-next-line prefer-rest-params
+            return origLoad.apply(this, arguments as never);
+        };
+        try {
+            const fm = new NotesFileManager(dir, cacheDir);
+            const filesDir = path.join(dir, 'files');
+            fs.mkdirSync(filesDir, { recursive: true });
+            const id = fm.registerTreeFile('meeting.docx', '会議資料', null, 0,
+                fs.readFileSync(path.join(FIX, 'docx-pydocx.docx')));
+            // 検索でキャッシュ生成
+            await fm.searchFilesStreaming('吾輩は猫である', { caseSensitive: false, wholeWord: false, useRegex: false }, () => {});
+            expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json')).length).toBe(1);
+
+            await fm.deleteTreeFile(id);
+            // counterfactual: evict 配線を外すと本文テキスト入り .json が残留 = RED
+            expect(fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json')).length).toBe(0);
+        } finally {
+            Module._load = origLoad;
+            fs.rmSync(dir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});
