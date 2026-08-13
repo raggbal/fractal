@@ -2386,9 +2386,11 @@ class EditorInstance {
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
-                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
-                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
+                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — ce=false/user-select:none を
+                        // 撤去しテキストを編集・選択・BS 可能に（ユーザー要求: 他リンクとの非対称解消）。
+                        // drag は ::before 掴みアイコン（テキスト選択対象外 = mousedown を奪われない領域、
+                        // subpage TASK-19 と同一機序）から開始する。旧 TC-MX-08 の ce=false は本行から撤去。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
                     }
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
@@ -11386,10 +11388,12 @@ class EditorInstance {
             return;
         }
 
-        // TASK-02 (sprint 20260813-210323): ce=false アンカー（📎 file リンク等）のみの li は
-        // ブラウザ標準の ↑↓ で caret を置けずスキップ/消失する（素の contenteditable でも再現 =
-        // ブラウザ挙動）。移動先の行がそれに該当する場合、caret を li に明示配置して補助する。
-        // ce=false 自体は外せない（TC-MX-08: D&D の dragstart 発火要件）ため、進入側で救う。
+        // TASK-02 (sprint 20260813-210323): ce=false 要素のみの li はブラウザ標準の ↑↓ で
+        // caret を置けずスキップ/消失する（素の contenteditable でも再現 = ブラウザ挙動）。
+        // 移動先の行がそれに該当する場合、caret を li に明示配置して補助する。
+        // ※ 📎 file リンクは TASK-05 で ce=false を撤去（テキスト編集可・drag は ::before
+        //    アイコンから）したため標準挙動で入れる = この補助は発火しない。残る ce=false
+        //    要素（checkbox 等・将来の非編集 inline）への安全網として維持。
         if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.metaKey && !e.altKey) {
             const selNav = window.getSelection();
             if (selNav && selNav.rangeCount && selNav.isCollapsed) {
@@ -18745,7 +18749,7 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
-            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
+            // TASK-05 (sprint 20260813-210323): ce=false は撤去（subpage 方式 — テキスト編集可・drag は ::before アイコンから）
 
             editor.focus();
             const sel = window.getSelection();

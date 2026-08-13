@@ -102,8 +102,8 @@ test.describe('TASK-01: リスト cut の残骸一掃', () => {
         await setup(page,
             '<ul><li>参考' +
             '<ul>' +
-            '<li><a href="files/a.docx" class="link-internal-md" data-is-file-attachment="true" data-markdown-path="files/a.docx" draggable="true" contenteditable="false">📎 SolutionSpace.docx</a></li>' +
-            '<li><a href="files/b.docx" class="link-internal-md" data-is-file-attachment="true" data-markdown-path="files/b.docx" draggable="true" contenteditable="false">📎 追記_Solution.docx</a></li>' +
+            '<li><a href="files/a.docx" class="link-internal-md" data-is-file-attachment="true" data-markdown-path="files/a.docx" draggable="true">📎 SolutionSpace.docx</a></li>' +
+            '<li><a href="files/b.docx" class="link-internal-md" data-is-file-attachment="true" data-markdown-path="files/b.docx" draggable="true">📎 追記_Solution.docx</a></li>' +
             '<li><a href="sub.md" class="link-internal-md link-subpage" data-subpage="true" draggable="true">sss</a></li>' +
             '</ul></li></ul>');
         await page.evaluate(() => {
@@ -397,5 +397,109 @@ test.describe('TASK-03: Enter 分割での md アイコン複製防止', () => {
         s = await anchorState(page);
         expect(s.anchorCount).toBe(1);
         expect(s.emptyAnchors).toBe(0);
+    });
+});
+
+test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキスト編集可能）', () => {
+
+    test('TC-LX-11: file リンクテキストに ←→ で入れ、shift+矢印で選択コピーでき、BS で消せる', async ({ page, context }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('- [📎 doc1.docx](files/a.docx)\n- next\n');
+        });
+        await page.waitForTimeout(400);
+
+        // DOM 契約: ce=false が撤去され draggable は維持（counterfactual: ce=false 復活で
+        // 以降の caret 進入・選択・BS が全部効かなくなる = RED）
+        const attrs = await page.evaluate(() => {
+            const a = document.querySelector('#editor a[data-is-file-attachment="true"]') as HTMLElement;
+            return { ce: a.getAttribute('contenteditable'), draggable: a.getAttribute('draggable') };
+        });
+        expect(attrs.ce).not.toBe('false');
+        expect(attrs.draggable).toBe('true');
+
+        // (a) ←→ 進入: 行頭（li offset 0）から → でアンカーテキスト内にキャレットが入る
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const li = editor.querySelector('li') as HTMLElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStart(li, 0); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            editor.focus();
+        });
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('ArrowRight');
+        const inAnchor = await page.evaluate(() => {
+            const sel = window.getSelection() as Selection;
+            const c = sel.getRangeAt(0).startContainer;
+            const el = c.nodeType === 1 ? (c as Element) : (c.parentElement as Element);
+            return !!el.closest('a[data-is-file-attachment="true"]');
+        });
+        expect(inAnchor).toBe(true);                           // 旧 ce=false ではアンカー全体を飛び越え false
+
+        // (b) shift+矢印で選択して cmd+c（リンクテキストの部分コピー = ユーザー要求）
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Meta+c');
+        const clip = await page.evaluate(() => navigator.clipboard.readText());
+        expect(clip.trim().length).toBeGreaterThan(0);
+        expect('📎 doc1.docx').toContain(clip.trim());          // アンカーテキストの一部が取れている
+
+        // (c) BS 削除: アンカーテキスト末尾で Backspace → 1 文字消える
+        await page.evaluate(() => {
+            const a = document.querySelector('#editor a[data-is-file-attachment="true"]') as HTMLAnchorElement;
+            const tn = a.firstChild as Text;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStart(tn, tn.length); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            (document.getElementById('editor') as HTMLElement).focus();
+        });
+        await page.keyboard.press('Backspace');
+        await page.waitForTimeout(200);
+        const afterBs = await page.evaluate(() => {
+            const a = document.querySelector('#editor a[data-is-file-attachment="true"]');
+            return a ? (a.textContent || '') : 'ANCHOR-GONE';
+        });
+        expect(afterBs).toBe('📎 doc1.doc');                    // 旧 ce=false では Backspace 無反応
+    });
+
+    test('TC-LX-12: drag はアイコン起点のみ発火 — テキスト中央は選択操作（ce=true 化の両立性の対検証）', async ({ page }) => {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('- [📎 report-with-long-name.pdf](files/report.pdf)\n- next\n');
+            (window as any).__dragTypes = null;
+            document.addEventListener('dragstart', (e: any) => {
+                (window as any).__dragTypes = e.dataTransfer ? Array.from(e.dataTransfer.types || []) : [];
+            }, false);
+        });
+        await page.waitForTimeout(400);
+        const a = page.locator('#editor a[data-is-file-attachment="true"]');
+
+        // (a) テキスト中央からの mousedown → text selection が奪い element drag 不発
+        //     （counterfactual: ce=false に戻すとここが発火してしまい RED）
+        const box = (await a.boundingBox())!;
+        await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.6 + 80, box.y + 80, { steps: 5 });
+        await page.mouse.up();
+        expect(await page.evaluate(() => (window as any).__dragTypes)).toBeNull();
+
+        // (b) ::before アイコン（左端）起点なら dragstart + MIME 発火 = D&D 要件 FR-TF-15 維持
+        await page.evaluate(() => { (window as any).__dragTypes = null; });
+        const box2 = (await a.boundingBox())!;
+        await page.mouse.move(box2.x + 5, box2.y + box2.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box2.x + 85, box2.y + 80, { steps: 5 });
+        await page.mouse.up();
+        const types = await page.evaluate(() => (window as any).__dragTypes);
+        expect(types).not.toBeNull();
+        expect(types).toContain('application/x-fractal-md-filelink');
     });
 });

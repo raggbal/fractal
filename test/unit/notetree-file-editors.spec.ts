@@ -439,12 +439,16 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(mdCalls[0].args[3]).toBe('before');  // position
     });
 
-    // ---- TC-MX-08 (FR-TF-15 code_fix 2026-08-10): file アンカーは real mouse drag で dragstart 発火 ----
-    // 機序（real Chromium 実測）: contenteditable=true 内のアンカーは draggable=true でも
-    // text selection が mousedown を奪い dragstart が発火しない。ce=false + user-select:none で
-    // 選択対象から外れ element drag が始まる（counterfactual: ce=false を外すと dragstart 不発 = RED）。
-    test('TC-MX-08 レンダ済み file アンカーを real mouse drag → dragstart + x-fractal-md-filelink', async ({ page }) => {
+    // ---- TC-MX-08 (FR-TF-15 → TASK-05 sprint 20260813-210323 で subpage 方式に更新) ----
+    // 旧仕様: ce=false + user-select:none でアンカー全体を掴めた（が、テキスト編集・選択・BS 不能）。
+    // 新仕様（許可: test_update・ユーザー要求 = 他リンクとの非対称解消）: ce=false 撤去でテキストは
+    // 編集可能、drag は ::before 掴みアイコン（テキスト選択対象外領域 — subpage TASK-19 と同一機序）から。
+    test('TC-MX-08 レンダ済み file アンカーの ::before アイコン起点 real mouse drag → dragstart + x-fractal-md-filelink', async ({ page }) => {
         await loadEnv(page);
+        // ::before 掴みアイコンは styles.css 由来 — このハーネスは script のみ注入なので
+        // 実 CSS を現ソースから注入する（TC-MX-10 の outliner.css 注入と同思想）。
+        // CSS 無しだと左端 mousedown がテキストに落ち text selection に奪われる = 実環境と乖離。
+        await page.addStyleTag({ content: r('webview/styles.css') });
         await page.evaluate(() => {
             const mc = document.querySelector('.markdown-container') as HTMLElement;
             mc.style.display = '';
@@ -462,20 +466,20 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
 
         const a = page.locator('.markdown-container .editor a[data-is-file-attachment="true"]');
         await a.waitFor({ state: 'visible' });
-        // DOM 契約: ce=false + draggable
-        expect(await a.getAttribute('contenteditable')).toBe('false');
+        // DOM 契約: draggable は維持・ce=false は撤去（テキスト編集可能）
         expect(await a.getAttribute('draggable')).toBe('true');
+        expect(await a.getAttribute('contenteditable')).not.toBe('false');
 
-        // real mouse drag（アンカー中央 = テキスト部分を掴む — 手動テストと同じ持ち方）
+        // real mouse drag（アンカー左端の ::before アイコン領域を掴む — subpage と同じ持ち方）
         const box = (await a.boundingBox())!;
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.move(box.x + 6, box.y + box.height / 2);
         await page.mouse.down();
-        await page.mouse.move(box.x + box.width / 2 + 80, box.y + 80, { steps: 5 });
-        await page.mouse.move(box.x + box.width / 2 + 160, box.y + 160, { steps: 5 });
+        await page.mouse.move(box.x + 86, box.y + 80, { steps: 5 });
+        await page.mouse.move(box.x + 166, box.y + 160, { steps: 5 });
         await page.mouse.up();
 
         const types = await page.evaluate(() => (window as any).__dragTypes);
-        expect(types).not.toBeNull(); // dragstart が発火した（ce=false を外すと null = RED）
+        expect(types).not.toBeNull(); // アイコン起点で dragstart が発火（テキスト部分は選択操作になる）
         expect(types).toContain('application/x-fractal-md-filelink');
     });
 
@@ -699,7 +703,10 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         const r = await page.evaluate(() => {
             const mc = document.querySelector('.markdown-container') as HTMLElement;
             const editorEl = mc.querySelector('.editor') as HTMLElement;
-            // 実環境の症状幾何を再現: ce=false アンカー行 + 大きな padding。
+            // 実環境の症状幾何を再現: ce=false inline 要素の行 + 大きな padding。
+            // ※ file アンカー自体は TASK-05 (sprint 20260813-210323) で ce=true 化されたが、
+            //    この fixture の ce=false は「caretRangeFromPoint が高さ 0 の element offset に
+            //    落ちる幾何」を合成する装置（code block header 等の ce=false inline で今も実在）。
             // アンカー行の padding 域では caretRangeFromPoint が P の element offset に落ちて
             // 高さ 0 の rect を返し（最初の repro grid で実測）、elementFromPoint は editor 自体
             // （padding は editor の box）→ 旧実装の「editor rect 基準の全高バー」分岐に入る。
