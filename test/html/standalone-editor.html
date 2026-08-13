@@ -28650,30 +28650,17 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', sel.toString());
         }
 
-        // 選択内の li を削除前に収集（Backspace 範囲選択 :7622 と同じ手順。掃除対象を選択内に限定）
-        let startLi = null;
-        let n = range.startContainer;
-        while (n && n !== editor) {
-            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { startLi = n; break; }
-            n = n.parentNode;
-        }
-        let endLi = null;
-        n = range.endContainer;
-        while (n && n !== editor) {
-            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { endLi = n; break; }
-            n = n.parentNode;
-        }
+        // 選択内の li を削除前に収集（掃除対象を選択内に限定）。
+        // TASK-01 (sprint 20260813-210323): 旧実装は選択端点から li を遡る方式で、
+        // 片端がリスト外（段落等 = startLi/endLi が null）だと startIdx===-1 で
+        // 間の li を一切収集できず、掃除がスキップされてバレットだけの殻 li が残った
+        //（ユーザー報告「cut 残骸」の根因）。端点に依存せず、選択 range に交差する
+        // 全 li を intersectsNode で列挙する（端点がどこでも取りこぼさない）。
         const affectedLis = [];
-        if (startLi) affectedLis.push(startLi);
-        if (endLi && endLi !== startLi) {
-            const allLis = Array.from(editor.querySelectorAll('li'));
-            const startIdx = allLis.indexOf(startLi);
-            const endIdx = allLis.indexOf(endLi);
-            if (startIdx !== -1 && endIdx !== -1) {
-                const minIdx = Math.min(startIdx, endIdx);
-                const maxIdx = Math.max(startIdx, endIdx);
-                for (let i = minIdx + 1; i <= maxIdx; i++) affectedLis.push(allLis[i]);
-            }
+        for (const li of editor.querySelectorAll('li')) {
+            try {
+                if (range.intersectsNode(li)) affectedLis.push(li);
+            } catch (e) { /* detached 等は無視 */ }
         }
 
         // Delete the selection
