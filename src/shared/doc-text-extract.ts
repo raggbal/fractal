@@ -283,14 +283,15 @@ async function extractPdf(buf: Buffer, opts?: ExtractOpts): Promise<ExtractResul
     if (!pdfjs) { return skip('pdf_unavailable'); }
     try {
         const lib = pdfjs as {
-            getDocument: (o: { data: Uint8Array }) => { promise: Promise<{
+            getDocument: (o: { data: Uint8Array; verbosity?: number }) => { promise: Promise<{
                 numPages: number;
                 getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: Array<{ str?: string }> }> }>;
                 destroy: () => Promise<void>;
             }> };
         };
-        // pdfjs は buffer を転送で消費しうるためコピーを渡す
-        const doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+        // pdfjs は buffer を転送で消費しうるためコピーを渡す。verbosity 0 = errors のみ
+        // （Warning が console/stdout を汚染し CLI --json の出力を壊すのを防ぐ — CLI ミラーと同値）
+        const doc = await lib.getDocument({ data: new Uint8Array(buf), verbosity: 0 }).promise;
         let text = '';
         try {
             for (let i = 1; i <= doc.numPages; i++) {

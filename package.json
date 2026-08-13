@@ -464,6 +464,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js",
+    "build:pdfjs-vendor": "node scripts/build-pdfjs-vendor.js",
     "watch": "node esbuild.js --watch",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
@@ -500,5 +501,8 @@
     "pdfjs-dist": "4.10.38",
     "turndown": "^7.2.2",
     "turndown-plugin-gfm": "^1.0.2"
+  },
+  "overrides": {
+    "@napi-rs/canvas": "file:./scripts/empty-stub"
   }
 }

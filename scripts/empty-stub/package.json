@@ -1,0 +1,6 @@
+{
+  "name": "empty-stub",
+  "version": "1.0.0",
+  "description": "Empty replacement for @napi-rs/canvas (pdfjs-dist optional native dep). Text extraction (getTextContent) never touches canvas; substituting an empty module keeps npm install free of native binaries without omitting ALL optionals (esbuild's platform binary is an optionalDependency and must stay). ADRL-0057.",
+  "main": "index.js"
+}
