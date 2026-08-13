@@ -127,8 +127,8 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         const json = runCliJson(['--query', '吾輩は猫である', '--folder', note], mkCacheDir());
         const fileHits = json.results.filter((r: any) => r.kind === 'file');
         expect(fileHits.length).toBe(1);
-        expect(fileHits[0].fileId).toBe('att1');
-        expect(fileHits[0].fileTitle).toBe('会議資料');
+        expect(fileHits[0].fileId).toBe('files/meeting.docx');   // rev.2: files/ 相対パス同定
+        expect(fileHits[0].fileTitle).toBe('会議資料');           // 台帳 title 逆引き
         expect(fileHits[0].matches.length).toBeGreaterThan(0);
 
         // 既存 scope（node,outline 相当の 'outline'）では添付非対象
@@ -155,7 +155,30 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         const json = runCliJson(['--query', '富士山麓に鸚鵡鳴く', '--folder', note, '--scope', 'file'], mkCacheDir());
         const hits = json.results.filter((r: any) => r.kind === 'file');
         expect(hits.length).toBe(1);
-        expect(hits[0].fileId).toBe('pdf1');
+        expect(hits[0].fileId).toBe('files/report.pdf');   // rev.2: files/ 相対パス同定
+    });
+
+    test('TC-DS-50: 台帳未登録 file（node 📎 / md 📎 添付相当）が walk でヒット（rev.2 の核・CLI 対称）', () => {
+        // items 台帳に登録しない = node.filePath / md 📎 添付の実体状態
+        const note = track(mkNoteWithAttachments([]));
+        fs.copyFileSync(path.join(FIX, 'docx-textutil.docx'), path.join(note, 'files', 'embedded.docx'));
+        const json = runCliJson(['--query', '国境の長いトンネル', '--folder', note, '--scope', 'file'], mkCacheDir());
+        const hits = json.results.filter((r: any) => r.kind === 'file');
+        // counterfactual: 台帳走査（rev.1）に戻すと 0 件 = RED
+        expect(hits.length).toBe(1);
+        expect(hits[0].fileId).toBe('files/embedded.docx');
+        expect(hits[0].fileTitle).toBe('embedded.docx');
+    });
+
+    test('TC-DS-48(CLI): symlink 非追従 — files/ 外を指す symlink は対象にならない', () => {
+        const note = track(mkNoteWithAttachments([]));
+        const outside = path.join(note, 'outside.docx');
+        fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), outside);
+        fs.symlinkSync(outside, path.join(note, 'files', 'link.docx'));
+        fs.symlinkSync(note, path.join(note, 'files', 'linkdir'));
+        const json = runCliJson(['--query', '吾輩は猫である', '--folder', note, '--scope', 'file'], mkCacheDir());
+        // counterfactual: walk が symlink を追うと外の docx がヒット = RED
+        expect(json.results.filter((r: any) => r.kind === 'file').length).toBe(0);
     });
 
     test('TC-DS-23: vendor 欠損 → PDF skip・docx ヒット・exit 0', () => {
@@ -188,7 +211,8 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), outside);
         try {
             const json = runCliJson(['--query', '吾輩は猫である', '--folder', note, '--scope', 'file'], mkCacheDir());
-            // clamp により evil item は解決 null → skip（counterfactual: clamp を外すと外の docx を読んでヒット = RED）
+            // rev.2: walk は files/ 実体しか列挙しない — 台帳の traversal filename は構造的に無効
+            // （rev.1 では safeResolveUnderDirMjs の clamp が防御していた。walk の escape 防御は TC-DS-48(CLI)）
             expect(json.results.filter((r: any) => r.kind === 'file').length).toBe(0);
         } finally {
             fs.rmSync(outside, { force: true });

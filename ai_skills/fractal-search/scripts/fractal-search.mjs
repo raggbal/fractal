@@ -505,18 +505,8 @@ function parseMdForSearch(absPath) {
 const CONTENT_SEARCH_FILE_EXTS = ['.pdf', '.docx', '.xlsx', '.pptx'];
 const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;  // FR-DS-07(d)・FR-TF-01 precedent
 
-// safeResolveUnderDir の CLI ミラー（正典: src/shared/path-safety.ts — ADRL-0040。
-// 正典を変更したらここも転記し、traversal 番人 TC-DS-24 で対称性を確認）
-function safeResolveUnderDirMjs(baseDir, relPath) {
-    if (path.isAbsolute(relPath)) return null;
-    if (/^[a-zA-Z]:[/\\]/.test(relPath)) return null;
-    const normalized = path.normalize(relPath);
-    if (normalized.startsWith('..' + path.sep) || normalized === '..') return null;
-    const absPath = path.resolve(baseDir, normalized);
-    const relToBase = path.relative(baseDir, absPath);
-    if (relToBase.startsWith('..')) return null;
-    return absPath;
-}
+// （rev.2: safeResolveUnderDirMjs は walk 一本化で不要になり削除 — escape 防御は
+//   walkContentSearchFilesMjs の symlink 非追従が担う。TC-DS-48(CLI) が番人）
 
 // pdfjs vendor バンドル（esbuild 単一ファイル・repo に commit）の遅延 require。
 // 欠損時は null（PDF は pdf_unavailable で skip・OOXML は続行 — FR-DS-06）。
@@ -588,24 +578,45 @@ async function extractAttachmentCached(cache, folder, relKey, absPath, noCache) 
     return { data, fromCache: false };
 }
 
-// tree file item（outline.note items の type:'file' && ext:'file'）の中身を検索する。
-// 列挙は items 台帳起点（files/ readdir は共有領域のため不可 — ADRL-0048）。
+// files/ 配下の添付中身検索（rev.2: 再帰 walk — 拡張側 walkContentSearchFiles の 1:1 ミラー）。
+// files/ は tree file item・node 📎・md 📎 の共有実体置き場なので 1 walk で全種の添付が対象。
+// symlink は追わない（Dirent の isFile/isDirectory は symlink で false — escape を構造的に防ぐ）。
+function walkContentSearchFilesMjs(dir) {
+    const result = [];
+    const walk = (d) => {
+        let entries;
+        try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entries) {
+            const full = path.join(d, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (entry.isFile()) {
+                const ext = path.extname(entry.name).toLowerCase();
+                if (CONTENT_SEARCH_FILE_EXTS.includes(ext)) result.push(full);
+            }
+        }
+    };
+    walk(dir);
+    return result;
+}
+
 async function searchTreeFileAttachments(folder, regex, args, state, cache, notesStructure) {
     if (!regex) return;
     if (args.scope && !args.scope.has('file')) return;
     if (args.h1 || args.outlineName) return;  // md/outliner 向け AND プレフィルタ指定時は対象外
-    const items = notesStructure?.items;
-    if (!items) return;
-    const filesDir = path.join(folder, 'files');  // flat 前提（tree file item は flat 専用の新機能）
-    for (const [id, item] of Object.entries(items)) {
+    const filesDir = path.join(folder, 'files');  // flat 前提（共有 files/）
+    // 台帳 items は表示 title の逆引きにのみ使用（walk が主・台帳は従 — rev.2）
+    const titleByRel = new Map();
+    const items = notesStructure?.items || {};
+    for (const item of Object.values(items)) {
+        if (item && item.type === 'file' && item.ext === 'file' && item.filename && item.title) {
+            titleByRel.set(item.filename, item.title);
+        }
+    }
+    for (const abs of walkContentSearchFilesMjs(filesDir)) {
         if (state.results.length >= args.maxResults) return;
-        if (!item || item.type !== 'file' || item.ext !== 'file' || !item.filename) continue;
-        const ext = path.extname(item.filename).toLowerCase();
-        if (!CONTENT_SEARCH_FILE_EXTS.includes(ext)) continue;
-        // clamp（traversal filename を files/ 外へ escape させない — TC-DS-24 番人）
-        const abs = safeResolveUnderDirMjs(filesDir, item.filename);
-        if (!abs || !fs.existsSync(abs)) continue;
-        const relKey = path.join('files', item.filename);
+        const rel = path.relative(filesDir, abs);
+        const relKey = path.join('files', rel);
         const hit = await extractAttachmentCached(cache, folder, relKey, abs, args.noCache);
         if (!hit) continue;
         if (hit.fromCache) state.stats.fileCacheHit++; else state.stats.fileCacheMiss++;
@@ -615,9 +626,9 @@ async function searchTreeFileAttachments(folder, regex, args, state, cache, note
             state.results.push({
                 folder,
                 kind: 'file',
-                fileId: id,
-                fileName: item.filename,
-                fileTitle: item.title || item.filename,
+                fileId: `files/${rel}`,       // rev.2: 同定は files/ 相対パス（拡張側と同形）
+                fileName: rel,
+                fileTitle: titleByRel.get(rel) || path.basename(abs),
                 filePath: abs,
                 folderChain: [],
                 matches: m,
