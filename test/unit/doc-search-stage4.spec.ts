@@ -267,3 +267,51 @@ test.describe('削除連動 evict（TASK-13 / SEC-3）', () => {
         }
     });
 });
+
+test.describe('クエリ NFKC 正規化（TASK-21 / FR-DS-07 片側正規化バグ修正）', () => {
+    test('TC-DS-61: 全角括弧（）入りクエリが添付にヒット（抽出側 NFKC との整合）', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-nfkc-'));
+        try {
+            // 全角括弧を含む xlsx を合成（inlineStr セル）— 手動テスト実測ケースの再現
+            const { execFileSync } = require('child_process');
+            void execFileSync;
+            // 既存 fixture に全角括弧が無いため docx で代替: 抽出側 NFKC で （）→() になる
+            fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+            // docx-textutil.docx には「Mixed 混在 line with A&B.」等 — 全角括弧 fixture を最小合成
+            const zlib2 = require('zlib');
+            const docXml = '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>TCN（トポロジ変化通知）が頻発</w:t></w:r></w:p></w:body></w:document>';
+            const deflated = zlib2.deflateRawSync(Buffer.from(docXml));
+            const name = Buffer.from('word/document.xml');
+            const lh = Buffer.alloc(30);
+            lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(8, 8);
+            lh.writeUInt32LE(deflated.length, 18); lh.writeUInt32LE(Buffer.byteLength(docXml), 22);
+            lh.writeUInt16LE(name.length, 26);
+            const cd = Buffer.alloc(46);
+            cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(8, 10);
+            cd.writeUInt32LE(deflated.length, 20); cd.writeUInt32LE(Buffer.byteLength(docXml), 24);
+            cd.writeUInt16LE(name.length, 28); cd.writeUInt32LE(0, 42);
+            const cdOffset = 30 + name.length + deflated.length;
+            const eocd = Buffer.alloc(22);
+            eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10);
+            eocd.writeUInt32LE(46 + name.length, 12); eocd.writeUInt32LE(cdOffset, 16);
+            fs.writeFileSync(path.join(dir, 'files', 'tcn.docx'), Buffer.concat([lh, name, deflated, cd, name, eocd]));
+            fs.writeFileSync(path.join(dir, 'outline.note'), JSON.stringify({ noteTitle: 'T', rootIds: [], items: {} }));
+            // 既存 3 段の非正規化を確認するため、.out node に全角括弧テキストも置く
+            fs.writeFileSync(path.join(dir, 'plan.out'), JSON.stringify({
+                title: 'Plan', nodes: { n1: { text: 'TCN（トポロジ変化通知）ノード側' } },
+            }));
+
+            const fm = new NotesFileManager(dir);
+            // 全角括弧クエリ → 添付（NFKC 済みテキスト）にヒット（counterfactual: クエリ正規化なしだと 0 件）
+            const r1 = await search(fm, 'TCN（トポロジ変化通知）');
+            expect(r1.filter((r) => r.fileType === 'file').length).toBe(1);
+            // 半角括弧クエリでも同じ添付にヒット（正規化の対称性）
+            const r2 = await search(fm, 'TCN(トポロジ変化通知)');
+            expect(r2.filter((r) => r.fileType === 'file').length).toBe(1);
+            // 既存 3 段（.out）は生クエリ照合のまま — 全角括弧クエリで全角括弧 node にヒット（退行なし）
+            expect(r1.filter((r) => r.fileType === 'out').length).toBe(1);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

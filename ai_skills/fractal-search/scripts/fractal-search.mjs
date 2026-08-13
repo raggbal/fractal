@@ -609,6 +609,12 @@ async function searchTreeFileAttachments(folder, regex, args, state, cache, note
     if (!regex) return;
     if (args.scope && !args.scope.has('file')) return;
     if (args.h1 || args.outlineName) return;  // md/outliner 向け AND プレフィルタ指定時は対象外
+    // TASK-21: 抽出テキストは NFKC 済み — クエリも NFKC で照合（拡張側と同型。既存 scope は生のまま）
+    let attachRegex = regex;
+    try {
+        const nq = String(args.query || '').normalize('NFKC');
+        if (nq && nq !== args.query) attachRegex = buildRegex(nq, args);
+    } catch { /* 生 regex で続行 */ }
     const filesDir = path.join(folder, 'files');  // flat 前提（共有 files/）
     // 台帳 items は表示 title の逆引きにのみ使用（walk が主・台帳は従 — rev.2）
     const titleByRel = new Map();
@@ -628,7 +634,7 @@ async function searchTreeFileAttachments(folder, regex, args, state, cache, note
         if (hit.data.skipReason) continue;   // skip は記録済み・結果には出さない（FR-DS-08）
         // FR-DS-09: lines は {text, loc?} — searchLines は string[] 前提なので text を渡し loc を後付け
         const texts = hit.data.lines.map(l => l.text);
-        const m = searchLines(texts, regex, args);
+        const m = searchLines(texts, attachRegex, args);
         for (const match of m) {
             const loc = hit.data.lines[match.lineNumber] && hit.data.lines[match.lineNumber].loc;
             if (loc) match.loc = loc;

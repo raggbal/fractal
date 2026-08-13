@@ -278,3 +278,39 @@ test.describe('位置メタ（TASK-18 / FR-DS-09）', () => {
         expect(txt.stdout).toMatch(/データ![A-Z]+\d+:/);
     });
 });
+
+test.describe('クエリ NFKC 正規化（TASK-21）', () => {
+    test('TC-DS-61(CLI): 全角括弧（）入りクエリが添付にヒット', () => {
+        const note = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-nfkc-cli-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-nfkc-cli-cache-'));
+        try {
+            fs.mkdirSync(path.join(note, 'files'), { recursive: true });
+            // 全角括弧入り docx を合成（extension TC-DS-61 と同型）
+            const docXml = '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>TCN（トポロジ変化通知）が頻発</w:t></w:r></w:p></w:body></w:document>';
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const zlib2 = require('zlib');
+            const deflated = zlib2.deflateRawSync(Buffer.from(docXml));
+            const name = Buffer.from('word/document.xml');
+            const lh = Buffer.alloc(30);
+            lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(8, 8);
+            lh.writeUInt32LE(deflated.length, 18); lh.writeUInt32LE(Buffer.byteLength(docXml), 22);
+            lh.writeUInt16LE(name.length, 26);
+            const cd = Buffer.alloc(46);
+            cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(8, 10);
+            cd.writeUInt32LE(deflated.length, 20); cd.writeUInt32LE(Buffer.byteLength(docXml), 24);
+            cd.writeUInt16LE(name.length, 28); cd.writeUInt32LE(0, 42);
+            const eocd = Buffer.alloc(22);
+            eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10);
+            eocd.writeUInt32LE(46 + name.length, 12); eocd.writeUInt32LE(30 + name.length + deflated.length, 16);
+            fs.writeFileSync(path.join(note, 'files', 'tcn.docx'), Buffer.concat([lh, name, deflated, cd, name, eocd]));
+            fs.writeFileSync(path.join(note, 'outline.note'), JSON.stringify({ noteTitle: 'T', rootIds: [], items: {} }));
+
+            // 全角括弧クエリ（counterfactual: クエリ正規化なしだと 0 件 = RED）
+            const j1 = JSON.parse(execFileSync('node', [CLI, '--query', 'TCN（トポロジ変化通知）', '--folder', note, '--scope', 'file', '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
+            expect(j1.results.filter((r: any) => r.kind === 'file').length).toBe(1);
+        } finally {
+            fs.rmSync(note, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});

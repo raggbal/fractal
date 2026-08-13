@@ -2164,6 +2164,17 @@ export class NotesFileManager {
         //    台帳 items は表示 title の逆引きにのみ使用。抽出は DocExtractCache 経由。
         try {
             const filesDir = flatLayout.resolveMdFilesDir(this.mainFolderPath);
+            // TASK-21（手動テスト実測バグ）: 抽出テキストは NFKC 済み（FR-DS-07 = 全角括弧（）→() 等）
+            // なのにクエリが生のままだと needle/haystack の正規化が食い違い、全角括弧入りクエリが
+            // 非ヒットになる。第 4 段専用に NFKC 正規化クエリの regex を使う（既存 3 段 = 生テキスト
+            // 対象の regex は不変 — 片側だけ正規化しない対称性の原則）。
+            let attachRegex = regex;
+            try {
+                const normalizedQuery = query.normalize('NFKC');
+                if (normalizedQuery !== query) {
+                    attachRegex = this.buildSearchRegex(normalizedQuery, options);
+                }
+            } catch { /* 正規化 regex が組めない場合は生 regex で続行 */ }
             // filename（files/ 相対）→ 台帳 title の逆引き
             const titleByRel = new Map<string, string>();
             try {
@@ -2185,7 +2196,7 @@ export class NotesFileManager {
                 const matches: SearchMatch[] = [];
                 for (let i = 0; i < res.lines.length; i++) {
                     const before = matches.length;
-                    this.findMatches(res.lines[i].text, regex, 'content', undefined, matches);
+                    this.findMatches(res.lines[i].text, attachRegex, 'content', undefined, matches);
                     if (matches.length > before) {
                         matches[matches.length - 1].lineNumber = i;      // 0-based（既存 md 検索と同じ）
                         // FR-DS-09: 位置メタ（p.5 / slide 3 / シート名!B12）— docx は undefined
