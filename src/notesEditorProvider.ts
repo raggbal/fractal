@@ -29,7 +29,7 @@ import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-b
 // editorProvider が既に同 import を使う先例に倣う（outlinerProvider は notes/editor を import し返さないため新規循環なし）。
 import { buildPdfExportDeps } from './outlinerProvider';
 import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
-import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolvePageFilePath, resolveImagesDir, resolveFilesDir } from './shared/flat-layout';
+import { resolveImagesDirForMd, resolveFilesDirForMd, resolvePagesDir, resolvePageFilePath, resolveImagesDir, resolveFilesDir, resolveMdFilesDir } from './shared/flat-layout';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
@@ -2075,6 +2075,17 @@ export class NotesEditorProvider {
             // FR-TF click（§4）: file item を OS 既定アプリで開く
             openTreeFileExternal: async (id: string, _senderRef: NotesSender) => {
                 const p = fileManager.getTreeFilePath(id);
+                if (!p || !fs.existsSync(p)) {
+                    vscode.window.showErrorMessage(t('fileNotFound'));
+                    return;
+                }
+                await vscode.env.openExternal(vscode.Uri.file(p));
+            },
+            // FR-DS-05 rev.2: 検索 Files ヒット click（files/ 相対パス — 台帳未登録の添付も開ける）。
+            // relPath は webview 由来の外部入力なので safeResolveUnderDir で files/ 配下に clamp（NFR-DS-07）
+            openNoteFilesExternal: async (relPath: string, _senderRef: NotesSender) => {
+                const filesDir = resolveMdFilesDir(folderPath);
+                const p = safeResolveUnderDir(filesDir, String(relPath || ''));
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;

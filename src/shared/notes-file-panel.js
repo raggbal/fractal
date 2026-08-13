@@ -1967,9 +1967,11 @@ var notesFilePanel = (function() {
             }
             matchEl.addEventListener('click', function() {
                 if (fileResult.fileType === 'file') {
-                    // 添付は OS 既定アプリで開く（既存 openTreeFileExternal 流用 — 新 message 不要）
-                    if (bridge && typeof bridge.openTreeFileExternal === 'function') {
-                        bridge.openTreeFileExternal(fileResult.fileId);
+                    // rev.2: fileId は `files/<rel>` — prefix を剥いた相対パスで path ベース起動
+                    // （台帳未登録の node📎/md📎 添付も開けるよう openTreeFileExternal(id) から改訂）
+                    if (bridge && typeof bridge.openNoteFilesExternal === 'function') {
+                        var rel = String(fileResult.fileId || '').replace(/^files\//, '');
+                        bridge.openNoteFilesExternal(rel);
                     }
                 } else if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);

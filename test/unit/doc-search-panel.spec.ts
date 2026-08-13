@@ -52,6 +52,7 @@ async function loadPanelWithExplicitBridge(page: Page): Promise<void> {
                 onSearchPartial: rec('onSearchPartial'),
                 onSearchEnd: rec('onSearchEnd'),
                 openTreeFileExternal: rec('openTreeFileExternal'),
+                openNoteFilesExternal: rec('openNoteFilesExternal'),   // rev.2（実 bridge に実在 — notes-host-bridge.js）
                 jumpToNode: rec('jumpToNode'),
                 jumpToMdPage: rec('jumpToMdPage'),
                 openFile: rec('openFile'),
@@ -73,7 +74,7 @@ async function loadPanelWithExplicitBridge(page: Page): Promise<void> {
 }
 
 const FILE_RESULT = {
-    fileId: 'att1',
+    fileId: 'files/meeting.docx',            // rev.2: files/ 相対パス同定
     fileTitle: '会議資料',
     fileType: 'file',
     matches: [
@@ -120,7 +121,7 @@ test.describe('webview Files セクション（FR-DS-05）', () => {
         expect(outliner!.bodies.some((b) => b.indexOf('Plan') !== -1)).toBe(true);    // out は従来どおり
     });
 
-    test('TC-DS-20: Files 行クリック → openTreeFileExternal(fileId)（明示 fake・Proxy 禁止）', async ({ page }) => {
+    test('TC-DS-49: Files 行クリック → openNoteFilesExternal(relPath)（rev.2・明示 fake・Proxy 禁止）', async ({ page }) => {
         await loadPanelWithExplicitBridge(page);
         const calls = await page.evaluate((fileResult) => {
             const w = window as any;
@@ -130,10 +131,14 @@ test.describe('webview Files セクション（FR-DS-05）', () => {
             w.__onSearchPartial(11, fileResult);
             const match = document.querySelector('#notesSearchResults .file-panel-search-match') as HTMLElement;
             match.click();
-            return w.__calls.filter((c: any) => c.type === 'openTreeFileExternal');
+            return {
+                open: w.__calls.filter((c: any) => c.type === 'openNoteFilesExternal'),
+                legacy: w.__calls.filter((c: any) => c.type === 'openTreeFileExternal'),
+            };
         }, FILE_RESULT);
-        expect(calls.length).toBe(1);
-        expect(calls[0].args[0]).toBe('att1');       // 正しい item id で OS 既定アプリ起動へ
+        expect(calls.open.length).toBe(1);
+        expect(calls.open[0].args[0]).toBe('meeting.docx');   // files/ prefix を剥いた相対パス
+        expect(calls.legacy.length).toBe(0);                   // 旧 id ベース経路は使わない
     });
 
     test('TC-DS-36: i18n キーが WebviewMessages interface + 7 locale 全部に存在', () => {

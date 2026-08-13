@@ -272,6 +272,8 @@ export interface NotesPlatformActions {
     // ── FR-TF: tree file item（ext:'file'）D&D 経路（8 経路 + menu/click）——————————
     /** click: tree file を外部アプリで開く（getTreeFilePath → openExternal） */
     openTreeFileExternal?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-DS-05 rev.2: 検索 Files ヒット click — files/ 相対パスで外部起動（host 側 clamp 必須） */
+    openNoteFilesExternal?(relPath: string, sender: NotesSender): Promise<void> | void;
     /** FR-TF-03 (§4b): tree file を .out item にドロップ → 当該 .out root 先頭に file node 追加 + tree 除去 */
     notesImportFileIntoOut?(dragItemId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
     /** FR-TF-04 (§4c): tree file を md item にドロップ → 対象 md 末尾に 📎 リンク追記 + tree 除去 */
@@ -1375,6 +1377,13 @@ export async function handleNotesMessage(
         case 'openTreeFileExternal': {
             if (typeof platform.openTreeFileExternal === 'function') {
                 await platform.openTreeFileExternal(message.id, sender);
+            }
+            break;
+        }
+        // FR-DS-05 rev.2: 検索 Files ヒットの click（files/ 相対パス — 台帳未登録の添付も開ける）
+        case 'openNoteFilesExternal': {
+            if (typeof platform.openNoteFilesExternal === 'function') {
+                await platform.openNoteFilesExternal(message.relPath, sender);
             }
             break;
         }
