@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-08-13
+
+### Added
+- **Search inside attachments** (sprint 20260813-133248-search-doc-content): the Notes search box and the `fractal-search` CLI now search the *contents* of PDF / Word (.docx) / Excel (.xlsx) / PowerPoint (.pptx) files under a note's shared `files/` folder — covering tree file items, outliner node attachments (📎) and markdown-embedded attachments alike. Results appear in a new "Files" section; clicking a hit opens the file in the OS default app.
+  - **Hit locations**: PDF hits show the page (`p.5`), pptx hits the slide (`slide 3`), xlsx hits the sheet name + cell (`売上集計!B12`). (docx has no page/line concept in its format, so no location is shown.)
+  - **Backlinks**: each file hit also lists the outliner nodes / markdown files that reference it (resolved asynchronously after results render, so search stays fast). Clicking a node backlink jumps to the node; a markdown backlink opens the note md.
+  - **Zero-install CLI**: the CLI gets the same via a mirrored zero-dependency OOXML extractor and a committed single-file pdfjs vendor bundle (no `npm install` required; cache format bumped to v5).
+  - Extraction is cached per file (mtime+size keyed, stored outside the note folder so S3 sync / cleanup never see it, evicted when the attachment is deleted). Queries are NFKC-normalized for attachment search so full-width parentheses/alphanumerics match.
+  - Implementation notes: OOXML extraction is dependency-free (hand-rolled ZIP/XML with a zip-bomb guard); PDF uses `pdfjs-dist@4.10.38` (exact pin, lazy-required so the Electron app degrades gracefully to OOXML-only). Out of scope: legacy Office formats (.doc/.xls/.ppt), scanned-PDF OCR, password-protected files, CID-keyed (no-ToUnicode) Japanese PDFs (recorded as skipped).
+
 ## [1.2.1] - 2026-08-13
 
 ### Fixed
