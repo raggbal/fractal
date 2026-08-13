@@ -2144,21 +2144,30 @@ export class NotesFileManager {
             } catch { /* skip */ }
         }
 
-        // 4. FR-DS-01: tree file item（ext:'file'）の中身検索（items 台帳起点 — files/ readdir は
-        //    共有領域のため不可・ADRL-0048。抽出は DocExtractCache 経由 = 2 回目以降キャッシュ）
+        // 4. FR-DS-01 rev.2: files/ 配下の添付中身検索（再帰 walk — cleanup-core listAllFiles 同型）。
+        //    files/ は tree file item・node 📎・md 📎 の共有実体置き場（ADRL-0048 決定 4）なので、
+        //    1 walk で全種の添付が対象になる（rev.1 の items 台帳走査は node/md 添付を落とすため改訂）。
+        //    台帳 items は表示 title の逆引きにのみ使用。抽出は DocExtractCache 経由。
         try {
-            const structure = this.getStructure();
-            for (const [id, item] of Object.entries(structure.items)) {
-                if (gen !== this.searchGeneration) { return; }   // 旧検索 abort
-                const it = item as { type?: string; ext?: string; filename?: string; title?: string };
-                if (!it || it.type !== 'file' || it.ext !== 'file' || !it.filename) { continue; }
-                const ext = path.extname(it.filename).toLowerCase();
-                if (!CONTENT_SEARCH_EXTS.includes(ext)) { continue; }   // title/filename マッチ（FR-TF-12）は別レイヤで不変
-                const abs = this.getTreeFilePath(id);                    // 正典（clamp 内蔵）。null → skip
-                if (!abs || !fs.existsSync(abs)) { continue; }           // 実体欠損 = TC-TF-10 precedent
+            const filesDir = flatLayout.resolveMdFilesDir(this.mainFolderPath);
+            // filename（files/ 相対）→ 台帳 title の逆引き
+            const titleByRel = new Map<string, string>();
+            try {
+                const structure = this.getStructure();
+                for (const item of Object.values(structure.items)) {
+                    const it = item as { type?: string; ext?: string; filename?: string; title?: string };
+                    if (it && it.type === 'file' && it.ext === 'file' && it.filename && it.title) {
+                        titleByRel.set(it.filename, it.title);
+                    }
+                }
+            } catch { /* 台帳が読めなくても walk は続行（title は basename に縮退） */ }
+
+            for (const abs of NotesFileManager.walkContentSearchFiles(filesDir)) {
+                if (gen !== this.searchGeneration) { return; }           // 旧検索 abort
                 const res = await this.docCache.getOrExtract(abs);       // await 単位で yield
                 if (gen !== this.searchGeneration) { return; }
                 if (res.skipReason) { continue; }                        // 記録済み・結果には出さない（FR-DS-08）
+                const rel = path.relative(filesDir, abs);
                 const matches: SearchMatch[] = [];
                 for (let i = 0; i < res.lines.length; i++) {
                     this.findMatches(res.lines[i], regex, 'content', undefined, matches);
@@ -2167,10 +2176,42 @@ export class NotesFileManager {
                     }
                 }
                 if (matches.length > 0) {
-                    onResult({ fileId: id, fileTitle: it.title || it.filename, fileType: 'file', matches });
+                    onResult({
+                        fileId: `files/${rel}`,                          // rev.2: 同定は files/ 相対パス
+                        fileTitle: titleByRel.get(rel) || path.basename(abs),
+                        fileType: 'file',
+                        matches,
+                    });
                 }
             }
         } catch { /* 第 4 段の障害は既存 3 段の結果に影響させない */ }
+    }
+
+    /**
+     * FR-DS-01 rev.2: files/ 配下の中身検索対象（CONTENT_SEARCH_EXTS）を再帰列挙する。
+     * symlink は追わない（isFile/isDirectory は lstat 相当の Dirent 判定 — files/ 外への
+     * escape を構造的に防ぐ。ADRL-0040 の防御思想）。walk 順は決定的（名前昇順）。
+     */
+    private static walkContentSearchFiles(dir: string): string[] {
+        const result: string[] = [];
+        const walk = (d: string): void => {
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(d, { withFileTypes: true });
+            } catch { return; }
+            entries.sort((a, b) => a.name.localeCompare(b.name));
+            for (const entry of entries) {
+                const full = path.join(d, entry.name);
+                if (entry.isDirectory()) {                // symlink dir は isDirectory()=false → 追わない
+                    walk(full);
+                } else if (entry.isFile()) {              // symlink file も isFile()=false → 対象外
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (CONTENT_SEARCH_EXTS.includes(ext)) { result.push(full); }
+                }
+            }
+        };
+        walk(dir);
+        return result;
     }
 
     private searchMdFile(

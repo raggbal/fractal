@@ -51,7 +51,7 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
         dirs = [];
     });
 
-    test('TC-DS-14: docx 添付が fileType:file でヒット（content + lineNumber + 200 字 clamp）', async () => {
+    test('TC-DS-14: docx 添付が fileType:file でヒット（content + lineNumber + 200 字 clamp）【rev.2: fileId = files/ 相対パス】', async () => {
         const dir = track(mkNote());
         addAttachment(dir, 'meeting.docx', 'docx-pydocx.docx');
         writeStructure(dir, { att1: { type: 'file', ext: 'file', filename: 'meeting.docx', title: '会議資料' } }, ['att1']);
@@ -59,14 +59,61 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
         const fm = new NotesFileManager(dir);
         const results = await search(fm, '吾輩は猫である');
         const fileHits = results.filter((r) => r.fileType === 'file');
-        expect(fileHits.length).toBe(1);
-        expect(fileHits[0].fileId).toBe('att1');
-        expect(fileHits[0].fileTitle).toBe('会議資料');
+        expect(fileHits.length).toBe(1);                      // 台帳 + walk の二重列挙をしない（walk 一本化）
+        expect(fileHits[0].fileId).toBe('files/meeting.docx'); // rev.2: 同定は files/ 相対パス
+        expect(fileHits[0].fileTitle).toBe('会議資料');        // 台帳 title の逆引き
         const m = fileHits[0].matches[0];
         expect(m.field).toBe('content');
         expect(typeof m.lineNumber).toBe('number');
         expect(m.lineText.length).toBeLessThanOrEqual(200);
         expect(m.lineText).toContain('吾輩は猫である');
+    });
+
+    test('TC-DS-46: 台帳未登録 file（node 📎 / md 📎 添付相当）が files/ walk でヒット【rev.2 の核】', async () => {
+        const dir = track(mkNote());
+        // files/ に実体を置くが outline.note の items には登録しない = node.filePath / md 📎 添付の実体状態
+        addAttachment(dir, 'embedded.docx', 'docx-textutil.docx');
+        writeStructure(dir, {}, []);
+
+        const fm = new NotesFileManager(dir);
+        const results = await search(fm, '国境の長いトンネル');
+        const fileHits = results.filter((r) => r.fileType === 'file');
+        // counterfactual: 台帳走査（rev.1）に戻すと 0 件 = RED
+        expect(fileHits.length).toBe(1);
+        expect(fileHits[0].fileId).toBe('files/embedded.docx');
+        expect(fileHits[0].fileTitle).toBe('embedded.docx');   // 台帳なし → basename
+    });
+
+    test('TC-DS-47: サブディレクトリ配下も再帰 walk でヒット', async () => {
+        const dir = track(mkNote());
+        const subDir = path.join(dir, 'files', 'reports', '2026');
+        fs.mkdirSync(subDir, { recursive: true });
+        fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), path.join(subDir, 'q3.docx'));
+        writeStructure(dir, {}, []);
+
+        const fm = new NotesFileManager(dir);
+        const results = await search(fm, '吾輩は猫である');
+        const fileHits = results.filter((r) => r.fileType === 'file');
+        expect(fileHits.length).toBe(1);
+        // fileId は files/ 相対（区切りは OS ネイティブ — path.relative の出力そのまま）
+        expect(fileHits[0].fileId).toBe(`files/${path.join('reports', '2026', 'q3.docx')}`);
+    });
+
+    test('TC-DS-48: symlink 非追従番人 — files/ 外を指す symlink は対象にならない', async () => {
+        const dir = track(mkNote());
+        fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+        // files/ の外（note 直下）にヒットするはずの docx を置き、files/ 内から symlink で指す
+        const outside = path.join(dir, 'outside.docx');
+        fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), outside);
+        fs.symlinkSync(outside, path.join(dir, 'files', 'link.docx'));
+        // 外側 dir を指す symlink dir も置く（dir 経由の escape も防ぐ）
+        fs.symlinkSync(dir, path.join(dir, 'files', 'linkdir'));
+        writeStructure(dir, {}, []);
+
+        const fm = new NotesFileManager(dir);
+        const results = await search(fm, '吾輩は猫である');
+        // counterfactual: walk が symlink を追う（statSync/realpath 判定等）と外の docx がヒット = RED
+        expect(results.filter((r) => r.fileType === 'file').length).toBe(0);
     });
 
     test('TC-DS-15: 台帳に居るが実体なし → 例外なく skip', async () => {
@@ -153,7 +200,8 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
 
         const fm = new NotesFileManager(dir);
         const results = await search(fm, '吾輩は猫である');
-        // counterfactual: getTreeFilePath の clamp を外すと ../evil.docx が読まれてヒット = RED
+        // rev.2: walk は files/ 実体しか列挙しないため、台帳の traversal filename は構造的に無効
+        // （rev.1 では getTreeFilePath の clamp が防御していた — 防御の持ち主が walk に代わった）
         expect(results.filter((r) => r.fileType === 'file').length).toBe(0);
     });
 
