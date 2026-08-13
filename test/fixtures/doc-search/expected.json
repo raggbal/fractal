@@ -1,0 +1,109 @@
+{
+  "docx-pydocx.docx": {
+    "format": "docx",
+    "contains": [
+      "見出し Heading",
+      "吾輩は猫である。名前はまだ無い。",
+      "The quick brown fox jumps over the lazy dog.",
+      "A&B <tag> \"quoted\" it's 数値参照テスト",
+      "表セル日本語",
+      "table cell english"
+    ],
+    "not_contains": []
+  },
+  "docx-textutil.docx": {
+    "format": "docx",
+    "contains": [
+      "国境の長いトンネルを抜けると雪国であった。",
+      "Full-text search inside attachments.",
+      "Mixed 混在 line with A&B."
+    ],
+    "not_contains": []
+  },
+  "docx-soffice.docx": {
+    "format": "docx",
+    "contains": [
+      "国境の長いトンネルを抜けると雪国であった。",
+      "Full-text search inside attachments."
+    ],
+    "not_contains": []
+  },
+  "xlsx-openpyxl-inline.xlsx": {
+    "format": "xlsx",
+    "contains": [
+      "東京タワー",
+      "吾輩は猫である。名前はまだ無い。",
+      "The quick brown fox jumps over the lazy dog.",
+      "shared string english",
+      "A&B <tag> \"quoted\" it's 数値参照テスト",
+      "二枚目の日本語セル"
+    ],
+    "not_contains": []
+  },
+  "xlsx-soffice-sst.xlsx": {
+    "format": "xlsx",
+    "contains": [
+      "東京タワー",
+      "吾輩は猫である。名前はまだ無い。",
+      "The quick brown fox jumps over the lazy dog.",
+      "shared string english",
+      "A&B <tag> \"quoted\" it's 数値参照テスト",
+      "二枚目の日本語セル"
+    ],
+    "not_contains": []
+  },
+  "xlsx-rph.xlsx": {
+    "format": "xlsx",
+    "contains": [
+      "東京",
+      "東京タワー"
+    ],
+    "not_contains": [
+      "トウキョウ",
+      "東京トウキョウ"
+    ]
+  },
+  "pptx-pypptx.pptx": {
+    "format": "pptx",
+    "contains": [
+      "一枚目タイトル",
+      "吾輩は猫である。名前はまだ無い。",
+      "First slide body",
+      "Second Slide Title",
+      "国境の長いトンネルを抜けると雪国であった。",
+      "Second slide body",
+      "三枚目 Third",
+      "A&B <tag> \"quoted\" it's 数値参照テスト",
+      "Third slide body"
+    ],
+    "not_contains": [
+      "Click to add title"
+    ],
+    "min_slides": 3
+  },
+  "pptx-soffice.pptx": {
+    "format": "pptx",
+    "contains": [
+      "一枚目タイトル",
+      "吾輩は猫である。名前はまだ無い。",
+      "Second Slide Title",
+      "三枚目 Third"
+    ],
+    "not_contains": [],
+    "min_slides": 3
+  },
+  "docx-stored.docx": {
+    "format": "docx",
+    "contains": [
+      "見出し Heading",
+      "吾輩は猫である。名前はまだ無い。",
+      "The quick brown fox jumps over the lazy dog.",
+      "表セル日本語"
+    ],
+    "not_contains": []
+  },
+  "not-a-zip.docx": {
+    "format": "docx",
+    "expect_error": "NOT_ZIP"
+  }
+}
