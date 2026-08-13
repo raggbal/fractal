@@ -172,3 +172,48 @@ test.describe('doc-text-extract: PDF（TASK-03）', () => {
         expect(res.lines).toEqual([]);
     });
 });
+
+test.describe('doc-text-extract: zip bomb ガード（TASK-11 / SEC-1）', () => {
+
+    /** 高圧縮率 fixture を合成: ゼロ連続 bytes を deflateRaw した単一エントリ ZIP（docx 偽装） */
+    function mkZipBombDocx(uncompressedMb: number): Buffer {
+        const uncompressed = Buffer.alloc(uncompressedMb * 1024 * 1024, 0);
+        const deflated = zlib.deflateRawSync(uncompressed, { level: 9 });
+        const name = Buffer.from('word/document.xml');
+        // local header
+        const lh = Buffer.alloc(30);
+        lh.writeUInt32LE(0x04034b50, 0);
+        lh.writeUInt16LE(8, 8);                       // method deflate
+        lh.writeUInt32LE(deflated.length, 18);        // compressedSize
+        lh.writeUInt32LE(uncompressed.length, 22);    // uncompressedSize（正直に宣言）
+        lh.writeUInt16LE(name.length, 26);
+        // central directory
+        const cd = Buffer.alloc(46);
+        cd.writeUInt32LE(0x02014b50, 0);
+        cd.writeUInt16LE(8, 10);
+        cd.writeUInt32LE(deflated.length, 20);
+        cd.writeUInt32LE(uncompressed.length, 24);
+        cd.writeUInt16LE(name.length, 28);
+        cd.writeUInt32LE(0, 42);                      // localOffset
+        // EOCD
+        const cdOffset = 30 + name.length + deflated.length;
+        const eocd = Buffer.alloc(22);
+        eocd.writeUInt32LE(0x06054b50, 0);
+        eocd.writeUInt16LE(1, 8);
+        eocd.writeUInt16LE(1, 10);
+        eocd.writeUInt32LE(46 + name.length, 12);
+        eocd.writeUInt32LE(cdOffset, 16);
+        return Buffer.concat([lh, name, deflated, cd, name, eocd]);
+    }
+
+    test('TC-DS-42: 高圧縮エントリ（200MB 宣言）→ throw せず extract_error（GB 級 Buffer を確保しない）', async () => {
+        const bomb = mkZipBombDocx(200);              // 圧縮後 ~200KB / 伸長後 200MB
+        expect(bomb.length).toBeLessThan(1024 * 1024); // fixture 自体は 1MB 未満（高圧縮の確認）
+        const before = process.memoryUsage().heapUsed;
+        const res = await extractDocText(bomb, '.docx');
+        expect(res.skipReason).toBe('extract_error');  // counterfactual: ガードを外すと 200MB Buffer 確保
+        expect(res.lines).toEqual([]);
+        const growth = process.memoryUsage().heapUsed - before;
+        expect(growth).toBeLessThan(50 * 1024 * 1024); // 伸長 Buffer（200MB）を掴んでいない
+    });
+});

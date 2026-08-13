@@ -120,18 +120,26 @@ function readZipEntries(buf: Buffer): Map<string, ZipEntry> {
     return entries;
 }
 
+// zip bomb ガード（SEC-1）: 単一エントリの伸長後サイズ上限。ファイル全体の 50MB 上限は
+// 圧縮後サイズなので、高圧縮エントリ（deflate は 1000:1 超可）の増幅はここでしか防げない。
+const MAX_ENTRY_UNCOMPRESSED = 100 * 1024 * 1024;
+
 // entry の非圧縮データを返す。data 開始位置は local header 自身の nameLen/extraLen から計算
 // （CD の extra 長流用は不可 — 実ファイルで異なる例あり）
 function readZipEntryData(buf: Buffer, entry: ZipEntry): Buffer {
-    const { localOffset, method, compressedSize } = entry;
+    const { localOffset, method, compressedSize, uncompressedSize } = entry;
     if (buf.readUInt32LE(localOffset) !== LOC_SIG) {
         throw new OoxmlError('ZIP_CORRUPT', `bad local header signature at offset ${localOffset}`);
+    }
+    // 二段構え: 宣言値（CD の uncompressedSize）の事前検証 + maxOutputLength（宣言詐称対策）
+    if (uncompressedSize > MAX_ENTRY_UNCOMPRESSED) {
+        throw new OoxmlError('ENTRY_TOO_LARGE', `declared uncompressed size ${uncompressedSize} exceeds limit`);
     }
     const nameLen = buf.readUInt16LE(localOffset + 26);
     const extraLen = buf.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + nameLen + extraLen;
     const raw = buf.subarray(dataStart, dataStart + compressedSize);
-    if (method === 8) { return inflateRawSync(raw); } // raw deflate（zlib ヘッダ無し。inflateSync 不可）
+    if (method === 8) { return inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_UNCOMPRESSED }); } // raw deflate（zlib ヘッダ無し。inflateSync 不可）
     if (method === 0) { return raw; }                  // stored
     throw new OoxmlError('UNSUPPORTED_COMPRESSION', `method ${method} (OPC allows deflate/stored only)`);
 }
