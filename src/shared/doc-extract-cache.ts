@@ -20,7 +20,12 @@ import { ExtractResult, extractDocText } from './doc-text-extract';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
+// FR-DS-09: ExtractResult の形式が変わったら bump（旧形式キャッシュを invalidate — TC-DS-55）
+// v2: lines が string[] → ExtractedLine[]（{text, loc?}）
+const CACHE_FORMAT_VERSION = 2;
+
 interface DocCacheEntry {
+    formatVersion?: number;
     mtimeMs: number;
     size: number;
     result: ExtractResult;
@@ -71,7 +76,8 @@ export class DocExtractCache {
         if (cachePath) {
             try {
                 const entry = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as DocCacheEntry;
-                if (entry && entry.result && entry.mtimeMs === stat.mtimeMs && entry.size === stat.size) {
+                if (entry && entry.result && entry.formatVersion === CACHE_FORMAT_VERSION
+                    && entry.mtimeMs === stat.mtimeMs && entry.size === stat.size) {
                     return entry.result;
                 }
             } catch { /* 壊れ・不在は miss 扱い */ }
@@ -94,7 +100,7 @@ export class DocExtractCache {
         if (cachePath) {
             try {
                 fs.mkdirSync(this.cacheDir as string, { recursive: true });
-                const entry: DocCacheEntry = { mtimeMs: stat.mtimeMs, size: stat.size, result };
+                const entry: DocCacheEntry = { formatVersion: CACHE_FORMAT_VERSION, mtimeMs: stat.mtimeMs, size: stat.size, result };
                 fs.writeFileSync(cachePath, JSON.stringify(entry), 'utf8');
             } catch { /* best-effort — キャッシュ書き込み失敗は検索を止めない */ }
         }

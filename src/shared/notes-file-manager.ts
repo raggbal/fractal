@@ -75,6 +75,7 @@ export interface SearchMatch {
     matchStart: number;
     matchEnd: number;
     lineNumber?: number;  // .mdファイルの行番号 (0-based)
+    loc?: string;         // FR-DS-09: 添付中身ヒットの位置（p.5 / slide 3 / シート名!B12）。docx は無し
 }
 
 export interface SearchOptions {
@@ -2170,9 +2171,12 @@ export class NotesFileManager {
                 const rel = path.relative(filesDir, abs);
                 const matches: SearchMatch[] = [];
                 for (let i = 0; i < res.lines.length; i++) {
-                    this.findMatches(res.lines[i], regex, 'content', undefined, matches);
-                    if (matches.length > 0 && matches[matches.length - 1].lineNumber === undefined) {
+                    const before = matches.length;
+                    this.findMatches(res.lines[i].text, regex, 'content', undefined, matches);
+                    if (matches.length > before) {
                         matches[matches.length - 1].lineNumber = i;      // 0-based（既存 md 検索と同じ）
+                        // FR-DS-09: 位置メタ（p.5 / slide 3 / シート名!B12）— docx は undefined
+                        matches[matches.length - 1].loc = res.lines[i].loc;
                     }
                 }
                 if (matches.length > 0) {

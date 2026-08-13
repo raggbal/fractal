@@ -219,7 +219,7 @@ export function extractPptx(entries, buf) {
   return { text: texts.join('\n'), slideCount: slides.length, slideParts: slides };
 }
 
-// --- 正規化（正典 normalizeExtracted の 1:1 ミラー — FR-DS-07 両経路同一適用） -----
+// --- 正規化（正典 normalizeExtracted / pushNormalized の 1:1 ミラー — FR-DS-07/09 両経路同一適用） -----
 
 const LINE_CLAMP = 200;          // SearchMatch.lineText の webview 表示契約と同形
 const TOTAL_CLAMP = 1024 * 1024; // 抽出テキスト上限 1MB
@@ -240,23 +240,134 @@ export function normalizeExtracted(text) {
   return { lines, truncated };
 }
 
+// FR-DS-09: セグメント単位で正規化しながら loc（p.5 / slide 3 / シート名!B12）付きで積む
+export function pushNormalized(out, state, text, loc) {
+  if (state.truncated) return;
+  const normalized = text.normalize('NFKC');
+  for (const rawLine of normalized.split('\n')) {
+    const line = rawLine.length > LINE_CLAMP ? rawLine.substring(0, LINE_CLAMP) : rawLine;
+    if (line.length === 0) continue;
+    if (state.total + line.length > TOTAL_CLAMP) { state.truncated = true; return; }
+    out.push(loc ? { text: line, loc } : { text: line });
+    state.total += line.length + 1;
+  }
+}
+
 // --- skipReason 契約（正典 extractDocText と同じ ExtractResult 形） --------------
 
 const CONTENT_SEARCH_OOXML_EXTS = ['.docx', '.xlsx', '.pptx'];
 const skipResult = (reason) => ({ lines: [], truncated: false, skipReason: reason });
 
-// Buffer から正典 extractDocText と同一契約（{lines, truncated, skipReason?}）で抽出する。
+// FR-DS-09 / ADRL-0060: シート名解決（正典 resolveSheetNames の 1:1 ミラー）
+function resolveSheetNamesMjs(entries, buf) {
+  const result = new Map();
+  try {
+    const wbName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/workbook.xml');
+    const relsName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/_rels/workbook.xml.rels');
+    if (!wbName || !relsName) return result;
+    const wb = readZipEntryData(buf, entries.get(wbName)).toString('utf8');
+    const rels = readZipEntryData(buf, entries.get(relsName)).toString('utf8');
+    const targetByRid = new Map();
+    for (const m of rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"[^>]*\/>/g)) {
+      const target = m[2].replace(/^\//, '');
+      targetByRid.set(m[1], target.startsWith('xl/') ? target : `xl/${target}`);
+    }
+    for (const m of wb.matchAll(/<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="([^"]+)"[^>]*\/>/g)) {
+      const part = targetByRid.get(m[2]);
+      if (part) result.set(part, decodeXmlEntities(m[1]));
+    }
+  } catch { /* 解決不能 → index 縮退 */ }
+  return result;
+}
+
+// FR-DS-09: xlsx セル走査（正典 extractXlsxLines の 1:1 ミラー — sharedStrings 直読みから改訂）
+function extractXlsxLinesMjs(entries, buf) {
+  const out = [];
+  const state = { total: 0, truncated: false };
+  const sstName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/sharedstrings.xml');
+  const sharedStrings = [];
+  if (sstName) {
+    const xml = readZipEntryData(buf, entries.get(sstName)).toString('utf8');
+    for (const m of xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+      sharedStrings.push(extractStringItem(m[1]));
+    }
+  }
+  const sheets = [...entries.keys()]
+    .filter((n) => /^xl\/worksheets\/sheet[^/]*\.xml$/i.test(n))
+    .sort();
+  if (!sstName && sheets.length === 0) {
+    throw new OoxmlError('NO_MAIN_PART', 'no xl/sharedStrings.xml nor xl/worksheets/*.xml in package');
+  }
+  const nameByPart = resolveSheetNamesMjs(entries, buf);
+  let sheetIdx = 0;
+  for (const name of sheets) {
+    sheetIdx++;
+    const sheetLabel = nameByPart.get(name) || `Sheet${sheetIdx}`;
+    const xml = readZipEntryData(buf, entries.get(name)).toString('utf8');
+    for (const m of xml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+      if (state.truncated) break;
+      const attrs = m[1];
+      const body = m[2];
+      const refM = attrs.match(/\br="([A-Z]+\d+)"/);
+      const cellRef = refM ? refM[1] : '';
+      const typeM = attrs.match(/\bt="([^"]+)"/);
+      const cellType = typeM ? typeM[1] : '';
+      let text = '';
+      if (cellType === 's') {
+        const vM = body.match(/<v>(\d+)<\/v>/);
+        if (vM) text = sharedStrings[Number(vM[1])] || '';
+      } else if (cellType === 'inlineStr') {
+        const isM = body.match(/<is\b[^>]*>([\s\S]*?)<\/is>/);
+        if (isM) text = extractStringItem(isM[1]);
+      } else if (cellType === 'str') {
+        const vM = body.match(/<v>([\s\S]*?)<\/v>/);
+        if (vM) text = decodeXmlEntities(vM[1]);
+      }
+      if (text.length > 0) {
+        pushNormalized(out, state, text, cellRef ? `${sheetLabel}!${cellRef}` : sheetLabel);
+      }
+    }
+    if (state.truncated) break;
+  }
+  return { lines: out, truncated: state.truncated };
+}
+
+// FR-DS-09: pptx スライド loc（正典 extractPptxLines の 1:1 ミラー）
+function extractPptxLinesMjs(entries, buf) {
+  const slides = [...entries.keys()]
+    .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => Number(a.match(/slide(\d+)\.xml$/)[1]) - Number(b.match(/slide(\d+)\.xml$/)[1]));
+  if (slides.length === 0) throw new OoxmlError('NO_MAIN_PART', 'no ppt/slides/slide*.xml part in package');
+  const outLines = [];
+  const state = { total: 0, truncated: false };
+  for (const name of slides) {
+    const slideNo = Number(name.match(/slide(\d+)\.xml$/)[1]);
+    const xml = readZipEntryData(buf, entries.get(name)).toString('utf8');
+    let out = '';
+    for (const m of xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>|<a:t\/>|<a:br\b[^>]*\/>|<\/a:p>/g)) {
+      const tok = m[0];
+      if (tok === '</a:p>' || tok.startsWith('<a:br')) out += '\n';
+      else if (m[1] !== undefined) out += decodeXmlEntities(m[1]);
+    }
+    pushNormalized(outLines, state, out.replace(/\n{2,}/g, '\n').replace(/^\n+|\n+$/g, ''), `slide ${slideNo}`);
+    if (state.truncated) break;
+  }
+  return { lines: outLines, truncated: state.truncated };
+}
+
+// Buffer から正典 extractDocText と同一契約（{lines: [{text,loc?}], truncated, skipReason?}）で抽出する。
 // PDF は CLI では vendor バンドル経由（fractal-search.mjs 側の責務）— ここは OOXML のみ。
 export async function extractDocTextMjs(buf, ext) {
   const lowerExt = String(ext || '').toLowerCase();
   if (!CONTENT_SEARCH_OOXML_EXTS.includes(lowerExt)) return skipResult('unsupported_ext');
   try {
     const entries = readZipEntries(buf);
-    const text = lowerExt === '.docx' ? extractDocx(entries, buf)
-               : lowerExt === '.xlsx' ? extractXlsx(entries, buf)
-               : extractPptx(entries, buf).text;
-    const { lines, truncated } = normalizeExtracted(text);
-    return { lines, truncated };
+    if (lowerExt === '.docx') {
+      // docx は位置なし（正典と同一裁定）
+      const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
+      return { lines: lines.map((text) => ({ text })), truncated };
+    }
+    return lowerExt === '.xlsx' ? extractXlsxLinesMjs(entries, buf) : extractPptxLinesMjs(entries, buf);
   } catch (e) {
     if (e instanceof OoxmlError && e.code === 'NOT_ZIP') return skipResult('encrypted_or_not_zip');
     return skipResult('extract_error');

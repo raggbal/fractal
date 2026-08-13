@@ -173,3 +173,35 @@ test.describe('DocExtractCache.evict（TASK-13 / SEC-3）', () => {
         }
     });
 });
+
+test.describe('キャッシュ形式 version（TASK-17 / FR-DS-09 / TC-DS-55）', () => {
+    test('TC-DS-55: 旧形式（formatVersion なし = loc 導入前）のキャッシュは invalidate され再抽出', async () => {
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-fmt-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-fmt-store-'));
+        try {
+            const file = path.join(noteDir, 'a.docx');
+            fs.writeFileSync(file, 'bytes');
+            const calls: string[] = [];
+            const cache = new DocExtractCache(cacheDir, async (_buf, ext) => {
+                calls.push(ext);
+                return { lines: [{ text: 'new-format' }], truncated: false };
+            });
+            // 1 回目: 抽出してキャッシュ生成
+            await cache.getOrExtract(file);
+            expect(calls.length).toBe(1);
+            // キャッシュを旧形式（formatVersion 欠落 + string[] lines）に書き換え
+            const cacheFile = path.join(cacheDir, fs.readdirSync(cacheDir).find((f) => f.endsWith('.json')) as string);
+            const entry = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+            delete entry.formatVersion;
+            entry.result.lines = ['old-string-format'];
+            fs.writeFileSync(cacheFile, JSON.stringify(entry));
+            // 2 回目: 旧形式は miss 扱いで再抽出（stale な string[] を返さない）
+            const r = await cache.getOrExtract(file);
+            expect(calls.length).toBe(2);
+            expect(r.lines[0]).toEqual({ text: 'new-format' });
+        } finally {
+            fs.rmSync(noteDir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});

@@ -21,11 +21,12 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import { extractDocText, normalizeExtracted, CONTENT_SEARCH_EXTS } from '../../src/shared/doc-text-extract';
+import { extractDocText, normalizeExtracted, CONTENT_SEARCH_EXTS, ExtractedLine } from '../../src/shared/doc-text-extract';
 
 const FIX = path.join(__dirname, '..', 'fixtures', 'doc-search');
 const read = (name: string): Buffer => fs.readFileSync(path.join(FIX, name));
-const joined = (lines: string[]): string => lines.join('\n');
+// rev.3（FR-DS-09）: lines は {text, loc?} — 文字列比較は text を連結
+const joined = (lines: ExtractedLine[]): string => lines.map((l) => l.text).join('\n');
 
 test.describe('doc-text-extract: OOXML（TASK-01）', () => {
 
@@ -215,5 +216,53 @@ test.describe('doc-text-extract: zip bomb ガード（TASK-11 / SEC-1）', () =>
         expect(res.lines).toEqual([]);
         const growth = process.memoryUsage().heapUsed - before;
         expect(growth).toBeLessThan(50 * 1024 * 1024); // 伸長 Buffer（200MB）を掴んでいない
+    });
+});
+
+test.describe('doc-text-extract: 位置メタ（TASK-17 / FR-DS-09 / ADRL-0060）', () => {
+
+    test('TC-DS-51: PDF はページ番号 loc（p.1 — 単一ページ fixture の境界確認）', async () => {
+        const res = await extractDocText(read('fixture-ja-en.pdf'), '.pdf');
+        expect(res.skipReason).toBeUndefined();
+        const hit = res.lines.find((l) => l.text.includes('富士山麓に鸚鵡鳴く'));
+        expect(hit).toBeDefined();
+        expect(hit!.loc).toBe('p.1');
+        // 全行がページ loc を持つ（PDF に loc なし行は無い）
+        expect(res.lines.every((l) => /^p\.\d+$/.test(l.loc || ''))).toBe(true);
+    });
+
+    test('TC-DS-52: pptx はスライド番号 loc（3 枚目の語 = slide 3）', async () => {
+        const res = await extractDocText(read('pptx-pypptx.pptx'), '.pptx');
+        expect(res.skipReason).toBeUndefined();
+        const first = res.lines.find((l) => l.text.includes('一枚目タイトル'));
+        const third = res.lines.find((l) => l.text.includes('三枚目 Third'));
+        expect(first!.loc).toBe('slide 1');
+        expect(third!.loc).toBe('slide 3');   // off-by-one 番人
+    });
+
+    test('TC-DS-53: xlsx はシート名+セル参照 loc（sharedStrings 経由 + inlineStr の両方）', async () => {
+        // sharedStrings 経由（LibreOffice 変換・シート名 = データ/第二シート）
+        const sst = await extractDocText(read('xlsx-soffice-sst.xlsx'), '.xlsx');
+        expect(sst.skipReason).toBeUndefined();
+        const sstHit = sst.lines.find((l) => l.text.includes('東京タワー'));
+        expect(sstHit).toBeDefined();
+        expect(sstHit!.loc).toMatch(/^データ![A-Z]+\d+$/);        // シート名!セル参照
+        const sheet2Hit = sst.lines.find((l) => l.text.includes('二枚目の日本語セル'));
+        expect(sheet2Hit!.loc).toMatch(/^第二シート![A-Z]+\d+$/);  // 2 枚目シートの名前解決
+
+        // inlineStr（openpyxl 既定）
+        const inline = await extractDocText(read('xlsx-openpyxl-inline.xlsx'), '.xlsx');
+        expect(inline.skipReason).toBeUndefined();
+        const inlineHit = inline.lines.find((l) => l.text.includes('東京タワー'));
+        expect(inlineHit).toBeDefined();
+        expect(inlineHit!.loc).toMatch(/![A-Z]+\d+$/);            // inlineStr セルにも loc
+    });
+
+    test('TC-DS-54: docx は loc なし（位置なし裁定 — 抽出品質は不変）', async () => {
+        const res = await extractDocText(read('docx-pydocx.docx'), '.docx');
+        expect(res.skipReason).toBeUndefined();
+        expect(res.lines.length).toBeGreaterThan(0);
+        expect(res.lines.every((l) => l.loc === undefined)).toBe(true);
+        expect(joined(res.lines)).toContain('吾輩は猫である。名前はまだ無い。');
     });
 });

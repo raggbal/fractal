@@ -219,7 +219,7 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         }
     });
 
-    test('TC-DS-25: キャッシュ — 2 回目は fileCacheHit / CACHE_VERSION 4（旧 v3 invalidate）', () => {
+    test('TC-DS-25: キャッシュ — 2 回目は fileCacheHit / CACHE_VERSION 5（旧版 invalidate — FR-DS-09 で 4→5）', () => {
         const note = track(mkNoteWithAttachments([
             { id: 'att1', filename: 'meeting.docx', bytesFrom: 'docx-pydocx.docx' },
         ]));
@@ -237,10 +237,44 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         expect(cacheFiles.length).toBe(1);
         const cachePath = path.join(cacheDir, cacheFiles[0]);
         const obj = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-        expect(obj.version).toBe(4);
-        obj.version = 3;
+        expect(obj.version).toBe(5);
+        obj.version = 4;
         fs.writeFileSync(cachePath, JSON.stringify(obj));
         const j3 = runCliJson(['--query', '吾輩は猫である', '--folder', note], cacheDir);
-        expect(j3.cache.fileCacheMiss).toBe(1);   // v3 キャッシュは捨てられ再抽出
+        expect(j3.cache.fileCacheMiss).toBe(1);   // 旧 version キャッシュは捨てられ再抽出
+    });
+});
+
+test.describe('位置メタ（TASK-18 / FR-DS-09）', () => {
+    test.describe.configure({ mode: 'default' });
+    let tmpDirs: string[] = [];
+    const track = (d: string) => { tmpDirs.push(d); return d; };
+    const mkCacheDir = () => track(fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-loc-cache-')));
+    test.afterEach(() => {
+        for (const d of tmpDirs) { fs.rmSync(d, { recursive: true, force: true }); }
+        tmpDirs = [];
+    });
+
+    test('TC-DS-56: CLI ヒットに loc（xlsx = シート名!セル / pptx = slide n / pdf = p.n）が載る', () => {
+        const note = track(mkNoteWithAttachments([]));
+        fs.copyFileSync(path.join(FIX, 'xlsx-soffice-sst.xlsx'), path.join(note, 'files', 'book.xlsx'));
+        fs.copyFileSync(path.join(FIX, 'pptx-pypptx.pptx'), path.join(note, 'files', 'deck.pptx'));
+        fs.copyFileSync(path.join(FIX, 'fixture-ja-en.pdf'), path.join(note, 'files', 'doc.pdf'));
+
+        const jx = runCliJson(['--query', '東京タワー', '--folder', note, '--scope', 'file'], mkCacheDir());
+        const xlsxHit = jx.results.find((r: any) => r.fileName === 'book.xlsx');
+        expect(xlsxHit.matches[0].loc).toMatch(/^データ![A-Z]+\d+$/);
+
+        const jp = runCliJson(['--query', '三枚目 Third', '--folder', note, '--scope', 'file'], mkCacheDir());
+        const pptxHit = jp.results.find((r: any) => r.fileName === 'deck.pptx');
+        expect(pptxHit.matches[0].loc).toBe('slide 3');
+
+        const jd = runCliJson(['--query', '富士山麓に鸚鵡鳴く', '--folder', note, '--scope', 'file'], mkCacheDir());
+        const pdfHit = jd.results.find((r: any) => r.fileName === 'doc.pdf');
+        expect(pdfHit.matches[0].loc).toBe('p.1');
+
+        // テキスト表示にも loc（L<n> の代わり）
+        const txt = runCli(['--query', '東京タワー', '--folder', note, '--scope', 'file'], mkCacheDir());
+        expect(txt.stdout).toMatch(/データ![A-Z]+\d+:/);
     });
 });

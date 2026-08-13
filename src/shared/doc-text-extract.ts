@@ -20,8 +20,14 @@ import { inflateRawSync } from 'zlib';
 export type SkipReason = 'encrypted_or_not_zip' | 'too_large' | 'pdf_unavailable'
                        | 'pdf_no_text' | 'unsupported_ext' | 'extract_error';
 
+/** FR-DS-09: 位置メタ付き抽出行。loc は表示用文字列（`p.5` / `slide 3` / `売上集計!B12`）— ADRL-0060 */
+export interface ExtractedLine {
+    text: string;           // 正規化済み（NFKC + 行 200 字 clamp）
+    loc?: string;           // PDF=ページ / pptx=スライド / xlsx=シート名!セル。docx は無し（ユーザー裁定）
+}
+
 export interface ExtractResult {
-    lines: string[];        // 正規化済み（NFKC + 行 200 字 clamp + 1MB 打ち切り）
+    lines: ExtractedLine[]; // 全体 1MB 打ち切り
     truncated: boolean;     // 1MB 打ち切りが起きたか
     skipReason?: SkipReason; // 設定時 lines=[]（truthy record 用）
 }
@@ -52,6 +58,22 @@ export function normalizeExtracted(text: string): { lines: string[]; truncated: 
         total += line.length + 1;
     }
     return { lines, truncated };
+}
+
+// FR-DS-09: セグメント（ページ/スライド/セル）単位で正規化しながら loc 付きで積む。
+// budget（1MB）はファイル全体で共有（state 経由）— normalizeExtracted と同じ clamp 規則
+interface NormState { total: number; truncated: boolean; }
+
+function pushNormalized(out: ExtractedLine[], state: NormState, text: string, loc?: string): void {
+    if (state.truncated) { return; }
+    const normalized = text.normalize('NFKC');
+    for (const rawLine of normalized.split('\n')) {
+        const line = rawLine.length > LINE_CLAMP ? rawLine.substring(0, LINE_CLAMP) : rawLine;
+        if (line.length === 0) { continue; }
+        if (state.total + line.length > TOTAL_CLAMP) { state.truncated = true; return; }
+        out.push(loc ? { text: line, loc } : { text: line });
+        state.total += line.length + 1;
+    }
 }
 
 const skip = (reason: SkipReason): ExtractResult => ({ lines: [], truncated: false, skipReason: reason });
@@ -206,37 +228,91 @@ function extractStringItem(item: string): string {
     return out;
 }
 
-function extractXlsx(entries: Map<string, ZipEntry>, buf: Buffer): string {
-    const texts: string[] = [];
-    // sharedStrings（part 名 casing 差異の実在報告 SheetJS#439 → 大文字小文字を許容）
+// FR-DS-09 / ADRL-0060: xlsx はシート xml のセル走査でシート名+セル参照の loc を付ける
+// （rev.2 までの sharedStrings 直読みはセル/シート対応が取れないため改訂）。
+// シート名は workbook.xml の <sheet name= r:id=> + workbook.xml.rels の Target から解決、
+// 取れなければシート index（Sheet<n>）に縮退。
+function resolveSheetNames(entries: Map<string, ZipEntry>, buf: Buffer): Map<string, string> {
+    // 戻り値: シート part 名（xl/worksheets/sheet1.xml）→ 表示名（"売上集計"）
+    const result = new Map<string, string>();
+    try {
+        const wbName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/workbook.xml');
+        const relsName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/_rels/workbook.xml.rels');
+        if (!wbName || !relsName) { return result; }
+        const wb = readZipEntryData(buf, entries.get(wbName) as ZipEntry).toString('utf8');
+        const rels = readZipEntryData(buf, entries.get(relsName) as ZipEntry).toString('utf8');
+        // rId → part 名
+        const targetByRid = new Map<string, string>();
+        for (const m of rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"[^>]*\/>/g)) {
+            const target = m[2].replace(/^\//, '');
+            targetByRid.set(m[1], target.startsWith('xl/') ? target : `xl/${target}`);
+        }
+        // sheet name → rId → part 名
+        for (const m of wb.matchAll(/<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="([^"]+)"[^>]*\/>/g)) {
+            const part = targetByRid.get(m[2]);
+            if (part) { result.set(part, decodeXmlEntities(m[1])); }
+        }
+    } catch { /* 解決不能 → index 縮退 */ }
+    return result;
+}
+
+function extractXlsxLines(entries: Map<string, ZipEntry>, buf: Buffer): { lines: ExtractedLine[]; truncated: boolean } {
+    const out: ExtractedLine[] = [];
+    const state: NormState = { total: 0, truncated: false };
+    // sharedStrings は「プール」として読む（直接行にはしない — セル側から index 解決）
     const sstName = [...entries.keys()].find((n) => n.toLowerCase() === 'xl/sharedstrings.xml');
+    const sharedStrings: string[] = [];
     if (sstName) {
         const xml = readZipEntryData(buf, entries.get(sstName) as ZipEntry).toString('utf8');
         for (const m of xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
-            const s = extractStringItem(m[1]);
-            if (s.length > 0) { texts.push(s); }
+            sharedStrings.push(extractStringItem(m[1]));   // 空も index 維持のため push
         }
     }
-    // worksheets の inline string <c t="inlineStr"><is>...</is></c>
     const sheets = [...entries.keys()]
         .filter((n) => /^xl\/worksheets\/sheet[^/]*\.xml$/i.test(n))
         .sort();
-    for (const name of sheets) {
-        const xml = readZipEntryData(buf, entries.get(name) as ZipEntry).toString('utf8');
-        for (const m of xml.matchAll(/<is\b[^>]*>([\s\S]*?)<\/is>/g)) {
-            const s = extractStringItem(m[1]);
-            if (s.length > 0) { texts.push(s); }
-        }
-    }
     if (!sstName && sheets.length === 0) {
         throw new OoxmlError('NO_MAIN_PART', 'no xl/sharedStrings.xml nor xl/worksheets/*.xml in package');
     }
-    return texts.join('\n');
+    const nameByPart = resolveSheetNames(entries, buf);
+    let sheetIdx = 0;
+    for (const name of sheets) {
+        sheetIdx++;
+        const sheetLabel = nameByPart.get(name) || `Sheet${sheetIdx}`;
+        const xml = readZipEntryData(buf, entries.get(name) as ZipEntry).toString('utf8');
+        // セル走査: <c r="B3" t="s"><v>idx</v></c>（共有文字列）/ <c r="B3" t="inlineStr"><is>..</is></c>
+        for (const m of xml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+            if (state.truncated) { break; }
+            const attrs = m[1];
+            const body = m[2];
+            const refM = attrs.match(/\br="([A-Z]+\d+)"/);
+            const cellRef = refM ? refM[1] : '';
+            const typeM = attrs.match(/\bt="([^"]+)"/);
+            const cellType = typeM ? typeM[1] : '';
+            let text = '';
+            if (cellType === 's') {
+                const vM = body.match(/<v>(\d+)<\/v>/);
+                if (vM) { text = sharedStrings[Number(vM[1])] || ''; }
+            } else if (cellType === 'inlineStr') {
+                const isM = body.match(/<is\b[^>]*>([\s\S]*?)<\/is>/);
+                if (isM) { text = extractStringItem(isM[1]); }
+            } else if (cellType === 'str') {
+                // 数式の文字列結果 <c t="str"><v>text</v></c>
+                const vM = body.match(/<v>([\s\S]*?)<\/v>/);
+                if (vM) { text = decodeXmlEntities(vM[1]); }
+            }
+            if (text.length > 0) {
+                pushNormalized(out, state, text, cellRef ? `${sheetLabel}!${cellRef}` : sheetLabel);
+            }
+        }
+        if (state.truncated) { break; }
+    }
+    return { lines: out, truncated: state.truncated };
 }
 
 // ── pptx ────────────────────────────────────────────────────────────────────
 
-function extractPptx(entries: Map<string, ZipEntry>, buf: Buffer): string {
+function extractPptxLines(entries: Map<string, ZipEntry>, buf: Buffer): { lines: ExtractedLine[]; truncated: boolean } {
     // slides のみ glob（notesSlides / slideLayouts / slideMasters は prefix 差で除外 —
     // layouts/masters を入れると "Click to add title" 等のテンプレ文字列を拾う）。
     const slides = [...entries.keys()]
@@ -244,8 +320,10 @@ function extractPptx(entries: Map<string, ZipEntry>, buf: Buffer): string {
         .sort((a, b) => Number((a.match(/slide(\d+)\.xml$/) as RegExpMatchArray)[1])
                       - Number((b.match(/slide(\d+)\.xml$/) as RegExpMatchArray)[1]));
     if (slides.length === 0) { throw new OoxmlError('NO_MAIN_PART', 'no ppt/slides/slide*.xml part in package'); }
-    const texts: string[] = [];
+    const outLines: ExtractedLine[] = [];
+    const state: NormState = { total: 0, truncated: false };
     for (const name of slides) {
+        const slideNo = Number((name.match(/slide(\d+)\.xml$/) as RegExpMatchArray)[1]);   // FR-DS-09: loc = slide 番号
         const xml = readZipEntryData(buf, entries.get(name) as ZipEntry).toString('utf8');
         let out = '';
         for (const m of xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>|<a:t\/>|<a:br\b[^>]*\/>|<\/a:p>/g)) {
@@ -253,9 +331,10 @@ function extractPptx(entries: Map<string, ZipEntry>, buf: Buffer): string {
             if (tok === '</a:p>' || tok.startsWith('<a:br')) { out += '\n'; }
             else if (m[1] !== undefined) { out += decodeXmlEntities(m[1]); }
         }
-        texts.push(out.replace(/\n{2,}/g, '\n').replace(/^\n+|\n+$/g, ''));
+        pushNormalized(outLines, state, out.replace(/\n{2,}/g, '\n').replace(/^\n+|\n+$/g, ''), `slide ${slideNo}`);
+        if (state.truncated) { break; }
     }
-    return texts.join('\n');
+    return { lines: outLines, truncated: state.truncated };
 }
 
 // ── PDF（pdfjs-dist@4.10.38 遅延ロード — TASK-03） ──────────────────────────
@@ -300,22 +379,26 @@ async function extractPdf(buf: Buffer, opts?: ExtractOpts): Promise<ExtractResul
         // pdfjs は buffer を転送で消費しうるためコピーを渡す。verbosity 0 = errors のみ
         // （Warning が console/stdout を汚染し CLI --json の出力を壊すのを防ぐ — CLI ミラーと同値）
         const doc = await lib.getDocument({ data: new Uint8Array(buf), verbosity: 0 }).promise;
-        let text = '';
+        const lines: ExtractedLine[] = [];
+        const state: NormState = { total: 0, truncated: false };
+        let rawLen = 0;
         try {
             for (let i = 1; i <= doc.numPages; i++) {
                 const page = await doc.getPage(i);
                 const content = await page.getTextContent();
-                text += content.items.map((it) => it.str || '').join('') + '\n';
+                const pageText = content.items.map((it) => it.str || '').join('');
+                rawLen += pageText.trim().length;
+                pushNormalized(lines, state, pageText, `p.${i}`);   // FR-DS-09: loc = ページ番号
+                if (state.truncated) { break; }
             }
         } finally {
             await doc.destroy().catch(() => { /* ignore */ });
         }
-        if (text.trim().length === 0) {
+        if (rawLen === 0) {
             // predefined CMap 依存（ToUnicode 非埋込・cmaps 非同梱）は抽出 0 文字になる — ADRL-0057
             return skip('pdf_no_text');
         }
-        const { lines, truncated } = normalizeExtracted(text);
-        return { lines, truncated };
+        return { lines, truncated: state.truncated };
     } catch {
         return skip('extract_error');
     }
@@ -334,11 +417,12 @@ export async function extractDocText(buf: Buffer, ext: string, opts?: ExtractOpt
     if (lowerExt === '.pdf') { return extractPdf(buf, opts); }
     try {
         const entries = readZipEntries(buf);
-        const text = lowerExt === '.docx' ? extractDocx(entries, buf)
-                   : lowerExt === '.xlsx' ? extractXlsx(entries, buf)
-                   : extractPptx(entries, buf);
-        const { lines, truncated } = normalizeExtracted(text);
-        return { lines, truncated };
+        if (lowerExt === '.docx') {
+            // docx は位置なし（ページ/行番号はレンダリング結果でフォーマットに存在しない — ユーザー裁定）
+            const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
+            return { lines: lines.map((text) => ({ text })), truncated };
+        }
+        return lowerExt === '.xlsx' ? extractXlsxLines(entries, buf) : extractPptxLines(entries, buf);
     } catch (e) {
         if (e instanceof OoxmlError && e.code === 'NOT_ZIP') { return skip('encrypted_or_not_zip'); }
         // ZIP_CORRUPT / ZIP64 / UNSUPPORTED_COMPRESSION / NO_MAIN_PART / inflate 失敗等

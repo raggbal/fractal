@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { extractDocTextMjs, normalizeExtracted } from './ooxml-extract.mjs';
+import { extractDocTextMjs, pushNormalized } from './ooxml-extract.mjs';
 
 // ── フラットレイアウトの pageDir 解決（新フラットレイアウト前提・legacy fallback なし = ユーザー決定 2026-07-26）──
 // フラット規約: page md = <folder>/<pageId>.md（直下）。hint（isFlatOut / 相対 / 絶対）尊重・無ければ直下。
@@ -29,7 +29,7 @@ export function resolvePagesDirForSearch(folder, outFile, pageDirHint) {
     return folder; // 新デフォルト = note 直下
 }
 
-const CACHE_VERSION = 4;  // bump on schema change to invalidate old caches (v4: 添付中身検索 {lines,truncated,skipReason} 追加 — FR-DS-06)
+const CACHE_VERSION = 5;  // bump on schema change to invalidate old caches (v5: 添付 lines を {text,loc?} に拡張 — FR-DS-09)
 
 // ─────────────── Tag / checked フィルタ（FR-SRF-01/02） ───────────────
 
@@ -536,18 +536,23 @@ async function extractPdfViaVendor(buf) {
     try {
         // verbosity: 0 = errors のみ（pdfjs の Warning が stdout に出て --json の JSON を汚染するのを防ぐ）
         const doc = await lib.getDocument({ data: new Uint8Array(buf), verbosity: 0 }).promise;
-        let text = '';
+        const lines = [];
+        const state = { total: 0, truncated: false };
+        let rawLen = 0;
         try {
             for (let i = 1; i <= doc.numPages; i++) {
                 const page = await doc.getPage(i);
                 const content = await page.getTextContent();
-                text += content.items.map(it => it.str || '').join('') + '\n';
+                const pageText = content.items.map(it => it.str || '').join('');
+                rawLen += pageText.trim().length;
+                pushNormalized(lines, state, pageText, `p.${i}`);   // FR-DS-09: loc = ページ番号（正典と同形）
+                if (state.truncated) break;
             }
         } finally {
             await doc.destroy().catch(() => {});
         }
-        if (text.trim().length === 0) return { lines: [], truncated: false, skipReason: 'pdf_no_text' };
-        return normalizeExtracted(text);
+        if (rawLen === 0) return { lines: [], truncated: false, skipReason: 'pdf_no_text' };
+        return { lines, truncated: state.truncated };
     } catch {
         return { lines: [], truncated: false, skipReason: 'extract_error' };
     }
@@ -621,7 +626,13 @@ async function searchTreeFileAttachments(folder, regex, args, state, cache, note
         if (!hit) continue;
         if (hit.fromCache) state.stats.fileCacheHit++; else state.stats.fileCacheMiss++;
         if (hit.data.skipReason) continue;   // skip は記録済み・結果には出さない（FR-DS-08）
-        const m = searchLines(hit.data.lines, regex, args);
+        // FR-DS-09: lines は {text, loc?} — searchLines は string[] 前提なので text を渡し loc を後付け
+        const texts = hit.data.lines.map(l => l.text);
+        const m = searchLines(texts, regex, args);
+        for (const match of m) {
+            const loc = hit.data.lines[match.lineNumber] && hit.data.lines[match.lineNumber].loc;
+            if (loc) match.loc = loc;
+        }
         if (m.length > 0) {
             state.results.push({
                 folder,
@@ -947,7 +958,9 @@ function renderText(results, outlineSummaries, args) {
             const seen = new Set();
             for (const m of r.matches) {
                 if (seen.has(m.lineNumber)) continue; seen.add(m.lineNumber);
-                lines.push(`     L${m.lineNumber + 1}: ${truncate(m.line, 90)}`);
+                // FR-DS-09: 位置（p.5 / slide 3 / シート名!B12）があれば L<n> より優先表示
+                const pos = m.loc || `L${m.lineNumber + 1}`;
+                lines.push(`     ${pos}: ${truncate(m.line, 90)}`);
             }
         }
         lines.push('');
