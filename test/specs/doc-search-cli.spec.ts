@@ -108,6 +108,10 @@ test.describe('extension⇄CLI ミラー同期（ADRL-0059）', () => {
 });
 
 test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
+    // TC-DS-23 が vendor/pdfjs-bundle.cjs（グローバル実体）を一時退避するため、
+    // fullyParallel だと TC-DS-39（vendor 実在前提）と並列干渉して flaky になる —
+    // この describe 内は宣言順の直列実行に固定する
+    test.describe.configure({ mode: 'default' });
     let tmpDirs: string[] = [];
     const track = (d: string) => { tmpDirs.push(d); return d; };
     const mkCacheDir = () => track(fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-cache-')));
