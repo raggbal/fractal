@@ -219,6 +219,7 @@ export const webviewMessages = {
   notesSearchOutlinerResults: 'Resultados del esquema',
   notesSearchMarkdownResults: 'Resultados de Markdown',
   notesSearchFilesResults: 'Resultados de archivos',
+  notesSearchReferencedBy: 'Referenciado por',
   notesRename: 'Renombrar',
   notesOpen: 'Abrir',
   notesRevealInFinder: 'Mostrar en Finder',

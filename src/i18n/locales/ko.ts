@@ -219,6 +219,7 @@ export const webviewMessages = {
   notesSearchOutlinerResults: '아웃라이너 검색 결과',
   notesSearchMarkdownResults: 'Markdown 검색 결과',
   notesSearchFilesResults: '파일 검색 결과',
+  notesSearchReferencedBy: '참조 위치',
   notesRename: '이름 변경',
   notesOpen: '열기',
   notesRevealInFinder: 'Finder에서 표시',

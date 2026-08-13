@@ -46,11 +46,13 @@ async function loadPanelWithExplicitBridge(page: Page): Promise<void> {
                 if (type === 'onSearchStart') w.__onSearchStart = args[0];
                 if (type === 'onSearchPartial') w.__onSearchPartial = args[0];
                 if (type === 'onSearchEnd') w.__onSearchEnd = args[0];
+                if (type === 'onSearchBacklinks') w.__onSearchBacklinks = args[0];
             };
             return {
                 onSearchStart: rec('onSearchStart'),
                 onSearchPartial: rec('onSearchPartial'),
                 onSearchEnd: rec('onSearchEnd'),
+                onSearchBacklinks: rec('onSearchBacklinks'),   // rev.3（実 bridge に実在）
                 openTreeFileExternal: rec('openTreeFileExternal'),
                 openNoteFilesExternal: rec('openNoteFilesExternal'),   // rev.2（実 bridge に実在 — notes-host-bridge.js）
                 jumpToNode: rec('jumpToNode'),
@@ -157,5 +159,49 @@ test.describe('webview Files セクション（FR-DS-05）', () => {
         const messages = fs.readFileSync(path.join(i18nRoot, 'messages.ts'), 'utf8');
         const webviewBlock = messages.substring(messages.indexOf('interface WebviewMessages'));
         expect(webviewBlock.includes(key)).toBe(true);
+    });
+});
+
+test.describe('逆参照リンク + loc 表示（TASK-20 / FR-DS-10 / FR-DS-09）', () => {
+
+    test('TC-DS-59: backlinks 受信でヒット行にリンク追加 → node = jumpToNode / md = openFile + loc badge 表示', async ({ page }) => {
+        await loadPanelWithExplicitBridge(page);
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const input = document.getElementById('notesSearchInput') as HTMLInputElement;
+            input.value = '吾輩';
+            w.__onSearchStart(20);
+            // loc 付きヒット（FR-DS-09 の表示確認込み）
+            w.__onSearchPartial(20, {
+                fileId: 'files/book.xlsx', fileTitle: '売上ブック', fileType: 'file',
+                matches: [{ field: 'content', lineText: '吾輩の売上', matchStart: 0, matchEnd: 2, lineNumber: 0, loc: '売上集計!B12' }],
+            });
+            w.__onSearchEnd(20);
+            // 後追い backlinks（End 後 — ADRL-0061 の非同期契約どおりの順序で駆動）
+            const backlinksCb = w.__calls.length; // marker only
+            w.__onSearchBacklinks && w.__onSearchBacklinks(20, 'files/book.xlsx', [
+                { kind: 'node', outFileId: 'work', nodeId: 'n1', label: 'Work Plan › 予算資料' },
+                { kind: 'md', mdPath: '/n/meeting.md', label: 'meeting.md' },
+            ]);
+            const group = document.querySelector('[data-file-id="files/book.xlsx"]') as HTMLElement;
+            const links = Array.from(group.querySelectorAll('.file-panel-search-backlink')) as HTMLElement[];
+            const locBadge = group.querySelector('.file-panel-search-loc');
+            // クリック（node → jumpToNode / md → openFile）
+            links[0].click();
+            links[1].click();
+            return {
+                backlinkTexts: links.map((l) => l.textContent),
+                locText: locBadge ? locBadge.textContent : null,
+                jumpCalls: w.__calls.filter((c: any) => c.type === 'jumpToNode').map((c: any) => c.args),
+                openCalls: w.__calls.filter((c: any) => c.type === 'openFile').map((c: any) => c.args),
+                unused: backlinksCb,
+            };
+        });
+        expect(r.locText).toBe('[売上集計!B12]');                      // FR-DS-09 loc badge
+        expect(r.backlinkTexts.length).toBe(2);
+        expect(r.backlinkTexts[0]).toContain('Work Plan › 予算資料');
+        expect(r.jumpCalls).toEqual([['work', 'n1']]);                 // node → jumpToNode
+        expect(r.openCalls.length).toBe(1);
+        expect(r.openCalls[0][0]).toBe('/n/meeting.md');               // md → note md ダイレクト（openFile）
     });
 });

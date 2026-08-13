@@ -698,6 +698,14 @@
                 }
             });
         },
+        // FR-DS-10: 逆参照（参照元 md / node）— End 後に非同期で後追い配信される
+        onSearchBacklinks: function(handler) {
+            window.addEventListener('message', function(e) {
+                if (e.data && e.data.type === 'notesSearchBacklinks') {
+                    handler(e.data.searchId, e.data.fileId, e.data.backlinks);
+                }
+            });
+        },
 
         // イベントリスナー
         onFileListChanged: function(handler) {

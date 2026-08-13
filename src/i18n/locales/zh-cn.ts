@@ -219,6 +219,7 @@ export const webviewMessages = {
   notesSearchOutlinerResults: '大纲搜索结果',
   notesSearchMarkdownResults: 'Markdown 搜索结果',
   notesSearchFilesResults: '文件搜索结果',
+  notesSearchReferencedBy: '引用来源',
   notesRename: '重命名',
   notesOpen: '打开',
   notesRevealInFinder: '在 Finder 中显示',
