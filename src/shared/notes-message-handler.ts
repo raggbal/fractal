@@ -1815,7 +1815,10 @@ export async function handleNotesMessage(
 
             sender.postMessage({ type: 'notesSearchStart', searchId, query: message.query });
 
-            fileManager.searchFilesStreaming(message.query, searchOpts, (partialResult) => {
+            // FR-DS-01: 添付中身検索（第 4 段）を含むため async。notesSearchEnd は完了後に送出
+            // （Start→Partial*→End の順序契約 — design/system.md §8）。旧検索の中断は
+            // fileManager 内の generation カウンタが行う（webview 側は既存 searchId フィルタ）。
+            await fileManager.searchFilesStreaming(message.query, searchOpts, (partialResult) => {
                 sender.postMessage({
                     type: 'notesSearchPartial',
                     searchId,

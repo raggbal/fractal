@@ -6,6 +6,8 @@ import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, genera
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { CONTENT_SEARCH_EXTS } from './doc-text-extract';
+import { DocExtractCache } from './doc-extract-cache';
 const mdLinkParser = require('./markdown-link-parser');
 
 export interface NotesFileEntry {
@@ -111,8 +113,14 @@ export class NotesFileManager {
     static MD_IMAGES_SUBDIR = 'images';
     static MD_FILES_SUBDIR = 'files';
 
-    constructor(mainFolderPath: string) {
+    // FR-DS-04: 添付中身検索の抽出キャッシュ dir（globalStorageUri 配下を provider が string 注入。
+    // optional — 既存の 1 引数呼び出し（unit spec / electron / dstFm）は null = 都度抽出に縮退。
+    // note フォルダ内は不可（S3 sync / cleanup の走査対象になる — NFR-DS-06 / ADRL-0058）
+    private docCache: DocExtractCache;
+
+    constructor(mainFolderPath: string, docCacheDir?: string | null) {
         this.mainFolderPath = mainFolderPath;
+        this.docCache = new DocExtractCache(docCacheDir ?? null);
     }
 
     getMainFolderPath(): string { return this.mainFolderPath; }
@@ -2009,11 +2017,15 @@ export class NotesFileManager {
      * ファイル単位でストリーミング検索
      * コールバックでファイルごとの結果を返す
      */
-    searchFilesStreaming(
+    // FR-DS-01: 旧検索 abort 用 generation カウンタ（新検索発行で旧ループが次 check で return）
+    private searchGeneration = 0;
+
+    async searchFilesStreaming(
         query: string,
         options: SearchOptions,
         onResult: (result: SearchResult) => void
-    ): void {
+    ): Promise<void> {
+        const gen = ++this.searchGeneration;
         let regex: RegExp;
         try {
             regex = this.buildSearchRegex(query, options);
@@ -2125,6 +2137,34 @@ export class NotesFileManager {
                 }
             } catch { /* skip */ }
         }
+
+        // 4. FR-DS-01: tree file item（ext:'file'）の中身検索（items 台帳起点 — files/ readdir は
+        //    共有領域のため不可・ADRL-0048。抽出は DocExtractCache 経由 = 2 回目以降キャッシュ）
+        try {
+            const structure = this.getStructure();
+            for (const [id, item] of Object.entries(structure.items)) {
+                if (gen !== this.searchGeneration) { return; }   // 旧検索 abort
+                const it = item as { type?: string; ext?: string; filename?: string; title?: string };
+                if (!it || it.type !== 'file' || it.ext !== 'file' || !it.filename) { continue; }
+                const ext = path.extname(it.filename).toLowerCase();
+                if (!CONTENT_SEARCH_EXTS.includes(ext)) { continue; }   // title/filename マッチ（FR-TF-12）は別レイヤで不変
+                const abs = this.getTreeFilePath(id);                    // 正典（clamp 内蔵）。null → skip
+                if (!abs || !fs.existsSync(abs)) { continue; }           // 実体欠損 = TC-TF-10 precedent
+                const res = await this.docCache.getOrExtract(abs);       // await 単位で yield
+                if (gen !== this.searchGeneration) { return; }
+                if (res.skipReason) { continue; }                        // 記録済み・結果には出さない（FR-DS-08）
+                const matches: SearchMatch[] = [];
+                for (let i = 0; i < res.lines.length; i++) {
+                    this.findMatches(res.lines[i], regex, 'content', undefined, matches);
+                    if (matches.length > 0 && matches[matches.length - 1].lineNumber === undefined) {
+                        matches[matches.length - 1].lineNumber = i;      // 0-based（既存 md 検索と同じ）
+                    }
+                }
+                if (matches.length > 0) {
+                    onResult({ fileId: id, fileTitle: it.title || it.filename, fileType: 'file', matches });
+                }
+            }
+        } catch { /* 第 4 段の障害は既存 3 段の結果に影響させない */ }
     }
 
     private searchMdFile(

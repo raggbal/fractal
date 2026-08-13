@@ -197,7 +197,10 @@ export class NotesEditorProvider {
         }
 
         // --- パネル固有の状態（全てローカル変数） ---
-        const fileManager = new NotesFileManager(folderPath);
+        // FR-DS-04: 抽出キャッシュは globalStorageUri 配下（note フォルダ外 — S3 sync / cleanup の
+        // 走査対象に載せない。ADRL-0058）。string 注入で NotesFileManager の vscode 非依存を維持
+        const docCacheDir = path.join(this.context.globalStorageUri.fsPath, 'doc-extract');
+        const fileManager = new NotesFileManager(folderPath, docCacheDir);
 
         // FR-MG-01: 起動時フラット移行ゲート。★ loadStructure より前に old layout を判定する。
         //   loadStructure() は読むだけでなく開いた瞬間に .note→outline.note rename / 旧 md renameSync /
