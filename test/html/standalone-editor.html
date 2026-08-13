@@ -18202,11 +18202,40 @@ class EditorInstance {
                         break;
                     }
                     
-                    afterRange.setStart(range.endContainer, range.endOffset);
+                    // TASK-03 (sprint 20260813-210323): キャレットがアイコン付きアンカー
+                    //（subpage/md リンク = ::before アイコン持ち・📎 file リンク）の内側にあると、
+                    // extractContents がアンカーを分割して clone を新 li に持ち込む。
+                    // 末尾なら空アンカー（アイコンだけの残骸）、途中ならリンク二重化になるため、
+                    // これらのアンカーは原子として扱い、分割点をアンカーの後ろへ繰り上げる。
+                    let splitContainer = range.endContainer;
+                    let splitOffset = range.endOffset;
+                    {
+                        let anc = splitContainer.nodeType === 3 ? splitContainer.parentNode : splitContainer;
+                        while (anc && anc !== listItem && anc !== editor) {
+                            if (anc.nodeType === 1 && anc.tagName === 'A' &&
+                                (anc.getAttribute('data-subpage') === 'true' ||
+                                 anc.getAttribute('data-is-file-attachment') === 'true' ||
+                                 (anc.classList && anc.classList.contains('link-subpage')))) {
+                                const hoist = document.createRange();
+                                hoist.setStartAfter(anc);
+                                splitContainer = hoist.startContainer;
+                                splitOffset = hoist.startOffset;
+                                break;
+                            }
+                            anc = anc.parentNode;
+                        }
+                    }
+                    afterRange.setStart(splitContainer, splitOffset);
                     afterRange.setEnd(endNode, endOffset);
-                    
+
                     // Extract content after cursor (text only)
                     const afterContent = afterRange.extractContents();
+                    // 分割で生まれた空アンカー（テキストなし = アイコン装飾だけの残骸）を両側から除去
+                    for (const frag of [afterContent, listItem]) {
+                        for (const a of Array.from(frag.querySelectorAll ? frag.querySelectorAll('a') : [])) {
+                            if (!(a.textContent || '').trim()) a.remove();
+                        }
+                    }
                     
                     // Clean up: if listItem text part now ends with just whitespace or <br>, remove it
                     // But keep nested lists in place

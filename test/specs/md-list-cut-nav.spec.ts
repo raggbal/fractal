@@ -296,3 +296,106 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         expect(li).toContain('📎 doc1');                       // 空白 node 挟みでも入れる
     });
 });
+
+test.describe('TASK-03: Enter 分割での md アイコン複製防止', () => {
+
+    async function setupMd(page: Page, md: string): Promise<void> {
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
+        await page.evaluate((m) => { (window as any).__testApi.setMarkdown(m); }, md);
+        await page.waitForTimeout(400);
+    }
+
+    /** アイコン付きアンカー（subpage/md）の数と各 li の状態 */
+    async function anchorState(page: Page) {
+        return page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const anchors = Array.from(editor.querySelectorAll('a[data-subpage], a.link-subpage'));
+            return {
+                anchorCount: anchors.length,
+                emptyAnchors: anchors.filter((a) => !(a.textContent || '').trim()).length,
+                liTexts: Array.from(editor.querySelectorAll('li')).map((l) => (l.textContent || '').trim()),
+                md: (window as any).__testApi.getMarkdown ? (window as any).__testApi.getMarkdown() : null,
+            };
+        });
+    }
+
+    test('TC-LX-07: リンクとテキストの間で Enter → 新行にアイコンが複製されない', async ({ page }) => {
+        await setupMd(page, '- [[sss]](sub.md)xx\n');
+        // リンクテキスト末尾（anchor 内 offset 3 — ユーザーがタイプ直後に Enter する実位置）
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const a = editor.querySelector('a') as HTMLAnchorElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStart(a.firstChild as Node, 3);
+            r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            editor.focus();
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+
+        const s = await anchorState(page);
+        expect(s.anchorCount).toBe(1);              // アイコン付きアンカーは元行の 1 個だけ
+        expect(s.emptyAnchors).toBe(0);             // 空アンカー（アイコンだけの残骸）なし
+        expect(s.liTexts).toEqual(['sss', 'xx']);   // 分割自体は正しい
+        expect(s.md).toContain('[[sss]](sub.md)');
+        expect((s.md.match(/sub\.md/g) || []).length).toBe(1);   // md 上もリンク 1 個
+    });
+
+    test('TC-LX-08: 分割位置バリエーション — アイコンは常に元リンク保持行のみ', async ({ page }) => {
+        // (a) アンカー直後（要素境界）
+        await setupMd(page, '- [[sss]](sub.md)xx\n');
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const a = editor.querySelector('a') as HTMLAnchorElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStartAfter(a); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            editor.focus();
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        let s = await anchorState(page);
+        expect(s.anchorCount).toBe(1);
+        expect(s.emptyAnchors).toBe(0);
+
+        // (b) アンカー内テキスト途中（リンクは原子として元行に残る）
+        await setupMd(page, '- [[sss]](sub.md)xx\n');
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const a = editor.querySelector('a') as HTMLAnchorElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStart(a.firstChild as Node, 2);    // "ss|s"
+            r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            editor.focus();
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        s = await anchorState(page);
+        expect(s.anchorCount).toBe(1);              // counterfactual: 原子化なしだと 2 個に分裂
+        expect(s.emptyAnchors).toBe(0);
+        expect(s.liTexts[0]).toBe('sss');           // リンクテキストは分断されない
+
+        // (c) 行頭（テキスト xx の前ではなくリンクの前）で Enter — アイコンは下行（元リンク行）に随伴
+        await setupMd(page, '- [[sss]](sub.md)xx\n- next\n');
+        await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            const li = editor.querySelector('li') as HTMLElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.setStart(li, 0); r.collapse(true);
+            sel.removeAllRanges(); sel.addRange(r);
+            editor.focus();
+        });
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        s = await anchorState(page);
+        expect(s.anchorCount).toBe(1);
+        expect(s.emptyAnchors).toBe(0);
+    });
+});
