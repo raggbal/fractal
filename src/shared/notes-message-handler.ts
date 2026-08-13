@@ -1827,7 +1827,9 @@ export async function handleNotesMessage(
             // FR-DS-01: 添付中身検索（第 4 段）を含むため async。notesSearchEnd は完了後に送出
             // （Start→Partial*→End の順序契約 — design/system.md §8）。旧検索の中断は
             // fileManager 内の generation カウンタが行う（webview 側は既存 searchId フィルタ）。
+            const fileHitIds: string[] = [];
             await fileManager.searchFilesStreaming(message.query, searchOpts, (partialResult) => {
+                if (partialResult.fileType === 'file') { fileHitIds.push(partialResult.fileId); }
                 sender.postMessage({
                     type: 'notesSearchPartial',
                     searchId,
@@ -1836,6 +1838,20 @@ export async function handleNotesMessage(
             });
 
             sender.postMessage({ type: 'notesSearchEnd', searchId });
+
+            // FR-DS-10 / ADRL-0061: 逆参照は End 送出後に非同期で後追い配信（検索表示を遅くしない）。
+            // setImmediate でイベントループに譲ってから解決（初回はフル走査・2 回目以降 mtime キャッシュ）
+            if (fileHitIds.length > 0) {
+                setImmediate(() => {
+                    try {
+                        const backlinks = fileManager.resolveFileBacklinks(fileHitIds);
+                        for (const [fileId, refs] of backlinks) {
+                            if (refs.length === 0) { continue; }   // 孤児 file は配信しない
+                            sender.postMessage({ type: 'notesSearchBacklinks', searchId, fileId, backlinks: refs });
+                        }
+                    } catch { /* 逆参照の失敗は検索結果に影響させない */ }
+                });
+            }
             break;
         }
 

@@ -8,6 +8,7 @@ import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
 import { CONTENT_SEARCH_EXTS } from './doc-text-extract';
 import { DocExtractCache } from './doc-extract-cache';
+import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
 const mdLinkParser = require('./markdown-link-parser');
 
 export interface NotesFileEntry {
@@ -118,10 +119,22 @@ export class NotesFileManager {
     // optional — 既存の 1 引数呼び出し（unit spec / electron / dstFm）は null = 都度抽出に縮退。
     // note フォルダ内は不可（S3 sync / cleanup の走査対象になる — NFR-DS-06 / ADRL-0058）
     private docCache: DocExtractCache;
+    // FR-DS-10: 逆参照（参照元 md / node）resolver — 同じ cacheDir にインデックスを永続
+    private backlinks: DocBacklinksResolver;
 
     constructor(mainFolderPath: string, docCacheDir?: string | null) {
         this.mainFolderPath = mainFolderPath;
         this.docCache = new DocExtractCache(docCacheDir ?? null);
+        this.backlinks = new DocBacklinksResolver(docCacheDir ?? null);
+    }
+
+    /**
+     * FR-DS-10: file ヒット（fileId = `files/<rel>`）の逆参照（参照元 md / node）を解決する。
+     * 呼び出し側（notes-message-handler）は notesSearchEnd 送出**後**に非同期で呼ぶこと
+     * （検索の初期表示を遅くしない — ADRL-0061 の非同期契約）。
+     */
+    resolveFileBacklinks(fileIds: string[]): Map<string, BacklinkRef[]> {
+        return this.backlinks.resolve(this.mainFolderPath, fileIds);
     }
 
     getMainFolderPath(): string { return this.mainFolderPath; }
