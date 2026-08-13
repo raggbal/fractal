@@ -11357,6 +11357,115 @@ class EditorInstance {
             return;
         }
 
+        // TASK-02 (sprint 20260813-210323): ce=false アンカー（📎 file リンク等）のみの li は
+        // ブラウザ標準の ↑↓ で caret を置けずスキップ/消失する（素の contenteditable でも再現 =
+        // ブラウザ挙動）。移動先の行がそれに該当する場合、caret を li に明示配置して補助する。
+        // ce=false 自体は外せない（TC-MX-08: D&D の dragstart 発火要件）ため、進入側で救う。
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.metaKey && !e.altKey) {
+            const selNav = window.getSelection();
+            if (selNav && selNav.rangeCount && selNav.isCollapsed) {
+                // 「caret を置ける編集可能テキストが無く、ce=false 要素だけがある li」判定
+                const liNeedsCaretAssist = (el) => {
+                    if (!el || el.nodeType !== 1 || el.tagName !== 'LI') return false;
+                    let hasUnedit = false;
+                    for (const child of el.childNodes) {
+                        if (child.nodeType === 3 && child.textContent.trim()) return false;   // 直下テキストあり → 標準で入れる
+                        if (child.nodeType === 1) {
+                            const t = child.tagName;
+                            if (t === 'UL' || t === 'OL' || t === 'BR') continue;
+                            if (child.getAttribute && child.getAttribute('contenteditable') === 'false') { hasUnedit = true; continue; }
+                            if (child.textContent && child.textContent.trim()) return false;  // ce=true 要素のテキスト → 標準で入れる
+                        }
+                    }
+                    return hasUnedit;   // ce=false 要素のみ（真に空の殻は対象外 = ブラウザに任せる）
+                };
+                // 現在の行ブロックを特定（li 優先 → 直近ブロック）
+                let curBlock = selNav.anchorNode;
+                while (curBlock && curBlock !== editor) {
+                    if (curBlock.nodeType === 1 && /^(LI|P|H[1-6]|PRE|BLOCKQUOTE)$/.test(curBlock.tagName)) break;
+                    curBlock = curBlock.parentNode;
+                }
+                if (curBlock && curBlock !== editor) {
+                    // document order = 視覚順（ネスト li も親→子の順）。行ブロック列から隣を求める
+                    const blocks = Array.from(editor.querySelectorAll('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote'))
+                        .filter((b) => b.tagName !== 'LI' || true);
+                    const idx = blocks.indexOf(curBlock);
+                    if (idx !== -1) {
+                        // ブロック内の視覚行判定: 複数視覚行を持つブロックの途中では標準挙動に任せる。
+                        // caret rect がブロックの「自身のコンテンツ」（li は nested ul/ol を除く）の
+                        // 端の行にあるときだけ「次ブロックへの移動」とみなす。
+                        // ※ li.getBoundingClientRect() は nested list 全体を含むため親 li で誤判定する
+                        let atEdge = true;
+                        try {
+                            const r = selNav.getRangeAt(0).cloneRange();
+                            const rects = r.getClientRects();
+                            const caretRect = rects.length ? rects[0] : r.getBoundingClientRect();
+                            // 自身のコンテンツ範囲の rect（直下 nested list の手前まで）
+                            const contentRange = document.createRange();
+                            contentRange.setStart(curBlock, 0);
+                            let endIdx = curBlock.childNodes.length;
+                            for (let ci = 0; ci < curBlock.childNodes.length; ci++) {
+                                const cn = curBlock.childNodes[ci];
+                                if (cn.nodeType === 1 && (cn.tagName === 'UL' || cn.tagName === 'OL')) { endIdx = ci; break; }
+                            }
+                            contentRange.setEnd(curBlock, endIdx);
+                            const blockRect = contentRange.getBoundingClientRect();
+                            if (caretRect && caretRect.height > 0 && blockRect && blockRect.height > 0) {
+                                atEdge = e.key === 'ArrowDown'
+                                    ? (blockRect.bottom - caretRect.bottom) < caretRect.height
+                                    : (caretRect.top - blockRect.top) < caretRect.height;
+                            }
+                        } catch (err) { /* rect が取れない場合は端とみなす */ }
+                        if (atEdge) {
+                            // 方向の隣接行のうち、補助が必要なケース = 「入る先が ce=false-only li」
+                            // または「今いる行が ce=false-only li（要素 offset caret からの脱出も
+                            // ブラウザ標準が動かない）」の双方向を救う
+                            const step = e.key === 'ArrowDown' ? 1 : -1;
+                            const target = blocks[idx + step];
+                            if (target && target !== curBlock &&
+                                (liNeedsCaretAssist(target) || liNeedsCaretAssist(curBlock))) {
+                                e.preventDefault();
+                                const range = document.createRange();
+                                if (liNeedsCaretAssist(target)) {
+                                    // li 要素 offset で配置（ce=false アンカーの前 = 0 / 後 = childNodes.length）
+                                    if (e.key === 'ArrowDown') { range.setStart(target, 0); }
+                                    else { range.setStart(target, target.childNodes.length); }
+                                } else {
+                                    // 通常行へ脱出: 自身コンテンツ（nested list 手前）の先頭/末尾テキストに配置
+                                    let textNode = null;
+                                    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+                                        acceptNode: (tn) => {
+                                            // nested list 内は対象外（別の視覚行）
+                                            let p = tn.parentNode;
+                                            while (p && p !== target) {
+                                                if (p.nodeType === 1 && (p.tagName === 'UL' || p.tagName === 'OL')) return NodeFilter.FILTER_REJECT;
+                                                p = p.parentNode;
+                                            }
+                                            return NodeFilter.FILTER_ACCEPT;
+                                        },
+                                    });
+                                    if (e.key === 'ArrowDown') {
+                                        textNode = walker.nextNode();
+                                        if (textNode) { range.setStart(textNode, 0); }
+                                        else { range.setStart(target, 0); }
+                                    } else {
+                                        let last = null;
+                                        while (walker.nextNode()) last = walker.currentNode;
+                                        if (last) { range.setStart(last, last.textContent.length); }
+                                        else { range.setStart(target, target.childNodes.length); }
+                                    }
+                                }
+                                range.collapse(true);
+                                selNav.removeAllRanges();
+                                selNav.addRange(range);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Arrow keys for table cell navigation
         if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
             const sel = window.getSelection();
