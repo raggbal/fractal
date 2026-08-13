@@ -1741,15 +1741,19 @@ var notesFilePanel = (function() {
     var searchSectionOut = null;
     var searchSectionMd = null;
     var searchSectionExplore = null;
+    var searchSectionFiles = null;
     var searchSectionOutBody = null;
     var searchSectionMdBody = null;
     var searchSectionExploreBody = null;
+    var searchSectionFilesBody = null;
     var searchSectionOutTitle = null;
     var searchSectionMdTitle = null;
     var searchSectionExploreTitle = null;
+    var searchSectionFilesTitle = null;
     var searchCountOut = 0;
     var searchCountMd = 0;
     var searchCountExplore = 0;
+    var searchCountFiles = 0;
 
     function buildSearchSection(label) {
         var section = document.createElement('div');
@@ -1770,11 +1774,14 @@ var notesFilePanel = (function() {
         searchCountOut = 0;
         searchCountMd = 0;
         searchCountExplore = 0;
+        searchCountFiles = 0;
         if (searchResultsEl) {
             searchResultsEl.innerHTML = '';
             var exploreSec = buildSearchSection((i18n.notesSearchExploreResults || 'Notes Exploreの検索結果'));
             var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
             var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            // FR-DS-05: 第 4 セクション（tree file 添付の中身ヒット — fileType:'file'）
+            var filesSec = buildSearchSection((i18n.notesSearchFilesResults || 'Filesの検索結果'));
             searchSectionExplore = exploreSec.section;
             searchSectionExploreBody = exploreSec.body;
             searchSectionExploreTitle = exploreSec.title;
@@ -1784,9 +1791,13 @@ var notesFilePanel = (function() {
             searchSectionMd = mdSec.section;
             searchSectionMdBody = mdSec.body;
             searchSectionMdTitle = mdSec.title;
+            searchSectionFiles = filesSec.section;
+            searchSectionFilesBody = filesSec.body;
+            searchSectionFilesTitle = filesSec.title;
             searchResultsEl.appendChild(searchSectionExplore);
             searchResultsEl.appendChild(searchSectionOut);
             searchResultsEl.appendChild(searchSectionMd);
+            searchResultsEl.appendChild(searchSectionFiles);
 
             // Render explore (file/folder name) results immediately (client-side).
             // The backend streaming search covers content; this section covers names only.
@@ -1926,9 +1937,12 @@ var notesFilePanel = (function() {
         if (searchId !== currentSearchId) return;
         if (!searchResultsEl || !searchInputEl) return;
 
+        // 三値分岐（FR-DS-05）: 'md' / 'file'（添付中身ヒット）/ それ以外 = 'out'。
+        // 'file' を md/out に流すと誤セクション + クリック no-op になる（research 統合結論 #1）
         var isMd = fileResult.fileType === 'md';
-        var parentBody = isMd ? searchSectionMdBody : searchSectionOutBody;
-        var parentSection = isMd ? searchSectionMd : searchSectionOut;
+        var isFile = fileResult.fileType === 'file';
+        var parentBody = isFile ? searchSectionFilesBody : (isMd ? searchSectionMdBody : searchSectionOutBody);
+        var parentSection = isFile ? searchSectionFiles : (isMd ? searchSectionMd : searchSectionOut);
         if (!parentBody) return;
         parentSection.style.display = '';
 
@@ -1952,7 +1966,12 @@ var notesFilePanel = (function() {
                 matchEl.appendChild(badge);
             }
             matchEl.addEventListener('click', function() {
-                if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
+                if (fileResult.fileType === 'file') {
+                    // 添付は OS 既定アプリで開く（既存 openTreeFileExternal 流用 — 新 message 不要）
+                    if (bridge && typeof bridge.openTreeFileExternal === 'function') {
+                        bridge.openTreeFileExternal(fileResult.fileId);
+                    }
+                } else if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
@@ -1971,7 +1990,7 @@ var notesFilePanel = (function() {
             });
             groupEl.appendChild(matchEl);
             searchTotalCount++;
-            if (isMd) searchCountMd++; else searchCountOut++;
+            if (isFile) searchCountFiles++; else if (isMd) searchCountMd++; else searchCountOut++;
         });
 
         parentBody.appendChild(groupEl);
@@ -1979,8 +1998,10 @@ var notesFilePanel = (function() {
         // セクションタイトルに件数反映
         var outBase = i18n.notesSearchOutlinerResults || 'Outlinerの検索結果';
         var mdBase = i18n.notesSearchMarkdownResults || 'Markdownの検索結果';
+        var filesBase = i18n.notesSearchFilesResults || 'Filesの検索結果';
         if (searchSectionOutTitle) searchSectionOutTitle.textContent = outBase + ' (' + searchCountOut + ')';
         if (searchSectionMdTitle) searchSectionMdTitle.textContent = mdBase + ' (' + searchCountMd + ')';
+        if (searchSectionFilesTitle) searchSectionFilesTitle.textContent = filesBase + ' (' + searchCountFiles + ')';
     }
 
     function onSearchEnd(searchId) {
