@@ -6,6 +6,9 @@ import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, genera
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { CONTENT_SEARCH_EXTS } from './doc-text-extract';
+import { DocExtractCache } from './doc-extract-cache';
+import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
 const mdLinkParser = require('./markdown-link-parser');
 
 export interface NotesFileEntry {
@@ -73,6 +76,7 @@ export interface SearchMatch {
     matchStart: number;
     matchEnd: number;
     lineNumber?: number;  // .mdファイルの行番号 (0-based)
+    loc?: string;         // FR-DS-09: 添付中身ヒットの位置（p.5 / slide 3 / シート名!B12）。docx は無し
 }
 
 export interface SearchOptions {
@@ -111,8 +115,26 @@ export class NotesFileManager {
     static MD_IMAGES_SUBDIR = 'images';
     static MD_FILES_SUBDIR = 'files';
 
-    constructor(mainFolderPath: string) {
+    // FR-DS-04: 添付中身検索の抽出キャッシュ dir（globalStorageUri 配下を provider が string 注入。
+    // optional — 既存の 1 引数呼び出し（unit spec / electron / dstFm）は null = 都度抽出に縮退。
+    // note フォルダ内は不可（S3 sync / cleanup の走査対象になる — NFR-DS-06 / ADRL-0058）
+    private docCache: DocExtractCache;
+    // FR-DS-10: 逆参照（参照元 md / node）resolver — 同じ cacheDir にインデックスを永続
+    private backlinks: DocBacklinksResolver;
+
+    constructor(mainFolderPath: string, docCacheDir?: string | null) {
         this.mainFolderPath = mainFolderPath;
+        this.docCache = new DocExtractCache(docCacheDir ?? null);
+        this.backlinks = new DocBacklinksResolver(docCacheDir ?? null);
+    }
+
+    /**
+     * FR-DS-10: file ヒット（fileId = `files/<rel>`）の逆参照（参照元 md / node）を解決する。
+     * 呼び出し側（notes-message-handler）は notesSearchEnd 送出**後**に非同期で呼ぶこと
+     * （検索の初期表示を遅くしない — ADRL-0061 の非同期契約）。
+     */
+    resolveFileBacklinks(fileIds: string[]): Map<string, BacklinkRef[]> {
+        return this.backlinks.resolve(this.mainFolderPath, fileIds);
     }
 
     getMainFolderPath(): string { return this.mainFolderPath; }
@@ -268,6 +290,9 @@ export class NotesFileManager {
                     vscode.Uri.file(entityPath),
                     { useTrash: true, recursive: false }
                 );
+                // SEC-3: 抽出テキストキャッシュも実体削除に連動して evict
+                //（削除済み添付の本文テキストを globalStorage に残さない）
+                this.docCache.evict(entityPath);
             }
             this.removeItemFromStructure(structure, itemId);
             this.saveStructure();
@@ -1583,6 +1608,9 @@ export class NotesFileManager {
                     new Set<string>([itemId, newId]),
                     [{ absPath: srcEntity, recursive: false, isSharedAsset: true }]
                 );
+                // SEC-3: src 実体が削除されうる経路なのでキャッシュも evict（temporal に残っても
+                // mtime 不一致で無効化されるが、本文テキストを残さない対称性を優先）
+                this.docCache.evict(srcEntity);
             }
             // else: 残留 file item がまだ同実体を参照 → src 実体温存（削除しない）
         } catch (e) {
@@ -2009,11 +2037,15 @@ export class NotesFileManager {
      * ファイル単位でストリーミング検索
      * コールバックでファイルごとの結果を返す
      */
-    searchFilesStreaming(
+    // FR-DS-01: 旧検索 abort 用 generation カウンタ（新検索発行で旧ループが次 check で return）
+    private searchGeneration = 0;
+
+    async searchFilesStreaming(
         query: string,
         options: SearchOptions,
         onResult: (result: SearchResult) => void
-    ): void {
+    ): Promise<void> {
+        const gen = ++this.searchGeneration;
         let regex: RegExp;
         try {
             regex = this.buildSearchRegex(query, options);
@@ -2125,6 +2157,89 @@ export class NotesFileManager {
                 }
             } catch { /* skip */ }
         }
+
+        // 4. FR-DS-01 rev.2: files/ 配下の添付中身検索（再帰 walk — cleanup-core listAllFiles 同型）。
+        //    files/ は tree file item・node 📎・md 📎 の共有実体置き場（ADRL-0048 決定 4）なので、
+        //    1 walk で全種の添付が対象になる（rev.1 の items 台帳走査は node/md 添付を落とすため改訂）。
+        //    台帳 items は表示 title の逆引きにのみ使用。抽出は DocExtractCache 経由。
+        try {
+            const filesDir = flatLayout.resolveMdFilesDir(this.mainFolderPath);
+            // TASK-21（手動テスト実測バグ）: 抽出テキストは NFKC 済み（FR-DS-07 = 全角括弧（）→() 等）
+            // なのにクエリが生のままだと needle/haystack の正規化が食い違い、全角括弧入りクエリが
+            // 非ヒットになる。第 4 段専用に NFKC 正規化クエリの regex を使う（既存 3 段 = 生テキスト
+            // 対象の regex は不変 — 片側だけ正規化しない対称性の原則）。
+            let attachRegex = regex;
+            try {
+                const normalizedQuery = query.normalize('NFKC');
+                if (normalizedQuery !== query) {
+                    attachRegex = this.buildSearchRegex(normalizedQuery, options);
+                }
+            } catch { /* 正規化 regex が組めない場合は生 regex で続行 */ }
+            // filename（files/ 相対）→ 台帳 title の逆引き
+            const titleByRel = new Map<string, string>();
+            try {
+                const structure = this.getStructure();
+                for (const item of Object.values(structure.items)) {
+                    const it = item as { type?: string; ext?: string; filename?: string; title?: string };
+                    if (it && it.type === 'file' && it.ext === 'file' && it.filename && it.title) {
+                        titleByRel.set(it.filename, it.title);
+                    }
+                }
+            } catch { /* 台帳が読めなくても walk は続行（title は basename に縮退） */ }
+
+            for (const abs of NotesFileManager.walkContentSearchFiles(filesDir)) {
+                if (gen !== this.searchGeneration) { return; }           // 旧検索 abort
+                const res = await this.docCache.getOrExtract(abs);       // await 単位で yield
+                if (gen !== this.searchGeneration) { return; }
+                if (res.skipReason) { continue; }                        // 記録済み・結果には出さない（FR-DS-08）
+                const rel = path.relative(filesDir, abs);
+                const matches: SearchMatch[] = [];
+                for (let i = 0; i < res.lines.length; i++) {
+                    const before = matches.length;
+                    this.findMatches(res.lines[i].text, attachRegex, 'content', undefined, matches);
+                    if (matches.length > before) {
+                        matches[matches.length - 1].lineNumber = i;      // 0-based（既存 md 検索と同じ）
+                        // FR-DS-09: 位置メタ（p.5 / slide 3 / シート名!B12）— docx は undefined
+                        matches[matches.length - 1].loc = res.lines[i].loc;
+                    }
+                }
+                if (matches.length > 0) {
+                    onResult({
+                        fileId: `files/${rel}`,                          // rev.2: 同定は files/ 相対パス
+                        fileTitle: titleByRel.get(rel) || path.basename(abs),
+                        fileType: 'file',
+                        matches,
+                    });
+                }
+            }
+        } catch { /* 第 4 段の障害は既存 3 段の結果に影響させない */ }
+    }
+
+    /**
+     * FR-DS-01 rev.2: files/ 配下の中身検索対象（CONTENT_SEARCH_EXTS）を再帰列挙する。
+     * symlink は追わない（isFile/isDirectory は lstat 相当の Dirent 判定 — files/ 外への
+     * escape を構造的に防ぐ。ADRL-0040 の防御思想）。walk 順は決定的（名前昇順）。
+     */
+    private static walkContentSearchFiles(dir: string): string[] {
+        const result: string[] = [];
+        const walk = (d: string): void => {
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(d, { withFileTypes: true });
+            } catch { return; }
+            entries.sort((a, b) => a.name.localeCompare(b.name));
+            for (const entry of entries) {
+                const full = path.join(d, entry.name);
+                if (entry.isDirectory()) {                // symlink dir は isDirectory()=false → 追わない
+                    walk(full);
+                } else if (entry.isFile()) {              // symlink file も isFile()=false → 対象外
+                    const ext = path.extname(entry.name).toLowerCase();
+                    if (CONTENT_SEARCH_EXTS.includes(ext)) { result.push(full); }
+                }
+            }
+        };
+        walk(dir);
+        return result;
     }
 
     private searchMdFile(

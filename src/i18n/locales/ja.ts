@@ -264,6 +264,8 @@ export const webviewMessages = {
   notesSearchExploreResults: 'Notes Exploreの検索結果',
   notesSearchOutlinerResults: 'Outlinerの検索結果',
   notesSearchMarkdownResults: 'Markdownの検索結果',
+  notesSearchFilesResults: 'ファイルの検索結果',
+  notesSearchReferencedBy: '参照元',
   notesRename: '名前変更',
   notesOpen: '開く',
   notesRevealInFinder: 'Finder で表示',

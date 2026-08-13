@@ -11,7 +11,9 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { extractDocTextMjs, pushNormalized } from './ooxml-extract.mjs';
 
 // ── フラットレイアウトの pageDir 解決（新フラットレイアウト前提・legacy fallback なし = ユーザー決定 2026-07-26）──
 // フラット規約: page md = <folder>/<pageId>.md（直下）。hint（isFlatOut / 相対 / 絶対）尊重・無ければ直下。
@@ -27,7 +29,7 @@ export function resolvePagesDirForSearch(folder, outFile, pageDirHint) {
     return folder; // 新デフォルト = note 直下
 }
 
-const CACHE_VERSION = 3;  // bump on schema change to invalidate old caches (v3: nodes に tags/checked 追加)
+const CACHE_VERSION = 5;  // bump on schema change to invalidate old caches (v5: 添付 lines を {text,loc?} に拡張 — FR-DS-09)
 
 // ─────────────── Tag / checked フィルタ（FR-SRF-01/02） ───────────────
 
@@ -154,7 +156,7 @@ function parseArgs(argv) {
         wholeWord: false,
         maxPerFile: 5,
         maxResults: 100,
-        scope: null,         // Set<'outline'|'node'|'page'|'md'> | null=all
+        scope: null,         // Set<'outline'|'node'|'page'|'md'|'file'> | null=all（file = 添付中身検索 FR-DS-06）
         tags: [],            // --tag（複数 OR・#/@ プレフィックス省略可）
         checked: null,       // --checked true|false|none|any
         noteNames: [],       // --note-name（noteTitle/フォルダ名の部分一致で対象 note を絞る・複数 OR）
@@ -207,7 +209,7 @@ function parseArgs(argv) {
                 console.log('         --outline-name <s> (.out title 部分一致) --h1 <s> (md 先頭 H1 部分一致)');
                 console.log('         全フィルタ AND 合成: note → outliner → md(H1) → 行/ノード');
                 console.log('         （--tag / --checked / --outline-name / --h1 指定時は --query 省略可）');
-                console.log('Options: --regex --case-sensitive --whole-word --scope outline,node,page,md');
+                console.log('Options: --regex --case-sensitive --whole-word --scope outline,node,page,md,file');
                 console.log('         --max-per-file N --max-results N --json --summary --no-cache --cache-dir <p>');
                 process.exit(0);
                 break;
@@ -498,7 +500,161 @@ function parseMdForSearch(absPath) {
     }
 }
 
-function searchFolder(folder, regex, args, state, cache) {
+// ─────────────── 添付中身検索（FR-DS-06: tree file item = ext:'file'） ───────────────
+
+const CONTENT_SEARCH_FILE_EXTS = ['.pdf', '.docx', '.xlsx', '.pptx'];
+const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;  // FR-DS-07(d)・FR-TF-01 precedent
+
+// （rev.2: safeResolveUnderDirMjs は walk 一本化で不要になり削除 — escape 防御は
+//   walkContentSearchFilesMjs の symlink 非追従が担う。TC-DS-48(CLI) が番人）
+
+// pdfjs vendor バンドル（esbuild 単一ファイル・repo に commit）の遅延 require。
+// 欠損時は null（PDF は pdf_unavailable で skip・OOXML は続行 — FR-DS-06）。
+// undefined = 未試行 / null = 不可
+let pdfjsVendor;
+function loadPdfjsVendor() {
+    if (pdfjsVendor !== undefined) return pdfjsVendor;
+    // pdf.js は require（module scope）で polyfill 警告を console に吐き、--json の
+    // stdout JSON を汚染する → require の間だけ console を黙らせる（stderr 含む全級）
+    const saved = { log: console.log, warn: console.warn, error: console.error };
+    console.log = console.warn = console.error = () => {};
+    try {
+        const require2 = createRequire(import.meta.url);
+        // vendor/pdfjs-bundle.cjs は module.exports = { getDocument, ... }（scripts/build-pdfjs-vendor.js 生成）
+        pdfjsVendor = require2(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'vendor', 'pdfjs-bundle.cjs'));
+    } catch {
+        pdfjsVendor = null;
+    } finally {
+        console.log = saved.log; console.warn = saved.warn; console.error = saved.error;
+    }
+    return pdfjsVendor;
+}
+
+async function extractPdfViaVendor(buf) {
+    const lib = loadPdfjsVendor();
+    if (!lib) return { lines: [], truncated: false, skipReason: 'pdf_unavailable' };
+    try {
+        // verbosity: 0 = errors のみ（pdfjs の Warning が stdout に出て --json の JSON を汚染するのを防ぐ）
+        const doc = await lib.getDocument({ data: new Uint8Array(buf), verbosity: 0 }).promise;
+        const lines = [];
+        const state = { total: 0, truncated: false };
+        let rawLen = 0;
+        try {
+            for (let i = 1; i <= doc.numPages; i++) {
+                const page = await doc.getPage(i);
+                const content = await page.getTextContent();
+                const pageText = content.items.map(it => it.str || '').join('');
+                rawLen += pageText.trim().length;
+                pushNormalized(lines, state, pageText, `p.${i}`);   // FR-DS-09: loc = ページ番号（正典と同形）
+                if (state.truncated) break;
+            }
+        } finally {
+            await doc.destroy().catch(() => {});
+        }
+        if (rawLen === 0) return { lines: [], truncated: false, skipReason: 'pdf_no_text' };
+        return { lines, truncated: state.truncated };
+    } catch {
+        return { lines: [], truncated: false, skipReason: 'extract_error' };
+    }
+}
+
+// 添付 1 件の抽出（キャッシュ相乗り用 parser は sync 前提のため、この関数は
+// getCachedOrParse を通さず自前で cache.files を読む/書く — mtime+size の判定規則は同一）
+async function extractAttachmentCached(cache, folder, relKey, absPath, noCache) {
+    let st;
+    try { st = fs.statSync(absPath); } catch { return null; }
+    const entry = cache.files[relKey];
+    // skipReason 込みでも data は truthy オブジェクト（&& entry.data guard で毎回再抽出しない — FR-DS-08）
+    if (!noCache && entry && entry.mtimeMs === st.mtimeMs && entry.size === st.size && entry.data) {
+        return { data: entry.data, fromCache: true };
+    }
+    let data;
+    if (st.size > MAX_ATTACHMENT_SIZE) {
+        data = { lines: [], truncated: false, skipReason: 'too_large' };
+    } else {
+        const ext = path.extname(absPath).toLowerCase();
+        if (ext === '.pdf') {
+            data = await extractPdfViaVendor(fs.readFileSync(absPath));
+        } else {
+            data = await extractDocTextMjs(fs.readFileSync(absPath), ext);
+        }
+    }
+    cache.files[relKey] = { mtimeMs: st.mtimeMs, size: st.size, data };
+    return { data, fromCache: false };
+}
+
+// files/ 配下の添付中身検索（rev.2: 再帰 walk — 拡張側 walkContentSearchFiles の 1:1 ミラー）。
+// files/ は tree file item・node 📎・md 📎 の共有実体置き場なので 1 walk で全種の添付が対象。
+// symlink は追わない（Dirent の isFile/isDirectory は symlink で false — escape を構造的に防ぐ）。
+function walkContentSearchFilesMjs(dir) {
+    const result = [];
+    const walk = (d) => {
+        let entries;
+        try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+        entries.sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entries) {
+            const full = path.join(d, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (entry.isFile()) {
+                const ext = path.extname(entry.name).toLowerCase();
+                if (CONTENT_SEARCH_FILE_EXTS.includes(ext)) result.push(full);
+            }
+        }
+    };
+    walk(dir);
+    return result;
+}
+
+async function searchTreeFileAttachments(folder, regex, args, state, cache, notesStructure) {
+    if (!regex) return;
+    if (args.scope && !args.scope.has('file')) return;
+    if (args.h1 || args.outlineName) return;  // md/outliner 向け AND プレフィルタ指定時は対象外
+    // TASK-21: 抽出テキストは NFKC 済み — クエリも NFKC で照合（拡張側と同型。既存 scope は生のまま）
+    let attachRegex = regex;
+    try {
+        const nq = String(args.query || '').normalize('NFKC');
+        if (nq && nq !== args.query) attachRegex = buildRegex(nq, args);
+    } catch { /* 生 regex で続行 */ }
+    const filesDir = path.join(folder, 'files');  // flat 前提（共有 files/）
+    // 台帳 items は表示 title の逆引きにのみ使用（walk が主・台帳は従 — rev.2）
+    const titleByRel = new Map();
+    const items = notesStructure?.items || {};
+    for (const item of Object.values(items)) {
+        if (item && item.type === 'file' && item.ext === 'file' && item.filename && item.title) {
+            titleByRel.set(item.filename, item.title);
+        }
+    }
+    for (const abs of walkContentSearchFilesMjs(filesDir)) {
+        if (state.results.length >= args.maxResults) return;
+        const rel = path.relative(filesDir, abs);
+        const relKey = path.join('files', rel);
+        const hit = await extractAttachmentCached(cache, folder, relKey, abs, args.noCache);
+        if (!hit) continue;
+        if (hit.fromCache) state.stats.fileCacheHit++; else state.stats.fileCacheMiss++;
+        if (hit.data.skipReason) continue;   // skip は記録済み・結果には出さない（FR-DS-08）
+        // FR-DS-09: lines は {text, loc?} — searchLines は string[] 前提なので text を渡し loc を後付け
+        const texts = hit.data.lines.map(l => l.text);
+        const m = searchLines(texts, attachRegex, args);
+        for (const match of m) {
+            const loc = hit.data.lines[match.lineNumber] && hit.data.lines[match.lineNumber].loc;
+            if (loc) match.loc = loc;
+        }
+        if (m.length > 0) {
+            state.results.push({
+                folder,
+                kind: 'file',
+                fileId: `files/${rel}`,       // rev.2: 同定は files/ 相対パス（拡張側と同形）
+                fileName: rel,
+                fileTitle: titleByRel.get(rel) || path.basename(abs),
+                filePath: abs,
+                folderChain: [],
+                matches: m,
+            });
+        }
+    }
+}
+
+async function searchFolder(folder, regex, args, state, cache) {
     let outFiles, rootMds;
     try {
         const entries = fs.readdirSync(folder);
@@ -693,6 +849,9 @@ function searchFolder(folder, regex, args, state, cache) {
         }
     }
 
+    // --- tree file attachments（第 5 段・FR-DS-06。default scope 込み） ---
+    await searchTreeFileAttachments(folder, regex, args, state, cache, notesStructure);
+
     // --- outline summary (file-level) ---
     if (!args.scope || args.scope.has('outline')) {
         for (const s of Object.values(summary)) {
@@ -748,8 +907,10 @@ function renderText(results, outlineSummaries, args) {
         lines.push(`📁 ${folder}`);
         const byOutline = new Map();
         const looseMds = [];
+        const fileHits = [];
         for (const r of arr) {
             if (r.kind === 'md' || r.kind === 'md-h1') looseMds.push(r);
+            else if (r.kind === 'file') fileHits.push(r);
             else {
                 const k = r.outlineFile;
                 (byOutline.get(k) || byOutline.set(k, []).get(k)).push(r);
@@ -796,6 +957,16 @@ function renderText(results, outlineSummaries, args) {
             for (const m of r.matches) {
                 if (seen.has(m.lineNumber)) continue; seen.add(m.lineNumber);
                 lines.push(`     L${m.lineNumber + 1}: ${truncate(m.line, 90)}`);
+            }
+        }
+        for (const r of fileHits) {
+            lines.push(`  📎 ${r.fileTitle}  [${r.fileName}]`);
+            const seen = new Set();
+            for (const m of r.matches) {
+                if (seen.has(m.lineNumber)) continue; seen.add(m.lineNumber);
+                // FR-DS-09: 位置（p.5 / slide 3 / シート名!B12）があれば L<n> より優先表示
+                const pos = m.loc || `L${m.lineNumber + 1}`;
+                lines.push(`     ${pos}: ${truncate(m.line, 90)}`);
             }
         }
         lines.push('');
@@ -1000,7 +1171,7 @@ function renderNotesList(notes) {
 
 // ─────────────── Main ───────────────
 
-function main() {
+async function main() {
     const args = parseArgs(process.argv);
     const cacheDir = args.cacheDir ? path.resolve(args.cacheDir) : defaultCacheDir();
 
@@ -1125,7 +1296,7 @@ function main() {
     const state = {
         results: [],
         outlineSummaries: [],
-        stats: { outCacheHit: 0, outCacheMiss: 0, mdCacheHit: 0, mdCacheMiss: 0 },
+        stats: { outCacheHit: 0, outCacheMiss: 0, mdCacheHit: 0, mdCacheMiss: 0, fileCacheHit: 0, fileCacheMiss: 0 },
     };
     for (const f of folders) {
         if (!fs.existsSync(f)) {
@@ -1133,7 +1304,7 @@ function main() {
             continue;
         }
         const cache = args.noCache ? emptyCache(f) : loadCache(cacheDir, f);
-        searchFolder(f, regex, args, state, cache);
+        await searchFolder(f, regex, args, state, cache);
         if (!args.noCache) saveCache(cacheDir, f, cache);
         if (state.results.length >= args.maxResults) break;
     }
@@ -1172,5 +1343,5 @@ function __isCliInvocation() {
     return import.meta.url === pathToFileURL(entry).href;
 }
 if (__isCliInvocation()) {
-    main();
+    main().catch((e) => { console.error(e); process.exit(1); });
 }

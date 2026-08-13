@@ -203,6 +203,8 @@ export interface WebviewMessages {
   notesSearchExploreResults: string;
   notesSearchOutlinerResults: string;
   notesSearchMarkdownResults: string;
+  notesSearchFilesResults: string;
+  notesSearchReferencedBy: string;
   notesRename: string;
   notesOpen: string;
   notesRevealInFinder: string;

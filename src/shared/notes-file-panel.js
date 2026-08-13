@@ -1741,15 +1741,19 @@ var notesFilePanel = (function() {
     var searchSectionOut = null;
     var searchSectionMd = null;
     var searchSectionExplore = null;
+    var searchSectionFiles = null;
     var searchSectionOutBody = null;
     var searchSectionMdBody = null;
     var searchSectionExploreBody = null;
+    var searchSectionFilesBody = null;
     var searchSectionOutTitle = null;
     var searchSectionMdTitle = null;
     var searchSectionExploreTitle = null;
+    var searchSectionFilesTitle = null;
     var searchCountOut = 0;
     var searchCountMd = 0;
     var searchCountExplore = 0;
+    var searchCountFiles = 0;
 
     function buildSearchSection(label) {
         var section = document.createElement('div');
@@ -1770,11 +1774,14 @@ var notesFilePanel = (function() {
         searchCountOut = 0;
         searchCountMd = 0;
         searchCountExplore = 0;
+        searchCountFiles = 0;
         if (searchResultsEl) {
             searchResultsEl.innerHTML = '';
             var exploreSec = buildSearchSection((i18n.notesSearchExploreResults || 'Notes Exploreの検索結果'));
             var outSec = buildSearchSection((i18n.notesSearchOutlinerResults || 'Outlinerの検索結果'));
             var mdSec = buildSearchSection((i18n.notesSearchMarkdownResults || 'Markdownの検索結果'));
+            // FR-DS-05: 第 4 セクション（tree file 添付の中身ヒット — fileType:'file'）
+            var filesSec = buildSearchSection((i18n.notesSearchFilesResults || 'Filesの検索結果'));
             searchSectionExplore = exploreSec.section;
             searchSectionExploreBody = exploreSec.body;
             searchSectionExploreTitle = exploreSec.title;
@@ -1784,9 +1791,13 @@ var notesFilePanel = (function() {
             searchSectionMd = mdSec.section;
             searchSectionMdBody = mdSec.body;
             searchSectionMdTitle = mdSec.title;
+            searchSectionFiles = filesSec.section;
+            searchSectionFilesBody = filesSec.body;
+            searchSectionFilesTitle = filesSec.title;
             searchResultsEl.appendChild(searchSectionExplore);
             searchResultsEl.appendChild(searchSectionOut);
             searchResultsEl.appendChild(searchSectionMd);
+            searchResultsEl.appendChild(searchSectionFiles);
 
             // Render explore (file/folder name) results immediately (client-side).
             // The backend streaming search covers content; this section covers names only.
@@ -1926,9 +1937,12 @@ var notesFilePanel = (function() {
         if (searchId !== currentSearchId) return;
         if (!searchResultsEl || !searchInputEl) return;
 
+        // 三値分岐（FR-DS-05）: 'md' / 'file'（添付中身ヒット）/ それ以外 = 'out'。
+        // 'file' を md/out に流すと誤セクション + クリック no-op になる（research 統合結論 #1）
         var isMd = fileResult.fileType === 'md';
-        var parentBody = isMd ? searchSectionMdBody : searchSectionOutBody;
-        var parentSection = isMd ? searchSectionMd : searchSectionOut;
+        var isFile = fileResult.fileType === 'file';
+        var parentBody = isFile ? searchSectionFilesBody : (isMd ? searchSectionMdBody : searchSectionOutBody);
+        var parentSection = isFile ? searchSectionFiles : (isMd ? searchSectionMd : searchSectionOut);
         if (!parentBody) return;
         parentSection.style.display = '';
 
@@ -1945,6 +1959,14 @@ var notesFilePanel = (function() {
             var matchEl = document.createElement('div');
             matchEl.className = 'file-panel-search-match';
             matchEl.innerHTML = highlightSearchText(match.lineText, query);
+            // FR-DS-09: 添付ヒットの位置（p.5 / slide 3 / シート名!B12）— docx は loc なし
+            if (isFile && match.loc) {
+                var locBadge = document.createElement('span');
+                locBadge.className = 'file-panel-search-loc';
+                locBadge.style.cssText = 'opacity:0.6;font-size:10px;margin-left:4px;';
+                locBadge.textContent = '[' + match.loc + ']';
+                matchEl.appendChild(locBadge);
+            }
             if (match.field !== 'text') {
                 var badge = document.createElement('span');
                 badge.style.cssText = 'opacity:0.5;font-size:10px;margin-left:4px;';
@@ -1952,7 +1974,14 @@ var notesFilePanel = (function() {
                 matchEl.appendChild(badge);
             }
             matchEl.addEventListener('click', function() {
-                if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
+                if (fileResult.fileType === 'file') {
+                    // rev.2: fileId は `files/<rel>` — prefix を剥いた相対パスで path ベース起動
+                    // （台帳未登録の node📎/md📎 添付も開けるよう openTreeFileExternal(id) から改訂）
+                    if (bridge && typeof bridge.openNoteFilesExternal === 'function') {
+                        var rel = String(fileResult.fileId || '').replace(/^files\//, '');
+                        bridge.openNoteFilesExternal(rel);
+                    }
+                } else if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);
                 } else if (fileResult.fileType === 'md') {
                     if (fileResult.parentOutFileId && fileResult.pageId && bridge.jumpToMdPage) {
@@ -1971,16 +2000,20 @@ var notesFilePanel = (function() {
             });
             groupEl.appendChild(matchEl);
             searchTotalCount++;
-            if (isMd) searchCountMd++; else searchCountOut++;
+            if (isFile) searchCountFiles++; else if (isMd) searchCountMd++; else searchCountOut++;
         });
 
+        // FR-DS-10: 逆参照（後追い notesSearchBacklinks）の後付け先マーカー
+        if (isFile) { groupEl.setAttribute('data-file-id', fileResult.fileId); }
         parentBody.appendChild(groupEl);
 
         // セクションタイトルに件数反映
         var outBase = i18n.notesSearchOutlinerResults || 'Outlinerの検索結果';
         var mdBase = i18n.notesSearchMarkdownResults || 'Markdownの検索結果';
+        var filesBase = i18n.notesSearchFilesResults || 'Filesの検索結果';
         if (searchSectionOutTitle) searchSectionOutTitle.textContent = outBase + ' (' + searchCountOut + ')';
         if (searchSectionMdTitle) searchSectionMdTitle.textContent = mdBase + ' (' + searchCountMd + ')';
+        if (searchSectionFilesTitle) searchSectionFilesTitle.textContent = filesBase + ' (' + searchCountFiles + ')';
     }
 
     function onSearchEnd(searchId) {
@@ -2045,6 +2078,44 @@ var notesFilePanel = (function() {
         if (bridge.onSearchEnd) {
             bridge.onSearchEnd(onSearchEnd);
         }
+        if (bridge.onSearchBacklinks) {
+            bridge.onSearchBacklinks(onSearchBacklinks);
+        }
+    }
+
+    // FR-DS-10 / ADRL-0061: 逆参照の後追い受信 — 該当 file ヒットの group に参照元リンクを追加描画。
+    // クリック: node 参照元 = jumpToNode（検索 out ヒットと同じ）/ md 参照元 = note md ダイレクト表示（openFile）
+    function onSearchBacklinks(searchId, fileId, backlinks) {
+        if (searchId !== currentSearchId) return;
+        if (!searchResultsEl || !backlinks || backlinks.length === 0) return;
+        var groupEl = searchResultsEl.querySelector('[data-file-id="' + (window.CSS && CSS.escape ? CSS.escape(fileId) : fileId) + '"]');
+        if (!groupEl) return;
+        var refsEl = document.createElement('div');
+        refsEl.className = 'file-panel-search-backlinks';
+        refsEl.style.cssText = 'margin:2px 0 4px 12px;font-size:11px;opacity:0.85;';
+        var labelSpan = document.createElement('span');
+        labelSpan.textContent = (i18n.notesSearchReferencedBy || '参照元') + ': ';
+        labelSpan.style.opacity = '0.7';
+        refsEl.appendChild(labelSpan);
+        backlinks.forEach(function(ref, i) {
+            if (i > 0) { refsEl.appendChild(document.createTextNode('  ')); }
+            var linkEl = document.createElement('a');
+            linkEl.className = 'file-panel-search-backlink';
+            linkEl.style.cssText = 'cursor:pointer;text-decoration:underline;';
+            linkEl.textContent = (ref.kind === 'node' ? '📓 ' : '📄 ') + ref.label;
+            linkEl.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (ref.kind === 'node' && ref.outFileId && ref.nodeId && bridge.jumpToNode) {
+                    bridge.jumpToNode(ref.outFileId, ref.nodeId);
+                } else if (ref.kind === 'md' && ref.mdPath && bridge.openFile) {
+                    // md 参照元は note md ダイレクト表示（親 outliner / sidepanel 解決はしない — ユーザー裁定）
+                    if (ref.mdPath !== currentFile) { currentFile = ref.mdPath; }
+                    bridge.openFile(ref.mdPath, '', 0);
+                }
+            });
+            refsEl.appendChild(linkEl);
+        });
+        groupEl.appendChild(refsEl);
     }
 
     // ── 初期化 ──

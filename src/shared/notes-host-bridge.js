@@ -554,6 +554,11 @@
         openTreeFileExternal: function(id) {
             api.postMessage({ type: 'openTreeFileExternal', id: id });
         },
+        // FR-DS-05 rev.2: 検索 Files セクションの click → files/ 相対パスで外部アプリ起動
+        // （台帳未登録の添付 = node📎/md📎 も開けるよう path ベース。host 側で clamp）
+        openNoteFilesExternal: function(relPath) {
+            api.postMessage({ type: 'openNoteFilesExternal', relPath: relPath });
+        },
         // FR-TF-03 (§4b :82): ツリー file → .out item ドロップ（.out root 先頭に file node）
         notesImportFileIntoOut: function(dragItemId, targetOutId) {
             api.postMessage({ type: 'notesImportFileIntoOut', dragItemId: dragItemId, targetOutId: targetOutId });
@@ -690,6 +695,14 @@
             window.addEventListener('message', function(e) {
                 if (e.data && e.data.type === 'notesSearchEnd') {
                     handler(e.data.searchId);
+                }
+            });
+        },
+        // FR-DS-10: 逆参照（参照元 md / node）— End 後に非同期で後追い配信される
+        onSearchBacklinks: function(handler) {
+            window.addEventListener('message', function(e) {
+                if (e.data && e.data.type === 'notesSearchBacklinks') {
+                    handler(e.data.searchId, e.data.fileId, e.data.backlinks);
                 }
             });
         },

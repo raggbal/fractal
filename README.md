@@ -16,7 +16,7 @@
 - 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
 - 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
-- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search, tabs and history, Daily Notes.
+- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search — **including inside attached PDF / Word / Excel / PowerPoint files**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes — tabs and history, Daily Notes.
 - ☁️ **S3 backup & restore** — One-click backup to your own AWS S3 bucket, and restore from it.
 - 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your notes in Fractal Note (use Fractal Note instead of Obsidian).
 
@@ -198,7 +198,7 @@ Translate a selection or the whole document with **Amazon Translate**, including
 Fractal Note publishes **AI skills** (`ai_skills/`) that teach AI agents the Fractal Note data model so they can search, read, and write your notes directly:
 
 - `fractal-structure` — Reference for the Notes / Outliner / Page data model
-- `fractal-search` — Auto-discovers notes folders, full-text search across notes, tag and task-state filters (`--tag` / `--checked`), filtering by note name
+- `fractal-search` — Auto-discovers notes folders, full-text search across notes — including inside attached PDF / Word / Excel / PowerPoint files (zero-install, with hit locations) — tag and task-state filters (`--tag` / `--checked`), filtering by note name
 - `fractal-edit` — Add / modify / delete / move nodes, import markdown pages (single or bulk), attach images and files, add subpages and attachments to markdown files, create new outliners and markdown files
 - `fractal-doctor` — Note integrity checks (broken references, orphaned files, layout inspection; read-only)
 - `fractal-summary` — Bundle an outliner or a markdown file (including subpages recursively) into a single markdown for an AI to read

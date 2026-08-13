@@ -2,6 +2,9 @@ node_modules/
 out/
 dist/
 vendor/
+# CLI 用 pdfjs vendor バンドルは commit する（ゼロ install 配布 = FR-DS-06 / ADRL-0057。
+# 再生成: npm run build:pdfjs-vendor）
+!ai_skills/fractal-search/vendor/
 *.vsix
 .vscode-test/
 .DS_Store
