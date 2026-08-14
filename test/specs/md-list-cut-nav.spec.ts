@@ -451,9 +451,10 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         expect('📎 doc1.docx').toContain(clip.trim());          // アンカーテキストの一部が取れている
 
         // (c) BS 削除: アンカーテキスト末尾で Backspace → 1 文字消える
+        //（先頭 child は 📎 grip span（ce=false）なので末尾の text node を掴む）
         await page.evaluate(() => {
             const a = document.querySelector('#editor a[data-is-file-attachment="true"]') as HTMLAnchorElement;
-            const tn = a.firstChild as Text;
+            const tn = a.lastChild as Text;
             const sel = window.getSelection() as Selection;
             const r = document.createRange();
             r.setStart(tn, tn.length); r.collapse(true);
@@ -469,7 +470,7 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         expect(afterBs).toBe('📎 doc1.doc');                    // 旧 ce=false では Backspace 無反応
     });
 
-    test('TC-LX-12: drag はアイコン起点のみ発火 — テキスト中央は選択操作（ce=true 化の両立性の対検証）', async ({ page }) => {
+    test('TC-LX-12: drag は 📎 grip 起点のみ発火 — テキスト中央は選択操作（ce=true 化の両立性の対検証）', async ({ page }) => {
         await page.goto('/standalone-editor.html');
         await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
         await page.evaluate(() => {
@@ -491,12 +492,13 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         await page.mouse.up();
         expect(await page.evaluate(() => (window as any).__dragTypes)).toBeNull();
 
-        // (b) ::before アイコン（左端）起点なら dragstart + MIME 発火 = D&D 要件 FR-TF-15 維持
+        // (b) 先頭 📎 grip（ce=false span）起点なら dragstart + MIME 発火 = D&D 要件 FR-TF-15 維持
         await page.evaluate(() => { (window as any).__dragTypes = null; });
-        const box2 = (await a.boundingBox())!;
-        await page.mouse.move(box2.x + 5, box2.y + box2.height / 2);
+        const grip = page.locator('#editor a[data-is-file-attachment="true"] .file-attach-grip');
+        const gbox = (await grip.boundingBox())!;
+        await page.mouse.move(gbox.x + gbox.width / 2, gbox.y + gbox.height / 2);
         await page.mouse.down();
-        await page.mouse.move(box2.x + 85, box2.y + 80, { steps: 5 });
+        await page.mouse.move(gbox.x + 80, gbox.y + 80, { steps: 5 });
         await page.mouse.up();
         const types = await page.evaluate(() => (window as any).__dragTypes);
         expect(types).not.toBeNull();

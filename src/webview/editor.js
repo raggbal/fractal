@@ -2385,14 +2385,20 @@ class EditorInstance {
                     // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
+                    var linkAltHtml = ln.alt;
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — ce=false/user-select:none を
-                        // 撤去しテキストを編集・選択・BS 可能に（ユーザー要求: 他リンクとの非対称解消）。
-                        // drag は ::before 掴みアイコン（テキスト選択対象外 = mousedown を奪われない領域、
-                        // subpage TASK-19 と同一機序）から開始する。旧 TC-MX-08 の ce=false は本行から撤去。
+                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — アンカーの ce=false/
+                        // user-select:none を撤去しテキストを編集・選択・BS 可能に（他リンクとの非対称解消）。
+                        // drag は先頭の 📎 絵文字を ce=false span（.file-attach-grip）化して掴む
+                        //（テキスト選択対象外 = mousedown を奪われず element drag が始まる。subpage の
+                        // ::before アイコンと同一機序。追加グリフなし = 見た目は従来どおり）。
                         fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        var gripIdx = linkAltHtml.indexOf('📎');
+                        linkAltHtml = linkAltHtml.slice(0, gripIdx) +
+                            '<span class="file-attach-grip" contenteditable="false">📎</span>' +
+                            linkAltHtml.slice(gripIdx + '📎'.length);
                     }
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + linkAltHtml + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -18745,11 +18751,17 @@ class EditorInstance {
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
-            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            // TASK-05 (sprint 20260813-210323): アンカー ce=false は撤去（テキスト編集・選択・BS 可能）。
+            // 先頭 📎 だけ ce=false span（.file-attach-grip）= drag ハンドル（レンダ経路と同一 DOM 契約）
+            const fileGrip = document.createElement('span');
+            fileGrip.className = 'file-attach-grip';
+            fileGrip.setAttribute('contenteditable', 'false');
+            fileGrip.textContent = '\uD83D\uDCCE';
+            link.appendChild(fileGrip);
+            link.appendChild(document.createTextNode(' ' + message.fileName));
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
-            // TASK-05 (sprint 20260813-210323): ce=false は撤去（subpage 方式 — テキスト編集可・drag は ::before アイコンから）
 
             editor.focus();
             const sel = window.getSelection();

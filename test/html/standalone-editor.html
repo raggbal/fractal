@@ -1441,27 +1441,14 @@ body {
 .editor a.link-subpage:active::before { cursor: grabbing; }
 /* FR-TF-15 → TASK-05 (sprint 20260813-210323) で subpage 方式に統一:
    テキストは編集・選択・BS 可能（ce=false/user-select:none を撤去 — 他リンクとの非対称解消）。
-   drag は ::before 掴みアイコン（テキスト選択対象外領域 = mousedown を奪われない、
-   subpage TASK-19 と同一機序）から開始する。 */
-.editor a[data-is-file-attachment="true"]::before {
-    display: inline-block;
-    vertical-align: baseline;
-    width: 0.85em;
-    height: 1.1em;
-    margin-right: 2px;
-    content: '';
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    opacity: 0.55;
-    position: relative;
-    top: 0.18em;
+   drag は先頭の 📎 絵文字（レンダ時に ce=false span 化 = テキスト選択対象外 → mousedown を
+   奪われず element drag が始まる。subpage の ::before アイコンと同一機序・追加グリフなし）。 */
+.editor a[data-is-file-attachment="true"] .file-attach-grip {
     cursor: grab;
-    /* 6-dot グリップハンドル（テキスト先頭の 📎 絵文字と重複しない「掴み」表現） */
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='5.5' cy='3' r='1.4' fill='%236c6c6c'/%3E%3Ccircle cx='10.5' cy='3' r='1.4' fill='%236c6c6c'/%3E%3Ccircle cx='5.5' cy='8' r='1.4' fill='%236c6c6c'/%3E%3Ccircle cx='10.5' cy='8' r='1.4' fill='%236c6c6c'/%3E%3Ccircle cx='5.5' cy='13' r='1.4' fill='%236c6c6c'/%3E%3Ccircle cx='10.5' cy='13' r='1.4' fill='%236c6c6c'/%3E%3C/svg%3E");
+    user-select: none;
+    -webkit-user-select: none;
 }
-.editor a[data-is-file-attachment="true"]:active::before { cursor: grabbing; }
-.editor a[data-is-file-attachment="true"]:hover::before { opacity: 1; }
+.editor a[data-is-file-attachment="true"] .file-attach-grip:active { cursor: grabbing; }
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -1476,9 +1463,6 @@ body {
 [data-fr-theme="dark"] .editor a.link-subpage::before {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
 }
-[data-fr-theme="dark"] .editor a[data-is-file-attachment="true"]::before {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='5.5' cy='3' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='3' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='5.5' cy='8' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='8' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='5.5' cy='13' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='13' r='1.4' fill='%23a0a0a0'/%3E%3C/svg%3E");
-}
 @media (prefers-color-scheme: dark) {
     [data-fr-theme="auto"] .editor a.link-fractal-node::before {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3.5' fill='none' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='1' x2='8' y2='4' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='8' y1='12' x2='8' y2='15' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='1' y1='8' x2='4' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3Cline x1='12' y1='8' x2='15' y2='8' stroke='%23a0a0a0' stroke-width='1.5'/%3E%3C/svg%3E");
@@ -1491,9 +1475,6 @@ body {
     }
     [data-fr-theme="auto"] .editor a.link-subpage::before {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 1.5h5l3 3v10H4V1.5z' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cpath d='M9 1.5v3h3' fill='none' stroke='%23a0a0a0' stroke-width='1.2'/%3E%3Cline x1='6' y1='8.5' x2='10' y2='8.5' stroke='%23a0a0a0' stroke-width='1'/%3E%3Cline x1='6' y1='11' x2='10' y2='11' stroke='%23a0a0a0' stroke-width='1'/%3E%3C/svg%3E");
-    }
-    [data-fr-theme="auto"] .editor a[data-is-file-attachment="true"]::before {
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='5.5' cy='3' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='3' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='5.5' cy='8' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='8' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='5.5' cy='13' r='1.4' fill='%23a0a0a0'/%3E%3Ccircle cx='10.5' cy='13' r='1.4' fill='%23a0a0a0'/%3E%3C/svg%3E");
     }
 }
 
@@ -9926,14 +9907,20 @@ class EditorInstance {
                     // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
+                    var linkAltHtml = ln.alt;
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — ce=false/user-select:none を
-                        // 撤去しテキストを編集・選択・BS 可能に（ユーザー要求: 他リンクとの非対称解消）。
-                        // drag は ::before 掴みアイコン（テキスト選択対象外 = mousedown を奪われない領域、
-                        // subpage TASK-19 と同一機序）から開始する。旧 TC-MX-08 の ce=false は本行から撤去。
+                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — アンカーの ce=false/
+                        // user-select:none を撤去しテキストを編集・選択・BS 可能に（他リンクとの非対称解消）。
+                        // drag は先頭の 📎 絵文字を ce=false span（.file-attach-grip）化して掴む
+                        //（テキスト選択対象外 = mousedown を奪われず element drag が始まる。subpage の
+                        // ::before アイコンと同一機序。追加グリフなし = 見た目は従来どおり）。
                         fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        var gripIdx = linkAltHtml.indexOf('📎');
+                        linkAltHtml = linkAltHtml.slice(0, gripIdx) +
+                            '<span class="file-attach-grip" contenteditable="false">📎</span>' +
+                            linkAltHtml.slice(gripIdx + '📎'.length);
                     }
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + linkAltHtml + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -26286,11 +26273,17 @@ class EditorInstance {
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
-            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            // TASK-05 (sprint 20260813-210323): アンカー ce=false は撤去（テキスト編集・選択・BS 可能）。
+            // 先頭 📎 だけ ce=false span（.file-attach-grip）= drag ハンドル（レンダ経路と同一 DOM 契約）
+            const fileGrip = document.createElement('span');
+            fileGrip.className = 'file-attach-grip';
+            fileGrip.setAttribute('contenteditable', 'false');
+            fileGrip.textContent = '\uD83D\uDCCE';
+            link.appendChild(fileGrip);
+            link.appendChild(document.createTextNode(' ' + message.fileName));
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
-            // TASK-05 (sprint 20260813-210323): ce=false は撤去（subpage 方式 — テキスト編集可・drag は ::before アイコンから）
 
             editor.focus();
             const sel = window.getSelection();

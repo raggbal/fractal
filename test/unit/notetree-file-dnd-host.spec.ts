@@ -338,6 +338,9 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(rm).toBeDefined();
         expect(rm.href).toBe('files/x.pdf');
         expect(rm.sourceMdPath).toBe(sourceMdPath);
+        // fs が単一真実: source md からリンクが物理除去される（webview エコーは source md の
+        // EditorInstance が同一 webview に生存している時しか効かない — 手動テスト 2026-08-14 のデグレ番人）
+        expect(fs.readFileSync(sourceMdPath, 'utf8')).not.toContain('files/x.pdf');
 
         // counterfactual: 素の traversal href は拒否（item 追加なし・removeFileLink なし）
         const before = Object.keys(fm.getStructure().items).length;
@@ -694,6 +697,9 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(ins.markdownPath).toBe('files/x.pdf');
         // 元リンク除去 message
         expect(msgs.find((m) => m.type === 'removeFileLink')).toBeTruthy();
+        // fs が単一真実: 元 md からリンクが物理除去される（webview エコーは source md の
+        // EditorInstance 生存時のみ効く — 手動テスト 2026-08-14「元リンクが残る」デグレの番人）
+        expect(fs.readFileSync(srcMd, 'utf8')).not.toContain('files/x.pdf');
         // 元実体温存
         expect(fs.existsSync(path.join(srcFiles, 'x.pdf'))).toBe(true);
     });
@@ -744,6 +750,8 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         linkMdSubpageToMd(fm, s1, { href: 'csharp.md', sourceMdPath: srcMd }, dstMd);
         const ins1 = m1.find((m) => m.type === 'insertSubpageLink');
         expect(ins1.title).toBe('C#');
+        // fs が単一真実: 元 md から subpage リンクが物理除去される（2026-08-14 デグレ番人と同クラス）
+        expect(fs.readFileSync(srcMd, 'utf8')).not.toContain('csharp.md');
 
         // (b) md→outliner: importMdSubpageIntoOut の page node text が完全
         const outPath = fm.createFile('OutDoc', null);

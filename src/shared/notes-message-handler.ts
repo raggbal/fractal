@@ -2475,6 +2475,7 @@ export function attachMdFileLinkToMd(
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
+        removeMdAnchorFromFile(payload.sourceMdPath, payload.href); // fs が単一真実（webview エコーは source md の EditorInstance 生存時のみ効く）
         sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
     } catch (e) {
         console.error('[Notes] attachMdFileLinkToMd error:', e);
@@ -2517,6 +2518,7 @@ export function linkMdSubpageToMd(
         const msg: Record<string, unknown> = { type: 'insertSubpageLink', markdownPath, title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
+        removeMdAnchorFromFile(payload.sourceMdPath, payload.href); // fs が単一真実（webview エコーは source md の EditorInstance 生存時のみ効く）
         sender.postMessage({ type: 'removeSubpageLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
     } catch (e) {
         console.error('[Notes] linkMdSubpageToMd error:', e);
@@ -2812,6 +2814,7 @@ export function treeFileRegisterFromMdLink(
         if (!fs.existsSync(abs)) { return; }
         const filename = path.basename(abs);
         rawInsertTreeFileEntry(fileManager, filename, filename, parentId, index);
+        removeMdAnchorFromFile(payload.sourceMdPath, payload.href); // fs が単一真実（webview エコーは source md の EditorInstance 生存時のみ効く）
         sender.postMessage({ type: 'removeFileLink', href: payload.href, sourceMdPath: payload.sourceMdPath });
         sendFileListWithStructure(fileManager, sender);
     } catch (e) {
