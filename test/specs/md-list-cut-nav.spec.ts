@@ -191,15 +191,15 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         await page.keyboard.press('Meta+ArrowLeft');
 
         await page.keyboard.press('ArrowDown');
-        expect(await caretLi(page)).toContain('📎 doc1');     // counterfactual: 補助なしだと P:tail に飛ぶ
+        expect(await caretLi(page)).toContain('doc1');        // counterfactual: 補助なしだと P:tail に飛ぶ
         await page.keyboard.press('ArrowDown');
-        expect(await caretLi(page)).toContain('📎 doc2');
+        expect(await caretLi(page)).toContain('doc2');
         await page.keyboard.press('ArrowDown');
-        expect(await caretLi(page)).not.toContain('📎');      // リストを抜けて tail 側へ
+        expect(await caretLi(page)).not.toContain('doc');     // リストを抜けて tail 側へ
         await page.keyboard.press('ArrowUp');
-        expect(await caretLi(page)).toContain('📎 doc2');     // 逆方向も対称
+        expect(await caretLi(page)).toContain('doc2');        // 逆方向も対称
         await page.keyboard.press('ArrowUp');
-        expect(await caretLi(page)).toContain('📎 doc1');
+        expect(await caretLi(page)).toContain('doc1');
         await page.keyboard.press('ArrowUp');
         expect(await caretLi(page)).toContain('li:参考');
     });
@@ -230,7 +230,7 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         await page.keyboard.press('ArrowUp');
         const atFile = await caretLi(page);
         expect(atFile).not.toBe('NO-SELECTION');
-        expect(atFile).toContain('📎 last');                   // 📎 行に入れる
+        expect(atFile).toContain('last');                      // 📎 行に入れる
         await page.keyboard.press('ArrowUp');
         const atHead = await caretLi(page);
         expect(atHead).not.toBe('NO-SELECTION');
@@ -293,7 +293,7 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         await page.keyboard.press('Meta+ArrowLeft');
         await page.keyboard.press('ArrowDown');
         const li = await caretLi(page);
-        expect(li).toContain('📎 doc1');                       // 空白 node 挟みでも入れる
+        expect(li).toContain('doc1');                          // 空白 node 挟みでも入れる
     });
 });
 
@@ -448,7 +448,7 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         await page.keyboard.press('Meta+c');
         const clip = await page.evaluate(() => navigator.clipboard.readText());
         expect(clip.trim().length).toBeGreaterThan(0);
-        expect('📎 doc1.docx').toContain(clip.trim());          // アンカーテキストの一部が取れている
+        expect('doc1.docx').toContain(clip.trim());            // アンカーテキストの一部が取れている
 
         // (c) BS 削除: アンカーテキスト末尾で Backspace → 1 文字消える
         //（先頭 child は 📎 grip span（ce=false）なので末尾の text node を掴む）
@@ -467,10 +467,10 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
             const a = document.querySelector('#editor a[data-is-file-attachment="true"]');
             return a ? (a.textContent || '') : 'ANCHOR-GONE';
         });
-        expect(afterBs).toBe('📎 doc1.doc');                    // 旧 ce=false では Backspace 無反応
+        expect(afterBs).toBe('doc1.doc');                      // 旧 ce=false では Backspace 無反応
     });
 
-    test('TC-LX-12: drag は 📎 grip 起点のみ発火 — テキスト中央は選択操作（ce=true 化の両立性の対検証）', async ({ page }) => {
+    test('TC-LX-12: drag は ::before アイコン起点のみ発火 — テキスト中央は選択操作（subpage 同一構造の対検証）', async ({ page }) => {
         await page.goto('/standalone-editor.html');
         await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
         await page.evaluate(() => {
@@ -483,6 +483,14 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         await page.waitForTimeout(400);
         const a = page.locator('#editor a[data-is-file-attachment="true"]');
 
+        // DOM 契約（subpage と同一構造）: 📎 マーカーは DOM テキストに出ない・grip span も無い
+        const dom = await page.evaluate(() => {
+            const anchor = document.querySelector('#editor a[data-is-file-attachment="true"]') as HTMLElement;
+            return { text: anchor.textContent, hasGripSpan: !!anchor.querySelector('span') };
+        });
+        expect(dom.text).toBe('report-with-long-name.pdf');
+        expect(dom.hasGripSpan).toBe(false);
+
         // (a) テキスト中央からの mousedown → text selection が奪い element drag 不発
         //     （counterfactual: ce=false に戻すとここが発火してしまい RED）
         const box = (await a.boundingBox())!;
@@ -492,16 +500,53 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         await page.mouse.up();
         expect(await page.evaluate(() => (window as any).__dragTypes)).toBeNull();
 
-        // (b) 先頭 📎 grip（ce=false span）起点なら dragstart + MIME 発火 = D&D 要件 FR-TF-15 維持
+        // (b) 左端 ::before アイコン起点なら dragstart + MIME 発火 = D&D 要件 FR-TF-15 維持
+        //（::before はテキストの前に張り出す装飾 = アンカー box の左端数 px はアイコン領域）
         await page.evaluate(() => { (window as any).__dragTypes = null; });
-        const grip = page.locator('#editor a[data-is-file-attachment="true"] .file-attach-grip');
-        const gbox = (await grip.boundingBox())!;
-        await page.mouse.move(gbox.x + gbox.width / 2, gbox.y + gbox.height / 2);
+        const box2 = (await a.boundingBox())!;
+        await page.mouse.move(box2.x + 5, box2.y + box2.height / 2);
         await page.mouse.down();
-        await page.mouse.move(gbox.x + 80, gbox.y + 80, { steps: 5 });
+        await page.mouse.move(box2.x + 85, box2.y + 80, { steps: 5 });
         await page.mouse.up();
         const types = await page.evaluate(() => (window as any).__dragTypes);
         expect(types).not.toBeNull();
         expect(types).toContain('application/x-fractal-md-filelink');
+    });
+
+    test('TC-LX-13: テキスト全選択 cut → アンカー・アイコンごと消える（subpage と同一挙動）+ serialize 往復で [📎 name] 保持', async ({ page, context }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.goto('/standalone-editor.html');
+        await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
+        await page.evaluate(() => {
+            (window as any).__testApi.setMarkdown('- [📎 report.pdf](files/report.pdf)\n- next\n');
+        });
+        await page.waitForTimeout(400);
+
+        // serialize 往復: 📎 マーカーが md 上で保持される（DOM には出ないが serialize が復元）
+        const md1 = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+        expect(md1).toContain('[📎 report.pdf](files/report.pdf)');
+
+        // アンカーテキスト全選択 → cmd+x → アイコン残骸行にならない（ユーザー報告 2026-08-14 の番人。
+        // 旧 grip span 方式では 📎 span が選択に含まれず殻アンカーが残った）
+        await page.evaluate(() => {
+            const anchor = document.querySelector('#editor a[data-is-file-attachment="true"]') as HTMLElement;
+            const sel = window.getSelection() as Selection;
+            const r = document.createRange();
+            r.selectNodeContents(anchor);
+            sel.removeAllRanges(); sel.addRange(r);
+            (document.getElementById('editor') as HTMLElement).focus();
+        });
+        await page.keyboard.press('Meta+x');
+        await page.waitForTimeout(300);
+        const after = await page.evaluate(() => {
+            const editor = document.getElementById('editor') as HTMLElement;
+            return {
+                anchorCount: editor.querySelectorAll('a[data-is-file-attachment="true"]').length,
+                md: (window as any).__testApi.getMarkdown(),
+            };
+        });
+        expect(after.anchorCount).toBe(0);              // アイコンだけの殻アンカーが残らない
+        expect(after.md).not.toContain('files/report.pdf');
+        expect(after.md).toContain('next');
     });
 });

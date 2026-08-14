@@ -302,7 +302,8 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         const state = await page.evaluate(() => {
             const ed = document.querySelector('.markdown-container .editor') as HTMLElement;
             const anchors = Array.from(ed.querySelectorAll('a'));
-            const fa = anchors.find(a => (a.textContent || '').indexOf('📎') === 0) as HTMLElement | undefined;
+            // TASK-05: 📎 は DOM テキストに出ない（serialize が復元）— data 属性で特定
+            const fa = anchors.find(a => (a as HTMLElement).dataset.isFileAttachment === 'true') as HTMLElement | undefined;
             const sa = anchors.find(a => (a as HTMLElement).dataset.subpage === 'true') as HTMLElement | undefined;
             if (!fa) return { found: false } as any;
             const captured: Record<string, string> = {};
@@ -441,13 +442,14 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
 
     // ---- TC-MX-08 (FR-TF-15 → TASK-05 sprint 20260813-210323 で subpage 方式に更新) ----
     // 旧仕様: ce=false + user-select:none でアンカー全体を掴めた（が、テキスト編集・選択・BS 不能）。
-    // 新仕様（許可: test_update・ユーザー要求 = 他リンクとの非対称解消）: アンカー ce=false 撤去で
-    // テキストは編集可能、drag は先頭 📎 絵文字（ce=false の .file-attach-grip span = テキスト選択
-    // 対象外 → mousedown を奪われない。subpage の ::before アイコンと同一機序・追加グリフなし）から。
-    test('TC-MX-08 レンダ済み file アンカーの 📎 grip 起点 real mouse drag → dragstart + x-fractal-md-filelink', async ({ page }) => {
+    // 新仕様（許可: test_update・ユーザー要求 = 他リンクとの非対称解消）: subpage と完全同一構造 —
+    // 📎 マーカーは DOM に出さず（serialize が復元）、表示アイコンは CSS ::before。テキストは
+    // 編集可能、drag は ::before アイコン（テキスト選択・caret 対象外）を掴む（TASK-19 と同一機序）。
+    test('TC-MX-08 レンダ済み file アンカーの ::before アイコン起点 real mouse drag → dragstart + x-fractal-md-filelink', async ({ page }) => {
         await loadEnv(page);
-        // grip の user-select:none は styles.css 由来 — このハーネスは script のみ注入なので
+        // ::before アイコンは styles.css 由来 — このハーネスは script のみ注入なので
         // 実 CSS を現ソースから注入する（TC-MX-10 の outliner.css 注入と同思想）。
+        await page.addStyleTag({ content: r('webview/styles.css') });
         await page.evaluate(() => {
             const mc = document.querySelector('.markdown-container') as HTMLElement;
             mc.style.display = '';
@@ -465,22 +467,21 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
 
         const a = page.locator('.markdown-container .editor a[data-is-file-attachment="true"]');
         await a.waitFor({ state: 'visible' });
-        // DOM 契約: draggable は維持・アンカー ce=false は撤去（テキスト編集可能）・grip は ce=false
+        // DOM 契約（subpage と同一構造）: draggable 維持・ce=false 撤去・📎 は DOM テキストに出ない
         expect(await a.getAttribute('draggable')).toBe('true');
         expect(await a.getAttribute('contenteditable')).not.toBe('false');
-        const grip = page.locator('.markdown-container .editor a[data-is-file-attachment="true"] .file-attach-grip');
-        expect(await grip.getAttribute('contenteditable')).toBe('false');
+        expect(await a.textContent()).toBe('report.pdf');
 
-        // real mouse drag（先頭 📎 grip を掴む — subpage のアイコンと同じ持ち方）
-        const gbox = (await grip.boundingBox())!;
-        await page.mouse.move(gbox.x + gbox.width / 2, gbox.y + gbox.height / 2);
+        // real mouse drag（左端 ::before アイコン領域を掴む — subpage と同じ持ち方）
+        const box = (await a.boundingBox())!;
+        await page.mouse.move(box.x + 5, box.y + box.height / 2);
         await page.mouse.down();
-        await page.mouse.move(gbox.x + 80, gbox.y + 80, { steps: 5 });
-        await page.mouse.move(gbox.x + 160, gbox.y + 160, { steps: 5 });
+        await page.mouse.move(box.x + 85, box.y + 80, { steps: 5 });
+        await page.mouse.move(box.x + 165, box.y + 160, { steps: 5 });
         await page.mouse.up();
 
         const types = await page.evaluate(() => (window as any).__dragTypes);
-        expect(types).not.toBeNull(); // grip 起点で dragstart が発火（テキスト部分は選択操作になる）
+        expect(types).not.toBeNull(); // アイコン起点で dragstart が発火（テキスト部分は選択操作になる）
         expect(types).toContain('application/x-fractal-md-filelink');
     });
 

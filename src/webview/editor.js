@@ -2387,16 +2387,14 @@ class EditorInstance {
                     var fileAttachAttr = '';
                     var linkAltHtml = ln.alt;
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        // TASK-05 (sprint 20260813-210323): subpage 方式に統一 — アンカーの ce=false/
-                        // user-select:none を撤去しテキストを編集・選択・BS 可能に（他リンクとの非対称解消）。
-                        // drag は先頭の 📎 絵文字を ce=false span（.file-attach-grip）化して掴む
-                        //（テキスト選択対象外 = mousedown を奪われず element drag が始まる。subpage の
-                        // ::before アイコンと同一機序。追加グリフなし = 見た目は従来どおり）。
+                        // TASK-05 (sprint 20260813-210323): subpage と完全同一構造 — md 上の 📎 は
+                        // フォーマットマーカー（subpage の [[]] と同格）で DOM には出さない。表示アイコンは
+                        // CSS ::before（テキスト選択・caret 対象外 = アイコンとテキストの間に caret が
+                        // 入らず、全選択 cut でアイコン残骸も出ない）。serialize が [📎 text](url) を復元。
+                        // drag は ::before アイコンを掴む（subpage TASK-19 と同一機序）。
                         fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
-                        var gripIdx = linkAltHtml.indexOf('📎');
-                        linkAltHtml = linkAltHtml.slice(0, gripIdx) +
-                            '<span class="file-attach-grip" contenteditable="false">📎</span>' +
-                            linkAltHtml.slice(gripIdx + '📎'.length);
+                        linkAltHtml = linkAltHtml.replace(/^\s*📎\s*/, '');
+                        if (!linkAltHtml) { linkAltHtml = ln.alt; } // alt が 📎 のみの degenerate は原文維持
                     }
                     var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + linkAltHtml + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
@@ -8845,7 +8843,10 @@ class EditorInstance {
 
         if (group.isFileLink) {
             // File attachment link - preserve as [📎 text](path)
-            return '[' + group.fileLinkText + '](' + group.fileLinkHref + ')';
+            // TASK-05: 📎 マーカーは DOM に出さない（subpage の [[]] と同格のフォーマットマーカー）。
+            // serialize 時にここで復元する（DOM に残存する旧形式 = 📎 入り textContent は二重付与しない）
+            var flText = String(group.fileLinkText || '').replace(/^\s*📎\s*/, '');
+            return '[📎 ' + flText + '](' + group.fileLinkHref + ')';
         }
 
         if (group.isLink) {
@@ -9110,6 +9111,10 @@ class EditorInstance {
                 // subpage marker はテーブルセル内でも [[]] を保持（INV-1）
                 if (node.dataset && node.dataset.subpage === 'true' && _subpageSerializeEnabled) {
                     return '[[' + innerContent + ']](' + href + ')';
+                }
+                // TASK-05: 📎 file リンクマーカーもセル内で復元（DOM には出さない）
+                if (node.dataset && node.dataset.isFileAttachment === 'true') {
+                    return '[📎 ' + innerContent.replace(/^\s*📎\s*/, '') + '](' + href + ')';
                 }
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
@@ -18751,14 +18756,10 @@ class EditorInstance {
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
-            // TASK-05 (sprint 20260813-210323): アンカー ce=false は撤去（テキスト編集・選択・BS 可能）。
-            // 先頭 📎 だけ ce=false span（.file-attach-grip）= drag ハンドル（レンダ経路と同一 DOM 契約）
-            const fileGrip = document.createElement('span');
-            fileGrip.className = 'file-attach-grip';
-            fileGrip.setAttribute('contenteditable', 'false');
-            fileGrip.textContent = '\uD83D\uDCCE';
-            link.appendChild(fileGrip);
-            link.appendChild(document.createTextNode(' ' + message.fileName));
+            // TASK-05 (sprint 20260813-210323): subpage と完全同一構造 — 📎 マーカーは DOM に
+            // 出さず（serialize が [📎 text](url) を復元）、表示アイコンは CSS ::before。
+            // テキストは編集・選択・BS 可能・アイコンとテキストの間に caret は入らない
+            link.textContent = message.fileName;
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
