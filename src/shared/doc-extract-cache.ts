@@ -22,7 +22,10 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 // FR-DS-09: ExtractResult の形式が変わったら bump（旧形式キャッシュを invalidate — TC-DS-55）
 // v2: lines が string[] → ExtractedLine[]（{text, loc?}）
-const CACHE_FORMAT_VERSION = 2;
+// v3（sprint 20260815 / FR-DS-04 rev.2）: unsupported_ext 廃止 + テキスト sniff 導入。
+//    旧キャッシュの .txt/.html には unsupported_ext が truthy 記録済みで、mtime+size 不変な限り
+//    永遠に skip され続ける（bump しないと「拡張したのに前に検索した .txt がヒットしない」silent bug）
+const CACHE_FORMAT_VERSION = 3;
 
 interface DocCacheEntry {
     formatVersion?: number;
@@ -97,7 +100,10 @@ export class DocExtractCache {
             result = await this.extract(buf, path.extname(absPath).toLowerCase());
         }
 
-        if (cachePath) {
+        // FR-DS-04 rev.2 / NFR-DS-08（ADRL-0063）: noCache（テキスト経路の成功結果）は書かない
+        // — .env/.pem 等の秘密テキストの平文複製を構造的に回避。skip 結果（binary 等）は
+        // lines が空でコンテンツを含まないため従来どおり書く（2 回目以降 stat のみ = NFR-DS-02）
+        if (cachePath && !result.noCache) {
             try {
                 fs.mkdirSync(this.cacheDir as string, { recursive: true });
                 const entry: DocCacheEntry = { formatVersion: CACHE_FORMAT_VERSION, mtimeMs: stat.mtimeMs, size: stat.size, result };

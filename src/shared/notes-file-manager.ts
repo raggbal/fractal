@@ -6,7 +6,6 @@ import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, genera
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
-import { CONTENT_SEARCH_EXTS } from './doc-text-extract';
 import { DocExtractCache } from './doc-extract-cache';
 import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
 const mdLinkParser = require('./markdown-link-parser');
@@ -2216,7 +2215,9 @@ export class NotesFileManager {
     }
 
     /**
-     * FR-DS-01 rev.2: files/ 配下の中身検索対象（CONTENT_SEARCH_EXTS）を再帰列挙する。
+     * FR-DS-01 rev.3（sprint 20260815）: files/ 配下の全ファイルを再帰列挙する。
+     * 拡張子フィルタは撤廃 — 対象判定（専用抽出 / テキスト sniff / binary skip）は
+     * extractDocText 内側に一元化（design §2。walk は列挙だけを担う）。
      * symlink は追わない（isFile/isDirectory は lstat 相当の Dirent 判定 — files/ 外への
      * escape を構造的に防ぐ。ADRL-0040 の防御思想）。walk 順は決定的（名前昇順）。
      */
@@ -2233,8 +2234,7 @@ export class NotesFileManager {
                 if (entry.isDirectory()) {                // symlink dir は isDirectory()=false → 追わない
                     walk(full);
                 } else if (entry.isFile()) {              // symlink file も isFile()=false → 対象外
-                    const ext = path.extname(entry.name).toLowerCase();
-                    if (CONTENT_SEARCH_EXTS.includes(ext)) { result.push(full); }
+                    result.push(full);
                 }
             }
         };
