@@ -138,8 +138,9 @@ test.describe('doc-text-extract: テキスト sniff + decode（FR-DS-11 / sprint
     });
 
     test('TC-DS-62: BOM→NUL 順序番人 — UTF-16LE BOM がテキスト判定（counterfactual: NUL 検査先行だと binary）+ UTF-8 BOM strip', async () => {
-        // UTF-16LE は ASCII/和文とも NUL バイトを含む — BOM 判定が先でなければ binary に落ちる
-        const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('議事録テキスト', 'utf16le')]);
+        // ASCII 混在必須: UTF-16LE の NUL バイトは ASCII の上位バイトから生じる（純和文は NUL を含まず
+        // counterfactual が効かない — 実測 2026-08-15）。'ABC 議事録' の ABC が NUL を供給する
+        const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('ABC 議事録テキスト', 'utf16le')]);
         const res = await extractDocText(le, '.txt');
         expect(res.skipReason).toBeUndefined();
         expect(joined(res.lines)).toContain('議事録テキスト');
