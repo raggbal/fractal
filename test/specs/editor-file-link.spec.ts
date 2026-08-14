@@ -40,12 +40,14 @@ test.describe('Editor: File Link Features', () => {
         // Wait for link insertion
         await page.waitForTimeout(300);
 
-        // Verify: link element with 📎 prefix exists
+        // Verify: link element exists.
+        // TASK-05 (sprint 20260813-210323): 📎 は md 上のフォーマットマーカー（subpage の [[]] と同格）で
+        // DOM テキストには出さない（表示アイコンは CSS ::before・serialize が [📎 name](path) を復元）
         const links = await page.locator('#editor a[data-is-file-attachment="true"]').all();
         expect(links.length).toBeGreaterThan(0);
 
         const linkText = await links[0].textContent();
-        expect(linkText).toContain('📎');
+        expect(linkText).not.toContain('📎');
         expect(linkText).toContain('report.pdf');
 
         const href = await links[0].getAttribute('href');

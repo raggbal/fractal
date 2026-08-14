@@ -2385,12 +2385,18 @@ class EditorInstance {
                     // draggable を付与（insertFileLink 挿入時と同一 DOM 契約 = リロード後も tree へ D&D 可能）。
                     // 判定は cleanup Pass2（extractMarkdownFileLinks）と同じ「alt が 📎 で始まる」+ subpage 除外。
                     var fileAttachAttr = '';
+                    var linkAltHtml = ln.alt;
                     if (!ln.isSubpage && ln.alt.trim().indexOf('📎') === 0) {
-                        // TC-MX-08: contenteditable=false が無いと contenteditable 内では text selection が
-                        // mousedown を奪い dragstart が発火しない（real Chromium 実測）。user-select は CSS 側。
-                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true" contenteditable="false"';
+                        // TASK-05 (sprint 20260813-210323): subpage と完全同一構造 — md 上の 📎 は
+                        // フォーマットマーカー（subpage の [[]] と同格）で DOM には出さない。表示アイコンは
+                        // CSS ::before（テキスト選択・caret 対象外 = アイコンとテキストの間に caret が
+                        // 入らず、全選択 cut でアイコン残骸も出ない）。serialize が [📎 text](url) を復元。
+                        // drag は ::before アイコンを掴む（subpage TASK-19 と同一機序）。
+                        fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        linkAltHtml = linkAltHtml.replace(/^\s*📎\s*/, '');
+                        if (!linkAltHtml) { linkAltHtml = ln.alt; } // alt が 📎 のみの degenerate は原文維持
                     }
-                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + ln.alt + '</a>';
+                    var linkHtml = '<a href="' + ln.url + '"' + classAttr + subpageAttr + fileAttachAttr + '>' + linkAltHtml + '</a>';
                     var linkPlaceholder = '\x00LINK' + (placeholderIndex++) + '\x00';
                     placeholders.push({ placeholder: linkPlaceholder, html: linkHtml });
                     html = html.slice(0, ln.start) + linkPlaceholder + html.slice(ln.end);
@@ -8837,7 +8843,10 @@ class EditorInstance {
 
         if (group.isFileLink) {
             // File attachment link - preserve as [📎 text](path)
-            return '[' + group.fileLinkText + '](' + group.fileLinkHref + ')';
+            // TASK-05: 📎 マーカーは DOM に出さない（subpage の [[]] と同格のフォーマットマーカー）。
+            // serialize 時にここで復元する（DOM に残存する旧形式 = 📎 入り textContent は二重付与しない）
+            var flText = String(group.fileLinkText || '').replace(/^\s*📎\s*/, '');
+            return '[📎 ' + flText + '](' + group.fileLinkHref + ')';
         }
 
         if (group.isLink) {
@@ -9102,6 +9111,10 @@ class EditorInstance {
                 // subpage marker はテーブルセル内でも [[]] を保持（INV-1）
                 if (node.dataset && node.dataset.subpage === 'true' && _subpageSerializeEnabled) {
                     return '[[' + innerContent + ']](' + href + ')';
+                }
+                // TASK-05: 📎 file リンクマーカーもセル内で復元（DOM には出さない）
+                if (node.dataset && node.dataset.isFileAttachment === 'true') {
+                    return '[📎 ' + innerContent.replace(/^\s*📎\s*/, '') + '](' + href + ')';
                 }
                 return '[' + innerContent + '](' + href + ')';
             } else if (tag === 'img') {
@@ -10681,11 +10694,40 @@ class EditorInstance {
                         break;
                     }
                     
-                    afterRange.setStart(range.endContainer, range.endOffset);
+                    // TASK-03 (sprint 20260813-210323): キャレットがアイコン付きアンカー
+                    //（subpage/md リンク = ::before アイコン持ち・📎 file リンク）の内側にあると、
+                    // extractContents がアンカーを分割して clone を新 li に持ち込む。
+                    // 末尾なら空アンカー（アイコンだけの残骸）、途中ならリンク二重化になるため、
+                    // これらのアンカーは原子として扱い、分割点をアンカーの後ろへ繰り上げる。
+                    let splitContainer = range.endContainer;
+                    let splitOffset = range.endOffset;
+                    {
+                        let anc = splitContainer.nodeType === 3 ? splitContainer.parentNode : splitContainer;
+                        while (anc && anc !== listItem && anc !== editor) {
+                            if (anc.nodeType === 1 && anc.tagName === 'A' &&
+                                (anc.getAttribute('data-subpage') === 'true' ||
+                                 anc.getAttribute('data-is-file-attachment') === 'true' ||
+                                 (anc.classList && anc.classList.contains('link-subpage')))) {
+                                const hoist = document.createRange();
+                                hoist.setStartAfter(anc);
+                                splitContainer = hoist.startContainer;
+                                splitOffset = hoist.startOffset;
+                                break;
+                            }
+                            anc = anc.parentNode;
+                        }
+                    }
+                    afterRange.setStart(splitContainer, splitOffset);
                     afterRange.setEnd(endNode, endOffset);
-                    
+
                     // Extract content after cursor (text only)
                     const afterContent = afterRange.extractContents();
+                    // 分割で生まれた空アンカー（テキストなし = アイコン装飾だけの残骸）を両側から除去
+                    for (const frag of [afterContent, listItem]) {
+                        for (const a of Array.from(frag.querySelectorAll ? frag.querySelectorAll('a') : [])) {
+                            if (!(a.textContent || '').trim()) a.remove();
+                        }
+                    }
                     
                     // Clean up: if listItem text part now ends with just whitespace or <br>, remove it
                     // But keep nested lists in place
@@ -11355,6 +11397,117 @@ class EditorInstance {
                 }
             }
             return;
+        }
+
+        // TASK-02 (sprint 20260813-210323): ce=false 要素のみの li はブラウザ標準の ↑↓ で
+        // caret を置けずスキップ/消失する（素の contenteditable でも再現 = ブラウザ挙動）。
+        // 移動先の行がそれに該当する場合、caret を li に明示配置して補助する。
+        // ※ 📎 file リンクは TASK-05 で ce=false を撤去（テキスト編集可・drag は ::before
+        //    アイコンから）したため標準挙動で入れる = この補助は発火しない。残る ce=false
+        //    要素（checkbox 等・将来の非編集 inline）への安全網として維持。
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.metaKey && !e.altKey) {
+            const selNav = window.getSelection();
+            if (selNav && selNav.rangeCount && selNav.isCollapsed) {
+                // 「caret を置ける編集可能テキストが無く、ce=false 要素だけがある li」判定
+                const liNeedsCaretAssist = (el) => {
+                    if (!el || el.nodeType !== 1 || el.tagName !== 'LI') return false;
+                    let hasUnedit = false;
+                    for (const child of el.childNodes) {
+                        if (child.nodeType === 3 && child.textContent.trim()) return false;   // 直下テキストあり → 標準で入れる
+                        if (child.nodeType === 1) {
+                            const t = child.tagName;
+                            if (t === 'UL' || t === 'OL' || t === 'BR') continue;
+                            if (child.getAttribute && child.getAttribute('contenteditable') === 'false') { hasUnedit = true; continue; }
+                            if (child.textContent && child.textContent.trim()) return false;  // ce=true 要素のテキスト → 標準で入れる
+                        }
+                    }
+                    return hasUnedit;   // ce=false 要素のみ（真に空の殻は対象外 = ブラウザに任せる）
+                };
+                // 現在の行ブロックを特定（li 優先 → 直近ブロック）
+                let curBlock = selNav.anchorNode;
+                while (curBlock && curBlock !== editor) {
+                    if (curBlock.nodeType === 1 && /^(LI|P|H[1-6]|PRE|BLOCKQUOTE)$/.test(curBlock.tagName)) break;
+                    curBlock = curBlock.parentNode;
+                }
+                if (curBlock && curBlock !== editor) {
+                    // document order = 視覚順（ネスト li も親→子の順）。行ブロック列から隣を求める
+                    const blocks = Array.from(editor.querySelectorAll('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote'))
+                        .filter((b) => b.tagName !== 'LI' || true);
+                    const idx = blocks.indexOf(curBlock);
+                    if (idx !== -1) {
+                        // ブロック内の視覚行判定: 複数視覚行を持つブロックの途中では標準挙動に任せる。
+                        // caret rect がブロックの「自身のコンテンツ」（li は nested ul/ol を除く）の
+                        // 端の行にあるときだけ「次ブロックへの移動」とみなす。
+                        // ※ li.getBoundingClientRect() は nested list 全体を含むため親 li で誤判定する
+                        let atEdge = true;
+                        try {
+                            const r = selNav.getRangeAt(0).cloneRange();
+                            const rects = r.getClientRects();
+                            const caretRect = rects.length ? rects[0] : r.getBoundingClientRect();
+                            // 自身のコンテンツ範囲の rect（直下 nested list の手前まで）
+                            const contentRange = document.createRange();
+                            contentRange.setStart(curBlock, 0);
+                            let endIdx = curBlock.childNodes.length;
+                            for (let ci = 0; ci < curBlock.childNodes.length; ci++) {
+                                const cn = curBlock.childNodes[ci];
+                                if (cn.nodeType === 1 && (cn.tagName === 'UL' || cn.tagName === 'OL')) { endIdx = ci; break; }
+                            }
+                            contentRange.setEnd(curBlock, endIdx);
+                            const blockRect = contentRange.getBoundingClientRect();
+                            if (caretRect && caretRect.height > 0 && blockRect && blockRect.height > 0) {
+                                atEdge = e.key === 'ArrowDown'
+                                    ? (blockRect.bottom - caretRect.bottom) < caretRect.height
+                                    : (caretRect.top - blockRect.top) < caretRect.height;
+                            }
+                        } catch (err) { /* rect が取れない場合は端とみなす */ }
+                        if (atEdge) {
+                            // 方向の隣接行のうち、補助が必要なケース = 「入る先が ce=false-only li」
+                            // または「今いる行が ce=false-only li（要素 offset caret からの脱出も
+                            // ブラウザ標準が動かない）」の双方向を救う
+                            const step = e.key === 'ArrowDown' ? 1 : -1;
+                            const target = blocks[idx + step];
+                            if (target && target !== curBlock &&
+                                (liNeedsCaretAssist(target) || liNeedsCaretAssist(curBlock))) {
+                                e.preventDefault();
+                                const range = document.createRange();
+                                if (liNeedsCaretAssist(target)) {
+                                    // li 要素 offset で配置（ce=false アンカーの前 = 0 / 後 = childNodes.length）
+                                    if (e.key === 'ArrowDown') { range.setStart(target, 0); }
+                                    else { range.setStart(target, target.childNodes.length); }
+                                } else {
+                                    // 通常行へ脱出: 自身コンテンツ（nested list 手前）の先頭/末尾テキストに配置
+                                    let textNode = null;
+                                    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT, {
+                                        acceptNode: (tn) => {
+                                            // nested list 内は対象外（別の視覚行）
+                                            let p = tn.parentNode;
+                                            while (p && p !== target) {
+                                                if (p.nodeType === 1 && (p.tagName === 'UL' || p.tagName === 'OL')) return NodeFilter.FILTER_REJECT;
+                                                p = p.parentNode;
+                                            }
+                                            return NodeFilter.FILTER_ACCEPT;
+                                        },
+                                    });
+                                    if (e.key === 'ArrowDown') {
+                                        textNode = walker.nextNode();
+                                        if (textNode) { range.setStart(textNode, 0); }
+                                        else { range.setStart(target, 0); }
+                                    } else {
+                                        let last = null;
+                                        while (walker.nextNode()) last = walker.currentNode;
+                                        if (last) { range.setStart(last, last.textContent.length); }
+                                        else { range.setStart(target, target.childNodes.length); }
+                                    }
+                                }
+                                range.collapse(true);
+                                selNav.removeAllRanges();
+                                selNav.addRange(range);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Arrow keys for table cell navigation
@@ -17172,6 +17325,9 @@ class EditorInstance {
     };
     this._undo = instanceUndo;
     this._redo = instanceRedo;
+    // TASK-05 再オープン (2026-08-14): document-level drop handler（別 closure）が
+    // 自 md 内リンク移動後にこの instance の markdown を同期するための公開面
+    this.syncMarkdownPublic = function() { syncMarkdown(); };
     this._toggleSourceMode = function() { toggleSourceMode(); };
     this._showAttachmentsPanel = function(anchorBtn) { showAttachmentsPanel(anchorBtn); };
     this._getMarkdown = function() {
@@ -18603,11 +18759,13 @@ class EditorInstance {
             // Insert file link at cursor position
             const link = document.createElement('a');
             link.href = message.markdownPath;
-            link.textContent = '\uD83D\uDCCE ' + message.fileName; // 📎 filename
+            // TASK-05 (sprint 20260813-210323): subpage と完全同一構造 — 📎 マーカーは DOM に
+            // 出さず（serialize が [📎 text](url) を復元）、表示アイコンは CSS ::before。
+            // テキストは編集・選択・BS 可能・アイコンとテキストの間に caret は入らない
+            link.textContent = message.fileName;
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
-            link.setAttribute('contenteditable', 'false'); // TC-MX-08: ce=false でないと drag が text selection に奪われる
 
             editor.focus();
             const sel = window.getSelection();
@@ -20015,6 +20173,11 @@ class EditorInstance {
         return null;
     }
 
+    // TASK-05 再オープン (2026-08-14): 自 md 内 D&D 移動用の one-shot drag state。
+    // dragstart で drag 中アンカーの DOM 参照を保持し、drop（自 md 宛）が DOM 移動に使う。
+    // dragend で必ず clear（stale 参照を次セッションへ漏らさない — one-shot state 規約）。
+    var _draggingMdAnchor = null;
+
     // TASK-19 (sprint 20260804-145603): md editor 内の subpage リンクを Notes ツリーへ D&D。
     // a[data-subpage="true"] のみ（通常 Link は対象外）。payload には解決用の基準
     //（この editor の md 絶対パス）と相対 href を積み、host が実体を解決する。
@@ -20036,6 +20199,7 @@ class EditorInstance {
             }));
             e.dataTransfer.effectAllowed = 'copyMove';
         } catch (err) { /* ignore */ }
+        _draggingMdAnchor = a;
     });
 
     // FR-TF-06b (sprint 20260809-031217, §4g :105): md editor 内の 📎 file 添付リンクを Notes ツリーへ D&D。
@@ -20060,6 +20224,7 @@ class EditorInstance {
         } catch (err) { /* ignore */ }
         // §4h: one-shot drag-session state。dragend で必ず clear（下記 dragend listener）。
         fa.classList.add('dragging-file-attachment');
+        _draggingMdAnchor = fa;
     });
 
     // §4h: file 添付リンク D&D の one-shot state（dragging-file-attachment）を dragend で必ず clear。
@@ -20069,6 +20234,7 @@ class EditorInstance {
         for (var dfi = 0; dfi < draggingFileAnchors.length; dfi++) {
             draggingFileAnchors[dfi].classList.remove('dragging-file-attachment');
         }
+        _draggingMdAnchor = null; // one-shot: drop 成否に関わらず必ず reset
     });
 
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
@@ -20285,10 +20451,47 @@ class EditorInstance {
                 }
                 return;
             }
-            // md リンク 2 種: self-drop（自 md のリンクを自分に落とす）は no-op（リンク消失・重複防止）
+            // md リンク 2 種（📎 file / subpage）
             var selfMdPath = (t.instance.host && t.instance.host.filePath) ||
                 (t.instance.options && t.instance.options.filePath) || '';
             var mflRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-filelink') : '';
+            var mspRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-subpage') : '';
+            // TASK-05 再オープン (2026-08-14): 同一 editor 内 drop = DOM 移動（段落⇄リスト等の
+            // 置き場所を問わない）。従来は self-drop no-op でリンクを md 内で動かせなかった。
+            // dragstart で保持した実アンカー参照を drop 位置へ移す（md/実体は不変・並びだけ変わる）。
+            if ((mflRaw || mspRaw) && _draggingMdAnchor && t.editorEl.contains(_draggingMdAnchor)) {
+                var mvA = _draggingMdAnchor;
+                _draggingMdAnchor = null; // one-shot 消費
+                if (dropRange && !mvA.contains(dropRange.startContainer)) {
+                    // 移動元ブロック（li/p）を記録 — 移動後に殻なら掃除
+                    var mvSrcBlock = mvA.parentElement ? mvA.parentElement.closest('li, p') : null;
+                    dropRange.insertNode(mvA);
+                    // caret をアンカー後ろへ
+                    var mvR = document.createRange();
+                    mvR.setStartAfter(mvA);
+                    mvR.collapse(true);
+                    var mvSel = window.getSelection();
+                    mvSel.removeAllRanges();
+                    mvSel.addRange(mvR);
+                    // 移動元が真の殻（text/img/input/nested list 無し）になったら除去
+                    if (mvSrcBlock && mvSrcBlock.isConnected && !mvSrcBlock.contains(mvA) &&
+                        !(mvSrcBlock.textContent || '').trim() &&
+                        !mvSrcBlock.querySelector('img, input, table, pre, ul, ol, a')) {
+                        var mvParent = mvSrcBlock.parentNode;
+                        mvSrcBlock.remove();
+                        // 空になった祖先リストも除去
+                        while (mvParent && mvParent !== t.editorEl &&
+                               (mvParent.tagName === 'UL' || mvParent.tagName === 'OL') &&
+                               mvParent.children.length === 0) {
+                            var mvNext = mvParent.parentNode;
+                            mvParent.remove();
+                            mvParent = mvNext;
+                        }
+                    }
+                    t.instance.syncMarkdownPublic();
+                }
+                return;
+            }
             if (mflRaw) {
                 var mflPayload = null;
                 try { mflPayload = JSON.parse(mflRaw); } catch (err) { /* ignore */ }
@@ -20299,7 +20502,6 @@ class EditorInstance {
                 }
                 return;
             }
-            var mspRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-subpage') : '';
             if (mspRaw) {
                 var mspPayload = null;
                 try { mspPayload = JSON.parse(mspRaw); } catch (err) { /* ignore */ }
@@ -21048,6 +21250,34 @@ class EditorInstance {
         return true;
     }
 
+    // TASK-05 再オープン (2026-08-14): 選択がリンクアンカー（file/subpage/md/通常）の
+    // テキスト全体をちょうど覆っているとき、選択をアンカー要素ごとに昇格する。
+    // 機序: selectNodeContents / ダブルクリック / shift+矢印の「テキストだけの選択」だと
+    // cloneContents が <a> を剥がしテキストのみ複製 → copy/cut がリンク性（href/📎/[[]]）を
+    // 失い、cut では殻アンカー（アイコンだけ）が残っていた。アンカー丸ごと選択に直せば
+    // serializer の既存 isFileLink/subpage/link 経路がマーカー込み md を吐き、
+    // deleteContents もアンカーごと消す。段落/リスト/table 等の置き場所に依存しない。
+    function promoteFullAnchorSelection(sel) {
+        try {
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { return null; }
+            const r = sel.getRangeAt(0);
+            const sEl = r.startContainer.nodeType === 3 ? r.startContainer.parentElement : r.startContainer;
+            const eEl = r.endContainer.nodeType === 3 ? r.endContainer.parentElement : r.endContainer;
+            const sA = sEl && sEl.closest ? sEl.closest('a') : null;
+            const eA = eEl && eEl.closest ? eEl.closest('a') : null;
+            if (!sA || sA !== eA || !editor.contains(sA)) { return null; }
+            // 選択テキスト == アンカーの全テキスト（部分選択はテキストコピーのまま）
+            const selText = sel.toString();
+            const aText = sA.textContent || '';
+            if (!selText || selText.trim() !== aText.trim()) { return null; }
+            const nr = document.createRange();
+            nr.selectNode(sA);
+            sel.removeAllRanges();
+            sel.addRange(nr);
+            return nr;
+        } catch (err) { return null; }
+    }
+
     editor.addEventListener('copy', function(e) {
         if (isSourceMode) return;
 
@@ -21060,7 +21290,10 @@ class EditorInstance {
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
 
         e.preventDefault();
-        
+
+        // リンクテキスト全選択はアンカーごと（リンクとして）コピー
+        promoteFullAnchorSelection(sel);
+
         // Get the selected HTML
         const range = sel.getRangeAt(0);
         try {
@@ -21112,6 +21345,10 @@ class EditorInstance {
         markdown = htmlToMarkdown();
         undoManager.saveSnapshot();
 
+        // リンクテキスト全選択はアンカーごと（リンクとして）cut — deleteContents が
+        // アンカー要素ごと消すため殻アンカー（アイコンだけの残骸）が構造的に出ない
+        promoteFullAnchorSelection(sel);
+
         const range = sel.getRangeAt(0);
         try {
             const _ser = serializeSelectionToMd(range, sel);
@@ -21129,34 +21366,31 @@ class EditorInstance {
             e.clipboardData.setData('text/plain', sel.toString());
         }
 
-        // 選択内の li を削除前に収集（Backspace 範囲選択 :7622 と同じ手順。掃除対象を選択内に限定）
-        let startLi = null;
-        let n = range.startContainer;
-        while (n && n !== editor) {
-            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { startLi = n; break; }
-            n = n.parentNode;
-        }
-        let endLi = null;
-        n = range.endContainer;
-        while (n && n !== editor) {
-            if (n.nodeType === 1 && n.tagName.toLowerCase() === 'li') { endLi = n; break; }
-            n = n.parentNode;
-        }
+        // 選択内の li を削除前に収集（掃除対象を選択内に限定）。
+        // TASK-01 (sprint 20260813-210323): 旧実装は選択端点から li を遡る方式で、
+        // 片端がリスト外（段落等 = startLi/endLi が null）だと startIdx===-1 で
+        // 間の li を一切収集できず、掃除がスキップされてバレットだけの殻 li が残った
+        //（ユーザー報告「cut 残骸」の根因）。端点に依存せず、選択 range に交差する
+        // 全 li を intersectsNode で列挙する（端点がどこでも取りこぼさない）。
         const affectedLis = [];
-        if (startLi) affectedLis.push(startLi);
-        if (endLi && endLi !== startLi) {
-            const allLis = Array.from(editor.querySelectorAll('li'));
-            const startIdx = allLis.indexOf(startLi);
-            const endIdx = allLis.indexOf(endLi);
-            if (startIdx !== -1 && endIdx !== -1) {
-                const minIdx = Math.min(startIdx, endIdx);
-                const maxIdx = Math.max(startIdx, endIdx);
-                for (let i = minIdx + 1; i <= maxIdx; i++) affectedLis.push(allLis[i]);
-            }
+        for (const li of editor.querySelectorAll('li')) {
+            try {
+                if (range.intersectsNode(li)) affectedLis.push(li);
+            } catch (e) { /* detached 等は無視 */ }
         }
 
         // Delete the selection
         range.deleteContents();
+
+        // 空アンカー殻の掃除（TASK-05 再オープン 2026-08-14）: 選択端点がアンカー外
+        //（行選択・段落跨ぎ等）だと deleteContents がアンカーのテキストだけ消して
+        // 殻 <a> を残す（::before アイコンだけが見える残骸）。テキストも img も無い
+        // アンカーは不可視の殻なので除去する（Enter 分割の空アンカー除去 TASK-03 と同格）。
+        for (const shellA of Array.from(editor.querySelectorAll('a'))) {
+            if (!(shellA.textContent || '').trim() && !shellA.querySelector('img')) {
+                shellA.remove();
+            }
+        }
 
         // 「真に空」判定: text も img/checkbox 等の実コンテンツも無い（nested list / br は殻とみなす）。
         // img/input は textContent が空でも real content（editor.js 既存規約・asset 1:1 ownership）。
