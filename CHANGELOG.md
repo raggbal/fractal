@@ -5,6 +5,19 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-08-14
+
+### Fixed
+- **Markdown editor list & link fixes** (sprint 20260813-210323-md-list-cut-nav-fixes), applying to all three markdown faces (note md / side panel / standalone):
+  - **Cut leaves no bullet/icon debris**: cutting a selection that spans a nested list (or starts/ends outside it) no longer leaves empty bullet rows or icon-only anchor husks — affected list items are now enumerated by range intersection instead of walking from the selection endpoints.
+  - **Arrow keys reach every link row**: ↑/↓ no longer skip rows or lose the caret at list edges.
+  - **Enter beside a link no longer duplicates its icon**: splitting a list item between a subpage/md/📎 link and trailing text treats the anchor as atomic; empty anchor remnants are removed on both sides of the split.
+  - **📎 file links now behave exactly like subpage links**: the link text is editable, selectable (shift+arrows) and deletable with Backspace; the 📎 marker lives only in the markdown (like `[[]]`), the icon is a CSS decoration the caret can't enter, and dragging the icon still moves the file to the notes tree. Dropping a file/subpage link onto the tree or another editor now also removes the source link directly on disk, so it disappears even when the source document isn't open.
+
+### Added
+- **Links travel with copy/cut/paste** (same sprint): selecting a file/subpage/md link's full text (double-click, shift+arrows, or line selection) and pressing cmd+C/cmd+X now puts the complete link (`[📎 name](path)` / `[[title]](page.md)` / `[text](doc.md)`) on the clipboard, so cmd+V pastes a working link instead of bare text — in paragraphs, lists, and anywhere else links live. Partial text selections still copy plain text.
+- **Move links within a document by drag & drop** (same sprint): dragging a 📎 file or subpage link's icon to another spot in the *same* markdown document now moves the link there (paragraph ⇄ list, anywhere), cleaning up the emptied source row.
+
 ## [1.2.2] - 2026-08-13
 
 ### Added

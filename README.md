@@ -71,7 +71,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 
 ### Attachments & media
 - **Images** — Paste or drag & drop. Full-screen lightbox with pinch-zoom and pan. Max display width is configurable
-- **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open in the OS default app
+- **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open in the OS default app. The link text is editable like any other link; copy/cut a fully selected link text and it travels *as a link*, and dragging the 📎 icon moves the link within the document or out to the notes tree
 - **Attachments panel** — Lists every image and file referenced in the document, with Open / Copy Path
 
 ### PDF export
