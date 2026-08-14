@@ -1,7 +1,7 @@
-<img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — Markdown & Outliner (Database & Mindmap) for VS Code
+<img src="media/icon.png" alt="Fractal Note" width="48" align="absmiddle"> Fractal Note — Markdown, Outliner, Database, Mindmap — and all your files, in one place
 =
 
-**A complete note-taking environment inside VS Code.** Fractal Note combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. Organize everything into **Notes**, search across all of it, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
+**A complete note-taking environment inside VS Code.** Fractal Note combines a **Notion-like WYSIWYG markdown editor** and a **Dynalist-like outliner (with Database / Mindmap modes)** in a single workspace. And **your notes and your documents live in one place** — keep any file (PDF, Word, Excel, PowerPoint, …) in the file tree, or **embed it directly into a markdown document or an outline node**, and **search its contents full-text** along with everything else. If your files have outgrown your folders — scattered across directories, always separated from the notes that reference them — **this is built for exactly that problem**. Organize it all into **Notes**, sync it to S3 — and it's built from the ground up for **working alongside AI coding assistants**.
 
 ![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/imaken.fractal?label=VS%20Code%20Marketplace)
 ![Open VSX](https://img.shields.io/open-vsx/v/imaken/fractal?label=Open%20VSX)
@@ -172,7 +172,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
 - **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open in the OS default app
 - **Files flow everywhere** — drag a tree file, an outliner 📎/page node, or a markdown 📎/subpage link onto any outliner or markdown editor (main pane, side panel, or tree item) — or back into the tree. Within a note the physical file never moves (only its owner changes); across notes the file is copied to the destination and the source copy is kept until Clean Notes collects it
-- **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note. Streaming results, click to jump
+- **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note — **and inside attached PDF / Word / Excel / PowerPoint files**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes. Streaming results, click to jump
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
@@ -290,7 +290,7 @@ Everything is created from the file tree on the left — right-click it (or a fo
 From an outliner, type `@page` at the end of a node (or press `Cmd+Enter`) to hang a markdown page off that node — this is the core Fractal Note workflow: **outline the structure, write the details in pages**.
 
 ### 3. Find it again
-- `Cmd+P`-style cross-note search lives at the top of the file tree — it matches node text and markdown bodies
+- `Cmd+P`-style cross-note search lives at the top of the file tree — it matches node text, markdown bodies, and the contents of attached PDF / Word / Excel / PowerPoint files
 - Click any `#tag` to filter; pin frequent tags for one-click filtering
 - Tabs and navigation history (`Opt+←/→`) work like a browser
 
