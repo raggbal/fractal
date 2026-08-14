@@ -219,7 +219,7 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         }
     });
 
-    test('TC-DS-25: キャッシュ — 2 回目は fileCacheHit / CACHE_VERSION 5（旧版 invalidate — FR-DS-09 で 4→5）', () => {
+    test('TC-DS-25: キャッシュ — 2 回目は fileCacheHit / CACHE_VERSION 6（旧版 invalidate — sprint 20260815 で 5→6）', () => {
         const note = track(mkNoteWithAttachments([
             { id: 'att1', filename: 'meeting.docx', bytesFrom: 'docx-pydocx.docx' },
         ]));
@@ -232,13 +232,13 @@ test.describe('CLI 添付中身検索（FR-DS-06 / TASK-07）', () => {
         expect(j2.cache.fileCacheMiss).toBe(0);
         expect(j2.results.filter((r: any) => r.kind === 'file').length).toBe(1);
 
-        // CACHE_VERSION 4: version=3 の古いキャッシュは invalidate され再 parse になる
+        // 旧 version の古いキャッシュは invalidate され再 parse になる
         const cacheFiles = fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json'));
         expect(cacheFiles.length).toBe(1);
         const cachePath = path.join(cacheDir, cacheFiles[0]);
         const obj = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-        expect(obj.version).toBe(5);
-        obj.version = 4;
+        expect(obj.version).toBe(6);
+        obj.version = 5;
         fs.writeFileSync(cachePath, JSON.stringify(obj));
         const j3 = runCliJson(['--query', '吾輩は猫である', '--folder', note], cacheDir);
         expect(j3.cache.fileCacheMiss).toBe(1);   // 旧 version キャッシュは捨てられ再抽出
@@ -308,6 +308,103 @@ test.describe('クエリ NFKC 正規化（TASK-21）', () => {
             // 全角括弧クエリ（counterfactual: クエリ正規化なしだと 0 件 = RED）
             const j1 = JSON.parse(execFileSync('node', [CLI, '--query', 'TCN（トポロジ変化通知）', '--folder', note, '--scope', 'file', '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
             expect(j1.results.filter((r: any) => r.kind === 'file').length).toBe(1);
+        } finally {
+            fs.rmSync(note, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});
+
+test.describe('テキスト系ミラー + CLI E2E（sprint 20260815 / FR-DS-06 rev.3）', () => {
+
+    test('TC-DS-70: ミラー一致番人 — テキスト 6 種で正典 ts とミラー mjs の lines + skipReason 完全一致', async () => {
+        const mjs = await import(MJS);
+        const utf8Text = '議事録テキスト（全角）と English mixed\n2 行目';
+        const leBody = Buffer.from(utf8Text, 'utf16le');
+        const beBody = Buffer.from(leBody); beBody.swap16();
+        const htmlText = '<html><head><script>const x = "秘匿";</script></head><body><div class="k">議事録</div><td>東京</td><td>大阪</td>&amp;&nbsp;</body></html>';
+        const textFixtures: Array<{ name: string; buf: Buffer; ext: string }> = [
+            { name: 'utf8-plain', buf: Buffer.from(utf8Text, 'utf8'), ext: '.txt' },
+            { name: 'utf8-bom', buf: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(utf8Text, 'utf8')]), ext: '.txt' },
+            { name: 'utf16le-bom', buf: Buffer.concat([Buffer.from([0xff, 0xfe]), leBody]), ext: '.txt' },
+            { name: 'utf16be-bom', buf: Buffer.concat([Buffer.from([0xfe, 0xff]), beBody]), ext: '.txt' },
+            { name: 'nul-binary', buf: Buffer.concat([Buffer.from('head'), Buffer.from([0x00, 0x01]), Buffer.from('tail')]), ext: '.bin' },
+            { name: 'html', buf: Buffer.from(htmlText, 'utf8'), ext: '.html' },
+        ];
+        for (const f of textFixtures) {
+            const tsRes = await extractDocText(f.buf, f.ext);
+            const mjsRes = await mjs.extractDocTextMjs(f.buf, f.ext);
+            // counterfactual: 片側の sniff 分岐 / html 処理を 1 つ落とすと不一致で RED
+            expect(mjsRes.skipReason, `${f.name}: skipReason 一致`).toBe(tsRes.skipReason);
+            expect(mjsRes.lines, `${f.name}: lines 完全一致`).toEqual(tsRes.lines);
+            expect(mjsRes.noCache, `${f.name}: noCache 契約一致`).toBe(tsRes.noCache);
+        }
+    });
+
+    test('TC-DS-74: CLI E2E — .txt が default scope でヒット / --scope out は不変 / CACHE_VERSION 6 invalidate', async () => {
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-txt-cache-'));
+        const note = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-txt-note-'));
+        try {
+            fs.mkdirSync(path.join(note, 'files'), { recursive: true });
+            fs.writeFileSync(path.join(note, 'files', 'memo.txt'), '会議の議事録テスト内容', 'utf8');
+            fs.writeFileSync(path.join(note, 'outline.note'), JSON.stringify({ noteTitle: 'T', rootIds: [], items: {} }));
+
+            // scope 指定なし（default = all）で kind:'file' ヒット
+            const j1 = JSON.parse(execFileSync('node', [CLI, '--query', '議事録テスト', '--folder', note, '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
+            expect(j1.results.filter((r: any) => r.kind === 'file').length).toBe(1);
+
+            // --scope out では添付は対象外（既存 scope 不変）
+            const j2 = JSON.parse(execFileSync('node', [CLI, '--query', '議事録テスト', '--folder', note, '--scope', 'out', '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
+            expect(j2.results.filter((r: any) => r.kind === 'file').length).toBe(0);
+
+            // CACHE_VERSION invalidate: version 5 のキャッシュ（旧 unsupported_ext 記録）を手書き → 再判定でヒット
+            const cacheFiles = fs.readdirSync(cacheDir).filter((f) => f.endsWith('.json'));
+            for (const cf of cacheFiles) {
+                const entry = JSON.parse(fs.readFileSync(path.join(cacheDir, cf), 'utf8'));
+                entry.version = 5;
+                const st = fs.statSync(path.join(note, 'files', 'memo.txt'));
+                entry.files['files/memo.txt'] = {
+                    mtimeMs: st.mtimeMs, size: st.size,
+                    data: { lines: [], truncated: false, skipReason: 'unsupported_ext' },
+                };
+                fs.writeFileSync(path.join(cacheDir, cf), JSON.stringify(entry));
+            }
+            const j3 = JSON.parse(execFileSync('node', [CLI, '--query', '議事録テスト', '--folder', note, '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
+            // counterfactual: CACHE_VERSION を 5 に戻すと旧 skip 記録が生きて 0 件 = RED
+            expect(j3.results.filter((r: any) => r.kind === 'file').length).toBe(1);
+        } finally {
+            fs.rmSync(note, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-DS-76: 秘密非複製番人（CLI 版）— テキスト本文が CLI キャッシュに書かれない（NFR-DS-08）', async () => {
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-sec-cache-'));
+        const note = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-sec-note-'));
+        try {
+            const marker = 'SECRETMARKER123XYZ';
+            fs.mkdirSync(path.join(note, 'files'), { recursive: true });
+            fs.writeFileSync(path.join(note, 'files', 'credentials.env'), `API_KEY=${marker}\n`, 'utf8');
+            // 比較対照: docx（専用抽出 = キャッシュされる）も並べ、書き分けを確認
+            fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), path.join(note, 'files', 'doc.docx'));
+            fs.writeFileSync(path.join(note, 'outline.note'), JSON.stringify({ noteTitle: 'T', rootIds: [], items: {} }));
+
+            // キャッシュ有効のまま検索（ヒット自体は機能する）
+            const j = JSON.parse(execFileSync('node', [CLI, '--query', marker, '--folder', note, '--json', '--cache-dir', cacheDir], { encoding: 'utf8' }));
+            expect(j.results.filter((r: any) => r.kind === 'file').length).toBe(1);
+
+            // counterfactual: noCache 条件を外すと cache.files に平文複製されて RED
+            const leaked = fs.readdirSync(cacheDir)
+                .map((f) => fs.readFileSync(path.join(cacheDir, f), 'utf8'))
+                .some((content) => content.includes(marker));
+            expect(leaked, 'テキスト本文が CLI キャッシュに平文複製されない').toBe(false);
+
+            // 対照: docx の抽出結果はキャッシュされる（専用抽出 = 従来どおり）
+            execFileSync('node', [CLI, '--query', '吾輩は猫である', '--folder', note, '--json', '--cache-dir', cacheDir], { encoding: 'utf8' });
+            const docxCached = fs.readdirSync(cacheDir)
+                .map((f) => fs.readFileSync(path.join(cacheDir, f), 'utf8'))
+                .some((content) => content.includes('吾輩は猫である'));
+            expect(docxCached, '専用抽出（docx）はキャッシュされる — 二分の対照').toBe(true);
         } finally {
             fs.rmSync(note, { recursive: true, force: true });
             fs.rmSync(cacheDir, { recursive: true, force: true });
