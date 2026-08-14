@@ -17325,6 +17325,9 @@ class EditorInstance {
     };
     this._undo = instanceUndo;
     this._redo = instanceRedo;
+    // TASK-05 再オープン (2026-08-14): document-level drop handler（別 closure）が
+    // 自 md 内リンク移動後にこの instance の markdown を同期するための公開面
+    this.syncMarkdownPublic = function() { syncMarkdown(); };
     this._toggleSourceMode = function() { toggleSourceMode(); };
     this._showAttachmentsPanel = function(anchorBtn) { showAttachmentsPanel(anchorBtn); };
     this._getMarkdown = function() {
@@ -20170,6 +20173,11 @@ class EditorInstance {
         return null;
     }
 
+    // TASK-05 再オープン (2026-08-14): 自 md 内 D&D 移動用の one-shot drag state。
+    // dragstart で drag 中アンカーの DOM 参照を保持し、drop（自 md 宛）が DOM 移動に使う。
+    // dragend で必ず clear（stale 参照を次セッションへ漏らさない — one-shot state 規約）。
+    var _draggingMdAnchor = null;
+
     // TASK-19 (sprint 20260804-145603): md editor 内の subpage リンクを Notes ツリーへ D&D。
     // a[data-subpage="true"] のみ（通常 Link は対象外）。payload には解決用の基準
     //（この editor の md 絶対パス）と相対 href を積み、host が実体を解決する。
@@ -20191,6 +20199,7 @@ class EditorInstance {
             }));
             e.dataTransfer.effectAllowed = 'copyMove';
         } catch (err) { /* ignore */ }
+        _draggingMdAnchor = a;
     });
 
     // FR-TF-06b (sprint 20260809-031217, §4g :105): md editor 内の 📎 file 添付リンクを Notes ツリーへ D&D。
@@ -20215,6 +20224,7 @@ class EditorInstance {
         } catch (err) { /* ignore */ }
         // §4h: one-shot drag-session state。dragend で必ず clear（下記 dragend listener）。
         fa.classList.add('dragging-file-attachment');
+        _draggingMdAnchor = fa;
     });
 
     // §4h: file 添付リンク D&D の one-shot state（dragging-file-attachment）を dragend で必ず clear。
@@ -20224,6 +20234,7 @@ class EditorInstance {
         for (var dfi = 0; dfi < draggingFileAnchors.length; dfi++) {
             draggingFileAnchors[dfi].classList.remove('dragging-file-attachment');
         }
+        _draggingMdAnchor = null; // one-shot: drop 成否に関わらず必ず reset
     });
 
     if (isMainInstance) document.addEventListener('dragenter', function(e) {
@@ -20440,10 +20451,47 @@ class EditorInstance {
                 }
                 return;
             }
-            // md リンク 2 種: self-drop（自 md のリンクを自分に落とす）は no-op（リンク消失・重複防止）
+            // md リンク 2 種（📎 file / subpage）
             var selfMdPath = (t.instance.host && t.instance.host.filePath) ||
                 (t.instance.options && t.instance.options.filePath) || '';
             var mflRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-filelink') : '';
+            var mspRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-subpage') : '';
+            // TASK-05 再オープン (2026-08-14): 同一 editor 内 drop = DOM 移動（段落⇄リスト等の
+            // 置き場所を問わない）。従来は self-drop no-op でリンクを md 内で動かせなかった。
+            // dragstart で保持した実アンカー参照を drop 位置へ移す（md/実体は不変・並びだけ変わる）。
+            if ((mflRaw || mspRaw) && _draggingMdAnchor && t.editorEl.contains(_draggingMdAnchor)) {
+                var mvA = _draggingMdAnchor;
+                _draggingMdAnchor = null; // one-shot 消費
+                if (dropRange && !mvA.contains(dropRange.startContainer)) {
+                    // 移動元ブロック（li/p）を記録 — 移動後に殻なら掃除
+                    var mvSrcBlock = mvA.parentElement ? mvA.parentElement.closest('li, p') : null;
+                    dropRange.insertNode(mvA);
+                    // caret をアンカー後ろへ
+                    var mvR = document.createRange();
+                    mvR.setStartAfter(mvA);
+                    mvR.collapse(true);
+                    var mvSel = window.getSelection();
+                    mvSel.removeAllRanges();
+                    mvSel.addRange(mvR);
+                    // 移動元が真の殻（text/img/input/nested list 無し）になったら除去
+                    if (mvSrcBlock && mvSrcBlock.isConnected && !mvSrcBlock.contains(mvA) &&
+                        !(mvSrcBlock.textContent || '').trim() &&
+                        !mvSrcBlock.querySelector('img, input, table, pre, ul, ol, a')) {
+                        var mvParent = mvSrcBlock.parentNode;
+                        mvSrcBlock.remove();
+                        // 空になった祖先リストも除去
+                        while (mvParent && mvParent !== t.editorEl &&
+                               (mvParent.tagName === 'UL' || mvParent.tagName === 'OL') &&
+                               mvParent.children.length === 0) {
+                            var mvNext = mvParent.parentNode;
+                            mvParent.remove();
+                            mvParent = mvNext;
+                        }
+                    }
+                    t.instance.syncMarkdownPublic();
+                }
+                return;
+            }
             if (mflRaw) {
                 var mflPayload = null;
                 try { mflPayload = JSON.parse(mflRaw); } catch (err) { /* ignore */ }
@@ -20454,7 +20502,6 @@ class EditorInstance {
                 }
                 return;
             }
-            var mspRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-md-subpage') : '';
             if (mspRaw) {
                 var mspPayload = null;
                 try { mspPayload = JSON.parse(mspRaw); } catch (err) { /* ignore */ }
@@ -21203,6 +21250,34 @@ class EditorInstance {
         return true;
     }
 
+    // TASK-05 再オープン (2026-08-14): 選択がリンクアンカー（file/subpage/md/通常）の
+    // テキスト全体をちょうど覆っているとき、選択をアンカー要素ごとに昇格する。
+    // 機序: selectNodeContents / ダブルクリック / shift+矢印の「テキストだけの選択」だと
+    // cloneContents が <a> を剥がしテキストのみ複製 → copy/cut がリンク性（href/📎/[[]]）を
+    // 失い、cut では殻アンカー（アイコンだけ）が残っていた。アンカー丸ごと選択に直せば
+    // serializer の既存 isFileLink/subpage/link 経路がマーカー込み md を吐き、
+    // deleteContents もアンカーごと消す。段落/リスト/table 等の置き場所に依存しない。
+    function promoteFullAnchorSelection(sel) {
+        try {
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { return null; }
+            const r = sel.getRangeAt(0);
+            const sEl = r.startContainer.nodeType === 3 ? r.startContainer.parentElement : r.startContainer;
+            const eEl = r.endContainer.nodeType === 3 ? r.endContainer.parentElement : r.endContainer;
+            const sA = sEl && sEl.closest ? sEl.closest('a') : null;
+            const eA = eEl && eEl.closest ? eEl.closest('a') : null;
+            if (!sA || sA !== eA || !editor.contains(sA)) { return null; }
+            // 選択テキスト == アンカーの全テキスト（部分選択はテキストコピーのまま）
+            const selText = sel.toString();
+            const aText = sA.textContent || '';
+            if (!selText || selText.trim() !== aText.trim()) { return null; }
+            const nr = document.createRange();
+            nr.selectNode(sA);
+            sel.removeAllRanges();
+            sel.addRange(nr);
+            return nr;
+        } catch (err) { return null; }
+    }
+
     editor.addEventListener('copy', function(e) {
         if (isSourceMode) return;
 
@@ -21215,7 +21290,10 @@ class EditorInstance {
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
 
         e.preventDefault();
-        
+
+        // リンクテキスト全選択はアンカーごと（リンクとして）コピー
+        promoteFullAnchorSelection(sel);
+
         // Get the selected HTML
         const range = sel.getRangeAt(0);
         try {
@@ -21267,6 +21345,10 @@ class EditorInstance {
         markdown = htmlToMarkdown();
         undoManager.saveSnapshot();
 
+        // リンクテキスト全選択はアンカーごと（リンクとして）cut — deleteContents が
+        // アンカー要素ごと消すため殻アンカー（アイコンだけの残骸）が構造的に出ない
+        promoteFullAnchorSelection(sel);
+
         const range = sel.getRangeAt(0);
         try {
             const _ser = serializeSelectionToMd(range, sel);
@@ -21299,6 +21381,16 @@ class EditorInstance {
 
         // Delete the selection
         range.deleteContents();
+
+        // 空アンカー殻の掃除（TASK-05 再オープン 2026-08-14）: 選択端点がアンカー外
+        //（行選択・段落跨ぎ等）だと deleteContents がアンカーのテキストだけ消して
+        // 殻 <a> を残す（::before アイコンだけが見える残骸）。テキストも img も無い
+        // アンカーは不可視の殻なので除去する（Enter 分割の空アンカー除去 TASK-03 と同格）。
+        for (const shellA of Array.from(editor.querySelectorAll('a'))) {
+            if (!(shellA.textContent || '').trim() && !shellA.querySelector('img')) {
+                shellA.remove();
+            }
+        }
 
         // 「真に空」判定: text も img/checkbox 等の実コンテンツも無い（nested list / br は殻とみなす）。
         // img/input は textContent が空でも real content（editor.js 既存規約・asset 1:1 ownership）。
