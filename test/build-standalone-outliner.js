@@ -15,6 +15,8 @@ const path = require('path');
 const editorJsPath = path.join(__dirname, '../src/webview/editor.js');
 const editorUtilsJsPath = path.join(__dirname, '../src/webview/editor-utils.js');
 const outlinerJsPath = path.join(__dirname, '../src/webview/outliner.js');
+const viewerSidePanelJsPath = path.join(__dirname, '../src/webview/viewer-side-panel.js');
+const fileViewerJsPath = path.join(__dirname, '../src/webview/file-viewer.js');
 const outlinerCellJsPath = path.join(__dirname, '../src/webview/outliner-cell.js');
 const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.js');
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
@@ -391,6 +393,14 @@ const html = `<!DOCTYPE html>
     __OUTLINER_SCRIPT__
     </script>
     <script>
+    // file viewer sidepanel 面（sprint 20260815-075428 — 1 実装 3 マウント + 排他）
+    window.__viewerConfig = window.__viewerConfig || {};
+    __FILE_VIEWER_SCRIPT__
+    </script>
+    <script>
+    __VIEWER_SIDE_PANEL_SCRIPT__
+    </script>
+    <script>
     // テストAPI公開
     window.__testApi.ready = false;
     window.__testApi.initOutliner = function(data, outFileKey) {
@@ -441,6 +451,8 @@ result = safeReplace(result, '__MINDMAP_INTERACTIONS_SCRIPT__', mindmapInteracti
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
+result = safeReplace(result, '__FILE_VIEWER_SCRIPT__', fs.readFileSync(fileViewerJsPath, 'utf-8'));
+result = safeReplace(result, '__VIEWER_SIDE_PANEL_SCRIPT__', fs.readFileSync(viewerSidePanelJsPath, 'utf-8'));
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

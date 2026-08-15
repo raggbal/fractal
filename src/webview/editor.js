@@ -19150,6 +19150,7 @@ class EditorInstance {
         // sidepanel は outliner.js が管轄するので、editor.js md instance は浮遊 sidepanel instance / scope 汚染を作らず早期 return。
         // standalone editor は side-panel DOM を持つので非 null → 従来どおり続行。
         if (!sidePanelIframeContainer) return;
+        if (window.__viewerSidePanel) { window.__viewerSidePanel.close(); }   // viewer と排他（FR-FV-05 / sprint 20260815-075428）
         // Close existing panel if open (panel switch, not full close — preserve nav history)
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
