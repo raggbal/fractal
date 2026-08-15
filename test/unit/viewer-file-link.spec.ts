@@ -10,6 +10,11 @@
  *           note の files/ 外に到達しない。counterfactual: clamp なしの path.join 直書きは base 外を返して RED
  * TC-FV-58: 構文破壊文字を含む filename（Report (2).pdf / a]b.pdf）で生成した [title](link) が
  *           実 markdown link parser で往復して title/url を保持（designer_failures 2026-08-09）
+ *
+ * TC-FV-60（TASK-18 / reviewer iteration 3 CONS-2）: 受信側ルーティング番人 —
+ *           navigateToLink の fileId 分岐が note 面 viewer 経路（tryShowNoteViewer → showNoteViewer post）
+ *           に到達し、既存 md/node/out 分岐（notesNavigateInAppLink）が不変であること。
+ *           テストダブルは**明示メソッド recorder**（Proxy 禁止 — generator_failures 2026-08-09）。
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -93,6 +98,145 @@ test.describe('In-App file link（FR-FV-09）', () => {
             expect(links.length, `${filename}: リンクとして解析されない`).toBe(1);
             expect(links[0].alt).toBe(title);
             expect(links[0].url).toBe(link);
+        }
+    });
+});
+
+/**
+ * TC-FV-60: navigateToLink の受信側ルーティング番人（TASK-18 / CONS-2）
+ *
+ * `grep -rn "tryShowNoteViewer|navigateToLink" test/` = 0 件だった穴を埋める
+ * （TC-FV-55〜58 は送信側 + pure 関数のみ = 配線の片端）。
+ */
+test.describe('navigateToLink のルーティング（FR-FV-09 受信側 / TC-FV-60）', () => {
+
+    /** vscode モジュールを stub して host を require（先例: test/unit/dailynotes-flat-archive.spec.ts:24） */
+    function requireProviderWithVscodeStub(vscodeStub: any): any {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const Module = require('module');
+        const origLoad = Module._load;
+        Module._load = function (request: string) {
+            if (request === 'vscode') { return vscodeStub; }
+            // eslint-disable-next-line prefer-rest-params
+            return origLoad.apply(this, arguments as any);
+        };
+        try {
+            return require(path.join(ROOT, 'src', 'notesEditorProvider'));
+        } finally {
+            Module._load = origLoad;
+        }
+    }
+
+    /**
+     * 明示メソッド recorder（**Proxy 禁止** — generator_failures 2026-08-09: 任意メソッド名に
+     * 応答する Proxy は「メソッド不在で静かに落ちる」欠落を構造的に検出できない）。
+     * navigateToLink / tryShowNoteViewer が実際に触るメンバーだけを持つ。
+     */
+    function makeEntry(noteDir: string, resolvedFilePath: string | null) {
+        const posted: any[] = [];
+        const revealed: any[] = [];
+        const webviewUris: string[] = [];
+        return {
+            posted, revealed, webviewUris,
+            entry: {
+                panel: {
+                    reveal: (col: any) => { revealed.push(col); },
+                    webview: {
+                        asWebviewUri: (uri: any) => {
+                            webviewUris.push(uri.fsPath);
+                            return { toString: () => `vscode-resource://${uri.fsPath}` };
+                        },
+                    },
+                },
+                postMessage: (msg: any) => { posted.push(msg); },
+                fileManager: {
+                    getTreeFilePath: (_id: string) => resolvedFilePath,
+                    getMainFolderPath: () => noteDir,
+                    getMdFilePath: (id: string) => path.join(noteDir, `${id}.md`),
+                },
+            },
+        };
+    }
+
+    function makeVscodeStub() {
+        const warnings: string[] = [];
+        const externals: string[] = [];
+        return {
+            warnings, externals,
+            stub: {
+                workspace: { getConfiguration: () => ({ get: () => undefined }) },
+                Uri: { file: (p: string) => ({ fsPath: p }), joinPath: () => ({}) },
+                commands: { executeCommand: () => { /* noop */ } },
+                window: { showWarningMessage: (m: string) => { warnings.push(m); } },
+                env: { openExternal: async (uri: any) => { externals.push(uri.fsPath); } },
+                ViewColumn: { One: 1 },
+                EventEmitter: class { },
+            },
+        };
+    }
+
+    test('TC-FV-60: fileId 分岐 → showNoteViewer（note 面 viewer）／対象外は openExternal 縮退／md・node 分岐は不変', async () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fv-nav-'));
+        try {
+            const noteDir = path.join(tmp, 'note1');
+            fs.mkdirSync(path.join(noteDir, 'files'), { recursive: true });
+            const htmlPath = path.join(noteDir, 'files', 'doc.html');
+            fs.writeFileSync(htmlPath, '<p>hi</p>');
+            const zipPath = path.join(noteDir, 'files', 'a.zip');
+            fs.writeFileSync(zipPath, 'PK');
+
+            const v = makeVscodeStub();
+            const { NotesEditorProvider } = requireProviderWithVscodeStub(v.stub);
+            const nav = NotesEditorProvider.prototype.navigateToLink;
+            // fake this: openPanels + tryShowNoteViewer は**実 prototype メソッド**を配線する
+            // （stub に差し替えない = isViewerTarget / 50MB ガード / message 形が実コードで走る。
+            //   TS の private は compile-time のみなので runtime では prototype 上に在る）
+            const makeThis = (entry: any) => ({
+                openPanels: new Map([[noteDir, entry]]),
+                tryShowNoteViewer: NotesEditorProvider.prototype.tryShowNoteViewer,
+            });
+
+            // ① viewer 対象（.html）→ tryShowNoteViewer 経路 = showNoteViewer を post（openExternal を呼ばない）
+            const r1 = makeEntry(noteDir, htmlPath);
+            await nav.call(makeThis(r1.entry), noteDir, { fileId: 'uuid-1' });
+            expect(r1.revealed.length, 'panel.reveal が呼ばれる').toBe(1);
+            const shown = r1.posted.filter((m) => m.type === 'showNoteViewer');
+            expect(shown.length, 'file link から note 面 viewer に到達する（受信側配線）').toBe(1);
+            expect(shown[0].kind).toBe('html');
+            expect(shown[0].filePath).toBe(htmlPath);
+            expect(shown[0].fileName).toBe('doc.html');
+            expect(shown[0].fileUri).toContain(htmlPath);
+            expect(r1.posted.some((m) => m.type === 'notesNavigateInAppLink'),
+                'file link は md/node 経路（notesNavigateInAppLink）に流れない').toBe(false);
+            expect(v.externals.length, 'viewer 対象は openExternal に落ちない').toBe(0);
+
+            // ② viewer 対象外（.zip）→ 従来の openExternal 縮退（FR-FV-07 / ARCH-5）
+            const r2 = makeEntry(noteDir, zipPath);
+            await nav.call(makeThis(r2.entry), noteDir, { fileId: 'uuid-2' });
+            expect(r2.posted.filter((m) => m.type === 'showNoteViewer').length, '対象外は viewer を開かない').toBe(0);
+            expect(v.externals, '対象外は openExternal に縮退').toEqual([zipPath]);
+
+            // ③ 実体が無い fileId → 警告のみ（viewer も openExternal も呼ばない）
+            const r3 = makeEntry(noteDir, path.join(noteDir, 'files', 'missing.html'));
+            await nav.call(makeThis(r3.entry), noteDir, { fileId: 'uuid-3' });
+            expect(r3.posted.length, '不在 file は何も post しない').toBe(0);
+            expect(v.warnings.length, '警告が出る').toBe(1);
+            expect(v.externals.length, '不在 file で openExternal しない').toBe(1);   // ② の 1 件のまま
+
+            // ④ 既存 md 分岐は不変（notesNavigateInAppLink + mdFilePath）
+            const r4 = makeEntry(noteDir, null);
+            await nav.call(makeThis(r4.entry), noteDir, { mdFileId: 'm1' });
+            expect(r4.posted.length).toBe(1);
+            expect(r4.posted[0].type).toBe('notesNavigateInAppLink');
+            expect(r4.posted[0].mdFilePath).toBe(path.join(noteDir, 'm1.md'));
+            expect(r4.posted.some((m) => m.type === 'showNoteViewer'), 'md 分岐は viewer を開かない').toBe(false);
+
+            // ⑤ 既存 node/out 分岐も不変
+            const r5 = makeEntry(noteDir, null);
+            await nav.call(makeThis(r5.entry), noteDir, { outFileId: 'out1', nodeId: 'node1' });
+            expect(r5.posted).toEqual([{ type: 'notesNavigateInAppLink', outFileId: 'out1', nodeId: 'node1' }]);
+        } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
         }
     });
 });
