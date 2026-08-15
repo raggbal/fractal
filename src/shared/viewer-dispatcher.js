@@ -23,7 +23,14 @@
         viewerContainer.id = 'viewerContainer';
         viewerContainer.style.cssText = 'display:none; position:absolute; inset:0; z-index:50; ' +
             'background: var(--vscode-editor-background, #fff); flex-direction: column;';
-        document.body.appendChild(viewerContainer);
+        // メインペイン内（outliner/markdown コンテナの兄弟）にマウントする — body 直下だと
+        // タブバー・ファイルパネルまで覆う全画面被りになる（実機検収 2026-08-15）。
+        // .notes-main-wrapper は position:relative（notes-body-html.js:215）なので inset:0 が
+        // メインペインにだけ効く。wrapper が無いハーネス等では body に縮退
+        const wrapper = document.querySelector('.notes-main-wrapper')
+            || document.querySelector('.outliner-container')?.parentElement
+            || document.body;
+        wrapper.appendChild(viewerContainer);
         return viewerContainer;
     }
 

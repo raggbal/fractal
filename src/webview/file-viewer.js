@@ -36,6 +36,31 @@
     // mount → cleanup（pdfDocument.destroy 等）の対応（TASK-10 — destroy でリソースも解放）
     const cleanupRegistry = new WeakMap();
 
+    // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する
+    // （standalone 面の fileViewerContent.ts にしかスタイルが無く、notes/outliner webview で
+    //  ツールバー・エラー表示が崩れた/見えなかった実機検収 2026-08-15 の修正）
+    function ensureViewerStyle() {
+        if (document.getElementById('file-viewer-style')) { return; }
+        const style = document.createElement('style');
+        style.id = 'file-viewer-style';
+        style.textContent = [
+            '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 6px; align-items: center;',
+            '  padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, #ccc);',
+            '  background: var(--vscode-editor-background, #fff); }',
+            '.viewer-toolbar button { padding: 2px 10px; cursor: pointer;',
+            '  background: var(--vscode-button-secondaryBackground, #e0e0e0);',
+            '  color: var(--vscode-button-secondaryForeground, #333);',
+            '  border: 1px solid var(--vscode-panel-border, #ccc); border-radius: 3px; font-size: 12px; }',
+            '.viewer-toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, #d0d0d0); }',
+            '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
+            '  background: var(--vscode-editor-background, #fff); }',
+            '.viewer-html-frame { width: 100%; height: 100%; border: none; background: #fff; }',
+            '.viewer-error { padding: 16px; color: var(--vscode-errorForeground, #f66);',
+            '  font-family: var(--vscode-font-family, sans-serif); font-size: 13px; white-space: pre-wrap; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
     function buildToolbar(mount, fileUri, kind, filePath) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
@@ -125,12 +150,22 @@
     }
 
     // ── PDF 面（FR-FV-03 — pdfjs browser バンドル + PDFViewer） ───────────────
+    let workerBlobUrl = null;   // 全 open で共有（worker スクリプトは不変）
     async function openPdf(mount, fileUri) {
         const body = mount.querySelector('.viewer-body') || buildBody(mount);
         const lib = await import(config.pdfjsLibUri);
         const pdfjsLib = lib.pdfjsLib;
         const pdfjsViewer = lib.pdfjsViewer;
-        pdfjsLib.GlobalWorkerOptions.workerSrc = config.workerUri;
+        // 実機検収（2026-08-15）: vscode-resource URL は webview と別 origin のため
+        // new Worker(url) が SecurityError になり getDocument が進まない（真っ黒）。
+        // worker スクリプトを fetch → blob URL 化して same-origin worker にする
+        // （CSP worker-src blob: は 3 面とも許可済み。pdf.worker.min.mjs は単一バンドル = 内部 import なし）
+        if (!workerBlobUrl) {
+            const wResp = await fetch(config.workerUri);
+            if (!wResp.ok) { throw new Error(`worker fetch failed: ${wResp.status}`); }
+            workerBlobUrl = URL.createObjectURL(new Blob([await wResp.text()], { type: 'text/javascript' }));
+        }
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerBlobUrl;
 
         // PDF 供給は URL fetch（postMessage ArrayBuffer は pdf.js が detach するため不可 — design §3）
         const resp = await fetch(fileUri);
@@ -187,6 +222,7 @@
     async function open(kind, fileUri, mountEl, filePath) {
         const mount = mountEl || document.getElementById('viewer-root');
         if (!mount) { return; }
+        ensureViewerStyle();               // 3 面共通の見た目を自己完結で保証
         destroy(mount);                    // 前回分のリソースを解放してから再構築
         buildToolbar(mount, fileUri, kind, filePath);
         buildBody(mount);
