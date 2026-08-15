@@ -57,7 +57,7 @@ test.describe('viewer sidepanel 面（FR-FV-05 / TASK-04）', () => {
 test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38）', () => {
 
     test('TC-FV-38: kind=pdf の sidepanel 実レンダ（QUAL-1 番人）+ OS で開く中継（SEC-2 番人）', async ({ page }) => {
-        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
+        test.setTimeout(180000);  // PDF 実レンダはフル gate の高並列 CPU 飽和下で 60s を超えうる（gate 実測 ×2）
         await page.goto('/standalone-outliner.html');
         await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__fileViewer);
         await page.evaluate(() => {
@@ -65,7 +65,7 @@ test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38�
         });
         await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
         // PDF が sidepanel 面で実レンダされる（pdf_viewer.css 配線の番人 — 崩れると canvas 幅 0）
-        await page.waitForSelector('.viewer-side-panel .pdfViewer canvas', { timeout: 30000 });
+        await page.waitForSelector('.viewer-side-panel .pdfViewer canvas', { timeout: 120000 });
         const w = await page.evaluate(() =>
             (document.querySelector('.viewer-side-panel .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
         expect(w, 'canvas が非ゼロ幅で描画（css 欠落だと 0 幅/崩れ）').toBeGreaterThan(0);
@@ -75,6 +75,6 @@ test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38�
         await expect.poll(async () =>
             page.evaluate(() => ((window as any).__testApi.messages as any[])
                 .find((m) => m.type === 'openExternalFallback')?.filePath ?? null),
-        { timeout: 10000 }).toBe('/x/ja-en.pdf');
+        { timeout: 30000 }).toBe('/x/ja-en.pdf');
     });
 });

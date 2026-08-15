@@ -59,27 +59,27 @@ test.describe('viewer note 面（FR-FV-06 / TASK-05）', () => {
 test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40）', () => {
 
     test('TC-FV-39: kind=pdf の note 面実レンダ（QUAL-1 番人）', async ({ page }) => {
-        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
+        test.setTimeout(180000);  // PDF 実レンダはフル gate の高並列 CPU 飽和下で 60s を超えうる（gate 実測 ×2）
         await page.goto('/standalone-notes.html');
         await page.waitForFunction(() => (window as any).__viewerDispatcher && (window as any).__fileViewer);
         await page.evaluate(() => {
             window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
         });
-        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 30000 });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 120000 });
         const w = await page.evaluate(() =>
             (document.querySelector('#viewerContainer .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
         expect(w).toBeGreaterThan(0);
     });
 
     test('TC-FV-40: hideViewer で pdfDocument.destroy が呼ばれる（ARCH-CONS-1 番人）', async ({ page }) => {
-        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
+        test.setTimeout(180000);  // PDF 実レンダはフル gate の高並列 CPU 飽和下で 60s を超えうる（gate 実測 ×2）
         await page.goto('/standalone-notes.html');
         await page.waitForFunction(() => (window as any).__viewerDispatcher);
         await page.evaluate(() => {
             (window as any).__lastPdfDocDestroyed = false;
             window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
         });
-        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 30000 });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 120000 });
         await page.evaluate(() => { window.postMessage({ type: 'hideNoteViewer' }, '*'); });
         await page.waitForTimeout(500);
         const destroyed = await page.evaluate(() => (window as any).__lastPdfDocDestroyed);
