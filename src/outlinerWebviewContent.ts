@@ -70,6 +70,9 @@ export function getOutlinerWebviewContent(
 
     // Load editor scripts (for side panel EditorInstance)
     // FR-FV-05（sprint 20260815-075428）: file viewer（sidepanel 面）— standalone .out の 📎 viewer
+    // QUAL-1: PDFViewer のレイアウト CSS（pdf_viewer.css）も対で配線
+    const pdfViewerCssPath = path.join(__dirname, '..', 'media', 'pdfjs-viewer', 'pdf_viewer.css');
+    const pdfViewerCss = fs.existsSync(pdfViewerCssPath) ? fs.readFileSync(pdfViewerCssPath, 'utf8') : '';
     const fileViewerScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'file-viewer.js'), 'utf8');
     const viewerSidePanelScript = fs.readFileSync(
@@ -270,6 +273,7 @@ export function getOutlinerWebviewContent(
     <script nonce="${nonce}">
         ${outlinerScript}
     </script>
+    <style>${pdfViewerCss}</style>
     <script nonce="${nonce}">window.__viewerConfig = {
         pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
         workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',

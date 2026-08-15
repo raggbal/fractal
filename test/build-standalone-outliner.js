@@ -392,9 +392,15 @@ const html = `<!DOCTYPE html>
     <script>
     __OUTLINER_SCRIPT__
     </script>
+    <style>__PDF_VIEWER_CSS__</style>
     <script>
     // file viewer sidepanel 面（sprint 20260815-075428 — 1 実装 3 マウント + 排他）
-    window.__viewerConfig = window.__viewerConfig || {};
+    window.__viewerConfig = {
+        pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
+        workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
+        cMapUrl: './pdfjs-viewer/cmaps/',
+        standardFontDataUrl: './pdfjs-viewer/standard_fonts/'
+    };
     __FILE_VIEWER_SCRIPT__
     </script>
     <script>
@@ -451,6 +457,7 @@ result = safeReplace(result, '__MINDMAP_INTERACTIONS_SCRIPT__', mindmapInteracti
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
+result = safeReplace(result, '__PDF_VIEWER_CSS__', fs.existsSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css')) ? fs.readFileSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css'), 'utf-8') : '');
 result = safeReplace(result, '__FILE_VIEWER_SCRIPT__', fs.readFileSync(fileViewerJsPath, 'utf-8'));
 result = safeReplace(result, '__VIEWER_SIDE_PANEL_SCRIPT__', fs.readFileSync(viewerSidePanelJsPath, 'utf-8'));
 fs.writeFileSync(outputPath, result);

@@ -33,7 +33,7 @@
     }
 
     /** note 面に viewer を表示（outliner/md を隠す） */
-    function showViewer(kind, fileUri, fileName) {
+    function showViewer(kind, fileUri, fileName, filePath) {
         const container = ensureContainer();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）
         container.textContent = '';
@@ -41,7 +41,7 @@
         setPaneDisplay('markdownContainer', 'none');
         container.style.display = 'flex';
         if (window.__fileViewer) {
-            window.__fileViewer.open(kind, fileUri, container);
+            window.__fileViewer.open(kind, fileUri, container, filePath);
         }
     }
 
@@ -64,7 +64,7 @@
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg && msg.type === 'showNoteViewer') {
-            showViewer(msg.kind, msg.fileUri, msg.fileName);
+            showViewer(msg.kind, msg.fileUri, msg.fileName, msg.filePath);
         } else if (msg && msg.type === 'hideNoteViewer') {
             hideViewer();
         }

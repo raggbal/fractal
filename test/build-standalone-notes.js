@@ -481,9 +481,15 @@ const html = `<!DOCTYPE html>
     <script>
     __NOTES_MD_DISPATCHER_SCRIPT__
     </script>
+    <style>__PDF_VIEWER_CSS2__</style>
     <script>
     // file viewer note 面（sprint 20260815-075428）
-    window.__viewerConfig = window.__viewerConfig || {};
+    window.__viewerConfig = {
+        pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
+        workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
+        cMapUrl: './pdfjs-viewer/cmaps/',
+        standardFontDataUrl: './pdfjs-viewer/standard_fonts/'
+    };
     __FILE_VIEWER_SCRIPT2__
     </script>
     <script>
@@ -664,6 +670,7 @@ result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__PDF_VIEWER_CSS2__', fs.existsSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css')) ? fs.readFileSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css'), 'utf-8') : '');
 result = safeReplace(result, '__FILE_VIEWER_SCRIPT2__', fileViewerScript2);
 result = safeReplace(result, '__VIEWER_DISPATCHER_SCRIPT__', viewerDispatcherScript);
 result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);

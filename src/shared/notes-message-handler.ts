@@ -31,6 +31,8 @@ export interface NotesSender {
 export interface NotesPlatformActions {
     /** 外部リンクをブラウザで開く */
     openExternalLink(href: string): void;
+    /** FR-FV-07: viewer「OS で開く」フォールバック（fs パスを openExternal）— sprint 20260815-075428 */
+    openViewerFallback?(filePath: string): void;
     /** FR-RR-06: fractal.resourceRoots の settings を開く */
     openResourceRootsSettings?(): void;
     /** FR-MG-03/05/07: 起動時移行ゲートで移行を実行（backup→validate→execute→成功で reopen / 失敗で通知） */
@@ -1079,6 +1081,14 @@ export async function handleNotesMessage(
                 } else {
                     platform.openExternalLink(message.href);
                 }
+            }
+            break;
+
+        // FR-FV-07（sprint 20260815-075428 SEC-2）: viewer「OS で開く」フォールバック。
+        // sidepanel/note 面の file-viewer.js が送る（standalone 面は fileViewerProvider が直接処理）
+        case 'openExternalFallback':
+            if (message.filePath && platform.openViewerFallback) {
+                platform.openViewerFallback(String(message.filePath));
             }
             break;
 

@@ -62,7 +62,7 @@
     }
 
     /** viewer サイドペインを開く（md sidepanel が開いていれば排他で閉じる） */
-    function open(kind, fileUri, fileName) {
+    function open(kind, fileUri, fileName, filePath) {
         // 排他: md sidepanel を閉じる（optional hook — md 側が公開していれば。無ければ DOM 直接では
         // なく既存 close ボタンの click で閉じる = md 側コードへの直接参照を持たない）
         try {
@@ -76,7 +76,7 @@
         if (title) { title.textContent = fileName || ''; }
         const mount = panel.querySelector('.viewer-side-panel-mount');
         if (window.__fileViewer && mount) {
-            window.__fileViewer.open(kind, fileUri, mount);
+            window.__fileViewer.open(kind, fileUri, mount, filePath);
         }
     }
 
@@ -98,7 +98,7 @@
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg && msg.type === 'openViewerPanel') {
-            open(msg.kind, msg.fileUri, msg.filePath ? msg.filePath.split('/').pop() : '');
+            open(msg.kind, msg.fileUri, msg.filePath ? msg.filePath.split('/').pop() : '', msg.filePath);
         } else if (msg && msg.type === 'closeViewerPanel') {
             close();
         }

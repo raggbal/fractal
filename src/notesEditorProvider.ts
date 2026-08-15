@@ -98,6 +98,7 @@ export class NotesEditorProvider {
                 type: 'showNoteViewer',
                 kind,
                 fileName: path.basename(filePath),
+                filePath,
                 fileUri: panel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
             });
             return true;
@@ -570,6 +571,10 @@ export class NotesEditorProvider {
         const platform: NotesPlatformActions = {
             openExternalLink: (href: string) => {
                 vscode.env.openExternal(vscode.Uri.parse(href));
+            },
+            // FR-FV-07（SEC-2）: viewer「OS で開く」— fs パスなので Uri.file で開く
+            openViewerFallback: (filePath: string) => {
+                vscode.env.openExternal(vscode.Uri.file(filePath));
             },
             openResourceRootsSettings: () => {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');

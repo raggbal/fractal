@@ -7,6 +7,7 @@
  */
 import * as vscode from 'vscode';
 import { ViewerKind } from './shared/viewer-target';
+import { getNonce } from './webviewContent';
 
 export function getFileViewerHtml(
     webview: vscode.Webview,
@@ -18,11 +19,15 @@ export function getFileViewerHtml(
     const asUri = (u: vscode.Uri): string => webview.asWebviewUri(u).toString();
     const viewerJs = asUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'file-viewer.js'));
     const viewerCss = asUri(vscode.Uri.joinPath(pdfjsDir, 'pdf_viewer.css'));
+    // SEC-1（reviewer iter1）: inline script（__viewerConfig 注入）には nonce が必須 —
+    // script-src に nonce/'unsafe-inline' が無いと本番 CSP でブロックされ standalone 面が空白になる
+    // （既存 3 provider = webviewContent.ts:152 等と同じ nonce パターン）
+    const nonce = getNonce();
     const csp = [
         `default-src 'none'`,
         `img-src ${webview.cspSource} data:`,
         `style-src ${webview.cspSource} 'unsafe-inline'`,
-        `script-src ${webview.cspSource}`,
+        `script-src 'nonce-${nonce}' ${webview.cspSource}`,
         `frame-src ${webview.cspSource} blob:`,
         `worker-src ${webview.cspSource} blob:`,
         `connect-src ${webview.cspSource}`,
@@ -52,8 +57,8 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script>window.__viewerConfig = ${JSON.stringify(config)};</script>
-<script type="module" src="${viewerJs}"></script>
+<script nonce="${nonce}">window.__viewerConfig = ${JSON.stringify(config)};</script>
+<script type="module" nonce="${nonce}" src="${viewerJs}"></script>
 </body>
 </html>`;
 }

@@ -55,3 +55,33 @@ test.describe('viewer note 面（FR-FV-06 / TASK-05）', () => {
         expect(await page.locator('#viewerContainer .viewer-html-frame').count(), 'DOM も破棄').toBe(0);
     });
 });
+
+test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40）', () => {
+
+    test('TC-FV-39: kind=pdf の note 面実レンダ（QUAL-1 番人）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher && (window as any).__fileViewer);
+        await page.evaluate(() => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
+        });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 15000 });
+        const w = await page.evaluate(() =>
+            (document.querySelector('#viewerContainer .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
+        expect(w).toBeGreaterThan(0);
+    });
+
+    test('TC-FV-40: hideViewer で pdfDocument.destroy が呼ばれる（ARCH-CONS-1 番人）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher);
+        await page.evaluate(() => {
+            (window as any).__lastPdfDocDestroyed = false;
+            window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
+        });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 15000 });
+        await page.evaluate(() => { window.postMessage({ type: 'hideNoteViewer' }, '*'); });
+        await page.waitForTimeout(500);
+        const destroyed = await page.evaluate(() => (window as any).__lastPdfDocDestroyed);
+        // counterfactual: destroy(mount) が cleanupRegistry を呼ばないと false のまま = RED
+        expect(destroyed, 'pdfDocument.destroy() が呼ばれた').toBe(true);
+    });
+});

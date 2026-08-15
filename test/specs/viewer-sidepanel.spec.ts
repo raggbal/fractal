@@ -53,3 +53,26 @@ test.describe('viewer sidepanel 面（FR-FV-05 / TASK-04）', () => {
         expect(await page.locator('.viewer-side-panel.open').count(), 'viewer が閉じる').toBe(0);
     });
 });
+
+test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38）', () => {
+
+    test('TC-FV-38: kind=pdf の sidepanel 実レンダ（QUAL-1 番人）+ OS で開く中継（SEC-2 番人）', async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__fileViewer);
+        await page.evaluate(() => {
+            window.postMessage({ type: 'openViewerPanel', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
+        });
+        await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
+        // PDF が sidepanel 面で実レンダされる（pdf_viewer.css 配線の番人 — 崩れると canvas 幅 0）
+        await page.waitForSelector('.viewer-side-panel .pdfViewer canvas', { timeout: 15000 });
+        const w = await page.evaluate(() =>
+            (document.querySelector('.viewer-side-panel .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
+        expect(w, 'canvas が非ゼロ幅で描画（css 欠落だと 0 幅/崩れ）').toBeGreaterThan(0);
+        // OS で開く → postMessage が bridge 経由で届く（SEC-2: filePath 付き）
+        await page.click('.viewer-side-panel .viewer-open-external');
+        const posted = await page.evaluate(() => (window as any).__testApi.messages);
+        const fb = posted.find((m: any) => m.type === 'openExternalFallback');
+        expect(fb, 'openExternalFallback が bridge に届く').toBeTruthy();
+        expect(fb.filePath).toBe('/x/ja-en.pdf');
+    });
+});

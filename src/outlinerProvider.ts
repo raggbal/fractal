@@ -433,6 +433,14 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await dropStreamHost.handle(message);
                         break;
 
+                    // FR-FV-07（sprint 20260815-075428 SEC-2）: viewer「OS で開く」フォールバック
+                    case 'openExternalFallback': {
+                        if (message.filePath) {
+                            await vscode.env.openExternal(vscode.Uri.file(String(message.filePath)));
+                        }
+                        break;
+                    }
+
                     case 'openAttachedFile': {
                         const data = JSON.parse(document.getText());
                         const node = data.nodes?.[message.nodeId];

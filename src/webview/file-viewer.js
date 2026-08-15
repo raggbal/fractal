@@ -16,24 +16,35 @@
 (function () {
     'use strict';
 
-    const vscode = typeof window.acquireVsCodeApi === 'function' ? window.acquireVsCodeApi() : null;
+    // acquireVsCodeApi は webview につき 1 回しか呼べない — notes/outliner webview では
+    // host-bridge が取得済みで 2 回目は throw する（SEC-2 修正で実測）。try/catch + 既存
+    // bridge の post 関数（__pdfExportPost = notes/outliner 両 bridge が公開済み）に縮退する
+    let vscode = null;
+    try {
+        vscode = typeof window.acquireVsCodeApi === 'function' ? window.acquireVsCodeApi() : null;
+    } catch (e) { vscode = null; }
     const config = window.__viewerConfig || {};
 
     /** テスト観測用: 最後に getDocument へ渡した主要パラメータ（TC-FV-06） */
     window.__lastGetDocumentParams = null;
 
     function postMessage(msg) {
-        if (vscode) { vscode.postMessage(msg); }
+        if (vscode) { vscode.postMessage(msg); return; }
+        if (typeof window.__pdfExportPost === 'function') { window.__pdfExportPost(msg); }
     }
 
-    function buildToolbar(mount, fileUri, kind) {
+    // mount → cleanup（pdfDocument.destroy 等）の対応（TASK-10 — destroy でリソースも解放）
+    const cleanupRegistry = new WeakMap();
+
+    function buildToolbar(mount, fileUri, kind, filePath) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
         const openBtn = document.createElement('button');
         openBtn.className = 'viewer-open-external';
         openBtn.textContent = 'OS で開く';
         openBtn.addEventListener('click', () => {
-            postMessage({ type: 'openExternalFallback', fileUri });
+            // filePath（fs パス）は sidepanel/note 面の host 側 case が openExternal に使う（SEC-2）
+            postMessage({ type: 'openExternalFallback', fileUri, filePath: filePath || null });
         });
         bar.appendChild(openBtn);
         if (kind === 'pdf') {
@@ -142,15 +153,19 @@
      * viewer を mountEl に開く（1 実装 3 マウント — standalone/sidepanel/note 共用）。
      * 失敗時は throw せず読み込み失敗 UI に落とす（FR-FV-07）。
      */
-    async function open(kind, fileUri, mountEl) {
+    async function open(kind, fileUri, mountEl, filePath) {
         const mount = mountEl || document.getElementById('viewer-root');
         if (!mount) { return; }
-        mount.textContent = '';
-        buildToolbar(mount, fileUri, kind);
+        destroy(mount);                    // 前回分のリソースを解放してから再構築
+        buildToolbar(mount, fileUri, kind, filePath);
         buildBody(mount);
         try {
             if (kind === 'pdf') {
-                await openPdf(mount, fileUri);
+                const { pdf } = await openPdf(mount, fileUri);
+                // TASK-10: destroy(mount) で pdfDocument（worker / ArrayBuffer）も解放する
+                cleanupRegistry.set(mount, () => {
+                    try { pdf.destroy(); window.__lastPdfDocDestroyed = true; } catch { /* best-effort */ }
+                });
             } else if (kind === 'html') {
                 openHtml(mount, fileUri);
             } else {
@@ -161,10 +176,13 @@
         }
     }
 
-    /** mount の viewer DOM を破棄する（note 面の stale 対策 — viewer-dispatcher が呼ぶ） */
+    /** mount の viewer DOM とリソース（pdfDocument 等）を破棄する（note 面の stale 対策） */
     function destroy(mountEl) {
         const mount = mountEl || document.getElementById('viewer-root');
-        if (mount) { mount.textContent = ''; }
+        if (!mount) { return; }
+        const cleanup = cleanupRegistry.get(mount);
+        if (cleanup) { cleanup(); cleanupRegistry.delete(mount); }
+        mount.textContent = '';
     }
 
     window.__fileViewer = { open, destroy };

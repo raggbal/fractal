@@ -119,6 +119,9 @@ export function getNotesWebviewContent(
     const notesMdDispatcherScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-md-dispatcher.js'), 'utf8');
     // FR-FV-05/06（sprint 20260815-075428）: file viewer（note 面 dispatcher + sidepanel ペイン + 本体）
+    // QUAL-1: PDFViewer のレイアウトは pdf_viewer.css に依存 — 3 面すべてに配線（standalone は fileViewerContent）
+    const pdfViewerCssPath = path.join(__dirname, '..', 'media', 'pdfjs-viewer', 'pdf_viewer.css');
+    const pdfViewerCss = fs.existsSync(pdfViewerCssPath) ? fs.readFileSync(pdfViewerCssPath, 'utf8') : '';
     const fileViewerScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'file-viewer.js'), 'utf8');
     const viewerDispatcherScript = fs.readFileSync(
@@ -323,6 +326,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${outlinerScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">${notesMdDispatcherScript}</script>
+    <style>${pdfViewerCss}</style>
     <script nonce="${nonce}">window.__viewerConfig = {
         pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
         workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',
