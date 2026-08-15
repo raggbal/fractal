@@ -70,6 +70,20 @@
             // pdf はページ紙面が浮くニュートラル背景 + pdf_viewer.css の page 影を活かす
             '.viewer-pdf-container { background: var(--fv-bg-body); }',
             '.viewer-pdf-container .pdfViewer { padding: 12px 0; }',
+            // pdfjs は .page の width/height を「内容領域 = scale × ページ寸法」として算出する
+            // （pdf.mjs setLayerDimensions）。だが .page は 9px の透明 border を持つため、
+            // ホスト webview の `* { box-sizing: border-box }`（src/webview/styles.css:17。note /
+            // sidepanel 面はこれを読む）が効くと内容領域が縦横 18px 縮み、canvas（100%）と
+            // textLayer（inset:0）だけが縮んで、% 配置の span と inline の絶対 font-size が
+            // 食い違う → 選択・コピー用テキストが実描画とズレる（実機検収 2026-08-15）。
+            // pdfjs の前提（content-box）を viewer 配下だけで復元する
+            '.viewer-pdf-container .pdfViewer .page,',
+            '.viewer-pdf-container .pdfViewer .page * { box-sizing: content-box; }',
+            // textLayer span は継承で崩れうる字送り系だけリセット（font-size/font-family は
+            // pdfjs が span ごとに inline 指定するのでここでは触らない）
+            '.viewer-pdf-container .textLayer :is(span, br) { letter-spacing: normal;',
+            '  word-spacing: normal; text-transform: none; font-weight: normal; font-style: normal;',
+            '  padding: 0; margin: 0; }',
             '.viewer-error { padding: 20px; color: var(--fr-color-danger, var(--vscode-errorForeground, #c33));',
             '  font-family: var(--vscode-font-family, sans-serif); font-size: 13px; white-space: pre-wrap; }',
         ].join('\n');

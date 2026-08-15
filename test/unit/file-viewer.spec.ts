@@ -144,6 +144,48 @@ test.describe('file-viewer: PDF 面（FR-FV-03）', () => {
         expect(posted.some((m: any) => m.type === 'openExternalFallback')).toBe(true);
     });
 
+    test('TC-FV-07: ホスト webview の border-box 下でも textLayer が canvas と一致する（選択テキストのズレ番人）', async ({ page }) => {
+        // 実機検収（2026-08-15）: note / sidepanel 面は src/webview/styles.css:17 の
+        // `* { box-sizing: border-box }` を読む。pdfjs は .page の width/height を
+        // 「内容領域 = scale × ページ寸法」として算出する（pdf.mjs setLayerDimensions）が、
+        // .page は 9px の透明 border を持つため border-box では内容領域が縦横 18px 縮み、
+        // canvas（width:100%）だけが縮んで textLayer（inset:0）とズレる → 範囲選択した
+        // コピー用テキストが実描画から外れる。counterfactual: file-viewer.js の
+        // `.page, .page * { box-sizing: content-box }` を外すと canvas だけ 18px 縮んで RED。
+        await page.goto('/standalone-viewer.html');
+        await page.addStyleTag({ content: '* { margin: 0; padding: 0; box-sizing: border-box; }' });
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 20000 });
+        await page.waitForTimeout(1500);   // textLayer の span 生成まで待つ
+        const geo = await page.evaluate(() => {
+            const pageDiv = document.querySelector('.pdfViewer .page') as HTMLElement;
+            const canvas = pageDiv.querySelector('canvas') as HTMLElement;
+            const textLayer = pageDiv.querySelector('.textLayer') as HTMLElement;
+            const spans = Array.from(textLayer.querySelectorAll('span')) as HTMLElement[];
+            // 実文字が乗った span（幅を持つもの）で位置を確認する
+            const sized = spans.map((s) => s.getBoundingClientRect()).filter((r) => r.width > 20 && r.height > 5);
+            const c = canvas.getBoundingClientRect();
+            const t = textLayer.getBoundingClientRect();
+            return {
+                boxSizing: getComputedStyle(pageDiv).boxSizing,
+                canvas: { x: c.left, y: c.top, w: c.width, h: c.height },
+                textLayer: { x: t.left, y: t.top, w: t.width, h: t.height },
+                spanCount: sized.length,
+                outside: sized.filter((r) => r.left < c.left - 2 || r.right > c.right + 2).length,
+            };
+        });
+        expect(geo.boxSizing, 'viewer 配下の .page は content-box に復元される').toBe('content-box');
+        expect(geo.spanCount, 'textLayer に実寸の span がある').toBeGreaterThan(0);
+        // 核: canvas と textLayer が同一矩形（ズレ 1px 未満）。fix を外すと canvas だけ 18px 小さくなる
+        expect(Math.abs(geo.textLayer.w - geo.canvas.w), 'textLayer 幅が canvas 幅と一致').toBeLessThan(1);
+        expect(Math.abs(geo.textLayer.h - geo.canvas.h), 'textLayer 高さが canvas 高さと一致').toBeLessThan(1);
+        expect(Math.abs(geo.textLayer.x - geo.canvas.x), 'textLayer 左端が canvas と一致').toBeLessThan(1);
+        expect(Math.abs(geo.textLayer.y - geo.canvas.y), 'textLayer 上端が canvas と一致').toBeLessThan(1);
+        expect(geo.outside, '選択用 span が canvas 描画域の外に出ていない').toBe(0);
+    });
+
     test('TC-FV-06: isEvalSupported:false が getDocument 実引数に渡る', async ({ page }) => {
         await page.goto('/standalone-viewer.html');
         await page.evaluate(() => {
