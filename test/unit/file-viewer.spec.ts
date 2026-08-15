@@ -435,3 +435,64 @@ test.describe('file-viewer: destroy のリソース解放（reviewer iter1 TASK-
         expect(destroyed, 'pdfDocument.destroy() が呼ばれた').toBe(true);
     });
 });
+
+test.describe('file-viewer: ツールバー 4 ボタン（FR-FV-08 / ADRL-0068 / design §10）', () => {
+
+    test('TC-FV-50: 4 ボタンの実クリックで host 向け message が filePath 付きで飛ぶ', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open(
+                'html', './viewer-fixtures/plain-text.html',
+                document.getElementById('viewer-root'), '/tmp/plain-text.html');
+        });
+        await page.waitForSelector('.viewer-toolbar', { timeout: 10000 });
+
+        // 実クリック（合成イベント禁止 — generator_failures 2026-08-10/12）→ ハーネスの
+        // __postedMessages で観測（TC-FV-05 と同じレコーダー経路）
+        await page.click('.viewer-open-in-new-tab');
+        await page.click('.viewer-copy-path');
+        await page.click('.viewer-copy-inapp-link');
+        await page.click('.viewer-export-file');
+        const posted: any[] = await page.evaluate(() => (window as any).__postedMessages);
+
+        const byType = (t: string) => posted.filter((m) => m && m.type === t);
+        for (const t of ['viewerOpenInNewTab', 'viewerCopyPath', 'viewerCopyInAppLink', 'viewerExportFile']) {
+            expect(byType(t).length, `${t} が 1 件飛ぶ`).toBe(1);
+            const m = byType(t)[0];
+            expect(m.filePath, `${t} は filePath を運ぶ（host 側 case が fs パスを使う）`).toBe('/tmp/plain-text.html');
+            expect(m.fileUri, `${t} は fileUri を運ぶ`).toContain('plain-text.html');
+        }
+        // openInNewTab だけは host が viewType を選ぶために kind を要する（design §10）
+        expect(byType('viewerOpenInNewTab')[0].kind, 'viewerOpenInNewTab は kind を運ぶ').toBe('html');
+    });
+
+    test('TC-FV-51: standalone 面は Open in new tab 非表示 / filePath 不在の非 standalone は Copy In-App Link 非表示', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+
+        // (b) 非 standalone（ハーネス = __viewerConfig に kind/fileUri なし）+ filePath 不在
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open(
+                'html', './viewer-fixtures/plain-text.html', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.viewer-toolbar', { timeout: 10000 });
+        expect(await page.locator('.viewer-open-in-new-tab').count(),
+            '非 standalone では Open in new tab を出す').toBe(1);
+        expect(await page.locator('.viewer-copy-inapp-link').count(),
+            'filePath が無ければ Copy In-App Link は出さない（逆引き不能）').toBe(0);
+        expect(await page.locator('.viewer-copy-path').count(), 'Copy Path は常時').toBe(1);
+        expect(await page.locator('.viewer-export-file').count(), 'Export は常時').toBe(1);
+
+        // (a) standalone 面を再現（host の fileViewerContent.ts は config に kind/fileUri を注入する）
+        await page.evaluate(() => {
+            (window as any).__viewerConfig.kind = 'html';
+            (window as any).__viewerConfig.fileUri = './viewer-fixtures/plain-text.html';
+            (window as any).__fileViewer.open(
+                'html', './viewer-fixtures/plain-text.html', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.viewer-toolbar', { timeout: 10000 });
+        expect(await page.locator('.viewer-open-in-new-tab').count(),
+            'standalone 面は既にタブなので Open in new tab を出さない').toBe(0);
+        expect(await page.locator('.viewer-copy-inapp-link').count(),
+            'standalone は filePath 無しでも host が document.uri を持つので出す').toBe(1);
+    });
+});

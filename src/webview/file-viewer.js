@@ -93,6 +93,39 @@
         document.head.appendChild(style);
     }
 
+    /**
+     * ツールバーのラベル（FR-FV-08 の i18n）。note / sidepanel 面は各 webviewContent が
+     * window.__outlinerMessages（WebviewMessages）を注入済み。standalone 面（fileViewerContent.ts）は
+     * 注入が無いので既定文言に落ちる。キー自身は messages.ts の interface + 7 locale に登録済み
+     * （TC-FV-54 が番人 — フォールバックだけで済ませる silent i18n 債務を防ぐ）
+     */
+    function label(key, fallback) {
+        const msgs = window.__outlinerMessages || {};
+        return msgs[key] || fallback;
+    }
+
+    /**
+     * standalone 面か（= host の fileViewerContent.ts が専用タブに開いた面）。
+     * 判別は **live な** window.__viewerConfig の kind/fileUri 有無で行う（design §10 は
+     * 「__viewerConfig が存在する面」と書くが、note/sidepanel 面のハーネスや他 webview も
+     * __viewerConfig を持ちうるため、自動オープンの条件（下部 :388 と同一）を判別に使う）。
+     */
+    function isStandaloneFace() {
+        const c = window.__viewerConfig;
+        return !!(c && c.kind && c.fileUri);
+    }
+
+    /** ツールバーにボタンを 1 つ足す（click で msgFactory() の message を host へ送る） */
+    function addAction(bar, className, text, msgFactory) {
+        const btn = document.createElement('button');
+        btn.className = className;
+        btn.textContent = text;
+        btn.title = text;
+        btn.addEventListener('click', () => { postMessage(msgFactory()); });
+        bar.appendChild(btn);
+        return btn;
+    }
+
     function buildToolbar(mount, fileUri, kind, filePath, state) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
@@ -129,6 +162,26 @@
             });
             bar.appendChild(scriptBtn);
         }
+        // FR-FV-08（ADRL-0068 / design §10）: 4 アクション。message 形は openExternalFallback と同形
+        // `{type, fileUri, filePath: filePath || null}`（host 側 case は filePath を fs パスとして使う）
+        const standalone = isStandaloneFace();
+        // standalone 面（host が config.kind/fileUri で自動オープンした専用タブ）は既にタブなので出さない
+        if (!standalone) {
+            addAction(bar, 'viewer-open-in-new-tab', label('viewerOpenInNewTab', 'Open in new tab'),
+                // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
+                () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
+        }
+        addAction(bar, 'viewer-copy-path', label('viewerCopyPath', 'Copy Path'),
+            () => ({ type: 'viewerCopyPath', fileUri, filePath: filePath || null }));
+        // filePath が無い面は folder/id 逆引きの起点が無いので非表示。standalone は host が
+        // document.uri を持つので filePath 不要（逆引き不成立なら host が warning で no-op）
+        if (filePath || standalone) {
+            addAction(bar, 'viewer-copy-inapp-link', label('viewerCopyInAppLink', 'Copy In-App Link'),
+                () => ({ type: 'viewerCopyInAppLink', fileUri, filePath: filePath || null }));
+        }
+        addAction(bar, 'viewer-export-file', label('viewerExportFile', 'Export'),
+            () => ({ type: 'viewerExportFile', fileUri, filePath: filePath || null }));
+
         const openBtn = document.createElement('button');
         openBtn.className = 'viewer-open-external';
         openBtn.textContent = 'OS で開く';

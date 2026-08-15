@@ -304,4 +304,10 @@ export const webviewMessages = {
   tableSearchPlaceholder: 'Search...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "Theme setting was migrated from '{old}' to '{new}'.",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: 'Open in new tab',
+  viewerCopyPath: 'Copy Path',
+  viewerCopyInAppLink: 'Copy In-App Link',
+  viewerExportFile: 'Export',
+  viewerCopyInAppLinkFailed: 'This file does not belong to a note, so an In-App link cannot be created.',
 };

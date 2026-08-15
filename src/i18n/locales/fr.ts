@@ -259,4 +259,10 @@ export const webviewMessages = {
   tableSearchPlaceholder: 'Rechercher...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "Le paramètre de thème a été migré de '{old}' vers '{new}'.",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: 'Ouvrir dans un nouvel onglet',
+  viewerCopyPath: 'Copier le chemin',
+  viewerCopyInAppLink: 'Copier le lien interne',
+  viewerExportFile: 'Exporter',
+  viewerCopyInAppLinkFailed: 'Ce fichier n\'appartient à aucune note, un lien interne ne peut donc pas être créé.',
 };

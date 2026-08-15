@@ -259,4 +259,10 @@ export const webviewMessages = {
   tableSearchPlaceholder: '搜尋...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "佈景設定已從 '{old}' 遷移至 '{new}'。",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: '在新分頁開啟',
+  viewerCopyPath: '複製路徑',
+  viewerCopyInAppLink: '複製應用內連結',
+  viewerExportFile: '匯出',
+  viewerCopyInAppLinkFailed: '此檔案不屬於任何筆記，因此無法建立應用內連結。',
 };

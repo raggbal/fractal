@@ -259,4 +259,10 @@ export const webviewMessages = {
   tableSearchPlaceholder: '검색...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "테마 설정이 '{old}' 에서 '{new}' (으)로 마이그레이션되었습니다.",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: '새 탭에서 열기',
+  viewerCopyPath: '경로 복사',
+  viewerCopyInAppLink: '앱 내 링크 복사',
+  viewerExportFile: '내보내기',
+  viewerCopyInAppLinkFailed: '이 파일은 노트에 속해 있지 않아 앱 내 링크를 만들 수 없습니다.',
 };
