@@ -40,6 +40,9 @@ const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<!-- 本番 fileViewerContent.ts の CSP frame-src を忠実に再現（外部 URL への iframe 遷移を止める実体は
+     sandbox でなく親 CSP — TC-FV-03 の検証面。他 directive はハーネス都合で緩和） -->
+<meta http-equiv="Content-Security-Policy" content="frame-src 'self' blob:">
 <title>Standalone File Viewer Test</title>
 <style>
 ${viewerCss}

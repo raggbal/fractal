@@ -1,0 +1,176 @@
+/**
+ * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
+ *
+ * sprint 20260815-075428-file-viewer-3panes / FR-FV-03（PDF）/ FR-FV-04（HTML）/ FR-FV-07（失敗 UI）。
+ * ADRL-0064（HTML = iframe 方式 A・sandbox="" 完全静的 — TC-FV-90 スパイク実測で確定）/
+ * ADRL-0065（PDF = pdfjs 4.10.38 browser バンドル + pdf_viewer.mjs）。
+ *
+ * md 実装（editor.js / EditorInstance / SidePanelHostBridge / notes-md-dispatcher）への
+ * import / window 参照は禁止（NFR-FV-02 — TC-FV-31 が番人）。
+ *
+ * 設定は window.__viewerConfig（host の fileViewerContent.ts / テストハーネスが注入）:
+ *   { pdfjsLibUri, workerUri, cMapUrl, standardFontDataUrl, kind?, fileUri? }
+ * kind/fileUri があれば自動オープン（standalone 面）。sidepanel/note 面は
+ * window.__fileViewer.open(kind, uri, mountEl) で任意の要素にマウントする（1 実装 3 マウント）。
+ */
+(function () {
+    'use strict';
+
+    const vscode = typeof window.acquireVsCodeApi === 'function' ? window.acquireVsCodeApi() : null;
+    const config = window.__viewerConfig || {};
+
+    /** テスト観測用: 最後に getDocument へ渡した主要パラメータ（TC-FV-06） */
+    window.__lastGetDocumentParams = null;
+
+    function postMessage(msg) {
+        if (vscode) { vscode.postMessage(msg); }
+    }
+
+    function buildToolbar(mount, fileUri, kind) {
+        const bar = document.createElement('div');
+        bar.className = 'viewer-toolbar';
+        const openBtn = document.createElement('button');
+        openBtn.className = 'viewer-open-external';
+        openBtn.textContent = 'OS で開く';
+        openBtn.addEventListener('click', () => {
+            postMessage({ type: 'openExternalFallback', fileUri });
+        });
+        bar.appendChild(openBtn);
+        if (kind === 'pdf') {
+            const zoomOut = document.createElement('button');
+            zoomOut.className = 'viewer-zoom-out';
+            zoomOut.textContent = '−';
+            const zoomIn = document.createElement('button');
+            zoomIn.className = 'viewer-zoom-in';
+            zoomIn.textContent = '+';
+            bar.appendChild(zoomOut);
+            bar.appendChild(zoomIn);
+        }
+        mount.appendChild(bar);
+        return bar;
+    }
+
+    function showError(mount, fileUri, message) {
+        const body = mount.querySelector('.viewer-body');
+        if (body) { body.textContent = ''; }
+        const err = document.createElement('div');
+        err.className = 'viewer-error';
+        err.textContent = message;
+        (body || mount).appendChild(err);
+    }
+
+    function buildBody(mount) {
+        const body = document.createElement('div');
+        body.className = 'viewer-body';
+        mount.appendChild(body);
+        return body;
+    }
+
+    // ── HTML 面（FR-FV-04 — 方式 A: src 直指定 + sandbox="" 全制限） ──────────
+    function openHtml(mount, fileUri) {
+        const body = mount.querySelector('.viewer-body') || buildBody(mount);
+        const iframe = document.createElement('iframe');
+        // sandbox="" = allow-* を 1 つも付けない（ADRL-0064 — script/form/popup/same-origin 全禁止。
+        // allow-scripts を足すことは NFR-FV-03 違反 — TC-FV-01 counterfactual が番人）
+        iframe.setAttribute('sandbox', '');
+        iframe.className = 'viewer-html-frame';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        iframe.src = fileUri;
+        body.appendChild(iframe);
+        return iframe;
+    }
+
+    // ── PDF 面（FR-FV-03 — pdfjs browser バンドル + PDFViewer） ───────────────
+    async function openPdf(mount, fileUri) {
+        const body = mount.querySelector('.viewer-body') || buildBody(mount);
+        const lib = await import(config.pdfjsLibUri);
+        const pdfjsLib = lib.pdfjsLib;
+        const pdfjsViewer = lib.pdfjsViewer;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = config.workerUri;
+
+        // PDF 供給は URL fetch（postMessage ArrayBuffer は pdf.js が detach するため不可 — design §3）
+        const resp = await fetch(fileUri);
+        if (!resp.ok) { throw new Error(`fetch failed: ${resp.status}`); }
+        const data = await resp.arrayBuffer();
+
+        const params = {
+            data,
+            cMapUrl: config.cMapUrl,
+            cMapPacked: true,
+            standardFontDataUrl: config.standardFontDataUrl,
+            isEvalSupported: false,     // CVE-2024-4367 defense-in-depth（ADRL-0065 決定 5）
+        };
+        window.__lastGetDocumentParams = {
+            cMapUrl: params.cMapUrl,
+            isEvalSupported: params.isEvalSupported,
+        };
+        const pdf = await pdfjsLib.getDocument(params).promise;
+
+        // PDFViewer は container: position absolute + 内側 .pdfViewer を要求する
+        const container = document.createElement('div');
+        container.className = 'viewer-pdf-container';
+        container.style.position = 'absolute';
+        container.style.inset = '0';
+        container.style.overflow = 'auto';
+        const inner = document.createElement('div');
+        inner.className = 'pdfViewer';
+        container.appendChild(inner);
+        body.style.position = 'relative';
+        body.appendChild(container);
+
+        const eventBus = new pdfjsViewer.EventBus();
+        const linkService = new pdfjsViewer.PDFLinkService({ eventBus });
+        const viewer = new pdfjsViewer.PDFViewer({ container, eventBus, linkService });
+        linkService.setViewer(viewer);
+        eventBus.on('pagesinit', () => { viewer.currentScaleValue = 'page-width'; });
+        linkService.setDocument(pdf, null);
+        viewer.setDocument(pdf);
+
+        const bar = mount.querySelector('.viewer-toolbar');
+        if (bar) {
+            const zi = bar.querySelector('.viewer-zoom-in');
+            const zo = bar.querySelector('.viewer-zoom-out');
+            if (zi) { zi.addEventListener('click', () => { viewer.currentScale = Math.min(viewer.currentScale * 1.25, 8); }); }
+            if (zo) { zo.addEventListener('click', () => { viewer.currentScale = Math.max(viewer.currentScale / 1.25, 0.25); }); }
+        }
+        return { pdf, viewer };
+    }
+
+    /**
+     * viewer を mountEl に開く（1 実装 3 マウント — standalone/sidepanel/note 共用）。
+     * 失敗時は throw せず読み込み失敗 UI に落とす（FR-FV-07）。
+     */
+    async function open(kind, fileUri, mountEl) {
+        const mount = mountEl || document.getElementById('viewer-root');
+        if (!mount) { return; }
+        mount.textContent = '';
+        buildToolbar(mount, fileUri, kind);
+        buildBody(mount);
+        try {
+            if (kind === 'pdf') {
+                await openPdf(mount, fileUri);
+            } else if (kind === 'html') {
+                openHtml(mount, fileUri);
+            } else {
+                showError(mount, fileUri, `unsupported kind: ${kind}`);
+            }
+        } catch (e) {
+            showError(mount, fileUri, `このファイルを表示できませんでした（${e && e.message ? e.message : e}）`);
+        }
+    }
+
+    /** mount の viewer DOM を破棄する（note 面の stale 対策 — viewer-dispatcher が呼ぶ） */
+    function destroy(mountEl) {
+        const mount = mountEl || document.getElementById('viewer-root');
+        if (mount) { mount.textContent = ''; }
+    }
+
+    window.__fileViewer = { open, destroy };
+
+    // standalone 面: config に kind/fileUri が来ていれば自動オープン
+    if (config.kind && config.fileUri) {
+        open(config.kind, config.fileUri, document.getElementById('viewer-root'));
+    }
+})();
