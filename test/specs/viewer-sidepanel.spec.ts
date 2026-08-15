@@ -57,6 +57,7 @@ test.describe('viewer sidepanel 面（FR-FV-05 / TASK-04）', () => {
 test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38）', () => {
 
     test('TC-FV-38: kind=pdf の sidepanel 実レンダ（QUAL-1 番人）+ OS で開く中継（SEC-2 番人）', async ({ page }) => {
+        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
         await page.goto('/standalone-outliner.html');
         await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__fileViewer);
         await page.evaluate(() => {
@@ -70,9 +71,10 @@ test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38�
         expect(w, 'canvas が非ゼロ幅で描画（css 欠落だと 0 幅/崩れ）').toBeGreaterThan(0);
         // OS で開く → postMessage が bridge 経由で届く（SEC-2: filePath 付き）
         await page.click('.viewer-side-panel .viewer-open-external');
-        const posted = await page.evaluate(() => (window as any).__testApi.messages);
-        const fb = posted.find((m: any) => m.type === 'openExternalFallback');
-        expect(fb, 'openExternalFallback が bridge に届く').toBeTruthy();
-        expect(fb.filePath).toBe('/x/ja-en.pdf');
+        // 並列負荷での遅延に備え poll（単発 evaluate だと描画完了直後の click 反映前に読むことがある）
+        await expect.poll(async () =>
+            page.evaluate(() => ((window as any).__testApi.messages as any[])
+                .find((m) => m.type === 'openExternalFallback')?.filePath ?? null),
+        { timeout: 10000 }).toBe('/x/ja-en.pdf');
     });
 });

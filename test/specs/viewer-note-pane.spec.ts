@@ -59,6 +59,7 @@ test.describe('viewer note 面（FR-FV-06 / TASK-05）', () => {
 test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40）', () => {
 
     test('TC-FV-39: kind=pdf の note 面実レンダ（QUAL-1 番人）', async ({ page }) => {
+        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
         await page.goto('/standalone-notes.html');
         await page.waitForFunction(() => (window as any).__viewerDispatcher && (window as any).__fileViewer);
         await page.evaluate(() => {
@@ -71,6 +72,7 @@ test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40�
     });
 
     test('TC-FV-40: hideViewer で pdfDocument.destroy が呼ばれる（ARCH-CONS-1 番人）', async ({ page }) => {
+        test.setTimeout(90000);   // PDF 実レンダは並列 4 shard 負荷で 30s を超えうる（gate 実測）
         await page.goto('/standalone-notes.html');
         await page.waitForFunction(() => (window as any).__viewerDispatcher);
         await page.evaluate(() => {
