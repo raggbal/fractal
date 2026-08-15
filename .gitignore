@@ -40,4 +40,5 @@ CLAUDE.md
 .harness/
 .harness_bk/
 .collected/
-.odk/cache/
+.odk/cache/media/pdfjs-viewer/
+test/html/pdfjs-viewer/
