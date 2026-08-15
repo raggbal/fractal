@@ -58,6 +58,14 @@
 
     /** note 面に viewer を表示（outliner/md を隠す） */
     function showViewer(kind, fileUri, fileName, filePath) {
+        // md sidepanel（.side-panel.open = z-index:100）が開いていると viewer（z-index:50）に被さるため
+        // 排他で閉じる。DOM 直参照でなく既存 close ボタンの click = md 側コードへの直接依存を持たない
+        // 弱結合（viewer-side-panel.js:72-79 の既存 precedent と同型）。全 note 面 viewer 表示経路
+        // （In-App file link / file panel クリック / 検索ヒット）が showViewer を通るのでここ 1 箇所で効く。
+        try {
+            const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
+            if (mdCloseBtn) { mdCloseBtn.click(); }
+        } catch { /* md sidepanel 不在は正常 */ }
         const container = ensureContainer();
         ensureToggleStyle();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）

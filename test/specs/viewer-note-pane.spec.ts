@@ -56,6 +56,44 @@ test.describe('viewer note 面（FR-FV-06 / TASK-05）', () => {
     });
 });
 
+test.describe('note 面 viewer × md sidepanel の排他（reviewer iter3 CONS-1 / TC-FV-59）', () => {
+
+    // standalone で `.side-panel` を open 状態にする（実 openSidePanel は host 往復を伴うため
+    // クラス操作で open を再現 — sidepanel-tab-coexist.spec.ts:20 の既存 precedent と同型）。
+    async function openMdSidePanelDom(page: import('@playwright/test').Page) {
+        await page.evaluate(() => {
+            const sp = document.querySelector('.side-panel') as HTMLElement;
+            sp.style.display = 'flex';
+            sp.classList.add('open');
+        });
+    }
+
+    test('TC-FV-59: note 面 viewer を開くと md sidepanel が閉じる（counterfactual: showViewer の排他 click を外すと open のまま残り RED）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.waitForFunction(() => (window as any).__viewerDispatcher);
+        await openMdSidePanelDom(page);
+        expect(await page.locator('.side-panel.open').count(), '前提: md sidepanel が open').toBe(1);
+
+        // note 面 viewer を表示（In-App file link / file panel クリック いずれも showViewer を通る）
+        await page.evaluate(() => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: './viewer-fixtures/sample.html', fileName: 'sample.html' }, '*');
+        });
+        await page.waitForSelector('#viewerContainer', { state: 'visible', timeout: 5000 });
+        // ② viewer が実際に mount される（排他だけして viewer が出ないのを防ぐ）
+        await page.waitForSelector('#viewerContainer .viewer-html-frame', { timeout: 5000 });
+
+        // ① md sidepanel が閉じる（`.open` の除去は close ボタン click で同期・display:none は 200ms 後）
+        await page.waitForTimeout(250);
+        expect(
+            await page.locator('.side-panel.open').count(),
+            'md sidepanel（z-index:100）が viewer（z-index:50）に被さらないよう閉じる'
+        ).toBe(0);
+        const spHidden = await page.evaluate(() => (document.querySelector('.side-panel') as HTMLElement).style.display === 'none');
+        expect(spHidden, 'closeSidePanelImmediate まで到達（display:none）').toBe(true);
+    });
+});
+
 test.describe('note 面 css 配線（reviewer iter1 TASK-09 / TC-FV-39）', () => {
 
     test('TC-FV-39: pdf_viewer.css が notes webview に配線される（QUAL-1 契約番人）', async ({ page }) => {
