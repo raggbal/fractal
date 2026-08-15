@@ -39,9 +39,27 @@
         if (el) { el.style.display = value; }
     }
 
+    // file panel 折り畳み時の再表示ボタン（≡）を viewer ツールバーにも置く。
+    // 既存の #notesPanelToggleBtn は outliner pane 内にあり viewer 表示中は隠れるため、
+    // panel を閉じると二度と開けなくなる（実機検収 2026-08-15）。クリック処理は
+    // notes-file-panel.js の document delegation（.notes-panel-toggle-btn を closest 判定）に相乗り
+    function ensureToggleStyle() {
+        if (document.getElementById('viewer-panel-toggle-style')) { return; }
+        const style = document.createElement('style');
+        style.id = 'viewer-panel-toggle-style';
+        style.textContent = [
+            '.viewer-toolbar .notes-panel-toggle-btn { display: none; background: transparent; border: none;',
+            '  cursor: pointer; padding: 4px 5px; font-size: 15px; opacity: 0.7; order: -1; }',
+            '.viewer-toolbar .notes-panel-toggle-btn:hover { opacity: 1; }',
+            '.notes-file-panel.collapsed ~ .notes-main-wrapper .viewer-toolbar .notes-panel-toggle-btn { display: flex; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
     /** note 面に viewer を表示（outliner/md を隠す） */
     function showViewer(kind, fileUri, fileName, filePath) {
         const container = ensureContainer();
+        ensureToggleStyle();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）
         container.textContent = '';
         setPaneDisplay('outlinerContainer', 'none');
@@ -49,6 +67,15 @@
         container.style.display = 'flex';
         if (window.__fileViewer) {
             window.__fileViewer.open(kind, fileUri, container, filePath);
+            // open は toolbar を同期構築する（最初の await より前）— ≡ ボタンを先頭に追加
+            const bar = container.querySelector('.viewer-toolbar');
+            if (bar && !bar.querySelector('.notes-panel-toggle-btn')) {
+                const toggle = document.createElement('button');
+                toggle.className = 'notes-panel-toggle-btn';
+                toggle.title = 'Show file panel (Cmd+\\)';
+                toggle.innerHTML = '&#9776;';
+                bar.insertBefore(toggle, bar.firstChild);
+            }
         }
     }
 
