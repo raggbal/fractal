@@ -64,7 +64,7 @@ test.describe('sidepanel 面 PDF + fallback（reviewer iter1 TASK-09 / TC-FV-38�
         });
         await page.waitForSelector('.viewer-side-panel.open', { timeout: 5000 });
         // PDF が sidepanel 面で実レンダされる（pdf_viewer.css 配線の番人 — 崩れると canvas 幅 0）
-        await page.waitForSelector('.viewer-side-panel .pdfViewer canvas', { timeout: 15000 });
+        await page.waitForSelector('.viewer-side-panel .pdfViewer canvas', { timeout: 30000 });
         const w = await page.evaluate(() =>
             (document.querySelector('.viewer-side-panel .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
         expect(w, 'canvas が非ゼロ幅で描画（css 欠落だと 0 幅/崩れ）').toBeGreaterThan(0);

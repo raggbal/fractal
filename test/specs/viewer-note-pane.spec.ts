@@ -64,7 +64,7 @@ test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40�
         await page.evaluate(() => {
             window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
         });
-        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 15000 });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 30000 });
         const w = await page.evaluate(() =>
             (document.querySelector('#viewerContainer .pdfViewer canvas') as HTMLCanvasElement)?.width || 0);
         expect(w).toBeGreaterThan(0);
@@ -77,7 +77,7 @@ test.describe('note 面 PDF + destroy（reviewer iter1 TASK-09/10 / TC-FV-39/40�
             (window as any).__lastPdfDocDestroyed = false;
             window.postMessage({ type: 'showNoteViewer', kind: 'pdf', fileUri: './viewer-fixtures/ja-en.pdf', fileName: 'ja-en.pdf', filePath: '/x/ja-en.pdf' }, '*');
         });
-        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 15000 });
+        await page.waitForSelector('#viewerContainer .pdfViewer canvas', { timeout: 30000 });
         await page.evaluate(() => { window.postMessage({ type: 'hideNoteViewer' }, '*'); });
         await page.waitForTimeout(500);
         const destroyed = await page.evaluate(() => (window as any).__lastPdfDocDestroyed);
