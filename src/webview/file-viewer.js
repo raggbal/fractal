@@ -36,26 +36,41 @@
     // mount → cleanup（pdfDocument.destroy 等）の対応（TASK-10 — destroy でリソースも解放）
     const cleanupRegistry = new WeakMap();
 
-    // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する
-    // （standalone 面の fileViewerContent.ts にしかスタイルが無く、notes/outliner webview で
-    //  ツールバー・エラー表示が崩れた/見えなかった実機検収 2026-08-15 の修正）
+    // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する。
+    // 色は Fractal のテーマトークン（--fr-*）を第一に使い、無い面（standalone viewer webview）では
+    // VS Code 変数 → ライト既定にフォールバック（実機検収 2026-08-15: --vscode-* 直参照だと
+    // ダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
     function ensureViewerStyle() {
         if (document.getElementById('file-viewer-style')) { return; }
         const style = document.createElement('style');
         style.id = 'file-viewer-style';
         style.textContent = [
-            '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 6px; align-items: center;',
-            '  padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, #ccc);',
-            '  background: var(--vscode-editor-background, #fff); }',
-            '.viewer-toolbar button { padding: 2px 10px; cursor: pointer;',
-            '  background: var(--vscode-button-secondaryBackground, #e0e0e0);',
-            '  color: var(--vscode-button-secondaryForeground, #333);',
-            '  border: 1px solid var(--vscode-panel-border, #ccc); border-radius: 3px; font-size: 12px; }',
-            '.viewer-toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, #d0d0d0); }',
+            ':root { --fv-bg-bar: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
+            '  --fv-bg-body: var(--fr-color-bg-app, var(--vscode-editor-background, #ececec));',
+            '  --fv-border: var(--fr-color-border, var(--vscode-panel-border, #ddd));',
+            '  --fv-text: var(--fr-color-text, var(--vscode-foreground, #333));',
+            '  --fv-text-muted: var(--fr-color-text-muted, var(--vscode-descriptionForeground, #777));',
+            '  --fv-btn-bg: var(--fr-color-bg-elevated, var(--vscode-button-secondaryBackground, #fff));',
+            '  --fv-btn-hover: var(--fr-color-primary-soft, var(--vscode-button-secondaryHoverBackground, #e8f1fb)); }',
+            '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 8px; align-items: center;',
+            '  padding: 6px 10px; border-bottom: 1px solid var(--fv-border);',
+            '  background: var(--fv-bg-bar); color: var(--fv-text);',
+            '  font-family: var(--vscode-font-family, -apple-system, sans-serif); }',
+            '.viewer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
+            '  white-space: nowrap; font-size: 12px; color: var(--fv-text-muted); }',
+            '.viewer-toolbar button { flex: 0 0 auto; padding: 3px 12px; cursor: pointer;',
+            '  background: var(--fv-btn-bg); color: var(--fv-text);',
+            '  border: 1px solid var(--fv-border); border-radius: 6px; font-size: 12px; line-height: 1.5; }',
+            '.viewer-toolbar button:hover { background: var(--fv-btn-hover); }',
+            '.viewer-zoom-in, .viewer-zoom-out { min-width: 30px; font-weight: 600; }',
             '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
-            '  background: var(--vscode-editor-background, #fff); }',
+            '  background: var(--fv-bg-body); }',
+            // html は「ブラウザで見た時」が正 — iframe は常に白ベース
             '.viewer-html-frame { width: 100%; height: 100%; border: none; background: #fff; }',
-            '.viewer-error { padding: 16px; color: var(--vscode-errorForeground, #f66);',
+            // pdf はページ紙面が浮くニュートラル背景 + pdf_viewer.css の page 影を活かす
+            '.viewer-pdf-container { background: var(--fv-bg-body); }',
+            '.viewer-pdf-container .pdfViewer { padding: 12px 0; }',
+            '.viewer-error { padding: 20px; color: var(--fr-color-danger, var(--vscode-errorForeground, #c33));',
             '  font-family: var(--vscode-font-family, sans-serif); font-size: 13px; white-space: pre-wrap; }',
         ].join('\n');
         document.head.appendChild(style);
@@ -64,6 +79,24 @@
     function buildToolbar(mount, fileUri, kind, filePath) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
+        // 左: ファイル名（何を見ているかの手掛かり）/ 右: 操作ボタン群
+        const title = document.createElement('span');
+        title.className = 'viewer-title';
+        const name = String(filePath || fileUri || '').split(/[/\\]/).pop() || '';
+        title.textContent = decodeURIComponentSafe(name);
+        bar.appendChild(title);
+        if (kind === 'pdf') {
+            const zoomOut = document.createElement('button');
+            zoomOut.className = 'viewer-zoom-out';
+            zoomOut.title = 'Zoom out';
+            zoomOut.textContent = '−';
+            const zoomIn = document.createElement('button');
+            zoomIn.className = 'viewer-zoom-in';
+            zoomIn.title = 'Zoom in';
+            zoomIn.textContent = '+';
+            bar.appendChild(zoomOut);
+            bar.appendChild(zoomIn);
+        }
         const openBtn = document.createElement('button');
         openBtn.className = 'viewer-open-external';
         openBtn.textContent = 'OS で開く';
@@ -72,18 +105,12 @@
             postMessage({ type: 'openExternalFallback', fileUri, filePath: filePath || null });
         });
         bar.appendChild(openBtn);
-        if (kind === 'pdf') {
-            const zoomOut = document.createElement('button');
-            zoomOut.className = 'viewer-zoom-out';
-            zoomOut.textContent = '−';
-            const zoomIn = document.createElement('button');
-            zoomIn.className = 'viewer-zoom-in';
-            zoomIn.textContent = '+';
-            bar.appendChild(zoomOut);
-            bar.appendChild(zoomIn);
-        }
         mount.appendChild(bar);
         return bar;
+    }
+
+    function decodeURIComponentSafe(s) {
+        try { return decodeURIComponent(s); } catch { return s; }
     }
 
     function showError(mount, fileUri, message) {
