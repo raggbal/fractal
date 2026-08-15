@@ -450,6 +450,12 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             break;
                         }
 
+                        // FR-FV-01 マトリクス行4: .out の 📎 → viewer 対象は sidepanel 面。
+                        // 例外は openExternal 縮退（ARCH-5 — viewer 障害が従来経路を壊さない）
+                        try {
+                            if (await sidePanel.tryOpenViewerPanel(safeFilePath)) { break; }
+                        } catch { /* 縮退 */ }
+
                         // Use openExternal to open with OS default app
                         await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
                         break;

@@ -1516,6 +1516,11 @@ export class NotesEditorProvider {
                     // sidepanel で開く (outliner → side panel と同様 freshOpen=true)
                     await sidePanel.openFile(resolvedUri.fsPath, true);
                 } else {
+                    // FR-FV-01 マトリクス行6: Notes md 📎 → viewer 対象は note 面（dispatcher 経由）。
+                    // 例外は openExternal 縮退（ARCH-5）
+                    try {
+                        if (this.tryShowNoteViewer(panel, { postMessage: (m) => panel.webview.postMessage(m) }, resolvedUri.fsPath)) { return; }
+                    } catch { /* 縮退 */ }
                     // 非 .md ローカルファイル → OS デフォルトアプリ
                     vscode.env.openExternal(resolvedUri);
                 }
