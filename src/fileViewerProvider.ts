@@ -11,9 +11,12 @@
  * どちらも本 provider の同一インスタンスを登録する。
  */
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
 import { getFileViewerHtml } from './fileViewerContent';
+import { buildInAppFileLinkFromFolders } from './shared/viewer-inapp-link';
+import { getWebviewMessages } from './i18n/messages';
 
 class FileViewerDocument implements vscode.CustomDocument {
     constructor(public readonly uri: vscode.Uri) {}
@@ -21,7 +24,14 @@ class FileViewerDocument implements vscode.CustomDocument {
 }
 
 export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<FileViewerDocument> {
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    /**
+     * @param getFolders note フォルダ一覧の resolver（FR-FV-08 の In-App リンク逆引き用）。
+     *   standalone 面は document.uri しか持たないため、所属 note を候補 folder 群から逆引きする。
+     */
+    constructor(
+        private readonly context: vscode.ExtensionContext,
+        private readonly getFolders?: () => string[]
+    ) {}
 
     openCustomDocument(uri: vscode.Uri): FileViewerDocument {
         return new FileViewerDocument(uri);
@@ -53,15 +63,49 @@ export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<F
             webviewPanel.webview, this.context.extensionUri, document.uri, kind || 'html');
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            if (message && message.type === 'openExternalFallback') {
-                await vscode.env.openExternal(document.uri);
+            if (!message) { return; }
+            const fsPath = document.uri.fsPath;
+            switch (message.type) {
+                case 'openExternalFallback':
+                    await vscode.env.openExternal(document.uri);
+                    break;
+
+                // FR-FV-08 / TASK-15: ツールバー 3 アクション。
+                // `viewerOpenInNewTab` は **受けない**（standalone 面はボタン非表示 = webview から
+                // そもそも送られない。design §10 の受け口マトリクスどおり）。
+                case 'viewerCopyPath':
+                    await vscode.env.clipboard.writeText(fsPath);
+                    break;
+
+                case 'viewerCopyInAppLink': {
+                    const link = buildInAppFileLinkFromFolders(this.getFolders ? this.getFolders() : [], fsPath);
+                    if (!link) {
+                        vscode.window.showWarningMessage(getWebviewMessages().viewerCopyInAppLinkFailed);
+                        break;
+                    }
+                    await vscode.env.clipboard.writeText(link);
+                    break;
+                }
+
+                case 'viewerExportFile': {
+                    const target = await vscode.window.showSaveDialog({
+                        defaultUri: vscode.Uri.file(path.basename(fsPath))
+                    });
+                    if (!target) { break; }
+                    try {
+                        await vscode.workspace.fs.writeFile(target, fs.readFileSync(fsPath));
+                    } catch (e) {
+                        vscode.window.showWarningMessage(String((e as Error).message || e));
+                    }
+                    break;
+                }
             }
         });
     }
 }
 
-export function registerFileViewer(context: vscode.ExtensionContext): void {
-    const provider = new FileViewerProvider(context);
+export function registerFileViewer(context: vscode.ExtensionContext, getFolders?: () => string[]): void {
+    const provider = new FileViewerProvider(context, getFolders);
     const options = {
         webviewOptions: { retainContextWhenHidden: true },   // 既存 2 provider と同一
         supportsMultipleEditorsPerDocument: false,

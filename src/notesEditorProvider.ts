@@ -15,7 +15,8 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { NotesMdMainManager } from './shared/notesMdMainManager';
-import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
+import { isViewerTarget, VIEWER_SIZE_LIMIT, viewerViewType } from './shared/viewer-target';
+import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
@@ -575,6 +576,35 @@ export class NotesEditorProvider {
             // FR-FV-07（SEC-2）: viewer「OS で開く」— fs パスなので Uri.file で開く
             openViewerFallback: (filePath: string) => {
                 vscode.env.openExternal(vscode.Uri.file(filePath));
+            },
+            // FR-FV-08: viewer ツールバー 4 アクション（sprint 20260815-075428 再オープン / TASK-15）
+            viewerOpenInNewTab: (filePath: string, kind?: string) => {
+                vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(filePath), viewerViewType(kind));
+            },
+            viewerCopyPath: (filePath: string) => {
+                vscode.env.clipboard.writeText(filePath);
+            },
+            viewerCopyInAppLink: (filePath: string) => {
+                // 逆引きは共有ヘルパ（3 系統で同一手順 — src/shared/viewer-inapp-link.ts の判断コメント）
+                const link = buildInAppFileLinkForFolder(folderPath, filePath);
+                if (!link) {
+                    // 通知キーは WebviewMessages 側（t() の Messages には無い — getWebviewMessages 経由）
+                    vscode.window.showWarningMessage(getWebviewMessages().viewerCopyInAppLinkFailed);
+                    return;
+                }
+                vscode.env.clipboard.writeText(link);
+            },
+            viewerExportFile: async (filePath: string) => {
+                // 単品コピー DL（mindmap-export-host.ts:44-58 precedent 型）
+                const target = await vscode.window.showSaveDialog({
+                    defaultUri: vscode.Uri.file(path.basename(filePath))
+                });
+                if (!target) { return; }
+                try {
+                    await vscode.workspace.fs.writeFile(target, fs.readFileSync(filePath));
+                } catch (e) {
+                    vscode.window.showWarningMessage(String((e as Error).message || e));
+                }
             },
             openResourceRootsSettings: () => {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');

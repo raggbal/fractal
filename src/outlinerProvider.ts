@@ -23,6 +23,8 @@ import { parseDataUrl } from './shared/data-url-image-extractor';
 import { buildLlmsTxt, LlmsTxtTreeNode } from './shared/llms-txt-builder';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { DropStreamHost } from './shared/drop-stream-host';
+import { viewerViewType } from './shared/viewer-target';
+import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { runExportMdToPdf, PdfExportDeps, ExecResult, PdfPanelLike } from './shared/pdf-export-host';
 import { execFile as cpExecFile } from 'child_process';
 
@@ -437,6 +439,51 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     case 'openExternalFallback': {
                         if (message.filePath) {
                             await vscode.env.openExternal(vscode.Uri.file(String(message.filePath)));
+                        }
+                        break;
+                    }
+
+                    // FR-FV-08（sprint 20260815-075428 再オープン / TASK-15）: viewer ツールバー 4 アクション
+                    case 'viewerOpenInNewTab': {
+                        if (message.filePath) {
+                            await vscode.commands.executeCommand('vscode.openWith',
+                                vscode.Uri.file(String(message.filePath)), viewerViewType(message.kind));
+                        }
+                        break;
+                    }
+
+                    case 'viewerCopyPath': {
+                        if (message.filePath) {
+                            await vscode.env.clipboard.writeText(String(message.filePath));
+                        }
+                        break;
+                    }
+
+                    case 'viewerCopyInAppLink': {
+                        if (!message.filePath) break;
+                        // .out の親ディレクトリが note フォルダ（= mainFolder）。単体 .out（note 外）なら
+                        // どの files/ にも属さないので逆引きは自然に不成立 → 警告。
+                        const noteFolder = path.dirname(document.uri.fsPath);
+                        const link = buildInAppFileLinkForFolder(noteFolder, String(message.filePath));
+                        if (!link) {
+                            vscode.window.showWarningMessage(getWebviewMessages().viewerCopyInAppLinkFailed);
+                            break;
+                        }
+                        await vscode.env.clipboard.writeText(link);
+                        break;
+                    }
+
+                    case 'viewerExportFile': {
+                        if (!message.filePath) break;
+                        const src = String(message.filePath);
+                        const target = await vscode.window.showSaveDialog({
+                            defaultUri: vscode.Uri.file(path.basename(src))
+                        });
+                        if (!target) break;
+                        try {
+                            await vscode.workspace.fs.writeFile(target, fs.readFileSync(src));
+                        } catch (e) {
+                            vscode.window.showWarningMessage(String((e as Error).message || e));
                         }
                         break;
                     }
