@@ -205,6 +205,29 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "fractal.fileViewer",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "fractal.fileViewerHtml",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.html"
+          },
+          {
+            "filenamePattern": "*.htm"
+          }
+        ],
+        "priority": "option"
       }
     ],
     "configuration": {

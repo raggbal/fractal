@@ -4,6 +4,7 @@ import { AnyMarkdownEditorProvider } from './editorProvider';
 import { OutlinerProvider } from './outlinerProvider';
 import { NotesFolderProvider } from './notesFolderProvider';
 import { NotesEditorProvider } from './notesEditorProvider';
+import { registerFileViewer } from './fileViewerProvider';
 import { initLocale, t } from './i18n/messages';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { importTerminology, resolveTerminologyPath } from './shared/aws-translate';
@@ -65,6 +66,9 @@ export function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+
+    // Register the file viewer (read-only .pdf/.html — FR-FV-02, sprint 20260815-075428)
+    registerFileViewer(context);
 
     // Register commands
     context.subscriptions.push(
