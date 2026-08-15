@@ -1,15 +1,18 @@
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
  *
- * sprint 20260815-075428-file-viewer-3panes / FR-FV-03（PDF）/ FR-FV-04（HTML）/ FR-FV-07（失敗 UI）。
- * ADRL-0064（HTML = iframe 方式 A・sandbox="" 完全静的 — TC-FV-90 スパイク実測で確定）/
+ * sprint 20260815-075428-file-viewer-3panes / FR-FV-03（PDF）/ FR-FV-04（HTML）/ FR-FV-07（失敗 UI）
+ * + FR-FV-10（既定でコピー可）/ FR-FV-11（script は明示オプトイン）。
+ * ADRL-0064（HTML = iframe 方式 B・blob + base 注入）→ 一部 supersede: ADRL-0067（sandbox は既定
+ * 'allow-scripts'、防御の実体は blob が継承する CSP script-src 'nonce-…' — 手動テスト⑤で
+ * sandbox="" ではコピーすらできないと判明したため）/
  * ADRL-0065（PDF = pdfjs 4.10.38 browser バンドル + pdf_viewer.mjs）。
  *
  * md 実装（editor.js / EditorInstance / SidePanelHostBridge / notes-md-dispatcher）への
  * import / window 参照は禁止（NFR-FV-02 — TC-FV-31 が番人）。
  *
  * 設定は window.__viewerConfig（host の fileViewerContent.ts / テストハーネスが注入）:
- *   { pdfjsLibUri, workerUri, cMapUrl, standardFontDataUrl, kind?, fileUri? }
+ *   { pdfjsLibUri, workerUri, cMapUrl, standardFontDataUrl, kind?, fileUri?, nonce? }
  * kind/fileUri があれば自動オープン（standalone 面）。sidepanel/note 面は
  * window.__fileViewer.open(kind, uri, mountEl) で任意の要素にマウントする（1 実装 3 マウント）。
  */
@@ -90,7 +93,7 @@
         document.head.appendChild(style);
     }
 
-    function buildToolbar(mount, fileUri, kind, filePath) {
+    function buildToolbar(mount, fileUri, kind, filePath, state) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
         // 左: ファイル名（何を見ているかの手掛かり）/ 右: 操作ボタン群
@@ -110,6 +113,21 @@
             zoomIn.textContent = '+';
             bar.appendChild(zoomOut);
             bar.appendChild(zoomIn);
+        }
+        if (kind === 'html') {
+            // FR-FV-11: script は既定で不実行（継承 CSP の nonce ゲート）。ここでユーザーが
+            // 明示的にオプトインしたときだけ nonce を付けて再生成する（state は open 呼び出し
+            // ローカル = 非永続。別ファイル / 再オープンで必ず静的から始まる）
+            const scriptBtn = document.createElement('button');
+            scriptBtn.className = 'viewer-script-toggle';
+            scriptBtn.title = 'このファイルの <script> を実行する（このファイルを閉じるまで有効）';
+            scriptBtn.textContent = 'スクリプトを許可';
+            scriptBtn.setAttribute('aria-pressed', state && state.allowScripts ? 'true' : 'false');
+            scriptBtn.addEventListener('click', () => {
+                if (!state || typeof state.onToggleScripts !== 'function') { return; }
+                state.onToggleScripts();
+            });
+            bar.appendChild(scriptBtn);
         }
         const openBtn = document.createElement('button');
         openBtn.className = 'viewer-open-external';
@@ -151,41 +169,102 @@
         return body;
     }
 
-    // ── HTML 面（FR-FV-04 — 方式 B: blob + <base> 注入 + sandbox="" 全制限） ──────
+    // ── HTML 面（FR-FV-04 — 方式 B: blob + <base> 注入 + sandbox='allow-scripts'） ──────
     // 実環境検収（2026-08-15）で方式 A（iframe src=vscode-resource 直指定）は vscode-webview scheme で
     // 不成立（真っ黒 — service worker が opaque origin iframe の navigation を serve しない）と判明。
     // ADRL-0064 が計画済みのフォールバック方式 B に切替: html テキストを fetch（connect-src で許可済み）→
-    // <base href=親dir 絶対URL> を注入して Blob 化 → objectURL を src に。sandbox="" と script 禁止は不変。
-    async function openHtml(mount, fileUri) {
+    // <base href=親dir 絶対URL> を注入して Blob 化 → objectURL を src に。
+    //
+    // ADRL-0067（手動テスト⑤ — sandbox="" では cmd+c すら効かない）で sandbox は既定
+    // 'allow-scripts' になった。**防御の実体は blob が継承する CSP の script-src 'nonce-…'**:
+    // blob document は createObjectURL 時点の生成元の policy container を複製するため、
+    // ホスト webview の CSP がそのまま効き、nonce を持たないユーザー script は実行されない
+    // （FR-FV-10 = 自前注入した nonce 付き copy ヘルパーだけが動く / FR-FV-11 = 明示オプトイン時のみ
+    // ユーザー script に同じ nonce を付ける）。allow-same-origin は**絶対に併記しない**
+    // （allow-scripts と併記すると自前で sandbox 属性を外せる = 脱出。不変条件 6 / TC-FV-42 が番人）。
+    function viewerNonce() {
+        // standalone 面は fileViewerContent.ts が config.nonce を注入、
+        // note/outliner 面は各 webviewContent が window.__webviewNonce を公開している
+        return config.nonce || window.__webviewNonce || '';
+    }
+
+    /**
+     * cmd+c / cmd+a を execCommand で処理するヘルパーを html に注入する（FR-FV-10）。
+     * VS Code webview は nested iframe の native copy キーを殺すため（vscode#129178）、
+     * これが無いと選択したテキストをコピーできない（手動テスト⑤で実機確認）。
+     * 注入は常時（既定でコピー可）。cut / paste は扱わない（viewer は read-only）。
+     */
+    function injectCopyHelper(html, nonce) {
+        if (!nonce) { return html; }
+        const helper = `<script nonce="${nonce}">(function(){document.addEventListener('keydown',function(e){`
+            + `if(!(e.metaKey||e.ctrlKey)||e.altKey){return;}`
+            + `if(e.key==='c'){try{document.execCommand('copy');}catch(err){}e.preventDefault();}`
+            + `else if(e.key==='a'){try{document.execCommand('selectAll');}catch(err){}e.preventDefault();}`
+            + `});})();</` + `script>`;
+        if (/<\/head\s*>/i.test(html)) { return html.replace(/<\/head\s*>/i, helper + '$&'); }
+        // head が無い html は <base> 注入直後に置く（base は必ず先頭側にある）
+        const baseIdx = html.search(/<base[^>]*>/i);
+        if (baseIdx >= 0) {
+            const end = html.indexOf('>', baseIdx) + 1;
+            return html.slice(0, end) + helper + html.slice(end);
+        }
+        return helper + html;
+    }
+
+    /** オプトイン ON: ユーザー script に同じ nonce を与えて実行可能にする（FR-FV-11） */
+    function allowUserScripts(html, nonce) {
+        if (!nonce) { return html; }
+        // 既に nonce 属性を持つタグには先勝ちで重複するが、対象は自前注入ヘルパーだけなので実害なし
+        return html.replace(/<script(?=[\s>])/gi, `<script nonce="${nonce}"`);
+    }
+
+    async function openHtml(mount, fileUri, state) {
         const body = mount.querySelector('.viewer-body') || buildBody(mount);
         const resp = await fetch(fileUri);
         if (!resp.ok) { throw new Error(`fetch failed: ${resp.status}`); }
-        let html = await resp.text();
+        const raw = await resp.text();
         // 相対参照の基底 = html の親 dir の絶対 URL（blob iframe 内の相対 base は解決不能のため必ず絶対化）
         const absUrl = new URL(fileUri, (typeof location !== 'undefined' && location.href) || undefined).href;
         const baseHref = absUrl.replace(/[^/]*$/, '');
         const baseTag = `<base href="${baseHref}">`;
-        if (/<head[^>]*>/i.test(html)) {
-            html = html.replace(/<head[^>]*>/i, (m) => m + baseTag);
-        } else {
-            html = baseTag + html;
-        }
-        const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+        const nonce = viewerNonce();
         const iframe = document.createElement('iframe');
-        // sandbox="" = allow-* を 1 つも付けない（ADRL-0064 — script/form/popup/same-origin 全禁止。
-        // allow-scripts を足すことは NFR-FV-03 違反 — TC-FV-01 counterfactual が番人）
-        iframe.setAttribute('sandbox', '');
         iframe.className = 'viewer-html-frame';
         iframe.style.width = '100%';
         iframe.style.height = '100%';
         iframe.style.border = 'none';
-        iframe.src = blobUrl;
+        // リテラル固定（変数結合で allow-same-origin が混入する経路を作らない — 不変条件 6）
+        iframe.setAttribute('sandbox', 'allow-scripts');
+
+        let currentBlobUrl = null;
+        /** 現在の state（allowScripts）で blob を作り直して src を差し替える */
+        function render() {
+            let html = raw;
+            if (/<head[^>]*>/i.test(html)) {
+                html = html.replace(/<head[^>]*>/i, (m) => m + baseTag);
+            } else {
+                html = baseTag + html;
+            }
+            // オプトインが ON のときだけユーザー script に nonce を与える。
+            // 順序が重要: rewrite を先に済ませてから copy ヘルパーを注入する
+            // （逆順だとヘルパーが二重 nonce になるうえ、ヘルパー自身が rewrite 対象になる）
+            if (state && state.allowScripts) { html = allowUserScripts(html, nonce); }
+            html = injectCopyHelper(html, nonce);
+            const next = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+            const stale = currentBlobUrl;
+            currentBlobUrl = next;
+            iframe.src = next;
+            // 差し替えた旧 objectURL は即 revoke（one-shot の set/clear 対 — リーク防止）
+            if (stale) { try { URL.revokeObjectURL(stale); } catch { /* best-effort */ } }
+        }
+        render();
+        if (state) { state.rerenderHtml = render; }
         body.appendChild(iframe);
-        // objectURL は destroy 時に revoke（one-shot の set/clear 対）
+        // 最後の objectURL は destroy 時に revoke（one-shot の set/clear 対）
         const prev = cleanupRegistry.get(mount);
         cleanupRegistry.set(mount, () => {
             if (prev) { prev(); }
-            try { URL.revokeObjectURL(blobUrl); } catch { /* best-effort */ }
+            try { if (currentBlobUrl) { URL.revokeObjectURL(currentBlobUrl); } } catch { /* best-effort */ }
         });
         return iframe;
     }
@@ -265,7 +344,17 @@
         if (!mount) { return; }
         ensureViewerStyle();               // 3 面共通の見た目を自己完結で保証
         destroy(mount);                    // 前回分のリソースを解放してから再構築
-        buildToolbar(mount, fileUri, kind, filePath);
+        // script オプトインの state（FR-FV-11）は open 呼び出しローカル = 非永続。
+        // 別ファイルを開く / 同じファイルを開き直すと必ず allowScripts:false から始まる
+        const state = { allowScripts: false, rerenderHtml: null, onToggleScripts: null };
+        state.onToggleScripts = () => {
+            if (typeof state.rerenderHtml !== 'function') { return; }
+            state.allowScripts = !state.allowScripts;
+            state.rerenderHtml();
+            const btn = mount.querySelector('.viewer-script-toggle');
+            if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
+        };
+        buildToolbar(mount, fileUri, kind, filePath, state);
         buildBody(mount);
         try {
             if (kind === 'pdf') {
@@ -275,7 +364,7 @@
                     try { pdf.destroy(); window.__lastPdfDocDestroyed = true; } catch { /* best-effort */ }
                 });
             } else if (kind === 'html') {
-                await openHtml(mount, fileUri);
+                await openHtml(mount, fileUri, state);
             } else {
                 showError(mount, fileUri, `unsupported kind: ${kind}`);
             }

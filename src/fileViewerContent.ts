@@ -40,6 +40,10 @@ export function getFileViewerHtml(
         standardFontDataUrl: `${asUri(pdfjsDir)}/standard_fonts/`,
         kind,
         fileUri: asUri(fileUri),
+        // ADRL-0067: html 面の copy ヘルパー注入とオプトイン rewrite が使う nonce。
+        // blob iframe は生成時の policy container（= この CSP）を継承するため、
+        // この nonce を持つ script だけが blob 内で実行できる（防御の実体）。
+        nonce,
     };
     return `<!DOCTYPE html>
 <html>
