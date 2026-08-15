@@ -395,6 +395,9 @@ const html = `<!DOCTYPE html>
     <style>__PDF_VIEWER_CSS__</style>
     <script>
     // file viewer sidepanel 面（sprint 20260815-075428 — 1 実装 3 マウント + 排他）
+    // 本番では host-bridge が window.__pdfExportPost を公開する（file-viewer の postMessage 縮退先）。
+    // ハーネスは bridge モックのため、ここで __testApi.messages への記録として明示定義する
+    window.__pdfExportPost = function(msg) { window.__testApi.messages.push(msg); };
     window.__viewerConfig = {
         pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
         workerUri: './pdfjs-viewer/pdf.worker.min.mjs',

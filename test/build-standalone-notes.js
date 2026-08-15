@@ -483,7 +483,8 @@ const html = `<!DOCTYPE html>
     </script>
     <style>__PDF_VIEWER_CSS2__</style>
     <script>
-    // file viewer note 面（sprint 20260815-075428）
+    // file viewer note 面（sprint 20260815-075428）— __pdfExportPost は outliner ハーネスと同じくモック
+    window.__pdfExportPost = window.__pdfExportPost || function(msg) { window.__testApi.messages.push(msg); };
     window.__viewerConfig = {
         pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
         workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
