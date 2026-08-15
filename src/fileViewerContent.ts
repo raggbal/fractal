@@ -57,7 +57,13 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="${nonce}">window.__viewerConfig = ${JSON.stringify(config)};</script>
+<script nonce="${nonce}">
+// sprint 20260815 TASK-13（ADRL-0067 決定4② / 不変条件7）: viewer iframe（opaque origin）発の
+// postMessage 偽装を capture-phase で一括遮断（bootstrap 最初期 = 他の全 listener 登録より前）。
+window.addEventListener('message', function (e) {
+    if (e.origin === 'null') { e.stopImmediatePropagation(); }
+}, true);
+window.__viewerConfig = ${JSON.stringify(config)};</script>
 <script type="module" nonce="${nonce}" src="${viewerJs}"></script>
 </body>
 </html>`;

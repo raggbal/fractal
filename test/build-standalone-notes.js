@@ -418,6 +418,13 @@ const html = `<!DOCTYPE html>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false" style="display:none;"></div>
 
     <script>
+    // TASK-13（不変条件7）: 本番 notesWebviewContent.ts と同じ "null" origin capture 遮断を
+    // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47 の検証対象
+    window.addEventListener('message', function (e) {
+        if (e.origin === 'null') { e.stopImmediatePropagation(); }
+    }, true);
+    </script>
+    <script>
     __HTML_MD_CONVERTER_SCRIPT__
     </script>
     <script src="vendor/mermaid.min.js"></script>

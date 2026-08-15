@@ -198,6 +198,16 @@ export function getOutlinerWebviewContent(
 
     ${sidePanelHtml}
 
+    <script nonce="${nonce}">
+        // sprint 20260815 TASK-13（ADRL-0067 決定4② / 不変条件7）: viewer iframe（sandbox=allow-scripts・
+        // opaque origin）発の postMessage 偽装を capture-phase で一括遮断する。bootstrap 最初期
+        // （全 message listener 登録より前 — capture リスナーは登録順発火）に 1 本だけ置く。
+        // host（extension）発 message の origin は webview 自身の origin なので誤爆しない。
+        window.addEventListener('message', function (e) {
+            if (e.origin === 'null') { e.stopImmediatePropagation(); }
+        }, true);
+        window.__webviewNonce = "${nonce}";
+    </script>
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}"></script>
     <script src="${katexJsUri}"></script>
