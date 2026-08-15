@@ -56,13 +56,13 @@ test.describe('file-viewer: HTML 面（FR-FV-04 / NFR-FV-03）', () => {
             return msgs;
         });
         expect(received).not.toContain('pwned-from-iframe');   // script は実行されない
-        // iframe 自体はロードされている（本文が中にある = frame として存在）
-        const frame = page.frames().find((f) => f.url().includes('viewer-fixtures/sample'));
+        // iframe 自体はロードされている（方式 B = blob URL — url でなく frame 内容で特定）
+        const frame = page.frames().find((f) => f.url().startsWith('blob:'));
         expect(frame).toBeTruthy();
         expect(await frame!.locator('.meeting-notes').textContent()).toBe('議事録本文');
     });
 
-    test('TC-FV-02: 相対参照 img がロードされる（方式 A の恒久番人 — スパイク結果の pin）', async ({ page }) => {
+    test('TC-FV-02: 相対参照 img がロードされる（方式 B: blob + base 注入の恒久番人）', async ({ page }) => {
         const imgRequests: string[] = [];
         page.on('request', (req) => { if (req.url().endsWith('pic.png')) { imgRequests.push(req.url()); } });
         await page.goto('/standalone-viewer.html');
@@ -84,13 +84,14 @@ test.describe('file-viewer: HTML 面（FR-FV-04 / NFR-FV-03）', () => {
             (window as any).__fileViewer.open('html', './viewer-fixtures/sample.html', document.getElementById('viewer-root'));
         });
         await page.waitForTimeout(1000);
-        const frame = page.frames().find((f) => f.url().includes('viewer-fixtures/sample'));
+        const frame = page.frames().find((f) => f.url().startsWith('blob:'));
         expect(frame).toBeTruthy();
         await frame!.locator('#nav-link').click();
         await page.waitForTimeout(1200);
         expect(externalRequests, '外部 URL へのリクエストが発生しない（CSP ブロック）').toEqual([]);
         const externalFrame = page.frames().find((f) => f.url().includes('example.com'));
         expect(externalFrame, '外部コンテンツの frame が存在しない').toBeUndefined();
+        // 方式 B 補足: blob origin からの外部遷移も frame-src が止める（サンドボックスと CSP の二重防御は不変）
         expect(page.url()).toContain('standalone-viewer');     // 親は遷移しない
     });
 });

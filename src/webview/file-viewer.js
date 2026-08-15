@@ -73,13 +73,38 @@
     function buildBody(mount) {
         const body = document.createElement('div');
         body.className = 'viewer-body';
+        // 3 面のどのマウント先でも高さが立つよう最小スタイルを自己完結で持つ
+        // （ホスト側 CSS への依存で iframe/canvas が 0 高さになる事故の防止 — 実環境検収 2026-08-15）
+        body.style.flex = '1 1 auto';
+        body.style.position = 'relative';
+        body.style.overflow = 'auto';
+        body.style.minHeight = '0';
+        if (!mount.style.display) { mount.style.display = 'flex'; }
+        if (!mount.style.flexDirection) { mount.style.flexDirection = 'column'; }
         mount.appendChild(body);
         return body;
     }
 
-    // ── HTML 面（FR-FV-04 — 方式 A: src 直指定 + sandbox="" 全制限） ──────────
-    function openHtml(mount, fileUri) {
+    // ── HTML 面（FR-FV-04 — 方式 B: blob + <base> 注入 + sandbox="" 全制限） ──────
+    // 実環境検収（2026-08-15）で方式 A（iframe src=vscode-resource 直指定）は vscode-webview scheme で
+    // 不成立（真っ黒 — service worker が opaque origin iframe の navigation を serve しない）と判明。
+    // ADRL-0064 が計画済みのフォールバック方式 B に切替: html テキストを fetch（connect-src で許可済み）→
+    // <base href=親dir 絶対URL> を注入して Blob 化 → objectURL を src に。sandbox="" と script 禁止は不変。
+    async function openHtml(mount, fileUri) {
         const body = mount.querySelector('.viewer-body') || buildBody(mount);
+        const resp = await fetch(fileUri);
+        if (!resp.ok) { throw new Error(`fetch failed: ${resp.status}`); }
+        let html = await resp.text();
+        // 相対参照の基底 = html の親 dir の絶対 URL（blob iframe 内の相対 base は解決不能のため必ず絶対化）
+        const absUrl = new URL(fileUri, (typeof location !== 'undefined' && location.href) || undefined).href;
+        const baseHref = absUrl.replace(/[^/]*$/, '');
+        const baseTag = `<base href="${baseHref}">`;
+        if (/<head[^>]*>/i.test(html)) {
+            html = html.replace(/<head[^>]*>/i, (m) => m + baseTag);
+        } else {
+            html = baseTag + html;
+        }
+        const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
         const iframe = document.createElement('iframe');
         // sandbox="" = allow-* を 1 つも付けない（ADRL-0064 — script/form/popup/same-origin 全禁止。
         // allow-scripts を足すことは NFR-FV-03 違反 — TC-FV-01 counterfactual が番人）
@@ -88,8 +113,14 @@
         iframe.style.width = '100%';
         iframe.style.height = '100%';
         iframe.style.border = 'none';
-        iframe.src = fileUri;
+        iframe.src = blobUrl;
         body.appendChild(iframe);
+        // objectURL は destroy 時に revoke（one-shot の set/clear 対）
+        const prev = cleanupRegistry.get(mount);
+        cleanupRegistry.set(mount, () => {
+            if (prev) { prev(); }
+            try { URL.revokeObjectURL(blobUrl); } catch { /* best-effort */ }
+        });
         return iframe;
     }
 
@@ -167,7 +198,7 @@
                     try { pdf.destroy(); window.__lastPdfDocDestroyed = true; } catch { /* best-effort */ }
                 });
             } else if (kind === 'html') {
-                openHtml(mount, fileUri);
+                await openHtml(mount, fileUri);
             } else {
                 showError(mount, fileUri, `unsupported kind: ${kind}`);
             }
