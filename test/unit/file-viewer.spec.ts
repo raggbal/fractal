@@ -155,3 +155,22 @@ test.describe('file-viewer: PDF 面（FR-FV-03）', () => {
         expect(params.cMapUrl).toBeTruthy();   // 日本語 PDF 用 cmaps 指定
     });
 });
+
+test.describe('file-viewer: destroy のリソース解放（reviewer iter1 TASK-10 / TC-FV-40）', () => {
+
+    test('TC-FV-40: destroy(mount) で pdfDocument.destroy が呼ばれる（ARCH-CONS-1 番人）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__lastPdfDocDestroyed = false;
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 30000 });
+        await page.evaluate(() => {
+            (window as any).__fileViewer.destroy(document.getElementById('viewer-root'));
+        });
+        const destroyed = await page.evaluate(() => (window as any).__lastPdfDocDestroyed);
+        // counterfactual: destroy が cleanupRegistry を呼ばないと false のまま = RED
+        // （note 面の hideViewer → destroy(container) 連結は TC-FV-22 が DOM 面で検証済み）
+        expect(destroyed, 'pdfDocument.destroy() が呼ばれた').toBe(true);
+    });
+});
