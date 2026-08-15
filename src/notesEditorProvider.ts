@@ -15,6 +15,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { NotesMdMainManager } from './shared/notesMdMainManager';
+import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
@@ -82,6 +83,29 @@ export class NotesEditorProvider {
     }
 
     // FR-NT-03 / FR-MV-01: Notes Folder ツリー provider への参照 (ツリー更新 + 移動先一覧に使う)
+    /**
+     * FR-FV-06 note 面（sprint 20260815-075428）: viewer 対象（.html/.pdf）ならメインペインに
+     * viewer を表示する message を送る。判定は shared isViewerTarget（唯一の判定点）。
+     * 50MB 超・判定/送信の例外は false（呼び出し元が openExternal に縮退 — FR-FV-07 / ARCH-5）。
+     */
+    private tryShowNoteViewer(panel: vscode.WebviewPanel, senderRef: NotesSender, filePath: string): boolean {
+        try {
+            const kind = isViewerTarget(path.basename(filePath));
+            if (!kind) { return false; }
+            const stat = fs.statSync(filePath);
+            if (stat.size > VIEWER_SIZE_LIMIT) { return false; }
+            senderRef.postMessage({
+                type: 'showNoteViewer',
+                kind,
+                fileName: path.basename(filePath),
+                fileUri: panel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
+            });
+            return true;
+        } catch {
+            return false;   // 縮退 — viewer の障害が従来経路を壊さない（NFR-FV-01）
+        }
+    }
+
     private folderProvider?: { refresh(): void; getFolders(): string[] };
     public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {
         this.folderProvider = fp;
@@ -870,6 +894,12 @@ export class NotesEditorProvider {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+
+                // FR-FV-01 マトリクス行3: Notes 内 outliner の 📎 → viewer 対象は sidepanel 面
+                // （md subpage の Side Panel と同格の UX — design §2）。例外は openExternal 縮退
+                try {
+                    if (await sidePanel.tryOpenViewerPanel(safeFilePath)) { return; }
+                } catch { /* 縮退 — ARCH-5 */ }
 
                 // Use openExternal to open with OS default app
                 await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
@@ -2072,24 +2102,26 @@ export class NotesEditorProvider {
             // seam 関数へ委譲（DI: fileManager + senderRef）。vscode 依存分（open/reveal/clipboard/delete/
             // notify）だけ provider に置く。既存 openAttachedFile / revealAttachedFileInOS / copyAttachedFilePath と同型。 ──
 
-            // FR-TF click（§4）: file item を OS 既定アプリで開く
-            openTreeFileExternal: async (id: string, _senderRef: NotesSender) => {
+            // FR-TF click（§4）: file item を OS 既定アプリで開く（FR-FV-01: viewer 対象は note 面 viewer）
+            openTreeFileExternal: async (id: string, senderRef: NotesSender) => {
                 const p = fileManager.getTreeFilePath(id);
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+                if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await vscode.env.openExternal(vscode.Uri.file(p));
             },
             // FR-DS-05 rev.2: 検索 Files ヒット click（files/ 相対パス — 台帳未登録の添付も開ける）。
             // relPath は webview 由来の外部入力なので safeResolveUnderDir で files/ 配下に clamp（NFR-DS-07）
-            openNoteFilesExternal: async (relPath: string, _senderRef: NotesSender) => {
+            openNoteFilesExternal: async (relPath: string, senderRef: NotesSender) => {
                 const filesDir = resolveMdFilesDir(folderPath);
                 const p = safeResolveUnderDir(filesDir, String(relPath || ''));
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+                if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await vscode.env.openExternal(vscode.Uri.file(p));
             },
             // FR-TF-03 (§4b): tree file → .out item

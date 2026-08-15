@@ -103,6 +103,8 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
+const fileViewerScript2 = fs.readFileSync(path.join(__dirname, '../src/webview/file-viewer.js'), 'utf-8');
+const viewerDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/viewer-dispatcher.js'), 'utf-8');
 // FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
 const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
@@ -480,6 +482,14 @@ const html = `<!DOCTYPE html>
     __NOTES_MD_DISPATCHER_SCRIPT__
     </script>
     <script>
+    // file viewer note 面（sprint 20260815-075428）
+    window.__viewerConfig = window.__viewerConfig || {};
+    __FILE_VIEWER_SCRIPT2__
+    </script>
+    <script>
+    __VIEWER_DISPATCHER_SCRIPT__
+    </script>
+    <script>
     __SIDEPANEL_OVERFLOW_SCRIPT__
     </script>
     <script>
@@ -654,6 +664,8 @@ result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__FILE_VIEWER_SCRIPT2__', fileViewerScript2);
+result = safeReplace(result, '__VIEWER_DISPATCHER_SCRIPT__', viewerDispatcherScript);
 result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
 result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);

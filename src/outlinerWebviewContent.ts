@@ -69,6 +69,11 @@ export function getOutlinerWebviewContent(
         path.join(__dirname, 'webview', 'outliner.js'), 'utf8');
 
     // Load editor scripts (for side panel EditorInstance)
+    // FR-FV-05（sprint 20260815-075428）: file viewer（sidepanel 面）— standalone .out の 📎 viewer
+    const fileViewerScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'file-viewer.js'), 'utf8');
+    const viewerSidePanelScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'viewer-side-panel.js'), 'utf8');
     const editorUtilsScript = fs.readFileSync(
         path.join(__dirname, 'webview', 'editor-utils.js'), 'utf8');
     // sprint 20260724-160000: インライン文字色 共有 core + パレット + ピッカー（editor.js/outliner.js より前）
@@ -139,7 +144,7 @@ export function getOutlinerWebviewContent(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data:; frame-src blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data:; frame-src ${webview.cspSource} blob:; worker-src ${webview.cspSource} blob:; form-action 'none';">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
@@ -265,6 +270,13 @@ export function getOutlinerWebviewContent(
     <script nonce="${nonce}">
         ${outlinerScript}
     </script>
+    <script nonce="${nonce}">window.__viewerConfig = {
+        pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
+        workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',
+        cMapUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/cmaps/',
+        standardFontDataUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/standard_fonts/'
+    };${fileViewerScript}</script>
+    <script nonce="${nonce}">${viewerSidePanelScript}</script>
     <script nonce="${nonce}">
         try {
             var initialData = JSON.parse(decodeURIComponent(escape(atob('${base64Content}'))));
