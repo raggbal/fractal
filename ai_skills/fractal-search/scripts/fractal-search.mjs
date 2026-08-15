@@ -29,7 +29,11 @@ export function resolvePagesDirForSearch(folder, outFile, pageDirHint) {
     return folder; // 新デフォルト = note 直下
 }
 
-const CACHE_VERSION = 5;  // bump on schema change to invalidate old caches (v5: 添付 lines を {text,loc?} に拡張 — FR-DS-09)
+// bump on schema change to invalidate old caches
+// (v5: 添付 lines を {text,loc?} に拡張 — FR-DS-09)
+// (v6: 対象外拡張子 skip の廃止 + テキスト sniff 導入 — 旧キャッシュの .txt/.html に
+//      旧 skip 種別が truthy 記録済みのため、bump しないと永遠に skip され続ける)
+const CACHE_VERSION = 6;
 
 // ─────────────── Tag / checked フィルタ（FR-SRF-01/02） ───────────────
 
@@ -502,7 +506,6 @@ function parseMdForSearch(absPath) {
 
 // ─────────────── 添付中身検索（FR-DS-06: tree file item = ext:'file'） ───────────────
 
-const CONTENT_SEARCH_FILE_EXTS = ['.pdf', '.docx', '.xlsx', '.pptx'];
 const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;  // FR-DS-07(d)・FR-TF-01 precedent
 
 // （rev.2: safeResolveUnderDirMjs は walk 一本化で不要になり削除 — escape 防御は
@@ -579,12 +582,17 @@ async function extractAttachmentCached(cache, folder, relKey, absPath, noCache) 
             data = await extractDocTextMjs(fs.readFileSync(absPath), ext);
         }
     }
-    cache.files[relKey] = { mtimeMs: st.mtimeMs, size: st.size, data };
+    // FR-DS-04 rev.2 / NFR-DS-08: noCache（テキスト経路の成功結果）はキャッシュに書かない
+    // （.env/.pem 等の秘密テキストの平文複製回避）。skip 結果（binary 等）は従来どおり書く
+    if (!data.noCache) {
+        cache.files[relKey] = { mtimeMs: st.mtimeMs, size: st.size, data };
+    }
     return { data, fromCache: false };
 }
 
-// files/ 配下の添付中身検索（rev.2: 再帰 walk — 拡張側 walkContentSearchFiles の 1:1 ミラー）。
-// files/ は tree file item・node 📎・md 📎 の共有実体置き場なので 1 walk で全種の添付が対象。
+// files/ 配下の添付中身検索（rev.3: 全ファイル列挙 — 拡張側 walkContentSearchFiles の 1:1 ミラー）。
+// 拡張子フィルタは撤廃（sprint 20260815 FR-DS-01 rev.3）— 対象判定は extractDocTextMjs 内側の
+// sniff に一元化。files/ は tree file item・node 📎・md 📎 の共有実体置き場なので 1 walk で全種対象。
 // symlink は追わない（Dirent の isFile/isDirectory は symlink で false — escape を構造的に防ぐ）。
 function walkContentSearchFilesMjs(dir) {
     const result = [];
@@ -595,10 +603,7 @@ function walkContentSearchFilesMjs(dir) {
         for (const entry of entries) {
             const full = path.join(d, entry.name);
             if (entry.isDirectory()) walk(full);
-            else if (entry.isFile()) {
-                const ext = path.extname(entry.name).toLowerCase();
-                if (CONTENT_SEARCH_FILE_EXTS.includes(ext)) result.push(full);
-            }
+            else if (entry.isFile()) result.push(full);
         }
     };
     walk(dir);

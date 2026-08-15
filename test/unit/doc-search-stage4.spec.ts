@@ -124,7 +124,7 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
         expect(results.filter((r) => r.fileType === 'file').length).toBe(0);
     });
 
-    test('TC-DS-16: .txt は対象外 / .PDF 大文字は対象（case-insensitive）', async () => {
+    test('TC-DS-16: .txt もヒット（sprint 20260815 test_update — FR-DS-01 rev.3 で対象拡大）/ .PDF 大文字は対象', async () => {
         const dir = track(mkNote());
         const filesDir = path.join(dir, 'files');
         fs.mkdirSync(filesDir, { recursive: true });
@@ -137,10 +137,10 @@ test.describe('searchFilesStreaming 第 4 段（FR-DS-01）', () => {
 
         const fm = new NotesFileManager(dir);
         const txtHits = await search(fm, '吾輩は猫である');
-        expect(txtHits.filter((r) => r.fileType === 'file').length).toBe(0);   // .txt は中身検索対象外
+        expect(txtHits.filter((r) => r.fileType === 'file').length).toBe(1);   // rev.3: .txt もテキスト sniff で対象
 
         const pdfHits = await search(fm, '富士山麓に鸚鵡鳴く');
-        expect(pdfHits.filter((r) => r.fileType === 'file').length).toBe(1);   // .PDF は対象
+        expect(pdfHits.filter((r) => r.fileType === 'file').length).toBe(1);   // .PDF は対象（従来どおり）
     });
 
     test('TC-DS-17: generation abort — 新検索発行で旧検索が中断される', async () => {
@@ -310,6 +310,49 @@ test.describe('クエリ NFKC 正規化（TASK-21 / FR-DS-07 片側正規化バ�
             expect(r2.filter((r) => r.fileType === 'file').length).toBe(1);
             // 既存 3 段（.out）は生クエリ照合のまま — 全角括弧クエリで全角括弧 node にヒット（退行なし）
             expect(r1.filter((r) => r.fileType === 'out').length).toBe(1);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+test.describe('walk フィルタ撤廃（sprint 20260815 / FR-DS-01 rev.3）', () => {
+
+    test('TC-DS-69: サブディレクトリの .txt / 拡張子なし / .out がヒット・.png は binary skip・docx regression', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-search-walk-'));
+        try {
+            const filesDir = path.join(dir, 'files');
+            fs.mkdirSync(path.join(filesDir, 'sub'), { recursive: true });
+            // サブディレクトリの .txt
+            fs.writeFileSync(path.join(filesDir, 'sub', 'memo.txt'), '議事録サブディレクトリ');
+            // 拡張子なしテキスト
+            fs.writeFileSync(path.join(filesDir, 'LICENSE'), '議事録ライセンス風テキスト');
+            // .out 添付（JSON — node text に日本語）
+            fs.writeFileSync(path.join(filesDir, 'attached.out'), JSON.stringify({
+                title: 'A', nodes: { n1: { text: '議事録アウトライン' } },
+            }));
+            // .png（バイナリ = PNG magic に NUL 相当は無いが IHDR 長フィールドに 0x00 を含む）
+            fs.writeFileSync(path.join(filesDir, 'img.png'),
+                Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]));
+            // 既存 docx（regression 同居）
+            fs.copyFileSync(path.join(FIX, 'docx-pydocx.docx'), path.join(filesDir, 'doc.docx'));
+            writeStructure(dir, {}, []);
+
+            const fm = new NotesFileManager(dir);
+            const hits = await search(fm, '議事録');
+            const fileHits = hits.filter((r) => r.fileType === 'file');
+            const ids = fileHits.map((r) => r.fileId).sort();
+            expect(ids).toContain('files/sub/memo.txt');       // サブディレクトリ walk
+            expect(ids).toContain('files/LICENSE');            // 拡張子なし
+            expect(ids).toContain('files/attached.out');       // .out 添付（例外なし）
+            expect(ids.some((i) => i.includes('img.png'))).toBe(false);   // バイナリは非ヒット
+            for (const h of fileHits) {
+                expect(h.matches[0].field).toBe('content');
+                expect(h.matches[0].lineText.length).toBeLessThanOrEqual(200);
+            }
+            // docx regression（従来抽出のまま）
+            const docxHits = await search(fm, '吾輩は猫である。名前はまだ無い。');
+            expect(docxHits.filter((r) => r.fileType === 'file').length).toBe(1);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
