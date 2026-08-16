@@ -221,3 +221,23 @@ test.describe('viewer sidepanel: md パリティ（FR-FV-14）', () => {
         expect(w, '親 95% 内へ再クランプ').toBeLessThanOrEqual(700 * 0.95 + 2);
     });
 });
+
+// ── 第 8 ラウンド③（Esc で閉じる — md sidepanel パリティ） ──────
+test.describe('viewer sidepanel: Esc close（FR-FV-14 追補）', () => {
+
+    test('TC-FV-77: Esc で viewer sidepanel が閉じて資源が破棄される（md と同挙動）', async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__fileViewer);
+        await page.evaluate(() => {
+            (window as any).__viewerSidePanel.open('html', './viewer-fixtures/plain-text.html', 'p.html', '/tmp/p.html');
+        });
+        await page.waitForSelector('.viewer-side-panel.open', { timeout: 10000 });
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        expect(await page.locator('.viewer-side-panel.open').count(), 'Esc で閉じる').toBe(0);
+        expect(await page.locator('.viewer-side-panel .viewer-html-frame').count(), 'viewer DOM も破棄').toBe(0);
+        // 閉じている時の Esc は no-op（誤爆しない）
+        await page.keyboard.press('Escape');
+        expect(await page.locator('.viewer-side-panel.open').count()).toBe(0);
+    });
+});

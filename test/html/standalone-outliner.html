@@ -57394,6 +57394,16 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         return !!(panelEl && panelEl.classList.contains('open'));
     }
 
+    // Esc で閉じる（第 8 ラウンド③ — md sidepanel の precedent = editor.js:19625-19634 と同型。
+    // lightbox が開いている間はそちらの ESC を優先）
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && panelEl && panelEl.classList.contains('open')) {
+            if (document.querySelector('.outliner-image-overlay')) { return; }
+            close();
+            e.preventDefault();
+        }
+    });
+
     window.__viewerSidePanel = { open, close, isOpen };
 
     // host からの message（sidePanelManager.tryOpenViewerPanel が送る）
