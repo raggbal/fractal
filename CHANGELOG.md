@@ -5,6 +5,23 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-17
+
+### Added
+- **Built-in file viewer (HTML & PDF)** — attached `.html` / `.pdf` files open inside Fractal Note from the notes tree, outliner 📎 nodes, and markdown 📎 links, in three surfaces: the note's main pane (as a `file` tab in the tab strip), the side panel, and a standalone VS Code tab (FR-FV series)
+- Viewer toolbar with the md side panel's icon set and ordering — Open in OS default app / Open in Standalone / Export / Copy Path / Copy In-App Link / Open in new tab; tooltips in all 7 locales
+- HTML viewer: copy works out of the box; page scripts are **off by default** with an explicit per-file opt-in toggle (defense = inherited CSP script-src nonce; sandbox never gets `allow-same-origin`)
+- PDF viewer: local pdf.js rendering with smooth drag text selection; `cmd+A` selects within the document only
+- In-App links for tree files: `fractal://note/{folder}/file/{fileId}` (traversal-clamped resolution)
+- Side panel viewer parity with the md side panel: sits below the tab strip, ⤢ maximize, drag-to-resize left edge, `Esc` to close with cursor restored to where you were writing
+- Full-text search now also covers **text-based attachments** (HTML body extraction, JSON, CSV, source code, …) in addition to PDF / Word / Excel / PowerPoint (sprint 20260815-051702-search-text-content, shipped in this release)
+
+### Security
+- The viewer's pdf.js bundle is pinned to **5.5.207**, outside the known high-severity advisory GHSA-hq66-cqwq-w95j (arbitrary JS via malicious PDF); `npm audit` clean. The search feature's pdf.js vendor stays at its pinned 4.10.38
+
+### Fixed
+- Instant first paint for the viewer is now a hard rule (no blocking fetch / sync I/O on the display path — NFR-FV-06); a 30-second white screen caused by pdf.js wasm ICC sync-fetch was removed
+
 ## [1.2.3] - 2026-08-14
 
 ### Fixed
