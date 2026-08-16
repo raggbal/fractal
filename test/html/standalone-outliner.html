@@ -57234,6 +57234,11 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     'use strict';
 
     let panelEl = null;
+    // 第 8 ラウンド④: close 時の focus 復帰用（pdf 面は cmd+A スコープ用に viewer container が
+    // focus を奪う — md sidepanel の「close で origin node へ focus を戻す」precedent と同等の挙動を
+    // outliner 内部 API に触れず汎用に実現する。one-shot: open で set / close で consume+clear）
+    let prevFocusEl = null;
+    let prevRange = null;
 
     // スタイルは自己完結で注入（md 側 css ファイルを触らない — NFR-FV-02。
     // 値は md .side-panel（styles.css:1658-1694）/ .side-panel-resize-handle（:1697-1713）の複製）
@@ -57359,6 +57364,19 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
 
     /** viewer サイドペインを開く（md sidepanel が開いていれば排他で閉じる） */
     function open(kind, fileUri, fileName, filePath) {
+        // focus 復帰用の退避（viewer が focus を奪う前に。パネル自身からの再 open では上書きしない）
+        try {
+            const ae = document.activeElement;
+            if (ae && ae !== document.body && !(panelEl && panelEl.contains(ae))) {
+                prevFocusEl = ae;
+                prevRange = null;
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    const r = sel.getRangeAt(0);
+                    if (ae.contains(r.startContainer)) { prevRange = r.cloneRange(); }
+                }
+            }
+        } catch { /* noop */ }
         // 排他: md sidepanel を閉じる（DOM 直接ではなく既存 close ボタンの click で閉じる =
         // md 側コードへの直接参照を持たない）
         try {
@@ -57388,6 +57406,22 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         delete panelEl.dataset.prevWidth;
         const mount = panelEl.querySelector('.viewer-side-panel-mount');
         if (window.__fileViewer && mount) { window.__fileViewer.destroy(mount); }
+        // focus を開いた時の場所へ戻す（第 8 ラウンド④）。現 focus がパネル内 or body の時だけ —
+        // ユーザーが既に他所（md editor 等）をクリックしていたら奪い返さない
+        try {
+            const ae = document.activeElement;
+            const stole = !ae || ae === document.body || (panelEl && panelEl.contains(ae));
+            if (stole && prevFocusEl && prevFocusEl.isConnected) {
+                prevFocusEl.focus({ preventScroll: true });
+                if (prevRange && prevRange.startContainer && prevRange.startContainer.isConnected) {
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(prevRange);
+                }
+            }
+        } catch { /* noop */ }
+        prevFocusEl = null;
+        prevRange = null;
     }
 
     function isOpen() {

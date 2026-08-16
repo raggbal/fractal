@@ -241,3 +241,50 @@ test.describe('viewer sidepanel: Esc close（FR-FV-14 追補）', () => {
         expect(await page.locator('.viewer-side-panel.open').count()).toBe(0);
     });
 });
+
+// ── 第 8 ラウンド④（Esc close 後の focus 復帰） ──────
+test.describe('viewer sidepanel: close 後の focus 復帰（FR-FV-14 追補）', () => {
+
+    test('TC-FV-78: viewer が focus を奪っても Esc close で元の要素とカーソル位置に戻る', async ({ page }) => {
+        await page.goto('/standalone-outliner.html');
+        await page.waitForFunction(() => (window as any).__viewerSidePanel && (window as any).__fileViewer);
+        // 復帰先のプローブ（outliner node の text cell 相当 = contenteditable。caret を途中位置に置く）
+        await page.evaluate(() => {
+            const probe = document.createElement('div');
+            probe.id = 'focus-probe';
+            probe.contentEditable = 'true';
+            probe.textContent = 'カーソル位置の保持テスト';
+            document.body.appendChild(probe);
+            probe.focus();
+            const sel = window.getSelection()!;
+            const r = document.createRange();
+            r.setStart(probe.firstChild!, 5);   // 「位置」の後
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        });
+        // viewer を開く → viewer 内をクリック（pdf 面の focus 奪取と同型の状況を作る）
+        await page.evaluate(() => {
+            (window as any).__viewerSidePanel.open('html', './viewer-fixtures/plain-text.html', 'p.html', '/tmp/p.html');
+        });
+        await page.waitForSelector('.viewer-side-panel.open', { timeout: 10000 });
+        const panelBox = (await page.locator('.viewer-side-panel').boundingBox())!;
+        await page.mouse.click(panelBox.x + panelBox.width / 2, panelBox.y + 20);   // focus がプローブから離れる
+        // Esc close → focus + caret がプローブへ復帰
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        const res = await page.evaluate(() => {
+            const probe = document.getElementById('focus-probe')!;
+            const sel = window.getSelection()!;
+            return {
+                focused: document.activeElement === probe,
+                caretOffset: sel.rangeCount ? sel.getRangeAt(0).startOffset : -1,
+                caretInProbe: sel.rangeCount ? probe.contains(sel.getRangeAt(0).startContainer) : false,
+            };
+        });
+        // counterfactual: 復帰処理なしでは focus は body に落ちて RED（pdf 面で実測された第 8 ラウンド④）
+        expect(res.focused, '元の要素へ focus 復帰').toBe(true);
+        expect(res.caretInProbe, 'caret も元の要素内').toBe(true);
+        expect(res.caretOffset, 'caret offset 保持').toBe(5);
+    });
+});
