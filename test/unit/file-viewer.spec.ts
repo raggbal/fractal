@@ -556,13 +556,22 @@ test.describe('file-viewer: pdf 選択品質 + 版更新（FR-FV-15 / ADRL-0070�
         // viewer 側: alias devDependency（ADRL-0070。^5.7.284 = 検証済み版を下限に pin — ≥5.4.530 要件充足）
         const alias = pkg.devDependencies && pkg.devDependencies['pdfjs-viewer-dist'];
         expect(alias, 'pdfjs-viewer-dist alias が devDependencies に存在').toBeTruthy();
-        expect(String(alias)).toMatch(/^npm:pdfjs-dist@\^5\./);
+        // SEC-1（reviewer iteration 4）: **明示 pin（^ なし）** を enforce — ^ 指定は「下限以上の最新」を
+        // npm audit 照合なしに受容し、既知 CVE 範囲へ自動追従する（generator_failures 2026-08-16）
+        expect(String(alias)).toMatch(/^npm:pdfjs-dist@5\./);
+        expect(String(alias).includes('^'), '範囲指定（^）でなく明示 pin であること').toBe(false);
         const installed = JSON.parse(
             fs.readFileSync(path.join(ROOT, 'node_modules', 'pdfjs-viewer-dist', 'package.json'), 'utf8')).version;
         const [maj, min, patch] = installed.split('.').map(Number);
         const atLeast54530 = maj > 5 ? false : (min > 4 || (min === 4 && patch >= 530));
         expect(maj, '5.x 系（6.x は ADRL-0070 で見送り）').toBe(5);
         expect(atLeast54530, `#19785(5.2.133+)/#20492(5.4.530+) を含む版（実測 ${installed}）`).toBe(true);
+        // SEC-1/SEC-2（reviewer iteration 4）: 既知 CVE 範囲の**除外**も対で pin — 下限だけの contract は
+        // 脆弱版への自動更新を素通しする。GHSA-hq66-cqwq-w95j（悪意 PDF → 任意 JS 実行・high）の
+        // 対象範囲 >=5.6.83 <6.2.108 に入らないこと（6.x は上の maj===5 で既に排除）
+        const inKnownCveRange = (min >= 7) || (min === 6 && patch >= 83);
+        expect(inKnownCveRange,
+            `GHSA-hq66-cqwq-w95j 範囲（>=5.6.83）外であること（実測 ${installed} — 採用可能なのは 5.4.530〜5.5.x）`).toBe(false);
         // 検索 vendor 側: 4.10.38 pin 不変（ADRL-0057 非破壊）
         expect(pkg.dependencies['pdfjs-dist'] || pkg.devDependencies['pdfjs-dist']).toBe('4.10.38');
         const vendorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-pdfjs-vendor.js'), 'utf8');
