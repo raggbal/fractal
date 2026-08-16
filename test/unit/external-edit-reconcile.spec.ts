@@ -109,6 +109,13 @@ function loadManagerWithStub(modulePath: string, vscodeNs: any, fsNs: any): any 
         return require(modulePath);
     } finally {
         Module._load = origLoad;
+        // stub 下で評価された /src/shared/ モジュールを cache から再 purge する。
+        // これを残すと同一 Playwright worker で後続の spec が「fs が 2 メソッド stub のまま」の
+        // paste-asset-handler 等を掴んで落ちる（sprint 20260815 iter6 gate NEW FAILS 3 の根因 —
+        // TASK-19 / 許可: test_update。次の素の require は実 fs/vscode で再評価される）
+        Object.keys(require.cache)
+            .filter((k) => k.includes('/src/shared/'))
+            .forEach((k) => { delete require.cache[k]; });
     }
 }
 

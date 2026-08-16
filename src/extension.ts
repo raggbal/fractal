@@ -4,6 +4,7 @@ import { AnyMarkdownEditorProvider } from './editorProvider';
 import { OutlinerProvider } from './outlinerProvider';
 import { NotesFolderProvider } from './notesFolderProvider';
 import { NotesEditorProvider } from './notesEditorProvider';
+import { registerFileViewer } from './fileViewerProvider';
 import { initLocale, t } from './i18n/messages';
 import { runNotesCleanup } from './notesCleanupCommand';
 import { importTerminology, resolveTerminologyPath } from './shared/aws-translate';
@@ -65,6 +66,12 @@ export function activate(context: vscode.ExtensionContext) {
             }
         )
     );
+
+    // Register the file viewer (read-only .pdf/.html — FR-FV-02, sprint 20260815-075428)
+    // 第 2 引数 = note フォルダ resolver（FR-FV-08 の In-App リンク逆引き用）。standalone 面は
+    // document.uri しか持たないため、候補 folder 群から所属 note を逆引きする。thunk なので
+    // 評価は message 受信時（notesFolderProvider の宣言より後）— activate 時に触らない。
+    registerFileViewer(context, () => notesFolderProvider.getFolders());
 
     // Register commands
     context.subscriptions.push(

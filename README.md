@@ -16,7 +16,7 @@
 - 🌲 **A real outliner** — Dynalist / Workflowy-style tree editing, with tag management, smooth filtering, and three views: **Outliner / Database / Mindmap**.
 - 📄 **Subpages** — Embed markdown pages as children of outline nodes or of other markdown pages. Build hierarchical documents like a Notion database.
 - 🤖 **AI-friendly by design** — External file changes are reflected on screen **in real time**. Let Claude Code, Cursor, or Kiro edit your notes while you keep working — your cursor position and in-progress edits are preserved.
-- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search — **including inside attached PDF / Word / Excel / PowerPoint files**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes — tabs and history, Daily Notes.
+- 🗂 **Notes** — Organize by folder ("note"). Files stay flat on disk while a virtual folder/file tree keeps everything structured on screen — including **arbitrary file attachments** (PDF, Excel, …). Cross-file full-text search — **including inside attached PDF / Word / Excel / PowerPoint files and any text-based attachment (HTML, JSON, …)**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes — tabs and history, Daily Notes.
 - ☁️ **S3 backup & restore** — One-click backup to your own AWS S3 bucket, and restore from it.
 - 🧩 **Beyond the editor** — A Chrome extension for clipping web pages, Amazon Translate integration, and published **AI skills** that let AI agents read and write your notes in Fractal Note (use Fractal Note instead of Obsidian).
 
@@ -71,7 +71,7 @@ A Notion-style WYSIWYG editor. What you see is exactly what's in the file.
 
 ### Attachments & media
 - **Images** — Paste or drag & drop. Full-screen lightbox with pinch-zoom and pan. Max display width is configurable
-- **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open in the OS default app. The link text is editable like any other link; copy/cut a fully selected link text and it travels *as a link*, and dragging the 📎 icon moves the link within the document or out to the notes tree
+- **File attachments** — Drop any file (PDF, Excel, …) to insert a `[📎 filename](path)` link. Click to open — HTML and PDF in the built-in viewer, everything else in the OS default app. The link text is editable like any other link; copy/cut a fully selected link text and it travels *as a link*, and dragging the 📎 icon moves the link within the document or out to the notes tree
 - **Attachments panel** — Lists every image and file referenced in the document, with Open / Copy Path
 
 ### PDF export
@@ -150,7 +150,7 @@ Switch with the view toggle:
 ### Attach anything
 - **Markdown subpages** — Turn any bullet into a page (`@page`) and edit it in the side panel's full WYSIWYG editor. Manage hierarchical markdown like a **Notion database**
 - **Images** — Paste with `Cmd+V`. Thumbnails appear under the node; drag to reorder, double-click to zoom
-- **Files** — Attach any file type to a node. 📎 nodes open in the OS default app
+- **Files** — Attach any file type to a node. 📎 nodes open HTML / PDF in the built-in viewer, everything else in the OS default app
 - `.md`** import** — Import Notion / Obsidian exports as page nodes. Images are copied automatically and paths rewritten
 
 ### Tasks
@@ -170,15 +170,21 @@ Fractal Note organizes information into **notes**. Just register any folder from
 ![assets/images/1785087018130.png](assets/images/1785087018130.png)
 
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
-- **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open in the OS default app
+- **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open (HTML / PDF in the built-in viewer, anything else in the OS default app)
 - **Files flow everywhere** — drag a tree file, an outliner 📎/page node, or a markdown 📎/subpage link onto any outliner or markdown editor (main pane, side panel, or tree item) — or back into the tree. Within a note the physical file never moves (only its owner changes); across notes the file is copied to the destination and the source copy is kept until Clean Notes collects it
-- **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note — **and inside attached PDF / Word / Excel / PowerPoint files**, with page / slide / sheet-cell hit locations and backlinks to the referencing nodes. Streaming results, click to jump
+- **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note — **and inside attached PDF / Word / Excel / PowerPoint files, plus any text-based attachment (HTML, JSON, CSV, source code, …)** — with page / slide / sheet-cell hit locations and backlinks to the referencing nodes. Streaming results, click to jump
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click
 - **Daily Notes** — One-click daily journal. Auto-creates a year/month/day hierarchy, with `<` `>` navigation and a calendar picker
 - **In-app links** — Copy a link to any node or page (right-click a node / tree item → **Copy In-App Link**, or 🔗 in the side-panel header) and paste it anywhere in Fractal Note. Click to jump
 - **Cross-note copy & paste with assets** — Copy markdown containing images, 📎 attachments, or subpage links and paste it into another note (md or outliner): the linked files are duplicated into the destination note and links keep working. Pasting into an outliner turns whole-line links into proper attachment / image / page nodes
 - **Housekeeping** — "Clean Unused Files" finds orphaned images, pages, and attachments and moves them to the trash. "Move to Other Note" relocates pages together with their assets
+
+### 📄 Built-in file viewer (HTML & PDF)
+AI assistants increasingly deliver documents as HTML, not just markdown — so Fractal Note treats both as first-class reading material. Click an attached `.html` or `.pdf` anywhere — in the file tree, on an outliner 📎 node, or from a markdown 📎 link — and it opens right inside Fractal Note:
+- **Three surfaces** — the note's main pane (as a regular tab), the side panel next to what you're writing, or a standalone VS Code tab
+- **Same feel as the md editor** — the familiar icon toolbar (copy path / in-app link / export / open in OS app), and Esc closes the side panel with the cursor back exactly where you left off
+- **Safe & fast** — instant display; HTML renders statically by default (scripts run only after an explicit opt-in), and PDFs render locally with smooth text selection
 
 ### ☁️ S3 backup & restore
 With an AWS account, you can sync your notes to S3:

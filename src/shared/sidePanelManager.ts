@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import { extractToc, TocItem } from './toc-utils';
 import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
+import { isViewerTarget, VIEWER_SIZE_LIMIT } from './viewer-target';
 
 /** Webview への通信インターフェース */
 export interface SidePanelHost {
@@ -389,9 +390,40 @@ export class SidePanelManager {
                 await this.openFile(resolvedUri.fsPath, false);
                 // openFile 内で sendNavStateUpdate される
             } else {
-                vscode.env.openExternal(resolvedUri);
+                // FR-FV-01 sink #9（sprint 20260815-075428）: sidepanel md 内 📎 リンクの viewer 対象は
+                // fractal 内 viewer で開く。判定・表示の例外は従来 openExternal に縮退（NFR-FV-01 防御）
+                let handled = false;
+                try {
+                    handled = await this.tryOpenViewerPanel(resolvedUri.fsPath);
+                } catch { handled = false; }
+                if (!handled) {
+                    vscode.env.openExternal(resolvedUri);
+                }
             }
         }
+    }
+
+    /**
+     * FR-FV-05 sink #9（sprint 20260815-075428）: viewer 対象（.html/.pdf）なら viewer サイドペインを
+     * 開く message を送る。判定は shared isViewerTarget（唯一の判定点 — インライン複製禁止）。
+     * 50MB 超はフォールバック（FR-FV-07）。viewer 実体は webview 側 viewer-side-panel.js。
+     * @returns true = viewer で開いた（openExternal 不要）/ false = 対象外 or フォールバック
+     */
+    async tryOpenViewerPanel(filePath: string): Promise<boolean> {
+        const kind = isViewerTarget(path.basename(filePath));
+        if (!kind) { return false; }
+        try {
+            const stat = fs.statSync(filePath);
+            if (stat.size > VIEWER_SIZE_LIMIT) { return false; }   // 50MB 超 → openExternal へ
+        } catch { return false; }                                   // 実体なし → 従来経路の失敗表示に委ねる
+        const fileWebviewUri = this.host.asWebviewUri(vscode.Uri.file(filePath)).toString();
+        this.host.postMessage({
+            type: 'openViewerPanel',
+            kind,
+            filePath,
+            fileUri: fileWebviewUri,
+        });
+        return true;
     }
 
     /**

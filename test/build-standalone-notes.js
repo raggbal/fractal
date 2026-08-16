@@ -103,6 +103,8 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place）。本番 notesWebviewContent と同じ実体を inline
 // （standalone build は body/script をハードコードするため src 変更だけでは反映されない — designer_failures 2026-07-12）
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
+const fileViewerScript2 = fs.readFileSync(path.join(__dirname, '../src/webview/file-viewer.js'), 'utf-8');
+const viewerDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/viewer-dispatcher.js'), 'utf-8');
 // FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
 const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
@@ -416,6 +418,13 @@ const html = `<!DOCTYPE html>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false" style="display:none;"></div>
 
     <script>
+    // TASK-13（不変条件7）: 本番 notesWebviewContent.ts と同じ "null" origin capture 遮断を
+    // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47 の検証対象
+    window.addEventListener('message', function (e) {
+        if (e.origin === 'null') { e.stopImmediatePropagation(); }
+    }, true);
+    </script>
+    <script>
     __HTML_MD_CONVERTER_SCRIPT__
     </script>
     <script src="vendor/mermaid.min.js"></script>
@@ -478,6 +487,21 @@ const html = `<!DOCTYPE html>
     </script>
     <script>
     __NOTES_MD_DISPATCHER_SCRIPT__
+    </script>
+    <style>__PDF_VIEWER_CSS2__</style>
+    <script>
+    // file viewer note 面（sprint 20260815-075428）— __pdfExportPost は outliner ハーネスと同じくモック
+    window.__pdfExportPost = window.__pdfExportPost || function(msg) { window.__testApi.messages.push(msg); };
+    window.__viewerConfig = {
+        pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
+        workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
+        cMapUrl: './pdfjs-viewer/cmaps/',
+        standardFontDataUrl: './pdfjs-viewer/standard_fonts/'
+    };
+    __FILE_VIEWER_SCRIPT2__
+    </script>
+    <script>
+    __VIEWER_DISPATCHER_SCRIPT__
     </script>
     <script>
     __SIDEPANEL_OVERFLOW_SCRIPT__
@@ -654,6 +678,9 @@ result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
 result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcherScript);
+result = safeReplace(result, '__PDF_VIEWER_CSS2__', fs.existsSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css')) ? fs.readFileSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css'), 'utf-8') : '');
+result = safeReplace(result, '__FILE_VIEWER_SCRIPT2__', fileViewerScript2);
+result = safeReplace(result, '__VIEWER_DISPATCHER_SCRIPT__', viewerDispatcherScript);
 result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
 result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);

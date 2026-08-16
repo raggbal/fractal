@@ -259,4 +259,17 @@ export const webviewMessages = {
   tableSearchPlaceholder: '搜索...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "主题设置已从 '{old}' 迁移到 '{new}'。",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: '在新标签页打开',
+  viewerCopyPath: '复制路径',
+  viewerCopyInAppLink: '复制应用内链接',
+  viewerExportFile: '导出',
+  viewerCopyInAppLinkFailed: '该文件不属于任何笔记，因此无法创建应用内链接。',
+  viewerAllowScripts: '允许脚本（仅此文件）',
+  viewerOpenExternal: '用系统应用打开',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '放大',
+  viewerZoomOut: '缩小',
+  viewerExpand: '最大化',
+  viewerClose: '关闭',
 };

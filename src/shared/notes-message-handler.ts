@@ -31,6 +31,18 @@ export interface NotesSender {
 export interface NotesPlatformActions {
     /** 外部リンクをブラウザで開く */
     openExternalLink(href: string): void;
+    /** FR-FV-07: viewer「OS で開く」フォールバック（fs パスを openExternal）— sprint 20260815-075428 */
+    openViewerFallback?(filePath: string): void;
+    // FR-FV-08: viewer ツールバー 4 アクション（sprint 20260815-075428 再オープン）。
+    // 実 vscode API（openWith / clipboard / showSaveDialog）依存のため provider 側で実装する。
+    /** 新しいタブで開く（kind → viewerViewType で customEditor を選択） */
+    viewerOpenInNewTab?(filePath: string, kind?: string): void;
+    /** ファイルの絶対パスをクリップボードへ */
+    viewerCopyPath?(filePath: string): void;
+    /** In-App link（fractal://note/{folder}/file/{id}）を md リンク形式でクリップボードへ */
+    viewerCopyInAppLink?(filePath: string): void;
+    /** 単品エクスポート（保存ダイアログ → コピー） */
+    viewerExportFile?(filePath: string): void;
     /** FR-RR-06: fractal.resourceRoots の settings を開く */
     openResourceRootsSettings?(): void;
     /** FR-MG-03/05/07: 起動時移行ゲートで移行を実行（backup→validate→execute→成功で reopen / 失敗で通知） */
@@ -1079,6 +1091,40 @@ export async function handleNotesMessage(
                 } else {
                     platform.openExternalLink(message.href);
                 }
+            }
+            break;
+
+        // FR-FV-07（sprint 20260815-075428 SEC-2）: viewer「OS で開く」フォールバック。
+        // sidepanel/note 面の file-viewer.js が送る（standalone 面は fileViewerProvider が直接処理）
+        case 'openExternalFallback':
+            if (message.filePath && platform.openViewerFallback) {
+                platform.openViewerFallback(String(message.filePath));
+            }
+            break;
+
+        // FR-FV-08: viewer ツールバー 4 アクション → provider（platform）へ委譲。
+        // optional メソッドなので未実装の面では no-op（openViewerFallback と同じ契約）。
+        case 'viewerOpenInNewTab':
+            if (message.filePath) {
+                platform.viewerOpenInNewTab?.(String(message.filePath), message.kind ? String(message.kind) : undefined);
+            }
+            break;
+
+        case 'viewerCopyPath':
+            if (message.filePath) {
+                platform.viewerCopyPath?.(String(message.filePath));
+            }
+            break;
+
+        case 'viewerCopyInAppLink':
+            if (message.filePath) {
+                platform.viewerCopyInAppLink?.(String(message.filePath));
+            }
+            break;
+
+        case 'viewerExportFile':
+            if (message.filePath) {
+                platform.viewerExportFile?.(String(message.filePath));
             }
             break;
 

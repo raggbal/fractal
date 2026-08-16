@@ -355,21 +355,99 @@ function extractPptxLinesMjs(entries, buf) {
   return { lines: outLines, truncated: state.truncated };
 }
 
-// Buffer から正典 extractDocText と同一契約（{lines: [{text,loc?}], truncated, skipReason?}）で抽出する。
-// PDF は CLI では vendor バンドル経由（fractal-search.mjs 側の責務）— ここは OOXML のみ。
+// --- テキスト sniff + decode（FR-DS-11 — 正典 sniffAndDecodeText の 5 分岐 1:1 ミラー） ---
+
+const SNIFF_SIZE = 8192;                          // 正典と同一定数
+const TEXT_DECODE_INPUT_CLAMP = 4 * 1024 * 1024;  // decode 前の入力 clamp（正典と同一）
+
+// 判定順は不変条件: ① UTF-8 BOM ② UTF-16LE BOM ③ UTF-16BE BOM ④ 先頭 8KB NUL → null ⑤ fallback UTF-8。
+// BOM 判定が NUL 検査より必ず先（UTF-16 は ASCII が NUL を含む — 逆順で UTF-16 全滅）。
+export function sniffAndDecodeText(buf) {
+  const clamp = (b) => b.length > TEXT_DECODE_INPUT_CLAMP
+    ? { b: b.subarray(0, TEXT_DECODE_INPUT_CLAMP), truncated: true }
+    : { b, truncated: false };
+
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {          // 分岐 1
+    const { b, truncated } = clamp(buf.subarray(3));
+    return { text: b.toString('utf8'), truncated };
+  }
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {                             // 分岐 2
+    const { b, truncated } = clamp(buf.subarray(2));
+    const even = b.length % 2 === 0 ? b : b.subarray(0, b.length - 1);
+    return { text: even.toString('utf16le'), truncated };
+  }
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {                             // 分岐 3
+    const { b, truncated } = clamp(buf.subarray(2));
+    const even = b.length % 2 === 0 ? b : b.subarray(0, b.length - 1);
+    const copy = Buffer.from(even);   // swap16 は破壊的 — 必ずコピーに対して
+    copy.swap16();
+    return { text: copy.toString('utf16le'), truncated };
+  }
+  const sniffLen = Math.min(buf.length, SNIFF_SIZE);                                       // 分岐 4
+  for (let i = 0; i < sniffLen; i++) {
+    if (buf[i] === 0x00) return null;
+  }
+  const { b, truncated } = clamp(buf);                                                     // 分岐 5
+  return { text: b.toString('utf8'), truncated };
+}
+
+// --- HTML 本文抽出（FR-DS-12 — 正典 extractHtmlBody の 5 処理 1:1 ミラー） ---
+
+const HTML_EXTRA_ENTITIES = { nbsp: ' ' };
+
+// ① script/style/noscript 中身ごと除去（コメント除去より先）② コメント除去
+// ③ タグ→半角スペース（'' 置換は <td> 癒着 — 禁止）④ 文字参照復号（③より後）⑤ 空白畳み（④より後）
+export function extractHtmlBody(html) {
+  let s = html.replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ');  // ①
+  s = s.replace(/<!--[\s\S]*?-->/g, ' ');                                             // ②
+  s = s.replace(/<[^>]*>/g, ' ');                                                     // ③
+  s = s.replace(/&(#[xX]?[0-9a-fA-F]+|[a-z]+);/g, (m, body) => {                      // ④
+    if (body[0] === '#') {
+      const cp = body[1] === 'x' || body[1] === 'X'
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
+      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    }
+    if (Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body)) return NAMED_ENTITIES[body];
+    if (Object.prototype.hasOwnProperty.call(HTML_EXTRA_ENTITIES, body)) return HTML_EXTRA_ENTITIES[body];
+    return m;
+  });
+  return s.split('\n')                                                                // ⑤
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
+    .join('\n');
+}
+
+// Buffer から正典 extractDocText と同一契約（{lines: [{text,loc?}], truncated, skipReason?, noCache?}）で抽出する。
+// PDF は CLI では vendor バンドル経由（fractal-search.mjs 側の責務）— ここは OOXML + テキスト sniff。
+// 判定パイプライン（正典 §2 ミラー）: ① OOXML 3 種 → 専用抽出 ② それ以外 → sniff（BOM→NUL→UTF-8）
+// ③ .html/.htm のみ本文抽出 ④ normalizeExtracted。テキスト成功は noCache: true（NFR-DS-08）。
 export async function extractDocTextMjs(buf, ext) {
   const lowerExt = String(ext || '').toLowerCase();
-  if (!CONTENT_SEARCH_OOXML_EXTS.includes(lowerExt)) return skipResult('unsupported_ext');
-  try {
-    const entries = readZipEntries(buf);
-    if (lowerExt === '.docx') {
-      // docx は位置なし（正典と同一裁定）
-      const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
-      return { lines: lines.map((text) => ({ text })), truncated };
+  if (CONTENT_SEARCH_OOXML_EXTS.includes(lowerExt)) {
+    try {
+      const entries = readZipEntries(buf);
+      if (lowerExt === '.docx') {
+        // docx は位置なし（正典と同一裁定）
+        const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
+        return { lines: lines.map((text) => ({ text })), truncated };
+      }
+      return lowerExt === '.xlsx' ? extractXlsxLinesMjs(entries, buf) : extractPptxLinesMjs(entries, buf);
+    } catch (e) {
+      if (e instanceof OoxmlError && e.code === 'NOT_ZIP') return skipResult('encrypted_or_not_zip');
+      return skipResult('extract_error');
     }
-    return lowerExt === '.xlsx' ? extractXlsxLinesMjs(entries, buf) : extractPptxLinesMjs(entries, buf);
-  } catch (e) {
-    if (e instanceof OoxmlError && e.code === 'NOT_ZIP') return skipResult('encrypted_or_not_zip');
+  }
+  // テキスト sniff 経路（FR-DS-11）
+  try {
+    const decoded = sniffAndDecodeText(buf);
+    if (decoded === null) return skipResult('binary');
+    const text = (lowerExt === '.html' || lowerExt === '.htm')
+      ? extractHtmlBody(decoded.text)                 // FR-DS-12（.svg/.xml 等は生テキスト）
+      : decoded.text;
+    const { lines, truncated } = normalizeExtracted(text);
+    // noCache: テキスト成功結果は永続キャッシュに書かない（NFR-DS-08 / ADRL-0063）
+    return { lines: lines.map((t) => ({ text: t })), truncated: truncated || decoded.truncated, noCache: true };
+  } catch {
     return skipResult('extract_error');
   }
 }

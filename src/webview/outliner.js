@@ -8276,6 +8276,7 @@ var Outliner = (function() {
     }
 
     function openSidePanel(markdown, filePath, fileName, toc, spDocumentBaseUri) {
+        if (window.__viewerSidePanel) { window.__viewerSidePanel.close(); }   // viewer と排他（FR-FV-05 / sprint 20260815-075428）
         if (sidePanelInstance) {
             closeSidePanelImmediate(true /* isSwitch */);
         }

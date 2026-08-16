@@ -304,4 +304,17 @@ export const webviewMessages = {
   tableSearchPlaceholder: '検索...',
   // Theme migration (sprint 20260509-185557-minimal-settings-foundation)
   themeMigrationNotice: "テーマ設定 '{old}' → '{new}' に自動移行しました。",
+  // FR-FV-08: file viewer toolbar actions (sprint 20260815-075428-file-viewer-3panes)
+  viewerOpenInNewTab: '新しいタブで開く',
+  viewerCopyPath: 'パスをコピー',
+  viewerCopyInAppLink: 'アプリ内リンクをコピー',
+  viewerExportFile: 'エクスポート',
+  viewerCopyInAppLinkFailed: 'このファイルは note に属していないため、アプリ内リンクを作成できません。',
+  viewerAllowScripts: 'スクリプトを許可（このファイルのみ）',
+  viewerOpenExternal: 'OS で開く',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '拡大',
+  viewerZoomOut: '縮小',
+  viewerExpand: '最大化',
+  viewerClose: '閉じる',
 };

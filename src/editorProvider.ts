@@ -4,6 +4,7 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { OutlinerProvider, buildPdfExportDeps } from './outlinerProvider';
 import { runExportMdToPdf, PdfPanelLike } from './shared/pdf-export-host';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { isViewerTarget, VIEWER_SIZE_LIMIT } from './shared/viewer-target';
 import {
     extractImageDir,
     extractForceRelativePath,
@@ -1214,8 +1215,22 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             // 旧 sidePanel オプションは sidepanel が peek 用途として頻度低く、混乱の元になるため tab 固定化。
                             vscode.commands.executeCommand('vscode.openWith', resolvedUri, 'fractal.editor');
                         } else {
-                            // Non-MD local file - open with OS default application
-                            vscode.env.openExternal(resolvedUri);
+                            // FR-FV-01 マトリクス行5: standalone md の 📎 → viewer 対象は standalone 面
+                            // （新タブで fractal.fileViewer）。50MB 超・例外は openExternal 縮退（ARCH-5 / FR-FV-07）
+                            let viewerOpened = false;
+                            try {
+                                const kind = isViewerTarget(path.basename(resolvedUri.fsPath));
+                                if (kind && fs.existsSync(resolvedUri.fsPath)
+                                    && fs.statSync(resolvedUri.fsPath).size <= VIEWER_SIZE_LIMIT) {
+                                    const viewType = kind === 'pdf' ? 'fractal.fileViewer' : 'fractal.fileViewerHtml';
+                                    vscode.commands.executeCommand('vscode.openWith', resolvedUri, viewType);
+                                    viewerOpened = true;
+                                }
+                            } catch { viewerOpened = false; }
+                            if (!viewerOpened) {
+                                // Non-MD local file - open with OS default application
+                                vscode.env.openExternal(resolvedUri);
+                            }
                         }
                     }
                     break;

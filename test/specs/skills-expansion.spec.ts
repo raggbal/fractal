@@ -458,7 +458,7 @@ test.describe('E. fractal-search --tag/--checked', () => {
         expect(j.results.length).toBe(1);
     });
 
-    test('TC-EX-19 CLI 統合: --tag のみで列挙 / --query と AND / CACHE_VERSION=5', async () => {
+    test('TC-EX-19 CLI 統合: --tag のみで列挙 / --query と AND / CACHE_VERSION=6', async () => {
         const { dir } = mkFixtureNote('search-filter');
         const { execFileSync } = await import('child_process');
         // --tag のみ（--query なし）で列挙できる（FR-SRF-03。--no-cache で独立実行）
@@ -475,7 +475,7 @@ test.describe('E. fractal-search --tag/--checked', () => {
         const out3 = execFileSync('node', [searchMjs, '--checked', 'false', '--folder', dir, '--no-cache', '--json'], { encoding: 'utf-8' });
         expect(JSON.parse(out3).results.filter((r: any) => r.kind === 'outline-node').length).toBe(1);
         // CACHE_VERSION bump（ソース grep）
-        expect(fs.readFileSync(searchMjs, 'utf-8')).toMatch(/CACHE_VERSION = 5/);
+        expect(fs.readFileSync(searchMjs, 'utf-8')).toMatch(/CACHE_VERSION = 6/);
     });
 });
 

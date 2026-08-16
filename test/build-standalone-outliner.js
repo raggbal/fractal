@@ -15,6 +15,8 @@ const path = require('path');
 const editorJsPath = path.join(__dirname, '../src/webview/editor.js');
 const editorUtilsJsPath = path.join(__dirname, '../src/webview/editor-utils.js');
 const outlinerJsPath = path.join(__dirname, '../src/webview/outliner.js');
+const viewerSidePanelJsPath = path.join(__dirname, '../src/webview/viewer-side-panel.js');
+const fileViewerJsPath = path.join(__dirname, '../src/webview/file-viewer.js');
 const outlinerCellJsPath = path.join(__dirname, '../src/webview/outliner-cell.js');
 const outlinerModelJsPath = path.join(__dirname, '../src/webview/outliner-model.js');
 const outlinerSearchJsPath = path.join(__dirname, '../src/webview/outliner-search.js');
@@ -316,6 +318,13 @@ const html = `<!DOCTYPE html>
     <div class="editor" id="editor" contenteditable="true" spellcheck="false" style="display:none;"></div>
 
     <script>
+    // TASK-13（不変条件7）: 本番 outlinerWebviewContent.ts と同じ "null" origin capture 遮断を
+    // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47 の検証対象
+    window.addEventListener('message', function (e) {
+        if (e.origin === 'null') { e.stopImmediatePropagation(); }
+    }, true);
+    </script>
+    <script>
     __HTML_MD_CONVERTER_SCRIPT__
     </script>
     <script src="vendor/mermaid.min.js"></script>
@@ -390,6 +399,23 @@ const html = `<!DOCTYPE html>
     <script>
     __OUTLINER_SCRIPT__
     </script>
+    <style>__PDF_VIEWER_CSS__</style>
+    <script>
+    // file viewer sidepanel 面（sprint 20260815-075428 — 1 実装 3 マウント + 排他）
+    // 本番では host-bridge が window.__pdfExportPost を公開する（file-viewer の postMessage 縮退先）。
+    // ハーネスは bridge モックのため、ここで __testApi.messages への記録として明示定義する
+    window.__pdfExportPost = function(msg) { window.__testApi.messages.push(msg); };
+    window.__viewerConfig = {
+        pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
+        workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
+        cMapUrl: './pdfjs-viewer/cmaps/',
+        standardFontDataUrl: './pdfjs-viewer/standard_fonts/'
+    };
+    __FILE_VIEWER_SCRIPT__
+    </script>
+    <script>
+    __VIEWER_SIDE_PANEL_SCRIPT__
+    </script>
     <script>
     // テストAPI公開
     window.__testApi.ready = false;
@@ -441,6 +467,9 @@ result = safeReplace(result, '__MINDMAP_INTERACTIONS_SCRIPT__', mindmapInteracti
 result = safeReplace(result, '__OUTLINER_SEARCH_SCRIPT__', outlinerSearchScript);
 result = safeReplace(result, '__CLIP_SELECT_SCRIPT__', clipSelectScript);
 result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
+result = safeReplace(result, '__PDF_VIEWER_CSS__', fs.existsSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css')) ? fs.readFileSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css'), 'utf-8') : '');
+result = safeReplace(result, '__FILE_VIEWER_SCRIPT__', fs.readFileSync(fileViewerJsPath, 'utf-8'));
+result = safeReplace(result, '__VIEWER_SIDE_PANEL_SCRIPT__', fs.readFileSync(viewerSidePanelJsPath, 'utf-8'));
 fs.writeFileSync(outputPath, result);
 
 console.log('Generated:', outputPath);

@@ -16,6 +16,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { DocExtractCache } from '../../src/shared/doc-extract-cache';
 
 function mkTmp(prefix: string): string {
@@ -167,6 +168,81 @@ test.describe('DocExtractCache.evict（TASK-13 / SEC-3）', () => {
 
             // cacheDir=null でも evict は例外を出さない
             new DocExtractCache(null).evict(file);
+        } finally {
+            fs.rmSync(noteDir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+});
+
+test.describe('キャッシュ二分（sprint 20260815 / FR-DS-04 rev.2 / NFR-DS-08）', () => {
+
+    test('TC-DS-67: version bump 番人 — 旧 formatVersion:2 の unsupported_ext 記録が stale ヒットしない', async () => {
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-v3-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-v3-store-'));
+        try {
+            const file = path.join(noteDir, 'memo.txt');
+            fs.writeFileSync(file, '議事録テキスト');
+            const st = fs.statSync(file);
+            // 旧 version(2) キャッシュに unsupported_ext を truthy 記録した状態を再現
+            const key = crypto.createHash('sha256').update(file).digest('hex').slice(0, 16);
+            fs.writeFileSync(path.join(cacheDir, `${key}.json`), JSON.stringify({
+                formatVersion: 2, mtimeMs: st.mtimeMs, size: st.size,
+                result: { lines: [], truncated: false, skipReason: 'unsupported_ext' },
+            }));
+            const cache = new DocExtractCache(cacheDir);   // 正典 extractDocText で実抽出
+            const r = await cache.getOrExtract(file);
+            // counterfactual: CACHE_FORMAT_VERSION が 2 のままだと旧 skip が返り RED
+            expect(r.skipReason).toBeUndefined();
+            expect(r.lines.map((l) => l.text).join('')).toContain('議事録');
+        } finally {
+            fs.rmSync(noteDir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-DS-67b: binary skip は記録される — 2 回目は抽出関数が呼ばれない（NFR-DS-02）', async () => {
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-bin-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-bin-store-'));
+        try {
+            const file = path.join(noteDir, 'blob.bin');
+            fs.writeFileSync(file, Buffer.from([0x00, 0x01, 0x02, 0x00, 0xff]));
+            let calls = 0;
+            const cache = new DocExtractCache(cacheDir, async () => {
+                calls++;
+                return { lines: [], truncated: false, skipReason: 'binary' as const };
+            });
+            await cache.getOrExtract(file);
+            expect(calls).toBe(1);
+            const second = await cache.getOrExtract(file);
+            expect(calls, 'binary 判定はキャッシュされ再 sniff しない').toBe(1);
+            expect(second.skipReason).toBe('binary');
+            // mtime 変化で再判定
+            fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
+            await cache.getOrExtract(file);
+            expect(calls).toBe(2);
+        } finally {
+            fs.rmSync(noteDir, { recursive: true, force: true });
+            fs.rmSync(cacheDir, { recursive: true, force: true });
+        }
+    });
+
+    test('TC-DS-68: 秘密非複製番人 — テキスト本文がキャッシュ dir のどこにも書かれない（NFR-DS-08）', async () => {
+        const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-sec-'));
+        const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-cache-sec-store-'));
+        try {
+            const marker = 'SECRETMARKER123XYZ';
+            const file = path.join(noteDir, 'credentials.env');
+            fs.writeFileSync(file, `API_KEY=${marker}\n`);
+            const cache = new DocExtractCache(cacheDir);   // 正典 extractDocText（noCache 契約の実挙動）
+            const r = await cache.getOrExtract(file);
+            expect(r.skipReason).toBeUndefined();
+            expect(r.lines.map((l) => l.text).join('')).toContain(marker);   // 検索自体は機能する
+            // counterfactual: noCache 条件を外すと cacheDir に平文複製されて RED
+            const leaked = fs.readdirSync(cacheDir)
+                .map((f) => fs.readFileSync(path.join(cacheDir, f), 'utf8'))
+                .some((content) => content.includes(marker));
+            expect(leaked, 'テキスト本文が globalStorage キャッシュに平文複製されない').toBe(false);
         } finally {
             fs.rmSync(noteDir, { recursive: true, force: true });
             fs.rmSync(cacheDir, { recursive: true, force: true });

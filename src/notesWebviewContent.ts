@@ -118,6 +118,16 @@ export function getNotesWebviewContent(
     // FR-LR-03: md メインペイン dispatcher（externalUpdate in-place 対応）
     const notesMdDispatcherScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-md-dispatcher.js'), 'utf8');
+    // FR-FV-05/06（sprint 20260815-075428）: file viewer（note 面 dispatcher + sidepanel ペイン + 本体）
+    // QUAL-1: PDFViewer のレイアウトは pdf_viewer.css に依存 — 3 面すべてに配線（standalone は fileViewerContent）
+    const pdfViewerCssPath = path.join(__dirname, '..', 'media', 'pdfjs-viewer', 'pdf_viewer.css');
+    const pdfViewerCss = fs.existsSync(pdfViewerCssPath) ? fs.readFileSync(pdfViewerCssPath, 'utf8') : '';
+    const fileViewerScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'file-viewer.js'), 'utf8');
+    const viewerDispatcherScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'viewer-dispatcher.js'), 'utf8');
+    const viewerSidePanelScript = fs.readFileSync(
+        path.join(__dirname, 'webview', 'viewer-side-panel.js'), 'utf8');
     // FR-HP: 最近開いたファイル履歴パネル
     const notesHistoryPanelScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-history-panel.js'), 'utf8');
@@ -197,7 +207,7 @@ export function getNotesWebviewContent(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data:; frame-src blob:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data:; frame-src ${webview.cspSource} blob:; worker-src ${webview.cspSource} blob:; connect-src ${webview.cspSource}; form-action 'none';">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
@@ -277,6 +287,17 @@ export function getNotesWebviewContent(
         </div>
     </div>
 
+    <script nonce="${nonce}">
+        // sprint 20260815 TASK-13（ADRL-0067 決定4② / 不変条件7）: viewer iframe（sandbox=allow-scripts・
+        // opaque origin）発の postMessage 偽装を capture-phase で一括遮断する。個別 listener への配線は
+        // 「一部経路にだけ配線」の失敗クラスになるため、bootstrap 最初期（全 message listener 登録より前 —
+        // capture リスナーは登録順発火のためこの位置が不変条件）に 1 本だけ置く。
+        // host（extension）発 message の origin は webview 自身の origin なので誤爆しない。
+        window.addEventListener('message', function (e) {
+            if (e.origin === 'null') { e.stopImmediatePropagation(); }
+        }, true);
+        window.__webviewNonce = "${nonce}";
+    </script>
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}" nonce="${nonce}"></script>
     <script src="${katexJsUri}" nonce="${nonce}"></script>
@@ -316,6 +337,15 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${outlinerScript}</script>
     <script nonce="${nonce}">${notesFilePanelScript}</script>
     <script nonce="${nonce}">${notesMdDispatcherScript}</script>
+    <style>${pdfViewerCss}</style>
+    <script nonce="${nonce}">window.__viewerConfig = {
+        pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
+        workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',
+        cMapUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/cmaps/',
+        standardFontDataUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/standard_fonts/'
+    };${fileViewerScript}</script>
+    <script nonce="${nonce}">${viewerDispatcherScript}</script>
+    <script nonce="${nonce}">${viewerSidePanelScript}</script>
     <script nonce="${nonce}">${notesHistoryPanelScript}</script>
     <script nonce="${nonce}">${notesTabManagerScript}</script>
     <script nonce="${nonce}">

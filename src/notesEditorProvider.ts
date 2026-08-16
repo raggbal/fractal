@@ -15,6 +15,8 @@ import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { NotesMdMainManager } from './shared/notesMdMainManager';
+import { isViewerTarget, VIEWER_SIZE_LIMIT, viewerViewType } from './shared/viewer-target';
+import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
@@ -82,6 +84,30 @@ export class NotesEditorProvider {
     }
 
     // FR-NT-03 / FR-MV-01: Notes Folder ツリー provider への参照 (ツリー更新 + 移動先一覧に使う)
+    /**
+     * FR-FV-06 note 面（sprint 20260815-075428）: viewer 対象（.html/.pdf）ならメインペインに
+     * viewer を表示する message を送る。判定は shared isViewerTarget（唯一の判定点）。
+     * 50MB 超・判定/送信の例外は false（呼び出し元が openExternal に縮退 — FR-FV-07 / ARCH-5）。
+     */
+    private tryShowNoteViewer(panel: vscode.WebviewPanel, senderRef: NotesSender, filePath: string): boolean {
+        try {
+            const kind = isViewerTarget(path.basename(filePath));
+            if (!kind) { return false; }
+            const stat = fs.statSync(filePath);
+            if (stat.size > VIEWER_SIZE_LIMIT) { return false; }
+            senderRef.postMessage({
+                type: 'showNoteViewer',
+                kind,
+                fileName: path.basename(filePath),
+                filePath,
+                fileUri: panel.webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
+            });
+            return true;
+        } catch {
+            return false;   // 縮退 — viewer の障害が従来経路を壊さない（NFR-FV-01）
+        }
+    }
+
     private folderProvider?: { refresh(): void; getFolders(): string[] };
     public setFolderProvider(fp: { refresh(): void; getFolders(): string[] }): void {
         this.folderProvider = fp;
@@ -547,6 +573,39 @@ export class NotesEditorProvider {
             openExternalLink: (href: string) => {
                 vscode.env.openExternal(vscode.Uri.parse(href));
             },
+            // FR-FV-07（SEC-2）: viewer「OS で開く」— fs パスなので Uri.file で開く
+            openViewerFallback: (filePath: string) => {
+                vscode.env.openExternal(vscode.Uri.file(filePath));
+            },
+            // FR-FV-08: viewer ツールバー 4 アクション（sprint 20260815-075428 再オープン / TASK-15）
+            viewerOpenInNewTab: (filePath: string, kind?: string) => {
+                vscode.commands.executeCommand('vscode.openWith', vscode.Uri.file(filePath), viewerViewType(kind));
+            },
+            viewerCopyPath: (filePath: string) => {
+                vscode.env.clipboard.writeText(filePath);
+            },
+            viewerCopyInAppLink: (filePath: string) => {
+                // 逆引きは共有ヘルパ（3 系統で同一手順 — src/shared/viewer-inapp-link.ts の判断コメント）
+                const link = buildInAppFileLinkForFolder(folderPath, filePath);
+                if (!link) {
+                    // 通知キーは WebviewMessages 側（t() の Messages には無い — getWebviewMessages 経由）
+                    vscode.window.showWarningMessage(getWebviewMessages().viewerCopyInAppLinkFailed);
+                    return;
+                }
+                vscode.env.clipboard.writeText(link);
+            },
+            viewerExportFile: async (filePath: string) => {
+                // 単品コピー DL（mindmap-export-host.ts:44-58 precedent 型）
+                const target = await vscode.window.showSaveDialog({
+                    defaultUri: vscode.Uri.file(path.basename(filePath))
+                });
+                if (!target) { return; }
+                try {
+                    await vscode.workspace.fs.writeFile(target, fs.readFileSync(filePath));
+                } catch (e) {
+                    vscode.window.showWarningMessage(String((e as Error).message || e));
+                }
+            },
             openResourceRootsSettings: () => {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fractal.resourceRoots');
             },
@@ -870,6 +929,12 @@ export class NotesEditorProvider {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+
+                // FR-FV-01 マトリクス行3: Notes 内 outliner の 📎 → viewer 対象は sidepanel 面
+                // （md subpage の Side Panel と同格の UX — design §2）。例外は openExternal 縮退
+                try {
+                    if (await sidePanel.tryOpenViewerPanel(safeFilePath)) { return; }
+                } catch { /* 縮退 — ARCH-5 */ }
 
                 // Use openExternal to open with OS default app
                 await vscode.env.openExternal(vscode.Uri.file(safeFilePath));
@@ -1486,6 +1551,11 @@ export class NotesEditorProvider {
                     // sidepanel で開く (outliner → side panel と同様 freshOpen=true)
                     await sidePanel.openFile(resolvedUri.fsPath, true);
                 } else {
+                    // FR-FV-01 マトリクス行6: Notes md 📎 → viewer 対象は note 面（dispatcher 経由）。
+                    // 例外は openExternal 縮退（ARCH-5）
+                    try {
+                        if (this.tryShowNoteViewer(panel, { postMessage: (m) => panel.webview.postMessage(m) }, resolvedUri.fsPath)) { return; }
+                    } catch { /* 縮退 */ }
                     // 非 .md ローカルファイル → OS デフォルトアプリ
                     vscode.env.openExternal(resolvedUri);
                 }
@@ -2072,24 +2142,26 @@ export class NotesEditorProvider {
             // seam 関数へ委譲（DI: fileManager + senderRef）。vscode 依存分（open/reveal/clipboard/delete/
             // notify）だけ provider に置く。既存 openAttachedFile / revealAttachedFileInOS / copyAttachedFilePath と同型。 ──
 
-            // FR-TF click（§4）: file item を OS 既定アプリで開く
-            openTreeFileExternal: async (id: string, _senderRef: NotesSender) => {
+            // FR-TF click（§4）: file item を OS 既定アプリで開く（FR-FV-01: viewer 対象は note 面 viewer）
+            openTreeFileExternal: async (id: string, senderRef: NotesSender) => {
                 const p = fileManager.getTreeFilePath(id);
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+                if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await vscode.env.openExternal(vscode.Uri.file(p));
             },
             // FR-DS-05 rev.2: 検索 Files ヒット click（files/ 相対パス — 台帳未登録の添付も開ける）。
             // relPath は webview 由来の外部入力なので safeResolveUnderDir で files/ 配下に clamp（NFR-DS-07）
-            openNoteFilesExternal: async (relPath: string, _senderRef: NotesSender) => {
+            openNoteFilesExternal: async (relPath: string, senderRef: NotesSender) => {
                 const filesDir = resolveMdFilesDir(folderPath);
                 const p = safeResolveUnderDir(filesDir, String(relPath || ''));
                 if (!p || !fs.existsSync(p)) {
                     vscode.window.showErrorMessage(t('fileNotFound'));
                     return;
                 }
+                if (this.tryShowNoteViewer(panel, senderRef, p)) { return; }
                 await vscode.env.openExternal(vscode.Uri.file(p));
             },
             // FR-TF-03 (§4b): tree file → .out item
@@ -2881,10 +2953,30 @@ export class NotesEditorProvider {
         }
     }
 
-    async navigateToLink(folderPath: string, params: { outFileId?: string; nodeId?: string; pageId?: string; mdFileId?: string }): Promise<void> {
+    async navigateToLink(folderPath: string, params: { outFileId?: string; nodeId?: string; pageId?: string; mdFileId?: string; fileId?: string }): Promise<void> {
         const entry = this.openPanels.get(folderPath);
         if (!entry) return;
         entry.panel.reveal(vscode.ViewColumn.One);
+        if (params.fileId) {
+            // FR-FV-09 file link: path 解決は getTreeFilePath のみ（safeResolveUnderDir clamp 内蔵 —
+            // 新分岐で path.join を直接書かない。不変条件 8 / generator_failures 2026-08-05）。
+            const filePath = entry.fileManager.getTreeFilePath(params.fileId);
+            if (!filePath || !fs.existsSync(filePath)) {
+                vscode.window.showWarningMessage('In-app link: file not found in this note');
+                return;
+            }
+            // md link 分岐と同型の belt-and-suspenders（clamp の二重防御）
+            const mainFolder = entry.fileManager.getMainFolderPath();
+            if (safeResolveUnderDir(mainFolder, path.relative(mainFolder, filePath)) === null) {
+                vscode.window.showWarningMessage('Invalid in-app link (path outside note folder)');
+                return;
+            }
+            // viewer 対象なら note 面 viewer（例外/50MB 超/対象外は openExternal に縮退 — FR-FV-07/ARCH-5）
+            if (!this.tryShowNoteViewer(entry.panel, entry, filePath)) {
+                await vscode.env.openExternal(vscode.Uri.file(filePath));
+            }
+            return;
+        }
         if (params.mdFileId) {
             // FR-B11 md link: host 側で絶対パスに解決して渡す（webview は id → path を解決できない）。
             // webview 側で sidepanel を閉じてから notesOpenFile 経路（md は JSON.parse に流れない）で開く
