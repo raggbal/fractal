@@ -120,10 +120,23 @@ test.describe('navigateToLink のルーティング（FR-FV-09 受信側 / TC-FV
             // eslint-disable-next-line prefer-rest-params
             return origLoad.apply(this, arguments as any);
         };
+        const srcPrefix = path.join(ROOT, 'src') + path.sep;
+        const purgeSrc = () => {
+            Object.keys(require.cache)
+                .filter((k) => k.startsWith(srcPrefix))
+                .forEach((k) => { delete require.cache[k]; });
+        };
         try {
+            // 同一 worker の先行 spec（dailynotes-flat-archive 等）が**別の vscode stub 下で**
+            // 評価した src/ モジュールが cache に居ると、ここでの require はそれを返し
+            // 本 spec の stub が一切効かない（実測: vscode.env.openExternal is not a function —
+            // iter13b gate）。require 前に src/ を purge して自分の stub で新鮮に評価する
+            purgeSrc();
             return require(path.join(ROOT, 'src', 'notesEditorProvider'));
         } finally {
             Module._load = origLoad;
+            // 自分の stub 下で評価した src/ モジュールを後続 spec に残さない（TASK-19 の教訓の対称）
+            purgeSrc();
         }
     }
 
