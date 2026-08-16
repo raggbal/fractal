@@ -220,8 +220,9 @@
         // FR-FV-08（ADRL-0068 / design §10）: message 形は openExternalFallback と同形
         // `{type, fileUri, filePath: filePath || null}`（host 側 case は filePath を fs パスとして使う）
         const standalone = isStandaloneFace();
-        // FR-FV-13（§14-6）: notes タブ strip の有無で Open in Standalone を出し分ける
+        // FR-FV-13（§14-6）: 面判別 — notes タブ strip の有無 × file タブ内か（loadTab 経由の表示）
         const hasTabStrip = !!window.__notesTabManager;
+        const inTab = !!(opts && opts.inTab);
 
         // OS で開く（アクション群左端 — 裁定 19）
         addAction(bar, 'viewer-open-external', VIEWER_ICONS.openExternal,
@@ -254,12 +255,35 @@
                 label('viewerCopyInAppLink', 'Copy In-App Link'),
                 () => ({ type: 'viewerCopyInAppLink', fileUri, filePath: filePath || null }));
         }
-        // Open in new tab（openTab スロット = 最右端。standalone 面は既にタブなので出さない）
-        if (!standalone) {
-            addAction(bar, 'viewer-open-in-new-tab', VIEWER_ICONS.openInNewTab,
-                label('viewerOpenInNewTab', 'Open in new tab'),
-                // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
-                () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
+        // Open in new tab（openTab スロット = 最右端。standalone 面 / file タブ内は自身がタブなので出さない）
+        if (!standalone && !inTab) {
+            if (hasTabStrip) {
+                // FR-FV-13 / ADRL-0069: notes 面は **fractal タブ**（notes タブ strip の kind='file'）で
+                // 開く — host 往復ゼロの webview 完結（md sidepanel の openTab = fractal タブと同格）。
+                // viewer 表示素材（kind/fileUri）は closure が持つので extra でタブ state に渡す
+                const btn = document.createElement('button');
+                btn.className = 'viewer-open-in-new-tab';
+                const ontLabel = label('viewerOpenInNewTab', 'Open in new tab');
+                btn.title = ontLabel;
+                btn.setAttribute('aria-label', ontLabel);
+                btn.innerHTML = VIEWER_ICONS.openInNewTab;
+                btn.addEventListener('click', () => {
+                    window.__notesTabManager.openInNewTab(
+                        filePath || fileUri, 'file', decodeURIComponentSafe(name),
+                        { viewerKind: kind, viewerFileUri: fileUri });
+                    // sidepanel 発ならペインを閉じる（md precedent: openTab 後の closeSidePanelImmediate
+                    // — outliner.js:7833。loadTab 側の close は「タブ切替時」の排他で、初回 open 時の
+                    // 対はここ）※ loadTab too — 二重 close は no-op なので安全
+                    if (opts && typeof opts.onClose === 'function') { opts.onClose(); }
+                });
+                bar.appendChild(btn);
+            } else {
+                // タブ strip の無い面（outliner 単独面）は従来どおり vscode タブ（standalone viewer）
+                addAction(bar, 'viewer-open-in-new-tab', VIEWER_ICONS.openInNewTab,
+                    label('viewerOpenInNewTab', 'Open in new tab'),
+                    // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
+                    () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
+            }
         }
         // FR-FV-14: sidepanel 面は × close を最右端に差し込む（md 正典: close が最右端 = :219。
         // className は既存 TC/排他経路が参照する viewer-side-panel-close を維持）

@@ -57,6 +57,9 @@
             return {
                 id: nextTabId(),
                 filePath: filePath,
+                // kind 推定サイト 1/3（FR-FV-13 / ADRL-0069 決定 3）: 拡張子導出は 'out'|'md' の
+                // 2 値のみ。kind='file'（viewer タブ）は**呼び出し側の明示必須** — .pdf/.html を
+                // この導出に通すと 'md' に化けて bridge.openFile が md エディタで開く事故になる
                 kind: kind || (/\.out$/i.test(filePath || '') ? 'out' : 'md'),
                 title: title || basenameNoExt(filePath),
                 mainScrollTop: 0,
@@ -74,6 +77,9 @@
         function captureActive() {
             var cur = getActive();
             if (!cur) return;
+            // FR-FV-13: file タブ（viewer）は scroll/outlinerView の Tab State を持たない
+            //（getActiveMainScrollEl は 'out'/'md' 前提 — 再活性化は常に先頭から再表示 = 受容）
+            if (cur.kind === 'file') { return; }
             var el = getActiveMainScrollEl();
             cur.mainScrollTop = (el && typeof el.scrollTop === 'number') ? el.scrollTop : cur.mainScrollTop;
             if (cur.kind === 'out') {
@@ -92,6 +98,24 @@
 
         // ── load: host に openFile を依頼（既存経路）。scroll 復元は受信ハンドラ末尾で consume ──
         function loadTab(tab) {
+            // FR-FV-13（再オープン③ / ADRL-0069 決定 3 の到達ガード）: file タブは bridge.openFile を
+            // 呼ばず viewer 表示へ dispatch（.pdf/.html を md エディタ経路に流さない）。
+            if (tab.kind === 'file') {
+                // viewer に scroll 復元は無い — pending を張らない（張ると updateData が来ない file タブでは
+                // 消費されず残留し、**次の md/out タブ切替が stale な復元値を誤消費**する = one-shot 事故）
+                pendingMainRestore = null;
+                pendingSidePanelRestore = null;
+                // md sidepanel / viewer sidepanel とも閉じる（タブ面との排他 — §14-2）
+                if (typeof closeSidePanelInWebview === 'function') closeSidePanelInWebview();
+                if (typeof bridge.closeSidePanel === 'function') bridge.closeSidePanel();
+                if (window.__viewerSidePanel && typeof window.__viewerSidePanel.close === 'function') {
+                    window.__viewerSidePanel.close();
+                }
+                if (window.__viewerDispatcher && typeof window.__viewerDispatcher.showViewer === 'function') {
+                    window.__viewerDispatcher.showViewer(tab.viewerKind, tab.viewerFileUri, tab.title, tab.filePath, { inTab: true });
+                }
+                return;
+            }
             pendingMainRestore = { mainScrollTop: tab.mainScrollTop, outlinerView: tab.outlinerView, kind: tab.kind };
             // サイドパネル復元/クローズの予約
             if (tab.sidePanel && tab.sidePanel.open && tab.sidePanel.filePath) {
@@ -292,12 +316,14 @@
             }
         }
 
-        // ── 公開: 新タブを開く（FR-TAB-02） ──
-        function openInNewTab(filePath, kind, title) {
+        // ── 公開: 新タブを開く（FR-TAB-02。extra は FR-FV-13 — file タブの viewer 表示素材
+        //   { viewerKind: 'pdf'|'html', viewerFileUri } を TabState にマージ。既存呼び出しは不変） ──
+        function openInNewTab(filePath, kind, title, extra) {
             if (!filePath) return null;
             // 現アクティブの状態を退避 + flush（unload 前）
             if (getActive()) { captureActive(); flushBeforeUnload(); }
             var tab = makeTabState(filePath, kind, title);
+            if (extra) { for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) tab[k] = extra[k]; } }
             tabs.push(tab);
             activeId = tab.id;
             loadTab(tab);
@@ -374,6 +400,9 @@
             // 現アクティブを flush（内容差し替え前）
             flushBeforeUnload();
             cur.filePath = filePath;
+            // kind 推定サイト 2/3（FR-FV-13）: 本経路は md/out 専用（file panel click / Recent 等）。
+            // file タブが active でも md/out へ変換されるのは意図どおり（メインペインの実内容に同期）。
+            // viewer（kind='file'）はこの経路を使わない — openInNewTab の明示 kind のみ
             cur.kind = kind || (/\.out$/i.test(filePath) ? 'out' : 'md');
             cur.title = basenameNoExt(filePath);
             cur.mainScrollTop = 0;         // 別ファイルに切替＝スクロールは先頭
@@ -428,6 +457,9 @@
             if (title) { cur.title = title; renderTabBar(); }   // ★ filePath 同一でも title は更新（early-return より前）
             if (cur.filePath === filePath) return;   // 同一ファイルの再 render → scroll/outlinerView を温存
             cur.filePath = filePath;
+            // kind 推定サイト 3/3（FR-FV-13）: updateData は md/out の openFile 応答のみ（file タブは
+            // bridge.openFile を呼ばないため file パスはここへ来ない）。file タブ active 中に md/out の
+            // updateData が来た場合の md/out への変換は「メインペインの実内容への同期」で意図どおり
             cur.kind = kind || (/\.out$/i.test(filePath) ? 'out' : 'md');
             if (!title) { cur.title = basenameNoExt(filePath); }  // title 未提供時のみ basename フォールバック
             cur.mainScrollTop = 0;                    // 別ファイルに変わった → scroll は先頭

@@ -57,7 +57,7 @@
     }
 
     /** note 面に viewer を表示（outliner/md を隠す） */
-    function showViewer(kind, fileUri, fileName, filePath) {
+    function showViewer(kind, fileUri, fileName, filePath, opts) {
         // md sidepanel（.side-panel.open = z-index:100）が開いていると viewer（z-index:50）に被さるため
         // 排他で閉じる。DOM 直参照でなく既存 close ボタンの click = md 側コードへの直接依存を持たない
         // 弱結合（viewer-side-panel.js:72-79 の既存 precedent と同型）。全 note 面 viewer 表示経路
@@ -74,7 +74,9 @@
         setPaneDisplay('markdownContainer', 'none');
         container.style.display = 'flex';
         if (window.__fileViewer) {
-            window.__fileViewer.open(kind, fileUri, container, filePath);
+            // FR-FV-13: opts.inTab（file タブ経由の表示 — loadTab が渡す）を buildToolbar の
+            // 面別出し分けへ伝搬。overlay（showNoteViewer message / 既存呼び出し）は opts なし
+            window.__fileViewer.open(kind, fileUri, container, filePath, { inTab: !!(opts && opts.inTab) });
             // open は toolbar を同期構築する（最初の await より前）— ≡ ボタンを先頭に追加
             const bar = container.querySelector('.viewer-toolbar');
             if (bar && !bar.querySelector('.notes-panel-toggle-btn')) {

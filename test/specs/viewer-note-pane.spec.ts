@@ -119,3 +119,179 @@ test.describe('note 面 css 配線（reviewer iter1 TASK-09 / TC-FV-39）', () =
         expect(await page.locator('#viewerContainer .viewer-toolbar').count(), 'viewer がマウントされる').toBe(1);
     });
 });
+
+// ── 再オープン③（FR-FV-13 / ADRL-0069 — file タブ + Open in Standalone） ──────
+test.describe('file タブ（FR-FV-13）', () => {
+
+    /** notes ハーネス + 実 tab manager（__testApi.initTabManager = 本番と同じ __initNotesTabManager） */
+    async function setupWithTabs(page: import('@playwright/test').Page) {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher && (window as any).__testApi);
+        await page.evaluate(() => { (window as any).__testApi.initTabManager(); });
+    }
+    const FILE_PATH = '/x/doc.html';
+    const FILE_URI = './viewer-fixtures/sample.html';
+
+    /** overlay（非タブ）で note 面 viewer を表示 */
+    async function showOverlayViewer(page: import('@playwright/test').Page) {
+        await page.evaluate(({ uri, fp }) => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: uri, fileName: 'doc.html', filePath: fp }, '*');
+        }, { uri: FILE_URI, fp: FILE_PATH });
+        await page.waitForSelector('#viewerContainer .viewer-toolbar', { timeout: 5000 });
+    }
+
+    test('TC-FV-63: Open in new tab → file タブ生成 + note 面表示（vscode message 不発・webview 完結）', async ({ page }) => {
+        await setupWithTabs(page);
+        await showOverlayViewer(page);
+        const posted0 = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'viewerOpenInNewTab').length);
+
+        await page.click('#viewerContainer .viewer-open-in-new-tab');
+        await page.waitForSelector('#viewerContainer .viewer-html-frame', { timeout: 5000 });
+
+        const state = await page.evaluate(() => {
+            const tabs = (window as any).__notesTabManager.getTabs();
+            const activeId = (window as any).__notesTabManager.getActiveId();
+            return { tabs, active: tabs.find((t: any) => t.id === activeId) };
+        });
+        expect(state.active.kind, 'kind=file タブが active（makeTabState の明示 kind — 拡張子導出を通らない）').toBe('file');
+        expect(state.active.filePath).toBe(FILE_PATH);
+        expect(state.active.title).toBe('doc.html');
+        // vscode タブ経路（viewerOpenInNewTab message）は不発 = fractal タブ化の pin
+        const posted1 = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'viewerOpenInNewTab').length);
+        expect(posted1, 'viewerOpenInNewTab message は post されない（host 往復ゼロ）').toBe(posted0);
+        // タブ内ツールバーに切替わる（Open in new tab 消滅 / Open in Standalone 表示 — §14-6）
+        expect(await page.locator('#viewerContainer .viewer-open-in-new-tab').count(), 'inTab では Open in new tab 非表示').toBe(0);
+        expect(await page.locator('#viewerContainer .viewer-open-in-standalone').count(), 'inTab では Open in Standalone 表示').toBe(1);
+    });
+
+    test('TC-FV-63b: kind 推定 3 サイト番人 — file パスが拡張子導出を通らない / md への変換は一貫', async ({ page }) => {
+        await setupWithTabs(page);
+        // (iii) makeTabState: kind 明示（.html でも 'md' に化けない）
+        await page.evaluate(({ uri, fp }) => {
+            (window as any).__notesTabManager.openInNewTab(fp, 'file', 'doc.html', { viewerKind: 'html', viewerFileUri: uri });
+        }, { uri: FILE_URI, fp: FILE_PATH });
+        let active = await page.evaluate(() => {
+            const tm = (window as any).__notesTabManager;
+            return tm.getTabs().find((t: any) => t.id === tm.getActiveId());
+        });
+        expect(active.kind).toBe('file');
+        // loadTab の file 分岐: bridge.openFile('/x/doc.html') が**呼ばれない**
+        //（counterfactual: 分岐が無いと .html が md エディタ経路 = notesOpenFile に流れて RED — ADRL-0069 決定 3）
+        const openFileCalls = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'notesOpenFile').map((m: any) => m.filePath));
+        expect(openFileCalls, 'file タブは bridge.openFile を通らない').not.toContain(FILE_PATH);
+
+        // (i) syncActiveFile（:431）: file タブ active 中に md の updateData 相当 → md タブへ**一貫変換**
+        //（メインペインが md に変わった時の意図された同期 — 中途半端な file/md 混在状態を残さない）
+        await page.evaluate(() => { (window as any).__notesTabManager.syncActiveFile('/x/note.md', undefined, 'Note'); });
+        active = await page.evaluate(() => {
+            const tm = (window as any).__notesTabManager;
+            return tm.getTabs().find((t: any) => t.id === tm.getActiveId());
+        });
+        expect(active.kind, 'md へ変換（derivation は md/out パスのみ受ける）').toBe('md');
+        expect(active.filePath).toBe('/x/note.md');
+
+        // (ii) openInActiveTab（:377）: md/out 専用経路 — md パスで従来どおり
+        await page.evaluate(() => { (window as any).__notesTabManager.openInActiveTab('/y/b.md'); });
+        active = await page.evaluate(() => {
+            const tm = (window as any).__notesTabManager;
+            return tm.getTabs().find((t: any) => t.id === tm.getActiveId());
+        });
+        expect(active.kind).toBe('md');
+    });
+
+    test('TC-FV-64: タブ切替の排他往復 — file ⇄ md で viewer 表示/破棄が正しく切り替わる', async ({ page }) => {
+        await setupWithTabs(page);
+        // md タブ（updateData 相当 = loadMarkdown で md 面を成立させる）
+        const mdTabId = await page.evaluate(() => {
+            const id = (window as any).__notesTabManager.openInNewTab('/x/a.md', 'md');
+            (window as any).__testApi.mdDispatcher.loadMarkdown('# a', '/x/a.md', '');
+            return id;
+        });
+        // file タブ
+        const fileTabId = await page.evaluate(({ uri, fp }) =>
+            (window as any).__notesTabManager.openInNewTab(fp, 'file', 'doc.html', { viewerKind: 'html', viewerFileUri: uri }),
+            { uri: FILE_URI, fp: FILE_PATH });
+        await page.waitForSelector('#viewerContainer .viewer-html-frame', { timeout: 5000 });
+        expect(await page.evaluate(() => document.getElementById('viewerContainer')!.style.display !== 'none')).toBe(true);
+
+        // file → md: loadTab(md) は bridge.openFile（recorder）→ 本番は updateData で showMarkdown が走る
+        await page.evaluate((id) => { (window as any).__notesTabManager.activateTab(id); }, mdTabId);
+        await page.evaluate(() => { (window as any).__testApi.mdDispatcher.loadMarkdown('# a', '/x/a.md', ''); });
+        await page.waitForTimeout(300);
+        expect(await page.evaluate(() => {
+            const el = document.getElementById('viewerContainer');
+            return !el || el.style.display === 'none';
+        }), 'md タブへ切替で viewer が隠れる').toBe(true);
+        expect(await page.locator('#viewerContainer .viewer-html-frame').count(), 'viewer DOM は破棄（stale なし）').toBe(0);
+
+        // md → file: 再活性化で viewer が再表示される
+        await page.evaluate((id) => { (window as any).__notesTabManager.activateTab(id); }, fileTabId);
+        await page.waitForSelector('#viewerContainer .viewer-html-frame', { timeout: 5000 });
+        expect(await page.evaluate(() => document.getElementById('viewerContainer')!.style.display !== 'none'),
+            'file タブ再活性化で viewer 再表示').toBe(true);
+        // 全過程で file パスが bridge.openFile に流れていない（63b と同じ到達ガードの往復 pin）
+        const openFileCalls = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'notesOpenFile').map((m: any) => m.filePath));
+        expect(openFileCalls).not.toContain(FILE_PATH);
+    });
+
+    test('TC-FV-65: Open in Standalone → 既存 viewerOpenInNewTab case 流用の pin（新 message type を発明しない）', async ({ page }) => {
+        await setupWithTabs(page);
+        await page.evaluate(({ uri, fp }) => {
+            (window as any).__notesTabManager.openInNewTab(fp, 'file', 'doc.html', { viewerKind: 'html', viewerFileUri: uri });
+        }, { uri: FILE_URI, fp: FILE_PATH });
+        await page.waitForSelector('#viewerContainer .viewer-open-in-standalone', { timeout: 5000 });
+        await page.click('#viewerContainer .viewer-open-in-standalone');
+        const posted = await page.evaluate(() =>
+            (window as any).__testApi.messages.filter((m: any) => m.type === 'viewerOpenInNewTab'));
+        expect(posted.length, '既存 case（openWith）へ 1 件').toBe(1);
+        expect(posted[0].filePath).toBe(FILE_PATH);
+        expect(posted[0].kind, 'host が viewType を選ぶための kind').toBe('html');
+    });
+
+    test('TC-FV-66: 面×ボタン マトリクス全セル（FR-FV-13 の表 — 部分セルで代表しない）', async ({ page }) => {
+        const count = async (cls: string) => page.locator(`#viewerContainer .${cls}`).count();
+
+        // セル A: タブ strip なし（outliner 単独面相当 = __notesTabManager 不在）
+        //   → Open in new tab のみ表示（従来どおり vscode タブ = md sidepanel の openTab と同格）
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher);
+        await page.evaluate(({ uri, fp }) => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: uri, fileName: 'doc.html', filePath: fp }, '*');
+        }, { uri: FILE_URI, fp: FILE_PATH });
+        await page.waitForSelector('#viewerContainer .viewer-toolbar', { timeout: 5000 });
+        expect(await count('viewer-open-in-new-tab'), 'A: new tab 表示').toBe(1);
+        expect(await count('viewer-open-in-standalone'), 'A: Standalone 非表示').toBe(0);
+
+        // セル B: notes 面 overlay（タブ strip あり・非タブ）→ 両方表示
+        //   （notes sidepanel 面も同一 buildToolbar 経路 = hasTabStrip && !inTab で同セル）
+        await page.evaluate(() => { (window as any).__testApi.initTabManager(); });
+        await page.evaluate(({ uri, fp }) => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: uri, fileName: 'doc.html', filePath: fp }, '*');
+        }, { uri: FILE_URI, fp: FILE_PATH });
+        await page.waitForTimeout(300);
+        expect(await count('viewer-open-in-new-tab'), 'B: new tab 表示（→ fractal タブ）').toBe(1);
+        expect(await count('viewer-open-in-standalone'), 'B: Standalone 表示').toBe(1);
+
+        // セル C: file タブ内（inTab）→ Standalone のみ
+        await page.click('#viewerContainer .viewer-open-in-new-tab');
+        await page.waitForSelector('#viewerContainer .viewer-open-in-standalone', { timeout: 5000 });
+        expect(await count('viewer-open-in-new-tab'), 'C: new tab 非表示（自身がタブ）').toBe(0);
+        expect(await count('viewer-open-in-standalone'), 'C: Standalone 表示').toBe(1);
+
+        // セル D: standalone 面（__viewerConfig.kind/fileUri あり）→ 両方非表示
+        //   （実 standalone 面の実測は TC-FV-51 — ここは面判別ロジックの対称性 pin）
+        await page.evaluate(({ uri }) => {
+            (window as any).__viewerConfig = (window as any).__viewerConfig || {};
+            (window as any).__viewerConfig.kind = 'html';
+            (window as any).__viewerConfig.fileUri = uri;
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: uri, fileName: 'doc.html', filePath: '/x/doc.html' }, '*');
+        }, { uri: FILE_URI });
+        await page.waitForTimeout(300);
+        expect(await count('viewer-open-in-new-tab'), 'D: new tab 非表示').toBe(0);
+        expect(await count('viewer-open-in-standalone'), 'D: Standalone 非表示').toBe(0);
+    });
+});
