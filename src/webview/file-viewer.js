@@ -55,17 +55,22 @@
             '  --fv-text-muted: var(--fr-color-text-muted, var(--vscode-descriptionForeground, #777));',
             '  --fv-btn-bg: var(--fr-color-bg-elevated, var(--vscode-button-secondaryBackground, #fff));',
             '  --fv-btn-hover: var(--fr-color-primary-soft, var(--vscode-button-secondaryHoverBackground, #e8f1fb)); }',
-            '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 8px; align-items: center;',
+            // FR-FV-12（再オープン③）: ボタン chrome は md sidepanel の .side-panel-header-btn
+            //（styles.css:1926-1950）の値を自己完結で複製（アイコンボタン化 — 枠付きテキストボタン廃止）
+            '.viewer-toolbar { flex: 0 0 auto; display: flex; gap: 2px; align-items: center;',
             '  padding: 6px 10px; border-bottom: 1px solid var(--fv-border);',
             '  background: var(--fv-bg-bar); color: var(--fv-text);',
             '  font-family: var(--vscode-font-family, -apple-system, sans-serif); }',
             '.viewer-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;',
-            '  white-space: nowrap; font-size: 12px; color: var(--fv-text-muted); }',
-            '.viewer-toolbar button { flex: 0 0 auto; padding: 3px 12px; cursor: pointer;',
-            '  background: var(--fv-btn-bg); color: var(--fv-text);',
-            '  border: 1px solid var(--fv-border); border-radius: 6px; font-size: 12px; line-height: 1.5; }',
-            '.viewer-toolbar button:hover { background: var(--fv-btn-hover); }',
-            '.viewer-zoom-in, .viewer-zoom-out { min-width: 30px; font-weight: 600; }',
+            '  white-space: nowrap; font-size: 12px; color: var(--fv-text-muted); margin-right: 6px; }',
+            '.viewer-toolbar button { flex: 0 0 auto; background: none; border: none; color: var(--fv-text);',
+            '  cursor: pointer; padding: 4px; border-radius: 4px; opacity: 0.6;',
+            '  display: flex; align-items: center; font-size: 12px; line-height: 1; }',
+            '.viewer-toolbar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
+            '.viewer-toolbar button svg { width: 14px; height: 14px; }',
+            '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fv-btn-hover); }',
+            '.viewer-zoom-in, .viewer-zoom-out { min-width: 24px; font-weight: 600; font-size: 13px;',
+            '  justify-content: center; }',
             '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
             '  background: var(--fv-bg-body); }',
             // html は「ブラウザで見た時」が正 — iframe は常に白ベース
@@ -94,10 +99,33 @@
     }
 
     /**
+     * ツールバーのグリフ（FR-FV-12 / 裁定 18 — 再オープン③）。
+     * **md 正典からの verbatim 複製**（TC-FV-61 が字面一致を pin — 独自グリフの発明防止）:
+     *   - export/copyPath/copyInAppLink/openInNewTab/expand = editor-body-html.js の
+     *     md sidepanel テンプレ SVG（:186-:217）
+     *   - openInStandalone/allowScripts = editor-utils.js の LUCIDE_ICONS
+     *     （openInTextEditor = VS Code ロゴ / code = `</>`）
+     *   - openExternal のみ md analog 不在の新規最小（lucide screen-share — openTab ↗ との識別性）
+     * 自己完結コピーの理由: standalone 面は editor-utils.js を読み込まない + NFR-FV-02
+     * （md グローバル window.__editorUtils への参照禁止）。表示サイズは CSS（svg 14×14）が正規化する。
+     */
+    const VIEWER_ICONS = {
+        expand: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+        export: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+        copyPath: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+        copyCheck: '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        copyInAppLink: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+        openInNewTab: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+        openInStandalone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>',
+        allowScripts: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>',
+        openExternal: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m17 8 5-5"/><path d="M17 3h5v5"/></svg>',
+    };
+
+    /**
      * ツールバーのラベル（FR-FV-08 の i18n）。note / sidepanel 面は各 webviewContent が
      * window.__outlinerMessages（WebviewMessages）を注入済み。standalone 面（fileViewerContent.ts）は
-     * 注入が無いので既定文言に落ちる。キー自身は messages.ts の interface + 7 locale に登録済み
-     * （TC-FV-54 が番人 — フォールバックだけで済ませる silent i18n 債務を防ぐ）
+     * 注入が無いので既定文言（英語）に落ちる。キー自身は messages.ts の interface + 7 locale に登録済み
+     * （TC-FV-54 / TC-FV-54c が番人 — フォールバックだけで済ませる silent i18n 債務を防ぐ）
      */
     function label(key, fallback) {
         const msgs = window.__outlinerMessages || {};
@@ -115,17 +143,26 @@
         return !!(c && c.kind && c.fileUri);
     }
 
-    /** ツールバーにボタンを 1 つ足す（click で msgFactory() の message を host へ送る） */
-    function addAction(bar, className, text, msgFactory) {
+    /** ツールバーにアイコンボタンを 1 つ足す（click で msgFactory() の message を host へ送る） */
+    function addAction(bar, className, iconSvg, labelText, msgFactory) {
         const btn = document.createElement('button');
         btn.className = className;
-        btn.textContent = text;
-        btn.title = text;
+        btn.innerHTML = iconSvg;
+        btn.title = labelText;
+        btn.setAttribute('aria-label', labelText);
         btn.addEventListener('click', () => { postMessage(msgFactory()); });
         bar.appendChild(btn);
         return btn;
     }
 
+    /**
+     * FR-FV-12（再オープン③・裁定 19）: 並び順は requirement FR-FV-12 = design §13 の同一文字列で pin —
+     * `[filename] [script 許可](html) [−][+](pdf) [OS で開く][Open in Standalone][Export]
+     *  [Copy Path][Copy In-App Link][Open in new tab]`
+     * md 正典順（openInTextEditor→export→copyPath→copyInAppLink→openTab→close）の鏡映:
+     * OS で開く = アクション群左端 / Open in Standalone = openInTextEditor スロット /
+     * Open in new tab = openTab スロット（最右端・sidepanel 面では × の直前）。TC-FV-62 が全順序を pin。
+     */
     function buildToolbar(mount, fileUri, kind, filePath, state) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
@@ -135,26 +172,16 @@
         const name = String(filePath || fileUri || '').split(/[/\\]/).pop() || '';
         title.textContent = decodeURIComponentSafe(name);
         bar.appendChild(title);
-        if (kind === 'pdf') {
-            const zoomOut = document.createElement('button');
-            zoomOut.className = 'viewer-zoom-out';
-            zoomOut.title = 'Zoom out';
-            zoomOut.textContent = '−';
-            const zoomIn = document.createElement('button');
-            zoomIn.className = 'viewer-zoom-in';
-            zoomIn.title = 'Zoom in';
-            zoomIn.textContent = '+';
-            bar.appendChild(zoomOut);
-            bar.appendChild(zoomIn);
-        }
         if (kind === 'html') {
             // FR-FV-11: script は既定で不実行（継承 CSP の nonce ゲート）。ここでユーザーが
             // 明示的にオプトインしたときだけ nonce を付けて再生成する（state は open 呼び出し
             // ローカル = 非永続。別ファイル / 再オープンで必ず静的から始まる）
             const scriptBtn = document.createElement('button');
             scriptBtn.className = 'viewer-script-toggle';
-            scriptBtn.title = 'このファイルの <script> を実行する（このファイルを閉じるまで有効）';
-            scriptBtn.textContent = 'スクリプトを許可';
+            const scriptLabel = label('viewerAllowScripts', 'Allow scripts (this file only)');
+            scriptBtn.title = scriptLabel;
+            scriptBtn.setAttribute('aria-label', scriptLabel);
+            scriptBtn.innerHTML = VIEWER_ICONS.allowScripts;
             scriptBtn.setAttribute('aria-pressed', state && state.allowScripts ? 'true' : 'false');
             scriptBtn.addEventListener('click', () => {
                 if (!state || typeof state.onToggleScripts !== 'function') { return; }
@@ -162,34 +189,66 @@
             });
             bar.appendChild(scriptBtn);
         }
-        // FR-FV-08（ADRL-0068 / design §10）: 4 アクション。message 形は openExternalFallback と同形
+        if (kind === 'pdf') {
+            const zoomOut = document.createElement('button');
+            zoomOut.className = 'viewer-zoom-out';
+            const zoomOutLabel = label('viewerZoomOut', 'Zoom out');
+            zoomOut.title = zoomOutLabel;
+            zoomOut.setAttribute('aria-label', zoomOutLabel);
+            zoomOut.textContent = '−';
+            const zoomIn = document.createElement('button');
+            zoomIn.className = 'viewer-zoom-in';
+            const zoomInLabel = label('viewerZoomIn', 'Zoom in');
+            zoomIn.title = zoomInLabel;
+            zoomIn.setAttribute('aria-label', zoomInLabel);
+            zoomIn.textContent = '+';
+            bar.appendChild(zoomOut);
+            bar.appendChild(zoomIn);
+        }
+        // FR-FV-08（ADRL-0068 / design §10）: message 形は openExternalFallback と同形
         // `{type, fileUri, filePath: filePath || null}`（host 側 case は filePath を fs パスとして使う）
         const standalone = isStandaloneFace();
-        // standalone 面（host が config.kind/fileUri で自動オープンした専用タブ）は既にタブなので出さない
-        if (!standalone) {
-            addAction(bar, 'viewer-open-in-new-tab', label('viewerOpenInNewTab', 'Open in new tab'),
-                // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
+        // FR-FV-13（§14-6）: notes タブ strip の有無で Open in Standalone を出し分ける
+        const hasTabStrip = !!window.__notesTabManager;
+
+        // OS で開く（アクション群左端 — 裁定 19）
+        addAction(bar, 'viewer-open-external', VIEWER_ICONS.openExternal,
+            label('viewerOpenExternal', 'Open in OS default app'),
+            // filePath（fs パス）は sidepanel/note 面の host 側 case が openExternal に使う（SEC-2）
+            () => ({ type: 'openExternalFallback', fileUri, filePath: filePath || null }));
+
+        // Open in Standalone（vscode タブ — ADRL-0069 決定 2: 既存 viewerOpenInNewTab case を流用・
+        // 新 message type を発明しない）。standalone 面は自身 / タブ strip の無い面は
+        // Open in new tab（従来どおり vscode タブ）と重複するため非表示
+        if (!standalone && hasTabStrip) {
+            addAction(bar, 'viewer-open-in-standalone', VIEWER_ICONS.openInStandalone,
+                label('viewerOpenInStandalone', 'Open in Standalone'),
                 () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
         }
-        addAction(bar, 'viewer-copy-path', label('viewerCopyPath', 'Copy Path'),
+        addAction(bar, 'viewer-export-file', VIEWER_ICONS.export, label('viewerExportFile', 'Export'),
+            () => ({ type: 'viewerExportFile', fileUri, filePath: filePath || null }));
+        const copyBtn = addAction(bar, 'viewer-copy-path', VIEWER_ICONS.copyPath,
+            label('viewerCopyPath', 'Copy Path'),
             () => ({ type: 'viewerCopyPath', fileUri, filePath: filePath || null }));
+        // クリック後 2 秒チェックマーク遷移（md sidepanel copy-path と同形 — outliner.js precedent）
+        copyBtn.addEventListener('click', () => {
+            copyBtn.innerHTML = VIEWER_ICONS.copyCheck;
+            setTimeout(() => { copyBtn.innerHTML = VIEWER_ICONS.copyPath; }, 2000);
+        });
         // filePath が無い面は folder/id 逆引きの起点が無いので非表示。standalone は host が
         // document.uri を持つので filePath 不要（逆引き不成立なら host が warning で no-op）
         if (filePath || standalone) {
-            addAction(bar, 'viewer-copy-inapp-link', label('viewerCopyInAppLink', 'Copy In-App Link'),
+            addAction(bar, 'viewer-copy-inapp-link', VIEWER_ICONS.copyInAppLink,
+                label('viewerCopyInAppLink', 'Copy In-App Link'),
                 () => ({ type: 'viewerCopyInAppLink', fileUri, filePath: filePath || null }));
         }
-        addAction(bar, 'viewer-export-file', label('viewerExportFile', 'Export'),
-            () => ({ type: 'viewerExportFile', fileUri, filePath: filePath || null }));
-
-        const openBtn = document.createElement('button');
-        openBtn.className = 'viewer-open-external';
-        openBtn.textContent = 'OS で開く';
-        openBtn.addEventListener('click', () => {
-            // filePath（fs パス）は sidepanel/note 面の host 側 case が openExternal に使う（SEC-2）
-            postMessage({ type: 'openExternalFallback', fileUri, filePath: filePath || null });
-        });
-        bar.appendChild(openBtn);
+        // Open in new tab（openTab スロット = 最右端。standalone 面は既にタブなので出さない）
+        if (!standalone) {
+            addAction(bar, 'viewer-open-in-new-tab', VIEWER_ICONS.openInNewTab,
+                label('viewerOpenInNewTab', 'Open in new tab'),
+                // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
+                () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
+        }
         mount.appendChild(bar);
         return bar;
     }

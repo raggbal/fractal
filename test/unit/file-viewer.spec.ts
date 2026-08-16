@@ -585,3 +585,110 @@ test.describe('file-viewer: pdf 選択品質 + 版更新（FR-FV-15 / ADRL-0070�
         expect(has[0], "現裁定 = 不要（全面とも不在）").toBe(false);
     });
 });
+
+// ── 再オープン③（FR-FV-12 — ツールバーのアイコン化と md 準拠並び） ──────
+test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', () => {
+
+    test('TC-FV-61: グリフ正典一致 — md sidepanel / LUCIDE_ICONS からの複製を字面で pin', () => {
+        const viewerSrc = fs.readFileSync(path.join(ROOT, 'src', 'webview', 'file-viewer.js'), 'utf8');
+        const bodyHtmlSrc = fs.readFileSync(path.join(ROOT, 'src', 'shared', 'editor-body-html.js'), 'utf8');
+        const utilsSrc = fs.readFileSync(path.join(ROOT, 'src', 'webview', 'editor-utils.js'), 'utf8');
+
+        /** VIEWER_ICONS の key の SVG 文字列を file-viewer.js ソースから抽出 */
+        const viewerIcon = (key: string): string => {
+            const m = viewerSrc.match(new RegExp(`${key}:\\s*'(<svg[^']+</svg>)'`));
+            expect(m, `file-viewer.js の VIEWER_ICONS に ${key} が無い`).not.toBeNull();
+            return m![1];
+        };
+        /** editor-body-html.js のテンプレから、識別子直後の SVG を抽出 */
+        const templateIcon = (marker: string): string => {
+            const idx = bodyHtmlSrc.indexOf(marker);
+            expect(idx, `editor-body-html.js に ${marker} が無い`).toBeGreaterThan(-1);
+            const m = bodyHtmlSrc.slice(idx).match(/<svg[\s\S]*?<\/svg>/);
+            expect(m, `${marker} の直後に svg が無い`).not.toBeNull();
+            return m![0];
+        };
+        /** editor-utils.js の LUCIDE_ICONS から抽出 */
+        const lucideIcon = (key: string): string => {
+            const m = utilsSrc.match(new RegExp(`'${key}':\\s*'(<svg[^']+</svg>)'`));
+            expect(m, `editor-utils.js の LUCIDE_ICONS に ${key} が無い`).not.toBeNull();
+            return m![1];
+        };
+
+        // md sidepanel テンプレ正典（editor-body-html.js）と完全一致（verbatim 複製の pin —
+        // counterfactual: グリフを独自形に書き換えると RED = 新規発明の防止・generator_failures 2026-08-14）
+        expect(viewerIcon('export')).toBe(templateIcon('data-action="exportBundle"'));
+        expect(viewerIcon('copyPath')).toBe(templateIcon('id="sidePanelCopyPath"'));
+        expect(viewerIcon('copyInAppLink')).toBe(templateIcon('id="sidePanelCopyInAppLink"'));
+        expect(viewerIcon('openInNewTab')).toBe(templateIcon('id="sidePanelOpenTab"'));
+        expect(viewerIcon('expand')).toBe(templateIcon('id="sidePanelExpand"'));
+        // LUCIDE_ICONS 正典（editor-utils.js）と完全一致
+        expect(viewerIcon('openInStandalone')).toBe(lucideIcon('openInTextEditor'));
+        expect(viewerIcon('allowScripts')).toBe(lucideIcon('code'));
+        // md analog 不在の新規最小は openExternal のみ（存在だけ確認 — 正典比較対象なし）
+        expect(viewerIcon('openExternal')).toContain('<svg');
+    });
+
+    test('TC-FV-62: アイコン化 + DOM 全順序 contract（OS で開く が左端・Open in new tab が最右端）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        // 非 standalone + タブ strip あり（notes 面相当）を再現: Open in Standalone を可視化する
+        // 明示メソッド stub（Proxy 禁止 — generator_failures 2026-08-09）
+        await page.evaluate(() => {
+            (window as any).__notesTabManager = { openInNewTab: () => { /* recorder 不要 — 表示検証のみ */ } };
+            (window as any).__fileViewer.open(
+                'html', './viewer-fixtures/plain-text.html',
+                document.getElementById('viewer-root'), '/tmp/plain-text.html');
+        });
+        await page.waitForSelector('.viewer-toolbar', { timeout: 10000 });
+
+        // (c) DOM 全順序（§13 = FR-FV-12 と同一。隣接ペア全部 — 部分順序では逆順実装を素通しする）
+        const classesInOrder = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
+        const expected = [
+            'viewer-script-toggle',        // html 面
+            'viewer-open-external',        // OS で開く = アクション群左端
+            'viewer-open-in-standalone',
+            'viewer-export-file',
+            'viewer-copy-path',
+            'viewer-copy-inapp-link',
+            'viewer-open-in-new-tab',      // 最右端（sidepanel 面では × の直前）
+        ];
+        expect(classesInOrder, 'DOM 順が §13 の全順序と一致').toEqual(expected);
+
+        // (a)(b) 全ボタンがアイコン（svg 子要素 + 可視テキストなし）+ title/aria-label
+        const info = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => ({
+                cls: b.className,
+                hasSvg: !!b.querySelector('svg'),
+                text: (b.textContent || '').trim(),
+                title: b.getAttribute('title') || '',
+                aria: b.getAttribute('aria-label') || '',
+            })));
+        for (const b of info) {
+            expect(b.hasSvg, `${b.cls}: svg アイコンを持つ`).toBe(true);
+            expect(b.text, `${b.cls}: 可視テキストラベルなし`).toBe('');
+            expect(b.title.length, `${b.cls}: title(tooltip) あり`).toBeGreaterThan(0);
+            expect(b.aria.length, `${b.cls}: aria-label あり`).toBeGreaterThan(0);
+        }
+
+        // pdf 面: zoom −/+ は script 許可スロットの位置（記号ボタン・title/aria は必須）
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open(
+                'pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'), '/tmp/ja-en.pdf');
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 15000 });
+        const pdfClasses = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
+        expect(pdfClasses).toEqual([
+            'viewer-zoom-out', 'viewer-zoom-in',
+            'viewer-open-external', 'viewer-open-in-standalone', 'viewer-export-file',
+            'viewer-copy-path', 'viewer-copy-inapp-link', 'viewer-open-in-new-tab',
+        ]);
+        const zoomInfo = await page.evaluate(() => {
+            const z = document.querySelector('.viewer-zoom-in')!;
+            return { title: z.getAttribute('title') || '', aria: z.getAttribute('aria-label') || '' };
+        });
+        expect(zoomInfo.title.length).toBeGreaterThan(0);
+        expect(zoomInfo.aria.length).toBeGreaterThan(0);
+    });
+});

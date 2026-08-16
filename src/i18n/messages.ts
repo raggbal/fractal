@@ -262,6 +262,11 @@ export interface WebviewMessages {
   viewerCopyInAppLink: string;
   viewerExportFile: string;
   viewerCopyInAppLinkFailed: string;
+  viewerAllowScripts: string;
+  viewerOpenExternal: string;
+  viewerOpenInStandalone: string;
+  viewerZoomIn: string;
+  viewerZoomOut: string;
 }
 
 // Supported locales

@@ -310,4 +310,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: 'アプリ内リンクをコピー',
   viewerExportFile: 'エクスポート',
   viewerCopyInAppLinkFailed: 'このファイルは note に属していないため、アプリ内リンクを作成できません。',
+  viewerAllowScripts: 'スクリプトを許可（このファイルのみ）',
+  viewerOpenExternal: 'OS で開く',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '拡大',
+  viewerZoomOut: '縮小',
 };

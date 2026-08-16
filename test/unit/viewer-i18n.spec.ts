@@ -56,3 +56,38 @@ test.describe('file viewer toolbar i18n（FR-FV-08）', () => {
         }
     });
 });
+
+/** 再オープン③（TASK-21 / FR-FV-12・NFR-FV-05）で新設する 5 キー */
+const NEW_KEYS_RO3 = [
+    'viewerAllowScripts',
+    'viewerOpenExternal',
+    'viewerOpenInStandalone',
+    'viewerZoomIn',
+    'viewerZoomOut',
+];
+
+test.describe('file viewer toolbar i18n 再オープン③（FR-FV-12 / NFR-FV-05）', () => {
+
+    test('TC-FV-54c: 新設 5 キーが interface + 7 locale（webviewMessages 側）に存在 + ハードコード文言の廃止', () => {
+        const iface = fs.readFileSync(path.join(ROOT, 'src/i18n/messages.ts'), 'utf8');
+        for (const key of NEW_KEYS_RO3) {
+            expect(iface, `messages.ts の WebviewMessages に ${key} が無い`)
+                .toMatch(new RegExp(`\\b${key}: string;`));
+        }
+        for (const loc of LOCALES) {
+            const src = fs.readFileSync(path.join(ROOT, `src/i18n/locales/${loc}.ts`), 'utf8');
+            const idx = src.indexOf('export const webviewMessages');
+            expect(idx, `${loc}.ts に webviewMessages export が無い`).toBeGreaterThan(-1);
+            const webviewPart = src.slice(idx);
+            for (const key of NEW_KEYS_RO3) {
+                expect(webviewPart, `${loc}.ts の webviewMessages に ${key} が無い`)
+                    .toMatch(new RegExp(`\\b${key}:`));
+            }
+        }
+        // ハードコード日本語の廃止（裁定 23 — i18n 経由に一本化。fallback は英語既定文言）。
+        // 検査は**引用符付きリテラル**（= UI 文字列への代入）に限定 — コメント内の設計参照は許容
+        const viewerSrc = fs.readFileSync(path.join(ROOT, 'src/webview/file-viewer.js'), 'utf8');
+        expect(viewerSrc.includes("'スクリプトを許可"), 'file-viewer.js にハードコード「スクリプトを許可」リテラルが残存').toBe(false);
+        expect(viewerSrc.includes("'OS で開く"), 'file-viewer.js にハードコード「OS で開く」リテラルが残存').toBe(false);
+    });
+});

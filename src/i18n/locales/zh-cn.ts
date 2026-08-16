@@ -265,4 +265,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: '复制应用内链接',
   viewerExportFile: '导出',
   viewerCopyInAppLinkFailed: '该文件不属于任何笔记，因此无法创建应用内链接。',
+  viewerAllowScripts: '允许脚本（仅此文件）',
+  viewerOpenExternal: '用系统应用打开',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '放大',
+  viewerZoomOut: '缩小',
 };

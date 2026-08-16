@@ -265,4 +265,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: 'Copiar enlace interno',
   viewerExportFile: 'Exportar',
   viewerCopyInAppLinkFailed: 'Este archivo no pertenece a ninguna nota, por lo que no se puede crear un enlace interno.',
+  viewerAllowScripts: 'Permitir scripts (solo este archivo)',
+  viewerOpenExternal: 'Abrir con la aplicación del sistema',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: 'Acercar',
+  viewerZoomOut: 'Alejar',
 };

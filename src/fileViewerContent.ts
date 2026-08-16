@@ -54,7 +54,6 @@ export function getFileViewerHtml(
 <style>
 html, body { margin: 0; height: 100%; }
 #viewer-root { height: 100%; display: flex; flex-direction: column; }
-.viewer-toolbar { flex: 0 0 auto; padding: 4px; border-bottom: 1px solid var(--vscode-panel-border, #ccc); }
 .viewer-body { flex: 1 1 auto; position: relative; overflow: auto; }
 .viewer-error { padding: 16px; color: var(--vscode-errorForeground, #b00); }
 </style>

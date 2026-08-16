@@ -310,4 +310,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: 'Copy In-App Link',
   viewerExportFile: 'Export',
   viewerCopyInAppLinkFailed: 'This file does not belong to a note, so an In-App link cannot be created.',
+  viewerAllowScripts: 'Allow scripts (this file only)',
+  viewerOpenExternal: 'Open in OS default app',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: 'Zoom in',
+  viewerZoomOut: 'Zoom out',
 };

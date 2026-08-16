@@ -265,4 +265,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: '앱 내 링크 복사',
   viewerExportFile: '내보내기',
   viewerCopyInAppLinkFailed: '이 파일은 노트에 속해 있지 않아 앱 내 링크를 만들 수 없습니다.',
+  viewerAllowScripts: '스크립트 허용 (이 파일만)',
+  viewerOpenExternal: 'OS 기본 앱으로 열기',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '확대',
+  viewerZoomOut: '축소',
 };

@@ -265,4 +265,9 @@ export const webviewMessages = {
   viewerCopyInAppLink: '複製應用內連結',
   viewerExportFile: '匯出',
   viewerCopyInAppLinkFailed: '此檔案不屬於任何筆記，因此無法建立應用內連結。',
+  viewerAllowScripts: '允許腳本（僅此檔案）',
+  viewerOpenExternal: '用系統應用程式開啟',
+  viewerOpenInStandalone: 'Open in Standalone',
+  viewerZoomIn: '放大',
+  viewerZoomOut: '縮小',
 };
