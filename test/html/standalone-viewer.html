@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-pcPJILdXEcsZR+3LiZVmng==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-A0NHfAdZ+EqKzfby5U/gdA==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="pcPJILdXEcsZR+3LiZVmng==">
+<script nonce="A0NHfAdZ+EqKzfby5U/gdA==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="pcPJILdXEcsZR+3LiZVmng==">
+<script type="module" nonce="A0NHfAdZ+EqKzfby5U/gdA==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7169,7 +7169,7 @@ window.__viewerConfig = {
     workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
     cMapUrl: './pdfjs-viewer/cmaps/',
     standardFontDataUrl: './pdfjs-viewer/standard_fonts/',
-    nonce: 'pcPJILdXEcsZR+3LiZVmng==',
+    nonce: 'A0NHfAdZ+EqKzfby5U/gdA==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -7670,6 +7670,28 @@ window.__viewerConfig = {
         eventBus.on('pagesinit', () => { viewer.currentScaleValue = 'page-width'; });
         linkService.setDocument(pdf, null);
         viewer.setDocument(pdf);
+
+        // 第 8 ラウンド①: cmd/ctrl+A を viewer 内の PDF テキストに限定する。
+        // note/sidepanel 面はアプリ UI と同一 document のため、素の select-all だと outliner や
+        // ツリーまで選択がはみ出す。container を focus 可能（tabindex=-1）にして viewer 内クリックで
+        // focus を取り、cmd+A は .pdfViewer（全ページ textLayer）への selectNodeContents に置換する
+        container.tabIndex = -1;
+        container.style.outline = 'none';
+        const focusViewer = () => { try { container.focus({ preventScroll: true }); } catch { /* noop */ } };
+        container.addEventListener('mousedown', focusViewer);
+        eventBus.on('pagesinit', focusViewer);   // 開いた直後の cmd+A も viewer に閉じる
+        container.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'a') {
+                e.preventDefault();
+                e.stopPropagation();
+                const sel = window.getSelection();
+                if (!sel) { return; }
+                const range = document.createRange();
+                range.selectNodeContents(inner);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
 
         const bar = mount.querySelector('.viewer-toolbar');
         if (bar) {

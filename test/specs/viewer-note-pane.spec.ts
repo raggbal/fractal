@@ -333,3 +333,41 @@ test.describe('note 面 viewer の第 7 ラウンド番人（FR-FV-12/13）', ()
         expect(colors.btn, `md と同じ実色（${hex}）`).toBe(rgb);
     });
 });
+
+// ── 第 8 ラウンド②（file タブの右クリックメニュー） ──────
+test.describe('file タブの右クリックメニュー（FR-FV-13 追補）', () => {
+
+    test('TC-FV-76: Open in Standalone / Open in OS default app が出て既存 host case へ post する', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher && (window as any).__testApi);
+        await page.evaluate(() => { (window as any).__testApi.initTabManager(); });
+        await page.evaluate(() => {
+            // タブバーは 1 タブでは非表示（既存仕様）— md タブを先に作って 2 タブにする
+            (window as any).__notesTabManager.openInNewTab('/x/a.md', 'md');
+            (window as any).__notesTabManager.openInNewTab('/x/doc.html', 'file', 'doc.html',
+                { viewerKind: 'html', viewerFileUri: './viewer-fixtures/sample.html' });
+        });
+        const fileTab = page.locator('.notes-tab', { hasText: 'doc.html' });
+        await fileTab.waitFor({ timeout: 5000 });
+        await fileTab.click({ button: 'right' });
+        await page.waitForSelector('.file-panel-context-menu', { timeout: 5000 });
+        const items = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.file-panel-context-menu .file-panel-context-item, .file-panel-context-menu > div'))
+                .map((e) => (e.textContent || '').trim()));
+        expect(items).toContain('Open in Standalone');
+        expect(items).toContain('Open in OS default app');
+        // Open in Standalone → 既存 viewerOpenInNewTab case（ツールバーと同一配線）
+        await page.getByText('Open in Standalone', { exact: true }).click();
+        let posted = await page.evaluate(() => (window as any).__testApi.messages.filter((m: any) => m.type === 'viewerOpenInNewTab'));
+        expect(posted.length).toBe(1);
+        expect(posted[0].filePath).toBe('/x/doc.html');
+        expect(posted[0].kind).toBe('html');
+        // Open in OS default app → 既存 openExternalFallback case
+        await fileTab.click({ button: 'right' });
+        await page.waitForSelector('.file-panel-context-menu', { timeout: 5000 });
+        await page.getByText('Open in OS default app', { exact: true }).click();
+        posted = await page.evaluate(() => (window as any).__testApi.messages.filter((m: any) => m.type === 'openExternalFallback'));
+        expect(posted.length).toBe(1);
+        expect(posted[0].filePath).toBe('/x/doc.html');
+    });
+});

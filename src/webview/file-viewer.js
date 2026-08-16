@@ -498,6 +498,28 @@
         linkService.setDocument(pdf, null);
         viewer.setDocument(pdf);
 
+        // 第 8 ラウンド①: cmd/ctrl+A を viewer 内の PDF テキストに限定する。
+        // note/sidepanel 面はアプリ UI と同一 document のため、素の select-all だと outliner や
+        // ツリーまで選択がはみ出す。container を focus 可能（tabindex=-1）にして viewer 内クリックで
+        // focus を取り、cmd+A は .pdfViewer（全ページ textLayer）への selectNodeContents に置換する
+        container.tabIndex = -1;
+        container.style.outline = 'none';
+        const focusViewer = () => { try { container.focus({ preventScroll: true }); } catch { /* noop */ } };
+        container.addEventListener('mousedown', focusViewer);
+        eventBus.on('pagesinit', focusViewer);   // 開いた直後の cmd+A も viewer に閉じる
+        container.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'a') {
+                e.preventDefault();
+                e.stopPropagation();
+                const sel = window.getSelection();
+                if (!sel) { return; }
+                const range = document.createRange();
+                range.selectNodeContents(inner);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
+
         const bar = mount.querySelector('.viewer-toolbar');
         if (bar) {
             const zi = bar.querySelector('.viewer-zoom-in');

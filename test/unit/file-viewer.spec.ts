@@ -717,3 +717,36 @@ test.describe('file-viewer: 表示速度の絶対ルール（NFR-FV-06）', () =
         expect(params.iccUrl, 'iccUrl を配線しない（同上）').toBeUndefined();
     });
 });
+
+// ── 第 8 ラウンド①（cmd+A の viewer 内スコープ） ──────
+test.describe('file-viewer: cmd+A は PDF テキストに限定', () => {
+
+    test('TC-FV-75: pdf 表示中の cmd+A が viewer 外へはみ出さない（selectNodeContents スコープ）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 15000 });
+        await page.waitForSelector('.textLayer .endOfContent', { state: 'attached', timeout: 15000 });
+        // viewer 内をクリック → 実キー cmd+A（合成イベント禁止 — generator_failures 2026-08-12）
+        const box = (await page.locator('.viewer-pdf-container').boundingBox())!;
+        await page.mouse.click(box.x + box.width / 2, box.y + 60);
+        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+        const res = await page.evaluate(() => {
+            const sel = window.getSelection()!;
+            const container = document.querySelector('.viewer-pdf-container')!;
+            const inside = (n: Node | null) => !!n && container.contains(n);
+            return {
+                ranges: sel.rangeCount,
+                anchorInside: inside(sel.anchorNode),
+                focusInside: inside(sel.focusNode),
+                text: sel.toString().slice(0, 50),
+            };
+        });
+        expect(res.ranges).toBe(1);
+        // counterfactual: スコープ handler が無いと select-all は document 全体（anchor = body 側）に及ぶ
+        expect(res.anchorInside, '選択の始端が viewer 内').toBe(true);
+        expect(res.focusInside, '選択の終端が viewer 内').toBe(true);
+        expect(res.text.length, 'PDF テキストが選択されている').toBeGreaterThan(0);
+    });
+});

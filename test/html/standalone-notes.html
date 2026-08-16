@@ -56051,6 +56051,28 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         linkService.setDocument(pdf, null);
         viewer.setDocument(pdf);
 
+        // 第 8 ラウンド①: cmd/ctrl+A を viewer 内の PDF テキストに限定する。
+        // note/sidepanel 面はアプリ UI と同一 document のため、素の select-all だと outliner や
+        // ツリーまで選択がはみ出す。container を focus 可能（tabindex=-1）にして viewer 内クリックで
+        // focus を取り、cmd+A は .pdfViewer（全ページ textLayer）への selectNodeContents に置換する
+        container.tabIndex = -1;
+        container.style.outline = 'none';
+        const focusViewer = () => { try { container.focus({ preventScroll: true }); } catch { /* noop */ } };
+        container.addEventListener('mousedown', focusViewer);
+        eventBus.on('pagesinit', focusViewer);   // 開いた直後の cmd+A も viewer に閉じる
+        container.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 'a') {
+                e.preventDefault();
+                e.stopPropagation();
+                const sel = window.getSelection();
+                if (!sel) { return; }
+                const range = document.createRange();
+                range.selectNodeContents(inner);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
+
         const bar = mount.querySelector('.viewer-toolbar');
         if (bar) {
             const zi = bar.querySelector('.viewer-zoom-in');
@@ -56726,6 +56748,21 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             if (tab.kind === 'md') {
                 addTabMenuItem(menu, 'Open in Standalone', function() {
                     if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
+                });
+            }
+            // 第 8 ラウンド②（FR-FV-13 追補）: file タブ（viewer）にも standalone / OS で開くを出す。
+            // 配線はツールバーと同じ既存 host case を流用（viewerOpenInNewTab = openWith viewer viewType /
+            // openExternalFallback = OS 既定アプリ）— 新 message type を発明しない（ADRL-0069 決定 2）
+            if (tab.kind === 'file') {
+                addTabMenuItem(menu, 'Open in Standalone', function() {
+                    if (typeof window.__pdfExportPost === 'function') {
+                        window.__pdfExportPost({ type: 'viewerOpenInNewTab', fileUri: tab.viewerFileUri, filePath: tab.filePath, kind: tab.viewerKind });
+                    }
+                });
+                addTabMenuItem(menu, 'Open in OS default app', function() {
+                    if (typeof window.__pdfExportPost === 'function') {
+                        window.__pdfExportPost({ type: 'openExternalFallback', fileUri: tab.viewerFileUri, filePath: tab.filePath });
+                    }
                 });
             }
             // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）

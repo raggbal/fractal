@@ -168,6 +168,21 @@
                     if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
                 });
             }
+            // 第 8 ラウンド②（FR-FV-13 追補）: file タブ（viewer）にも standalone / OS で開くを出す。
+            // 配線はツールバーと同じ既存 host case を流用（viewerOpenInNewTab = openWith viewer viewType /
+            // openExternalFallback = OS 既定アプリ）— 新 message type を発明しない（ADRL-0069 決定 2）
+            if (tab.kind === 'file') {
+                addTabMenuItem(menu, 'Open in Standalone', function() {
+                    if (typeof window.__pdfExportPost === 'function') {
+                        window.__pdfExportPost({ type: 'viewerOpenInNewTab', fileUri: tab.viewerFileUri, filePath: tab.filePath, kind: tab.viewerKind });
+                    }
+                });
+                addTabMenuItem(menu, 'Open in OS default app', function() {
+                    if (typeof window.__pdfExportPost === 'function') {
+                        window.__pdfExportPost({ type: 'openExternalFallback', fileUri: tab.viewerFileUri, filePath: tab.filePath });
+                    }
+                });
+            }
             // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）
             addTabMenuItem(menu, 'Duplicate Tab', function() {
                 openInNewTab(tab.filePath, tab.kind);
