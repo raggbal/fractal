@@ -24,9 +24,11 @@
     let panelEl = null;
     // 第 8 ラウンド④: close 時の focus 復帰用（pdf 面は cmd+A スコープ用に viewer container が
     // focus を奪う — md sidepanel の「close で origin node へ focus を戻す」precedent と同等の挙動を
-    // outliner 内部 API に触れず汎用に実現する。one-shot: open で set / close で consume+clear）
+    // outliner 内部 API に触れず汎用に実現する。one-shot: open で set / close で consume+clear）。
+    // caret は **文字オフセット**で保存する（Range の DOM 参照は outliner が blur/再レンダで
+    // テキストノードを作り直すと isConnected=false になり「node 先頭に戻る」劣化を起こす — 第 8 R⑤）
     let prevFocusEl = null;
-    let prevRange = null;
+    let prevCaretOffset = null;
 
     // スタイルは自己完結で注入（md 側 css ファイルを触らない — NFR-FV-02。
     // 値は md .side-panel（styles.css:1658-1694）/ .side-panel-resize-handle（:1697-1713）の複製）
@@ -157,11 +159,17 @@
             const ae = document.activeElement;
             if (ae && ae !== document.body && !(panelEl && panelEl.contains(ae))) {
                 prevFocusEl = ae;
-                prevRange = null;
+                prevCaretOffset = null;
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0) {
                     const r = sel.getRangeAt(0);
-                    if (ae.contains(r.startContainer)) { prevRange = r.cloneRange(); }
+                    if (ae.contains(r.startContainer)) {
+                        // 要素先頭から caret までの文字数（DOM 参照非依存 — 再レンダ耐性）
+                        const pre = document.createRange();
+                        pre.selectNodeContents(ae);
+                        pre.setEnd(r.startContainer, r.startOffset);
+                        prevCaretOffset = pre.toString().length;
+                    }
                 }
             }
         } catch { /* noop */ }
@@ -200,16 +208,42 @@
             const ae = document.activeElement;
             const stole = !ae || ae === document.body || (panelEl && panelEl.contains(ae));
             if (stole && prevFocusEl && prevFocusEl.isConnected) {
-                prevFocusEl.focus({ preventScroll: true });
-                if (prevRange && prevRange.startContainer && prevRange.startContainer.isConnected) {
-                    const sel = window.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(prevRange);
+                const el = prevFocusEl;
+                const offset = prevCaretOffset;
+                el.focus({ preventScroll: true });
+                if (offset !== null) {
+                    // 文字オフセット位置へ caret を置く（現在の DOM を歩いて再解決 — 再レンダ耐性）。
+                    // focus 由来の再レンダ（outliner の editing モード切替）後にもう一度適用する
+                    const place = () => {
+                        try {
+                            if (!el.isConnected) { return; }
+                            let remaining = offset;
+                            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                            let node = walker.nextNode();
+                            let target = null;
+                            let tOff = 0;
+                            while (node) {
+                                const len = (node.textContent || '').length;
+                                if (remaining <= len) { target = node; tOff = remaining; break; }
+                                remaining -= len;
+                                node = walker.nextNode();
+                            }
+                            const sel = window.getSelection();
+                            if (!sel) { return; }
+                            const r = document.createRange();
+                            if (target) { r.setStart(target, tOff); r.collapse(true); }
+                            else { r.selectNodeContents(el); r.collapse(false); }
+                            sel.removeAllRanges();
+                            sel.addRange(r);
+                        } catch { /* noop */ }
+                    };
+                    place();
+                    requestAnimationFrame(place);
                 }
             }
         } catch { /* noop */ }
         prevFocusEl = null;
-        prevRange = null;
+        prevCaretOffset = null;
     }
 
     function isOpen() {

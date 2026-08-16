@@ -268,6 +268,12 @@ test.describe('viewer sidepanel: close 後の focus 復帰（FR-FV-14 追補）'
             (window as any).__viewerSidePanel.open('html', './viewer-fixtures/plain-text.html', 'p.html', '/tmp/p.html');
         });
         await page.waitForSelector('.viewer-side-panel.open', { timeout: 10000 });
+        // outliner の blur/再レンダを模してテキストノードを**作り直す**（第 8 R⑤ の実態 —
+        // counterfactual: DOM 参照ベース（cloneRange）の復元はここで stale になり「先頭に戻る」RED）
+        await page.evaluate(() => {
+            const probe = document.getElementById('focus-probe')!;
+            probe.textContent = probe.textContent;   // 同じ文字列の新しいテキストノードに置換
+        });
         const panelBox = (await page.locator('.viewer-side-panel').boundingBox())!;
         await page.mouse.click(panelBox.x + panelBox.width / 2, panelBox.y + 20);   // focus がプローブから離れる
         // Esc close → focus + caret がプローブへ復帰
