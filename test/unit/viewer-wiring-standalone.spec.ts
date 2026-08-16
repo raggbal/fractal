@@ -79,3 +79,25 @@ test.describe('standalone 面の契約（FR-FV-02 / TASK-03）', () => {
         expect(html).toContain('"kind":"pdf"');
     });
 });
+
+test.describe('ツールバー host 受け口の配線契約（FR-FV-08 / TASK-15）', () => {
+
+    test('TC-FV-52b: fileViewerProvider は 3 種を受け viewerOpenInNewTab は受けない / outlinerProvider は 4 種を受ける', () => {
+        const ROOT = path.join(__dirname, '..', '..');
+        const fv = fs.readFileSync(path.join(ROOT, 'src/fileViewerProvider.ts'), 'utf8');
+        // standalone 面は「新しいタブで開く」ボタンを出さない（= webview から送られない）ため受け口も持たない
+        for (const t of ['viewerCopyPath', 'viewerCopyInAppLink', 'viewerExportFile']) {
+            expect(fv, `fileViewerProvider に case '${t}' がある`).toContain(`case '${t}'`);
+        }
+        expect(fv.includes("case 'viewerOpenInNewTab'"), 'standalone 面は viewerOpenInNewTab を受けない').toBe(false);
+        // 逆引きに必要な folder 供給が registerFileViewer のシグネチャに入っている
+        expect(fv).toContain('getFolders');
+
+        const op = fs.readFileSync(path.join(ROOT, 'src/outlinerProvider.ts'), 'utf8');
+        for (const t of ['viewerOpenInNewTab', 'viewerCopyPath', 'viewerCopyInAppLink', 'viewerExportFile']) {
+            expect(op, `outlinerProvider に case '${t}' がある`).toContain(`case '${t}'`);
+        }
+        // viewType は共有ヘルパ経由（kind ごとの文字列を各 provider で再発明しない）
+        expect(op).toContain('viewerViewType');
+    });
+});

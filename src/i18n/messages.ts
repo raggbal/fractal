@@ -256,6 +256,19 @@ export interface WebviewMessages {
   shortcutCatSearch?: string;
   shortcutCatTask?: string;
   shortcutCatOther?: string;
+  // FR-FV-08: file viewer ツールバーのアクション（webview は window.__outlinerMessages 経由で読む）
+  viewerOpenInNewTab: string;
+  viewerCopyPath: string;
+  viewerCopyInAppLink: string;
+  viewerExportFile: string;
+  viewerCopyInAppLinkFailed: string;
+  viewerAllowScripts: string;
+  viewerOpenExternal: string;
+  viewerOpenInStandalone: string;
+  viewerZoomIn: string;
+  viewerZoomOut: string;
+  viewerExpand: string;
+  viewerClose: string;
 }
 
 // Supported locales

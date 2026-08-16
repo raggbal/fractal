@@ -27,3 +27,18 @@ export function isViewerTarget(filename: string): ViewerKind | null {
     if (ext === '.pdf') { return 'pdf'; }
     return null;
 }
+
+/**
+ * kind → customEditor viewType（FR-FV-08「新しいタブで開く」の openWith 引数）。
+ *
+ * 置き場の確定（tasks.md TASK-15 の「inapp-link-utils.js か viewer-target.ts か実装時に確定」）:
+ * **viewer-target.ts** を選ぶ。理由 = ①viewer の kind を扱う唯一の判定点が既にここ（拡張子→kind
+ * と kind→viewType が同じ知識の表裏）②TS なので 3 provider（notesEditorProvider /
+ * outlinerProvider / fileViewerProvider）から型付きで import できる（inapp-link-utils.js は
+ * JS で型が付かない）③inapp-link-utils.js は「fractal:// リンクの組立/解析」という別関心。
+ *
+ * 未知 kind は html viewer に寄せる（fileViewerHtml は option priority なので誤爆時の害が小さい）。
+ */
+export function viewerViewType(kind: ViewerKind | string | undefined | null): string {
+    return kind === 'pdf' ? 'fractal.fileViewer' : 'fractal.fileViewerHtml';
+}

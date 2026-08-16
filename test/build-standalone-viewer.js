@@ -36,13 +36,31 @@ const viewerJsPath = path.join(ROOT, 'src', 'webview', 'file-viewer.js');
 const viewerJs = fs.existsSync(viewerJsPath) ? fs.readFileSync(viewerJsPath, 'utf-8') : '/* file-viewer.js not yet implemented (TASK-02) */';
 const viewerCss = fs.readFileSync(path.join(PDFJS_SRC, 'pdf_viewer.css'), 'utf-8');
 
+// TASK-11（TDD-RO-3）: CSP を本番 fileViewerContent.ts 相当に再現（cspSource → 'self' 読み替え）。
+// script-src 'nonce-…' が無いと TC-FV-41/43/46 の counterfactual（ユーザー script の nonce 有無で
+// 実行可否が変わる / 外部 fetch が connect-src で落ちる）が成立しない — review-report iter1 SEC-1 の
+// 「ハーネス CSP が本番より緩く番人が検出できない」構造の再発防止。
+const crypto = require('crypto');
+const nonce = crypto.randomBytes(16).toString('base64');
+const csp = [
+    `default-src 'none'`,
+    `img-src 'self' data:`,
+    `style-src 'self' 'unsafe-inline'`,
+    `script-src 'nonce-${nonce}' 'self'`,
+    `frame-src 'self' blob:`,
+    `worker-src 'self' blob:`,
+    `connect-src 'self'`,
+    `form-action 'none'`,
+].join('; ');
+
 const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<!-- 本番 fileViewerContent.ts の CSP frame-src を忠実に再現（外部 URL への iframe 遷移を止める実体は
-     sandbox でなく親 CSP — TC-FV-03 の検証面。他 directive はハーネス都合で緩和） -->
-<meta http-equiv="Content-Security-Policy" content="frame-src 'self' blob:">
+<!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
+     policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
+     （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>Standalone File Viewer Test</title>
 <style>
 ${viewerCss}
@@ -55,20 +73,29 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script type="module">
+<script nonce="${nonce}">
+// TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
+// bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
+window.addEventListener('message', function (e) {
+    if (e.origin === 'null') { e.stopImmediatePropagation(); }
+}, true);
+</script>
+<script type="module" nonce="${nonce}">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
+// （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
 window.acquireVsCodeApi = () => ({
     postMessage: (m) => { window.__postedMessages.push(m); },
     getState: () => null,
     setState: () => {},
 });
-// pdfjs 資産の場所（test serve 相対）
+// pdfjs 資産の場所（test serve 相対）+ nonce（本番は fileViewerContent.ts が注入 — TASK-12 が消費）
 window.__viewerConfig = {
     pdfjsLibUri: './pdfjs-viewer/pdfjs-lib.mjs',
     workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
     cMapUrl: './pdfjs-viewer/cmaps/',
     standardFontDataUrl: './pdfjs-viewer/standard_fonts/',
+    nonce: '${nonce}',
 };
 ${viewerJs}
 </script>

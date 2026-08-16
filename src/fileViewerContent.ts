@@ -40,6 +40,10 @@ export function getFileViewerHtml(
         standardFontDataUrl: `${asUri(pdfjsDir)}/standard_fonts/`,
         kind,
         fileUri: asUri(fileUri),
+        // ADRL-0067: html 面の copy ヘルパー注入とオプトイン rewrite が使う nonce。
+        // blob iframe は生成時の policy container（= この CSP）を継承するため、
+        // この nonce を持つ script だけが blob 内で実行できる（防御の実体）。
+        nonce,
     };
     return `<!DOCTYPE html>
 <html>
@@ -50,14 +54,19 @@ export function getFileViewerHtml(
 <style>
 html, body { margin: 0; height: 100%; }
 #viewer-root { height: 100%; display: flex; flex-direction: column; }
-.viewer-toolbar { flex: 0 0 auto; padding: 4px; border-bottom: 1px solid var(--vscode-panel-border, #ccc); }
 .viewer-body { flex: 1 1 auto; position: relative; overflow: auto; }
 .viewer-error { padding: 16px; color: var(--vscode-errorForeground, #b00); }
 </style>
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="${nonce}">window.__viewerConfig = ${JSON.stringify(config)};</script>
+<script nonce="${nonce}">
+// sprint 20260815 TASK-13（ADRL-0067 決定4② / 不変条件7）: viewer iframe（opaque origin）発の
+// postMessage 偽装を capture-phase で一括遮断（bootstrap 最初期 = 他の全 listener 登録より前）。
+window.addEventListener('message', function (e) {
+    if (e.origin === 'null') { e.stopImmediatePropagation(); }
+}, true);
+window.__viewerConfig = ${JSON.stringify(config)};</script>
 <script type="module" nonce="${nonce}" src="${viewerJs}"></script>
 </body>
 </html>`;

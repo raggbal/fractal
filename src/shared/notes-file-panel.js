@@ -41,8 +41,16 @@ var notesFilePanel = (function() {
 
     // click / pointerup の両経路から呼ぶ単一の開閉口（currentFile ガードで二重送信防止）
     function openItemFile(filePath) {
-        if (filePath === currentFile) return;
+        // sprint 20260815-075428: file viewer 表示中は currentFile ガードを外す。
+        // viewer（html/pdf）を開いても currentFile は前の md/.out のままなので、同じ item を
+        // 再クリックすると early return して viewer が閉じず戻れなくなる（実機検収 2026-08-15）
+        var viewerShown = !!(window.__viewerDispatcher && window.__viewerDispatcher.isViewerShown
+            && window.__viewerDispatcher.isViewerShown());
+        if (filePath === currentFile && !viewerShown) return;
         currentFile = filePath;  // 即時更新で二重送信防止
+        if (viewerShown && window.__viewerDispatcher.hideViewer) {
+            window.__viewerDispatcher.hideViewer();   // 先に viewer を畳んでから開く
+        }
         bridge.openFile(filePath);
     }
 

@@ -126,6 +126,73 @@ test.describe('host sink 分岐（FR-FV-01/07, NFR-FV-01 / TASK-06）', () => {
     });
 });
 
+test.describe('ツールバー host 受け口（FR-FV-08 / TASK-15）', () => {
+
+    test('TC-FV-53: viewType 選択ヘルパー — pdf→fractal.fileViewer / html→fractal.fileViewerHtml', () => {
+        // 共有ヘルパは viewer-target.ts（vscode 非依存 = 3 provider から import 可）
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { viewerViewType } = require('../../src/shared/viewer-target');
+        expect(viewerViewType('pdf')).toBe('fractal.fileViewer');
+        expect(viewerViewType('html')).toBe('fractal.fileViewerHtml');
+        // kind 不明（未指定 / 想定外）は html viewer 側に寄せる（.htm も html）
+        expect(viewerViewType(undefined as any)).toBe('fractal.fileViewerHtml');
+    });
+
+    test('TC-FV-52: notes-message-handler の 4 case が platform メソッドへ委譲する（未実装メソッドは no-op）', async () => {
+        // notes-message-handler は transitive に vscode を import するが module-load 時には
+        // 触らない（TC-PDF-64 と同じ前提）ため最小 stub で require できる
+        const vscodeMock = {
+            workspace: { getConfiguration: () => ({ get: () => undefined }) },
+            Uri: { file: (p: string) => ({ fsPath: p }) },
+            commands: { executeCommand: () => {} },
+            window: {},
+            env: {},
+            ViewColumn: {},
+        };
+        const origLoad = Module._load;
+        Module._load = function (request: string, ...rest: unknown[]) {
+            if (request === 'vscode') { return vscodeMock; }
+            return origLoad.call(this, request, ...rest);
+        };
+        let handleNotesMessage: any;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            handleNotesMessage = require('../../src/shared/notes-message-handler').handleNotesMessage;
+        } finally {
+            Module._load = origLoad;
+        }
+
+        const calls: Array<[string, unknown[]]> = [];
+        // 明示メソッド集合の recorder（Proxy fake 禁止 — generator_failures 2026-08-09:
+        // 任意メソッド名に応答する Proxy は「メソッド欠落で発火しない」防御を検出できない）
+        const platform: any = {
+            viewerOpenInNewTab: (...a: unknown[]) => { calls.push(['viewerOpenInNewTab', a]); },
+            viewerCopyPath: (...a: unknown[]) => { calls.push(['viewerCopyPath', a]); },
+            viewerCopyInAppLink: (...a: unknown[]) => { calls.push(['viewerCopyInAppLink', a]); },
+            viewerExportFile: (...a: unknown[]) => { calls.push(['viewerExportFile', a]); },
+        };
+        const noopSender = { postMessage: () => {} };
+
+        await handleNotesMessage({ type: 'viewerOpenInNewTab', filePath: '/tmp/n/files/a.pdf', kind: 'pdf' }, {} as any, noopSender as any, platform);
+        await handleNotesMessage({ type: 'viewerCopyPath', filePath: '/tmp/n/files/a.pdf' }, {} as any, noopSender as any, platform);
+        await handleNotesMessage({ type: 'viewerCopyInAppLink', filePath: '/tmp/n/files/a.pdf' }, {} as any, noopSender as any, platform);
+        await handleNotesMessage({ type: 'viewerExportFile', filePath: '/tmp/n/files/a.pdf' }, {} as any, noopSender as any, platform);
+
+        expect(calls.map((c) => c[0])).toEqual(['viewerOpenInNewTab', 'viewerCopyPath', 'viewerCopyInAppLink', 'viewerExportFile']);
+        expect(calls[0][1]).toEqual(['/tmp/n/files/a.pdf', 'pdf']);
+        expect(calls[1][1]).toEqual(['/tmp/n/files/a.pdf']);
+        expect(calls[2][1]).toEqual(['/tmp/n/files/a.pdf']);
+        expect(calls[3][1]).toEqual(['/tmp/n/files/a.pdf']);
+
+        // platform が該当メソッドを持たない面（optional 委譲）は throw せず no-op
+        let threw = false;
+        try {
+            await handleNotesMessage({ type: 'viewerCopyPath', filePath: '/tmp/x.pdf' }, {} as any, noopSender as any, {} as any);
+        } catch { threw = true; }
+        expect(threw, '未実装 platform でも例外を投げない').toBe(false);
+    });
+});
+
 test.describe('分離番人（NFR-FV-02 / TASK-07）', () => {
 
     test('TC-FV-31: viewer 新規ファイル群から md 系への import/require/window 参照が 0 件', () => {

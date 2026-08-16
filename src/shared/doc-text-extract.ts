@@ -18,7 +18,7 @@ import { inflateRawSync } from 'zlib';
 // ── 型（design/system.md §1） ──────────────────────────────────────────────
 
 export type SkipReason = 'encrypted_or_not_zip' | 'too_large' | 'pdf_unavailable'
-                       | 'pdf_no_text' | 'unsupported_ext' | 'extract_error';
+                       | 'pdf_no_text' | 'binary' | 'extract_error';
 
 /** FR-DS-09: 位置メタ付き抽出行。loc は表示用文字列（`p.5` / `slide 3` / `売上集計!B12`）— ADRL-0060 */
 export interface ExtractedLine {
@@ -30,6 +30,12 @@ export interface ExtractResult {
     lines: ExtractedLine[]; // 全体 1MB 打ち切り
     truncated: boolean;     // 1MB 打ち切りが起きたか
     skipReason?: SkipReason; // 設定時 lines=[]（truthy record 用）
+    /**
+     * FR-DS-04 rev.2 / NFR-DS-08（ADRL-0063）: テキスト経路の成功結果は永続キャッシュに
+     * 書かない（.env/.pem 等の秘密テキストの平文複製を構造的に回避）。キャッシュ層は
+     * この flag だけを見る — 「ext が専用 4 種か」の判定をキャッシュ層に再実装しない。
+     */
+    noCache?: boolean;
 }
 
 export interface ExtractOpts {
@@ -37,10 +43,13 @@ export interface ExtractOpts {
     pdfjsLoader?: () => Promise<unknown>;
 }
 
-export const CONTENT_SEARCH_EXTS = ['.pdf', '.docx', '.xlsx', '.pptx'];
+/** 専用抽出（ZIP/PDF パーサ）を持つ 4 拡張子。それ以外はバイナリ sniff（FR-DS-11 / ADRL-0062） */
+export const DEDICATED_EXTRACT_EXTS = ['.pdf', '.docx', '.xlsx', '.pptx'];
 
 const LINE_CLAMP = 200;                 // SearchMatch.lineText の webview 表示契約（既存 md 検索と同形）
 const TOTAL_CLAMP = 1024 * 1024;        // 抽出テキスト上限 1MB（FR-DS-07(c)）
+const SNIFF_SIZE = 8192;                // NUL 検査の先頭バイト数（git の 8000 と同水準）
+const TEXT_DECODE_INPUT_CLAMP = 4 * 1024 * 1024; // decode 前の入力 clamp（NFKC の CPU 抑制。1MB 抽出上限は不変）
 
 // ── 正規化（FR-DS-07 — extension と CLI ミラーで同一実装にすること） ─────────
 
@@ -77,6 +86,82 @@ function pushNormalized(out: ExtractedLine[], state: NormState, text: string, lo
 }
 
 const skip = (reason: SkipReason): ExtractResult => ({ lines: [], truncated: false, skipReason: reason });
+
+// ── テキスト sniff + decode（FR-DS-11 / ADRL-0062 — CLI ミラー ooxml-extract.mjs と 5 分岐 1:1） ──
+
+/**
+ * バイナリ sniff + テキストデコード。判定順は不変条件（design §2.1）:
+ * ① UTF-8 BOM ② UTF-16LE BOM ③ UTF-16BE BOM ④ 先頭 8KB NUL → binary(null) ⑤ fallback UTF-8。
+ * **BOM 判定（①-③）が NUL 検査（④）より必ず先** — UTF-16 は ASCII が NUL を含むため、
+ * 逆順にすると UTF-16 テキストが全滅する（git xdiff / ripgrep と同一の業界標準形）。
+ * BOM strip は decode 前の subarray で行う（decode 後の U+FEFF 除去は NFKC で消えず漏れやすい）。
+ */
+export function sniffAndDecodeText(buf: Buffer): { text: string; truncated: boolean } | null {
+    const clamp = (b: Buffer): { b: Buffer; truncated: boolean } =>
+        b.length > TEXT_DECODE_INPUT_CLAMP
+            ? { b: b.subarray(0, TEXT_DECODE_INPUT_CLAMP), truncated: true }
+            : { b, truncated: false };
+
+    // 分岐 1: UTF-8 BOM
+    if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+        const { b, truncated } = clamp(buf.subarray(3));
+        return { text: b.toString('utf8'), truncated };
+    }
+    // 分岐 2: UTF-16LE BOM
+    if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+        const { b, truncated } = clamp(buf.subarray(2));
+        const even = b.length % 2 === 0 ? b : b.subarray(0, b.length - 1); // 奇数長 tail 切り捨て
+        return { text: even.toString('utf16le'), truncated };
+    }
+    // 分岐 3: UTF-16BE BOM（Node 非ネイティブ — swap16 は破壊的なので必ずコピーに対して行う）
+    if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+        const { b, truncated } = clamp(buf.subarray(2));
+        const even = b.length % 2 === 0 ? b : b.subarray(0, b.length - 1);
+        const copy = Buffer.from(even);
+        copy.swap16();
+        return { text: copy.toString('utf16le'), truncated };
+    }
+    // 分岐 4: BOM なし → 先頭 8KB の NUL 検査
+    const sniffLen = Math.min(buf.length, SNIFF_SIZE);
+    for (let i = 0; i < sniffLen; i++) {
+        if (buf[i] === 0x00) { return null; }
+    }
+    // 分岐 5: fallback UTF-8
+    const { b, truncated } = clamp(buf);
+    return { text: b.toString('utf8'), truncated };
+}
+
+// ── HTML 本文抽出（FR-DS-12 — .html/.htm のみ。CLI ミラーと 5 処理 1:1） ─────
+
+// &nbsp; は NAMED_ENTITIES（XML 5 種）に無い HTML 頻出参照 — 半角スペースに復号（design §0-3）
+const HTML_EXTRA_ENTITIES: Record<string, string> = { nbsp: ' ' };
+
+/**
+ * タグ剥がしでなく「本文テキストを残す」5 処理（順序 pin — design §3）:
+ * ① script/style/noscript を中身ごと除去（コメント除去より先 — <script><!-- --></script> 対策）
+ * ② HTML コメント除去 ③ タグ→半角スペース置換（'' 置換は <td>東京</td><td>大阪</td> 癒着 — 禁止）
+ * ④ 文字参照復号（XML 5 種 + 数値参照 + &nbsp;。③より後 — 復号で生じた <script> を再パースしない）
+ * ⑤ 空白畳み（④より後 — &nbsp; 復号で生じたスペースも畳む。改行は保持 = lineNumber の素材）
+ */
+export function extractHtmlBody(html: string): string {
+    let s = html.replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' '); // ①
+    s = s.replace(/<!--[\s\S]*?-->/g, ' ');                                            // ②
+    s = s.replace(/<[^>]*>/g, ' ');                                                    // ③
+    s = s.replace(/&(#[xX]?[0-9a-fA-F]+|[a-z]+);/g, (m, body: string) => {             // ④
+        if (body[0] === '#') {
+            const cp = body[1] === 'x' || body[1] === 'X'
+                ? parseInt(body.slice(2), 16)
+                : parseInt(body.slice(1), 10);
+            return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+        }
+        if (Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body)) { return NAMED_ENTITIES[body]; }
+        if (Object.prototype.hasOwnProperty.call(HTML_EXTRA_ENTITIES, body)) { return HTML_EXTRA_ENTITIES[body]; }
+        return m;
+    });
+    return s.split('\n')                                                               // ⑤
+        .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
+        .join('\n');
+}
 
 // ── ZIP layer（poc ooxml-extract.mjs 1:1 転記） ────────────────────────────
 
@@ -407,25 +492,41 @@ async function extractPdf(buf: Buffer, opts?: ExtractOpts): Promise<ExtractResul
 // ── public API ──────────────────────────────────────────────────────────────
 
 /**
- * 添付ファイルの Buffer から検索用テキストを抽出する（FR-DS-02/03/07/08）。
+ * 添付ファイルの Buffer から検索用テキストを抽出する（FR-DS-02/03/07/08/11/12）。
  * 抽出不能は throw せず必ず truthy skipReason を返す。
+ * 判定パイプライン（design §2）: ① 専用抽出 4 拡張子 → 既存抽出 ② それ以外 → バイナリ sniff
+ * （BOM → NUL → UTF-8 fallback）③ .html/.htm のみ本文抽出 ④ normalizeExtracted。
  * @param ext 拡張子（`.pdf` 等・大文字小文字不問）
  */
 export async function extractDocText(buf: Buffer, ext: string, opts?: ExtractOpts): Promise<ExtractResult> {
     const lowerExt = String(ext || '').toLowerCase();
-    if (!CONTENT_SEARCH_EXTS.includes(lowerExt)) { return skip('unsupported_ext'); }
-    if (lowerExt === '.pdf') { return extractPdf(buf, opts); }
-    try {
-        const entries = readZipEntries(buf);
-        if (lowerExt === '.docx') {
-            // docx は位置なし（ページ/行番号はレンダリング結果でフォーマットに存在しない — ユーザー裁定）
-            const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
-            return { lines: lines.map((text) => ({ text })), truncated };
+    if (DEDICATED_EXTRACT_EXTS.includes(lowerExt)) {
+        if (lowerExt === '.pdf') { return extractPdf(buf, opts); }
+        try {
+            const entries = readZipEntries(buf);
+            if (lowerExt === '.docx') {
+                // docx は位置なし（ページ/行番号はレンダリング結果でフォーマットに存在しない — ユーザー裁定）
+                const { lines, truncated } = normalizeExtracted(extractDocx(entries, buf));
+                return { lines: lines.map((text) => ({ text })), truncated };
+            }
+            return lowerExt === '.xlsx' ? extractXlsxLines(entries, buf) : extractPptxLines(entries, buf);
+        } catch (e) {
+            if (e instanceof OoxmlError && e.code === 'NOT_ZIP') { return skip('encrypted_or_not_zip'); }
+            // ZIP_CORRUPT / ZIP64 / UNSUPPORTED_COMPRESSION / NO_MAIN_PART / inflate 失敗等
+            return skip('extract_error');
         }
-        return lowerExt === '.xlsx' ? extractXlsxLines(entries, buf) : extractPptxLines(entries, buf);
-    } catch (e) {
-        if (e instanceof OoxmlError && e.code === 'NOT_ZIP') { return skip('encrypted_or_not_zip'); }
-        // ZIP_CORRUPT / ZIP64 / UNSUPPORTED_COMPRESSION / NO_MAIN_PART / inflate 失敗等
+    }
+    // テキスト sniff 経路（FR-DS-11）
+    try {
+        const decoded = sniffAndDecodeText(buf);
+        if (decoded === null) { return skip('binary'); }
+        const text = (lowerExt === '.html' || lowerExt === '.htm')
+            ? extractHtmlBody(decoded.text)                  // FR-DS-12（.svg/.xml 等は生テキスト）
+            : decoded.text;
+        const { lines, truncated } = normalizeExtracted(text);
+        // noCache: テキスト成功結果は永続キャッシュに書かない（NFR-DS-08 / ADRL-0063）
+        return { lines: lines.map((t) => ({ text: t })), truncated: truncated || decoded.truncated, noCache: true };
+    } catch {
         return skip('extract_error');
     }
 }

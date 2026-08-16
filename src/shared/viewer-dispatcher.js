@@ -21,7 +21,11 @@
         if (viewerContainer && document.body.contains(viewerContainer)) { return viewerContainer; }
         viewerContainer = document.createElement('div');
         viewerContainer.id = 'viewerContainer';
-        viewerContainer.style.cssText = 'display:none; position:absolute; inset:0; z-index:50; ' +
+        // 第 7 ラウンド③: .notes-main-wrapper は [tab-bar | container] の縦 flex のため inset:0 は
+        // タブ strip ごと覆う（file タブが「開かない」ように見える）。md .side-panel と同じく
+        // top はタブバー変数（strip 非表示時は 0px で従来どおり全高 — TC-FV-73 が番人）
+        viewerContainer.style.cssText = 'display:none; position:absolute; ' +
+            'top: var(--notes-tab-bar-height, 0px); left:0; right:0; bottom:0; z-index:50; ' +
             'background: var(--vscode-editor-background, #fff); flex-direction: column;';
         // メインペイン内（outliner/markdown コンテナの兄弟）にマウントする — body 直下だと
         // タブバー・ファイルパネルまで覆う全画面被りになる（実機検収 2026-08-15）。
@@ -57,7 +61,15 @@
     }
 
     /** note 面に viewer を表示（outliner/md を隠す） */
-    function showViewer(kind, fileUri, fileName, filePath) {
+    function showViewer(kind, fileUri, fileName, filePath, opts) {
+        // md sidepanel（.side-panel.open = z-index:100）が開いていると viewer（z-index:50）に被さるため
+        // 排他で閉じる。DOM 直参照でなく既存 close ボタンの click = md 側コードへの直接依存を持たない
+        // 弱結合（viewer-side-panel.js:72-79 の既存 precedent と同型）。全 note 面 viewer 表示経路
+        // （In-App file link / file panel クリック / 検索ヒット）が showViewer を通るのでここ 1 箇所で効く。
+        try {
+            const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
+            if (mdCloseBtn) { mdCloseBtn.click(); }
+        } catch { /* md sidepanel 不在は正常 */ }
         const container = ensureContainer();
         ensureToggleStyle();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）
@@ -66,7 +78,9 @@
         setPaneDisplay('markdownContainer', 'none');
         container.style.display = 'flex';
         if (window.__fileViewer) {
-            window.__fileViewer.open(kind, fileUri, container, filePath);
+            // FR-FV-13: opts.inTab（file タブ経由の表示 — loadTab が渡す）を buildToolbar の
+            // 面別出し分けへ伝搬。overlay（showNoteViewer message / 既存呼び出し）は opts なし
+            window.__fileViewer.open(kind, fileUri, container, filePath, { inTab: !!(opts && opts.inTab) });
             // open は toolbar を同期構築する（最初の await より前）— ≡ ボタンを先頭に追加
             const bar = container.querySelector('.viewer-toolbar');
             if (bar && !bar.querySelector('.notes-panel-toggle-btn')) {

@@ -21,7 +21,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as zlib from 'zlib';
-import { extractDocText, normalizeExtracted, CONTENT_SEARCH_EXTS, ExtractedLine } from '../../src/shared/doc-text-extract';
+import { extractDocText, normalizeExtracted, DEDICATED_EXTRACT_EXTS, ExtractedLine, SkipReason } from '../../src/shared/doc-text-extract';
 
 const FIX = path.join(__dirname, '..', 'fixtures', 'doc-search');
 const read = (name: string): Buffer => fs.readFileSync(path.join(FIX, name));
@@ -116,11 +116,149 @@ test.describe('doc-text-extract: OOXML（TASK-01）', () => {
         expect(res.lines).toEqual([]);
     });
 
-    test('TC-DS-41: unsupported_ext — extractor 自身が防御（呼び出し元フィルタと独立）', async () => {
-        const res = await extractDocText(Buffer.from('plain text'), '.txt');
-        expect(res.skipReason).toBe('unsupported_ext');
-        // CONTENT_SEARCH_EXTS の契約: 4 拡張子のみ
-        expect(CONTENT_SEARCH_EXTS.sort()).toEqual(['.docx', '.pdf', '.pptx', '.xlsx']);
+    test('TC-DS-41: .txt はテキスト抽出成功（sprint 20260815 test_update — 旧 unsupported_ext 契約の撤廃）', async () => {
+        const res = await extractDocText(Buffer.from('plain text 議事録'), '.txt');
+        expect(res.skipReason).toBeUndefined();
+        expect(res.lines.map((l) => l.text).join('\n')).toContain('議事録');
+        // DEDICATED_EXTRACT_EXTS の契約: 専用抽出は 4 拡張子のみ（それ以外は sniff パイプライン）
+        expect([...DEDICATED_EXTRACT_EXTS].sort()).toEqual(['.docx', '.pdf', '.pptx', '.xlsx']);
+    });
+});
+
+test.describe('doc-text-extract: テキスト sniff + decode（FR-DS-11 / sprint 20260815）', () => {
+
+    test('TC-DS-75: UTF-8（BOM なし）テキストがヒット・拡張子非依存', async () => {
+        const buf = Buffer.from('会議の議事録です\n2 行目', 'utf8');
+        for (const ext of ['.txt', '.json', '']) {          // 拡張子なしでも同結果
+            const res = await extractDocText(buf, ext);
+            expect(res.skipReason, `ext=${ext}`).toBeUndefined();
+            expect(res.noCache, 'テキスト経路は非キャッシュ契約').toBe(true);
+            expect(joined(res.lines)).toContain('議事録');
+        }
+    });
+
+    test('TC-DS-62: BOM→NUL 順序番人 — UTF-16LE BOM がテキスト判定（counterfactual: NUL 検査先行だと binary）+ UTF-8 BOM strip', async () => {
+        // ASCII 混在必須: UTF-16LE の NUL バイトは ASCII の上位バイトから生じる（純和文は NUL を含まず
+        // counterfactual が効かない — 実測 2026-08-15）。'ABC 議事録' の ABC が NUL を供給する
+        const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('ABC 議事録テキスト', 'utf16le')]);
+        const res = await extractDocText(le, '.txt');
+        expect(res.skipReason).toBeUndefined();
+        expect(joined(res.lines)).toContain('議事録テキスト');
+        // UTF-8 BOM strip（decode 前 subarray 方式 — 先頭 U+FEFF が残らない）
+        const bom8 = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('先頭行', 'utf8')]);
+        const res8 = await extractDocText(bom8, '.txt');
+        expect(res8.skipReason).toBeUndefined();
+        expect(res8.lines[0].text.charCodeAt(0)).not.toBe(0xfeff);
+        expect(res8.lines[0].text).toBe('先頭行');
+    });
+
+    test('TC-DS-63: UTF-16BE — swap16 デコード（元 Buffer 非破壊・奇数長 tail 切り捨て）', async () => {
+        const text = '議事録テキスト BE';
+        const leBody = Buffer.from(text, 'utf16le');
+        const beBody = Buffer.from(leBody); beBody.swap16();
+        const be = Buffer.concat([Buffer.from([0xfe, 0xff]), beBody]);
+        const snapshot = Buffer.from(be);                    // 非破壊 assert 用
+        const res = await extractDocText(be, '.txt');
+        expect(res.skipReason).toBeUndefined();
+        expect(joined(res.lines)).toContain(text);           // LE と同一内容
+        expect(be.equals(snapshot), 'swap16 はコピーに対して行い元 Buffer を壊さない').toBe(true);
+        // 奇数長 tail（BOM + 奇数バイト）で throw しない
+        const odd = Buffer.concat([Buffer.from([0xfe, 0xff]), beBody, Buffer.from([0x30])]);
+        const resOdd = await extractDocText(odd, '.txt');
+        expect(resOdd.skipReason).toBeUndefined();
+        expect(joined(resOdd.lines)).toContain(text);
+    });
+
+    test('TC-DS-65: NUL バイナリ → skipReason binary（unsupported_ext は廃止済み）', async () => {
+        const bin = Buffer.concat([Buffer.from('PKxx'), Buffer.from([0x00, 0x01, 0x02, 0x00]), Buffer.from('data')]);
+        const res = await extractDocText(bin, '.zip');
+        expect(res.skipReason).toBe('binary');
+        expect(res.lines).toEqual([]);
+        // 型レベルの pin: test/ は tsconfig exclude のため CI の tsc では実効しない（IDE tsserver 用）。
+        // CI レベルの担保は tasks.md 完了 gate の grep（doc-text-extract.ts 内 unsupported_ext = 0 件）。
+        // @ts-expect-error — SkipReason から 'unsupported_ext' は削除済み（union に残っていれば unused directive）
+        const removed: SkipReason = 'unsupported_ext';
+        expect(removed).toBeTruthy();                        // 変数未使用回避（実行時は文字列のまま）
+    });
+
+    test('TC-DS-66: NFKC 対称番人（テキスト版）— 全角括弧が半角に正規化される', async () => {
+        const res = await extractDocText(Buffer.from('（重要）全角括弧テスト', 'utf8'), '.txt');
+        expect(res.skipReason).toBeUndefined();
+        // counterfactual: normalizeExtracted を通さないと '（重要）' のままで第 4 段 NFKC クエリと不一致
+        expect(joined(res.lines)).toContain('(重要)');
+        expect(joined(res.lines)).not.toContain('（重要）');
+    });
+
+    test('TC-DS-71: 受容事項の pin — BOM なし UTF-16 / 混合ファイル / 4MB clamp', async () => {
+        // (a) BOM なし UTF-16LE → NUL だらけ → binary（仕様 = 受容事項 1）
+        const noBom = Buffer.from('ascii text', 'utf16le');
+        expect((await extractDocText(noBom, '.txt')).skipReason).toBe('binary');
+        // (b) 先頭 8KB テキスト + 後半バイナリ → テキスト判定（ゴミ行受容 = 受容事項 3）
+        const mixed = Buffer.concat([Buffer.from('マーカー行\n'.repeat(1000), 'utf8'), Buffer.from([0x00, 0x01])]);
+        const resMixed = await extractDocText(mixed, '.log');
+        expect(resMixed.skipReason).toBeUndefined();
+        expect(joined(resMixed.lines)).toContain('マーカー');
+        // (c) 4MB 超テキスト → truncated + 先頭は保持
+        const big = Buffer.from('頭マーカー\n' + 'x'.repeat(5 * 1024 * 1024), 'utf8');
+        const resBig = await extractDocText(big, '.txt');
+        expect(resBig.skipReason).toBeUndefined();
+        expect(resBig.truncated).toBe(true);
+        expect(resBig.lines[0].text).toContain('頭マーカー');
+    });
+
+    test('TC-DS-72: 専用抽出 regression — 4 拡張子は sniff を通らず従来抽出（ZIP の NUL で binary 落ちしない）', async () => {
+        const docx = read('docx-pydocx.docx');
+        const res = await extractDocText(docx, '.docx');     // ZIP = NUL 混じりだが専用経路が先
+        expect(res.skipReason).toBeUndefined();
+        expect(res.noCache, '専用抽出はキャッシュ対象（noCache なし）').toBeFalsy();
+        expect(joined(res.lines)).toContain('吾輩は猫である。名前はまだ無い。');
+        // 同一 Buffer を非専用拡張子で渡すと binary（ZIP は NUL を含む）— 判定順①の対比
+        const asBin = await extractDocText(docx, '.bin');
+        expect(asBin.skipReason).toBe('binary');
+    });
+});
+
+test.describe('doc-text-extract: HTML 本文抽出（FR-DS-12 / sprint 20260815）', () => {
+
+    const HTML_FIXTURE = [
+        '<!DOCTYPE html><html><head>',
+        '<style>.meeting-notes { color: red; }</style>',
+        '<script>const secret = "パスワード検出不可";</script>',
+        '</head><body>',
+        '<!-- コメント内秘匿語 -->',
+        '<div class="meeting-notes">議事録</div>',
+        '<table><tr><td>東京</td><td>大阪</td></tr></table>',
+        '<p>A&amp;B&nbsp;C&#x3042;</p>',
+        '<noscript>ノースクリプト文言</noscript>',
+        '</body></html>',
+    ].join('\n');
+
+    test('TC-DS-64: 本文のみ抽出（class/script/コメント除去・癒着なし・文字参照復号）', async () => {
+        const res = await extractDocText(Buffer.from(HTML_FIXTURE, 'utf8'), '.html');
+        expect(res.skipReason).toBeUndefined();
+        const text = joined(res.lines);
+        expect(text).toContain('議事録');                     // (a) 本文ヒット
+        expect(text).not.toContain('meeting');               // (b) class 名は対象外
+        expect(text).not.toContain('パスワード検出不可');      // (c) script 中身除去
+        expect(text).not.toContain('東京大阪');               // (d) 癒着番人（counterfactual: '' 置換だと RED）
+        expect(text).toContain('東京');
+        expect(text).toContain('大阪');
+        expect(text).toContain('A&B C');                      // (e) &amp; &nbsp; 復号（nbsp → 半角スペース）
+        expect(text).toContain('あ');                         //     &#x3042; 数値参照
+        expect(text).not.toContain('コメント内秘匿語');        // (f) コメント除去
+        expect(text).not.toContain('ノースクリプト文言');      //     noscript 除去
+    });
+
+    test('TC-DS-73: 適用範囲 — .xml は生テキスト（属性値がヒット可能）・.htm は .html と同じ', async () => {
+        const xml = '<property name="timeout" value="重要設定"/>';
+        const resXml = await extractDocText(Buffer.from(xml, 'utf8'), '.xml');
+        expect(resXml.skipReason).toBeUndefined();
+        expect(joined(resXml.lines)).toContain('重要設定');    // 属性値が検索可能（本文抽出しない）
+        expect(joined(resXml.lines)).toContain('<property');   // タグ字面も残る
+        // .htm は .html と同じ本文抽出
+        const resHtm = await extractDocText(Buffer.from(HTML_FIXTURE, 'utf8'), '.htm');
+        expect(joined(resHtm.lines)).toContain('議事録');
+        expect(joined(resHtm.lines)).not.toContain('meeting');
     });
 });
 
