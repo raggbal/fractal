@@ -345,15 +345,24 @@
         if (!resp.ok) { throw new Error(`fetch failed: ${resp.status}`); }
         const data = await resp.arrayBuffer();
 
+        // 5.x（ADRL-0070）: JPX/JBIG2/ICC デコーダの wasm と ICC プロファイル。
+        // 供給 base は cMapUrl（`<base>/cmaps/`）と同一ディレクトリなので導出する
+        // — 3 面の config 構築（fileViewerContent / notesWebviewContent / outlinerWebviewContent）
+        // に個別配線しない（「N 経路の一部にだけ配線」クラスの回避。1 箇所導出）
+        const assetBase = String(config.cMapUrl || '').replace(/cmaps\/?$/, '');
         const params = {
             data,
             cMapUrl: config.cMapUrl,
             cMapPacked: true,
             standardFontDataUrl: config.standardFontDataUrl,
+            wasmUrl: assetBase ? `${assetBase}wasm/` : undefined,
+            iccUrl: assetBase ? `${assetBase}iccs/` : undefined,
             isEvalSupported: false,     // CVE-2024-4367 defense-in-depth（ADRL-0065 決定 5）
         };
         window.__lastGetDocumentParams = {
             cMapUrl: params.cMapUrl,
+            wasmUrl: params.wasmUrl,
+            iccUrl: params.iccUrl,
             isEvalSupported: params.isEvalSupported,
         };
         const pdf = await pdfjsLib.getDocument(params).promise;

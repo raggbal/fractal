@@ -496,3 +496,92 @@ test.describe('file-viewer: ツールバー 4 ボタン（FR-FV-08 / ADRL-0068 /
             'standalone は filePath 無しでも host が document.uri を持つので出す').toBe(1);
     });
 });
+
+// ── 再オープン③（FR-FV-15 / ADRL-0070 — pdfjs viewer バンドル 5.x 化と選択品質） ──────
+test.describe('file-viewer: pdf 選択品質 + 版更新（FR-FV-15 / ADRL-0070）', () => {
+
+    test('TC-FV-70: 選択機構 contract — .endOfContent 実在 + mousedown で .selecting 付与 + wasm/icc URL 導出', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 15000 });
+        // PR #17923 機構（4.10 から搭載・5.x でも維持）: TextLayerBuilder が textLayer 末尾に endOfContent を置く
+        await page.waitForSelector('.textLayer .endOfContent', { state: 'attached', timeout: 15000 });   // 通常時は高さ 0 帯（inset:100% 0 0）= visible でない
+        // 実マウス down で .textLayer.selecting が付与される（選択中は endOfContent が全面化して
+        // span 間ギャップの選択途切れを受け止める — 滑らか選択の核）
+        const box = await page.locator('.textLayer').first().boundingBox();
+        expect(box).not.toBeNull();
+        await page.mouse.move(box!.x + box!.width / 2, box!.y + Math.min(40, box!.height / 2));
+        await page.mouse.down();
+        const selecting = await page.evaluate(() => !!document.querySelector('.textLayer.selecting'));
+        await page.mouse.up();
+        expect(selecting, 'mousedown 中に .textLayer.selecting が付与される').toBe(true);
+        // wasmUrl / iccUrl が cMapUrl と同じ base から導出されて getDocument に渡る（5.x 必須資産の配線番人）
+        const params = await page.evaluate(() => (window as any).__lastGetDocumentParams);
+        expect(String(params.wasmUrl)).toMatch(/wasm\/$/);
+        expect(String(params.iccUrl)).toMatch(/iccs\/$/);
+        expect(String(params.wasmUrl).replace(/wasm\/$/, '')).toBe(String(params.cMapUrl).replace(/cmaps\/$/, ''));
+    });
+
+    test('TC-FV-70c: 検証 fixture は tagged PDF（Marked:true）+ textLayer に .markedContent 実在（#19785 症状の前提）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 15000 });
+        await page.waitForSelector('.textLayer .endOfContent', { state: 'attached', timeout: 15000 });   // 通常時は高さ 0 帯（inset:100% 0 0）= visible でない
+        const res = await page.evaluate(async () => {
+            // 同一モジュール再 import（workerSrc は open() が設定済みの singleton を共有）
+            const cfg = (window as any).__viewerConfig;
+            const lib = await import(/* @vite-ignore */ cfg.pdfjsLibUri);
+            const resp = await fetch('./viewer-fixtures/ja-en.pdf');
+            const data = await resp.arrayBuffer();
+            const pdf = await lib.pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+            const mi = await pdf.getMarkInfo();
+            await pdf.destroy();
+            return {
+                marked: !!(mi && mi.Marked),
+                markedContentCount: document.querySelectorAll('.textLayer .markedContent').length,
+            };
+        });
+        // スパイク実測（2026-08-16 node 側 getMarkInfo）: fixture-ja-en.pdf は Marked:true —
+        // 新規 tagged fixture は不要（design-tdd「tagged PDF fixture の確保」手順 1 の帰結）
+        expect(res.marked, 'fixture は tagged PDF').toBe(true);
+        expect(res.markedContentCount, '.markedContent ラッパー実在 = #19785 対象構造を実際に踏んでいる').toBeGreaterThan(0);
+    });
+
+    test('TC-FV-70b: 版 contract — viewer=alias 5.x（≥5.4.530）/ 検索 vendor=4.10.38 の両 pin', () => {
+        const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+        // viewer 側: alias devDependency（ADRL-0070。^5.7.284 = 検証済み版を下限に pin — ≥5.4.530 要件充足）
+        const alias = pkg.devDependencies && pkg.devDependencies['pdfjs-viewer-dist'];
+        expect(alias, 'pdfjs-viewer-dist alias が devDependencies に存在').toBeTruthy();
+        expect(String(alias)).toMatch(/^npm:pdfjs-dist@\^5\./);
+        const installed = JSON.parse(
+            fs.readFileSync(path.join(ROOT, 'node_modules', 'pdfjs-viewer-dist', 'package.json'), 'utf8')).version;
+        const [maj, min, patch] = installed.split('.').map(Number);
+        const atLeast54530 = maj > 5 ? false : (min > 4 || (min === 4 && patch >= 530));
+        expect(maj, '5.x 系（6.x は ADRL-0070 で見送り）').toBe(5);
+        expect(atLeast54530, `#19785(5.2.133+)/#20492(5.4.530+) を含む版（実測 ${installed}）`).toBe(true);
+        // 検索 vendor 側: 4.10.38 pin 不変（ADRL-0057 非破壊）
+        expect(pkg.dependencies['pdfjs-dist'] || pkg.devDependencies['pdfjs-dist']).toBe('4.10.38');
+        const vendorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-pdfjs-vendor.js'), 'utf8');
+        expect(vendorSrc.includes('pdfjs-viewer-dist'), '検索 vendor は alias を参照しない').toBe(false);
+        // viewer build script は alias を参照する
+        const viewerBuildSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-pdfjs-viewer.js'), 'utf8');
+        expect(viewerBuildSrc.includes("'pdfjs-viewer-dist'")).toBe(true);
+        expect(viewerBuildSrc.includes('pdfjs-viewer-dist/build/pdf.mjs')).toBe(true);
+    });
+
+    test("TC-FV-71: wasm CSP contract — スパイク実測 = 'wasm-unsafe-eval' 不要（3 面とも不在の対称 pin）", () => {
+        // スパイク実測（2026-08-16）: 本番相当 CSP の standalone viewer ハーネスで pdfjs 5.7 の
+        // 実レンダ（TC-FV-04/07/70）が CSP 違反なしに green。標準レンダ経路は wasm 非依存で、
+        // JPX/JBIG2/ICC は wasm/ に nowasm fallback JS が同梱（4.10 比で機能後退なし）。
+        // → 'wasm-unsafe-eval' は追記しない。将来必要になった場合は 3 面**全部**に対で追記する
+        //（片肺配線の禁止 — この TC が非対称を RED にする）
+        const faces = ['src/fileViewerContent.ts', 'src/notesWebviewContent.ts', 'src/outlinerWebviewContent.ts'];
+        const has = faces.map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8').includes('wasm-unsafe-eval'));
+        expect(new Set(has).size, '3 面の wasm-unsafe-eval 有無が非対称').toBe(1);
+        expect(has[0], "現裁定 = 不要（全面とも不在）").toBe(false);
+    });
+});
