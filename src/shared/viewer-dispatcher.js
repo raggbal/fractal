@@ -21,7 +21,11 @@
         if (viewerContainer && document.body.contains(viewerContainer)) { return viewerContainer; }
         viewerContainer = document.createElement('div');
         viewerContainer.id = 'viewerContainer';
-        viewerContainer.style.cssText = 'display:none; position:absolute; inset:0; z-index:50; ' +
+        // 第 7 ラウンド③: .notes-main-wrapper は [tab-bar | container] の縦 flex のため inset:0 は
+        // タブ strip ごと覆う（file タブが「開かない」ように見える）。md .side-panel と同じく
+        // top はタブバー変数（strip 非表示時は 0px で従来どおり全高 — TC-FV-73 が番人）
+        viewerContainer.style.cssText = 'display:none; position:absolute; ' +
+            'top: var(--notes-tab-bar-height, 0px); left:0; right:0; bottom:0; z-index:50; ' +
             'background: var(--vscode-editor-background, #fff); flex-direction: column;';
         // メインペイン内（outliner/markdown コンテナの兄弟）にマウントする — body 直下だと
         // タブバー・ファイルパネルまで覆う全画面被りになる（実機検収 2026-08-15）。

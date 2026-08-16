@@ -295,3 +295,41 @@ test.describe('file タブ（FR-FV-13）', () => {
         expect(await count('viewer-open-in-standalone'), 'D: Standalone 非表示').toBe(0);
     });
 });
+
+// ── 再オープン④（手動テスト第 7 ラウンド①③ — 実色 / タブ strip 非被覆） ──────
+test.describe('note 面 viewer の第 7 ラウンド番人（FR-FV-12/13）', () => {
+
+    test('TC-FV-73: #viewerContainer がタブ strip を覆わない（top = --notes-tab-bar-height）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher);
+        await page.evaluate(() => {
+            document.documentElement.style.setProperty('--notes-tab-bar-height', '35px');
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: './viewer-fixtures/sample.html', fileName: 's.html' }, '*');
+        });
+        await page.waitForSelector('#viewerContainer', { state: 'visible', timeout: 5000 });
+        const top = await page.evaluate(() => getComputedStyle(document.getElementById('viewerContainer')!).top);
+        // counterfactual: inset:0 のままでは top 0px = タブ strip 被覆（file タブが「開かない」ように見える）で RED
+        expect(top, 'viewer はタブ strip の下に収まる').toBe('35px');
+    });
+
+    test('TC-FV-74: ツールバーボタンの実色 = md と同じ --fr-color-text-primary（#1A1B1F）', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__viewerDispatcher);
+        await page.evaluate(() => {
+            window.postMessage({ type: 'showNoteViewer', kind: 'html', fileUri: './viewer-fixtures/sample.html', fileName: 's.html', filePath: '/x/s.html' }, '*');
+        });
+        // 先頭ボタンは notes 側が動的注入する ☰（notes-panel-toggle-btn — 色は notes 側 CSS 管理）に
+        // なりうるため、viewer 自前のボタン（.viewer-open-external）を対象にする
+        await page.waitForSelector('#viewerContainer .viewer-toolbar .viewer-open-external', { timeout: 5000 });
+        const colors = await page.evaluate(() => {
+            const btn = document.querySelector('#viewerContainer .viewer-toolbar .viewer-open-external')!;
+            const expected = getComputedStyle(document.documentElement).getPropertyValue('--fr-color-text-primary').trim();
+            return { btn: getComputedStyle(btn).color, expected };
+        });
+        // tokens.css の --fr-color-text-primary（= md の --text-color 実体・#1A1B1F）に解決されること。
+        // counterfactual: 旧 --fr-color-text（存在しないトークン）参照では fallback へ落下して RED（第 7 ラウンド① = md より薄い）
+        const hex = colors.expected;   // '#1A1B1F'
+        const rgb = `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+        expect(colors.btn, `md と同じ実色（${hex}）`).toBe(rgb);
+    });
+});

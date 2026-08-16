@@ -517,11 +517,9 @@ test.describe('file-viewer: pdf 選択品質 + 版更新（FR-FV-15 / ADRL-0070�
         const selecting = await page.evaluate(() => !!document.querySelector('.textLayer.selecting'));
         await page.mouse.up();
         expect(selecting, 'mousedown 中に .textLayer.selecting が付与される').toBe(true);
-        // wasmUrl / iccUrl が cMapUrl と同じ base から導出されて getDocument に渡る（5.x 必須資産の配線番人）
-        const params = await page.evaluate(() => (window as any).__lastGetDocumentParams);
-        expect(String(params.wasmUrl)).toMatch(/wasm\/$/);
-        expect(String(params.iccUrl)).toMatch(/iccs\/$/);
-        expect(String(params.wasmUrl).replace(/wasm\/$/, '')).toBe(String(params.cMapUrl).replace(/cmaps\/$/, ''));
+        // 〔再オープン④で反転 — 許可: test_update〕旧「wasmUrl/iccUrl の導出」assert は撤回。
+        // wasm 配線は worker の同期 fetch タイムアウト（≈30 秒白画面）を誘発するため NFR-FV-06 で禁止 —
+        // 不在 + useWasm:false の pin は TC-FV-72 が担う（本 TC は選択機構の contract のみ）
     });
 
     test('TC-FV-70c: 検証 fixture は tagged PDF（Marked:true）+ textLayer に .markedContent 実在（#19785 症状の前提）', async ({ page }) => {
@@ -699,5 +697,23 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         });
         expect(zoomInfo.title.length).toBeGreaterThan(0);
         expect(zoomInfo.aria.length).toBeGreaterThan(0);
+    });
+});
+
+// ── 再オープン④（NFR-FV-06 — 表示速度の絶対優先。手動テスト第 7 ラウンド②） ──────
+test.describe('file-viewer: 表示速度の絶対ルール（NFR-FV-06）', () => {
+
+    test('TC-FV-72: getDocument params に useWasm:false があり wasmUrl/iccUrl が無い（ブロッキング fetch の芽の不在）', async ({ page }) => {
+        await page.goto('/standalone-viewer.html');
+        await page.evaluate(() => {
+            (window as any).__fileViewer.open('pdf', './viewer-fixtures/ja-en.pdf', document.getElementById('viewer-root'));
+        });
+        await page.waitForSelector('.pdfViewer canvas', { timeout: 15000 });
+        const params = await page.evaluate(() => (window as any).__lastGetDocumentParams);
+        // counterfactual: wasmUrl/iccUrl を配線すると pdfjs 5.x worker が ICC 色空間で
+        // fetchSync(qcms_bg.wasm) を同期実行 → vscode-webview では ≈30 秒の白画面（実機第 7 ラウンド②）
+        expect(params.useWasm, '速度絶対優先 — wasm 経路を最初から無効化').toBe(false);
+        expect(params.wasmUrl, 'wasmUrl を配線しない（worker 同期 fetch の芽）').toBeUndefined();
+        expect(params.iccUrl, 'iccUrl を配線しない（同上）').toBeUndefined();
     });
 });

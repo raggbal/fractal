@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-Y4uooeCh3MctQwz7NHGtqg==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-7YTKseXXh0bzui+3Id2R5A==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="Y4uooeCh3MctQwz7NHGtqg==">
+<script nonce="7YTKseXXh0bzui+3Id2R5A==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="Y4uooeCh3MctQwz7NHGtqg==">
+<script type="module" nonce="7YTKseXXh0bzui+3Id2R5A==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7169,7 +7169,7 @@ window.__viewerConfig = {
     workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
     cMapUrl: './pdfjs-viewer/cmaps/',
     standardFontDataUrl: './pdfjs-viewer/standard_fonts/',
-    nonce: 'Y4uooeCh3MctQwz7NHGtqg==',
+    nonce: '7YTKseXXh0bzui+3Id2R5A==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -7224,7 +7224,10 @@ window.__viewerConfig = {
             ':root { --fv-bg-bar: var(--fr-color-bg-panel, var(--vscode-editorWidget-background, #f7f7f5));',
             '  --fv-bg-body: var(--fr-color-bg-app, var(--vscode-editor-background, #ececec));',
             '  --fv-border: var(--fr-color-border, var(--vscode-panel-border, #ddd));',
-            '  --fv-text: var(--fr-color-text, var(--vscode-foreground, #333));',
+            // 第 7 ラウンド①: 実在トークンは --fr-color-text-primary（tokens.css:40 = #1A1B1F —
+            // md の --text-color の実体）。旧 --fr-color-text は存在せず --vscode-foreground
+            // （UI 用薄グレー）へ落下して md より大幅に薄くなっていた（TC-FV-74 が実色を pin）
+            '  --fv-text: var(--fr-color-text-primary, var(--vscode-editor-foreground, var(--vscode-foreground, #333)));',
             '  --fv-text-muted: var(--fr-color-text-muted, var(--vscode-descriptionForeground, #777));',
             '  --fv-btn-bg: var(--fr-color-bg-elevated, var(--vscode-button-secondaryBackground, #fff));',
             '  --fv-btn-hover: var(--fr-color-primary-soft, var(--vscode-button-secondaryHoverBackground, #e8f1fb)); }',
@@ -7625,24 +7628,25 @@ window.__viewerConfig = {
         if (!resp.ok) { throw new Error(`fetch failed: ${resp.status}`); }
         const data = await resp.arrayBuffer();
 
-        // 5.x（ADRL-0070）: JPX/JBIG2/ICC デコーダの wasm と ICC プロファイル。
-        // 供給 base は cMapUrl（`<base>/cmaps/`）と同一ディレクトリなので導出する
-        // — 3 面の config 構築（fileViewerContent / notesWebviewContent / outlinerWebviewContent）
-        // に個別配線しない（「N 経路の一部にだけ配線」クラスの回避。1 箇所導出）
-        const assetBase = String(config.cMapUrl || '').replace(/cmaps\/?$/, '');
+        // NFR-FV-06（表示速度の絶対優先 — 第 7 ラウンド②の回帰の教訓）: wasmUrl/iccUrl は**配線しない**
+        // + useWasm:false を明示する。配線すると pdfjs 5.x worker が ICC 色空間で
+        // `fetchSync(qcms_bg.wasm)` を**同期実行**し、blob worker → vscode-resource の同期 fetch が
+        // タイムアウト（実機 ≈30 秒の白画面）する。未配線なら "missing wasmUrl" warn で即 fallback =
+        // 4.10 と同等の即時表示（ICC 色管理/JPX wasm は非対応 = 受容。選択品質 #19785/#20492 は
+        // DOM/CSS 機構で wasm 非依存 — 影響なし）。TC-FV-72 が番人
         const params = {
             data,
             cMapUrl: config.cMapUrl,
             cMapPacked: true,
             standardFontDataUrl: config.standardFontDataUrl,
-            wasmUrl: assetBase ? `${assetBase}wasm/` : undefined,
-            iccUrl: assetBase ? `${assetBase}iccs/` : undefined,
+            useWasm: false,
             isEvalSupported: false,     // CVE-2024-4367 defense-in-depth（ADRL-0065 決定 5）
         };
         window.__lastGetDocumentParams = {
             cMapUrl: params.cMapUrl,
-            wasmUrl: params.wasmUrl,
-            iccUrl: params.iccUrl,
+            useWasm: params.useWasm,
+            wasmUrl: params.wasmUrl,    // undefined（不在の pin — TC-FV-72）
+            iccUrl: params.iccUrl,      // undefined（同上）
             isEvalSupported: params.isEvalSupported,
         };
         const pdf = await pdfjsLib.getDocument(params).promise;
