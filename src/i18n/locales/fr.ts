@@ -270,4 +270,6 @@ export const webviewMessages = {
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: 'Zoom avant',
   viewerZoomOut: 'Zoom arrière',
+  viewerExpand: 'Agrandir',
+  viewerClose: 'Fermer',
 };

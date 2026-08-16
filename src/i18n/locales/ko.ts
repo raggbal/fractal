@@ -270,4 +270,6 @@ export const webviewMessages = {
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: '확대',
   viewerZoomOut: '축소',
+  viewerExpand: '최대화',
+  viewerClose: '닫기',
 };

@@ -270,4 +270,6 @@ export const webviewMessages = {
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: '放大',
   viewerZoomOut: '縮小',
+  viewerExpand: '最大化',
+  viewerClose: '關閉',
 };

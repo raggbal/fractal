@@ -163,7 +163,7 @@
      * OS で開く = アクション群左端 / Open in Standalone = openInTextEditor スロット /
      * Open in new tab = openTab スロット（最右端・sidepanel 面では × の直前）。TC-FV-62 が全順序を pin。
      */
-    function buildToolbar(mount, fileUri, kind, filePath, state) {
+    function buildToolbar(mount, fileUri, kind, filePath, state, opts) {
         const bar = document.createElement('div');
         bar.className = 'viewer-toolbar';
         // 左: ファイル名（何を見ているかの手掛かり）/ 右: 操作ボタン群
@@ -172,6 +172,18 @@
         const name = String(filePath || fileUri || '').split(/[/\\]/).pop() || '';
         title.textContent = decodeURIComponentSafe(name);
         bar.appendChild(title);
+        // FR-FV-14: sidepanel 面は ⤢ expand を actions 先頭に差し込む（md 正典: expand が
+        // header-actions の先頭 = editor-body-html.js:185。呼び出し元が opts.onExpand を渡す）
+        if (opts && typeof opts.onExpand === 'function') {
+            const ex = document.createElement('button');
+            ex.className = 'viewer-expand';
+            const exLabel = label('viewerExpand', 'Expand');
+            ex.title = exLabel;
+            ex.setAttribute('aria-label', exLabel);
+            ex.innerHTML = VIEWER_ICONS.expand;
+            ex.addEventListener('click', () => { opts.onExpand(); });
+            bar.appendChild(ex);
+        }
         if (kind === 'html') {
             // FR-FV-11: script は既定で不実行（継承 CSP の nonce ゲート）。ここでユーザーが
             // 明示的にオプトインしたときだけ nonce を付けて再生成する（state は open 呼び出し
@@ -248,6 +260,18 @@
                 label('viewerOpenInNewTab', 'Open in new tab'),
                 // host が viewType（fractal.fileViewer / fractal.fileViewerHtml）を選ぶために kind を送る
                 () => ({ type: 'viewerOpenInNewTab', fileUri, filePath: filePath || null, kind }));
+        }
+        // FR-FV-14: sidepanel 面は × close を最右端に差し込む（md 正典: close が最右端 = :219。
+        // className は既存 TC/排他経路が参照する viewer-side-panel-close を維持）
+        if (opts && typeof opts.onClose === 'function') {
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'viewer-side-panel-close';
+            const closeLabel = label('viewerClose', 'Close');
+            closeBtn.title = closeLabel;
+            closeBtn.setAttribute('aria-label', closeLabel);
+            closeBtn.textContent = '×';   // md 正典と同形（&times; のテキストボタン）
+            closeBtn.addEventListener('click', () => { opts.onClose(); });
+            bar.appendChild(closeBtn);
         }
         mount.appendChild(bar);
         return bar;
@@ -460,7 +484,7 @@
      * viewer を mountEl に開く（1 実装 3 マウント — standalone/sidepanel/note 共用）。
      * 失敗時は throw せず読み込み失敗 UI に落とす（FR-FV-07）。
      */
-    async function open(kind, fileUri, mountEl, filePath) {
+    async function open(kind, fileUri, mountEl, filePath, opts) {
         const mount = mountEl || document.getElementById('viewer-root');
         if (!mount) { return; }
         ensureViewerStyle();               // 3 面共通の見た目を自己完結で保証
@@ -475,7 +499,7 @@
             const btn = mount.querySelector('.viewer-script-toggle');
             if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
         };
-        buildToolbar(mount, fileUri, kind, filePath, state);
+        buildToolbar(mount, fileUri, kind, filePath, state, opts);
         buildBody(mount);
         try {
             if (kind === 'pdf') {

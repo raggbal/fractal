@@ -267,6 +267,8 @@ export interface WebviewMessages {
   viewerOpenInStandalone: string;
   viewerZoomIn: string;
   viewerZoomOut: string;
+  viewerExpand: string;
+  viewerClose: string;
 }
 
 // Supported locales

@@ -64,11 +64,13 @@ const NEW_KEYS_RO3 = [
     'viewerOpenInStandalone',
     'viewerZoomIn',
     'viewerZoomOut',
+    'viewerExpand',    // TASK-22（sidepanel ⤢ — md template は英語ハードコードだが viewer は i18n 経由に統一）
+    'viewerClose',     // TASK-22（sidepanel ×）
 ];
 
 test.describe('file viewer toolbar i18n 再オープン③（FR-FV-12 / NFR-FV-05）', () => {
 
-    test('TC-FV-54c: 新設 5 キーが interface + 7 locale（webviewMessages 側）に存在 + ハードコード文言の廃止', () => {
+    test('TC-FV-54c: 新設 7 キーが interface + 7 locale（webviewMessages 側）に存在 + ハードコード文言の廃止', () => {
         const iface = fs.readFileSync(path.join(ROOT, 'src/i18n/messages.ts'), 'utf8');
         for (const key of NEW_KEYS_RO3) {
             expect(iface, `messages.ts の WebviewMessages に ${key} が無い`)
