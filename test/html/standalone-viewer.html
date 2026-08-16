@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-Mopqtd+f88pSn9EgE/7KzA==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'nonce-r/+0TF9fEwUrq0MR6GtKLg==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="Mopqtd+f88pSn9EgE/7KzA==">
+<script nonce="r/+0TF9fEwUrq0MR6GtKLg==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="Mopqtd+f88pSn9EgE/7KzA==">
+<script type="module" nonce="r/+0TF9fEwUrq0MR6GtKLg==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7169,7 +7169,7 @@ window.__viewerConfig = {
     workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
     cMapUrl: './pdfjs-viewer/cmaps/',
     standardFontDataUrl: './pdfjs-viewer/standard_fonts/',
-    nonce: 'Mopqtd+f88pSn9EgE/7KzA==',
+    nonce: 'r/+0TF9fEwUrq0MR6GtKLg==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
