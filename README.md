@@ -87,7 +87,7 @@ Notes keep files flat with note-relative links, so copying a single `.md` out by
 
 ### Diagrams & math
 - **Mermaid** — Rendered inline; click to edit the source
-- **KaTeX math** — Display-mode formulas re-render live
+- **KaTeX math** — Display-mode formulas re-render live; both ```` ```math ```` blocks and `$$...$$` blocks (Typora/Obsidian compatible), CJK/Hangul-friendly rendering
 
 ### Embedded draw.io
 
@@ -172,6 +172,7 @@ Fractal Note organizes information into **notes**. Just register any folder from
 - **Structure without lock-in** — Files are stored **flat** on disk while you organize `.out`, `.md`, and **any other files** in a **virtual folder/file tree** with drag & drop. Your data stays plain files
 - **Import anything** — drag a .md from Finder **or the VS Code Explorer** (hold Shift for Explorer drops) onto the file tree to copy & register it into the note; drop **any file** (PDF, Excel, zip, …) to store it in the note's shared `files/` folder — click to open (HTML / PDF in the built-in viewer, anything else in the OS default app)
 - **Files flow everywhere** — drag a tree file, an outliner 📎/page node, or a markdown 📎/subpage link onto any outliner or markdown editor (main pane, side panel, or tree item) — or back into the tree. Within a note the physical file never moves (only its owner changes); across notes the file is copied to the destination and the source copy is kept until Clean Notes collects it
+- **Link local folders** — register any folder on disk as a 🔗 **folder link** (`+linkfd`) and browse it in a built-in **folder view**: filter by name, create / rename / delete (always via the OS trash), open markdown in the side panel and PDFs / HTML in the built-in viewer. Drag files between the folder view, the tree, and side-panel markdown — these drops **move** the file, so it lives in exactly one place. The linked folder itself stays a plain reference: it's never synced, cleaned, or touched outside your explicit actions
 - **Full-text search** — Search across every outline, subpage, and standalone markdown file in the note — **and inside attached PDF / Word / Excel / PowerPoint files, plus any text-based attachment (HTML, JSON, CSV, source code, …)** — with page / slide / sheet-cell hit locations and backlinks to the referencing nodes. Streaming results, click to jump
 - **Tabs** — Switch between outliners and markdown files inside a note with browser-like tabs. Tab names follow the title / H1, and you can right-click an md tab to open it as a VS Code tab as well
 - **Recent** — Jump back to a recently opened file with one click

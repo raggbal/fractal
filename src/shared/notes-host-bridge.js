@@ -301,12 +301,43 @@
         // sidePanelFilePath 引数前提で、note md メインペインでは undefined になり
         // notes-message-handler の guard で silent no-op だった (paste 不能バグ)。
         // note md では自分の filePath を宛先として畳む (openLink 等と同型の override)。
+        // FR-MDM-01 (sprint 20260818-183407): note md メインペインは自分の filePath を宛先として畳む
+        // （shared factory 版は sidePanelFilePath 引数前提 — pasteOutlinerNodesWithAssets と同型の override）。
+        copyLinkPath: function(href, kind) {
+            api.postMessage({
+                type: 'copyLinkPath',
+                href: href,
+                kind: kind,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        // FR-MDM-03 (sprint 20260818-183407): 同上 — 自 filePath 畳み override
+        copyMdWithFullPaths: function(markdown) {
+            api.postMessage({
+                type: 'copyMdWithFullPaths',
+                markdown: markdown,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+            });
+        },
+        // FR-MDM-02 (sprint 20260818-183407): 同上 — destination='main-md'（sidepanel へ転送させない）
+        duplicateLinkEntity: function(href, kind) {
+            api.postMessage({
+                type: 'duplicateLinkEntity',
+                href: href,
+                kind: kind,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                destination: 'main-md',
+            });
+        },
         pasteOutlinerNodesWithAssets: function(plainText, nodes) {
             api.postMessage({
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                // FR-PDB-01 (sprint 20260818-183407): 結果の宛先札 = main-md
+                // （sidepanel へ転送させない。下の pasteWithAssetCopy と同型）。
+                destination: 'main-md',
             });
         },
         // FR-XP-01 (sprint 20260808-000219): md-copy paste の添付複製。上の
@@ -615,6 +646,78 @@
         // FR-TF-10 menu（§7 :122）: Delete（実体 useTrash 削除 + structure 除去）
         deleteTreeFile: function(id) {
             api.postMessage({ type: 'deleteTreeFile', id: id });
+        },
+        // ── FR-FLV: folder link CRUD（bridge 台帳 #1-5） ──
+        // FR-FTM-01 (sprint 20260818-183407): +file ボタン
+        addTreeFilesViaDialog: function() {
+            api.postMessage({ type: 'addTreeFilesViaDialog' });
+        },
+        // FR-FTM-03 (sprint 20260818-183407): tree item の Duplicate
+        duplicateTreeItem: function(id) {
+            api.postMessage({ type: 'duplicateTreeItem', id: id });
+        },
+        addFolderLink: function(parentId) {
+            api.postMessage({ type: 'addFolderLink', parentId: parentId || null });
+        },
+        relinkFolderLink: function(id) {
+            api.postMessage({ type: 'relinkFolderLink', id: id });
+        },
+        removeFolderLink: function(id) {
+            api.postMessage({ type: 'removeFolderLink', id: id });
+        },
+        renameFolderLink: function(id) {
+            api.postMessage({ type: 'renameFolderLink', id: id });
+        },
+        revealFolderLink: function(id) {
+            api.postMessage({ type: 'revealFolderLink', id: id });
+        },
+        copyFolderLinkPath: function(id) {
+            api.postMessage({ type: 'copyFolderLinkPath', id: id });
+        },
+        // ── FR-FLV: folder view fs 操作（bridge 台帳 #6-12） ──
+        folderViewList: function(id, relPath) {
+            api.postMessage({ type: 'folderViewList', id: id, relPath: relPath || '' });
+        },
+        folderViewSearch: function(id, query) {
+            api.postMessage({ type: 'folderViewSearch', id: id, query: query || '' });
+        },
+        folderViewOpen: function(id, relPath) {
+            api.postMessage({ type: 'folderViewOpen', id: id, relPath: relPath || '' });
+        },
+        folderViewCreate: function(id, parentRelPath, kind) {
+            api.postMessage({ type: 'folderViewCreate', id: id, parentRelPath: parentRelPath || '', kind: kind || 'md' });
+        },
+        folderViewRename: function(id, relPath, newName) {
+            api.postMessage({ type: 'folderViewRename', id: id, relPath: relPath || '', newName: newName || '' });
+        },
+        // FR-FLV-26 (#19): 開閉状態の保存（再オープン① — webview から debounce 送信）
+        folderViewStateSave: function(id, expanded) {
+            api.postMessage({ type: 'folderViewStateSave', id: id, expanded: Array.isArray(expanded) ? expanded : [] });
+        },
+        folderViewDelete: function(id, relPath) {
+            api.postMessage({ type: 'folderViewDelete', id: id, relPath: relPath || '' });
+        },
+        folderViewMove: function(id, srcRelPath, dstDirRelPath) {
+            api.postMessage({ type: 'folderViewMove', id: id, srcRelPath: srcRelPath || '', dstDirRelPath: dstDirRelPath || '' });
+        },
+        folderViewRevealEntry: function(id, relPath) {
+            api.postMessage({ type: 'folderViewRevealEntry', id: id, relPath: relPath || '' });
+        },
+        folderViewCopyEntryPath: function(id, relPath) {
+            api.postMessage({ type: 'folderViewCopyEntryPath', id: id, relPath: relPath || '' });
+        },
+        // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
+        folderViewMoveIn: function(id, dstDirRelPath, srcKind, srcItemId) {
+            api.postMessage({ type: 'folderViewMoveIn', id: id, dstDirRelPath: dstDirRelPath || '', srcKind: srcKind || '', srcItemId: srcItemId || '' });
+        },
+        folderViewMoveToTree: function(id, relPath, parentId, index) {
+            api.postMessage({ type: 'folderViewMoveToTree', id: id, relPath: relPath || '', parentId: parentId || null, index: index || 0 });
+        },
+        folderViewMoveIntoMd: function(id, relPath, targetMdPath) {
+            api.postMessage({ type: 'folderViewMoveIntoMd', id: id, relPath: relPath || '', targetMdPath: targetMdPath || '' });
+        },
+        folderViewMoveFromMd: function(id, dstDirRelPath, href, sourceMdPath, isSubpage) {
+            api.postMessage({ type: 'folderViewMoveFromMd', id: id, dstDirRelPath: dstDirRelPath || '', href: href || '', sourceMdPath: sourceMdPath || '', isSubpage: !!isSubpage });
         },
         // FR-TF-01 (§4a :65): 外部 D&D の per-file skip（50MB 超）等の明示通知
         notifyError: function(message) {

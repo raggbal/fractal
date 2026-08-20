@@ -96,6 +96,8 @@ const inlineColorScript = fs.readFileSync(path.join(__dirname, '../src/shared/in
 const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/shared/inline-color-picker.js'), 'utf-8');
 // FR-B04 / FR-B06: In-App link 生成の共有純関数（window.InAppLinkUtils）。notes-file-panel / editor / outliner が消費するため前に注入。
 const inAppLinkUtilsScript = fs.readFileSync(path.join(__dirname, '../src/shared/inapp-link-utils.js'), 'utf-8');
+// FR-MLG-02 (sprint 20260818-183407): wholeWord 多言語境界（window.WholeWord）。notes-file-panel より前に注入。
+const wholeWordScript = fs.readFileSync(path.join(__dirname, '../src/shared/whole-word.js'), 'utf-8');
 // FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js/outliner.js より前）
 const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
 const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
@@ -105,6 +107,11 @@ const notesFilePanelScript = fs.readFileSync(notesFilePanelJsPath, 'utf-8');
 const notesMdDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-md-dispatcher.js'), 'utf-8');
 const fileViewerScript2 = fs.readFileSync(path.join(__dirname, '../src/webview/file-viewer.js'), 'utf-8');
 const viewerDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/viewer-dispatcher.js'), 'utf-8');
+// FR-FLV (sprint 20260817-053313): folder link のフォルダビュー（dispatcher + 本体）。
+// standalone build は body/script をハードコードするため src 変更だけでは反映されない — 明示 inline 必須
+const folderViewDispatcherScript = fs.readFileSync(path.join(__dirname, '../src/shared/folder-view-dispatcher.js'), 'utf-8');
+const notesFolderViewScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-folder-view.js'), 'utf-8');
+const notesFolderSidepanelBadgeScript = fs.readFileSync(path.join(__dirname, '../src/shared/notes-folder-sidepanel-badge.js'), 'utf8');
 // FR-SPM-01 (sprint 20260808-000219): sidepanel overflow menu
 const sidePanelOverflowScript = fs.readFileSync(path.join(__dirname, '../src/webview/sidepanel-overflow.js'), 'utf-8');
 // FR-HP: 最近開いたファイル履歴パネル（本番 notesWebviewContent と同じ実体を inline）
@@ -165,6 +172,14 @@ const testNotesHostBridge = `
         movePageFileCross: function(pageId, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText });
         },
+        // FR-OCM-03 (sprint 20260818-183407): page/file 資産複製の本番 bridge ミラー
+        // （Duplicate = pasteNodesFromText 流用が page node で呼ぶ。従来 mock 不在で TypeError）
+        handlePageAssetsCross: function(pageId, newPageId, clipboardPlainText, targetNodeId, nodeImages, isCut) {
+            window.__testApi.messages.push({ type: 'handlePageAssetsCross', pageId: pageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages, isCut: isCut });
+        },
+        handleFileAssetCross: function(filePath, clipboardPlainText, targetNodeId, isCut) {
+            window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: isCut });
+        },
         copyImagesCross: function(images, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
         },
@@ -189,6 +204,26 @@ const testNotesHostBridge = `
         },
         copyPagePaths: function(pageIds) {
             window.__testApi.messages.push({ type: 'copyPagePaths', pageIds: pageIds });
+        },
+        // FR-OCM-01 (sprint 20260818-183407): 本番 outliner-host-bridge.js のミラー
+        copyAttachedFilePath: function(nodeId) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePath', nodeId: nodeId });
+        },
+        copyAttachedFilePaths: function(nodeIds) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
+        },
+        copyNodePaths: function(entries) {
+            window.__testApi.messages.push({ type: 'copyNodePaths', entries: entries });
+        },
+        // FR-OCM-02 (sprint 20260818-183407): llms 3 種（本番 outliner-host-bridge.js のミラー）
+        copyLlmsTxtMdTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtMdTree', tree: tree });
+        },
+        copyLlmsTxtFileTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtFileTree', tree: tree });
+        },
+        copyLlmsTxtBothTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtBothTree', tree: tree });
         },
         createPageAtPath: function() {},
         createPageAuto: function() {},
@@ -232,6 +267,16 @@ const testNotesHostBridge = `
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
+        },
+        // FR-FTM-01/02 (sprint 20260818-183407): +file / New link folder（本番 notes-host-bridge のミラー）
+        addTreeFilesViaDialog: function() {
+            window.__testApi.notesMessages.push({ type: 'addTreeFilesViaDialog' });
+        },
+        addFolderLink: function(parentId) {
+            window.__testApi.notesMessages.push({ type: 'addFolderLink', parentId: parentId || null });
+        },
+        duplicateTreeItem: function(id) {
+            window.__testApi.notesMessages.push({ type: 'duplicateTreeItem', id: id });
         },
         deleteFile: function(filePath) {
             window.__testApi.notesMessages.push({ type: 'deleteFile', filePath: filePath });
@@ -428,6 +473,7 @@ const html = `<!DOCTYPE html>
     __HTML_MD_CONVERTER_SCRIPT__
     </script>
     <script src="vendor/mermaid.min.js"></script>
+    <script src="vendor/katex.min.js"></script>
 
     <script>
     window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -502,6 +548,13 @@ const html = `<!DOCTYPE html>
     </script>
     <script>
     __VIEWER_DISPATCHER_SCRIPT__
+    </script>
+    <script>
+    __FOLDER_VIEW_DISPATCHER_SCRIPT__
+    </script>
+    <script>
+    __NOTES_FOLDER_VIEW_SCRIPT__
+    __NOTES_FOLDER_SIDEPANEL_BADGE_SCRIPT__
     </script>
     <script>
     __SIDEPANEL_OVERFLOW_SCRIPT__
@@ -580,6 +633,17 @@ const html = `<!DOCTYPE html>
                 type: 'pasteWithAssetCopy',
                 markdown: markdown,
                 sourceContext: sourceContext,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                destination: 'main-md',
+            });
+        },
+        // FR-PDB-01 (sprint 20260818-183407): 本番 notes-host-bridge.js の
+        // pasteOutlinerNodesWithAssets override をミラー（自 filePath 畳み + destination='main-md'）。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+            window.__testApi.messages.push({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
                 destination: 'main-md',
             });
@@ -673,7 +737,7 @@ result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
-result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript);
+result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript + '\n' + wholeWordScript);
 result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);
@@ -681,6 +745,9 @@ result = safeReplace(result, '__NOTES_MD_DISPATCHER_SCRIPT__', notesMdDispatcher
 result = safeReplace(result, '__PDF_VIEWER_CSS2__', fs.existsSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css')) ? fs.readFileSync(path.join(__dirname, '../media/pdfjs-viewer/pdf_viewer.css'), 'utf-8') : '');
 result = safeReplace(result, '__FILE_VIEWER_SCRIPT2__', fileViewerScript2);
 result = safeReplace(result, '__VIEWER_DISPATCHER_SCRIPT__', viewerDispatcherScript);
+result = safeReplace(result, '__FOLDER_VIEW_DISPATCHER_SCRIPT__', folderViewDispatcherScript);
+result = safeReplace(result, '__NOTES_FOLDER_VIEW_SCRIPT__', notesFolderViewScript);
+result = safeReplace(result, '__NOTES_FOLDER_SIDEPANEL_BADGE_SCRIPT__', notesFolderSidepanelBadgeScript);
 result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__NOTES_HISTORY_PANEL_SCRIPT__', notesHistoryPanelScript);
 result = safeReplace(result, '__NOTES_TAB_MANAGER_SCRIPT__', notesTabManagerScript);

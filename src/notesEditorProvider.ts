@@ -8,6 +8,11 @@ import {
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
     registerExternalDroppedFileItem, registerExternalDroppedUris, linkMdAsSubpageForSidePanelCore,
     attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
+    FolderLinkDeps, folderLinkAdd, folderLinkRelink, folderLinkRemove, folderLinkRename,
+    folderLinkReveal, folderLinkCopyPath,
+    FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewCreate,
+    folderViewRename, folderViewDelete, folderViewMove, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
+    FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -397,6 +402,25 @@ export class NotesEditorProvider {
             },
             {
                 logPrefix: '[Notes]',
+                // FR-FLV-29（再オープン①）: 開いた md がフォルダリンク配下なら title を返す（🔗 ヘッダ表示用）。
+                // 判定は guardFolderSelection と同じ realpath 正規化の包含（symlink 誤判定回避）
+                resolveLinkedFolderTitle: (fp: string) => {
+                    try {
+                        const items = fileManager.getStructure()?.items || {};
+                        const real = fs.realpathSync(fp);
+                        for (const id of Object.keys(items)) {
+                            const it: any = items[id];
+                            if (!it || it.type !== 'file' || it.ext !== 'folder' || !it.folderPath) { continue; }
+                            let rootReal: string;
+                            try { rootReal = fs.realpathSync(it.folderPath); } catch { continue; }
+                            const rel = path.relative(rootReal, real);
+                            if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+                                return it.title || path.basename(it.folderPath);
+                            }
+                        }
+                    } catch { /* 判定失敗 = 表示なし（best-effort） */ }
+                    return undefined;
+                },
                 // FR-HP-08/09: sidepanel で開いた md（リンク/subpage 遷移・他 note / note 外を含む）を Recent に記録。
                 // sidePanelManager.openFile が sidepanel open の単一 choke point なので、ここ 1 箇所で全経路を捕捉する。
                 onFileOpened: (fp: string) => {
@@ -567,6 +591,59 @@ export class NotesEditorProvider {
                 vscode.window.showWarningMessage(t('dropImportFailed'));
             }
         });
+
+        // FR-FLV: folder link CRUD の VS Code 依存注入（folderLink* export 関数へ渡す）
+        const folderLinkDeps: FolderLinkDeps = {
+            showOpenDialog: (options) => vscode.window.showOpenDialog(options) as Promise<Array<{ fsPath: string }> | undefined>,
+            showInputBox: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+            showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
+            showInformationMessage: (message) => { vscode.window.showInformationMessage(message); },
+            executeCommand: (command, arg) => { vscode.commands.executeCommand(command, arg); },
+            clipboardWriteText: (text) => { vscode.env.clipboard.writeText(text); },
+            uriFile: (p) => vscode.Uri.file(p),
+            t: (key) => t(key as any),
+        };
+
+        // FR-FLV: folder view fs 操作の VS Code 依存注入（folderView* export 関数へ渡す）
+        const folderViewDeps: FolderViewDeps = {
+            showInputBox: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+            showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
+            t: (key) => t(key as any),
+            trashDelete: async (absPath, recursive) => {
+                await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
+            },
+            openMdInSidePanel: async (absPath) => {
+                await sidePanel.openFile(absPath, true);
+            },
+            openViewerPanel: async (absPath) => {
+                try {
+                    if (await sidePanel.tryOpenViewerPanel(absPath)) { return; }
+                } catch { /* 縮退 */ }
+                await vscode.env.openExternal(vscode.Uri.file(absPath)); // viewer 不能時は外部起動に縮退
+            },
+            openExternal: async (absPath) => {
+                await vscode.env.openExternal(vscode.Uri.file(absPath));
+            },
+            ensureResourceRoot: (rootAbs) => {
+                // ensureResourceRootForFile は dirname(filePath) を union するため、
+                // folderRoot 自体を root にするには「root 直下の仮ファイルパス」を渡す
+                //（dirname(root/x) = root。root をそのまま渡すと親 dir が開いてしまう）
+                this.ensureResourceRootForFile(panel, path.join(rootAbs, 'x'));
+            },
+            renameFs: (absSrc, absDst) => { fs.renameSync(absSrc, absDst); },
+            revealInOS: (absPath) => { vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(absPath)); },
+            clipboardWriteText: (text) => { vscode.env.clipboard.writeText(text); },
+        };
+
+        // FR-FLV: 面間 D&D（複製成功 → 元 trash = INV-5）の VS Code 依存注入
+        const folderMoveDeps: FolderMoveDeps = {
+            showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
+            t: (key) => t(key as any),
+            trashDelete: async (absPath, recursive) => {
+                await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
+            },
+            toDisplayUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
+        };
 
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
         const platform: NotesPlatformActions = {
@@ -1018,11 +1095,111 @@ export class NotesEditorProvider {
                     await vscode.env.clipboard.writeText(paths.join('\n'));
                 }
             },
+            // FR-MDM-01 (sprint 20260818-183407): md リンクの Copy Path。
+            // normal = URL そのまま / md = mainFolder 配下 clamp / file = files dir 配下 clamp
+            // （containment base は precedent と 1:1 — file リンクの base 拡大禁止 = generator_failures 2026-08-17）。
+            copyLinkPath: async (href: string, kind: string, mdFilePath: string, _senderRef: NotesSender) => {
+                if (kind === 'normal') {
+                    await vscode.env.clipboard.writeText(href);
+                    return;
+                }
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                const clampRoot = kind === 'file'
+                    ? resolveFilesDirForMd(mdFilePath)
+                    : fileManager.getMainFolderPath();
+                const abs = resolveLinkTargetUnder(clampRoot, mdFilePath, href);
+                if (!abs) {
+                    vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                    return;
+                }
+                await vscode.env.clipboard.writeText(abs);
+            },
+            // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate。
+            // 実体複製は DuplicationCore（duplicateMdEntity / duplicateFileEntity — ADRL-0078・uniquify 正典）。
+            // clamp は copyLinkPath と同一 base。応答は destination echo back（FR-PDB と同じ規律）。
+            duplicateLinkEntity: async (href: string, kind: string, mdFilePath: string, destination: string | undefined, _senderRef: NotesSender) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { duplicateMdEntity, duplicateFileEntity } = require('./shared/paste-asset-handler');
+                const mdDir = path.dirname(mdFilePath);
+                try {
+                    if (kind === 'file') {
+                        const filesDir = resolveFilesDirForMd(mdFilePath);
+                        const abs = resolveLinkTargetUnder(filesDir, mdFilePath, href);
+                        if (!abs || !fs.existsSync(abs)) {
+                            vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                            return;
+                        }
+                        const newName = duplicateFileEntity(path.dirname(abs), path.basename(abs));
+                        const newHref = path.relative(mdDir, path.join(path.dirname(abs), newName)).replace(/\\/g, '/');
+                        panel.webview.postMessage({
+                            type: 'duplicateLinkEntityResult', newHref, newFileName: newName, kind, destination
+                        });
+                    } else {
+                        const abs = resolveLinkTargetUnder(fileManager.getMainFolderPath(), mdFilePath, href);
+                        if (!abs || !fs.existsSync(abs)) {
+                            vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                            return;
+                        }
+                        const r = duplicateMdEntity(abs, fileManager.getMainFolderPath());
+                        const newHref = path.relative(mdDir, r.newMdPath).replace(/\\/g, '/');
+                        panel.webview.postMessage({
+                            type: 'duplicateLinkEntityResult', newHref, newStem: r.newStem, kind, destination
+                        });
+                    }
+                } catch (err) {
+                    console.error('[notes duplicateLinkEntity] failed:', err);
+                    vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                }
+            },
+            // FR-MDM-03 (sprint 20260818-183407): md/subpage/file リンクだけフルパス化して clipboard へ。
+            // 変換 core = convertMdLinksToFullPaths（正典パーサ + whole-link-target 置換）。
+            // clamp root は copyLinkPath と同一（md = mainFolder / file = files dir）。棄却リンクは不変。
+            copyMdWithFullPaths: async (markdown: string, mdFilePath: string, _senderRef: NotesSender) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { convertMdLinksToFullPaths } = require('./shared/paste-asset-handler');
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                const mainFolder = fileManager.getMainFolderPath();
+                const filesDir = resolveFilesDirForMd(mdFilePath);
+                const converted = convertMdLinksToFullPaths(markdown, {
+                    resolveMd: (url: string) => resolveLinkTargetUnder(mainFolder, mdFilePath, url),
+                    resolveFile: (url: string) => resolveLinkTargetUnder(filesDir, mdFilePath, url),
+                });
+                await vscode.env.clipboard.writeText(converted);
+            },
+            // FR-OCM-01 (sprint 20260818-183407): page/file 混在の統合パスコピー。
+            // page = page md 絶対パス（flat-layout 正典）/ file = node.filePath の clamp 済み絶対パス。
+            // document order（webview が entries を整列済み）で改行結合（1 item = 1 行 — NFR-BAT-07）。
+            copyNodePaths: async (entries: Array<{ kind: string; pageId?: string; nodeId?: string }>, outFilePath: string, _senderRef: NotesSender) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const flatLayout = require('./shared/flat-layout');
+                const content = fs.readFileSync(outFilePath, 'utf8');
+                const data = JSON.parse(content);
+                const outDir = path.dirname(outFilePath);
+                const paths: string[] = [];
+                for (const e of entries) {
+                    if (e.kind === 'page' && e.pageId) {
+                        const p = flatLayout.resolvePageFilePath(outFilePath, e.pageId, fileManager.getMainFolderPath(), data);
+                        if (p && fs.existsSync(p)) paths.push(p);
+                    } else if (e.kind === 'file' && e.nodeId) {
+                        const n = data.nodes?.[e.nodeId];
+                        if (!n?.filePath) continue;
+                        const safe = safeResolveUnderDir(outDir, n.filePath);
+                        if (safe) paths.push(safe);
+                    }
+                }
+                if (paths.length > 0) {
+                    await vscode.env.clipboard.writeText(paths.join('\n'));
+                }
+            },
             // llms.txt 風 subtree コピー (MD pages)
             copyLlmsTxtMdTree: async (tree: unknown, _outFilePath: string, _senderRef: NotesSender) => {
                 if (!tree) return;
                 const pagesDir = fileManager.getPagesDirPath();
-                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'md', {
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode | LlmsTxtTreeNode[], 'md', {
                     resolveMdPath: (pageId: string) => {
                         const p = path.join(pagesDir, `${pageId}.md`);
                         return fs.existsSync(p) ? p : null;
@@ -1037,7 +1214,7 @@ export class NotesEditorProvider {
             copyLlmsTxtFileTree: async (tree: unknown, outFilePath: string, _senderRef: NotesSender) => {
                 if (!tree) return;
                 const outDir = path.dirname(outFilePath);
-                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'file', {
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode | LlmsTxtTreeNode[], 'file', {
                     resolveMdPath: () => null,
                     resolveFilePath: (rel: string) => {
                         const safe = safeResolveUnderDir(outDir, rel);
@@ -1054,7 +1231,7 @@ export class NotesEditorProvider {
                 if (!tree) return;
                 const pagesDir = fileManager.getPagesDirPath();
                 const outDir = path.dirname(outFilePath);
-                const md = buildLlmsTxt(tree as LlmsTxtTreeNode, 'both', {
+                const md = buildLlmsTxt(tree as LlmsTxtTreeNode | LlmsTxtTreeNode[], 'both', {
                     resolveMdPath: (pageId: string) => {
                         const p = path.join(pagesDir, `${pageId}.md`);
                         return fs.existsSync(p) ? p : null;
@@ -1844,7 +2021,7 @@ export class NotesEditorProvider {
                 await vscode.commands.executeCommand('fractal.cleanUnusedFilesInCurrentNote');
             },
             // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
-            pasteOutlinerNodesWithAssets: (plainText: string, nodes: unknown[], sidePanelFilePath: string) => {
+            pasteOutlinerNodesWithAssets: (plainText: string, nodes: unknown[], sidePanelFilePath: string, destination?: string) => {
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
                 const { runOutlinerNodesPaste } = require('./shared/paste-asset-handler');
                 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1859,7 +2036,9 @@ export class NotesEditorProvider {
                 });
                 panel.webview.postMessage({
                     type: 'pasteWithAssetCopyResult',
-                    markdown: result.markdown
+                    markdown: result.markdown,
+                    // FR-PDB-01: 宛先札の echo back（host は解釈しない — pasteWithAssetCopy と同型）
+                    destination
                 });
             },
             pasteWithAssetCopy: (markdown: string, sourceContext: any, sidePanelFilePath: string, destination?: string) => {
@@ -1887,7 +2066,7 @@ export class NotesEditorProvider {
                     destination
                 });
             },
-            extractDataUrlsInPastedMd: (markdown: string, sidePanelFilePath: string) => {
+            extractDataUrlsInPastedMd: (markdown: string, sidePanelFilePath: string, destination?: string) => {
                 // HTML paste で残った data:image/... を pagesDir/images に実体化
                 try {
                     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1901,14 +2080,17 @@ export class NotesEditorProvider {
                     panel.webview.postMessage({
                         type: 'extractDataUrlsInPastedMdResult',
                         markdown: newContent,
-                        savedCount
+                        savedCount,
+                        // FR-PDB-02: 宛先札の echo back
+                        destination
                     });
                 } catch (err) {
                     console.error('[notes extractDataUrlsInPastedMd] failed:', err);
                     panel.webview.postMessage({
                         type: 'extractDataUrlsInPastedMdResult',
                         markdown,
-                        savedCount: 0
+                        savedCount: 0,
+                        destination
                     });
                 }
             },
@@ -2232,6 +2414,93 @@ export class NotesEditorProvider {
             // FR-TF-01 (§4a): 外部 D&D の明示通知（50MB 超 skip 等）
             notifyError: (message: string) => {
                 if (message) { vscode.window.showErrorMessage(message); }
+            },
+            // ── FR-FLV: folder link CRUD（bridge 台帳 #1-5。ロジック本体 = notes-message-handler の
+            //    folderLink* export 関数。VS Code 依存は folderLinkDeps で注入） ──
+            addFolderLink: async (senderRef: NotesSender, parentId?: string | null) => {
+                await folderLinkAdd(fileManager, folderLinkDeps, senderRef, parentId);
+            },
+            // FR-FTM-03 (sprint 20260818-183407): tree item（out/md/file）の Duplicate（実体複製 = DuplicationCore）
+            duplicateTreeItem: (itemId: string, senderRef: NotesSender) => {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { duplicateTreeItemCore } = require('./shared/notes-message-handler');
+                const ok = duplicateTreeItemCore(fileManager, itemId, senderRef);
+                if (!ok) {
+                    vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                }
+            },
+            // FR-FTM-01 (sprint 20260818-183407): +file ボタン — showOpenDialog（複数・全拡張子）→
+            // registerExternalDroppedUris と同じ振り分け（.md = md item / 他 = file item）。
+            // host fs 直読み = 50MB cap なし（FR-TF-17 と同一裁定）。キャンセル = 副作用ゼロ。
+            addTreeFilesViaDialog: async (senderRef: NotesSender) => {
+                const fileUris = await vscode.window.showOpenDialog({
+                    canSelectMany: true,
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                });
+                if (!fileUris || fileUris.length === 0) { return; }
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { addTreeFilesFromPaths } = require('./shared/notes-message-handler');
+                addTreeFilesFromPaths(fileManager, fileUris.map((u) => u.fsPath), senderRef);
+            },
+            relinkFolderLink: async (id: string, senderRef: NotesSender) => {
+                await folderLinkRelink(fileManager, id, folderLinkDeps, senderRef);
+            },
+            removeFolderLink: (id: string, senderRef: NotesSender) => {
+                folderLinkRemove(fileManager, id, senderRef);
+            },
+            renameFolderLink: async (id: string, senderRef: NotesSender) => {
+                await folderLinkRename(fileManager, id, folderLinkDeps, senderRef);
+            },
+            revealFolderLink: (id: string) => {
+                folderLinkReveal(fileManager, id, folderLinkDeps);
+            },
+            copyFolderLinkPath: (id: string) => {
+                folderLinkCopyPath(fileManager, id, folderLinkDeps);
+            },
+            // ── FR-FLV: folder view fs 操作（bridge 台帳 #6-12。VS Code 依存は folderViewDeps 注入） ──
+            folderViewList: async (id: string, relPath: string, senderRef: NotesSender) => {
+                await folderViewList(fileManager, id, relPath, senderRef);
+            },
+            folderViewSearch: async (id: string, query: string, senderRef: NotesSender) => {
+                await folderViewSearch(fileManager, id, query, senderRef);
+            },
+            folderViewOpen: async (id: string, relPath: string) => {
+                await folderViewOpen(fileManager, id, relPath, folderViewDeps);
+            },
+            folderViewCreate: async (id: string, parentRelPath: string, kind: string, senderRef: NotesSender) => {
+                await folderViewCreate(fileManager, id, parentRelPath, kind === 'folder' ? 'folder' : 'md', folderViewDeps, senderRef);
+            },
+            folderViewRename: async (id: string, relPath: string, newName: string, senderRef: NotesSender) => {
+                await folderViewRename(fileManager, id, relPath, newName, folderViewDeps, senderRef);
+            },
+            folderViewStateSave: async (id: string, expanded: string[], senderRef: NotesSender) => {
+                await folderViewStateSave(fileManager, id, expanded, folderViewDeps, senderRef);
+            },
+            folderViewDelete: async (id: string, relPath: string, senderRef: NotesSender) => {
+                await folderViewDelete(fileManager, id, relPath, folderViewDeps, senderRef);
+            },
+            folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender) => {
+                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef);
+            },
+            folderViewRevealEntry: (id: string, relPath: string) => {
+                folderViewRevealEntry(fileManager, id, relPath, folderViewDeps);
+            },
+            folderViewCopyEntryPath: (id: string, relPath: string) => {
+                folderViewCopyEntryPath(fileManager, id, relPath, folderViewDeps);
+            },
+            // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
+            folderViewMoveIn: async (id: string, dstDirRelPath: string, srcKind: string, srcItemId: string, senderRef: NotesSender) => {
+                await folderViewMoveIn(fileManager, id, dstDirRelPath, srcKind, srcItemId, folderMoveDeps, senderRef);
+            },
+            folderViewMoveToTree: async (id: string, relPath: string, parentId: string | null, index: number, senderRef: NotesSender) => {
+                await folderViewMoveToTree(fileManager, id, relPath, parentId, index, folderMoveDeps, senderRef);
+            },
+            folderViewMoveIntoMd: async (id: string, relPath: string, targetMdPath: string, senderRef: NotesSender) => {
+                await folderViewMoveIntoMd(fileManager, id, relPath, targetMdPath, folderMoveDeps, senderRef);
+            },
+            folderViewMoveFromMd: async (id: string, dstDirRelPath: string, payload: { href: string; sourceMdPath: string; isSubpage?: boolean }, senderRef: NotesSender) => {
+                await folderViewMoveFromMd(fileManager, id, dstDirRelPath, payload, folderMoveDeps, senderRef);
             },
 
             // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → Notes ツリー D&D。

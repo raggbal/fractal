@@ -46,6 +46,7 @@ code { background:#f6f8fa; padding:.15em .35em; border-radius:3px; font-size:.9e
 table { border-collapse: collapse; } th,td { border:1px solid #d0d7de; padding:.35em .6em; }
 blockquote { border-left:3px solid #d0d7de; margin-left:0; padding-left:1em; color:#57606a; }
 img { max-width:100%; }
+.katex .cjk_fallback, .katex .hangul_fallback { font-size: 90%; } /* FR-KTX-04: webview styles.css と同一補正（PDF は描画済み DOM 再利用 — CSS 到達のみが論点） */
 a { color:#0969da; text-decoration:none; }
 input[type=checkbox] { transform: translateY(1px); }
 ol { list-style-type: decimal; }

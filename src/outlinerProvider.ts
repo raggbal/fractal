@@ -580,8 +580,31 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         break;
                     }
 
+                    // FR-OCM-01 (sprint 20260818-183407): page/file 混在の統合パスコピー
+                    case 'copyNodePaths': {
+                        const entries: Array<{ kind: string; pageId?: string; nodeId?: string }> = message.entries || [];
+                        const data = JSON.parse(document.getText());
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const paths: string[] = [];
+                        for (const e of entries) {
+                            if (e.kind === 'page' && e.pageId) {
+                                const p = this.getPageFilePath(document, e.pageId);
+                                if (p && fs.existsSync(p)) paths.push(p);
+                            } else if (e.kind === 'file' && e.nodeId) {
+                                const n = data.nodes?.[e.nodeId];
+                                if (!n?.filePath) continue;
+                                const safe = safeResolveUnderDir(outDir, n.filePath);
+                                if (safe) paths.push(safe);
+                            }
+                        }
+                        if (paths.length > 0) {
+                            await vscode.env.clipboard.writeText(paths.join('\n'));
+                        }
+                        break;
+                    }
+
                     case 'copyLlmsTxtMdTree': {
-                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        const tree = message.tree as LlmsTxtTreeNode | LlmsTxtTreeNode[] | undefined;
                         if (!tree) break;
                         const md = buildLlmsTxt(tree, 'md', {
                             resolveMdPath: (pageId: string) => {
@@ -597,7 +620,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'copyLlmsTxtFileTree': {
-                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        const tree = message.tree as LlmsTxtTreeNode | LlmsTxtTreeNode[] | undefined;
                         if (!tree) break;
                         const outDir = path.dirname(document.uri.fsPath);
                         const md = buildLlmsTxt(tree, 'file', {
@@ -615,7 +638,7 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                     }
 
                     case 'copyLlmsTxtBothTree': {
-                        const tree = message.tree as LlmsTxtTreeNode | undefined;
+                        const tree = message.tree as LlmsTxtTreeNode | LlmsTxtTreeNode[] | undefined;
                         if (!tree) break;
                         const outDir = path.dirname(document.uri.fsPath);
                         const md = buildLlmsTxt(tree, 'both', {
@@ -956,6 +979,84 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         }
                         break;
 
+                    // FR-MDM-01 (sprint 20260818-183407): sidepanel md リンクの Copy Path。
+                    // Single Outliner の clamp root = .out の dir（page md + files が住む note dir）。
+                    case 'copyLinkPath': {
+                        const href: string = message.href || '';
+                        const kind: string = message.kind || 'normal';
+                        if (!href || !message.sidePanelFilePath) break;
+                        if (kind === 'normal') {
+                            await vscode.env.clipboard.writeText(href);
+                            break;
+                        }
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                        const outDir = path.dirname(document.uri.fsPath);
+                        const abs = resolveLinkTargetUnder(outDir, message.sidePanelFilePath, href);
+                        if (!abs) {
+                            vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                            break;
+                        }
+                        await vscode.env.clipboard.writeText(abs);
+                        break;
+                    }
+
+                    // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（DuplicationCore）。
+                    // clamp root = .out の dir。応答は destination echo back。
+                    case 'duplicateLinkEntity': {
+                        const dHref: string = message.href || '';
+                        const dKind: string = message.kind || 'md';
+                        if (!dHref || !message.sidePanelFilePath) break;
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { duplicateMdEntity, duplicateFileEntity } = require('./shared/paste-asset-handler');
+                        const dOutDir = path.dirname(document.uri.fsPath);
+                        const dMdDir = path.dirname(message.sidePanelFilePath);
+                        try {
+                            const dAbs = resolveLinkTargetUnder(dOutDir, message.sidePanelFilePath, dHref);
+                            if (!dAbs || !fs.existsSync(dAbs)) {
+                                vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                                break;
+                            }
+                            if (dKind === 'file') {
+                                const newName = duplicateFileEntity(path.dirname(dAbs), path.basename(dAbs));
+                                webviewPanel.webview.postMessage({
+                                    type: 'duplicateLinkEntityResult',
+                                    newHref: path.relative(dMdDir, path.join(path.dirname(dAbs), newName)).replace(/\\/g, '/'),
+                                    newFileName: newName, kind: dKind, destination: message.destination
+                                });
+                            } else {
+                                const r = duplicateMdEntity(dAbs, dOutDir);
+                                webviewPanel.webview.postMessage({
+                                    type: 'duplicateLinkEntityResult',
+                                    newHref: path.relative(dMdDir, r.newMdPath).replace(/\\/g, '/'),
+                                    newStem: r.newStem, kind: dKind, destination: message.destination
+                                });
+                            }
+                        } catch (err) {
+                            console.error('[outliner duplicateLinkEntity] failed:', err);
+                            vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                        }
+                        break;
+                    }
+
+                    // FR-MDM-03 (sprint 20260818-183407): Copy (file link full path)。clamp root = .out の dir
+                    case 'copyMdWithFullPaths': {
+                        if (!message.markdown || !message.sidePanelFilePath) break;
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { convertMdLinksToFullPaths } = require('./shared/paste-asset-handler');
+                        // eslint-disable-next-line @typescript-eslint/no-var-requires
+                        const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                        const outDir2 = path.dirname(document.uri.fsPath);
+                        const converted = convertMdLinksToFullPaths(message.markdown, {
+                            resolveMd: (url: string) => resolveLinkTargetUnder(outDir2, message.sidePanelFilePath, url),
+                            resolveFile: (url: string) => resolveLinkTargetUnder(outDir2, message.sidePanelFilePath, url),
+                        });
+                        await vscode.env.clipboard.writeText(converted);
+                        break;
+                    }
+
                     case 'pasteOutlinerNodesWithAssets': {
                         // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)
                         if (message.sidePanelFilePath) {
@@ -971,7 +1072,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             });
                             webviewPanel.webview.postMessage({
                                 type: 'pasteWithAssetCopyResult',
-                                markdown: result.markdown
+                                markdown: result.markdown,
+                                // FR-PDB-01 (sprint 20260818-183407): 宛先札の echo back（host は解釈しない）
+                                destination: message.destination
                             });
                         }
                         break;
@@ -1020,14 +1123,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             webviewPanel.webview.postMessage({
                                 type: 'extractDataUrlsInPastedMdResult',
                                 markdown: newContent,
-                                savedCount
+                                savedCount,
+                                // FR-PDB-02 (sprint 20260818-183407): 宛先札の echo back
+                                destination: message.destination
                             });
                         } catch (err) {
                             console.error('[outliner extractDataUrlsInPastedMd] failed:', err);
                             webviewPanel.webview.postMessage({
                                 type: 'extractDataUrlsInPastedMdResult',
                                 markdown: message.markdown,
-                                savedCount: 0
+                                savedCount: 0,
+                                destination: message.destination
                             });
                         }
                         break;

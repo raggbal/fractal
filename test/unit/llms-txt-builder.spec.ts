@@ -229,3 +229,32 @@ test.describe('llms-txt-builder', () => {
         );
     });
 });
+
+// ─── TC-OCM-05/07（builder 側）: forest 対応（sprint 20260818-183407 FR-OCM-02・ADRL-0077） ───
+
+test.describe('llms-txt-builder forest (FR-OCM-02)', () => {
+    const t = (id: string, text: string, pageId: string | null): LlmsTxtTreeNode =>
+        ({ id, text, pageId, filePath: null, children: [] });
+
+    test('TC-OCM-05b 単一 root の配列は従来の単一 tree 出力と byte 一致（後方互換 pin）', () => {
+        const tree = t('r', 'Root', 'p1');
+        const res = mdResolver({ p1: '/abs/p1.md' });
+        const single = buildLlmsTxt(tree, 'md', res);
+        const asForest = buildLlmsTxt([tree], 'md', res);
+        expect(asForest).toBe(single);
+        expect(single).toBe('# Root\n\n- [Root](/abs/p1.md)\n');
+    });
+
+    test('TC-OCM-05c 複数 root: 各 root が H1・root 間は空行 1 つ', () => {
+        const res = mdResolver({ p1: '/abs/p1.md', p2: '/abs/p2.md' });
+        const out = buildLlmsTxt([t('a', 'A', 'p1'), t('b', 'B', 'p2')], 'md', res);
+        expect(out).toBe('# A\n\n- [A](/abs/p1.md)\n\n# B\n\n- [B](/abs/p2.md)\n');
+    });
+
+    test('TC-OCM-05d 貢献ゼロの root は落ちる（全部ゼロなら空文字）', () => {
+        const res = mdResolver({ p1: '/abs/p1.md' });
+        expect(buildLlmsTxt([t('a', 'A', null), t('b', 'B', 'p1')], 'md', res))
+            .toBe('# B\n\n- [B](/abs/p1.md)\n');
+        expect(buildLlmsTxt([t('a', 'A', null)], 'md', res)).toBe('');
+    });
+});

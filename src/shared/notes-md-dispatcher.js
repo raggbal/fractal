@@ -49,11 +49,13 @@
 
         function showOutliner() {
             if (window.__viewerDispatcher) window.__viewerDispatcher.hideViewer();   // viewer と排他（FR-FV-06 / sprint 20260815-075428）
+            if (window.__folderViewDispatcher) window.__folderViewDispatcher.hideFolderView();   // folder view と排他（FR-FLV-10 / sprint 20260817-053313）
             if (markdownContainer) markdownContainer.style.display = 'none';
             if (outlinerContainer) outlinerContainer.style.display = '';
         }
         function showMarkdown() {
             if (window.__viewerDispatcher) window.__viewerDispatcher.hideViewer();   // viewer と排他（同上）
+            if (window.__folderViewDispatcher) window.__folderViewDispatcher.hideFolderView();   // folder view と排他（同上）
             if (outlinerContainer) outlinerContainer.style.display = 'none';
             if (markdownContainer) markdownContainer.style.display = '';
         }

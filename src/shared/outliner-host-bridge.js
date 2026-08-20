@@ -83,6 +83,11 @@
         copyAttachedFilePaths: function(nodeIds) {
             api.postMessage({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
         },
+        // FR-OCM-01 (sprint 20260818-183407): page/file 混在の統合パスコピー
+        // entries = [{kind:'page',pageId}|{kind:'file',nodeId}]（document order）
+        copyNodePaths: function(entries) {
+            api.postMessage({ type: 'copyNodePaths', entries: entries });
+        },
         // llms.txt 風 subtree コピー (MD pages)
         copyLlmsTxtMdTree: function(tree) {
             api.postMessage({ type: 'copyLlmsTxtMdTree', tree: tree });

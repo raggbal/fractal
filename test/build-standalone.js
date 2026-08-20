@@ -253,6 +253,7 @@ const html = `<!DOCTYPE html>
     __HTML_MD_CONVERTER_SCRIPT__
     </script>
     <script src="vendor/mermaid.min.js"></script>
+    <script src="vendor/katex.min.js"></script>
     <script>
     __LINK_PARSER_SCRIPT__
     </script>

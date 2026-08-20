@@ -70,6 +70,10 @@
             const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
             if (mdCloseBtn) { mdCloseBtn.click(); }
         } catch { /* md sidepanel 不在は正常 */ }
+        // folder view と排他（FR-FLV-10 / sprint 20260817-053313）
+        try {
+            if (window.__folderViewDispatcher) { window.__folderViewDispatcher.hideFolderView(); }
+        } catch { /* folder view 不在は正常 */ }
         const container = ensureContainer();
         ensureToggleStyle();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）

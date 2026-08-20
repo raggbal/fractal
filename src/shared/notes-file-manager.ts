@@ -14,7 +14,8 @@ export interface NotesFileEntry {
     filePath: string;
     title: string;
     id: string;
-    kind?: 'out' | 'md' | 'file'; // FR-TF: 列挙元の種別（.out / .md / tree file）
+    kind?: 'out' | 'md' | 'file' | 'folder'; // FR-TF: 列挙元の種別（.out / .md / tree file）+ FR-FLV: folder link
+    broken?: boolean; // FR-FLV-03: folder link のリンク切れ（実体不在/非フォルダ）。folder のみ
 }
 
 // ── .note 構造管理 ──
@@ -24,9 +25,12 @@ export interface NoteTreeFile {
     id: string;        // ファイル名（拡張子なし）
     title: string;     // 表示タイトル（.outのtitleと同期）
     color?: string;    // v11: Tailwind palette name ('red', 'orange', ..., 'zinc') or undefined
-    ext?: 'out' | 'md' | 'file'; // v0.207.75: ファイル拡張子。省略時は 'out' (back-compat). ADR-008
+    ext?: 'out' | 'md' | 'file' | 'folder'; // v0.207.75: ファイル拡張子。省略時は 'out' (back-compat). ADR-008
                                  // 'file' (FR-TF): 任意拡張子の添付を files/ 配下に実体保持する tree file item。
+                                 // 'folder' (FR-FLV): note 外ローカル実フォルダへの参照（folder link）。実体管理は非関与。
     filename?: string; // FR-TF: ext:'file' の実体名（files/ 配下・拡張子込み）。id とは別（id は uuid）。
+    folderPath?: string; // FR-FLV-02 (ADRL-0071): ext:'folder' 専用のリンク先絶対パス。
+                         // webview へは出さない（getStructureForWebview が strip）。他 ext には付けない。
 }
 
 export interface NoteTreeFolder {
@@ -299,6 +303,115 @@ export class NotesFileManager {
             console.error('[NotesFileManager] deleteTreeFile error:', e);
         }
     }
+    // ── FR-FLV: folder link（ext:'folder'）— note 外ローカル実フォルダへの参照（第 4 管理対象） ──
+
+    /** FR-FLV-03: folderPath が実在するディレクトリか（broken 判定の単一実装）。 */
+    private static isExistingDirectory(p: string | undefined): boolean {
+        if (!p) { return false; }
+        try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    }
+
+    /**
+     * FR-FLV-01 (ADRL-0071): folder link を新規登録する。folderPath は絶対パスで保存
+     * （webview へは getStructureForWebview が strip）。ガードは呼び出し側が
+     * guardFolderSelection で済ませてから呼ぶ（本メソッドは登録のみ）。
+     * @returns 生成した item id
+     */
+    registerFolderLink(folderPath: string, parentId?: string | null): string {
+        const id = NotesFileManager.generateOutlineId();
+        const structure = this.getStructure();
+        structure.items[id] = {
+            type: 'file',
+            id,
+            title: path.basename(folderPath) || folderPath,
+            ext: 'folder',
+            folderPath,
+        };
+        // FR-FTM-02 (sprint 20260818-183407): メニュー起点の New link folder はその場所へ登録
+        // （parentId 省略 = root = 従来互換。placement は registerMarkdownFile と同型）
+        const siblings = parentId && structure.items[parentId]?.type === 'folder'
+            ? (structure.items[parentId] as NoteTreeFolder).childIds
+            : structure.rootIds;
+        siblings.push(id);
+        this.saveStructure();
+        return id;
+    }
+
+    /**
+     * FR-FLV / host-api §2: folderLinkId → 実フォルダ絶対パス（folderRoot）の単一解決関数。
+     * 全 folder view fs 操作（bridge 台帳 #6-16）はこれを経由する（getTreeFilePath と同格）。
+     * @returns 絶対パス / null（folder item でない・folderPath 無し・実体不在/非フォルダ = broken）
+     */
+    resolveFolderRoot(itemId: string): string | null {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'folder' || !item.folderPath) { return null; }
+        return NotesFileManager.isExistingDirectory(item.folderPath) ? item.folderPath : null;
+    }
+
+    /**
+     * FR-FLV-06: folder link の台帳のみ除去（Remove Link）。実フォルダ・fs には一切触れない
+     * （既存 Delete 経路 = deleteTreeFile の trash に合流させない — TC-FLV-49 counterfactual）。
+     */
+    removeFolderLink(itemId: string): boolean {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'folder') { return false; }
+        this.removeItemFromStructure(structure, itemId);
+        this.saveStructure();
+        return true;
+    }
+
+    /** FR-FLV-06: folder link の表示名のみ変更（folderPath・実フォルダ名は不変）。 */
+    setFolderLinkTitle(itemId: string, title: string): boolean {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'folder') { return false; }
+        item.title = title;
+        this.saveStructure();
+        return true;
+    }
+
+    /** FR-FLV-04: folder link のリンク先を差し替える（再指定）。ガードは呼び出し側で実施済み前提。 */
+    setFolderLinkPath(itemId: string, folderPath: string): boolean {
+        const structure = this.getStructure();
+        const item = structure.items[itemId];
+        if (!item || item.type !== 'file' || item.ext !== 'folder') { return false; }
+        item.folderPath = folderPath;
+        this.saveStructure();
+        return true;
+    }
+
+    /**
+     * FR-FLV-01/04 (ADRL-0072): folder link の追加・再指定ガード。
+     * realpath 正規化して mainFolder 自身/祖先/子孫を reject（symlink 経由も realpath で捕捉）+
+     * 既存 folder link との重複（realpath 同一実体）を reject。
+     * @param excludeItemId 再指定（relink）時に重複判定から除外する自 item id
+     */
+    guardFolderSelection(selectedPath: string, excludeItemId?: string): { ok: boolean; reason?: 'invalid' | 'self' | 'ancestor' | 'descendant' | 'duplicate' } {
+        let real: string;
+        let mainReal: string;
+        try {
+            real = fs.realpathSync(selectedPath);
+            if (!fs.statSync(real).isDirectory()) { return { ok: false, reason: 'invalid' }; }
+            mainReal = fs.realpathSync(this.mainFolderPath);
+        } catch {
+            return { ok: false, reason: 'invalid' };
+        }
+        if (real === mainReal) { return { ok: false, reason: 'self' }; }
+        if (mainReal.startsWith(real + path.sep)) { return { ok: false, reason: 'ancestor' }; }
+        if (real.startsWith(mainReal + path.sep)) { return { ok: false, reason: 'descendant' }; }
+        // 重複（realpath 比較 — symlink 経由の同一実体も弾く）
+        for (const [itemId, item] of Object.entries(this.getStructure().items)) {
+            if (excludeItemId && itemId === excludeItemId) { continue; }
+            if (item.type !== 'file' || item.ext !== 'folder' || !item.folderPath) { continue; }
+            try {
+                if (fs.realpathSync(item.folderPath) === real) { return { ok: false, reason: 'duplicate' }; }
+            } catch { /* 壊れたリンクは重複判定外 */ }
+        }
+        return { ok: true };
+    }
+
     getCurrentFilePath(): string | null { return this.currentFilePath; }
     isDirtyState(): boolean { return this.isDirty; }
     getFileChangeId(): number { return this.fileChangeId; }
@@ -521,6 +634,10 @@ export class NotesFileManager {
                 // item.filename から直接解決する getStructure-free ヘルパを使う。
                 const entityPath = this.resolveTreeFileEntity(item.filename);
                 if (!entityPath || !fs.existsSync(entityPath)) toRemove.push(id);
+            } else if (ext === 'folder') {
+                // FR-FLV-05: folder link は存在確認せず温存（file と真逆 — リンク切れでも列挙して
+                // 再指定させる。この分岐が無いと else の .out 確認に落ち loadStructure のたびに
+                // silent 消失 + re-save で S3 伝播する）。
             } else {
                 if (!diskOutFiles.has(id)) toRemove.push(id);
             }
@@ -719,7 +836,30 @@ export class NotesFileManager {
      * 履歴パネルが常に最新 title を描画する（保存値 getStructure().history は非破壊）。
      */
     getStructureForWebview(): NoteStructure {
-        return { ...this.getStructure(), history: this.getHistoryWithFreshTitles() };
+        const structure = this.getStructure();
+        // FR-FLV-02 (ADRL-0071): folder link の folderPath（絶対パス）を webview へ出さない。
+        // items を浅複製し、folder item だけ folderPath を strip + broken（派生状態）を付与する。
+        // 施行点はここ 1 箇所（notesFileListChanged の全送出経路が getStructureForWebview に統一済み）。
+        let items = structure.items;
+        let hasFolderLink = false;
+        for (const item of Object.values(items)) {
+            if (item.type === 'file' && item.ext === 'folder') { hasFolderLink = true; break; }
+        }
+        if (hasFolderLink) {
+            const stripped: Record<string, NoteTreeItem> = {};
+            for (const [id, item] of Object.entries(items)) {
+                if (item.type === 'file' && item.ext === 'folder') {
+                    const clone: NoteTreeFile & { broken?: boolean } = { ...item };
+                    delete clone.folderPath;
+                    clone.broken = !NotesFileManager.isExistingDirectory(item.folderPath);
+                    stripped[id] = clone;
+                } else {
+                    stripped[id] = item;
+                }
+            }
+            items = stripped;
+        }
+        return { ...structure, items, history: this.getHistoryWithFreshTitles() };
     }
     /**
      * FR-HP-03: filePath（note の md/.out）を履歴に記録する共通ヘルパ。
@@ -1023,6 +1163,19 @@ export class NotesFileManager {
                 if (!filePath || !fs.existsSync(filePath)) continue;
                 result.push({ filePath, title: item.title || id, id, kind: 'file' });
             }
+            // FR-FLV-03: folder link を登録ベースで列挙。file と真逆に**実体不在でも列挙**し
+            //   broken フラグで表示させる（リンク切れ → 再指定の導線）。filePath は空
+            //  （絶対パスを webview へ出さない — ADRL-0071 / NFR-TF-02 拡張適用）。
+            for (const [id, item] of Object.entries(structure.items)) {
+                if (item.type !== 'file' || item.ext !== 'folder') continue;
+                result.push({
+                    filePath: '',
+                    title: item.title || id,
+                    id,
+                    kind: 'folder',
+                    broken: !NotesFileManager.isExistingDirectory(item.folderPath),
+                });
+            }
             result.sort((a, b) => a.title.localeCompare(b.title));
             return result;
         } catch (e) {
@@ -1306,6 +1459,9 @@ export class NotesFileManager {
         if (item.ext === 'file') {
             return this._moveTreeFileToOtherNote(itemId, item, dstFolderPath);
         }
+        // FR-FLV (data-model §5 #4): folder link は Move Other Note 対象外（UI 非表示 + host 直叩き防御）。
+        //   else-out に落とすと <src>/<id>.out が無いのに .out 複製経路へ流れる（TC-FLV-18 counterfactual）。
+        if (item.ext === 'folder') { return null; }
         const ext: 'out' | 'md' = item.ext === 'md' ? 'md' : 'out';
 
         const dstFm = new NotesFileManager(dstFolderPath);
@@ -2006,6 +2162,11 @@ export class NotesFileManager {
             //   ENOENT → null を返し caller が安全に中断する。fake .file 経路には決して流さない）。
             return this.getTreeFilePath(fileId) ?? '';
         }
+        if (ext === 'folder') {
+            // FR-FLV (data-model §5 #5): folder link は open/md 経路の対象外 — fake `<id>.out` を
+            //   返さない（'' で caller が安全に中断。folder の open は folder view 専用経路）。
+            return '';
+        }
         return path.join(this.mainFolderPath, `${fileId}.${ext}`);
     }
 
@@ -2312,10 +2473,15 @@ export class NotesFileManager {
         } else {
             pattern = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
-        if (options.wholeWord) {
-            pattern = `\\b${pattern}\\b`;
-        }
         const flags = options.caseSensitive ? 'g' : 'gi';
+        if (options.wholeWord) {
+            // FR-MLG-02 (sprint 20260818-183407): 旧 \b は ASCII \w 基準で CJK クエリが全滅・
+            // é 末尾が false negative。CJK 素通し + Unicode lookaround の共有 helper に一本化
+            // （webview notes-file-panel.js / CLI fractal-search.mjs ミラーと同一規則 — ADRL-0080）。
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { buildWholeWordRegex } = require('./whole-word');
+            return buildWholeWordRegex(pattern, query, flags);
+        }
         return new RegExp(pattern, flags);
     }
 

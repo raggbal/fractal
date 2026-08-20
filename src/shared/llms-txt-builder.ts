@@ -119,15 +119,26 @@ function emit(node: PreparedNode, depth: number, lines: string[]): void {
     }
 }
 
-export function buildLlmsTxt(root: LlmsTxtTreeNode, mode: LlmsTxtMode, resolvers: LlmsTxtResolvers): string {
-    const prepared = prepare(root, mode, resolvers);
-    if (!prepared.contributes) {
-        return '';
+/**
+ * FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): forest（複数 root）対応。
+ * 各 root を H1 として連結し root 間は空行 1 つ。単一 root（旧形式 = 非配列）は
+ * 要素 1 の forest と同一経路で、出力は従来と byte 一致（後方互換）。
+ * 祖先包含重複排除（選択集合内の子孫 root 除外）は webview 側 buildLlmsTxtForest の責務。
+ */
+export function buildLlmsTxt(root: LlmsTxtTreeNode | LlmsTxtTreeNode[], mode: LlmsTxtMode, resolvers: LlmsTxtResolvers): string {
+    const roots = Array.isArray(root) ? root : [root];
+    const parts: string[] = [];
+    for (const r of roots) {
+        if (!r) continue;
+        const prepared = prepare(r, mode, resolvers);
+        if (!prepared.contributes) continue;
+        const lines: string[] = [];
+        emit(prepared, 1, lines);
+        while (lines.length > 0 && lines[lines.length - 1] === '') {
+            lines.pop();
+        }
+        parts.push(lines.join('\n'));
     }
-    const lines: string[] = [];
-    emit(prepared, 1, lines);
-    while (lines.length > 0 && lines[lines.length - 1] === '') {
-        lines.pop();
-    }
-    return lines.join('\n') + '\n';
+    if (parts.length === 0) return '';
+    return parts.join('\n\n') + '\n';
 }

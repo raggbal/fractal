@@ -1371,6 +1371,85 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 // REMOVED: 'getImageDir' handler (per-file directive feature removed)
 
+                // FR-MDM-01 (sprint 20260818-183407): md リンクの Copy Path。
+                // standalone md の clamp root = md の dir 配下のみ（requirement §E-2 の pin）。
+                case 'copyLinkPath': {
+                    const href: string = message.href || '';
+                    const kind: string = message.kind || 'normal';
+                    if (!href) break;
+                    if (kind === 'normal') {
+                        await vscode.env.clipboard.writeText(href);
+                        break;
+                    }
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                    const targetMd = message.sidePanelFilePath || document.uri.fsPath;
+                    const abs = resolveLinkTargetUnder(path.dirname(targetMd), targetMd, href);
+                    if (!abs) {
+                        vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                        break;
+                    }
+                    await vscode.env.clipboard.writeText(abs);
+                    break;
+                }
+
+                // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（DuplicationCore）。
+                // clamp root = md の dir（standalone の pin）。応答は destination echo back。
+                case 'duplicateLinkEntity': {
+                    const dHref: string = message.href || '';
+                    const dKind: string = message.kind || 'md';
+                    if (!dHref) break;
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { duplicateMdEntity, duplicateFileEntity } = require('./shared/paste-asset-handler');
+                    const dTargetMd = message.sidePanelFilePath || document.uri.fsPath;
+                    const dMdDir = path.dirname(dTargetMd);
+                    try {
+                        const dAbs = resolveLinkTargetUnder(dMdDir, dTargetMd, dHref);
+                        if (!dAbs || !fs.existsSync(dAbs)) {
+                            vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                            break;
+                        }
+                        if (dKind === 'file') {
+                            const newName = duplicateFileEntity(path.dirname(dAbs), path.basename(dAbs));
+                            webviewPanel.webview.postMessage({
+                                type: 'duplicateLinkEntityResult',
+                                newHref: path.relative(dMdDir, path.join(path.dirname(dAbs), newName)).replace(/\\/g, '/'),
+                                newFileName: newName, kind: dKind, destination: message.destination
+                            });
+                        } else {
+                            const r = duplicateMdEntity(dAbs, dMdDir);
+                            webviewPanel.webview.postMessage({
+                                type: 'duplicateLinkEntityResult',
+                                newHref: path.relative(dMdDir, r.newMdPath).replace(/\\/g, '/'),
+                                newStem: r.newStem, kind: dKind, destination: message.destination
+                            });
+                        }
+                    } catch (err) {
+                        console.error('[duplicateLinkEntity] failed:', err);
+                        vscode.window.showWarningMessage(t('fileNotFoundOrUnsafe'));
+                    }
+                    break;
+                }
+
+                // FR-MDM-03 (sprint 20260818-183407): Copy (file link full path)。clamp root = md の dir
+                case 'copyMdWithFullPaths': {
+                    if (!message.markdown) break;
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { convertMdLinksToFullPaths } = require('./shared/paste-asset-handler');
+                    // eslint-disable-next-line @typescript-eslint/no-var-requires
+                    const { resolveLinkTargetUnder } = require('./shared/path-safety');
+                    const targetMd = message.sidePanelFilePath || document.uri.fsPath;
+                    const rootDir = path.dirname(targetMd);
+                    const converted = convertMdLinksToFullPaths(message.markdown, {
+                        resolveMd: (url: string) => resolveLinkTargetUnder(rootDir, targetMd, url),
+                        resolveFile: (url: string) => resolveLinkTargetUnder(rootDir, targetMd, url),
+                    });
+                    await vscode.env.clipboard.writeText(converted);
+                    break;
+                }
+
                 case 'pasteOutlinerNodesWithAssets': {
                     // outliner node paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
                     // 宛先 = sidepanel md (sidePanelFilePath) — standalone editor の node paste は
@@ -1392,7 +1471,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     });
                     webviewPanel.webview.postMessage({
                         type: 'pasteWithAssetCopyResult',
-                        markdown: result.markdown
+                        markdown: result.markdown,
+                        // FR-PDB-01 (sprint 20260818-183407): 宛先札の echo back（host は解釈しない）
+                        destination: message.destination
                     });
                     break;
                 }
@@ -1447,7 +1528,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             type: 'extractDataUrlsInPastedMdResult',
                             markdown: '',
                             savedCount: 0,
-                            error: 'empty markdown'
+                            error: 'empty markdown',
+                            destination: message.destination
                         });
                         break;
                     }
@@ -1472,7 +1554,9 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                         webviewPanel.webview.postMessage({
                             type: 'extractDataUrlsInPastedMdResult',
                             markdown: newContent,
-                            savedCount
+                            savedCount,
+                            // FR-PDB-02 (sprint 20260818-183407): 宛先札の echo back
+                            destination: message.destination
                         });
                     } catch (err) {
                         const errMsg = err instanceof Error ? err.stack || err.message : String(err);
@@ -1482,7 +1566,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                             type: 'extractDataUrlsInPastedMdResult',
                             markdown: message.markdown,
                             savedCount: 0,
-                            error: errMsg
+                            error: errMsg,
+                            destination: message.destination
                         });
                     }
                     break;

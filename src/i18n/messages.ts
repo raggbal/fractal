@@ -14,6 +14,25 @@
 
 // Type definitions
 export interface Messages {
+  // FR-FLV (sprint 20260817-053313): folder link / folder view（host 通知・ダイアログ）
+  folderLinkAddLabel: string;
+  folderLinkRelinkLabel: string;
+  folderLinkRenamePrompt: string;
+  folderLinkDuplicate: string;
+  folderLinkSelfReference: string;
+  folderLinkInvalid: string;
+  folderLinkBroken: string;
+  folderViewOpenFailed: string;
+  folderViewNewMarkdownPrompt: string;
+  folderViewNewFolderPrompt: string;
+  folderViewInvalidName: string;
+  folderViewNameConflict: string;
+  folderViewOperationFailed: string;
+  folderViewMoveIntoSelf: string;
+  folderViewMoveExdev: string;
+  folderViewNoFolderDrop: string;
+  folderViewMoveInUnsupported: string;
+  folderViewTrashFailed: string;
   openMarkdownFirst: string;
   numberOfRows: string;
   numberOfColumns: string;
@@ -103,6 +122,21 @@ export interface Messages {
 }
 
 export interface WebviewMessages {
+  // FR-FLV (sprint 20260817-053313): folder link / folder view（webview UI）
+  folderLinkAdd: string;
+  folderLinkRelink: string;
+  folderLinkRemove: string;
+  folderLinkBroken: string;
+  folderViewOpenFailed: string;
+  folderViewSearchPlaceholder: string;
+  folderViewRefresh: string;
+  folderViewTruncated: string;
+  folderViewNoMatch: string;
+  folderViewEmpty: string;
+  folderViewNewMarkdown: string;
+  folderViewNewFolder: string;
+  folderViewNoFolderDrop: string;
+  folderViewMoveInUnsupported: string;
   closeOutline: string;
   openOutline: string;
   openInTextEditor: string;
@@ -191,6 +225,25 @@ export interface WebviewMessages {
   notesTabSearch: string;
   notesNewFolder: string;
   notesOpenInNewTab: string;
+  // FR-OCM-01 (sprint 20260818-183407): outliner 統合パスコピー
+  outlinerCopyPath: string;
+  outlinerDuplicate: string;
+  // FR-MDM-01/02/03 (sprint 20260818-183407): md リンク context menu
+  mdCopyLinkPath: string;
+  mdCopyFullPath: string;
+  mdDuplicateLink: string;
+  // FR-FTM-01/02 (sprint 20260818-183407): tree +file / New link folder
+  notesNewLinkFolder: string;
+  notesAddFile: string;
+  notesDuplicateItem: string;
+  // FR-MLG-03 (sprint 20260818-183407): notes タブ context menu / aria / タイトル
+  tabOpenInStandalone: string;
+  tabOpenInOsDefaultApp: string;
+  tabDuplicate: string;
+  tabCloseOthers: string;
+  tabCloseAria: string;
+  tabNewAria: string;
+  tabUntitled: string;
   notesNewOutline: string;
   notesToday: string;
   notesCollapsePanel: string;

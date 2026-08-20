@@ -28,6 +28,13 @@
      *            consumePendingMainRestore, consumePendingSidePanelRestore, updateActiveSidePanel }
      */
     window.__initNotesTabManager = function(deps) {
+        // FR-MLG-03 (sprint 20260818-183407): タブ menu / aria の i18n。供給は notes-file-panel と
+        // 同じ window.__outlinerMessages（メニュー構築時に遅延読み — 後注入にも追従）。
+        // `|| '英語'` フォールバックは既存規約（キー登録 = interface + 7 locale は TC-MLG-05b が番人）。
+        function tmsg(key, fallback) {
+            var m = window.__outlinerMessages || {};
+            return m[key] || fallback;
+        }
         deps = deps || {};
         var tabBarEl = deps.tabBarEl || null;
         var getActiveMainScrollEl = deps.getActiveMainScrollEl || function() { return null; };
@@ -58,8 +65,10 @@
                 id: nextTabId(),
                 filePath: filePath,
                 // kind 推定サイト 1/3（FR-FV-13 / ADRL-0069 決定 3）: 拡張子導出は 'out'|'md' の
-                // 2 値のみ。kind='file'（viewer タブ）は**呼び出し側の明示必須** — .pdf/.html を
-                // この導出に通すと 'md' に化けて bridge.openFile が md エディタで開く事故になる
+                // 2 値のみ。kind='file'（viewer タブ）/ kind='folder'（フォルダビュータブ —
+                // FR-FLV-25。filePath 欄には folderLinkId が載る規約 = extra 非依存）は
+                // **呼び出し側の明示必須** — この導出に通すと 'md' に化けて bridge.openFile が
+                // md エディタで開く事故になる
                 kind: kind || (/\.out$/i.test(filePath || '') ? 'out' : 'md'),
                 title: title || basenameNoExt(filePath),
                 mainScrollTop: 0,
@@ -68,7 +77,7 @@
             };
         }
         function basenameNoExt(fp) {
-            if (!fp) return 'Untitled';
+            if (!fp) return tmsg('tabUntitled', 'Untitled');
             var base = String(fp).replace(/^.*[\/\\]/, '');
             return base.replace(/\.(md|out)$/i, '');
         }
@@ -79,7 +88,8 @@
             if (!cur) return;
             // FR-FV-13: file タブ（viewer）は scroll/outlinerView の Tab State を持たない
             //（getActiveMainScrollEl は 'out'/'md' 前提 — 再活性化は常に先頭から再表示 = 受容）
-            if (cur.kind === 'file') { return; }
+            // FR-FLV-25: folder タブも同様（状態非保持 = 受容 — folder-view.md §4）
+            if (cur.kind === 'file' || cur.kind === 'folder') { return; }
             var el = getActiveMainScrollEl();
             cur.mainScrollTop = (el && typeof el.scrollTop === 'number') ? el.scrollTop : cur.mainScrollTop;
             if (cur.kind === 'out') {
@@ -113,6 +123,22 @@
                 }
                 if (window.__viewerDispatcher && typeof window.__viewerDispatcher.showViewer === 'function') {
                     window.__viewerDispatcher.showViewer(tab.viewerKind, tab.viewerFileUri, tab.title, tab.filePath, { inTab: true });
+                }
+                return;
+            }
+            // FR-FLV-25（第 4 分岐 — file 分岐同型）: folder タブは webview 完結。bridge.openFile を
+            // 呼ばない（folderLinkId は fs パスではない — md エディタで開く事故の番人 TC-FLV-38）。
+            // filePath 欄 = folderLinkId 規約（makeTabState コメント参照）
+            if (tab.kind === 'folder') {
+                pendingMainRestore = null;      // updateData が来ない — 残留は次の md/out 切替が誤消費する
+                pendingSidePanelRestore = null;
+                if (typeof closeSidePanelInWebview === 'function') closeSidePanelInWebview();
+                if (typeof bridge.closeSidePanel === 'function') bridge.closeSidePanel();
+                if (window.__viewerSidePanel && typeof window.__viewerSidePanel.close === 'function') {
+                    window.__viewerSidePanel.close();
+                }
+                if (window.__folderViewDispatcher && typeof window.__folderViewDispatcher.showFolderView === 'function') {
+                    window.__folderViewDispatcher.showFolderView(tab.filePath /* = folderLinkId */, tab.title, { inTab: true });
                 }
                 return;
             }
@@ -164,7 +190,7 @@
             menu.style.top = ev.clientY + 'px';
             // FR-TB-01: standalone（fractal.editor の VS Code タブ）で開く。md のみ
             if (tab.kind === 'md') {
-                addTabMenuItem(menu, 'Open in Standalone', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInStandalone', 'Open in Standalone'), function() {
                     if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
                 });
             }
@@ -172,23 +198,24 @@
             // 配線はツールバーと同じ既存 host case を流用（viewerOpenInNewTab = openWith viewer viewType /
             // openExternalFallback = OS 既定アプリ）— 新 message type を発明しない（ADRL-0069 決定 2）
             if (tab.kind === 'file') {
-                addTabMenuItem(menu, 'Open in Standalone', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInStandalone', 'Open in Standalone'), function() {
                     if (typeof window.__pdfExportPost === 'function') {
                         window.__pdfExportPost({ type: 'viewerOpenInNewTab', fileUri: tab.viewerFileUri, filePath: tab.filePath, kind: tab.viewerKind });
                     }
                 });
-                addTabMenuItem(menu, 'Open in OS default app', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInOsDefaultApp', 'Open in OS default app'), function() {
                     if (typeof window.__pdfExportPost === 'function') {
                         window.__pdfExportPost({ type: 'openExternalFallback', fileUri: tab.viewerFileUri, filePath: tab.filePath });
                     }
                 });
             }
-            // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）
-            addTabMenuItem(menu, 'Duplicate Tab', function() {
-                openInNewTab(tab.filePath, tab.kind);
+            // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）。
+            // folder タブは updateData（syncActiveFile での title 補正）が来ないため title を明示継承
+            addTabMenuItem(menu, tmsg('tabDuplicate', 'Duplicate Tab'), function() {
+                openInNewTab(tab.filePath, tab.kind, tab.kind === 'folder' ? tab.title : undefined);
             });
             // FR-TB-04: このタブだけ残して他を全部閉じる
-            addTabMenuItem(menu, 'Close Other Tabs', function() {
+            addTabMenuItem(menu, tmsg('tabCloseOthers', 'Close Other Tabs'), function() {
                 closeOtherTabs(tab.id);
             });
             document.body.appendChild(menu);
@@ -263,7 +290,7 @@
                     closeBtn.className = 'notes-tab-close';
                     closeBtn.type = 'button';
                     closeBtn.innerHTML = '&times;';
-                    closeBtn.setAttribute('aria-label', 'Close tab');
+                    closeBtn.setAttribute('aria-label', tmsg('tabCloseAria', 'Close tab'));
                     el.appendChild(closeBtn);
                     titleEl.addEventListener('click', function() { activateTab(tab.id); });
                     el.addEventListener('click', function(ev) {
@@ -317,10 +344,10 @@
                 addBtn.className = 'notes-tab-add';
                 addBtn.type = 'button';
                 addBtn.innerHTML = '+';
-                addBtn.setAttribute('aria-label', 'New tab (duplicate current)');
+                addBtn.setAttribute('aria-label', tmsg('tabNewAria', 'New tab (duplicate current)'));
                 addBtn.addEventListener('click', function() {
                     var cur = getActive();
-                    if (cur) openInNewTab(cur.filePath, cur.kind);
+                    if (cur) openInNewTab(cur.filePath, cur.kind, cur.kind === 'folder' ? cur.title : undefined);
                 });
                 tabBarEl.appendChild(addBtn);
             }
@@ -412,6 +439,13 @@
             if (!filePath) return;
             var cur = getActive();
             if (!cur) { openInNewTab(filePath, kind); return; }
+            // 2026-08-18 バグ修正（#16 ガードの精緻化）: 本経路は常にユーザー起点（Recent click 等）なので
+            // folder タブでも遮断しない — folder view を畳んでから通常の差し替えに続行する
+            //（旧: 早期 return で Recent が無反応になっていた。stray updateData の防御は syncActiveFile 側に残る）
+            if (cur.kind === 'folder' && window.__folderViewDispatcher
+                && typeof window.__folderViewDispatcher.hideFolderView === 'function') {
+                window.__folderViewDispatcher.hideFolderView();
+            }
             // 現アクティブを flush（内容差し替え前）
             flushBeforeUnload();
             cur.filePath = filePath;
@@ -469,6 +503,15 @@
         function syncActiveFile(filePath, kind, title) {
             var cur = getActive();
             if (!cur || !filePath) return;
+            // kind 裁定 #16 防御（FR-FLV-25 / TC-FLV-38 ②b・2026-08-18 精緻化）: **folder view が実際に
+            // 表示中**に来た md/out の updateData（= stray。外部 S3 リフレッシュ等）だけ遮断する。
+            // folder view が畳まれた後（= ユーザーが tree click 等で md/out を開いた正規遷移）は通し、
+            // タブの kind/filePath を実内容に同期する（旧: 無条件遮断で「タブは folder のまま面だけ md」の
+            // 不整合と、tree click 後のタブ再 activate が folder view に巻き戻る問題があった）
+            if (cur.kind === 'folder' && kind !== 'folder'
+                && window.__folderViewDispatcher
+                && typeof window.__folderViewDispatcher.isFolderViewShown === 'function'
+                && window.__folderViewDispatcher.isFolderViewShown()) { return; }
             if (title) { cur.title = title; renderTabBar(); }   // ★ filePath 同一でも title は更新（early-return より前）
             if (cur.filePath === filePath) return;   // 同一ファイルの再 render → scroll/outlinerView を温存
             cur.filePath = filePath;

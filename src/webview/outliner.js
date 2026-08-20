@@ -7180,6 +7180,83 @@ var Outliner = (function() {
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
+    // FR-OCM-03 (sprint 20260818-183407): node の Duplicate。意味論 = 「選択 node（複数可・
+    // 無選択なら右クリック対象）を cmd+c → cmd+v」と同一 — 既存収集（getSelectedNodesData /
+    // getSubtreeNodesData）+ 既存 paste 経路（pasteNodesFromText の same-note copy 契約 =
+    // page md / file / images の複製）に合流し、新規複製ロジックは書かない。
+    // 資産複製は host の OutlinerClipboardStore 前提（store miss = silent no-op）のため
+    // Duplicate 専用キーで Store へ一時保存し、直後に既存の内部コピー（internalClipboard）を
+    // 再保存して復元する（webview の internalClipboard / OS clipboard は一切触らない —
+    // cmd+c → Duplicate → cmd+v で事前コピーが貼れる契約は TC-OCM-08 が番人）。
+    function duplicateSelectedNodes(nodeId) {
+        var targetIds;
+        if (selectedNodeIds.size > 0) {
+            targetIds = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+        } else {
+            targetIds = [nodeId];
+        }
+        if (targetIds.length === 0) { return; }
+        var nodesData = (selectedNodeIds.size > 0) ? getSelectedNodesData() : getSubtreeNodesData(nodeId);
+        if (!nodesData || nodesData.length === 0) { return; }
+        var lastId = targetIds[targetIds.length - 1];
+        var lastNode = model.getNode(lastId);
+        if (!lastNode) { return; }
+        // Store キー（内部 paste では行パース非使用 — キー + fallback 用途のみ。FR-SE-03 潰し準拠）
+        var dupKey = nodesData.map(function(n) {
+            return new Array((n.level || 0) + 1).join('\t') + String(n.text || '').replace(/\n/g, ' ');
+        }).join('\n');
+        var prevClip = internalClipboard; // 参照のみ（非破壊）
+        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+        if (host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(dupKey, false, nodesData);
+        }
+        pasteNodesFromText(dupKey, lastNode.parentId, lastId, nodesData, /*isCut*/false, /*clipSourceKey*/null, false);
+        // Store 復元（同一 webview の事前 cmd+c/x を温存。cross-outliner の pending Store は
+        // internalClipboard が無く復元不能 — 既知の縮退: 以後の cross paste はリストのみ貼付に落ちる）
+        if (prevClip && prevClip.plainText && host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(prevClip.plainText, !!prevClip.isCut, prevClip.nodes || []);
+        }
+        scheduleSyncToHost();
+        renderTree();
+    }
+
+    // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 選択集合の forest 化。
+    // 収集 = Export bundle 裁定踏襲（選択集合優先・document order・Set 重複排除）+
+    // 祖先包含重複排除（既採用 root の子孫は独立 root にしない — flat Set では子孫 subtree が
+    // 祖先の中と独立 root の 2 回出力される）。選択なしは右クリック node 単体（従来互換・要素 1）。
+    function buildLlmsTxtForest(nodeId) {
+        var rootIds;
+        if (selectedNodeIds.size > 0) {
+            var sorted = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+            var accepted = [];
+            var acceptedSet = {};
+            sorted.forEach(function(id) {
+                var cur = model.getNode(id);
+                var p = cur ? cur.parentId : null;
+                var contained = false;
+                while (p) {
+                    if (acceptedSet[p]) { contained = true; break; }
+                    var pn = model.getNode(p);
+                    p = pn ? pn.parentId : null;
+                }
+                if (!contained) { accepted.push(id); acceptedSet[id] = true; }
+            });
+            rootIds = accepted;
+        } else {
+            rootIds = [nodeId];
+        }
+        var forest = [];
+        rootIds.forEach(function(id) {
+            var t = buildLlmsTxtTree(id);
+            if (t) { forest.push(t); }
+        });
+        return forest;
+    }
+
     function buildLlmsTxtTree(rootNodeId) {
         function build(id) {
             var n = model.getNode(id);
@@ -7248,9 +7325,15 @@ var Outliner = (function() {
             addMenuSeparator(contextMenuEl);
         }
 
-        // --- 複数選択時のページパスコピー ---
+        // --- 複数選択時のパスコピー（FR-OCM-01・sprint 20260818-183407） ---
+        // Copy Md Path（旧 Copy Page Path の改名・挙動不変）/ Copy File Path（複数対応）/
+        // Copy Path（page→page md パス・file→file パスの統合）。
+        // 表示条件は requirement FR-OCM-01 の全列挙が正: 条件を満たさない項目は非表示
+        // （既存 Copy Page Path の「無ければ非表示」流儀。FR-MDM-03 のディムとは意図的非対称）。
         if (selectedNodeIds.size > 0) {
             var selectedPageIds = [];
+            var selectedFileNodeIds = [];
+            var selectedPathEntries = []; // document order の {kind:'page',pageId}|{kind:'file',nodeId}
             var sortedSelectedIds = model.getFlattenedIds(true).filter(function(id) {
                 return selectedNodeIds.has(id);
             });
@@ -7258,13 +7341,35 @@ var Outliner = (function() {
                 var n = model.getNode(id);
                 if (n && n.isPage && n.pageId) {
                     selectedPageIds.push(n.pageId);
+                    selectedPathEntries.push({ kind: 'page', pageId: n.pageId });
+                } else if (n && n.filePath) {
+                    selectedFileNodeIds.push(id);
+                    selectedPathEntries.push({ kind: 'file', nodeId: id });
                 }
             });
+            var addedCopyGroup = false;
             if (selectedPageIds.length > 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths(selectedPageIds);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                addedCopyGroup = true;
+            }
+            if (selectedFileNodeIds.length > 0) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyFilePath || 'Copy File Path', function() {
+                    host.copyAttachedFilePaths(selectedFileNodeIds);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (selectedPathEntries.length > 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths(selectedPathEntries);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (addedCopyGroup) {
                 addMenuSeparator(contextMenuEl);
             }
         }
@@ -7281,10 +7386,17 @@ var Outliner = (function() {
                 hideContextMenu();
             });
             if (selectedNodeIds.size === 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths([node.pageId]);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                // FR-OCM-01: 単一 node でも Copy Path（page → page md パス）
+                if (host.copyNodePaths) {
+                    addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                        host.copyNodePaths([{ kind: 'page', pageId: node.pageId }]);
+                        hideContextMenu();
+                    });
+                }
             }
             addMenuItem(contextMenuEl, i18n.outlinerDeletePage || 'Delete Page', function() {
                 removePage(nodeId);
@@ -7313,6 +7425,13 @@ var Outliner = (function() {
                 host.copyAttachedFilePath(nodeId);
                 hideContextMenu();
             });
+            // FR-OCM-01: 単一 node でも Copy Path（file → file パス）
+            if (selectedNodeIds.size === 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths([{ kind: 'file', nodeId: nodeId }]);
+                    hideContextMenu();
+                });
+            }
             addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
                 saveSnapshot();
                 node.filePath = null;
@@ -7323,25 +7442,33 @@ var Outliner = (function() {
         }
 
         // --- llms.txt 風に配下を再帰コピー ---
+        // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 複数選択時は選択全 root の forest を送る
+        // （従来は右クリック node 単体 subtree のみ = 複数選択が無視されるバグ）。新規送出は常に配列。
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtMd || 'Copy subtree as llms.txt (MD pages)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtMdTree) {
-                host.copyLlmsTxtMdTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtMdTree) {
+                host.copyLlmsTxtMdTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtFile || 'Copy subtree as llms.txt (files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtFileTree) {
-                host.copyLlmsTxtFileTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtFileTree) {
+                host.copyLlmsTxtFileTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtBoth || 'Copy subtree as llms.txt (MD + files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtBothTree) {
-                host.copyLlmsTxtBothTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtBothTree) {
+                host.copyLlmsTxtBothTree(forest);
             }
+            hideContextMenu();
+        });
+
+        // FR-OCM-03 (sprint 20260818-183407): Duplicate（cmd+c → cmd+v と同一意味論）
+        addMenuItem(contextMenuEl, i18n.outlinerDuplicate || 'Duplicate', function() {
+            duplicateSelectedNodes(nodeId);
             hideContextMenu();
         });
 
@@ -8676,7 +8803,8 @@ var Outliner = (function() {
                 var text = match[2].trim();
                 if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                    // FR-MLG-01: toc-utils.ts extractToc とミラー（4 サイト対称 — 片側更新禁止）
+                    .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
@@ -9730,7 +9858,19 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'duplicateLinkEntityResult':
+                    // FR-MDM-02 (sprint 20260818-183407): pasteWithAssetCopyResult と同型の転送 switch
+                    if (msg.destination === 'main-md') { break; }
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage(msg);
+                    }
+                    break;
+
                 case 'extractDataUrlsInPastedMdResult':
+                    // FR-PDB-02 (sprint 20260818-183407): destination='main-md' は Notes md
+                    // メインペイン宛 — sidepanel へ転送すると二重挿入になるため転送しない
+                    // （pasteWithAssetCopyResult の :9719 分岐と同型。宛先無し=旧形式は従来どおり転送）。
+                    if (msg.destination === 'main-md') { break; }
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
                             type: 'extractDataUrlsInPastedMdResult',

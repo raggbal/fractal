@@ -1,4 +1,0 @@
-#!/bin/sh
-# Conventional commit validation disabled — fractal doesn't enforce a
-# specific commit message format.
-exit 0

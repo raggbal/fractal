@@ -13,7 +13,11 @@ export interface TocItem {
 
 /**
  * Markdown テキストから目次を抽出する (pure function)。
- * H1-H6 を対象にアンカーIDを生成。CJK文字対応。
+ * H1-H6 を対象にアンカーIDを生成。
+ * FR-MLG-01 (sprint 20260818-183407): 文字クラスを Unicode property ベースに拡張
+ * （ハングル・アクセント Latin・半角カナ・全角英数を保持）。旧クラス
+ * [^\w\s　-鿿\u{20000}-\u{2fa1f}\-] の保持域は新クラスの部分集合 = 既存アンカー byte 互換。
+ * ミラー: outliner.js / editor.js の TOC 生成 + editor.js scrollToAnchor slug（4 サイト対称 — 片側更新禁止）。
  */
 export function extractToc(markdown: string): TocItem[] {
     const lines = markdown.split('\n');
@@ -26,7 +30,7 @@ export function extractToc(markdown: string): TocItem[] {
         if (match) {
             const text = match[2].trim();
             const anchor = text.toLowerCase()
-                .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                 .replace(/\s+/g, '-');
             toc.push({ level: match[1].length, text, anchor });
         }

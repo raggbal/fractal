@@ -1464,3 +1464,188 @@ export function runMdIntoOutlinerPaste(opts: {
     }
     return { nodes };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DuplicationCore（sprint 20260818-183407 / ADRL-0078）
+//
+// Duplicate 系 3 面（md リンク Duplicate = FR-MDM-02 / tree item Duplicate = FR-FTM-03）の
+// 実体複製エンジン。asset 1:1 所有 invariant を 1 箇所に閉じ込める:
+// naive fs.copyFile 単体は「複製 md が元 asset を共有 → 片方削除で他方リンク切れ /
+// Clean Notes 誤回収」の invariant 破り。
+// uniquify は generateUniqueFileNamePreserving（本ファイル :808 正典）のみ（ADRL-0005 =
+// 新規衝突解決ロジック禁止）。
+// clamp（noteDir 配下検査）は呼び出し側 provider の責務（core は与えられた abs パスを信頼する
+// 既存流儀 — copyMdPasteAssets 等と同じ）。
+// outliner node の Duplicate（FR-OCM-03）はこの core を使わない — 既存 cmd+v 経路
+// （pasteNodesFromText + per-node asset 複製）が同 invariant を実装済みのため二重実装しない。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * files/ 実体の複製。同 dir に uniquify 新名でコピーし新 filename を返す。
+ * 元 filename が存在しない場合は throw（呼び出し側がエラー通知 — silent 握り禁止）。
+ */
+export function duplicateFileEntity(filesDirAbs: string, filename: string): string {
+    const srcAbs = path.join(filesDirAbs, path.basename(String(filename || '')));
+    if (!fs.existsSync(srcAbs) || !fs.statSync(srcAbs).isFile()) {
+        throw new Error(`duplicateFileEntity: source not found: ${srcAbs}`);
+    }
+    const newName = generateUniqueFileNamePreserving(filesDirAbs, path.basename(srcAbs));
+    fs.copyFileSync(srcAbs, path.join(filesDirAbs, newName));
+    return newName;
+}
+
+/** rel パス（'images/a.png' 等）の basename だけを newName に差し替える（区切りは '/' で正規化） */
+function replaceRelBasename(rel: string, newName: string): string {
+    const dir = path.dirname(rel);
+    return (dir === '.' ? newName : dir.replace(/\\/g, '/') + '/' + newName);
+}
+
+/**
+ * md 実体の複製。本文参照 asset（画像 / 📎 添付）を各 uniquify 複製して本文リンクを
+ * whole-link-target で書換え、md 自体を同 dir に uniquify 新名で書き出す。
+ * subpage リンク（`[[]]`）は **再帰的に複製**する（ADRL-0078 改訂版 2026-08-19 —
+ * 収集は collectMdLinkClosure 正典: visited set 循環打ち切り・noteDir 境界 clamp・
+ * 自note外/解決不能は複製しない）。参照リンク（非 subpage の md リンク）は複製しない
+ * （共有参照温存 — subpage = 所有 / 参照リンク = 共有のゲート反転は ADR-0009 と同じ）。
+ * @param noteDirAbs 再帰の note 境界（省略時 = dirname(mdPathAbs)）
+ */
+export function duplicateMdEntity(mdPathAbs: string, noteDirAbs?: string): { newMdPath: string; newStem: string } {
+    if (!fs.existsSync(mdPathAbs) || !fs.statSync(mdPathAbs).isFile()) {
+        throw new Error(`duplicateMdEntity: source not found: ${mdPathAbs}`);
+    }
+    const rootAbs = path.resolve(mdPathAbs);
+    const noteDir = noteDirAbs || path.dirname(rootAbs);
+    // subpage closure（起点含む複製対象の全 md）
+    const { closure } = collectMdLinkClosure(rootAbs, noteDir);
+    const members = [rootAbs, ...closure];
+    // pass 1: 全 member の新名を先に予約（placeholder 書出 — uniquify が後続 member の
+    // 予約済み名を見えるようにし、member 間の名前衝突を防ぐ）
+    const nameMap = new Map<string, { newAbs: string; newName: string }>();
+    for (const abs of members) {
+        const dir = path.dirname(abs);
+        const newName = generateUniqueFileNamePreserving(dir, path.basename(abs));
+        const newAbs = path.join(dir, newName);
+        fs.writeFileSync(newAbs, '');
+        nameMap.set(abs, { newAbs, newName });
+    }
+    // pass 2: 各 member の asset 複製 + リンク書換 → 予約先へ書出
+    for (const abs of members) {
+        const dir = path.dirname(abs);
+        const body = fs.readFileSync(abs, 'utf8');
+        const refs = extractAllAssetRefs(body);
+        const renames = new Map<string, string>();
+        for (const rel of [...refs.images, ...refs.files]) {
+            if (renames.has(rel)) continue;
+            if (path.isAbsolute(rel)) continue; // 絶対パス参照は複製対象外（所有外）
+            const srcAbs = path.resolve(dir, rel);
+            if (!fs.existsSync(srcAbs)) continue; // 欠損参照は skip（既存の best-effort 流儀）
+            const assetDir = path.dirname(srcAbs);
+            const newName = generateUniqueFileNamePreserving(assetDir, path.basename(srcAbs));
+            fs.copyFileSync(srcAbs, path.join(assetDir, newName));
+            renames.set(rel, replaceRelBasename(rel, newName));
+        }
+        // subpage リンクのうち複製 member を指すものだけ新名へ（複製先は元と同 dir なので
+        // basename 差し替えで相対構造が保たれる）。参照リンクは温存
+        for (const ref of refs.mdLinkRefs) {
+            if (!ref.isSubpage || renames.has(ref.url)) continue;
+            const target = path.isAbsolute(ref.url) ? path.resolve(ref.url) : path.resolve(dir, ref.url);
+            const mapped = nameMap.get(target);
+            if (mapped) { renames.set(ref.url, replaceRelBasename(ref.url, mapped.newName)); }
+        }
+        const newBody = renames.size > 0 ? applyLinkUrlRewrites(body, renames) : body;
+        fs.writeFileSync(nameMap.get(abs)!.newAbs, newBody);
+    }
+    const rootNew = nameMap.get(rootAbs)!;
+    return { newMdPath: rootNew.newAbs, newStem: path.basename(rootNew.newName, path.extname(rootNew.newName)) };
+}
+
+/**
+ * .out 実体の複製（deep copy）。全 node の pageId（page md + その本文 asset の 2 段）・
+ * filePath・images[] を複製して参照を書換えた新 .out を同 dir に uniquify 新名で書き出す。
+ * 複製後の 2 つの .out は資産を一切共有しない。
+ * title は uniquify 結果のサフィックスに追従（'My Out' + '-1' — 名前の発明はしない）。
+ */
+export function duplicateOutEntity(outPathAbs: string, noteDirAbs: string): { newOutPath: string; newOutId: string } {
+    if (!fs.existsSync(outPathAbs) || !fs.statSync(outPathAbs).isFile()) {
+        throw new Error(`duplicateOutEntity: source not found: ${outPathAbs}`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const flatLayout = require('./flat-layout');
+    const outDir = path.dirname(outPathAbs);
+    const data = JSON.parse(fs.readFileSync(outPathAbs, 'utf8'));
+    const dup = JSON.parse(JSON.stringify(data));
+    const nodes = (dup && dup.nodes && typeof dup.nodes === 'object') ? dup.nodes : {};
+    for (const id of Object.keys(nodes)) {
+        const node = nodes[id];
+        if (!node || typeof node !== 'object') continue;
+        // page md（+ 本文 asset）— flat-layout 正典で実体を解決（hints = .out の pageDir 等）
+        if (node.pageId) {
+            const pageAbs = flatLayout.resolvePageFilePath(outPathAbs, node.pageId, noteDirAbs, dup);
+            if (pageAbs && fs.existsSync(pageAbs)) {
+                // noteDirAbs 伝搬で page md 本文の subpage も再帰複製される（ADRL-0078 改訂版）
+                const r = duplicateMdEntity(pageAbs, noteDirAbs);
+                node.pageId = r.newStem;
+            }
+        }
+        // file 添付（outDir 相対 — cleanup-core と同じ基準）
+        if (node.filePath && typeof node.filePath === 'string' && !path.isAbsolute(node.filePath)) {
+            const srcAbs = path.resolve(outDir, node.filePath);
+            if (fs.existsSync(srcAbs)) {
+                const assetDir = path.dirname(srcAbs);
+                const newName = generateUniqueFileNamePreserving(assetDir, path.basename(srcAbs));
+                fs.copyFileSync(srcAbs, path.join(assetDir, newName));
+                node.filePath = replaceRelBasename(node.filePath, newName);
+            }
+        }
+        // 画像（outDir 相対）
+        if (Array.isArray(node.images)) {
+            node.images = node.images.map((rel: string) => {
+                if (!rel || typeof rel !== 'string' || path.isAbsolute(rel)) return rel;
+                const srcAbs = path.resolve(outDir, rel);
+                if (!fs.existsSync(srcAbs)) return rel;
+                const assetDir = path.dirname(srcAbs);
+                const newName = generateUniqueFileNamePreserving(assetDir, path.basename(srcAbs));
+                fs.copyFileSync(srcAbs, path.join(assetDir, newName));
+                return replaceRelBasename(rel, newName);
+            });
+        }
+    }
+    const oldName = path.basename(outPathAbs);
+    const oldStem = path.basename(oldName, path.extname(oldName));
+    const newOutName = generateUniqueFileNamePreserving(outDir, oldName);
+    const newOutId = path.basename(newOutName, path.extname(newOutName));
+    // title は uniquify サフィックス追従（stem 'myout' → 'myout-1' なら title 'My Out' → 'My Out-1'）
+    if (typeof dup.title === 'string' && dup.title && newOutId.startsWith(oldStem)) {
+        dup.title = dup.title + newOutId.slice(oldStem.length);
+    }
+    const newOutPath = path.join(outDir, newOutName);
+    fs.writeFileSync(newOutPath, JSON.stringify(dup, null, 2));
+    return { newOutPath, newOutId };
+}
+
+/**
+ * FR-MDM-03 (sprint 20260818-183407): Copy (file link full path) の変換 core。
+ * md テキスト中の md/subpage リンクと 📎 file リンクの URL 部だけを resolver の返す
+ * 絶対パスへ whole-link-target 置換する（applyLinkUrlRewrites 正典）。
+ * 通常 URL リンク（https 等）・画像・ラベル・平文は不変。resolver が null（clamp 棄却・
+ * 解決不能）のリンクは変換せずそのまま残す。
+ */
+export function convertMdLinksToFullPaths(
+    md: string,
+    resolvers: { resolveMd: (url: string) => string | null; resolveFile: (url: string) => string | null }
+): string {
+    if (!md) return md;
+    const refs = extractAllAssetRefs(md);
+    const renames = new Map<string, string>();
+    for (const url of refs.mdLinks) {
+        if (renames.has(url)) continue;
+        const abs = resolvers.resolveMd(url);
+        if (abs) renames.set(url, abs);
+    }
+    for (const url of refs.files) {
+        if (renames.has(url)) continue;
+        const abs = resolvers.resolveFile(url);
+        if (abs) renames.set(url, abs);
+    }
+    return renames.size > 0 ? applyLinkUrlRewrites(md, renames) : md;
+}

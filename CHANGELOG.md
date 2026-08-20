@@ -5,6 +5,38 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-08-19
+
+### Added
+- **`$$...$$` display math blocks** in the markdown editor (single-line and multi-line, Typora/Obsidian compatible; serialization keeps the `$$` form byte-stable, no conversion to ```math). `$$` delimiters inside ```math blocks are now tolerated (stripped for rendering only), and CJK/Hangul in formulas renders without errors (KaTeX strict:false + font-fallback CSS, PDF export included)
+- Markdown editor link menu: **Copy Path** (absolute path for subpage/file links, URL for normal links), **Duplicate** for subpage/file links, and **Copy (file link full path)** available on the whole editor menu (converts subpage/file/md link URLs in the selection to absolute paths; dimmed when nothing is applicable)
+- Outliner node menu: new **Copy Path** (page md path or attached-file path, multi-select = one per line), multi-select **Copy File Path**, "Copy Page Path" renamed to **Copy Md Path**, "Copy subtree as llms.txt/…" now supports **multi-node selection** (forest output; a selected node inside another selected node's subtree is not emitted twice), and node **Duplicate** (same semantics as cmd+c → cmd+v, internal clipboard preserved)
+- Note file tree: **+file** header button (register external files via a file dialog), **New link folder** in every context-menu branch, and **Duplicate** for out/md/file items — the duplicate shares no assets with the original: referenced images/files and **subpages are copied recursively** (cycle-safe), while plain md reference links stay shared
+
+### Fixed
+- Pasting into a side-panel markdown (opened from a note md) no longer **also** pastes into the main note md (destination-tagged host echoes for outliner-node pastes and data-URL image extraction)
+- TOC anchors for Korean / accented-Latin / half-width-kana headings no longer come out empty — Unicode-aware slugs at all 4 sites including in-page anchor scrolling (existing ASCII/Japanese anchors unchanged)
+- Whole-word search now works with CJK and accented queries (shared word-boundary module used by the notes webview, host search, and the fractal-search CLI; invalid patterns safely fall back)
+- Notes tab context-menu labels are now localized in all 7 locales
+
+## [1.3.1] - 2026-08-18
+
+### Added
+- **Local folder links** in the notes file tree — link any local folder as a 4th tree item type (🔗 chain-link icon, `+linkfd` button); clicking opens a **folder view** in the note's main pane: a lazy Outliner-style tree with a name filter, New Markdown (seeded with the name as an H1), inline rename (Enter, IME-safe), delete (always via the OS trash), and on-demand refresh (no live watching)
+- Drag & drop between the folder view, the notes tree, and side-panel markdown — cross-surface drops always **move** the file (copy first, then trash the original; if trashing the original fails, an explicit error is shown instead of silently leaving both copies)
+- Folder expansion state persists across restarts in a `.fractal-folderview.json` sidecar inside the linked folder (relative paths only)
+- Folder links open in tabs (`kind='folder'`), support **Re-link** when the target folder goes missing (the entry stays in the tree with a broken-link indicator), and never participate in Clean Notes / S3 sync — the linked folder is a *reference*: every file operation is clamped to the linked folder root (lexical + realpath checks) and deletions always go through the OS trash
+- When the side panel shows a markdown file that lives inside a linked folder, its header shows a 🔗 badge with the link title; closing the side panel with `Esc` returns focus to the folder view so you can keep navigating with the arrow keys
+
+### Fixed
+- **Markdown outline (TOC) sidebar turning white** — a 1.3.0 regression: the bundled pdf.js viewer stylesheet's generic `.sidebar` selector was hijacking the markdown TOC sidebar; neutralized with a higher-specificity override plus a regression test
+- Notes tree items ignoring clicks right after a folder view had been shown
+- `cmd+enter` in the folder view couldn't move on to the next file while the side panel was open (the side panel auto-focus stole the keyboard)
+- Folder view visual polish to match the outliner exactly (background, selection color, expand chevrons, header search box & refresh button sizing, per-row file icons; hover no longer changes the row color)
+
+### Known limitations
+- **Forward compatibility**: opening a note that contains a folder link with an **older Fractal version** removes the link entry from the tree (the old sync logic re-saves the structure without it, and that removal can propagate to other machines via S3 sync). Only the link registration is lost — the linked folder itself is never touched; re-adding the link restores it (accepted limitation, NFR-FLV-06)
+
 ## [1.3.0] - 2026-08-17
 
 ### Added

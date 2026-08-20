@@ -1832,6 +1832,14 @@ body {
 .block-fullscreen-math-display .katex-display {
     margin: 0;
 }
+/* FR-KTX-04 (sprint 20260818-183407): KaTeX フォント外の CJK/ハングル glyph は
+   ブラウザのシステムフォントフォールバックで描画される（cjk_fallback / hangul_fallback class）。
+   KaTeX Main との 1.21 倍スケール差をベースライン補正（katex.org/docs/font.html の定石）。
+   font-family は OS のシステムフォールバックに委ねる（明示スタックは書かない）。 */
+.katex .cjk_fallback,
+.katex .hangul_fallback {
+    font-size: 90%;
+}
 .lang-selector {
     position: fixed;
     background: var(--bg-color);
@@ -3083,6 +3091,27 @@ tr.tbl-row-filtered {
     background: var(--bg-color, #fff);
     color: var(--text-color, #333);
 }
+
+
+/* 2026-08-18 回帰修正: pdf.js viewer バンドル（pdf_viewer.css — 1.3.0 で notes/outliner/viewer 面に inline）が
+   汎用 `.sidebar` セレクタを持ち、md エディタの Outline sidebar（#sidebar）の背景(#fff)・角丸・影・幅 var・
+   inset-block-start を乗っ取る。id 特異度で本来の見た目（md 背景と同系の --sidebar-bg）へ打ち消す。 */
+#sidebar.sidebar {
+    background: var(--sidebar-bg);
+    border: none;
+    border-right: 1px solid var(--sidebar-border);
+    border-radius: 0;
+    box-shadow: none;
+    inset-block-start: auto;
+    padding-block: 0;
+    width: 234px;
+    min-width: 135px;
+    max-width: 450px;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    position: relative;
+}
+#sidebar.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; border-right: none; }
 </style>
     <style>/* =============================================
  * Outliner Styles
@@ -5458,6 +5487,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
             color: var(--fr-color-text-primary, inherit);
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
+        .file-panel-item.is-folder-link .file-panel-folderlink-icon { color: var(--fr-color-accent, #4a86d9); }
+        .file-panel-item.is-folder-link.is-broken { opacity: 0.55; }
+        .file-panel-item.is-folder-link.is-broken .file-panel-item-title { text-decoration: line-through dotted; }
         .file-panel-context-menu {
             position: fixed;
             background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
@@ -5714,6 +5746,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                     <button class="file-panel-btn" id="filePanelAddFolder" title="New Folder"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="Add outliner (.out)"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+out</span></button>
                     <button class="file-panel-btn" id="filePanelAddMarkdown" title="New Markdown"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+md</span></button>
+                    <button class="file-panel-btn" id="filePanelAddFileEntity" title="Add File"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+file</span></button>
+                    <button class="file-panel-btn" id="filePanelAddFolderLink" title="Link Folder"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+linkfd</span></button>
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="Today"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Today</button>
                 </div>
@@ -5922,8 +5956,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
                 <div class="toolbar-fixed toolbar-fixed--right">
                     <div class="toolbar-group" data-group="utility">
                         <button data-action="attachments" title="Attachments"></button>
-                        <button data-action="openInTextEditor" title=" (Cmd+Shift+.)"></button>
-                        <button data-action="source" title=" (Cmd+.)"></button>
+                        <button data-action="openInTextEditor" title=" (Ctrl+Shift+.)"></button>
+                        <button data-action="source" title=" (Ctrl+.)"></button>
                         <button data-action="translate" class="toolbar-translate-fixed" title="Translate"></button>
                         <button data-action="exportPdf" title="Export to PDF"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg></button>
                         <button data-action="exportBundle" title="Export bundle"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
@@ -7951,6 +7985,7 @@ function articleToMarkdown(documentClone) {
 
     </script>
     <script src="vendor/mermaid.min.js"></script>
+    <script src="vendor/katex.min.js"></script>
 
     <script>
     window.__SKIP_EDITOR_AUTO_INIT__ = true;
@@ -8355,6 +8390,29 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // FR-MDM-01 (sprint 20260818-183407): リンクの Copy Path。
+        // kind = 'normal'（URL そのままコピー）| 'md' | 'file'（host が md dir 基準で絶対化 + clamp）。
+        // sidePanelFilePath 無し（standalone main md）は host が document へ fallback。
+        copyLinkPath: function(href, kind, sidePanelFilePath) {
+            postFn({ type: 'copyLinkPath', href: href, kind: kind, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-03 (sprint 20260818-183407): 選択範囲/リンクの md を、md/subpage/file リンクだけ
+        // 絶対フルパス化して clipboard へ（通常 URL・画像・平文は不変。変換は host 単一施行点）。
+        copyMdWithFullPaths: function(markdown, sidePanelFilePath) {
+            postFn({ type: 'copyMdWithFullPaths', markdown: markdown, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（実体複製）。
+        // 結果 duplicateLinkEntityResult の宛先札は pasteWithAssetCopy と同型。
+        duplicateLinkEntity: function(href, kind, sidePanelFilePath) {
+            postFn({
+                type: 'duplicateLinkEntity',
+                href: href,
+                kind: kind,
+                sidePanelFilePath: sidePanelFilePath,
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
+            });
+        },
+
         // MD paste asset copy (v9)
         // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
         // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
@@ -8364,7 +8422,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-01 (sprint 20260818-183407): 結果 (pasteWithAssetCopyResult) の宛先札。
+                // 無しだと md ペイン無条件処理 + outliner→sidepanel 転送の両方が挿入する二重貼付
+                // (下の pasteWithAssetCopy と同型・host は echo back するだけ)。
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
@@ -8385,7 +8447,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({
                 type: 'extractDataUrlsInPastedMd',
                 markdown: markdown,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-02 (sprint 20260818-183407): 結果の宛先札（pasteOutlinerNodesWithAssets と同型）
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
 
@@ -8515,6 +8579,14 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         movePageFileCross: function(pageId, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'movePageFileCross', pageId: pageId, clipboardPlainText: clipboardPlainText });
         },
+        // FR-OCM-03 (sprint 20260818-183407): page/file 資産複製の本番 bridge ミラー
+        // （Duplicate = pasteNodesFromText 流用が page node で呼ぶ。従来 mock 不在で TypeError）
+        handlePageAssetsCross: function(pageId, newPageId, clipboardPlainText, targetNodeId, nodeImages, isCut) {
+            window.__testApi.messages.push({ type: 'handlePageAssetsCross', pageId: pageId, newPageId: newPageId, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, nodeImages: nodeImages, isCut: isCut });
+        },
+        handleFileAssetCross: function(filePath, clipboardPlainText, targetNodeId, isCut) {
+            window.__testApi.messages.push({ type: 'handleFileAssetCross', filePath: filePath, clipboardPlainText: clipboardPlainText, targetNodeId: targetNodeId, isCut: isCut });
+        },
         copyImagesCross: function(images, clipboardPlainText) {
             window.__testApi.messages.push({ type: 'copyImagesCross', images: images, clipboardPlainText: clipboardPlainText });
         },
@@ -8539,6 +8611,26 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         copyPagePaths: function(pageIds) {
             window.__testApi.messages.push({ type: 'copyPagePaths', pageIds: pageIds });
+        },
+        // FR-OCM-01 (sprint 20260818-183407): 本番 outliner-host-bridge.js のミラー
+        copyAttachedFilePath: function(nodeId) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePath', nodeId: nodeId });
+        },
+        copyAttachedFilePaths: function(nodeIds) {
+            window.__testApi.messages.push({ type: 'copyAttachedFilePaths', nodeIds: nodeIds });
+        },
+        copyNodePaths: function(entries) {
+            window.__testApi.messages.push({ type: 'copyNodePaths', entries: entries });
+        },
+        // FR-OCM-02 (sprint 20260818-183407): llms 3 種（本番 outliner-host-bridge.js のミラー）
+        copyLlmsTxtMdTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtMdTree', tree: tree });
+        },
+        copyLlmsTxtFileTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtFileTree', tree: tree });
+        },
+        copyLlmsTxtBothTree: function(tree) {
+            window.__testApi.messages.push({ type: 'copyLlmsTxtBothTree', tree: tree });
         },
         createPageAtPath: function() {},
         createPageAuto: function() {},
@@ -8582,6 +8674,16 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         },
         createFile: function(title, parentId) {
             window.__testApi.notesMessages.push({ type: 'createFile', title: title, parentId: parentId });
+        },
+        // FR-FTM-01/02 (sprint 20260818-183407): +file / New link folder（本番 notes-host-bridge のミラー）
+        addTreeFilesViaDialog: function() {
+            window.__testApi.notesMessages.push({ type: 'addTreeFilesViaDialog' });
+        },
+        addFolderLink: function(parentId) {
+            window.__testApi.notesMessages.push({ type: 'addFolderLink', parentId: parentId || null });
+        },
+        duplicateTreeItem: function(id) {
+            window.__testApi.notesMessages.push({ type: 'duplicateTreeItem', id: id });
         },
         deleteFile: function(filePath) {
             window.__testApi.notesMessages.push({ type: 'deleteFile', filePath: filePath });
@@ -9539,6 +9641,68 @@ if (typeof window !== 'undefined') {
     window.InAppLinkUtils = _api;
 }
 
+/**
+ * wholeWord 検索の多言語境界（FR-MLG-02 / ADRL-0080・sprint 20260818-183407）
+ *
+ * 規則:
+ *  1. クエリが CJK 文字（Han / Hiragana / Katakana / Hangul script）を含む
+ *     → wholeWord 指定を無視して部分一致（CJK に語境界は存在しない — VS Code 検索と同等の実用挙動）。
+ *  2. それ以外 → Unicode property lookaround（(?<![\p{L}\p{N}_]) / (?![\p{L}\p{N}_])・u フラグ）で
+ *     境界判定（旧 \b は ASCII \w 基準で é 末尾等が false negative）。
+ *  3. u フラグで不正になる pattern（useRegex のユーザー正規表現の \- 等）は throw させず
+ *     従来の \b 形へ fallback（既存検索をクラッシュさせない — TC-MLG-06）。
+ *
+ * 単一真実の共有方式（inapp-link-utils.js precedent）:
+ *  - host ts: require('./whole-word')（notes-file-manager.ts buildSearchRegex）
+ *  - webview: 本番 inline（notesWebviewContent.ts）+ ハーネス（build-standalone-notes.js）で
+ *    window.WholeWord として先行ロード（notes-file-panel.js の 2 サイトが参照）
+ *  - CLI: ai_skills/fractal-search/scripts/fractal-search.mjs はゼロ install 配布のため
+ *    ミラー実装（extension⇄CLI 一致 TC = TC-MLG-04b が番人・ADRL-0059 同型）
+ */
+(function (root, factory) {
+    var api = factory();
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = api;
+    }
+    if (root) {
+        root.WholeWord = api;
+    }
+})(typeof window !== 'undefined' ? window : null, function () {
+    /** クエリに CJK（語境界の無い script）が含まれるか */
+    function hasCjkQuery(query) {
+        try {
+            return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(query || '');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * wholeWord 用 RegExp を構築する（wholeWord ON の時だけ呼ぶ）。
+     * @param {string} pattern escape 済み（または useRegex の生）パターン。capture group を含んでよい
+     * @param {string} query   ユーザーの生クエリ（CJK 判定用 — pattern でなく query で判定する）
+     * @param {string} baseFlags 'g' / 'gi' / 'i' / '' 等（u は付けずに渡す）
+     * @returns {RegExp}
+     */
+    function buildWholeWordRegex(pattern, query, baseFlags) {
+        if (hasCjkQuery(query)) {
+            // CJK 含みは素通し（部分一致）— 境界を付けると CJK 連続文中で一切ヒットしなくなる
+            return new RegExp(pattern, baseFlags);
+        }
+        try {
+            return new RegExp(
+                '(?<![\\p{L}\\p{N}_])' + pattern + '(?![\\p{L}\\p{N}_])',
+                (baseFlags || '') + 'u'
+            );
+        } catch (e) {
+            // u-mode で不正な pattern（useRegex の \- 等）は従来 \b へ fallback
+            return new RegExp('\\b' + pattern + '\\b', baseFlags);
+        }
+    }
+
+    return { hasCjkQuery: hasCjkQuery, buildWholeWordRegex: buildWholeWordRegex };
+});
+
     </script>
     <script>
     // shortcut-list.js — FR-B06b: cmd 長押しショートカット HUD の静的コンテンツ。
@@ -10115,6 +10279,26 @@ class SidePanelHostBridge {
         if (this._onImageRequest) this._onImageRequest();
         if (typeof this._mainHost.linkMdAsSubpageForSidePanel === 'function') {
             this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
+        }
+    }
+    // FR-MDM-01 (sprint 20260818-183407): リンクパスコピー。宛先 md = this.filePath（sidepanel）。
+    // SidePanelHostBridge は共有 factory 非経由の手書きクラスなので個別追加が必要
+    // (generator_failures 2026-08-09 — main では動くが sidepanel だけ silent no-op になる再発クラス)。
+    copyLinkPath(href, kind) {
+        if (typeof this._mainHost.copyLinkPath === 'function') {
+            this._mainHost.copyLinkPath(href, kind, this.filePath);
+        }
+    }
+    // FR-MDM-03 (sprint 20260818-183407): Copy (file link full path)。宛先 md = this.filePath
+    copyMdWithFullPaths(markdown) {
+        if (typeof this._mainHost.copyMdWithFullPaths === 'function') {
+            this._mainHost.copyMdWithFullPaths(markdown, this.filePath);
+        }
+    }
+    // FR-MDM-02 (sprint 20260818-183407): リンクの Duplicate（実体複製）。宛先 md = this.filePath
+    duplicateLinkEntity(href, kind) {
+        if (typeof this._mainHost.duplicateLinkEntity === 'function') {
+            this._mainHost.duplicateLinkEntity(href, kind, this.filePath);
         }
     }
     // FR-TF-06a (sprint 20260809-031217): ツリー file item → sidepanel md D&D。
@@ -10864,6 +11048,51 @@ class EditorInstance {
         return '';
     }
 
+    // FR-MDM-01 (sprint 20260818-183407): context menu 用のリンク種別判定。
+    // classifyLinkHref（視覚 class 専用）とは別関数 — menu の表示裁定はここが正。
+    // 返り値: null（メニュー対象外 = anchor(#) / href 無し）| {kind:'normal'|'md'|'file', href, isSubpage}
+    function classifyLinkForMenu(linkEl) {
+        if (!linkEl || !linkEl.getAttribute) return null;
+        var href = linkEl.getAttribute('href') || linkEl.getAttribute('data-markdown-path') || '';
+        if (!href) return null;
+        if (href.startsWith('#')) return null; // アンカーは対象外（従来どおり）
+        if (/^(https?:|mailto:|ftp:|data:|file:|fractal:)/i.test(href)) {
+            return { kind: 'normal', href: href, isSubpage: false };
+        }
+        var bare = href.split(/[?#]/)[0];
+        if (/\.(?:md|markdown)$/i.test(bare)) {
+            var isSub = !!(linkEl.classList && linkEl.classList.contains('link-subpage'));
+            return { kind: 'md', href: href, isSubpage: isSub };
+        }
+        var label = (linkEl.textContent || '').trim();
+        if (linkEl.getAttribute('data-is-file-attachment') === 'true' || label.indexOf('📎') === 0) {
+            return { kind: 'file', href: href, isSubpage: false };
+        }
+        // 相対パスの非 md 非添付リンク（稀）— normal 扱い（href をそのままコピー）
+        return { kind: 'normal', href: href, isSubpage: false };
+    }
+
+    // FR-MDM-03: Copy (file link full path) の入力 md 化。
+    // FR-MDM-02: Duplicate 応答で直下挿入する対象（one-shot — 応答消費とメニュー再表示で clear）
+    var _pendingDuplicateLink = null;
+    function getSelectionMarkdownForFullPath() {
+        try {
+            var s = window.getSelection();
+            if (!s || s.rangeCount === 0 || s.isCollapsed) return '';
+            var r = s.getRangeAt(0);
+            return serializeSelectionToMd(r, s).md || '';
+        } catch (e) {
+            return '';
+        }
+    }
+    function buildLinkMarkdownForFullPath(linkEl, info) {
+        var label = (linkEl && linkEl.textContent || '').trim();
+        if (info.kind === 'md' && info.isSubpage) {
+            return '[[' + label + ']](' + info.href + ')';
+        }
+        return '[' + label + '](' + info.href + ')';
+    }
+
     // Resolve relative image path to full webview URI
     function resolveImagePath(src) {
         if (!src) return '';
@@ -11004,6 +11233,43 @@ class EditorInstance {
             restoreSelectionAndFocus();
             document.execCommand('copy');
         }, mod + '+C', !hasSelection);
+
+        // FR-MDM-01 (sprint 20260818-183407): メニュー全列挙は requirement FR-MDM-01 の順序が正 —
+        // Rename Link / Cut / Copy / Copy Path / Copy (file link full path) / Duplicate(md・file のみ) / Paste
+        var ctxLinkInfo = classifyLinkForMenu(ctxLinkEl);
+        // Copy Path（リンク上のみ表示。normal=URL そのまま / md・file=host が絶対化 + clamp）
+        if (ctxLinkInfo) {
+            addCtxItem(i18n.mdCopyLinkPath || 'Copy Path', function() {
+                if (typeof host.copyLinkPath === 'function') {
+                    host.copyLinkPath(ctxLinkInfo.href, ctxLinkInfo.kind);
+                }
+            });
+        }
+        // Copy (file link full path)（FR-MDM-03: リンク右クリック限定でなく全域表示。
+        // 選択なし + リンク外はディム = 実行不可）
+        addCtxItem(i18n.mdCopyFullPath || 'Copy (file link full path)', function() {
+            var mdText = '';
+            if (hasSelection && savedRange) {
+                // 選択範囲の md 化は既存 copy 経路と同じ選択 serialize を使う
+                restoreSelectionAndFocus();
+                mdText = getSelectionMarkdownForFullPath();
+            } else if (ctxLinkInfo) {
+                mdText = buildLinkMarkdownForFullPath(ctxLinkEl, ctxLinkInfo);
+            }
+            if (mdText && typeof host.copyMdWithFullPaths === 'function') {
+                host.copyMdWithFullPaths(mdText);
+            }
+        }, null, !hasSelection && !ctxLinkInfo);
+        // Duplicate（subpage/md・file リンクのみ表示。cmd+c → cmd+v と同一 = 実体複製 — FR-MDM-02 / TASK-10）
+        if (ctxLinkInfo && (ctxLinkInfo.kind === 'md' || ctxLinkInfo.kind === 'file')) {
+            addCtxItem(i18n.mdDuplicateLink || 'Duplicate', function() {
+                if (typeof host.duplicateLinkEntity === 'function') {
+                    // 応答（duplicateLinkEntityResult）で直下挿入する対象を one-shot 保持
+                    _pendingDuplicateLink = { el: ctxLinkEl, kind: ctxLinkInfo.kind, isSubpage: ctxLinkInfo.isSubpage };
+                    host.duplicateLinkEntity(ctxLinkInfo.href, ctxLinkInfo.kind);
+                }
+            });
+        }
 
         // Paste — use execCommand('paste') which triggers the editor's native paste handler
         addCtxItem(i18n.contextPaste || 'Paste', function() {
@@ -12772,6 +13038,9 @@ class EditorInstance {
         // sprint 20260729-000358: start だけ違う ol（innerHTML 同一）を「等しい」と
         // 誤判定すると updateFromMarkdown が replace をスキップし start 変更が DOM に届かない
         if (a.tagName === 'OL' && (a.getAttribute('start') || '') !== (b.getAttribute('start') || '')) return false;
+        // FR-KTX-01 (ADRL-0079): $$⇄```math の混在編集で data-math-delim が剥がれると
+        // serialize 形式が化ける — 属性差は「等しくない」（updateFromMarkdown が replace する）
+        if ((a.getAttribute('data-math-delim') || '') !== (b.getAttribute('data-math-delim') || '')) return false;
         return normalizeBlockHtml(a.innerHTML) === normalizeBlockHtml(b.innerHTML);
     }
 
@@ -13360,6 +13629,58 @@ class EditorInstance {
             if (inCodeBlock) {
                 codeContent += line + '\n';
                 continue;
+            }
+
+            // FR-KTX-01 (sprint 20260818-183407 / ADRL-0079): `$$...$$` display math ブロック。
+            // 対象は (a) 1 行完結 `$$content$$`（内容非空）(b) `$$` 単独行 〜 `$$` 単独行の複数行、の 2 形のみ。
+            // 閉じ行が見つからない開き `$$` はブロック化しない（通常テキスト — データを math に巻き込まない）。
+            // 行中の `$$`（前後にテキスト）も対象外。DOM は既存 ```math と同一構造 +
+            // data-math-delim 属性（'dollar' = 1 行完結 / 'dollar-block' = 複数行 — serialize が元の形を復元）。
+            {
+                const singleDollar = line.match(/^\s{0,3}\$\$(.+?)\$\$\s*$/);
+                let dollarContent = null;
+                let dollarDelim = 'dollar';
+                let dollarEndIndex = -1;
+                if (singleDollar && singleDollar[1].trim() !== '') {
+                    dollarContent = singleDollar[1];
+                } else if (/^\s{0,3}\$\$\s*$/.test(line)) {
+                    for (let dj = i + 1; dj < lines.length; dj++) {
+                        if (/^\s*\$\$\s*$/.test(lines[dj])) { dollarEndIndex = dj; break; }
+                    }
+                    if (dollarEndIndex > -1) {
+                        dollarContent = lines.slice(i + 1, dollarEndIndex).join('\n');
+                        dollarDelim = 'dollar-block';
+                    }
+                }
+                if (dollarContent !== null) {
+                    if (inBlockquote) {
+                        html += renderBlockquote(blockquoteLines);
+                        inBlockquote = false;
+                        blockquoteLines = [];
+                    }
+                    if (inTable) {
+                        html += renderTable(tableRows);
+                        inTable = false;
+                        tableRows = [];
+                    }
+                    html += closeAllLists();
+                    let dollarCodeHtml;
+                    let dollarTrailing = '';
+                    if (!dollarContent) {
+                        dollarCodeHtml = '<br>';
+                    } else if (dollarContent.endsWith('\n')) {
+                        dollarCodeHtml = escapeHtml(dollarContent).replace(/\n/g, '<br>') + '<br>';
+                        dollarTrailing = ' data-trailing-br="true"';
+                    } else {
+                        dollarCodeHtml = escapeHtml(dollarContent).replace(/\n/g, '<br>');
+                    }
+                    html += '<div class="math-wrapper" data-mode="display" data-math-delim="' + dollarDelim + '" contenteditable="false">' +
+                        '<pre data-lang="math" contenteditable="true"><code' + dollarTrailing + '>' + dollarCodeHtml + '</code></pre>' +
+                        '<div class="math-display"></div>' +
+                        '</div>';
+                    if (dollarEndIndex > -1) i = dollarEndIndex;
+                    continue;
+                }
             }
 
             // Persistence (option C): `<!-- fractal-col-widths: w1,w2,w3 -->` line right
@@ -14034,18 +14355,32 @@ class EditorInstance {
         var code = pre.querySelector('code');
         var texCode = code ? getCodePlainText(code).trim() : '';
 
+        // FR-KTX-02 (sprint 20260818-183407): ```math 内に `$$...$$` ごと書かれた入力の tolerant 剥がし。
+        // $$ デリミタが KaTeX に渡ると言語不問で katex-error（赤字 raw）になる。表示時のみ剥がし、
+        // md 本文（serialize）は不変。
+        if (/^\$\$[\s\S]*\$\$$/.test(texCode) && texCode.length > 4) {
+            texCode = texCode.replace(/^\$\$/, '').replace(/\$\$$/, '').trim();
+        }
+
         if (!texCode) {
             displayDiv.innerHTML = '<div class="math-error">Empty expression</div>';
             return;
         }
 
         try {
-            var lines = texCode.split('\n').filter(function(l) { return l.trim() !== ''; });
+            var lines = texCode.split('\n').filter(function(l) {
+                var t = l.trim();
+                return t !== '' && t !== '$$'; // 行単位の $$ デリミタ残骸も除去（FR-KTX-02）
+            });
             var html = '';
             for (var i = 0; i < lines.length; i++) {
                 html += katex.renderToString(lines[i].trim(), {
                     displayMode: true,
                     throwOnError: false,
+                    // FR-KTX-03 (sprint 20260818-183407): math mode 直書き CJK（\text 無し）の
+                    // unicodeTextInMathMode 警告を抑止（default 'warn' でも描画はされるが、
+                    // 将来の strict 化・console ノイズを防ぐ。KaTeX 公式 docs の定石）
+                    strict: false,
                     output: 'html'
                 });
             }
@@ -18331,6 +18666,15 @@ class EditorInstance {
                             processCodeNode(code);
                         }
                         wrapperContent = stripTrailingNewlines(wrapperContent, code, node);
+                        // FR-KTX-01 (ADRL-0079): $$ 由来の math ブロックは $$ 形式で復元
+                        // （```math へ書き換えない — round-trip byte 安定・他エディタ互換）。
+                        const mathDelim = node.getAttribute('data-math-delim');
+                        if (wrapperLang === 'math' && mathDelim === 'dollar') {
+                            return '$$' + wrapperContent + '$$\n';
+                        }
+                        if (wrapperLang === 'math' && mathDelim === 'dollar-block') {
+                            return '$$\n' + wrapperContent + '\n$$\n';
+                        }
                         // Always add \n for fence format.
                         wrapperContent += '\n';
                         // Determine fence length: if content contains triple backticks, use more backticks
@@ -28484,11 +28828,68 @@ class EditorInstance {
             });
             return;
         }
+        // FR-MDM-02 (sprint 20260818-183407): リンク Duplicate の応答 — 元リンクの block 直後に
+        // 複製リンクの新行を挿入（1 undo 単位）。destination routing は pasteWithAssetCopyResult と同型。
+        if (message.type === 'duplicateLinkEntityResult') {
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) {
+                if (typeof sidePanelHostBridge !== 'undefined' && sidePanelHostBridge
+                    && typeof sidePanelInstance !== 'undefined' && sidePanelInstance) {
+                    sidePanelHostBridge._sendMessage(message);
+                }
+                return;
+            }
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
+            var pendingDup = _pendingDuplicateLink;
+            _pendingDuplicateLink = null;
+            if (!pendingDup || !pendingDup.el || !pendingDup.el.isConnected || !message.newHref) return;
+            undoManager.saveSnapshot();
+            var dupA = document.createElement('a');
+            dupA.setAttribute('href', message.newHref);
+            if (pendingDup.kind === 'file') {
+                var newLabel = '📎 ' + (message.newFileName || message.newHref.replace(/^.*\//, ''));
+                dupA.textContent = newLabel;
+                dupA.setAttribute('data-is-file-attachment', 'true');
+                dupA.setAttribute('data-markdown-path', message.newHref);
+            } else {
+                // md/subpage: ラベルは元リンクと同一（複製 md の H1 = 元と同一）。
+                // serialize の [[]] 復元は data-subpage 属性が正（:2483 の往路フラグ）— 元リンクから引き継ぐ
+                dupA.textContent = (pendingDup.el.textContent || '').trim();
+                dupA.className = pendingDup.el.className || '';
+                if (pendingDup.el.getAttribute && pendingDup.el.getAttribute('data-subpage')) {
+                    dupA.setAttribute('data-subpage', pendingDup.el.getAttribute('data-subpage'));
+                } else if (pendingDup.isSubpage) {
+                    dupA.setAttribute('data-subpage', 'true');
+                }
+            }
+            var blockEl = pendingDup.el.closest ? pendingDup.el.closest('li, p, h1, h2, h3, h4, h5, h6') : null;
+            if (blockEl && blockEl.tagName === 'LI') {
+                var newLi = document.createElement('li');
+                newLi.appendChild(dupA);
+                blockEl.parentNode.insertBefore(newLi, blockEl.nextSibling);
+            } else if (blockEl && blockEl.parentNode) {
+                var newP = document.createElement('p');
+                newP.appendChild(dupA);
+                blockEl.parentNode.insertBefore(newP, blockEl.nextSibling);
+            } else {
+                var tailP = document.createElement('p');
+                tailP.appendChild(dupA);
+                editor.appendChild(tailP);
+            }
+            markAsEdited();
+            syncMarkdown();
+            return;
+        }
         // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
         if (message.type === 'extractDataUrlsInPastedMdResult') {
             console.log('[paste] extractDataUrlsInPastedMdResult: savedCount=', message.savedCount,
                 'mdLength=', message.markdown?.length, 'error=', message.error || 'none');
             if (message.error) console.error('[paste] host error:', message.error);
+            // FR-PDB-02 (sprint 20260818-183407): destination ルーティング（pasteWithAssetCopyResult :18387 と同型）。
+            // sidepanel 宛の転送は既存 forwarder（Notes = outliner.js switch / standalone = 下方の
+            // window handler の extractDataUrlsInPastedMdResult delegate）が担うため、ここでは処理をやめるだけ。
+            // destination 無し（旧形式）は従来どおり無条件処理（後方互換）。
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) return;
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
             if (!message.markdown) return;
             var pending = self._pendingDataUrlPaste || {};
             self._pendingDataUrlPaste = null;
@@ -28921,7 +29322,8 @@ class EditorInstance {
             logger.log('Subpage link element inserted');
         } else if (message.type === 'extractDataUrlsInPastedMdResult') {
             // data URL extraction result - delegate to side panel EditorInstance if present
-            if (sidePanelHostBridge) {
+            // FR-PDB-02: main-md 宛は sidepanel へ転送しない（二重挿入防止。宛先無し=旧形式は従来どおり転送）
+            if (sidePanelHostBridge && message.destination !== 'main-md') {
                 sidePanelHostBridge._sendMessage(message);
             }
         } else if (message.type === 'insertLinkHtml') {
@@ -28996,7 +29398,10 @@ class EditorInstance {
                     const slug = headingText
                         .toLowerCase()
                         .trim()
-                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '')
+                        // FR-MLG-01: TOC アンカー生成（toc-utils.ts extractToc）と同一クラスに統一。
+                        // 従来はここだけ第 4 の変種（アクセント Latin 欠落）で #fragment リンクの
+                        // slug 照合が生成側と非対称だった（needle/haystack 対称の原則）。
+                        .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                         .replace(/\s+/g, '-');
                     if (slug === anchor || heading.id === anchor) {
                         scrollToHeading(heading);
@@ -29447,7 +29852,8 @@ class EditorInstance {
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                    // FR-MLG-01: toc-utils.ts extractToc とミラー（4 サイト対称 — 片側更新禁止）
+                    .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
@@ -30429,6 +30835,35 @@ class EditorInstance {
             };
             reader.readAsDataURL(file);
         }
+
+        // FR-FLV-22 (W4 受信 — sprint 20260817-053313): フォルダビューのエントリ drop → 実体移動 +
+        // リンク挿入（host #15 folderViewMoveIntoMd が種別分岐: md=subpage / 画像 / 他=📎）。
+        // notes bridge 直（host-api.md 発見 7 — SidePanelHostBridge 委譲層は経由しない。targetMdPath で
+        // 宛先を一意化するため per-instance host メソッド不要 = 5 層配線漏れクラスの構造回避）。
+        // notes webview 以外（standalone md 等）は window.notesHostBridge 不在 → no-op（フォルダビュー非共存）。
+        // 挿入位置は上の dropRange → selection 設定を host 挿入エコーが使う（既存機構）。
+        try {
+            var fvEntryRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-folderview-entry') : '';
+            if (fvEntryRaw) {
+                var fvEntryPayload = null;
+                try { fvEntryPayload = JSON.parse(fvEntryRaw); } catch (err) { /* ignore */ }
+                var fvNotesBridge = (typeof window !== 'undefined') ? window.notesHostBridge : null;
+                var fvTargetMdPath = (t.instance.host && t.instance.host.filePath) ||
+                    (t.instance.options && t.instance.options.filePath) || '';
+                if (fvEntryPayload && fvEntryPayload.folderLinkId && fvEntryPayload.relPath !== undefined && fvNotesBridge) {
+                    if (fvEntryPayload.isDir) {
+                        // フォルダは md 本文へ落とせない（不受理の明示裁定 — dnd-wiring §1）
+                        if (typeof fvNotesBridge.notifyError === 'function') {
+                            var fvMsgs = (typeof window !== 'undefined' && window.__outlinerMessages) || {};
+                            fvNotesBridge.notifyError(fvMsgs.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
+                        }
+                    } else if (fvTargetMdPath && typeof fvNotesBridge.folderViewMoveIntoMd === 'function') {
+                        fvNotesBridge.folderViewMoveIntoMd(fvEntryPayload.folderLinkId, fvEntryPayload.relPath, fvTargetMdPath);
+                    }
+                }
+                return; // folder view entry drop はここで完結（添付/画像経路へ落とさない）
+            }
+        } catch (err) { /* ignore */ }
 
         // FR-TF-06a (sprint 20260809-031217, §4f :101): Notes ファイルツリーの file item drop。
         // 開いている md 本文へ添付（コピーなし・リンクのみ）。ファイル実体は note 内にあるため
@@ -42239,6 +42674,83 @@ var Outliner = (function() {
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
+    // FR-OCM-03 (sprint 20260818-183407): node の Duplicate。意味論 = 「選択 node（複数可・
+    // 無選択なら右クリック対象）を cmd+c → cmd+v」と同一 — 既存収集（getSelectedNodesData /
+    // getSubtreeNodesData）+ 既存 paste 経路（pasteNodesFromText の same-note copy 契約 =
+    // page md / file / images の複製）に合流し、新規複製ロジックは書かない。
+    // 資産複製は host の OutlinerClipboardStore 前提（store miss = silent no-op）のため
+    // Duplicate 専用キーで Store へ一時保存し、直後に既存の内部コピー（internalClipboard）を
+    // 再保存して復元する（webview の internalClipboard / OS clipboard は一切触らない —
+    // cmd+c → Duplicate → cmd+v で事前コピーが貼れる契約は TC-OCM-08 が番人）。
+    function duplicateSelectedNodes(nodeId) {
+        var targetIds;
+        if (selectedNodeIds.size > 0) {
+            targetIds = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+        } else {
+            targetIds = [nodeId];
+        }
+        if (targetIds.length === 0) { return; }
+        var nodesData = (selectedNodeIds.size > 0) ? getSelectedNodesData() : getSubtreeNodesData(nodeId);
+        if (!nodesData || nodesData.length === 0) { return; }
+        var lastId = targetIds[targetIds.length - 1];
+        var lastNode = model.getNode(lastId);
+        if (!lastNode) { return; }
+        // Store キー（内部 paste では行パース非使用 — キー + fallback 用途のみ。FR-SE-03 潰し準拠）
+        var dupKey = nodesData.map(function(n) {
+            return new Array((n.level || 0) + 1).join('\t') + String(n.text || '').replace(/\n/g, ' ');
+        }).join('\n');
+        var prevClip = internalClipboard; // 参照のみ（非破壊）
+        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+        if (host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(dupKey, false, nodesData);
+        }
+        pasteNodesFromText(dupKey, lastNode.parentId, lastId, nodesData, /*isCut*/false, /*clipSourceKey*/null, false);
+        // Store 復元（同一 webview の事前 cmd+c/x を温存。cross-outliner の pending Store は
+        // internalClipboard が無く復元不能 — 既知の縮退: 以後の cross paste はリストのみ貼付に落ちる）
+        if (prevClip && prevClip.plainText && host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(prevClip.plainText, !!prevClip.isCut, prevClip.nodes || []);
+        }
+        scheduleSyncToHost();
+        renderTree();
+    }
+
+    // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 選択集合の forest 化。
+    // 収集 = Export bundle 裁定踏襲（選択集合優先・document order・Set 重複排除）+
+    // 祖先包含重複排除（既採用 root の子孫は独立 root にしない — flat Set では子孫 subtree が
+    // 祖先の中と独立 root の 2 回出力される）。選択なしは右クリック node 単体（従来互換・要素 1）。
+    function buildLlmsTxtForest(nodeId) {
+        var rootIds;
+        if (selectedNodeIds.size > 0) {
+            var sorted = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+            var accepted = [];
+            var acceptedSet = {};
+            sorted.forEach(function(id) {
+                var cur = model.getNode(id);
+                var p = cur ? cur.parentId : null;
+                var contained = false;
+                while (p) {
+                    if (acceptedSet[p]) { contained = true; break; }
+                    var pn = model.getNode(p);
+                    p = pn ? pn.parentId : null;
+                }
+                if (!contained) { accepted.push(id); acceptedSet[id] = true; }
+            });
+            rootIds = accepted;
+        } else {
+            rootIds = [nodeId];
+        }
+        var forest = [];
+        rootIds.forEach(function(id) {
+            var t = buildLlmsTxtTree(id);
+            if (t) { forest.push(t); }
+        });
+        return forest;
+    }
+
     function buildLlmsTxtTree(rootNodeId) {
         function build(id) {
             var n = model.getNode(id);
@@ -42307,9 +42819,15 @@ var Outliner = (function() {
             addMenuSeparator(contextMenuEl);
         }
 
-        // --- 複数選択時のページパスコピー ---
+        // --- 複数選択時のパスコピー（FR-OCM-01・sprint 20260818-183407） ---
+        // Copy Md Path（旧 Copy Page Path の改名・挙動不変）/ Copy File Path（複数対応）/
+        // Copy Path（page→page md パス・file→file パスの統合）。
+        // 表示条件は requirement FR-OCM-01 の全列挙が正: 条件を満たさない項目は非表示
+        // （既存 Copy Page Path の「無ければ非表示」流儀。FR-MDM-03 のディムとは意図的非対称）。
         if (selectedNodeIds.size > 0) {
             var selectedPageIds = [];
+            var selectedFileNodeIds = [];
+            var selectedPathEntries = []; // document order の {kind:'page',pageId}|{kind:'file',nodeId}
             var sortedSelectedIds = model.getFlattenedIds(true).filter(function(id) {
                 return selectedNodeIds.has(id);
             });
@@ -42317,13 +42835,35 @@ var Outliner = (function() {
                 var n = model.getNode(id);
                 if (n && n.isPage && n.pageId) {
                     selectedPageIds.push(n.pageId);
+                    selectedPathEntries.push({ kind: 'page', pageId: n.pageId });
+                } else if (n && n.filePath) {
+                    selectedFileNodeIds.push(id);
+                    selectedPathEntries.push({ kind: 'file', nodeId: id });
                 }
             });
+            var addedCopyGroup = false;
             if (selectedPageIds.length > 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths(selectedPageIds);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                addedCopyGroup = true;
+            }
+            if (selectedFileNodeIds.length > 0) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyFilePath || 'Copy File Path', function() {
+                    host.copyAttachedFilePaths(selectedFileNodeIds);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (selectedPathEntries.length > 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths(selectedPathEntries);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (addedCopyGroup) {
                 addMenuSeparator(contextMenuEl);
             }
         }
@@ -42340,10 +42880,17 @@ var Outliner = (function() {
                 hideContextMenu();
             });
             if (selectedNodeIds.size === 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths([node.pageId]);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                // FR-OCM-01: 単一 node でも Copy Path（page → page md パス）
+                if (host.copyNodePaths) {
+                    addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                        host.copyNodePaths([{ kind: 'page', pageId: node.pageId }]);
+                        hideContextMenu();
+                    });
+                }
             }
             addMenuItem(contextMenuEl, i18n.outlinerDeletePage || 'Delete Page', function() {
                 removePage(nodeId);
@@ -42372,6 +42919,13 @@ var Outliner = (function() {
                 host.copyAttachedFilePath(nodeId);
                 hideContextMenu();
             });
+            // FR-OCM-01: 単一 node でも Copy Path（file → file パス）
+            if (selectedNodeIds.size === 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths([{ kind: 'file', nodeId: nodeId }]);
+                    hideContextMenu();
+                });
+            }
             addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
                 saveSnapshot();
                 node.filePath = null;
@@ -42382,25 +42936,33 @@ var Outliner = (function() {
         }
 
         // --- llms.txt 風に配下を再帰コピー ---
+        // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 複数選択時は選択全 root の forest を送る
+        // （従来は右クリック node 単体 subtree のみ = 複数選択が無視されるバグ）。新規送出は常に配列。
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtMd || 'Copy subtree as llms.txt (MD pages)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtMdTree) {
-                host.copyLlmsTxtMdTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtMdTree) {
+                host.copyLlmsTxtMdTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtFile || 'Copy subtree as llms.txt (files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtFileTree) {
-                host.copyLlmsTxtFileTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtFileTree) {
+                host.copyLlmsTxtFileTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtBoth || 'Copy subtree as llms.txt (MD + files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtBothTree) {
-                host.copyLlmsTxtBothTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtBothTree) {
+                host.copyLlmsTxtBothTree(forest);
             }
+            hideContextMenu();
+        });
+
+        // FR-OCM-03 (sprint 20260818-183407): Duplicate（cmd+c → cmd+v と同一意味論）
+        addMenuItem(contextMenuEl, i18n.outlinerDuplicate || 'Duplicate', function() {
+            duplicateSelectedNodes(nodeId);
             hideContextMenu();
         });
 
@@ -43735,7 +44297,8 @@ var Outliner = (function() {
                 var text = match[2].trim();
                 if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                    // FR-MLG-01: toc-utils.ts extractToc とミラー（4 サイト対称 — 片側更新禁止）
+                    .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
@@ -44789,7 +45352,19 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'duplicateLinkEntityResult':
+                    // FR-MDM-02 (sprint 20260818-183407): pasteWithAssetCopyResult と同型の転送 switch
+                    if (msg.destination === 'main-md') { break; }
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage(msg);
+                    }
+                    break;
+
                 case 'extractDataUrlsInPastedMdResult':
+                    // FR-PDB-02 (sprint 20260818-183407): destination='main-md' は Notes md
+                    // メインペイン宛 — sidepanel へ転送すると二重挿入になるため転送しない
+                    // （pasteWithAssetCopyResult の :9719 分岐と同型。宛先無し=旧形式は従来どおり転送）。
+                    if (msg.destination === 'main-md') { break; }
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
                             type: 'extractDataUrlsInPastedMdResult',
@@ -45628,10 +46203,18 @@ var notesFilePanel = (function() {
         // 再クリックすると early return して viewer が閉じず戻れなくなる（実機検収 2026-08-15）
         var viewerShown = !!(window.__viewerDispatcher && window.__viewerDispatcher.isViewerShown
             && window.__viewerDispatcher.isViewerShown());
-        if (filePath === currentFile && !viewerShown) return;
+        // 2026-08-18 バグ修正: folder view 表示中も currentFile ガードを外す（viewer と同型 —
+        // folder view を開いても currentFile は前の md/.out のままなので、同じ item の再クリックが
+        // early return して folder view から戻れなくなる）
+        var fvShown = !!(window.__folderViewDispatcher && window.__folderViewDispatcher.isFolderViewShown
+            && window.__folderViewDispatcher.isFolderViewShown());
+        if (filePath === currentFile && !viewerShown && !fvShown) return;
         currentFile = filePath;  // 即時更新で二重送信防止
         if (viewerShown && window.__viewerDispatcher.hideViewer) {
             window.__viewerDispatcher.hideViewer();   // 先に viewer を畳んでから開く
+        }
+        if (fvShown && window.__folderViewDispatcher.hideFolderView) {
+            window.__folderViewDispatcher.hideFolderView(); // 先に folder view を畳んでから開く（タブ側の #16 ガードも解除される）
         }
         bridge.openFile(filePath);
     }
@@ -45680,6 +46263,9 @@ var notesFilePanel = (function() {
     // .out (ICON_FILE) / .md (ICON_FILE_MD) と視覚的に区別し、is-attach class + 専用 marker class を持つ。
     var ICON_FILE_ATTACH = '<svg class="file-panel-item-icon file-panel-attach-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
     var ICON_FOLDER = '<svg class="file-panel-folder-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+    // FR-FLV: folder link 用アイコン（既存 ICON_FOLDER と同一 glyph・item 用 class）
+    // FR-FLV-03 再オープン①: フォルダ形は通常 tree フォルダと識別不能 — 🔗 チェーンリンク（lucide link 風）に変更
+    var ICON_FOLDER_LINK = '<svg class="file-panel-item-icon file-panel-folderlink-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
     var ICON_CHEVRON = '<svg class="file-panel-folder-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
     // ── ファイルマップ構築 ──
@@ -45825,6 +46411,15 @@ var notesFilePanel = (function() {
         });
     }
 
+    // FR-FLV-10: folder link click → folder view 表示（dispatcher は TASK-07 実装。
+    // typeof ガード付き — 不在時は no-op。broken は呼び出し側で relink に分岐）
+    function openFolderView(folderLinkId, title) {
+        var d = window.__folderViewDispatcher;
+        if (d && typeof d.showFolderView === 'function') {
+            d.showFolderView(folderLinkId, title);
+        }
+    }
+
     function createFileElement(f, parentId) {
         var item = document.createElement('div');
         // FR-TF-02 (sprint 20260809): listFiles が付与する kind ('out'|'md'|'file') で 3 値描画。
@@ -45833,6 +46428,9 @@ var notesFilePanel = (function() {
         var kind = f.kind || (/\.md$/i.test(f.filePath || '') ? 'md' : 'out');
         var isMd = kind === 'md';
         var isAttach = kind === 'file';
+        // FR-FLV-03: folder link（第 4 kind）。broken = リンク切れ表示（listFiles の派生フラグ）
+        var isFolderLink = kind === 'folder';
+        var isBrokenLink = isFolderLink && !!f.broken;
         var itemClass = 'file-panel-item' + (f.filePath === currentFile ? ' active' : '');
         // v11: color class 反映
         var itemColor = getItemColor(f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, ''));
@@ -45841,6 +46439,8 @@ var notesFilePanel = (function() {
         }
         if (isMd) itemClass += ' is-md';
         if (isAttach) itemClass += ' is-attach';
+        if (isFolderLink) itemClass += ' is-folder-link';
+        if (isBrokenLink) itemClass += ' is-broken';
         item.className = itemClass;
         item.dataset.filePath = f.filePath;
         item.dataset.itemId = f.id || f.filePath.replace(/^.*[/\\]/, '').replace(/\.(out|md)$/, '');
@@ -45849,10 +46449,24 @@ var notesFilePanel = (function() {
         if (parentId) item.dataset.parentId = parentId;
         item.draggable = true;
 
-        var icon = isAttach ? ICON_FILE_ATTACH : (isMd ? ICON_FILE_MD : ICON_FILE);
+        var icon = isFolderLink ? ICON_FOLDER_LINK : (isAttach ? ICON_FILE_ATTACH : (isMd ? ICON_FILE_MD : ICON_FILE));
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function(e) {
+            // FR-FLV-10/25: folder link — broken は再指定 / cmd+click は folder タブ / 通常はフォルダビュー
+            if (isFolderLink) {
+                if (isBrokenLink) {
+                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
+                    return;
+                }
+                if (e && (e.metaKey || e.ctrlKey)) {
+                    var tm = window.__notesTabManager;
+                    if (tm && typeof tm.openInNewTab === 'function') tm.openInNewTab(f.id, 'folder', f.title || 'Folder');
+                    return;
+                }
+                openFolderView(f.id, f.title || 'Folder');
+                return;
+            }
             // FR-TF-02: 添付 file は OS 既定アプリで開く（cmd/ctrl 修飾も無視 = file はタブ化不可）。
             if (isAttach) { openAttachExternal(f.id); return; }
             // FR-CT-01: cmd/ctrl+click → webview 内タブ（右クリック Open in new tab と同経路）
@@ -45877,12 +46491,26 @@ var notesFilePanel = (function() {
             if (_pointerDownItemId !== (f.id || f.filePath)) { return; }
             _pointerDownItemId = null;
             if (dragItemId) { return; } // drag セッション中（dragend 前）は発火しない
+            // FR-FLV-10: folder link も pointerup 保険（renderTree 全再構築で click 合成が死ぬ既知 race）
+            if (isFolderLink) {
+                if (isBrokenLink) {
+                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(f.id);
+                } else {
+                    openFolderView(f.id, f.title || 'Folder');
+                }
+                return;
+            }
             // FR-TF-02: 添付 file は click と同じく OS 既定アプリで開く（openAttachExternal 内で二重呼び出し dedup）
             if (isAttach) { openAttachExternal(f.id); return; }
             openItemFile(f.filePath);
         });
         item.addEventListener('dblclick', function(e) {
             e.stopPropagation();
+            // FR-FLV-06: folder link の Rename は host InputBox（title のみ・実フォルダ名不変）
+            if (isFolderLink) {
+                if (bridge.renameFolderLink) bridge.renameFolderLink(f.id);
+                return;
+            }
             startRenameFile(item, f);
         });
         item.addEventListener('contextmenu', function(e) {
@@ -46079,6 +46707,79 @@ var notesFilePanel = (function() {
         // 非表示: Copy In-App Link・Open in new tab（file は .md/.out stem を持たずタブ化・アプリ内リンク不可）。
         // 実体パスは .md/.out stem 前提の既存経路（deleteFile(filePath) 等）に流さず、id ベースの新 bridge を使う。
         var menuKind = file.kind || (/\.md$/i.test(file.filePath || '') ? 'md' : 'out');
+        // FR-FLV-06: folder link の専用メニュー集合（requirement FR-FLV-06 表が唯一の正）。
+        // 表示 8: Open / Open in new tab / Rename / Re-link / Reveal in Finder / Copy Path / Set Color / Remove Link
+        // + 共通 3（New Outline here / New Markdown here / New Subfolder は従来どおり）。
+        // 非表示: Favorite / Move Other Note / Copy In-App Link / Delete（実体削除は提供しない）/ Open in Standalone。
+        if (menuKind === 'folder') {
+            var folderLinkId = file.id || fileId;
+            var folderBroken = !!file.broken;
+            addContextItem(contextMenu, i18n.notesOpen || 'Open', function() {
+                closeContextMenu();
+                if (folderBroken) {
+                    if (bridge.relinkFolderLink) bridge.relinkFolderLink(folderLinkId);
+                } else {
+                    openFolderView(folderLinkId, file.title || 'Folder');
+                }
+            });
+            addContextItem(contextMenu, i18n.notesOpenInNewTab || 'Open in new tab', function() {
+                closeContextMenu();
+                var tm = window.__notesTabManager;
+                if (!folderBroken && tm && typeof tm.openInNewTab === 'function') {
+                    tm.openInNewTab(folderLinkId, 'folder', file.title || 'Folder');
+                }
+            });
+            addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
+                closeContextMenu();
+                if (bridge.renameFolderLink) bridge.renameFolderLink(folderLinkId);
+            });
+            addContextItem(contextMenu, i18n.folderLinkRelink || 'Re-link', function() {
+                closeContextMenu();
+                if (bridge.relinkFolderLink) bridge.relinkFolderLink(folderLinkId);
+            });
+            addContextItem(contextMenu, i18n.notesRevealInFinder || 'Reveal in Finder', function() {
+                closeContextMenu();
+                if (bridge.revealFolderLink) bridge.revealFolderLink(folderLinkId);
+            });
+            addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
+                closeContextMenu();
+                if (bridge.copyFolderLinkPath) bridge.copyFolderLinkPath(folderLinkId);
+            });
+            addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
+                renderColorPalette(contextMenu, currentColor, function(colorName) {
+                    bridge.setItemColor(fileId, colorName);
+                    closeContextMenu();
+                }, function() {
+                    showFileContextMenu(e, file);
+                });
+            }, false, true);
+            // 共通項目（従来どおり表示 — 早期 return 分岐でも落とさない: designer_failures 2026-08-09）
+            addContextItem(contextMenu, i18n.notesNewOutline || 'New Outline here', function() {
+                closeContextMenu();
+                promptNewFile(fileParentId, fileId);
+            });
+            addContextItem(contextMenu, i18n.notesNewMarkdownHere || 'New Markdown here', function() {
+                closeContextMenu();
+                promptNewMarkdownFile(fileParentId, fileId);
+            });
+            addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
+                closeContextMenu();
+                promptNewFolder(fileParentId, fileId);
+            });
+            // FR-FTM-02 (sprint 20260818-183407): 共通 4 項目目 New link folder（その場所へ登録）
+            addContextItem(contextMenu, i18n.notesNewLinkFolder || 'New link folder', function() {
+                closeContextMenu();
+                if (bridge.addFolderLink) bridge.addFolderLink(fileParentId || null);
+            });
+            // Remove Link = 台帳のみ除去（実フォルダに触れない — Delete と誤認しない文言）
+            addContextItem(contextMenu, i18n.folderLinkRemove || 'Remove Link', function() {
+                closeContextMenu();
+                if (bridge.removeFolderLink) bridge.removeFolderLink(folderLinkId);
+            }, true);
+            document.body.appendChild(contextMenu);
+            setTimeout(function() { document.addEventListener('click', closeContextMenu, { once: true }); }, 0);
+            return;
+        }
         if (menuKind === 'file') {
             var treeFileId = file.id || fileId;
             addContextItem(contextMenu, i18n.notesOpen || 'Open', function() {
@@ -46101,6 +46802,11 @@ var notesFilePanel = (function() {
             addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
                 closeContextMenu();
                 if (bridge && bridge.copyTreeFilePath) { bridge.copyTreeFilePath(treeFileId); }
+            });
+            // FR-FTM-03 (sprint 20260818-183407): file item の Duplicate（実体複製 — DuplicationCore）
+            addContextItem(contextMenu, i18n.notesDuplicateItem || 'Duplicate', function() {
+                closeContextMenu();
+                if (bridge.duplicateTreeItem) bridge.duplicateTreeItem(fileId);
             });
             addContextItem(contextMenu, i18n.notesSetColor || 'Set Color', function() {
                 renderColorPalette(contextMenu, currentColor, function(colorName) {
@@ -46126,6 +46832,11 @@ var notesFilePanel = (function() {
             addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
                 closeContextMenu();
                 promptNewFolder(fileParentId, fileId);
+            });
+            // FR-FTM-02 (sprint 20260818-183407): 共通 4 項目目 New link folder（その場所へ登録）
+            addContextItem(contextMenu, i18n.notesNewLinkFolder || 'New link folder', function() {
+                closeContextMenu();
+                if (bridge.addFolderLink) bridge.addFolderLink(fileParentId || null);
             });
             addContextItem(contextMenu, i18n.notesDelete || 'Delete', function() {
                 closeContextMenu();
@@ -46154,6 +46865,11 @@ var notesFilePanel = (function() {
             closeContextMenu();
             promptNewFolder(fileParentId, fileId);
         });
+        // FR-FTM-02 (sprint 20260818-183407): 共通 4 項目目 New link folder（その場所へ登録）
+        addContextItem(contextMenu, i18n.notesNewLinkFolder || 'New link folder', function() {
+            closeContextMenu();
+            if (bridge.addFolderLink) bridge.addFolderLink(fileParentId || null);
+        });
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
             var itemEl = listEl.querySelector('[data-file-path="' + CSS.escape(file.filePath) + '"]');
@@ -46169,6 +46885,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.copyPath || 'Copy Path', function() {
             closeContextMenu();
             try { navigator.clipboard.writeText(file.filePath); } catch (err) { /* ignore */ }
+        });
+        // FR-FTM-03 (sprint 20260818-183407): out/md item の Duplicate（実体複製 — DuplicationCore）
+        addContextItem(contextMenu, i18n.notesDuplicateItem || 'Duplicate', function() {
+            closeContextMenu();
+            if (bridge.duplicateTreeItem) bridge.duplicateTreeItem(fileId);
         });
         // FR-B04: アプリ内リンクをコピー（file item = .out / .md のみ。folder は showFolderContextMenu で別扱い）。
         // out → InAppLinkUtils.buildOutLink(folder, id) / md → InAppLinkUtils.buildMdLink(folder, id)。
@@ -46236,6 +46957,11 @@ var notesFilePanel = (function() {
         addContextItem(contextMenu, i18n.notesNewFolder || 'New Subfolder', function() {
             closeContextMenu();
             promptNewFolder(folder.id);
+        });
+        // FR-FTM-02 (sprint 20260818-183407): 共通 4 項目目 New link folder（このフォルダ内へ登録）
+        addContextItem(contextMenu, i18n.notesNewLinkFolder || 'New link folder', function() {
+            closeContextMenu();
+            if (bridge.addFolderLink) bridge.addFolderLink(folder.id);
         });
         addContextItem(contextMenu, i18n.notesRename || 'Rename', function() {
             closeContextMenu();
@@ -46422,6 +47148,40 @@ var notesFilePanel = (function() {
 
     // node-move-to-other-outliner: outliner node（サブツリー）→ 別 .out への move 用 MIME。
     // dragstart（outliner.js）で notes モードの全 node に載る（page 有無問わず）。payload {outFileKey, nodeId}。
+    // FR-FLV-20 (W2 受信 — sprint 20260817-053313): フォルダビューのエントリ → Note ツリー移動。
+    // payload = { folderLinkId, relPath, isDir }（絶対パス不含 = INV-4）。isDir=true は不受理通知。
+    var FOLDER_VIEW_ENTRY_MIME = 'application/x-fractal-folderview-entry';
+
+    function isFolderViewEntryDrag(e) {
+        if (!e || !e.dataTransfer) return false;
+        var types = Array.from(e.dataTransfer.types || []);
+        return types.indexOf(FOLDER_VIEW_ENTRY_MIME) !== -1;
+    }
+
+    function readFolderViewEntryPayload(e) {
+        try {
+            var raw = e.dataTransfer.getData(FOLDER_VIEW_ENTRY_MIME);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+    }
+
+    /** W2 の共通 dispatch: isDir 不受理通知 or bridge.folderViewMoveToTree（#14） */
+    function dispatchFolderViewEntryDrop(payload, parentId, index) {
+        if (!payload || !payload.folderLinkId || payload.relPath === undefined) return;
+        if (payload.isDir) {
+            if (typeof bridge.notifyError === 'function') {
+                bridge.notifyError(i18n.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
+            }
+            return;
+        }
+        if (typeof bridge.folderViewMoveToTree === 'function') {
+            bridge.folderViewMoveToTree(payload.folderLinkId, payload.relPath, parentId, index);
+        }
+    }
+
     var OUT_NODE_SUBTREE_MIME = 'application/x-fractal-out-node-subtree';
 
     function isOutNodeSubtreeDrag(e) {
@@ -46546,6 +47306,11 @@ var notesFilePanel = (function() {
             dragItemId = target.dataset.itemId;
             dragItemType = target.dataset.itemType;
             dragSourceFileExt = target.dataset.fileExt || null;
+            // FR-FLV (W3 不受理判定 — sprint 20260817-053313): tree 内部 drag の種別を同一 document の
+            // フォルダビューへ伝える one-shot グローバル（.out/folder item は text/plain しか積まず
+            // MIME 判別不能。body.fr-drag-active はパネル外 dragleave で clear されるため使えない）。
+            // set = ここ / clear = 下の dragend（対配線 — one-shot state の原則）
+            window.__notesTreeDragKind = dragSourceFileExt || dragItemType || 'item';
             // FR-TF-16: 内部 drag の開始時点から hover 抑止（dragover を待たない）
             setDragHoverSuppression();
             // v0.207.77: 'copyMove' にしないと、dropEffect='copy' (Feature A/B) との不一致で
@@ -46582,6 +47347,7 @@ var notesFilePanel = (function() {
             dragItemId = null;
             dragItemType = null;
             dragSourceFileExt = null;
+            window.__notesTreeDragKind = null; // one-shot clear（set = dragstart と対）
             removeDropIndicator();
             lastDropLine = null; // TASK-A2: 谷間フォールバック状態もリセット
             clearAllDragOver();
@@ -46605,12 +47371,14 @@ var notesFilePanel = (function() {
             // dragItemId は載らない外部 MIME 経路。subpage と同じく補助線 UX で受理する。
             var fromOutNodeFile = isOutNodeFileDrag(e);
             var fromMdFileLink = isMdFileLinkDrag(e);
+            // FR-FLV-20 (W2): フォルダビューのエントリ drag（custom MIME 群と同列で受理）
+            var fromFolderView = isFolderViewEntryDrag(e);
             // FR-T01: 外部 files（Finder / VS Code Explorer）は最後に判定（内部 drag / outliner /
             // subpage が最優先。内部 drag は tree-md MIME 等も積むので dragItemId 非 null を先に弾く）。
             // FR-TF-17: Explorer drag は files が空で vnd.code.uri-list のみ載るため OR で受理
             //（これが無いと dragover 非 preventDefault で drop 自体が不発 = Explorer D&D 不能の主因）。
-            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
-            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromExternal) return;
+            var fromExternal = !dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromFolderView && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
+            if (!dragItemId && !fromOutliner && !fromOutlinerSubtree && !fromMdSubpage && !fromOutNodeFile && !fromMdFileLink && !fromFolderView && !fromExternal) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
 
@@ -46707,7 +47475,28 @@ var notesFilePanel = (function() {
             // （isMdFileLinkDrag は x-fractal-md-filelink・isMdSubpageDrag は x-fractal-md-subpage で不干渉）。
             var outNodeFilePayload = (!outPayload && !subtreePayload) && isOutNodeFileDrag(e) ? readOutNodeFilePayload(e) : null;
             var mdFileLinkPayload = (!outPayload && !subtreePayload && !mdSubpagePayload) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
+            // FR-FLV-20 (W2 受信): フォルダビューのエントリ → target item の前/後に移動登録
+            var folderViewPayload = (!outPayload && !subtreePayload && !mdSubpagePayload && !outNodeFilePayload && !mdFileLinkPayload)
+                && isFolderViewEntryDrag(e) ? readFolderViewEntryPayload(e) : null;
             e.preventDefault();
+            if (folderViewPayload && !dragItemId) {
+                clearAllDragOver();
+                removeDropIndicator();
+                var targetFV = el.closest('[data-item-id]') || el;
+                var rectFV = targetFV.getBoundingClientRect();
+                var ratioFV = rectFV.height ? (e.clientY - rectFV.top) / rectFV.height : 0;
+                var insFV;
+                // フォルダ中央帯（0.25-0.60 — Feature B と同帯）= フォルダ内末尾。上下帯 = 兄弟挿入
+                if ((targetFV.dataset.itemType === 'folder' || targetFV.classList.contains('file-panel-folder-header'))
+                    && ratioFV >= 0.25 && ratioFV <= 0.60) {
+                    var fvFolderId = targetFV.dataset.folderId || targetFV.dataset.itemId;
+                    insFV = { parentId: fvFolderId, index: getChildIdsOfParent(fvFolderId).length };
+                } else {
+                    insFV = computeSiblingInsert(targetFV, e);
+                }
+                dispatchFolderViewEntryDrop(folderViewPayload, insFV.parentId, insFV.index);
+                return;
+            }
             if (mdSubpagePayload && !dragItemId) {
                 clearAllDragOver();
                 removeDropIndicator();
@@ -46930,14 +47719,16 @@ var notesFilePanel = (function() {
     function setupFolderChildrenDrop(childrenEl, folderId) {
         childrenEl.addEventListener('dragover', function(e) {
             var fromOutliner = isOutNodePageDrag(e);
+            // FR-FLV-20 (W2): フォルダビューのエントリ → フォルダ内末尾
+            var fromFolderView = isFolderViewEntryDrag(e);
             // FR-T01: 外部 files（.md）— 内部 drag / outliner が無いときのみ
             // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
-            var fromExternal = !dragItemId && !fromOutliner && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
-            if (!dragItemId && !fromOutliner && !fromExternal) return;
+            var fromExternal = !dragItemId && !fromOutliner && !fromFolderView && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
+            if (!dragItemId && !fromOutliner && !fromFolderView && !fromExternal) return;
             // 子要素がハンドルしない空エリアのみ
             if (e.target === childrenEl || e.target.className === 'file-panel-folder-children') {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromExternal) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromFolderView || fromExternal) ? 'copy' : 'move';
                 clearAllDragOver();
                 // 改善1: 子を持つフォルダの隙間では「children 全域ハイライト → 末尾追加」を廃止
                 // (っっd+w が丸ごと選択される分かりづらい挙動)。直近の線を復元して線基準にする。
@@ -46957,6 +47748,14 @@ var notesFilePanel = (function() {
             if (e.target !== childrenEl && e.target.className !== 'file-panel-folder-children') return;
             var outPayload = isOutNodePageDrag(e) ? readOutNodePagePayload(e) : null;
             e.preventDefault();
+            // FR-FLV-20 (W2 受信): フォルダビューのエントリ → フォルダ内末尾に移動登録
+            if (!dragItemId && !outPayload && isFolderViewEntryDrag(e)) {
+                clearAllDragOver();
+                removeDropIndicator();
+                lastDropLine = null;
+                dispatchFolderViewEntryDrop(readFolderViewEntryPayload(e), folderId, getChildIdsOfParent(folderId).length);
+                return;
+            }
             // FR-T01: 外部 files（.md）→ フォルダ内末尾に登録（内部 drag / outliner が無いときのみ）
             if (!dragItemId && !outPayload && isExternalFilesDrag(e)) {
                 clearAllDragOver();
@@ -47470,9 +48269,15 @@ var notesFilePanel = (function() {
     function buildNameMatcher(query) {
         try {
             var pattern = searchOptions.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b';
             var flags = searchOptions.caseSensitive ? '' : 'i';
-            var re = new RegExp(pattern, flags);
+            var re;
+            if (searchOptions.wholeWord && window.WholeWord) {
+                // FR-MLG-02 (sprint 20260818-183407): CJK 素通し + Unicode lookaround（whole-word.js 単一真実）
+                re = window.WholeWord.buildWholeWordRegex(pattern, query, flags);
+            } else {
+                if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b'; // helper 未ロード時の従来 fallback
+                re = new RegExp(pattern, flags);
+            }
             return function(text) { return re.test(text || ''); };
         } catch (e) {
             return null;
@@ -47618,9 +48423,15 @@ var notesFilePanel = (function() {
         if (!query) return escaped;
         try {
             var pattern = searchOptions.useRegex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b';
             var flags = searchOptions.caseSensitive ? 'g' : 'gi';
-            var re = new RegExp('(' + pattern + ')', flags);
+            var re;
+            if (searchOptions.wholeWord && window.WholeWord) {
+                // FR-MLG-02: capture group を含めて helper に渡す（境界は group の外側に付く）
+                re = window.WholeWord.buildWholeWordRegex('(' + pattern + ')', query, flags);
+            } else {
+                if (searchOptions.wholeWord) pattern = '\\b' + pattern + '\\b'; // helper 未ロード時の従来 fallback
+                re = new RegExp('(' + pattern + ')', flags);
+            }
             return escaped.replace(re, '<span class="file-panel-search-highlight">$1</span>');
         } catch (e) {
             return escaped;
@@ -47827,6 +48638,22 @@ var notesFilePanel = (function() {
             });
         }
 
+        // FR-FTM-01 (sprint 20260818-183407): +file（ファイル選択ダイアログ → tree 登録）
+        var addFileEntityBtn = document.getElementById('filePanelAddFileEntity');
+        if (addFileEntityBtn) {
+            addFileEntityBtn.addEventListener('click', function() {
+                if (bridge.addTreeFilesViaDialog) bridge.addTreeFilesViaDialog();
+            });
+        }
+
+        // FR-FLV-01: +folder（ローカルフォルダリンク追加 — host showOpenDialog）
+        var addFolderLinkBtn = document.getElementById('filePanelAddFolderLink');
+        if (addFolderLinkBtn) {
+            addFolderLinkBtn.addEventListener('click', function() {
+                if (bridge.addFolderLink) bridge.addFolderLink();
+            });
+        }
+
         var todayBtn = document.getElementById('filePanelToday');
         if (todayBtn) {
             todayBtn.addEventListener('click', function() {
@@ -47918,14 +48745,16 @@ var notesFilePanel = (function() {
                 // これが無いと谷間/余白 drop が非 preventDefault で不発（「補助線だけ出て移動しない」）。
                 var fromOutNodeFileR = isOutNodeFileDrag(e);
                 var fromMdFileLinkR = isMdFileLinkDrag(e);
+                // FR-FLV-20 (W2): フォルダビューのエントリ — 余白 drop（ルート末尾）も受理
+                var fromFolderViewR = isFolderViewEntryDrag(e);
                 // FR-T01: 外部 files（.md）— 内部 drag / outliner / subpage / file 系が無いときのみ
                 // FR-TF-17: Explorer uri-list も同列で受理（files が空のため OR が必須）
-                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
-                if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromExternalR) return;
+                var fromExternalR = !dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromFolderViewR && (isExternalFilesDrag(e) || isVscodeUriListDrag(e));
+                if (!dragItemId && !fromOutliner && !fromMdSubpageR && !fromOutNodeFileR && !fromMdFileLinkR && !fromFolderViewR && !fromExternalR) return;
                 // 子要素が既にハンドルしている場合はスキップ
                 if (e.target !== listEl) return;
                 e.preventDefault();
-                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR || fromOutNodeFileR || fromMdFileLinkR || fromExternalR) ? 'copy' : 'move';
+                e.dataTransfer.dropEffect = (fromOutliner || fromMdSubpageR || fromOutNodeFileR || fromMdFileLinkR || fromFolderViewR || fromExternalR) ? 'copy' : 'move';
                 // TASK-A2: item 間の谷間では直近の drop-line を復元表示 (線と drop 可否を一致させる)。
                 // after 線は X 座標の escalation を毎回再評価 (改善1: 谷間でも階層を選べる)。
                 if (!fromOutliner && lastDropLine && lastDropLine.refItemId) {
@@ -47941,6 +48770,14 @@ var notesFilePanel = (function() {
                 var mdFileLinkPayloadR = (!outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR) && isMdFileLinkDrag(e) ? readMdFileLinkPayload(e) : null;
                 e.preventDefault();
                 var rootIdsF = structure ? structure.rootIds : [];
+                // FR-FLV-20 (W2 受信): フォルダビューのエントリ → ルート末尾に移動登録
+                if (!dragItemId && !outPayload && !mdSubpagePayloadR && !outNodeFilePayloadR && !mdFileLinkPayloadR && isFolderViewEntryDrag(e)) {
+                    clearAllDragOver();
+                    removeDropIndicator();
+                    lastDropLine = null;
+                    dispatchFolderViewEntryDrop(readFolderViewEntryPayload(e), null, rootIdsF.length);
+                    return;
+                }
                 if (outNodeFilePayloadR && !dragItemId) {
                     clearAllDragOver();
                     removeDropIndicator();
@@ -48310,11 +49147,13 @@ if (typeof module !== 'undefined' && module.exports) {
 
         function showOutliner() {
             if (window.__viewerDispatcher) window.__viewerDispatcher.hideViewer();   // viewer と排他（FR-FV-06 / sprint 20260815-075428）
+            if (window.__folderViewDispatcher) window.__folderViewDispatcher.hideFolderView();   // folder view と排他（FR-FLV-10 / sprint 20260817-053313）
             if (markdownContainer) markdownContainer.style.display = 'none';
             if (outlinerContainer) outlinerContainer.style.display = '';
         }
         function showMarkdown() {
             if (window.__viewerDispatcher) window.__viewerDispatcher.hideViewer();   // viewer と排他（同上）
+            if (window.__folderViewDispatcher) window.__folderViewDispatcher.hideFolderView();   // folder view と排他（同上）
             if (outlinerContainer) outlinerContainer.style.display = 'none';
             if (markdownContainer) markdownContainer.style.display = '';
         }
@@ -56212,6 +57051,10 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
             if (mdCloseBtn) { mdCloseBtn.click(); }
         } catch { /* md sidepanel 不在は正常 */ }
+        // folder view と排他（FR-FLV-10 / sprint 20260817-053313）
+        try {
+            if (window.__folderViewDispatcher) { window.__folderViewDispatcher.hideFolderView(); }
+        } catch { /* folder view 不在は正常 */ }
         const container = ensureContainer();
         ensureToggleStyle();
         // 表示前に必ず再構築（stale 表示の構造的防止 — 前回の内容を持ち越さない）
@@ -56257,6 +57100,991 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             showViewer(msg.kind, msg.fileUri, msg.fileName, msg.filePath);
         } else if (msg && msg.type === 'hideNoteViewer') {
             hideViewer();
+        }
+    });
+})();
+
+    </script>
+    <script>
+    /**
+ * folder-view-dispatcher.js — folder link の note 面（Notes メインペインのフォルダビュー表示切替）
+ *
+ * sprint 20260817-053313-notetree-local-folder-view / FR-FLV-10（viewer-dispatcher.js の 1:1 並列モジュール）。
+ * notes-md-dispatcher の第 4 状態ではなく**並列の新設モジュール**（NFR-FLV-07 実装分離）。
+ *
+ * 排他マトリクス（design/system/folder-view.md §2 — 全セル）:
+ *   showFolderView → outliner/md コンテナ hide + viewer hide + md sidepanel close + viewer sidepanel close
+ *   showOutliner / showMarkdown / showViewer → hideFolderView（各 dispatcher 冒頭の 1 行 hook）
+ * stale 対策: hideFolderView は DOM を破棄する（viewer-dispatcher の hideViewer 同型）。
+ *
+ * 表示実体は window.__folderView（notes-folder-view.js）。
+ */
+(function () {
+    'use strict';
+
+    let folderViewContainer = null;
+    // showFolderView が隠す直前の pane display 値（one-shot: show で保存 → hide で復元 + null 化。
+    // 連続 show では最初の保存を保持 — 2 回目は既に 'none' なので上書きすると復元先が失われる）
+    let savedPaneDisplay = null;
+
+    function ensureContainer() {
+        if (folderViewContainer && document.body.contains(folderViewContainer)) { return folderViewContainer; }
+        folderViewContainer = document.createElement('div');
+        folderViewContainer.id = 'folderViewContainer';
+        // inset:0 はタブ strip ごと覆う既知罠（TC-FV-73）— top はタブバー変数
+        // NFR-FLV-08（再オープン①）: 背景は outliner/md 面と同一トークン（#fff 直書き fallback 廃止 —
+        // 「folder view だけ白い」の実体はここだった）
+        folderViewContainer.style.cssText = 'display:none; position:absolute; ' +
+            'top: var(--notes-tab-bar-height, 0px); left:0; right:0; bottom:0; z-index:50; ' +
+            'background: var(--outliner-bg); flex-direction: column;';
+        const wrapper = document.querySelector('.notes-main-wrapper')
+            || (document.querySelector('.outliner-container') && document.querySelector('.outliner-container').parentElement)
+            || document.body;
+        wrapper.appendChild(folderViewContainer);
+        return folderViewContainer;
+    }
+
+    // 本番 markup（notesWebviewContent.ts:238/281）は id を持たず class のみ —
+    // id 参照だけだと本番で silent no-op になる（viewer-dispatcher の同型に既存バグあり）
+    function paneEl(id, cls) {
+        return document.getElementById(id) || document.querySelector(cls);
+    }
+
+    function setPaneDisplay(id, cls, value) {
+        const el = paneEl(id, cls);
+        if (el) { el.style.display = value; }
+    }
+
+    /** note 面にフォルダビューを表示（outliner/md/viewer を隠し sidepanel 2 種を閉じる） */
+    function showFolderView(folderLinkId, title, opts) {
+        // ④ md sidepanel（z-index:100）排他 close — 既存 close ボタン click の弱結合（viewer-dispatcher 同型）
+        try {
+            const mdCloseBtn = document.querySelector('.side-panel.open .side-panel-close');
+            if (mdCloseBtn) { mdCloseBtn.click(); }
+        } catch (e) { /* md sidepanel 不在は正常 */ }
+        // ⑤ viewer sidepanel 排他 close
+        try {
+            if (window.__viewerSidePanel && typeof window.__viewerSidePanel.close === 'function') {
+                window.__viewerSidePanel.close();
+            }
+        } catch (e) { /* viewer sidepanel 不在は正常 */ }
+        // ③ note 面 viewer 排他
+        try {
+            if (window.__viewerDispatcher && typeof window.__viewerDispatcher.hideViewer === 'function') {
+                window.__viewerDispatcher.hideViewer();
+            }
+        } catch (e) { /* viewer dispatcher 不在は正常 */ }
+        const container = ensureContainer();
+        // 表示前に必ず再構築（stale 防止 — 前回の内容を持ち越さない）
+        container.textContent = '';
+        // ①② outliner / md 面 hide（隠す前の値を保存 — hideFolderView で復元）
+        if (savedPaneDisplay === null) {
+            const o = paneEl('outlinerContainer', '.outliner-container');
+            const m = paneEl('markdownContainer', '.markdown-container');
+            savedPaneDisplay = {
+                outliner: o ? o.style.display : null,
+                markdown: m ? m.style.display : null,
+            };
+        }
+        setPaneDisplay('outlinerContainer', '.outliner-container', 'none');
+        setPaneDisplay('markdownContainer', '.markdown-container', 'none');
+        container.style.display = 'flex';
+        if (window.__folderView) {
+            window.__folderView.open(folderLinkId, title, container, { inTab: !!(opts && opts.inTab) });
+        }
+        // FR-FLV-25（folder-view.md §4 通常 click）: タブを増やさずアクティブタブを folder に差し替える
+        //（kind='folder' 明示 = syncActiveFile の推定式に流さない）。loadTab 経由（opts.inTab）は
+        // タブ状態を loadTab 側が管理済みのためスキップ（re-entrancy 回避）
+        if (!(opts && opts.inTab) && window.__notesTabManager
+            && typeof window.__notesTabManager.syncActiveFile === 'function') {
+            window.__notesTabManager.syncActiveFile(folderLinkId, 'folder', title);
+        }
+    }
+
+    /** フォルダビューを隠し DOM を破棄（showOutliner/showMarkdown/showViewer の hook から呼ばれる） */
+    function hideFolderView() {
+        if (!folderViewContainer) { return; }
+        folderViewContainer.style.display = 'none';
+        if (window.__folderView) { window.__folderView.destroy(); }
+        folderViewContainer.textContent = '';
+        // showFolderView が実際に display:none にした分を保存値へ復元（viewer は覆うだけで隠さないため、
+        // 復元しないと viewer 遷移 → hideNoteViewer で両ペイン不可視のブランクになる）。
+        // showOutliner/showMarkdown の hook 経由では直後に各 dispatcher が正しい値を上書きする
+        if (savedPaneDisplay) {
+            if (savedPaneDisplay.outliner !== null) {
+                setPaneDisplay('outlinerContainer', '.outliner-container', savedPaneDisplay.outliner);
+            }
+            if (savedPaneDisplay.markdown !== null) {
+                setPaneDisplay('markdownContainer', '.markdown-container', savedPaneDisplay.markdown);
+            }
+            savedPaneDisplay = null;
+        }
+    }
+
+    function isFolderViewShown() {
+        return !!(folderViewContainer && folderViewContainer.style.display !== 'none');
+    }
+
+    window.__folderViewDispatcher = { showFolderView, hideFolderView, isFolderViewShown };
+
+    // host からの message（relink 成功時の showFolderView 指示 — notes-message-handler folderLinkRelink）
+    window.addEventListener('message', (event) => {
+        const msg = event.data;
+        if (msg && msg.type === 'showFolderView' && msg.folderLinkId) {
+            showFolderView(msg.folderLinkId, msg.title || 'Folder');
+        }
+    });
+
+    // FR-FLV-27（再オープン①）: esc で sidepanel（md / viewer）を閉じたらフォルダビューへフォーカス復帰。
+    // dispatcher 内完結（outliner.js = NFR-FLV-07 変更 0 / editor.js = W4 1 点制約 — どちらにも触れない方式）。
+    // viewer-side-panel.js 第 8 ラウンド③④⑤の縮約同型: 閉じたことの確認 + stole 判定 + preventScroll。
+    window.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !isFolderViewShown()) { return; }
+        // esc 時点で sidepanel（md .side-panel.open / viewer .viewer-side-panel.open）が開いていた場合のみ対象
+        const wasOpen = !!document.querySelector('.side-panel.open, .viewer-side-panel.open');
+        if (!wasOpen) { return; }
+        // sidepanel 側の esc ハンドラが close を終えるのを待ってから確認（.open 除去は同期・保険で 2 段待ち）
+        setTimeout(() => {
+            if (!isFolderViewShown()) { return; }
+            const stillOpen = !!document.querySelector('.side-panel.open, .viewer-side-panel.open');
+            if (stillOpen) { return; } // 閉じていない（esc がモーダル等に消費された）
+            // stole 判定: ユーザーが既に他所へフォーカスしていたら奪い返さない
+            const active = document.activeElement;
+            const stole = active && active !== document.body &&
+                !(active.closest && (active.closest('.side-panel') || active.closest('.viewer-side-panel')));
+            if (stole) { return; }
+            const tree = folderViewContainer && folderViewContainer.querySelector('.fv-tree');
+            if (tree && typeof tree.focus === 'function') {
+                try { tree.focus({ preventScroll: true }); } catch (err) { tree.focus(); }
+            }
+        }, 150);
+    }, true);
+})();
+
+    </script>
+    <script>
+    /**
+ * notes-folder-view.js — フォルダビュー本体（folder link のリンク先実フォルダのツリー表示）
+ *
+ * sprint 20260817-053313-notetree-local-folder-view / FR-FLV-11〜16（outliner.js / editor.js 非流用 —
+ * NFR-FLV-07 実装分離。視覚は tokens.css 変数 + Outliner 風のインデントツリー）。
+ *
+ * - lazy per-expand: 初期表示はルート 1 階層のみ。展開時にその階層を bridge.folderViewList 要求（NFR-FLV-02）
+ * - Search: 名前部分一致（host 走査・cap + truncated）。マッチ + 祖先のみの pruned tree 表示
+ * - 契機リフレッシュ（ADRL-0074）: 表示時 / 展開時 / CRUD・D&D 直後（host が list 再送）/ Refresh ボタン
+ * - webview は相対パス（relPath）のみ扱う（絶対パス不出 — ADRL-0071 / INV-4）
+ *
+ * マウントは folder-view-dispatcher.js（window.__folderView.open/destroy 契約）。
+ */
+(function () {
+    'use strict';
+
+    var container = null;
+    var treeEl = null;
+    var searchInput = null;
+    var currentLinkId = null;
+    var currentTitle = '';
+    var childrenByRel = {};   // relPath('' = root) → entries[]（host 応答キャッシュ。リフレッシュで上書き）
+    var expanded = {};        // relPath → true
+    var selectedRel = null;
+    var visibleRows = [];     // keyboard ナビ用の描画順 relPath 配列
+    var searchQuery = '';
+    var searchHits = null;    // 検索モード中の hits（null = 通常表示）
+    var searchTruncated = false;
+    var searchTimer = null;
+
+    // ── D&D（TASK-09 / dnd-wiring.md） ──
+    // 新 MIME 1 本（W1 送信 = W2/W4 送信と同一 dragstart）。payload に絶対パス不含（INV-4）
+    var FV_ENTRY_MIME = 'application/x-fractal-folderview-entry';
+    // W3 受信（tree md/file item — 既存 MIME 流用）/ W6 受信（md アンカー既存 2 MIME）
+    var TREE_MD_MIME = 'application/x-fractal-tree-md';
+    var TREE_FILE_MIME = 'application/x-fractal-tree-file';
+    var MD_FILELINK_MIME = 'application/x-fractal-md-filelink';
+    var MD_SUBPAGE_MIME = 'application/x-fractal-md-subpage';
+    // one-shot drag state（set = dragstart / clear = drop 消費・dragend・window 安全網 — ADRL-0031 型）
+    var fvDragSrc = null; // { relPath, isDir } | null
+
+    // FR-FLV-26（再オープン①）: 開閉状態の debounce 保存
+    var stateSaveTimer = null;
+    // FR-FLV-28（再オープン①）: インライン rename の one-shot state（開始 = startRename / 終了 = 確定・Escape・blur）
+    var renaming = null; // { relPath, inputEl, done, pendingRender } | null
+
+
+    function i18n() { return window.__outlinerMessages || {}; }
+    function bridge() { return window.notesHostBridge || window.outlinerHostBridge || {}; }
+
+    function parentRelOf(rel) {
+        return rel.indexOf('/') >= 0 ? rel.slice(0, rel.lastIndexOf('/')) : '';
+    }
+    function baseNameOf(rel) {
+        return rel.indexOf('/') >= 0 ? rel.slice(rel.lastIndexOf('/') + 1) : rel;
+    }
+    function depthOf(rel) {
+        return rel === '' ? -1 : rel.split('/').length - 1;
+    }
+
+    function ensureStyle() {
+        if (document.getElementById('folder-view-style')) { return; }
+        var style = document.createElement('style');
+        style.id = 'folder-view-style';
+        // NFR-FLV-08（再オープン①）: 視覚は Outliner / md 面の既存トークンのみ（色・サイズの直書き禁止）。
+        // 統一先の実測 = research-source.md 再調査 6（--outliner-bg / --fr-color-selection-bg /
+        // --outliner-search-bg / bullet 三角 5px/4px / ツールバーボタン 4px 5px opacity .5）
+        style.textContent = [
+            '#folderViewContainer { overflow: hidden; background: var(--outliner-bg); color: var(--outliner-fg); }',
+            '.fv-header { display:flex; align-items:center; gap:8px; padding:8px 12px;',
+            '  border-bottom:1px solid var(--fr-color-border); flex:0 0 auto; }',
+            '.fv-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+            // Search box = .outliner-search-input と同一メトリクス・同一トークン
+            // 幅 = outliner-search-input-wrapper と同一（225px 固定・focus で flex:1 に拡張・0.2s ease）
+            '.fv-search { flex:0 0 auto; width:225px; min-width:60px; font-size:12px; padding:5px 9px;',
+            '  border:1px solid transparent; border-radius:5px; transition: width 0.2s ease;',
+            '  background: var(--outliner-search-bg); color: var(--outliner-fg); }',
+            '.fv-search:focus { outline:none; border-color: var(--vscode-focusBorder); flex:1 1 auto; width:auto; }',
+            // ボタン = outliner ツールバーボタンと同一
+            '.fv-refresh { background:transparent; border:none; border-radius:4px; cursor:pointer;',
+            '  color: var(--outliner-fg); padding:4px 5px; opacity:0.5; }',
+            '.fv-refresh:hover { opacity:1; background: var(--outliner-hover-bg); }',
+            '.fv-tree { flex:1 1 auto; overflow:auto; padding:6px 0; outline:none; }',
+            '.fv-row { display:flex; align-items:center; gap:4px; padding:2px 8px; cursor:default;',
+            '  line-height:20px; white-space:nowrap; }',
+            // hover は背景色を変えない（= folder view 背景と同じ）— ユーザー裁定 2026-08-18
+            //（白 = --outliner-hover-bg も水色 = selection トークンも却下。選択行のみ色が付く）
+            '.fv-row:hover { background: var(--outliner-bg); }',
+            '.fv-row.fv-selected { background: var(--fr-color-selection-bg); }',
+            // 開閉 = outliner bullet と同一（折りたたみ = CSS 三角 5px/4px・展開 = 5px dot。テキスト矢印廃止）
+            // click 領域を拡大（18px + 行全高）し三角/dot を中心配置（クリック点ズレの再修正 2026-08-18）
+            '.fv-chevron { width:18px; flex:0 0 18px; align-self:stretch; display:flex; align-items:center; justify-content:center; cursor:pointer; }',
+            '.fv-chevron .fv-tri { width:0; height:0; border-top:4px solid transparent; border-bottom:4px solid transparent;',
+            '  border-left:5px solid var(--outliner-fg); opacity:0.6; }',
+            '.fv-chevron .fv-dot { width:5px; height:5px; border-radius:50%; background: var(--outliner-fg); opacity:0.5; }',
+            '.fv-name { overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:4px; }',
+            '.fv-file-icon { flex:0 0 auto; font-size:12px; line-height:1; }',
+            '.fv-row.fv-dir > .fv-name { font-weight:500; }',
+            '.fv-rename-input { font: inherit; color: var(--outliner-fg); background: var(--outliner-search-bg);',
+            '  border:1px solid var(--vscode-focusBorder); border-radius:3px; padding:0 2px; min-width:80px; }',
+            '.fv-note { padding:4px 12px; font-size:12px; opacity:0.65; }',
+            '.fv-menu { position:fixed; z-index:1000; min-width:180px; padding:4px 0;',
+            '  background: var(--fr-color-bg-elevated); border:1px solid var(--fr-color-border);',
+            '  border-radius:6px; box-shadow: var(--fr-shadow-sm, none); }',
+            '.fv-menu-item { padding:5px 14px; font-size:12.5px; cursor:pointer; }',
+            '.fv-menu-item:hover { background: var(--outliner-hover-bg); }',
+            '.fv-menu-item.danger { color: var(--fr-color-danger); }',
+            // D&D 視覚 2 系統（TASK-09 — highlight + root 強調。トークンのみ）
+            '.fv-row.fv-drop-into { background: var(--fr-color-selection-bg); }',
+            '.fv-tree.fv-drop-root { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
+    // ── open / destroy（dispatcher 契約） ──
+
+    function open(folderLinkId, title, mount) {
+        container = mount;
+        currentLinkId = folderLinkId;
+        currentTitle = title || 'Folder';
+        childrenByRel = {};
+        expanded = {};
+        selectedRel = null;
+        visibleRows = [];
+        searchQuery = '';
+        searchHits = null;
+        searchTruncated = false;
+        ensureStyle();
+        buildSkeleton();
+        requestList('');
+    }
+
+    function destroy() {
+        closeMenu();
+        if (renaming) { renaming.done = true; renaming = null; }
+        if (stateSaveTimer) { clearTimeout(stateSaveTimer); stateSaveTimer = null; }
+        container = null;
+        treeEl = null;
+        searchInput = null;
+        currentLinkId = null;
+        childrenByRel = {};
+        expanded = {};
+        selectedRel = null;
+        visibleRows = [];
+        searchHits = null;
+    }
+
+    function buildSkeleton() {
+        container.textContent = '';
+        var header = document.createElement('div');
+        header.className = 'fv-header';
+        var titleEl = document.createElement('span');
+        titleEl.className = 'fv-title';
+        titleEl.textContent = currentTitle;
+        searchInput = document.createElement('input');
+        searchInput.className = 'fv-search';
+        searchInput.type = 'text';
+        searchInput.placeholder = i18n().folderViewSearchPlaceholder || 'Filter by name...';
+        searchInput.addEventListener('input', function () {
+            if (searchTimer) { clearTimeout(searchTimer); }
+            searchTimer = setTimeout(function () {
+                var q = searchInput ? searchInput.value.trim() : '';
+                searchQuery = q;
+                if (!q) {
+                    searchHits = null;
+                    renderTree();
+                    return;
+                }
+                if (bridge().folderViewSearch) { bridge().folderViewSearch(currentLinkId, q); }
+            }, 250);
+        });
+        var refreshBtn = document.createElement('button');
+        refreshBtn.className = 'fv-refresh';
+        refreshBtn.title = i18n().folderViewRefresh || 'Refresh';
+        // outliner ツールバーの他ボタンと同じ 13x13 lucide SVG（テキスト glyph は小さすぎた — 再修正 2026-08-18）
+        refreshBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
+        refreshBtn.addEventListener('click', function () { refresh(); });
+        header.appendChild(titleEl);
+        header.appendChild(searchInput);
+        header.appendChild(refreshBtn);
+
+        treeEl = document.createElement('div');
+        treeEl.className = 'fv-tree';
+        treeEl.tabIndex = 0;
+        treeEl.addEventListener('keydown', onKeyDown);
+        treeEl.addEventListener('contextmenu', function (e) {
+            // 空白部 right-click = New 2 項目のみ
+            if (e.target === treeEl) {
+                e.preventDefault();
+                showMenu(e, null);
+            }
+        });
+        // D&D 受信端（W1/W3/W6 — 行・余白とも treeEl の 1 listener で受ける）
+        treeEl.addEventListener('dragover', onTreeDragOver);
+        treeEl.addEventListener('drop', onTreeDrop);
+        treeEl.addEventListener('dragleave', function (e) {
+            // treeEl の外へ出たときだけ掃除（行間の移動では明滅させない）
+            var rt = e.relatedTarget;
+            if (!rt || !treeEl.contains(rt)) { clearDropVisuals(); }
+        });
+
+        container.appendChild(header);
+        container.appendChild(treeEl);
+    }
+
+    // ── host 通信 ──
+
+    function requestList(relPath) {
+        if (bridge().folderViewList) { bridge().folderViewList(currentLinkId, relPath); }
+    }
+
+    /** FR-FLV-13: Refresh ボタン — ルート + 展開済み階層を再取得（展開・選択・検索は保持） */
+    function refresh() {
+        requestList('');
+        Object.keys(expanded).forEach(function (rel) {
+            if (expanded[rel]) { requestList(rel); }
+        });
+        if (searchQuery && bridge().folderViewSearch) {
+            bridge().folderViewSearch(currentLinkId, searchQuery);
+        }
+    }
+
+    window.addEventListener('message', function (event) {
+        var msg = event.data;
+        if (!msg || !container || !currentLinkId || msg.folderLinkId !== currentLinkId) { return; }
+        if (msg.type === 'folderViewListResult') {
+            if (msg.error) {
+                var errRel = msg.relPath || '';
+                if (errRel === '') {
+                    // root エラー = 全体表示（従来 — folderRoot 自体の問題）
+                    renderNote(msg.error === 'broken'
+                        ? (i18n().folderLinkBroken || 'Linked folder not found. Re-link it first.')
+                        : (i18n().folderViewOpenFailed || 'Cannot read the folder.'));
+                    return;
+                }
+                // FR-FLV-30（再オープン①）: 子 dir のエラーはツリー全体を壊さない — 該当ノードを畳んで
+                // 局所掃除（開閉状態からも除去 = 次回 stateSave に反映）+ 親階層を再リスト
+                delete expanded[errRel];
+                delete childrenByRel[errRel];
+                Object.keys(expanded).forEach(function (k) {
+                    if (k === errRel || k.indexOf(errRel + '/') === 0) { delete expanded[k]; }
+                });
+                scheduleStateSave();
+                requestList(parentRelOf(errRel));
+                if (!searchHits) { renderTree(); }
+                return;
+            }
+            childrenByRel[msg.relPath || ''] = msg.entries || [];
+            // FR-FLV-26: root 応答の savedExpanded を取り込み lazy 展開（現状 fs 優先は host 側でフィルタ済み）
+            if ((msg.relPath || '') === '' && Array.isArray(msg.savedExpanded)) {
+                msg.savedExpanded.forEach(function (rel) {
+                    if (typeof rel === 'string' && rel !== '') {
+                        expanded[rel] = true;
+                        if (!childrenByRel[rel]) { requestList(rel); }
+                    }
+                });
+            }
+            if (renaming) { renaming.pendingRender = true; return; } // FR-FLV-28: rename 中は再描画を defer
+            if (!searchHits) { renderTree(); }
+        } else if (msg.type === 'folderViewSearchResult') {
+            if (msg.query !== searchQuery) { return; } // stale 応答
+            searchHits = msg.hits || [];
+            searchTruncated = !!msg.truncated;
+            renderTree();
+        }
+    });
+
+    // ── 描画 ──
+
+    function renderNote(text) {
+        if (!treeEl) { return; }
+        treeEl.textContent = '';
+        var note = document.createElement('div');
+        note.className = 'fv-note';
+        note.textContent = text;
+        treeEl.appendChild(note);
+    }
+
+    function makeRow(entry, depth) {
+        var row = document.createElement('div');
+        row.className = 'fv-row ' + (entry.isDir ? 'fv-dir' : 'fv-file')
+            + (entry.relPath === selectedRel ? ' fv-selected' : '');
+        row.dataset.rel = entry.relPath;
+        row.dataset.isdir = entry.isDir ? '1' : '0';
+        row.style.paddingLeft = (8 + depth * 16) + 'px';
+        row.draggable = true;
+
+        var chevron = document.createElement('span');
+        chevron.className = 'fv-chevron';
+        if (entry.isDir) {
+            // NFR-FLV-08: outliner bullet と同一の開閉表現（展開 = 5px dot / 折りたたみ = CSS 三角）
+            var mark = document.createElement('span');
+            mark.className = expanded[entry.relPath] ? 'fv-dot' : 'fv-tri';
+            chevron.appendChild(mark);
+        }
+        var name = document.createElement('span');
+        name.className = 'fv-name';
+        if (!entry.isDir) {
+            // ユーザー指定（2026-08-18）: md = 📄 / それ以外 = 📎
+            var iconSpan = document.createElement('span');
+            iconSpan.className = 'fv-file-icon';
+            iconSpan.textContent = /\.md$/i.test(entry.name) ? '📄' : '📎';
+            name.appendChild(iconSpan);
+        }
+        name.appendChild(document.createTextNode(entry.name));
+        row.appendChild(chevron);
+        row.appendChild(name);
+
+        row.addEventListener('click', function (e) {
+            selectRow(entry.relPath);
+            // chevron click は展開トグルも行う（行 click 自体は選択のみ — FR-FLV-14）。
+            // e.target === chevron だと子要素（.fv-tri/.fv-dot）を踏んだとき外れる — closest 判定に修正（2026-08-18）
+            var onChevron = e.target && e.target.closest && e.target.closest('.fv-chevron');
+            if (entry.isDir && onChevron) { toggleDir(entry.relPath); }
+        });
+        row.addEventListener('dblclick', function () {
+            if (entry.isDir) {
+                toggleDir(entry.relPath);
+            } else if (bridge().folderViewOpen) {
+                bridge().folderViewOpen(currentLinkId, entry.relPath);
+            }
+        });
+        row.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            selectRow(entry.relPath);
+            showMenu(e, entry);
+        });
+        // W1/W2/W4 送信端（dragstart 1 本 — MIME payload に絶対パス不含 = INV-4）。
+        // エントリ行は contenteditable 外の独立 DOM なので draggable=true で足りる（dnd-wiring §1）
+        row.addEventListener('dragstart', function (e) {
+            if (!e.dataTransfer) { return; }
+            try {
+                e.dataTransfer.setData(FV_ENTRY_MIME, JSON.stringify({
+                    folderLinkId: currentLinkId,
+                    relPath: entry.relPath,
+                    isDir: !!entry.isDir,
+                }));
+                e.dataTransfer.setData('text/plain', entry.relPath);
+                e.dataTransfer.effectAllowed = 'copyMove';
+            } catch (err) { /* ignore */ }
+            fvDragSrc = { relPath: entry.relPath, isDir: !!entry.isDir }; // one-shot: 下記 clear 群と対
+        });
+        row.addEventListener('dragend', function () {
+            fvDragSrc = null;
+            clearDropVisuals();
+        });
+        return row;
+    }
+
+    // ── D&D 受信端（W1 ビュー内 / W3 tree item / W6 md アンカー）+ 視覚 2 系統 ──
+
+    function clearDropVisuals() {
+        if (!treeEl) { return; }
+        // highlight（フォルダ行）と root 強調の 2 系統とも掃除（片肺禁止 — generator_failures 2026-08-02）
+        Array.prototype.forEach.call(treeEl.querySelectorAll('.fv-row.fv-drop-into'), function (el) {
+            el.classList.remove('fv-drop-into');
+        });
+        treeEl.classList.remove('fv-drop-root');
+    }
+
+    /** dragover で types から受理可否を判定（getData は drop まで読めない — research-external §5） */
+    function isAcceptableDrag(e) {
+        if (!e || !e.dataTransfer) { return false; }
+        var types = Array.prototype.slice.call(e.dataTransfer.types || []);
+        // 受理 3 群 + それ以外の内部 MIME（outliner node 系等）は drop で不受理通知するため
+        // x-fractal- prefix でまとめて受ける（黙って弾くと「反応しない」に見える — 不受理の明示裁定）
+        for (var i = 0; i < types.length; i++) {
+            if (String(types[i]).indexOf('application/x-fractal-') === 0) { return true; }
+        }
+        // tree 内部 drag（.out/folder item は text/plain しか積まない）— one-shot グローバル
+        //（notes-file-panel.js dragstart/dragend が set/clear。fr-drag-active はパネル外 dragleave で
+        // 消えるため使えない — 実測 2026-08-17）
+        if (window.__notesTreeDragKind) { return true; }
+        // 外部 files / uri-list もスコープ外の明示通知対象
+        if (types.indexOf('Files') !== -1 || types.indexOf('application/vnd.code.uri-list') !== -1) { return true; }
+        return false;
+    }
+
+    /** drop 先ディレクトリ解決: dir 行 = その中 / file 行 = その親 / 余白 = ルート */
+    function resolveDropDst(e) {
+        var row = e.target && e.target.closest ? e.target.closest('.fv-row') : null;
+        if (row && row.dataset.isdir === '1') { return { dst: row.dataset.rel, row: row }; }
+        if (row) { return { dst: parentRelOf(row.dataset.rel), row: row }; }
+        return { dst: '', row: null };
+    }
+
+    function onTreeDragOver(e) {
+        if (!isAcceptableDrag(e)) { return; }
+        e.preventDefault();
+        if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
+        clearDropVisuals();
+        var r = resolveDropDst(e);
+        if (r.row && r.row.dataset.isdir === '1') {
+            r.row.classList.add('fv-drop-into');
+        } else if (r.dst) {
+            var parentRow = treeEl.querySelector('.fv-row[data-rel="' + r.dst.replace(/"/g, '\\"') + '"]');
+            if (parentRow) { parentRow.classList.add('fv-drop-into'); } else { treeEl.classList.add('fv-drop-root'); }
+        } else {
+            treeEl.classList.add('fv-drop-root');
+        }
+    }
+
+    function notifyDropUnsupported() {
+        if (typeof bridge().notifyError === 'function') {
+            bridge().notifyError(i18n().folderViewMoveInUnsupported || 'Only markdown and file items can be moved here.');
+        }
+    }
+
+    function readJson(e, mime) {
+        try {
+            var raw = e.dataTransfer.getData(mime);
+            return raw ? JSON.parse(raw) : null;
+        } catch (err) { return null; }
+    }
+
+    function onTreeDrop(e) {
+        if (!e.dataTransfer) { return; }
+        e.preventDefault();
+        e.stopPropagation();
+        var r = resolveDropDst(e);
+        var dst = r.dst;
+        clearDropVisuals();
+        var src = fvDragSrc;
+        fvDragSrc = null; // one-shot 消費（2 連続 drag で stale を引き継がない）
+        var b = bridge();
+        // W1: ビュー内移動（同一 view の FV MIME）
+        var fv = readJson(e, FV_ENTRY_MIME);
+        if (fv && fv.relPath !== undefined) {
+            if (fv.folderLinkId !== currentLinkId) { notifyDropUnsupported(); return; }
+            // no-op ガード: 自己/自己子孫/同一親（fs 移動の意味が無い）
+            if (fv.relPath === dst) { return; }
+            if (fv.isDir && (dst === fv.relPath || dst.indexOf(fv.relPath + '/') === 0)) { return; }
+            if (parentRelOf(fv.relPath) === dst) { return; }
+            if (typeof b.folderViewMove === 'function') { b.folderViewMove(currentLinkId, fv.relPath, dst); }
+            return;
+        }
+        // W3: tree md / file item（既存 MIME）→ #13 folderViewMoveIn
+        var treeMd = readJson(e, TREE_MD_MIME);
+        if (treeMd && treeMd.id) {
+            if (typeof b.folderViewMoveIn === 'function') { b.folderViewMoveIn(currentLinkId, dst, 'md', treeMd.id); }
+            return;
+        }
+        var treeFile = readJson(e, TREE_FILE_MIME);
+        if (treeFile && treeFile.id) {
+            if (typeof b.folderViewMoveIn === 'function') { b.folderViewMoveIn(currentLinkId, dst, 'file', treeFile.id); }
+            return;
+        }
+        // W6: md アンカー既存 2 MIME → #16 folderViewMoveFromMd
+        var mfl = readJson(e, MD_FILELINK_MIME);
+        if (mfl && mfl.href) {
+            if (typeof b.folderViewMoveFromMd === 'function') {
+                b.folderViewMoveFromMd(currentLinkId, dst, mfl.href, mfl.sourceMdPath || '', false);
+            }
+            return;
+        }
+        var msp = readJson(e, MD_SUBPAGE_MIME);
+        if (msp && msp.href) {
+            if (typeof b.folderViewMoveFromMd === 'function') {
+                b.folderViewMoveFromMd(currentLinkId, dst, msp.href, msp.sourceMdPath || '', true);
+            }
+            return;
+        }
+        // それ以外（.out item / folder item / outliner node 系 / 外部 files / uri-list）= 不受理通知
+        //（受理 MIME は 3 群のみ — dnd-wiring §1 の明示裁定。src は W1 の one-shot なのでここでは不使用）
+        void src;
+        notifyDropUnsupported();
+    }
+
+    // window 安全網: webview 外 drop / ESC キャンセル等、treeEl に drop が来ない終わり方でも
+    // one-shot state と視覚 2 系統を必ず掃除（ADRL-0031 型 — notes-file-panel.js:2327 と同型）
+    window.addEventListener('drop', function () { fvDragSrc = null; clearDropVisuals(); }, true);
+    window.addEventListener('dragend', function () { fvDragSrc = null; clearDropVisuals(); }, true);
+
+    function renderTree() {
+        if (!treeEl) { return; }
+        treeEl.textContent = '';
+        visibleRows = [];
+        if (searchHits) { renderSearchTree(); return; }
+        appendChildrenOf('', 0);
+        if ((childrenByRel[''] || []).length === 0 && childrenByRel['']) {
+            renderEmptyNote();
+        }
+    }
+
+    function renderEmptyNote() {
+        var note = document.createElement('div');
+        note.className = 'fv-note';
+        note.textContent = i18n().folderViewEmpty || '(empty folder)';
+        treeEl.appendChild(note);
+    }
+
+    function appendChildrenOf(rel, depth) {
+        var entries = childrenByRel[rel];
+        if (!entries) {
+            if (rel !== '') { requestList(rel); } // 展開済みだが未取得（lazy）
+            return;
+        }
+        entries.forEach(function (entry) {
+            treeEl.appendChild(makeRow(entry, depth));
+            visibleRows.push(entry.relPath);
+            if (entry.isDir && expanded[entry.relPath]) {
+                appendChildrenOf(entry.relPath, depth + 1);
+            }
+        });
+    }
+
+    /** FR-FLV-12: 検索結果 = マッチ + 祖先のみの pruned tree（祖先は relPath から導出・自動展開表示） */
+    function renderSearchTree() {
+        var rows = [];   // {relPath, name, isDir, depth}
+        var added = {};
+        (searchHits || []).forEach(function (hit) {
+            // 祖先 dir を relPath セグメントから導出
+            var parts = hit.relPath.split('/');
+            var acc = '';
+            for (var i = 0; i < parts.length - 1; i++) {
+                acc = acc ? acc + '/' + parts[i] : parts[i];
+                if (!added[acc]) {
+                    added[acc] = true;
+                    rows.push({ relPath: acc, name: parts[i], isDir: true, depth: i, isAncestor: true });
+                }
+            }
+            if (!added[hit.relPath]) {
+                added[hit.relPath] = true;
+                rows.push({ relPath: hit.relPath, name: hit.name, isDir: !!hit.isDir, depth: parts.length - 1 });
+            }
+        });
+        rows.forEach(function (r) {
+            var row = makeRow({ relPath: r.relPath, name: r.name, isDir: r.isDir }, r.depth);
+            if (r.isAncestor) { row.classList.add('fv-ancestor'); }
+            treeEl.appendChild(row);
+            visibleRows.push(r.relPath);
+        });
+        if (searchTruncated) {
+            var note = document.createElement('div');
+            note.className = 'fv-note fv-truncated';
+            note.textContent = i18n().folderViewTruncated || 'Too many results — refine your query.';
+            treeEl.appendChild(note);
+        }
+        if (rows.length === 0 && !searchTruncated) {
+            var empty = document.createElement('div');
+            empty.className = 'fv-note';
+            empty.textContent = i18n().folderViewNoMatch || 'No matches.';
+            treeEl.appendChild(empty);
+        }
+    }
+
+    // ── インライン rename（FR-FLV-28 — notes-file-panel.js startRenameFile :413 同型） ──
+
+    function endRename(applyPendingRender) {
+        var r = renaming;
+        renaming = null;
+        if (r && r.inputEl && r.inputEl.parentElement) {
+            // 原状復元（確定時は host の list 再送が正 — 楽観 DOM 書き換えはしない）
+            var nameEl = r.inputEl.parentElement;
+            r.inputEl.remove();
+            if (r.savedNodes) { r.savedNodes.forEach(function (n) { nameEl.appendChild(n); }); }
+        }
+        if (r && applyPendingRender && r.pendingRender) {
+            if (!searchHits) { renderTree(); }
+        }
+        if (treeEl && typeof treeEl.focus === 'function') {
+            try { treeEl.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+        }
+    }
+
+    function startRename(rel) {
+        if (renaming) { return; }
+        var row = treeEl ? treeEl.querySelector('.fv-row[data-rel="' + String(rel).replace(/"/g, '\\"') + '"]') : null;
+        var nameEl = row ? row.querySelector('.fv-name') : null;
+        if (!row || !nameEl) { return; }
+        var oldName = baseNameOf(rel);
+        var input = document.createElement('input');
+        input.className = 'fv-rename-input';
+        input.type = 'text';
+        input.value = oldName;
+        // 名前部分だけを input に置換（アイコン等の既存 child は退避して Escape で戻す）
+        var saved = Array.prototype.slice.call(nameEl.childNodes);
+        saved.forEach(function (n) { n.remove(); });
+        nameEl.appendChild(input);
+        renaming = { relPath: rel, inputEl: input, done: false, pendingRender: false, savedNodes: saved };
+        var confirm = function () {
+            if (!renaming || renaming.done) { return; }
+            renaming.done = true; // done フラグ（blur/Enter 二重発火防止 — precedent 同型）
+            var newName = String(input.value || '').trim();
+            var r = renaming;
+            if (newName && newName !== oldName && typeof bridge().folderViewRename === 'function') {
+                bridge().folderViewRename(currentLinkId, rel, newName); // 成否は host（同名衝突等はエラー通知 + list 再送なし）
+            }
+            endRename(true);
+            void r;
+        };
+        var cancel = function () {
+            if (!renaming || renaming.done) { return; }
+            renaming.done = true;
+            endRename(true);
+        };
+        input.addEventListener('keydown', function (e) {
+            // IME 二重ガード（!isComposing && keyCode!==229 — rename-ime precedent の字面）
+            if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                e.stopPropagation();
+                confirm();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cancel();
+            } else {
+                e.stopPropagation(); // tree の keydown（ナビ）に漏らさない
+            }
+        });
+        input.addEventListener('blur', function () { confirm(); });
+        input.focus();
+        input.select();
+    }
+
+    function selectRow(rel) {
+        selectedRel = rel;
+        if (!treeEl) { return; }
+        Array.prototype.forEach.call(treeEl.querySelectorAll('.fv-row'), function (el) {
+            el.classList.toggle('fv-selected', el.dataset.rel === rel);
+        });
+    }
+
+    /** FR-FLV-26: 開閉状態の debounce 保存（Search debounce と同型の setTimeout パターン） */
+    function scheduleStateSave() {
+        if (stateSaveTimer) { clearTimeout(stateSaveTimer); }
+        stateSaveTimer = setTimeout(function () {
+            stateSaveTimer = null;
+            if (!currentLinkId) { return; }
+            var list = Object.keys(expanded).filter(function (k) { return !!expanded[k]; });
+            if (typeof bridge().folderViewStateSave === 'function') {
+                bridge().folderViewStateSave(currentLinkId, list);
+            }
+        }, 300);
+    }
+
+    function toggleDir(rel) {
+        expanded[rel] = !expanded[rel];
+        if (expanded[rel] && !childrenByRel[rel]) {
+            requestList(rel); // lazy per-expand（応答で再描画）
+        }
+        scheduleStateSave(); // FR-FLV-26
+        renderTree();
+    }
+
+    // ── キーボード（FR-FLV-11/14: ↑↓ 選択・←→ 折りたたみ/展開・cmd+enter open） ──
+
+    function onKeyDown(e) {
+        if (searchHits === null && visibleRows.length === 0) { return; }
+        var idx = selectedRel ? visibleRows.indexOf(selectedRel) : -1;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectRow(visibleRows[Math.min(idx + 1, visibleRows.length - 1)] || visibleRows[0]);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectRow(visibleRows[Math.max(idx - 1, 0)] || visibleRows[0]);
+        } else if (e.key === 'ArrowRight') {
+            if (!selectedRel) { return; }
+            e.preventDefault();
+            var row = findEntry(selectedRel);
+            if (row && row.isDir && !expanded[selectedRel]) { toggleDir(selectedRel); }
+        } else if (e.key === 'ArrowLeft') {
+            if (!selectedRel) { return; }
+            e.preventDefault();
+            if (expanded[selectedRel]) {
+                toggleDir(selectedRel);
+            } else {
+                var parent = parentRelOf(selectedRel);
+                if (parent !== selectedRel && visibleRows.indexOf(parent) >= 0) { selectRow(parent); }
+            }
+        } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+            // FR-FLV-28: Enter 単独 = インライン rename（IME 変換確定の Enter は除外 — precedent ガード）
+            if (!selectedRel || e.isComposing || e.keyCode === 229 || renaming) { return; }
+            e.preventDefault();
+            startRename(selectedRel);
+        } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            if (!selectedRel) { return; }
+            e.preventDefault();
+            var entry = findEntry(selectedRel);
+            if (!entry) { return; }
+            if (entry.isDir) {
+                toggleDir(selectedRel);
+            } else if (bridge().folderViewOpen) {
+                bridge().folderViewOpen(currentLinkId, selectedRel);
+                // 2026-08-18 バグ修正: sidepanel が auto-focus を奪うと連続 cmd+enter / ↑↓ が
+                // sidepanel エディタに吸われる — キーボード起点の open ではツリーへフォーカスを戻す
+                //（outliner の「開いても切り替え続けられる」挙動に合わせる）
+                setTimeout(function () {
+                    var d = window.__folderViewDispatcher;
+                    if (d && typeof d.isFolderViewShown === 'function' && d.isFolderViewShown() && treeEl) {
+                        try { treeEl.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+                    }
+                }, 400);
+            }
+        }
+    }
+
+    function findEntry(rel) {
+        if (searchHits) {
+            for (var i = 0; i < searchHits.length; i++) {
+                if (searchHits[i].relPath === rel) { return searchHits[i]; }
+            }
+            // 祖先 dir（hits に無い）は dir 扱い
+            return { relPath: rel, name: baseNameOf(rel), isDir: true };
+        }
+        var entries = childrenByRel[parentRelOf(rel)] || [];
+        for (var j = 0; j < entries.length; j++) {
+            if (entries[j].relPath === rel) { return entries[j]; }
+        }
+        return null;
+    }
+
+    // ── context menu（FR-FLV-15: エントリ = 6 項目のみ / 空白 = New 2 項目） ──
+
+    var menuEl = null;
+    function closeMenu() {
+        if (menuEl && menuEl.parentElement) { menuEl.parentElement.removeChild(menuEl); }
+        menuEl = null;
+    }
+
+    function addMenuItem(label, handler, danger) {
+        var item = document.createElement('div');
+        item.className = 'fv-menu-item' + (danger ? ' danger' : '');
+        item.textContent = label;
+        item.addEventListener('click', function () {
+            closeMenu();
+            handler();
+        });
+        menuEl.appendChild(item);
+    }
+
+    function showMenu(e, entry) {
+        closeMenu();
+        menuEl = document.createElement('div');
+        menuEl.className = 'fv-menu';
+        menuEl.style.left = e.clientX + 'px';
+        menuEl.style.top = e.clientY + 'px';
+        var m = i18n();
+        // New 系の作成先: フォルダ選択中はその中・ファイル選択中は同階層・空白はルート
+        var targetDir = !entry ? '' : (entry.isDir ? entry.relPath : parentRelOf(entry.relPath));
+        addMenuItem(m.folderViewNewMarkdown || 'New Markdown', function () {
+            if (bridge().folderViewCreate) { bridge().folderViewCreate(currentLinkId, targetDir, 'md'); }
+        });
+        addMenuItem(m.folderViewNewFolder || 'New Folder', function () {
+            if (bridge().folderViewCreate) { bridge().folderViewCreate(currentLinkId, targetDir, 'folder'); }
+        });
+        if (entry) {
+            addMenuItem(m.notesRename || 'Rename', function () {
+                startRename(entry.relPath); // FR-FLV-28: menu もインライン方式（ポップアップ廃止）
+            });
+            addMenuItem(m.notesRevealInFinder || 'Reveal in Finder', function () {
+                if (bridge().folderViewRevealEntry) { bridge().folderViewRevealEntry(currentLinkId, entry.relPath); }
+            });
+            addMenuItem(m.copyPath || 'Copy Path', function () {
+                if (bridge().folderViewCopyEntryPath) { bridge().folderViewCopyEntryPath(currentLinkId, entry.relPath); }
+            });
+            addMenuItem(m.notesDelete || 'Delete', function () {
+                if (bridge().folderViewDelete) { bridge().folderViewDelete(currentLinkId, entry.relPath); }
+            }, true);
+        }
+        document.body.appendChild(menuEl);
+        setTimeout(function () { document.addEventListener('click', closeMenu, { once: true }); }, 0);
+    }
+
+    window.__folderView = { open: open, destroy: destroy };
+})();
+
+    /**
+ * notes-folder-sidepanel-badge.js — sidepanel md の「リンクフォルダ内 md」🔗 バッジ（FR-FLV-29）
+ *
+ * sprint 20260817-053313-notetree-local-folder-view 再オープ①（2026-08-18）。
+ *
+ * outliner.js（NFR-FLV-07: 変更 0）が管轄する Notes md sidepanel のヘッダに、host の
+ * `openSidePanel` message が `linkedFolderTitle`（folder link 配下判定は host — 絶対パス不出 INV-4）を
+ * 同梱してきたとき 🔗 + title のバッジを後付けする独立モジュール。
+ *
+ * - 独立した window 'message' listener（outliner.js の handler とは別登録）。バッジは
+ *   `.side-panel-filename` の**兄弟 span** なので、outliner 側の `sidePanelFilename.textContent = ...`
+ *   に消されない = listener 実行順に依存しない
+ * - linkedFolderTitle 無しの openSidePanel では既存バッジを除去（stale を残さない — one-shot 対称）
+ * - CSS はトークンのみ（NFR-FLV-08）
+ */
+(function () {
+    'use strict';
+
+    var STYLE_ID = 'folder-sidepanel-badge-style';
+    function ensureStyle() {
+        if (document.getElementById(STYLE_ID)) { return; }
+        var style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = [
+            '.side-panel-linkedfolder-badge { margin-left: 6px; font-size: 11px; opacity: 0.75;',
+            '  color: var(--outliner-fg); white-space: nowrap; flex: 0 0 auto; }',
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
+    function removeBadge() {
+        var old = document.querySelector('.side-panel-linkedfolder-badge');
+        if (old && old.parentElement) { old.parentElement.removeChild(old); }
+    }
+
+    function applyBadge(title) {
+        var nameEl = document.querySelector('.side-panel-filename');
+        if (!nameEl || !nameEl.parentElement) { return; }
+        ensureStyle();
+        removeBadge();
+        var badge = document.createElement('span');
+        badge.className = 'side-panel-linkedfolder-badge';
+        badge.textContent = '🔗 ' + title;
+        badge.title = title;
+        nameEl.parentElement.insertBefore(badge, nameEl.nextSibling);
+    }
+
+    window.addEventListener('message', function (event) {
+        var msg = event.data;
+        if (!msg || msg.type !== 'openSidePanel') { return; }
+        if (msg.linkedFolderTitle) {
+            applyBadge(String(msg.linkedFolderTitle));
+        } else {
+            removeBadge();
         }
     });
 })();
@@ -56610,6 +58438,13 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
      *            consumePendingMainRestore, consumePendingSidePanelRestore, updateActiveSidePanel }
      */
     window.__initNotesTabManager = function(deps) {
+        // FR-MLG-03 (sprint 20260818-183407): タブ menu / aria の i18n。供給は notes-file-panel と
+        // 同じ window.__outlinerMessages（メニュー構築時に遅延読み — 後注入にも追従）。
+        // `|| '英語'` フォールバックは既存規約（キー登録 = interface + 7 locale は TC-MLG-05b が番人）。
+        function tmsg(key, fallback) {
+            var m = window.__outlinerMessages || {};
+            return m[key] || fallback;
+        }
         deps = deps || {};
         var tabBarEl = deps.tabBarEl || null;
         var getActiveMainScrollEl = deps.getActiveMainScrollEl || function() { return null; };
@@ -56640,8 +58475,10 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 id: nextTabId(),
                 filePath: filePath,
                 // kind 推定サイト 1/3（FR-FV-13 / ADRL-0069 決定 3）: 拡張子導出は 'out'|'md' の
-                // 2 値のみ。kind='file'（viewer タブ）は**呼び出し側の明示必須** — .pdf/.html を
-                // この導出に通すと 'md' に化けて bridge.openFile が md エディタで開く事故になる
+                // 2 値のみ。kind='file'（viewer タブ）/ kind='folder'（フォルダビュータブ —
+                // FR-FLV-25。filePath 欄には folderLinkId が載る規約 = extra 非依存）は
+                // **呼び出し側の明示必須** — この導出に通すと 'md' に化けて bridge.openFile が
+                // md エディタで開く事故になる
                 kind: kind || (/\.out$/i.test(filePath || '') ? 'out' : 'md'),
                 title: title || basenameNoExt(filePath),
                 mainScrollTop: 0,
@@ -56650,7 +58487,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             };
         }
         function basenameNoExt(fp) {
-            if (!fp) return 'Untitled';
+            if (!fp) return tmsg('tabUntitled', 'Untitled');
             var base = String(fp).replace(/^.*[\/\\]/, '');
             return base.replace(/\.(md|out)$/i, '');
         }
@@ -56661,7 +58498,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             if (!cur) return;
             // FR-FV-13: file タブ（viewer）は scroll/outlinerView の Tab State を持たない
             //（getActiveMainScrollEl は 'out'/'md' 前提 — 再活性化は常に先頭から再表示 = 受容）
-            if (cur.kind === 'file') { return; }
+            // FR-FLV-25: folder タブも同様（状態非保持 = 受容 — folder-view.md §4）
+            if (cur.kind === 'file' || cur.kind === 'folder') { return; }
             var el = getActiveMainScrollEl();
             cur.mainScrollTop = (el && typeof el.scrollTop === 'number') ? el.scrollTop : cur.mainScrollTop;
             if (cur.kind === 'out') {
@@ -56695,6 +58533,22 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 }
                 if (window.__viewerDispatcher && typeof window.__viewerDispatcher.showViewer === 'function') {
                     window.__viewerDispatcher.showViewer(tab.viewerKind, tab.viewerFileUri, tab.title, tab.filePath, { inTab: true });
+                }
+                return;
+            }
+            // FR-FLV-25（第 4 分岐 — file 分岐同型）: folder タブは webview 完結。bridge.openFile を
+            // 呼ばない（folderLinkId は fs パスではない — md エディタで開く事故の番人 TC-FLV-38）。
+            // filePath 欄 = folderLinkId 規約（makeTabState コメント参照）
+            if (tab.kind === 'folder') {
+                pendingMainRestore = null;      // updateData が来ない — 残留は次の md/out 切替が誤消費する
+                pendingSidePanelRestore = null;
+                if (typeof closeSidePanelInWebview === 'function') closeSidePanelInWebview();
+                if (typeof bridge.closeSidePanel === 'function') bridge.closeSidePanel();
+                if (window.__viewerSidePanel && typeof window.__viewerSidePanel.close === 'function') {
+                    window.__viewerSidePanel.close();
+                }
+                if (window.__folderViewDispatcher && typeof window.__folderViewDispatcher.showFolderView === 'function') {
+                    window.__folderViewDispatcher.showFolderView(tab.filePath /* = folderLinkId */, tab.title, { inTab: true });
                 }
                 return;
             }
@@ -56746,7 +58600,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             menu.style.top = ev.clientY + 'px';
             // FR-TB-01: standalone（fractal.editor の VS Code タブ）で開く。md のみ
             if (tab.kind === 'md') {
-                addTabMenuItem(menu, 'Open in Standalone', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInStandalone', 'Open in Standalone'), function() {
                     if (typeof bridge.openInVscodeTab === 'function') bridge.openInVscodeTab(tab.filePath);
                 });
             }
@@ -56754,23 +58608,24 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             // 配線はツールバーと同じ既存 host case を流用（viewerOpenInNewTab = openWith viewer viewType /
             // openExternalFallback = OS 既定アプリ）— 新 message type を発明しない（ADRL-0069 決定 2）
             if (tab.kind === 'file') {
-                addTabMenuItem(menu, 'Open in Standalone', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInStandalone', 'Open in Standalone'), function() {
                     if (typeof window.__pdfExportPost === 'function') {
                         window.__pdfExportPost({ type: 'viewerOpenInNewTab', fileUri: tab.viewerFileUri, filePath: tab.filePath, kind: tab.viewerKind });
                     }
                 });
-                addTabMenuItem(menu, 'Open in OS default app', function() {
+                addTabMenuItem(menu, tmsg('tabOpenInOsDefaultApp', 'Open in OS default app'), function() {
                     if (typeof window.__pdfExportPost === 'function') {
                         window.__pdfExportPost({ type: 'openExternalFallback', fileUri: tab.viewerFileUri, filePath: tab.filePath });
                     }
                 });
             }
-            // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）
-            addTabMenuItem(menu, 'Duplicate Tab', function() {
-                openInNewTab(tab.filePath, tab.kind);
+            // FR-TB-05: 同じファイルを完全独立の新タブで開く（+ ボタンと同ロジック）。
+            // folder タブは updateData（syncActiveFile での title 補正）が来ないため title を明示継承
+            addTabMenuItem(menu, tmsg('tabDuplicate', 'Duplicate Tab'), function() {
+                openInNewTab(tab.filePath, tab.kind, tab.kind === 'folder' ? tab.title : undefined);
             });
             // FR-TB-04: このタブだけ残して他を全部閉じる
-            addTabMenuItem(menu, 'Close Other Tabs', function() {
+            addTabMenuItem(menu, tmsg('tabCloseOthers', 'Close Other Tabs'), function() {
                 closeOtherTabs(tab.id);
             });
             document.body.appendChild(menu);
@@ -56845,7 +58700,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                     closeBtn.className = 'notes-tab-close';
                     closeBtn.type = 'button';
                     closeBtn.innerHTML = '&times;';
-                    closeBtn.setAttribute('aria-label', 'Close tab');
+                    closeBtn.setAttribute('aria-label', tmsg('tabCloseAria', 'Close tab'));
                     el.appendChild(closeBtn);
                     titleEl.addEventListener('click', function() { activateTab(tab.id); });
                     el.addEventListener('click', function(ev) {
@@ -56899,10 +58754,10 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 addBtn.className = 'notes-tab-add';
                 addBtn.type = 'button';
                 addBtn.innerHTML = '+';
-                addBtn.setAttribute('aria-label', 'New tab (duplicate current)');
+                addBtn.setAttribute('aria-label', tmsg('tabNewAria', 'New tab (duplicate current)'));
                 addBtn.addEventListener('click', function() {
                     var cur = getActive();
-                    if (cur) openInNewTab(cur.filePath, cur.kind);
+                    if (cur) openInNewTab(cur.filePath, cur.kind, cur.kind === 'folder' ? cur.title : undefined);
                 });
                 tabBarEl.appendChild(addBtn);
             }
@@ -56994,6 +58849,13 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             if (!filePath) return;
             var cur = getActive();
             if (!cur) { openInNewTab(filePath, kind); return; }
+            // 2026-08-18 バグ修正（#16 ガードの精緻化）: 本経路は常にユーザー起点（Recent click 等）なので
+            // folder タブでも遮断しない — folder view を畳んでから通常の差し替えに続行する
+            //（旧: 早期 return で Recent が無反応になっていた。stray updateData の防御は syncActiveFile 側に残る）
+            if (cur.kind === 'folder' && window.__folderViewDispatcher
+                && typeof window.__folderViewDispatcher.hideFolderView === 'function') {
+                window.__folderViewDispatcher.hideFolderView();
+            }
             // 現アクティブを flush（内容差し替え前）
             flushBeforeUnload();
             cur.filePath = filePath;
@@ -57051,6 +58913,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         function syncActiveFile(filePath, kind, title) {
             var cur = getActive();
             if (!cur || !filePath) return;
+            // kind 裁定 #16 防御（FR-FLV-25 / TC-FLV-38 ②b・2026-08-18 精緻化）: **folder view が実際に
+            // 表示中**に来た md/out の updateData（= stray。外部 S3 リフレッシュ等）だけ遮断する。
+            // folder view が畳まれた後（= ユーザーが tree click 等で md/out を開いた正規遷移）は通し、
+            // タブの kind/filePath を実内容に同期する（旧: 無条件遮断で「タブは folder のまま面だけ md」の
+            // 不整合と、tree click 後のタブ再 activate が folder view に巻き戻る問題があった）
+            if (cur.kind === 'folder' && kind !== 'folder'
+                && window.__folderViewDispatcher
+                && typeof window.__folderViewDispatcher.isFolderViewShown === 'function'
+                && window.__folderViewDispatcher.isFolderViewShown()) { return; }
             if (title) { cur.title = title; renderTabBar(); }   // ★ filePath 同一でも title は更新（early-return より前）
             if (cur.filePath === filePath) return;   // 同一ファイルの再 render → scroll/outlinerView を温存
             cur.filePath = filePath;
@@ -57174,6 +59045,17 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 type: 'pasteWithAssetCopy',
                 markdown: markdown,
                 sourceContext: sourceContext,
+                sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
+                destination: 'main-md',
+            });
+        },
+        // FR-PDB-01 (sprint 20260818-183407): 本番 notes-host-bridge.js の
+        // pasteOutlinerNodesWithAssets override をミラー（自 filePath 畳み + destination='main-md'）。
+        pasteOutlinerNodesWithAssets: function(plainText, nodes) {
+            window.__testApi.messages.push({
+                type: 'pasteOutlinerNodesWithAssets',
+                plainText: plainText,
+                nodes: nodes,
                 sidePanelFilePath: window.notesMarkdownHostBridge.filePath || '',
                 destination: 'main-md',
             });

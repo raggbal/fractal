@@ -312,11 +312,24 @@ function discoverFolders() {
 
 // ─────────────── Regex builder ───────────────
 
-function buildRegex(query, { regex, caseSensitive, wholeWord }) {
-    let body = regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (wholeWord) body = `\\b(?:${body})\\b`;
+// FR-MLG-02 (sprint 20260818-183407): wholeWord の多言語境界 — src/shared/whole-word.js の
+// **ミラー**（CLI はゼロ install 配布のため import しない。extension⇄CLI 一致 TC = TC-MLG-04b が番人・
+// ADRL-0059 と同型の運用）。規則: CJK 含みクエリは素通し / それ以外 Unicode lookaround（u）/
+// u 不正 pattern は従来 \b へ fallback。
+export function buildRegex(query, { regex, caseSensitive, wholeWord }) {
+    const body = regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const flags = caseSensitive ? 'g' : 'gi';
-    return new RegExp(body, flags);
+    if (!wholeWord) return new RegExp(body, flags);
+    let isCjk = false;
+    try {
+        isCjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(query || '');
+    } catch { /* 判定不能は非 CJK 扱い */ }
+    if (isCjk) return new RegExp(body, flags);
+    try {
+        return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${body})(?![\\p{L}\\p{N}_])`, flags + 'u');
+    } catch {
+        return new RegExp(`\\b(?:${body})\\b`, flags);
+    }
 }
 
 // ─────────────── Match helpers ───────────────

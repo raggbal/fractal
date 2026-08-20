@@ -1832,6 +1832,14 @@ body {
 .block-fullscreen-math-display .katex-display {
     margin: 0;
 }
+/* FR-KTX-04 (sprint 20260818-183407): KaTeX フォント外の CJK/ハングル glyph は
+   ブラウザのシステムフォントフォールバックで描画される（cjk_fallback / hangul_fallback class）。
+   KaTeX Main との 1.21 倍スケール差をベースライン補正（katex.org/docs/font.html の定石）。
+   font-family は OS のシステムフォールバックに委ねる（明示スタックは書かない）。 */
+.katex .cjk_fallback,
+.katex .hangul_fallback {
+    font-size: 90%;
+}
 .lang-selector {
     position: fixed;
     background: var(--bg-color);
@@ -3083,6 +3091,27 @@ tr.tbl-row-filtered {
     background: var(--bg-color, #fff);
     color: var(--text-color, #333);
 }
+
+
+/* 2026-08-18 回帰修正: pdf.js viewer バンドル（pdf_viewer.css — 1.3.0 で notes/outliner/viewer 面に inline）が
+   汎用 `.sidebar` セレクタを持ち、md エディタの Outline sidebar（#sidebar）の背景(#fff)・角丸・影・幅 var・
+   inset-block-start を乗っ取る。id 特異度で本来の見た目（md 背景と同系の --sidebar-bg）へ打ち消す。 */
+#sidebar.sidebar {
+    background: var(--sidebar-bg);
+    border: none;
+    border-right: 1px solid var(--sidebar-border);
+    border-radius: 0;
+    box-shadow: none;
+    inset-block-start: auto;
+    padding-block: 0;
+    width: 234px;
+    min-width: 135px;
+    max-width: 450px;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    position: relative;
+}
+#sidebar.sidebar.hidden { width: 0; min-width: 0; overflow: hidden; border-right: none; }
 </style>
     <style>/* =============================================
  * Outliner Styles
@@ -9079,6 +9108,26 @@ class SidePanelHostBridge {
             this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
         }
     }
+    // FR-MDM-01 (sprint 20260818-183407): リンクパスコピー。宛先 md = this.filePath（sidepanel）。
+    // SidePanelHostBridge は共有 factory 非経由の手書きクラスなので個別追加が必要
+    // (generator_failures 2026-08-09 — main では動くが sidepanel だけ silent no-op になる再発クラス)。
+    copyLinkPath(href, kind) {
+        if (typeof this._mainHost.copyLinkPath === 'function') {
+            this._mainHost.copyLinkPath(href, kind, this.filePath);
+        }
+    }
+    // FR-MDM-03 (sprint 20260818-183407): Copy (file link full path)。宛先 md = this.filePath
+    copyMdWithFullPaths(markdown) {
+        if (typeof this._mainHost.copyMdWithFullPaths === 'function') {
+            this._mainHost.copyMdWithFullPaths(markdown, this.filePath);
+        }
+    }
+    // FR-MDM-02 (sprint 20260818-183407): リンクの Duplicate（実体複製）。宛先 md = this.filePath
+    duplicateLinkEntity(href, kind) {
+        if (typeof this._mainHost.duplicateLinkEntity === 'function') {
+            this._mainHost.duplicateLinkEntity(href, kind, this.filePath);
+        }
+    }
     // FR-TF-06a (sprint 20260809-031217): ツリー file item → sidepanel md D&D。
     // 宛先 = sidepanel の md (this.filePath)。SidePanelHostBridge は共有 factory 非経由の
     // 手書きクラスなので個別追加が必要 (designer_failures 2026-07-20)。
@@ -9826,6 +9875,51 @@ class EditorInstance {
         return '';
     }
 
+    // FR-MDM-01 (sprint 20260818-183407): context menu 用のリンク種別判定。
+    // classifyLinkHref（視覚 class 専用）とは別関数 — menu の表示裁定はここが正。
+    // 返り値: null（メニュー対象外 = anchor(#) / href 無し）| {kind:'normal'|'md'|'file', href, isSubpage}
+    function classifyLinkForMenu(linkEl) {
+        if (!linkEl || !linkEl.getAttribute) return null;
+        var href = linkEl.getAttribute('href') || linkEl.getAttribute('data-markdown-path') || '';
+        if (!href) return null;
+        if (href.startsWith('#')) return null; // アンカーは対象外（従来どおり）
+        if (/^(https?:|mailto:|ftp:|data:|file:|fractal:)/i.test(href)) {
+            return { kind: 'normal', href: href, isSubpage: false };
+        }
+        var bare = href.split(/[?#]/)[0];
+        if (/\.(?:md|markdown)$/i.test(bare)) {
+            var isSub = !!(linkEl.classList && linkEl.classList.contains('link-subpage'));
+            return { kind: 'md', href: href, isSubpage: isSub };
+        }
+        var label = (linkEl.textContent || '').trim();
+        if (linkEl.getAttribute('data-is-file-attachment') === 'true' || label.indexOf('📎') === 0) {
+            return { kind: 'file', href: href, isSubpage: false };
+        }
+        // 相対パスの非 md 非添付リンク（稀）— normal 扱い（href をそのままコピー）
+        return { kind: 'normal', href: href, isSubpage: false };
+    }
+
+    // FR-MDM-03: Copy (file link full path) の入力 md 化。
+    // FR-MDM-02: Duplicate 応答で直下挿入する対象（one-shot — 応答消費とメニュー再表示で clear）
+    var _pendingDuplicateLink = null;
+    function getSelectionMarkdownForFullPath() {
+        try {
+            var s = window.getSelection();
+            if (!s || s.rangeCount === 0 || s.isCollapsed) return '';
+            var r = s.getRangeAt(0);
+            return serializeSelectionToMd(r, s).md || '';
+        } catch (e) {
+            return '';
+        }
+    }
+    function buildLinkMarkdownForFullPath(linkEl, info) {
+        var label = (linkEl && linkEl.textContent || '').trim();
+        if (info.kind === 'md' && info.isSubpage) {
+            return '[[' + label + ']](' + info.href + ')';
+        }
+        return '[' + label + '](' + info.href + ')';
+    }
+
     // Resolve relative image path to full webview URI
     function resolveImagePath(src) {
         if (!src) return '';
@@ -9966,6 +10060,43 @@ class EditorInstance {
             restoreSelectionAndFocus();
             document.execCommand('copy');
         }, mod + '+C', !hasSelection);
+
+        // FR-MDM-01 (sprint 20260818-183407): メニュー全列挙は requirement FR-MDM-01 の順序が正 —
+        // Rename Link / Cut / Copy / Copy Path / Copy (file link full path) / Duplicate(md・file のみ) / Paste
+        var ctxLinkInfo = classifyLinkForMenu(ctxLinkEl);
+        // Copy Path（リンク上のみ表示。normal=URL そのまま / md・file=host が絶対化 + clamp）
+        if (ctxLinkInfo) {
+            addCtxItem(i18n.mdCopyLinkPath || 'Copy Path', function() {
+                if (typeof host.copyLinkPath === 'function') {
+                    host.copyLinkPath(ctxLinkInfo.href, ctxLinkInfo.kind);
+                }
+            });
+        }
+        // Copy (file link full path)（FR-MDM-03: リンク右クリック限定でなく全域表示。
+        // 選択なし + リンク外はディム = 実行不可）
+        addCtxItem(i18n.mdCopyFullPath || 'Copy (file link full path)', function() {
+            var mdText = '';
+            if (hasSelection && savedRange) {
+                // 選択範囲の md 化は既存 copy 経路と同じ選択 serialize を使う
+                restoreSelectionAndFocus();
+                mdText = getSelectionMarkdownForFullPath();
+            } else if (ctxLinkInfo) {
+                mdText = buildLinkMarkdownForFullPath(ctxLinkEl, ctxLinkInfo);
+            }
+            if (mdText && typeof host.copyMdWithFullPaths === 'function') {
+                host.copyMdWithFullPaths(mdText);
+            }
+        }, null, !hasSelection && !ctxLinkInfo);
+        // Duplicate（subpage/md・file リンクのみ表示。cmd+c → cmd+v と同一 = 実体複製 — FR-MDM-02 / TASK-10）
+        if (ctxLinkInfo && (ctxLinkInfo.kind === 'md' || ctxLinkInfo.kind === 'file')) {
+            addCtxItem(i18n.mdDuplicateLink || 'Duplicate', function() {
+                if (typeof host.duplicateLinkEntity === 'function') {
+                    // 応答（duplicateLinkEntityResult）で直下挿入する対象を one-shot 保持
+                    _pendingDuplicateLink = { el: ctxLinkEl, kind: ctxLinkInfo.kind, isSubpage: ctxLinkInfo.isSubpage };
+                    host.duplicateLinkEntity(ctxLinkInfo.href, ctxLinkInfo.kind);
+                }
+            });
+        }
 
         // Paste — use execCommand('paste') which triggers the editor's native paste handler
         addCtxItem(i18n.contextPaste || 'Paste', function() {
@@ -11734,6 +11865,9 @@ class EditorInstance {
         // sprint 20260729-000358: start だけ違う ol（innerHTML 同一）を「等しい」と
         // 誤判定すると updateFromMarkdown が replace をスキップし start 変更が DOM に届かない
         if (a.tagName === 'OL' && (a.getAttribute('start') || '') !== (b.getAttribute('start') || '')) return false;
+        // FR-KTX-01 (ADRL-0079): $$⇄```math の混在編集で data-math-delim が剥がれると
+        // serialize 形式が化ける — 属性差は「等しくない」（updateFromMarkdown が replace する）
+        if ((a.getAttribute('data-math-delim') || '') !== (b.getAttribute('data-math-delim') || '')) return false;
         return normalizeBlockHtml(a.innerHTML) === normalizeBlockHtml(b.innerHTML);
     }
 
@@ -12322,6 +12456,58 @@ class EditorInstance {
             if (inCodeBlock) {
                 codeContent += line + '\n';
                 continue;
+            }
+
+            // FR-KTX-01 (sprint 20260818-183407 / ADRL-0079): `$$...$$` display math ブロック。
+            // 対象は (a) 1 行完結 `$$content$$`（内容非空）(b) `$$` 単独行 〜 `$$` 単独行の複数行、の 2 形のみ。
+            // 閉じ行が見つからない開き `$$` はブロック化しない（通常テキスト — データを math に巻き込まない）。
+            // 行中の `$$`（前後にテキスト）も対象外。DOM は既存 ```math と同一構造 +
+            // data-math-delim 属性（'dollar' = 1 行完結 / 'dollar-block' = 複数行 — serialize が元の形を復元）。
+            {
+                const singleDollar = line.match(/^\s{0,3}\$\$(.+?)\$\$\s*$/);
+                let dollarContent = null;
+                let dollarDelim = 'dollar';
+                let dollarEndIndex = -1;
+                if (singleDollar && singleDollar[1].trim() !== '') {
+                    dollarContent = singleDollar[1];
+                } else if (/^\s{0,3}\$\$\s*$/.test(line)) {
+                    for (let dj = i + 1; dj < lines.length; dj++) {
+                        if (/^\s*\$\$\s*$/.test(lines[dj])) { dollarEndIndex = dj; break; }
+                    }
+                    if (dollarEndIndex > -1) {
+                        dollarContent = lines.slice(i + 1, dollarEndIndex).join('\n');
+                        dollarDelim = 'dollar-block';
+                    }
+                }
+                if (dollarContent !== null) {
+                    if (inBlockquote) {
+                        html += renderBlockquote(blockquoteLines);
+                        inBlockquote = false;
+                        blockquoteLines = [];
+                    }
+                    if (inTable) {
+                        html += renderTable(tableRows);
+                        inTable = false;
+                        tableRows = [];
+                    }
+                    html += closeAllLists();
+                    let dollarCodeHtml;
+                    let dollarTrailing = '';
+                    if (!dollarContent) {
+                        dollarCodeHtml = '<br>';
+                    } else if (dollarContent.endsWith('\n')) {
+                        dollarCodeHtml = escapeHtml(dollarContent).replace(/\n/g, '<br>') + '<br>';
+                        dollarTrailing = ' data-trailing-br="true"';
+                    } else {
+                        dollarCodeHtml = escapeHtml(dollarContent).replace(/\n/g, '<br>');
+                    }
+                    html += '<div class="math-wrapper" data-mode="display" data-math-delim="' + dollarDelim + '" contenteditable="false">' +
+                        '<pre data-lang="math" contenteditable="true"><code' + dollarTrailing + '>' + dollarCodeHtml + '</code></pre>' +
+                        '<div class="math-display"></div>' +
+                        '</div>';
+                    if (dollarEndIndex > -1) i = dollarEndIndex;
+                    continue;
+                }
             }
 
             // Persistence (option C): `<!-- fractal-col-widths: w1,w2,w3 -->` line right
@@ -12996,18 +13182,32 @@ class EditorInstance {
         var code = pre.querySelector('code');
         var texCode = code ? getCodePlainText(code).trim() : '';
 
+        // FR-KTX-02 (sprint 20260818-183407): ```math 内に `$$...$$` ごと書かれた入力の tolerant 剥がし。
+        // $$ デリミタが KaTeX に渡ると言語不問で katex-error（赤字 raw）になる。表示時のみ剥がし、
+        // md 本文（serialize）は不変。
+        if (/^\$\$[\s\S]*\$\$$/.test(texCode) && texCode.length > 4) {
+            texCode = texCode.replace(/^\$\$/, '').replace(/\$\$$/, '').trim();
+        }
+
         if (!texCode) {
             displayDiv.innerHTML = '<div class="math-error">Empty expression</div>';
             return;
         }
 
         try {
-            var lines = texCode.split('\n').filter(function(l) { return l.trim() !== ''; });
+            var lines = texCode.split('\n').filter(function(l) {
+                var t = l.trim();
+                return t !== '' && t !== '$$'; // 行単位の $$ デリミタ残骸も除去（FR-KTX-02）
+            });
             var html = '';
             for (var i = 0; i < lines.length; i++) {
                 html += katex.renderToString(lines[i].trim(), {
                     displayMode: true,
                     throwOnError: false,
+                    // FR-KTX-03 (sprint 20260818-183407): math mode 直書き CJK（\text 無し）の
+                    // unicodeTextInMathMode 警告を抑止（default 'warn' でも描画はされるが、
+                    // 将来の strict 化・console ノイズを防ぐ。KaTeX 公式 docs の定石）
+                    strict: false,
                     output: 'html'
                 });
             }
@@ -17293,6 +17493,15 @@ class EditorInstance {
                             processCodeNode(code);
                         }
                         wrapperContent = stripTrailingNewlines(wrapperContent, code, node);
+                        // FR-KTX-01 (ADRL-0079): $$ 由来の math ブロックは $$ 形式で復元
+                        // （```math へ書き換えない — round-trip byte 安定・他エディタ互換）。
+                        const mathDelim = node.getAttribute('data-math-delim');
+                        if (wrapperLang === 'math' && mathDelim === 'dollar') {
+                            return '$$' + wrapperContent + '$$\n';
+                        }
+                        if (wrapperLang === 'math' && mathDelim === 'dollar-block') {
+                            return '$$\n' + wrapperContent + '\n$$\n';
+                        }
                         // Always add \n for fence format.
                         wrapperContent += '\n';
                         // Determine fence length: if content contains triple backticks, use more backticks
@@ -27446,11 +27655,68 @@ class EditorInstance {
             });
             return;
         }
+        // FR-MDM-02 (sprint 20260818-183407): リンク Duplicate の応答 — 元リンクの block 直後に
+        // 複製リンクの新行を挿入（1 undo 単位）。destination routing は pasteWithAssetCopyResult と同型。
+        if (message.type === 'duplicateLinkEntityResult') {
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) {
+                if (typeof sidePanelHostBridge !== 'undefined' && sidePanelHostBridge
+                    && typeof sidePanelInstance !== 'undefined' && sidePanelInstance) {
+                    sidePanelHostBridge._sendMessage(message);
+                }
+                return;
+            }
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
+            var pendingDup = _pendingDuplicateLink;
+            _pendingDuplicateLink = null;
+            if (!pendingDup || !pendingDup.el || !pendingDup.el.isConnected || !message.newHref) return;
+            undoManager.saveSnapshot();
+            var dupA = document.createElement('a');
+            dupA.setAttribute('href', message.newHref);
+            if (pendingDup.kind === 'file') {
+                var newLabel = '📎 ' + (message.newFileName || message.newHref.replace(/^.*\//, ''));
+                dupA.textContent = newLabel;
+                dupA.setAttribute('data-is-file-attachment', 'true');
+                dupA.setAttribute('data-markdown-path', message.newHref);
+            } else {
+                // md/subpage: ラベルは元リンクと同一（複製 md の H1 = 元と同一）。
+                // serialize の [[]] 復元は data-subpage 属性が正（:2483 の往路フラグ）— 元リンクから引き継ぐ
+                dupA.textContent = (pendingDup.el.textContent || '').trim();
+                dupA.className = pendingDup.el.className || '';
+                if (pendingDup.el.getAttribute && pendingDup.el.getAttribute('data-subpage')) {
+                    dupA.setAttribute('data-subpage', pendingDup.el.getAttribute('data-subpage'));
+                } else if (pendingDup.isSubpage) {
+                    dupA.setAttribute('data-subpage', 'true');
+                }
+            }
+            var blockEl = pendingDup.el.closest ? pendingDup.el.closest('li, p, h1, h2, h3, h4, h5, h6') : null;
+            if (blockEl && blockEl.tagName === 'LI') {
+                var newLi = document.createElement('li');
+                newLi.appendChild(dupA);
+                blockEl.parentNode.insertBefore(newLi, blockEl.nextSibling);
+            } else if (blockEl && blockEl.parentNode) {
+                var newP = document.createElement('p');
+                newP.appendChild(dupA);
+                blockEl.parentNode.insertBefore(newP, blockEl.nextSibling);
+            } else {
+                var tailP = document.createElement('p');
+                tailP.appendChild(dupA);
+                editor.appendChild(tailP);
+            }
+            markAsEdited();
+            syncMarkdown();
+            return;
+        }
         // data:image/... を images/ に実体化して相対 path に書き換えた MD を受信
         if (message.type === 'extractDataUrlsInPastedMdResult') {
             console.log('[paste] extractDataUrlsInPastedMdResult: savedCount=', message.savedCount,
                 'mdLength=', message.markdown?.length, 'error=', message.error || 'none');
             if (message.error) console.error('[paste] host error:', message.error);
+            // FR-PDB-02 (sprint 20260818-183407): destination ルーティング（pasteWithAssetCopyResult :18387 と同型）。
+            // sidepanel 宛の転送は既存 forwarder（Notes = outliner.js switch / standalone = 下方の
+            // window handler の extractDataUrlsInPastedMdResult delegate）が担うため、ここでは処理をやめるだけ。
+            // destination 無し（旧形式）は従来どおり無条件処理（後方互換）。
+            if (message.destination === 'sidepanel' && !_xpInSidePanel) return;
+            if (message.destination === 'main-md' && _xpInSidePanel) return;
             if (!message.markdown) return;
             var pending = self._pendingDataUrlPaste || {};
             self._pendingDataUrlPaste = null;
@@ -27883,7 +28149,8 @@ class EditorInstance {
             logger.log('Subpage link element inserted');
         } else if (message.type === 'extractDataUrlsInPastedMdResult') {
             // data URL extraction result - delegate to side panel EditorInstance if present
-            if (sidePanelHostBridge) {
+            // FR-PDB-02: main-md 宛は sidepanel へ転送しない（二重挿入防止。宛先無し=旧形式は従来どおり転送）
+            if (sidePanelHostBridge && message.destination !== 'main-md') {
                 sidePanelHostBridge._sendMessage(message);
             }
         } else if (message.type === 'insertLinkHtml') {
@@ -27958,7 +28225,10 @@ class EditorInstance {
                     const slug = headingText
                         .toLowerCase()
                         .trim()
-                        .replace(/[^\w\s\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf\uac00-\ud7af-]/g, '')
+                        // FR-MLG-01: TOC アンカー生成（toc-utils.ts extractToc）と同一クラスに統一。
+                        // 従来はここだけ第 4 の変種（アクセント Latin 欠落）で #fragment リンクの
+                        // slug 照合が生成側と非対称だった（needle/haystack 対称の原則）。
+                        .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                         .replace(/\s+/g, '-');
                     if (slug === anchor || heading.id === anchor) {
                         scrollToHeading(heading);
@@ -28409,7 +28679,8 @@ class EditorInstance {
             if (match) {
                 var text = match[2].trim();
                 var anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                    // FR-MLG-01: toc-utils.ts extractToc とミラー（4 サイト対称 — 片側更新禁止）
+                    .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
@@ -29391,6 +29662,35 @@ class EditorInstance {
             };
             reader.readAsDataURL(file);
         }
+
+        // FR-FLV-22 (W4 受信 — sprint 20260817-053313): フォルダビューのエントリ drop → 実体移動 +
+        // リンク挿入（host #15 folderViewMoveIntoMd が種別分岐: md=subpage / 画像 / 他=📎）。
+        // notes bridge 直（host-api.md 発見 7 — SidePanelHostBridge 委譲層は経由しない。targetMdPath で
+        // 宛先を一意化するため per-instance host メソッド不要 = 5 層配線漏れクラスの構造回避）。
+        // notes webview 以外（standalone md 等）は window.notesHostBridge 不在 → no-op（フォルダビュー非共存）。
+        // 挿入位置は上の dropRange → selection 設定を host 挿入エコーが使う（既存機構）。
+        try {
+            var fvEntryRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-folderview-entry') : '';
+            if (fvEntryRaw) {
+                var fvEntryPayload = null;
+                try { fvEntryPayload = JSON.parse(fvEntryRaw); } catch (err) { /* ignore */ }
+                var fvNotesBridge = (typeof window !== 'undefined') ? window.notesHostBridge : null;
+                var fvTargetMdPath = (t.instance.host && t.instance.host.filePath) ||
+                    (t.instance.options && t.instance.options.filePath) || '';
+                if (fvEntryPayload && fvEntryPayload.folderLinkId && fvEntryPayload.relPath !== undefined && fvNotesBridge) {
+                    if (fvEntryPayload.isDir) {
+                        // フォルダは md 本文へ落とせない（不受理の明示裁定 — dnd-wiring §1）
+                        if (typeof fvNotesBridge.notifyError === 'function') {
+                            var fvMsgs = (typeof window !== 'undefined' && window.__outlinerMessages) || {};
+                            fvNotesBridge.notifyError(fvMsgs.folderViewNoFolderDrop || 'Folders cannot be dropped here.');
+                        }
+                    } else if (fvTargetMdPath && typeof fvNotesBridge.folderViewMoveIntoMd === 'function') {
+                        fvNotesBridge.folderViewMoveIntoMd(fvEntryPayload.folderLinkId, fvEntryPayload.relPath, fvTargetMdPath);
+                    }
+                }
+                return; // folder view entry drop はここで完結（添付/画像経路へ落とさない）
+            }
+        } catch (err) { /* ignore */ }
 
         // FR-TF-06a (sprint 20260809-031217, §4f :101): Notes ファイルツリーの file item drop。
         // 開いている md 本文へ添付（コピーなし・リンクのみ）。ファイル実体は note 内にあるため
@@ -32342,6 +32642,29 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // FR-MDM-01 (sprint 20260818-183407): リンクの Copy Path。
+        // kind = 'normal'（URL そのままコピー）| 'md' | 'file'（host が md dir 基準で絶対化 + clamp）。
+        // sidePanelFilePath 無し（standalone main md）は host が document へ fallback。
+        copyLinkPath: function(href, kind, sidePanelFilePath) {
+            postFn({ type: 'copyLinkPath', href: href, kind: kind, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-03 (sprint 20260818-183407): 選択範囲/リンクの md を、md/subpage/file リンクだけ
+        // 絶対フルパス化して clipboard へ（通常 URL・画像・平文は不変。変換は host 単一施行点）。
+        copyMdWithFullPaths: function(markdown, sidePanelFilePath) {
+            postFn({ type: 'copyMdWithFullPaths', markdown: markdown, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（実体複製）。
+        // 結果 duplicateLinkEntityResult の宛先札は pasteWithAssetCopy と同型。
+        duplicateLinkEntity: function(href, kind, sidePanelFilePath) {
+            postFn({
+                type: 'duplicateLinkEntity',
+                href: href,
+                kind: kind,
+                sidePanelFilePath: sidePanelFilePath,
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
+            });
+        },
+
         // MD paste asset copy (v9)
         // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
         // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
@@ -32351,7 +32674,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-01 (sprint 20260818-183407): 結果 (pasteWithAssetCopyResult) の宛先札。
+                // 無しだと md ペイン無条件処理 + outliner→sidepanel 転送の両方が挿入する二重貼付
+                // (下の pasteWithAssetCopy と同型・host は echo back するだけ)。
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
@@ -32372,7 +32699,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({
                 type: 'extractDataUrlsInPastedMd',
                 markdown: markdown,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-02 (sprint 20260818-183407): 結果の宛先札（pasteOutlinerNodesWithAssets と同型）
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
 
@@ -46140,6 +46469,83 @@ var Outliner = (function() {
     }
 
     // llms.txt 風 subtree コピー用に model から軽量 tree を組み立てる
+    // FR-OCM-03 (sprint 20260818-183407): node の Duplicate。意味論 = 「選択 node（複数可・
+    // 無選択なら右クリック対象）を cmd+c → cmd+v」と同一 — 既存収集（getSelectedNodesData /
+    // getSubtreeNodesData）+ 既存 paste 経路（pasteNodesFromText の same-note copy 契約 =
+    // page md / file / images の複製）に合流し、新規複製ロジックは書かない。
+    // 資産複製は host の OutlinerClipboardStore 前提（store miss = silent no-op）のため
+    // Duplicate 専用キーで Store へ一時保存し、直後に既存の内部コピー（internalClipboard）を
+    // 再保存して復元する（webview の internalClipboard / OS clipboard は一切触らない —
+    // cmd+c → Duplicate → cmd+v で事前コピーが貼れる契約は TC-OCM-08 が番人）。
+    function duplicateSelectedNodes(nodeId) {
+        var targetIds;
+        if (selectedNodeIds.size > 0) {
+            targetIds = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+        } else {
+            targetIds = [nodeId];
+        }
+        if (targetIds.length === 0) { return; }
+        var nodesData = (selectedNodeIds.size > 0) ? getSelectedNodesData() : getSubtreeNodesData(nodeId);
+        if (!nodesData || nodesData.length === 0) { return; }
+        var lastId = targetIds[targetIds.length - 1];
+        var lastNode = model.getNode(lastId);
+        if (!lastNode) { return; }
+        // Store キー（内部 paste では行パース非使用 — キー + fallback 用途のみ。FR-SE-03 潰し準拠）
+        var dupKey = nodesData.map(function(n) {
+            return new Array((n.level || 0) + 1).join('\t') + String(n.text || '').replace(/\n/g, ' ');
+        }).join('\n');
+        var prevClip = internalClipboard; // 参照のみ（非破壊）
+        try { saveSnapshot(null, 'action'); } catch (e) { /* noop */ }
+        if (host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(dupKey, false, nodesData);
+        }
+        pasteNodesFromText(dupKey, lastNode.parentId, lastId, nodesData, /*isCut*/false, /*clipSourceKey*/null, false);
+        // Store 復元（同一 webview の事前 cmd+c/x を温存。cross-outliner の pending Store は
+        // internalClipboard が無く復元不能 — 既知の縮退: 以後の cross paste はリストのみ貼付に落ちる）
+        if (prevClip && prevClip.plainText && host.saveOutlinerClipboard) {
+            host.saveOutlinerClipboard(prevClip.plainText, !!prevClip.isCut, prevClip.nodes || []);
+        }
+        scheduleSyncToHost();
+        renderTree();
+    }
+
+    // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 選択集合の forest 化。
+    // 収集 = Export bundle 裁定踏襲（選択集合優先・document order・Set 重複排除）+
+    // 祖先包含重複排除（既採用 root の子孫は独立 root にしない — flat Set では子孫 subtree が
+    // 祖先の中と独立 root の 2 回出力される）。選択なしは右クリック node 単体（従来互換・要素 1）。
+    function buildLlmsTxtForest(nodeId) {
+        var rootIds;
+        if (selectedNodeIds.size > 0) {
+            var sorted = model.getFlattenedIds(true).filter(function(id) {
+                return selectedNodeIds.has(id);
+            });
+            var accepted = [];
+            var acceptedSet = {};
+            sorted.forEach(function(id) {
+                var cur = model.getNode(id);
+                var p = cur ? cur.parentId : null;
+                var contained = false;
+                while (p) {
+                    if (acceptedSet[p]) { contained = true; break; }
+                    var pn = model.getNode(p);
+                    p = pn ? pn.parentId : null;
+                }
+                if (!contained) { accepted.push(id); acceptedSet[id] = true; }
+            });
+            rootIds = accepted;
+        } else {
+            rootIds = [nodeId];
+        }
+        var forest = [];
+        rootIds.forEach(function(id) {
+            var t = buildLlmsTxtTree(id);
+            if (t) { forest.push(t); }
+        });
+        return forest;
+    }
+
     function buildLlmsTxtTree(rootNodeId) {
         function build(id) {
             var n = model.getNode(id);
@@ -46208,9 +46614,15 @@ var Outliner = (function() {
             addMenuSeparator(contextMenuEl);
         }
 
-        // --- 複数選択時のページパスコピー ---
+        // --- 複数選択時のパスコピー（FR-OCM-01・sprint 20260818-183407） ---
+        // Copy Md Path（旧 Copy Page Path の改名・挙動不変）/ Copy File Path（複数対応）/
+        // Copy Path（page→page md パス・file→file パスの統合）。
+        // 表示条件は requirement FR-OCM-01 の全列挙が正: 条件を満たさない項目は非表示
+        // （既存 Copy Page Path の「無ければ非表示」流儀。FR-MDM-03 のディムとは意図的非対称）。
         if (selectedNodeIds.size > 0) {
             var selectedPageIds = [];
+            var selectedFileNodeIds = [];
+            var selectedPathEntries = []; // document order の {kind:'page',pageId}|{kind:'file',nodeId}
             var sortedSelectedIds = model.getFlattenedIds(true).filter(function(id) {
                 return selectedNodeIds.has(id);
             });
@@ -46218,13 +46630,35 @@ var Outliner = (function() {
                 var n = model.getNode(id);
                 if (n && n.isPage && n.pageId) {
                     selectedPageIds.push(n.pageId);
+                    selectedPathEntries.push({ kind: 'page', pageId: n.pageId });
+                } else if (n && n.filePath) {
+                    selectedFileNodeIds.push(id);
+                    selectedPathEntries.push({ kind: 'file', nodeId: id });
                 }
             });
+            var addedCopyGroup = false;
             if (selectedPageIds.length > 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths(selectedPageIds);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                addedCopyGroup = true;
+            }
+            if (selectedFileNodeIds.length > 0) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyFilePath || 'Copy File Path', function() {
+                    host.copyAttachedFilePaths(selectedFileNodeIds);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (selectedPathEntries.length > 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths(selectedPathEntries);
+                    hideContextMenu();
+                });
+                addedCopyGroup = true;
+            }
+            if (addedCopyGroup) {
                 addMenuSeparator(contextMenuEl);
             }
         }
@@ -46241,10 +46675,17 @@ var Outliner = (function() {
                 hideContextMenu();
             });
             if (selectedNodeIds.size === 0) {
-                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Page Path', function() {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPagePath || 'Copy Md Path', function() {
                     host.copyPagePaths([node.pageId]);
                     hideContextMenu();
                 }, modLabel + '+Shift+C');
+                // FR-OCM-01: 単一 node でも Copy Path（page → page md パス）
+                if (host.copyNodePaths) {
+                    addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                        host.copyNodePaths([{ kind: 'page', pageId: node.pageId }]);
+                        hideContextMenu();
+                    });
+                }
             }
             addMenuItem(contextMenuEl, i18n.outlinerDeletePage || 'Delete Page', function() {
                 removePage(nodeId);
@@ -46273,6 +46714,13 @@ var Outliner = (function() {
                 host.copyAttachedFilePath(nodeId);
                 hideContextMenu();
             });
+            // FR-OCM-01: 単一 node でも Copy Path（file → file パス）
+            if (selectedNodeIds.size === 0 && host.copyNodePaths) {
+                addMenuItem(contextMenuEl, i18n.outlinerCopyPath || 'Copy Path', function() {
+                    host.copyNodePaths([{ kind: 'file', nodeId: nodeId }]);
+                    hideContextMenu();
+                });
+            }
             addMenuItem(contextMenuEl, i18n.outlinerRemoveFile || 'Remove File', function() {
                 saveSnapshot();
                 node.filePath = null;
@@ -46283,25 +46731,33 @@ var Outliner = (function() {
         }
 
         // --- llms.txt 風に配下を再帰コピー ---
+        // FR-OCM-02 (sprint 20260818-183407 / ADRL-0077): 複数選択時は選択全 root の forest を送る
+        // （従来は右クリック node 単体 subtree のみ = 複数選択が無視されるバグ）。新規送出は常に配列。
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtMd || 'Copy subtree as llms.txt (MD pages)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtMdTree) {
-                host.copyLlmsTxtMdTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtMdTree) {
+                host.copyLlmsTxtMdTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtFile || 'Copy subtree as llms.txt (files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtFileTree) {
-                host.copyLlmsTxtFileTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtFileTree) {
+                host.copyLlmsTxtFileTree(forest);
             }
             hideContextMenu();
         });
         addMenuItem(contextMenuEl, i18n.outlinerCopyLlmsTxtBoth || 'Copy subtree as llms.txt (MD + files)', function() {
-            var tree = buildLlmsTxtTree(nodeId);
-            if (tree && host.copyLlmsTxtBothTree) {
-                host.copyLlmsTxtBothTree(tree);
+            var forest = buildLlmsTxtForest(nodeId);
+            if (forest.length > 0 && host.copyLlmsTxtBothTree) {
+                host.copyLlmsTxtBothTree(forest);
             }
+            hideContextMenu();
+        });
+
+        // FR-OCM-03 (sprint 20260818-183407): Duplicate（cmd+c → cmd+v と同一意味論）
+        addMenuItem(contextMenuEl, i18n.outlinerDuplicate || 'Duplicate', function() {
+            duplicateSelectedNodes(nodeId);
             hideContextMenu();
         });
 
@@ -47636,7 +48092,8 @@ var Outliner = (function() {
                 var text = match[2].trim();
                 if (firstH1 === null && match[1].length === 1) { firstH1 = parseH1TextCommonMark(match[2]); }
                 var anchor = text.toLowerCase()
-                    .replace(/[^\w\s\u3000-\u9fff\u{20000}-\u{2fa1f}\-]/gu, '')
+                    // FR-MLG-01: toc-utils.ts extractToc とミラー（4 サイト対称 — 片側更新禁止）
+                    .replace(/[^\p{L}\p{N}_\s\-]/gu, '')
                     .replace(/\s+/g, '-');
                 toc.push({ level: match[1].length, text: text, anchor: anchor });
             }
@@ -48690,7 +49147,19 @@ var Outliner = (function() {
                     }
                     break;
 
+                case 'duplicateLinkEntityResult':
+                    // FR-MDM-02 (sprint 20260818-183407): pasteWithAssetCopyResult と同型の転送 switch
+                    if (msg.destination === 'main-md') { break; }
+                    if (sidePanelInstance && sidePanelHostBridge) {
+                        sidePanelHostBridge._sendMessage(msg);
+                    }
+                    break;
+
                 case 'extractDataUrlsInPastedMdResult':
+                    // FR-PDB-02 (sprint 20260818-183407): destination='main-md' は Notes md
+                    // メインペイン宛 — sidepanel へ転送すると二重挿入になるため転送しない
+                    // （pasteWithAssetCopyResult の :9719 分岐と同型。宛先無し=旧形式は従来どおり転送）。
+                    if (msg.destination === 'main-md') { break; }
                     if (sidePanelInstance && sidePanelHostBridge) {
                         sidePanelHostBridge._sendMessage({
                             type: 'extractDataUrlsInPastedMdResult',

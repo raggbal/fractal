@@ -112,7 +112,7 @@ test.describe('Outliner Copy File Path (file 添付ノード)', () => {
         const menuItems = page.locator('.outliner-context-menu-item .context-menu-label');
         const texts = await menuItems.allTextContents();
         // 既存メニュー項目 (Copy Page Path) で機能カバー済み
-        expect(texts).toContain('Copy Page Path');
+        expect(texts).toContain('Copy Md Path'); // FR-OCM-01 改名追従（許可: test_update）
         // 本 sprint では md page に "Copy File Path" を二重追加しない (重複回避)
         expect(texts).not.toContain('Copy File Path');
     });

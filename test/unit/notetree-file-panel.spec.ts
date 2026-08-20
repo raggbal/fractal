@@ -16,7 +16,7 @@
  * 対象 TC:
  *   TC-WV-01  createFileElement の 3 値描画 (out/md/file) — file は is-attach + paperclip icon + fileExt='file'
  *   TC-WV-04  外部 .md/.pdf 混在 drop → notesRegisterExternalMd が md(content) と file(bytes) を両方載せる（silent skip 無し）
- *   TC-WV-05  file 右クリックメニュー = 専用 8 項目集合（Copy In-App Link / Open in new tab は非表示）。out は両者を表示（対比）
+ *   TC-WV-05  file 右クリックメニュー = 専用 8+1 項目 + 共通 4 項目（sprint 20260818-183407 で Duplicate / New link folder 追加。Copy In-App Link / Open in new tab は非表示）。out は両者を表示（対比）
  *   TC-WV-06  Explore 名前検索が「タイトル≠ファイル名」でも basename 部分一致でヒットし badge [file]
  *   TC-WV-07  dragend が one-shot drag state を clear（file→out drop は正制御で発火・dragend 後の空 drop は不発）
  *   TC-WV-11  dragstart(file) は x-fractal-tree-file {id} のみ積む（tree-md は積まない）／ md は逆
@@ -200,7 +200,7 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
     // ── TC-WV-05: file 右クリックメニュー集合 ──
     // rev (design_gap SYS-1 / ユーザー裁定 2026-08-10): FR-TF-10「共通項目（New Outline here /
     // New Markdown here / New Subfolder）は従来どおり表示」が正。旧版は not.toContain で逆方向 pin していた。
-    test('TC-WV-05 file メニュー = 専用 8 項目 + 共通 3 項目（Copy In-App Link / Open in new tab は非表示）。out は両者を表示', async ({ page }) => {
+    test('TC-WV-05 file メニュー = 専用 8+1 項目 + 共通 4 項目（Copy In-App Link / Open in new tab は非表示）。out は両者を表示', async ({ page }) => {
         await loadPanel(page, {
             fileList: [
                 { id: 'a1', filePath: '/n/files/photo.png', title: 'photo.png', kind: 'file' },
@@ -227,18 +227,22 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             return { fileLabels, outLabels };
         });
 
-        // file メニュー: 専用 8 項目 + 共通 3 項目（FR-TF-10「共通項目は従来どおり表示」）・順序込み
+        // file メニュー: 専用 8+1 項目 + 共通 4 項目（FR-TF-10「共通項目は従来どおり表示」+
+        // sprint 20260818-183407: Duplicate = FR-FTM-03 / New link folder = FR-FTM-02 共通 4 項目目。
+        // 許可: test_update — reviewer iteration 1 で仕様変更起因と分類）・順序込み
         expect(labels.fileLabels).toEqual([
             'Open',
             'Reveal in Finder',
             'Rename',
             '☆ Add to Favorites',
             'Copy Path',
+            'Duplicate',
             'Set Color',
             'Move Other Note',
             'New Outline here',
             'New Markdown here',
             'New Subfolder',
+            'New link folder',
             'Delete',
         ]);
         // file では出さない

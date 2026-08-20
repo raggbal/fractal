@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Outliner Copy Page Path', () => {
+test.describe('Outliner Copy Md Path（旧 Copy Page Path — FR-OCM-01 改名）', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/standalone-outliner.html');
         await page.waitForFunction(() => (window as any).__testApi?.ready);
@@ -38,7 +38,7 @@ test.describe('Outliner Copy Page Path', () => {
         await pageNode.click({ button: 'right' });
         const menuItems = page.locator('.outliner-context-menu-item .context-menu-label');
         const texts = await menuItems.allTextContents();
-        expect(texts).toContain('Copy Page Path');
+        expect(texts).toContain('Copy Md Path');
     });
 
     test('非ページノードの右クリックメニューに Copy Page Path が表示されない', async ({ page }) => {
@@ -47,7 +47,7 @@ test.describe('Outliner Copy Page Path', () => {
         await normalNode.click({ button: 'right' });
         const menuItems = page.locator('.outliner-context-menu-item .context-menu-label');
         const texts = await menuItems.allTextContents();
-        expect(texts).not.toContain('Copy Page Path');
+        expect(texts).not.toContain('Copy Md Path');
     });
 
     test('Copy Page Path クリックで copyPagePaths メッセージが送信される', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Outliner Copy Page Path', () => {
         await pageNode.click({ button: 'right' });
 
         // メニュー項目をクリック
-        const menuItem = page.locator('.outliner-context-menu-item .context-menu-label', { hasText: 'Copy Page Path' });
+        const menuItem = page.locator('.outliner-context-menu-item .context-menu-label', { hasText: 'Copy Md Path' });
         await menuItem.click();
 
         const messages = await getMessages(page);
@@ -76,7 +76,7 @@ test.describe('Outliner Copy Page Path', () => {
         let found = false;
         for (let i = 0; i < count; i++) {
             const label = await menuItems.nth(i).locator('.context-menu-label').textContent();
-            if (label === 'Copy Page Path') {
+            if (label === 'Copy Md Path') {
                 const shortcut = await menuItems.nth(i).locator('.context-menu-shortcut').textContent();
                 // Mac or Windows
                 expect(shortcut).toMatch(/Cmd\+Shift\+C|Ctrl\+Shift\+C/);
@@ -222,7 +222,7 @@ test.describe('Outliner Copy Page Path', () => {
 
         const menuItems = page.locator('.outliner-context-menu-item .context-menu-label');
         const texts = await menuItems.allTextContents();
-        expect(texts).toContain('Copy Page Path');
+        expect(texts).toContain('Copy Md Path');
     });
 
     test('複数選択中にページノードがなければ Copy Page Path が表示されない', async ({ page }) => {
@@ -247,7 +247,7 @@ test.describe('Outliner Copy Page Path', () => {
 
         const menuItems = page.locator('.outliner-context-menu-item .context-menu-label');
         const texts = await menuItems.allTextContents();
-        expect(texts).not.toContain('Copy Page Path');
+        expect(texts).not.toContain('Copy Md Path');
     });
 
     test('複数選択中の Copy Page Path クリックで全ページノードの pageId が送信される', async ({ page }) => {
@@ -264,7 +264,7 @@ test.describe('Outliner Copy Page Path', () => {
         await firstNode.click({ button: 'right' });
 
         // Copy Page Path をクリック
-        const menuItem = page.locator('.outliner-context-menu-item .context-menu-label', { hasText: 'Copy Page Path' });
+        const menuItem = page.locator('.outliner-context-menu-item .context-menu-label', { hasText: 'Copy Md Path' });
         await menuItem.click();
 
         const messages = await getMessages(page);

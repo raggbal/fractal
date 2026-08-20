@@ -30,6 +30,12 @@ export interface SidePanelManagerConfig {
      * 未指定の provider（editor/outliner）には無影響。
      */
     onFileOpened?: (filePath: string) => void;
+    /**
+     * FR-FLV-29（再オープン① 2026-08-18）: 開いた md がフォルダリンク（folder link）配下なら
+     * その folder link の title を返す（該当しなければ undefined）。notes provider が realpath 包含判定を注入。
+     * webview へは表示用文字列のみ渡る（絶対パス不出 — INV-4）。未指定の provider（editor/outliner）には無影響。
+     */
+    resolveLinkedFolderTitle?: (filePath: string) => string | undefined;
 }
 
 // Re-export TocItem for backward compatibility
@@ -327,6 +333,8 @@ export class SidePanelManager {
                 documentBaseUri: spBaseUri,
                 // sprint 20260723-233506: タブ復帰の復元経路（webview 側で scroll 同期復元 + auto-focus skip）
                 restoreForTab: restoreForTab || undefined,
+                // FR-FLV-29: リンクフォルダ内 md ならヘッダ表示用の folder link title（表示文字列のみ）
+                linkedFolderTitle: this.config.resolveLinkedFolderTitle?.(filePath) || undefined,
             });
             // FR-RR-04: 開いた md の画像に許可範囲外があればフッター案内を送る
             this.sendResourceAccessStatus(text, path.dirname(filePath));

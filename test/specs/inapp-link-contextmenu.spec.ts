@@ -65,10 +65,14 @@ test.describe('Editor Context Menu', () => {
             const menu = page.locator('.editor-context-menu');
             await expect(menu).toBeVisible();
 
-            // Should NOT have separator + in-app link (only 3 items: cut, copy, paste)
+            // Should NOT have "Copy In-App Link"（本旨）。項目数の厳密 assert は
+            // FR-MDM-03 (sprint 20260818-183407) で Copy (file link full path) が全域追加され
+            // 4 になったため本旨 assert へ更新（許可: test_update — reviewer iteration 1）
             const items = menu.locator('.editor-context-menu-item');
-            const count = await items.count();
-            expect(count).toBe(3);
+            const texts = await items.allTextContents();
+            expect(texts.join('|')).not.toContain('Copy In-App Link');
+            expect(texts.join('|')).toContain('Copy (file link full path)');
+            expect(await items.count()).toBe(4); // Cut / Copy / Copy (file link full path) / Paste
         });
     });
 

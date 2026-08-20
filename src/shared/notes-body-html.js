@@ -398,6 +398,9 @@ function generateNotesFilePanelHtml(options) {
             color: var(--fr-color-text-primary, inherit);
             box-shadow: var(--fr-shadow-focus, 0 0 0 3px rgba(79, 107, 255, 0.25));
         }
+        .file-panel-item.is-folder-link .file-panel-folderlink-icon { color: var(--fr-color-accent, #4a86d9); }
+        .file-panel-item.is-folder-link.is-broken { opacity: 0.55; }
+        .file-panel-item.is-folder-link.is-broken .file-panel-item-title { text-decoration: line-through dotted; }
         .file-panel-context-menu {
             position: fixed;
             background: var(--fr-color-bg-elevated, var(--outliner-bg, #fff));
@@ -613,6 +616,8 @@ function generateNotesFilePanelHtml(options) {
                     <button class="file-panel-btn" id="filePanelAddFolder" title="${m('notesNewFolder', 'New Folder')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg></button>
                     <button class="file-panel-btn" id="filePanelAdd" title="${m('notesAddOutliner', 'Add outliner (.out)')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+out</span></button>
                     <button class="file-panel-btn" id="filePanelAddMarkdown" title="${m('notesNewMarkdown', 'New Markdown')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+md</span></button>
+                    <button class="file-panel-btn" id="filePanelAddFileEntity" title="${m('notesAddFile', 'Add File')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+file</span></button>
+                    <button class="file-panel-btn" id="filePanelAddFolderLink" title="${m('folderLinkAdd', 'Link Folder')}"><span style="font-size:10px;font-weight:700;letter-spacing:-0.5px">+linkfd</span></button>
                     <span style="flex:1"></span>
                     <button class="file-panel-btn" id="filePanelToday" title="${m('notesToday', 'Today')}"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="16" height="16" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> ${m('notesToday', 'Today')}</button>
                 </div>

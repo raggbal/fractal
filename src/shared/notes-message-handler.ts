@@ -7,8 +7,10 @@ import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving } from './paste-asset-handler';
-import { safeResolveUnderDir } from './path-safety';
-import { resolveFilesDir, resolveFilesDirForMd, resolvePagesDir } from './flat-layout';
+import { safeResolveUnderDir, safeResolveUnderFolderRoot } from './path-safety';
+import { readFolderViewExpanded, saveFolderViewExpanded } from './folderview-state';
+import { isViewerTarget } from './viewer-target';
+import { resolveFilesDir, resolveFilesDirForMd, resolveImagesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
 import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem } from './drop-import';
@@ -191,6 +193,14 @@ export interface NotesPlatformActions {
     openDrawioExternal?(absPath: string): void;
     /** v0.207.48: 複数ノードの添付 file path を改行区切りで OS clipboard へコピー */
     copyAttachedFilePaths?(nodeIds: string[], outFilePath: string, sender: NotesSender): void;
+    /** FR-OCM-01 (sprint 20260818-183407): page/file 混在の統合パスコピー（entries = document order） */
+    copyNodePaths?(entries: Array<{ kind: 'page'; pageId: string } | { kind: 'file'; nodeId: string }>, outFilePath: string, sender: NotesSender): void;
+    /** FR-MDM-01 (sprint 20260818-183407): md リンクの Copy Path（normal=URL そのまま / md・file=絶対化 + clamp） */
+    copyLinkPath?(href: string, kind: string, mdFilePath: string, sender: NotesSender): void;
+    /** FR-MDM-03 (sprint 20260818-183407): md/subpage/file リンクだけフルパス化した md を clipboard へ */
+    copyMdWithFullPaths?(markdown: string, mdFilePath: string, sender: NotesSender): void;
+    /** FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの実体複製（DuplicationCore）。結果は duplicateLinkEntityResult（destination echo back） */
+    duplicateLinkEntity?(href: string, kind: string, mdFilePath: string, destination: string | undefined, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (MD pages) — tree.children を再帰し pageId→絶対パスを解決 */
     copyLlmsTxtMdTree?(tree: unknown, outFilePath: string, sender: NotesSender): void;
     /** llms.txt 風 subtree コピー (file attachments) — tree.children を再帰し filePath→絶対パスを解決 */
@@ -207,10 +217,10 @@ export interface NotesPlatformActions {
     cleanupUnusedFilesCurrentNote?(): Promise<void>;
     /** v9: MD paste with asset copy (cross-outliner/cross-note paste) */
     pasteWithAssetCopy?(markdown: string, sourceContext: any, sidePanelFilePath: string, destination?: string): void;
-    /** outliner node paste の添付複製 (sprint 20260727-124904)。nodes は Store が真実 (message.nodes は Store miss 時の fallback リスト用) */
-    pasteOutlinerNodesWithAssets?(plainText: string, nodes: unknown[], sidePanelFilePath: string): void;
-    /** HTML paste で MD に残った data:image/... を images/ に実体化し相対 path 化 */
-    extractDataUrlsInPastedMd?(markdown: string, sidePanelFilePath: string): void;
+    /** outliner node paste の添付複製 (sprint 20260727-124904)。nodes は Store が真実 (message.nodes は Store miss 時の fallback リスト用)。destination は結果の宛先札 (FR-PDB-01) */
+    pasteOutlinerNodesWithAssets?(plainText: string, nodes: unknown[], sidePanelFilePath: string, destination?: string): void;
+    /** HTML paste で MD に残った data:image/... を images/ に実体化し相対 path 化。destination は結果の宛先札 (FR-PDB-02) */
+    extractDataUrlsInPastedMd?(markdown: string, sidePanelFilePath: string, destination?: string): void;
     /** v10: Get workspace config (for translate AWS credentials) */
     getWorkspaceConfig?(section: string): any;
     /** v10: Post message to webview (used in translate handler) */
@@ -306,6 +316,71 @@ export interface NotesPlatformActions {
     deleteTreeFile?(id: string, sender: NotesSender): Promise<void> | void;
     /** FR-TF-01 (§4a): 外部 D&D の 50MB 超 skip 等をユーザーに明示通知 */
     notifyError?(message: string): void;
+
+    // ── FR-FLV: folder link CRUD（bridge 台帳 #1-5。実装本体は folderLink* export 関数） ──
+    /** FR-FLV-01 (#1): showOpenDialog（フォルダ選択）→ ガード → 登録 */
+    addFolderLink?(sender: NotesSender, parentId?: string | null): Promise<void> | void;
+    /** FR-FTM-01 (sprint 20260818-183407): +file ボタン — showOpenDialog（複数・全拡張子）→ tree 登録 */
+    addTreeFilesViaDialog?(sender: NotesSender): Promise<void> | void;
+    /** FR-FTM-03 (sprint 20260818-183407): tree item（out/md/file）の Duplicate（DuplicationCore） */
+    duplicateTreeItem?(itemId: string, sender: NotesSender): void;
+    /** FR-FLV-04 (#2): リンク切れ再指定（showOpenDialog → ガード → folderPath 更新 → showFolderView 指示） */
+    relinkFolderLink?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-06 (#3): Remove Link（台帳のみ除去・fs 一切非接触） */
+    removeFolderLink?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-06 (#4): Rename（title のみ・実フォルダ名不変） */
+    renameFolderLink?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-06 (#5a): Reveal in Finder（リンク先実フォルダ） */
+    revealFolderLink?(id: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-06 (#5b): Copy Path（folderPath を OS clipboard へ — webview に返さない） */
+    copyFolderLinkPath?(id: string, sender: NotesSender): Promise<void> | void;
+
+    // ── FR-FLV: folder view fs 操作（bridge 台帳 #6-12。実装本体は folderView* export 関数） ──
+    /** FR-FLV-11 (#6): 1 階層 list */
+    folderViewList?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-12 (#7): 名前検索（cap + truncated） */
+    folderViewSearch?(id: string, query: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-14/23 (#8): open 分岐（md/viewer/外部） */
+    folderViewOpen?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-15 (#9): New Markdown / New Folder */
+    folderViewCreate?(id: string, parentRelPath: string, kind: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-15 (#10): rename */
+    folderViewRename?(id: string, relPath: string, newName: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-26 (#19): 開閉状態の保存（再オープン①） */
+    folderViewStateSave?(id: string, expanded: string[], sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-15 (#11): delete（常に trash） */
+    folderViewDelete?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-16 (#12): ビュー内移動（fs.rename） */
+    folderViewMove?(id: string, srcRelPath: string, dstDirRelPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-15 (#17): エントリの Reveal in Finder */
+    folderViewRevealEntry?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-15 (#18): エントリの Copy Path */
+    folderViewCopyEntryPath?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
+
+    // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16。実装本体は folderViewMove* export 関数） ──
+    /** FR-FLV-21 (#13): Note ツリー item → フォルダビュー移動 */
+    folderViewMoveIn?(id: string, dstDirRelPath: string, srcKind: string, srcItemId: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-20 (#14): フォルダビュー → Note ツリー移動 */
+    folderViewMoveToTree?(id: string, relPath: string, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-22 (#15): フォルダビュー → sidepanel md 移動 + リンク挿入 */
+    folderViewMoveIntoMd?(id: string, relPath: string, targetMdPath: string, sender: NotesSender): Promise<void> | void;
+    /** FR-FLV-24 (#16): sidepanel md アンカー → フォルダビュー移動 + リンク除去 */
+    folderViewMoveFromMd?(id: string, dstDirRelPath: string, payload: { href: string; sourceMdPath: string; isSubpage?: boolean }, sender: NotesSender): Promise<void> | void;
+}
+
+/**
+ * FR-FLV: folder link CRUD の VS Code 依存を注入する deps（unit テストは明示 recorder を渡す）。
+ */
+export interface FolderLinkDeps {
+    showOpenDialog(options: any): Promise<Array<{ fsPath: string }> | undefined>;
+    showInputBox(options: any): Promise<string | undefined>;
+    showErrorMessage(message: string): void;
+    showInformationMessage(message: string): void;
+    executeCommand(command: string, arg: any): void;
+    clipboardWriteText(text: string): void;
+    uriFile(p: string): any;
+    /** i18n 解決（未登録キーは undefined → 英語フォールバック） */
+    t(key: string): string | undefined;
 }
 
 /**
@@ -552,6 +627,39 @@ export async function handleNotesMessage(
             const currentFilePath = fileManager.getCurrentFilePath();
             if (currentFilePath) {
                 platform.copyAttachedFilePaths?.(message.nodeIds || [], currentFilePath, sender);
+            }
+            break;
+        }
+
+        // FR-MDM-01 (sprint 20260818-183407): md リンクの Copy Path
+        case 'copyLinkPath': {
+            if (message.sidePanelFilePath && message.href) {
+                platform.copyLinkPath?.(message.href, message.kind || 'normal', message.sidePanelFilePath, sender);
+            }
+            break;
+        }
+
+        // FR-MDM-03 (sprint 20260818-183407): Copy (file link full path)
+        case 'copyMdWithFullPaths': {
+            if (message.sidePanelFilePath && message.markdown) {
+                platform.copyMdWithFullPaths?.(message.markdown, message.sidePanelFilePath, sender);
+            }
+            break;
+        }
+
+        // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（実体複製）
+        case 'duplicateLinkEntity': {
+            if (message.sidePanelFilePath && message.href) {
+                platform.duplicateLinkEntity?.(message.href, message.kind || 'md', message.sidePanelFilePath, message.destination, sender);
+            }
+            break;
+        }
+
+        // FR-OCM-01 (sprint 20260818-183407): page/file 混在の統合パスコピー
+        case 'copyNodePaths': {
+            const currentFilePath = fileManager.getCurrentFilePath();
+            if (currentFilePath) {
+                platform.copyNodePaths?.(message.entries || [], currentFilePath, sender);
             }
             break;
         }
@@ -893,7 +1001,8 @@ export async function handleNotesMessage(
         // (cmd+c 時に保存済み・ソース dir 込み) — message.nodes は検知用 (NFR-NP-03)。
         case 'pasteOutlinerNodesWithAssets':
             if (message.sidePanelFilePath && platform.pasteOutlinerNodesWithAssets) {
-                platform.pasteOutlinerNodesWithAssets(message.plainText || '', message.nodes || [], message.sidePanelFilePath);
+                // FR-PDB-01 (sprint 20260818-183407): destination 札を platform（echo 側）へ貫通
+                platform.pasteOutlinerNodesWithAssets(message.plainText || '', message.nodes || [], message.sidePanelFilePath, message.destination);
             } else {
                 // TASK-B5 防御: 宛先 md が特定できない場合でも paste 自体は成立させる
                 // (添付複製なしのリストのみ md を返す。silent no-op で「貼れない」にしない)
@@ -902,13 +1011,15 @@ export async function handleNotesMessage(
                 sender.postMessage({
                     type: 'pasteWithAssetCopyResult',
                     markdown: fallbackLines.join('\n') + '\n',
+                    destination: message.destination,
                 });
             }
             break;
 
         case 'extractDataUrlsInPastedMd':
             if (message.markdown && platform.extractDataUrlsInPastedMd) {
-                platform.extractDataUrlsInPastedMd(message.markdown, message.sidePanelFilePath);
+                // FR-PDB-02 (sprint 20260818-183407): destination 札を platform（echo 側）へ貫通
+                platform.extractDataUrlsInPastedMd(message.markdown, message.sidePanelFilePath, message.destination);
             }
             break;
 
@@ -1538,6 +1649,107 @@ export async function handleNotesMessage(
         // FR-TF-01 (§4a): 外部 D&D の明示通知
         case 'notifyError': {
             platform.notifyError?.(String(message.message ?? ''));
+            break;
+        }
+        // ── FR-FLV: folder link CRUD（bridge 台帳 #1-5） ──
+        case 'addFolderLink': {
+            // FR-FTM-02 (sprint 20260818-183407): メニュー起点はその場所へ登録（parentId 省略 = root）
+            await platform.addFolderLink?.(sender, message.parentId || null);
+            break;
+        }
+        // FR-FTM-01 (sprint 20260818-183407): +file ボタン
+        case 'addTreeFilesViaDialog': {
+            await platform.addTreeFilesViaDialog?.(sender);
+            break;
+        }
+        // FR-FTM-03 (sprint 20260818-183407): tree item の Duplicate
+        case 'duplicateTreeItem': {
+            if (message.id) {
+                platform.duplicateTreeItem?.(String(message.id), sender);
+            }
+            break;
+        }
+        case 'relinkFolderLink': {
+            await platform.relinkFolderLink?.(String(message.id ?? ''), sender);
+            break;
+        }
+        case 'removeFolderLink': {
+            await platform.removeFolderLink?.(String(message.id ?? ''), sender);
+            break;
+        }
+        case 'renameFolderLink': {
+            await platform.renameFolderLink?.(String(message.id ?? ''), sender);
+            break;
+        }
+        case 'revealFolderLink': {
+            await platform.revealFolderLink?.(String(message.id ?? ''), sender);
+            break;
+        }
+        case 'copyFolderLinkPath': {
+            await platform.copyFolderLinkPath?.(String(message.id ?? ''), sender);
+            break;
+        }
+        // ── FR-FLV: folder view fs 操作（bridge 台帳 #6-12） ──
+        case 'folderViewList': {
+            await platform.folderViewList?.(String(message.id ?? ''), String(message.relPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewSearch': {
+            await platform.folderViewSearch?.(String(message.id ?? ''), String(message.query ?? ''), sender);
+            break;
+        }
+        case 'folderViewOpen': {
+            await platform.folderViewOpen?.(String(message.id ?? ''), String(message.relPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewCreate': {
+            await platform.folderViewCreate?.(String(message.id ?? ''), String(message.parentRelPath ?? ''), String(message.kind ?? 'md'), sender);
+            break;
+        }
+        case 'folderViewRename': {
+            await platform.folderViewRename?.(String(message.id ?? ''), String(message.relPath ?? ''), String(message.newName ?? ''), sender);
+            break;
+        }
+        case 'folderViewStateSave': {
+            const exp = Array.isArray(message.expanded) ? message.expanded.map((v: unknown) => String(v)) : [];
+            await platform.folderViewStateSave?.(String(message.id ?? ''), exp, sender);
+            break;
+        }
+        case 'folderViewDelete': {
+            await platform.folderViewDelete?.(String(message.id ?? ''), String(message.relPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewMove': {
+            await platform.folderViewMove?.(String(message.id ?? ''), String(message.srcRelPath ?? ''), String(message.dstDirRelPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewRevealEntry': {
+            await platform.folderViewRevealEntry?.(String(message.id ?? ''), String(message.relPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewCopyEntryPath': {
+            await platform.folderViewCopyEntryPath?.(String(message.id ?? ''), String(message.relPath ?? ''), sender);
+            break;
+        }
+        // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
+        case 'folderViewMoveIn': {
+            await platform.folderViewMoveIn?.(String(message.id ?? ''), String(message.dstDirRelPath ?? ''), String(message.srcKind ?? ''), String(message.srcItemId ?? ''), sender);
+            break;
+        }
+        case 'folderViewMoveToTree': {
+            await platform.folderViewMoveToTree?.(String(message.id ?? ''), String(message.relPath ?? ''), message.parentId ?? null, Number(message.index ?? 0), sender);
+            break;
+        }
+        case 'folderViewMoveIntoMd': {
+            await platform.folderViewMoveIntoMd?.(String(message.id ?? ''), String(message.relPath ?? ''), String(message.targetMdPath ?? ''), sender);
+            break;
+        }
+        case 'folderViewMoveFromMd': {
+            await platform.folderViewMoveFromMd?.(String(message.id ?? ''), String(message.dstDirRelPath ?? ''), {
+                href: String(message.href ?? ''),
+                sourceMdPath: String(message.sourceMdPath ?? ''),
+                isSubpage: !!message.isSubpage,
+            }, sender);
             break;
         }
 
@@ -2868,6 +3080,917 @@ export function treeFileRegisterFromMdLink(
     }
 }
 
+// ── FR-FLV: 面間 D&D host 端のロジック本体（bridge 台帳 #13-16 — ADRL-0073 rev 2） ──
+
+/** FR-FLV: 面間移動（複製成功 → 元 trash = INV-5）の VS Code 依存注入。 */
+export interface FolderMoveDeps {
+    showErrorMessage(message: string): void;
+    t(key: string): string | undefined;
+    /** trash 削除（workspace.fs.delete {useTrash:true} — 恒久削除 API 不使用） */
+    trashDelete(absPath: string, recursive: boolean): Promise<void>;
+    /** 画像 insert 用の表示 URI（asWebviewUri） */
+    toDisplayUri(absPath: string): string;
+}
+
+const FOLDER_VIEW_IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp)$/i;
+
+/** 複製（uniquify 込み）。成功で dst 絶対パス / 失敗で null（元は無傷）。 */
+function copyEntityWithUniquify(srcAbs: string, dstDirAbs: string, preferredName: string): string | null {
+    try {
+        const uniqueName = generateUniqueFileNamePreserving(dstDirAbs, preferredName);
+        const dstAbs = path.join(dstDirAbs, uniqueName);
+        fs.copyFileSync(srcAbs, dstAbs);
+        if (!fs.existsSync(dstAbs)) { return null; }
+        return dstAbs;
+    } catch {
+        return null;
+    }
+}
+
+/** 元実体を trash（best-effort — 失敗しても複製済みなのでデータ損失なし。ログのみ）。 */
+/** relPath（'' = root）の親 dir 相対を返す（notes-folder-view.js の parentRelOf と同義の host 版） */
+function parentRelOf(relPath: string): string {
+    return relPath.indexOf('/') >= 0 ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+}
+
+/** folder view fs 操作の失敗通知（例外は message のみ整形して埋め込む — 生 `${e}` を出さない） */
+function notifyOperationFailed(
+    deps: { showErrorMessage: (m: string) => void; t: (k: string) => string | undefined },
+    e: unknown
+): void {
+    const detail = e instanceof Error ? e.message : String(e);
+    deps.showErrorMessage(deps.t('folderViewOperationFailed') || `Operation failed: ${detail}`);
+}
+
+async function trashSourceBestEffort(deps: FolderMoveDeps, absPath: string): Promise<void> {
+    try {
+        await deps.trashDelete(absPath, false);
+    } catch (e) {
+        // 再オープン① W2（ユーザー裁定 2026-08-18）: silent 握り禁止 — 「コピーは作成済み・元の削除に失敗」を
+        // 可視化して元は残す（完全削除フォールバックはしない）。クラウドドライブ・権限等で trash が throw する実測
+        console.error('[Notes] folder view move: source trash failed (copy already done, no data loss):', e);
+        try {
+            deps.showErrorMessage(
+                (deps.t('folderViewTrashFailed') || 'Moved copy created, but failed to move the original to Trash: ')
+                + path.basename(absPath)
+            );
+        } catch { /* 通知自体の失敗は握る（本体は既に完了） */ }
+    }
+}
+
+/**
+ * FR-FLV-20 (#14): フォルダビュー → Note ツリー移動。
+ * .md = registerMarkdownFile / 他 = registerTreeFile（sanitize+uniquify 合流）→ 登録成功後に元実体 trash。
+ */
+export async function folderViewMoveToTree(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    parentId: string | null,
+    index: number,
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const srcAbs = safeResolveUnderFolderRoot(root, relPath);
+    if (!srcAbs || !fs.existsSync(srcAbs)) { return false; }
+    if (fs.statSync(srcAbs).isDirectory()) {
+        deps.showErrorMessage(deps.t('folderViewNoFolderDrop') || 'Folders cannot be dropped here.');
+        return false;
+    }
+    const base = path.basename(srcAbs);
+    try {
+        if (/\.md$/i.test(base)) {
+            const content = fs.readFileSync(srcAbs, 'utf8');
+            const title = extractFirstH1(content) || base.replace(/\.md$/i, '');
+            fileManager.registerMarkdownFile(content, title, parentId, index);
+        } else {
+            const bytes = fs.readFileSync(srcAbs);
+            fileManager.registerTreeFile(base, base, parentId, index, bytes);
+        }
+    } catch (e) {
+        notifyOperationFailed(deps, e);
+        return false; // 登録失敗 → 元不変（INV-5）
+    }
+    await trashSourceBestEffort(deps, srcAbs); // 移動 = 複製成功 → 元 trash
+    sendFileListWithStructure(fileManager, sender);
+    const parentRel = parentRelOf(relPath);
+    sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
+    return true;
+}
+
+/**
+ * FR-FLV-21 (#13): Note ツリー item → フォルダビュー移動。
+ * note 実体を dst へ複製（uniquify）→ 成功後に台帳除去 + note 側実体 trash。失敗時は note 側不変。
+ */
+export async function folderViewMoveIn(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    dstDirRelPath: string,
+    srcKind: string,
+    srcItemId: string,
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    if (srcKind !== 'md' && srcKind !== 'file') {
+        // .out / folder item は受理しない（requirement D&D 表の × セル）
+        deps.showErrorMessage(deps.t('folderViewMoveInUnsupported') || 'Only markdown and file items can be moved here.');
+        return false;
+    }
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const dstDirAbs = safeResolveUnderFolderRoot(root, dstDirRelPath);
+    if (!dstDirAbs || !fs.existsSync(dstDirAbs) || !fs.statSync(dstDirAbs).isDirectory()) { return false; }
+    const item: any = fileManager.getStructure().items[srcItemId];
+    if (!item || item.type !== 'file') { return false; }
+
+    let srcAbs: string | null = null;
+    let preferredName = '';
+    if (srcKind === 'md') {
+        if (item.ext !== 'md') { return false; }
+        srcAbs = fileManager.getMdFilePath(srcItemId);
+        preferredName = `${NotesFileManager.sanitizeTreeFileName(String(item.title || srcItemId))}.md`;
+    } else {
+        if (item.ext !== 'file') { return false; }
+        srcAbs = fileManager.getTreeFilePath(srcItemId);
+        preferredName = item.filename || path.basename(String(srcAbs || 'file'));
+    }
+    if (!srcAbs || !fs.existsSync(srcAbs)) { return false; }
+
+    const dstAbs = copyEntityWithUniquify(srcAbs, dstDirAbs, preferredName);
+    if (!dstAbs) {
+        deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+        return false; // 複製失敗 → note 側不変（INV-5）
+    }
+    // 複製成功 → 台帳除去 + note 側実体 trash
+    if (srcKind === 'md') {
+        fileManager.unregisterMdFromStructureOnly(srcItemId);
+    } else {
+        fileManager.unregisterTreeFileFromStructureOnly(srcItemId);
+    }
+    await trashSourceBestEffort(deps, srcAbs);
+    sendFileListWithStructure(fileManager, sender);
+    sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+    return true;
+}
+
+/**
+ * FR-FLV-22 (#15): フォルダビュー → sidepanel md 移動 + リンク挿入。
+ * 種別分岐: md = 対象 md の dir へ + subpage リンク / 画像 = 保存先 images/ + 画像挿入 / 他 = files/ + 📎。
+ * 保存先解決は flat-layout の正典（note md = note 共有 / note 外 md = md の隣 — FR-SD-03 合流）。
+ * 順序 = 移動（複製成功 → 元 trash）→ リンク挿入指示（INV-3）。
+ */
+export async function folderViewMoveIntoMd(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    targetMdPath: string,
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const srcAbs = safeResolveUnderFolderRoot(root, relPath);
+    if (!srcAbs || !targetMdPath || !fs.existsSync(srcAbs) || !fs.statSync(srcAbs).isFile()) { return false; }
+    if (path.resolve(srcAbs) === path.resolve(targetMdPath)) { return false; } // 自分自身への drop = no-op
+    const base = path.basename(srcAbs);
+    const targetDir = path.dirname(targetMdPath);
+
+    if (/\.md$/i.test(base)) {
+        // md → 対象 md と同じフォルダへ移動 + subpage リンク。
+        // 再オープン① W4（FR-FLV-22 / folder-view.md §6-7）: note md 宛ては cross-note 取り込みの正典
+        // saveDroppedMdAsSubpage（linkMdSubpageToMd :2701-2706 と同一関数 — 隣接 uniquify 配置 +
+        // resolveSubpageTitle。liveness は subpage リンクの md-link closure が担保 = TC-FLV-59 ③）に字面合流
+        if (!isCrossNoteDrop(fileManager.getMainFolderPath(), targetMdPath)) {
+            let content = '';
+            try { content = fs.readFileSync(srcAbs, 'utf8'); } catch {
+                deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+                return false;
+            }
+            // reviewer iter3 QUAL-1: saveDroppedMdAsSubpage は fs 失敗（EACCES/ENOSPC）で throw する契約 —
+            // 同関数の他 3 分岐と同じ「失敗検知 → 通知 + false」パターンで囲む（unhandled rejection 禁止）
+            let r: { relPath: string; title: string; fileName: string };
+            try {
+                r = saveDroppedMdAsSubpage(targetMdPath, content, base);
+            } catch (e) {
+                notifyOperationFailed(deps, e);
+                return false; // 配置失敗 → 元実体・md 本文とも不変（INV-3/INV-5）
+            }
+            await trashSourceBestEffort(deps, srcAbs);
+            sender.postMessage({ type: 'insertSubpageLink', markdownPath: r.relPath, title: r.title, sidePanelFilePath: targetMdPath });
+        } else {
+            // linked-folder md 宛て（folderRoot 内で完結）: 従来どおり（同一 dir なら移動なし・相対リンク）
+            let dstAbs = srcAbs;
+            const sameDir = path.resolve(path.dirname(srcAbs)) === path.resolve(targetDir);
+            if (!sameDir) {
+                const copied = copyEntityWithUniquify(srcAbs, targetDir, base);
+                if (!copied) {
+                    deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+                    return false;
+                }
+                dstAbs = copied;
+                await trashSourceBestEffort(deps, srcAbs);
+            }
+            let title = '';
+            try { title = extractFirstH1(fs.readFileSync(dstAbs, 'utf8')) || ''; } catch { /* fallback */ }
+            if (!title) { title = path.basename(dstAbs).replace(/\.md$/i, ''); }
+            const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
+            sender.postMessage({ type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath: targetMdPath });
+        }
+    } else if (FOLDER_VIEW_IMAGE_EXT.test(base)) {
+        // 画像 → 対象 md の保存先 images/（正典 resolver — note md = 共有 / 外 md = 隣）
+        const imagesDir = resolveImagesDirForMd(targetMdPath);
+        try { fs.mkdirSync(imagesDir, { recursive: true }); } catch { /* ignore */ }
+        const dstAbs = copyEntityWithUniquify(srcAbs, imagesDir, base);
+        if (!dstAbs) {
+            deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+            return false;
+        }
+        await trashSourceBestEffort(deps, srcAbs);
+        const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
+        sender.postMessage({
+            type: 'insertImageHtml',
+            markdownPath,
+            displayUri: deps.toDisplayUri(dstAbs),
+            sidePanelFilePath: targetMdPath,
+        });
+    } else {
+        // その他 → 保存先 files/ + 📎 リンク
+        const filesDir = resolveFilesDirForMd(targetMdPath);
+        try { fs.mkdirSync(filesDir, { recursive: true }); } catch { /* ignore */ }
+        const dstAbs = copyEntityWithUniquify(srcAbs, filesDir, base);
+        if (!dstAbs) {
+            deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+            return false;
+        }
+        await trashSourceBestEffort(deps, srcAbs);
+        const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
+        sender.postMessage({
+            type: 'insertFileLink',
+            markdownPath,
+            fileName: path.basename(dstAbs),
+            sidePanelFilePath: targetMdPath,
+        });
+    }
+    const parentRel = parentRelOf(relPath);
+    sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
+    return true;
+}
+
+/**
+ * FR-FLV-24 (#16): sidepanel md の 📎/subpage アンカー → フォルダビュー移動 + リンク除去。
+ * 実体解決は source md 基準（treeFileRegisterFromMdLink 同型の containment）。
+ * 複製成功 → removeMdAnchorFromFile（fs 正典）+ webview エコー → 元実体 trash。
+ */
+export async function folderViewMoveFromMd(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    dstDirRelPath: string,
+    payload: { href: string; sourceMdPath: string; isSubpage?: boolean },
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    if (!payload || !payload.href || !payload.sourceMdPath) { return false; }
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const dstDirAbs = safeResolveUnderFolderRoot(root, dstDirRelPath);
+    if (!dstDirAbs || !fs.existsSync(dstDirAbs) || !fs.statSync(dstDirAbs).isDirectory()) { return false; }
+    // href → 実体解決。href はレンダラ無検証の非信頼入力（📎 ラベルだけで data-is-file-attachment が
+    // 付く）ため、containment は precedent と字面 1:1 で揃える（reviewer iter1 SEC-1 / TC-FLV-51）:
+    //   📎 filelink = resolveFilesDirForMd(sourceMd) 配下のみ（attachMdFileLinkToMd :2643-2648 同型 —
+    //   treeFileRegisterFromMdLink も同パターン）
+    //   subpage    = note 配下 clamp + .md 拡張子必須（linkMdSubpageToMd :2692-2695 同型）
+    // dirname(md) 全体を base にすると files/ 外の任意兄弟が [📎 x](secret.txt) で exfiltrate+trash 可能
+    let decoded: string;
+    try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+    const resolvedFromMd = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+    let srcAbs: string | null = null;
+    if (payload.isSubpage) {
+        const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+        const abs = safeResolveUnderDir(srcMainFolder, path.relative(srcMainFolder, resolvedFromMd));
+        srcAbs = abs && abs.endsWith('.md') ? abs : null; // case-sensitive（linkMdSubpageToMd :2695 と字面 1:1）
+    } else {
+        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+        const rel = path.relative(filesDir, resolvedFromMd);
+        srcAbs = (!rel || rel.startsWith('..') || path.isAbsolute(rel)) ? null : resolvedFromMd;
+    }
+    if (!srcAbs || !fs.existsSync(srcAbs) || !fs.statSync(srcAbs).isFile()) {
+        // 再オープン① W6（FR-FLV-24 / folder-view.md §6-8）: silent return 廃止 — 実体不在 /
+        // containment 棄却 / 拡張子棄却は通知する（silent は self drop のみ）
+        deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Cannot move: link target not found or not allowed.');
+        return false;
+    }
+    if (path.resolve(path.dirname(srcAbs)) === path.resolve(dstDirAbs)) { return false; } // 実体の現在地への drop = no-op（唯一の silent）
+
+    const dstAbs = copyEntityWithUniquify(srcAbs, dstDirAbs, path.basename(srcAbs));
+    if (!dstAbs) {
+        deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
+        return false; // 複製失敗 → md 本文・元実体とも不変（INV-3/INV-5）
+    }
+    // fs 正典でリンク除去 + 表示同期エコー（エコーだけで済ませない — generator_failures 2026-08-14）
+    removeMdAnchorFromFile(payload.sourceMdPath, payload.href);
+    sender.postMessage({
+        type: payload.isSubpage ? 'removeSubpageLink' : 'removeFileLink',
+        href: payload.href,
+        sourceMdPath: payload.sourceMdPath,
+    });
+    await trashSourceBestEffort(deps, srcAbs);
+    sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+    return true;
+}
+
+// ── FR-FLV: folder link CRUD のロジック本体（bridge 台帳 #1-5。provider は deps を注入して呼ぶ） ──
+
+/** FR-FLV: notesFileListChanged を strip 済み payload（getStructureForWebview）で送る共通ヘルパ。 */
+function broadcastFolderLinkChange(fileManager: NotesFileManager, sender: NotesSender): void {
+    sender.postMessage({
+        type: 'notesFileListChanged',
+        fileList: fileManager.listFiles(),
+        structure: fileManager.getStructureForWebview(),
+    });
+}
+
+/** FR-FLV: guard reject 理由 → ユーザー通知（duplicate は info・他は error）。 */
+function notifyGuardReject(
+    deps: FolderLinkDeps,
+    reason: 'invalid' | 'self' | 'ancestor' | 'descendant' | 'duplicate' | undefined
+): void {
+    if (reason === 'duplicate') {
+        deps.showInformationMessage(deps.t('folderLinkDuplicate') || 'This folder is already linked.');
+        return;
+    }
+    if (reason === 'self' || reason === 'ancestor' || reason === 'descendant') {
+        deps.showErrorMessage(deps.t('folderLinkSelfReference')
+            || 'Cannot link the note folder itself, its parent, or a folder inside it.');
+        return;
+    }
+    deps.showErrorMessage(deps.t('folderLinkInvalid') || 'The selected folder cannot be linked.');
+}
+
+/**
+ * FR-FLV-01 (#1): フォルダ選択ダイアログ → 自己参照/重複ガード（ADRL-0072）→ 登録 → broadcast。
+ * @returns 登録した item id / null（キャンセル・ガード reject）
+ */
+export async function folderLinkAdd(
+    fileManager: NotesFileManager,
+    deps: FolderLinkDeps,
+    sender: NotesSender,
+    parentId?: string | null
+): Promise<string | null> {
+    const uris = await deps.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: deps.t('folderLinkAddLabel') || 'Link Folder',
+    });
+    if (!uris || !uris[0]) { return null; } // キャンセル = 副作用ゼロ
+    const selected = uris[0].fsPath;
+    const guard = fileManager.guardFolderSelection(selected);
+    if (!guard.ok) {
+        notifyGuardReject(deps, guard.reason);
+        return null;
+    }
+    const id = fileManager.registerFolderLink(selected, parentId);
+    broadcastFolderLinkChange(fileManager, sender);
+    return id;
+}
+
+/**
+ * FR-FTM-01 (sprint 20260818-183407): +file ボタン（showOpenDialog 確定）で選択したファイル群を
+ * tree に登録する。振り分けは registerExternalDroppedUris と同一（.md = md item / 他 = file item）。
+ * host fs 直読みのため 50MB cap なし（FR-TF-17 と同一裁定）。空配列（キャンセル）= 副作用ゼロ。
+ */
+export function addTreeFilesFromPaths(
+    fileManager: NotesFileManager,
+    fsPaths: string[],
+    sender: NotesSender
+): void {
+    if (!Array.isArray(fsPaths) || fsPaths.length === 0) { return; }
+    let registered = 0;
+    for (const fsPath of fsPaths) {
+        try {
+            if (!fs.existsSync(fsPath) || !fs.statSync(fsPath).isFile()) { continue; }
+            const name = path.basename(fsPath);
+            if (/\.md$/i.test(name)) {
+                const content = fs.readFileSync(fsPath, 'utf8');
+                const title = resolveSubpageTitle(content, name);
+                fileManager.registerMarkdownFile(content, title, null, registered);
+                registered++;
+            } else {
+                const buf = fs.readFileSync(fsPath);
+                fileManager.registerTreeFile(name, name, null, registered, buf);
+                registered++;
+            }
+        } catch (e) {
+            console.error('[Notes] addTreeFilesFromPaths skip:', fsPath, e);
+        }
+    }
+    if (registered > 0) {
+        sendFileListWithStructure(fileManager, sender);
+    }
+}
+
+/**
+ * FR-FLV-04 (#2): リンク先の再指定。成功時は folderPath 更新 + broadcast + showFolderView 指示
+ * （payload は id/title のみ — 絶対パス不含）。
+ */
+export async function folderLinkRelink(
+    fileManager: NotesFileManager,
+    itemId: string,
+    deps: FolderLinkDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const item = fileManager.getStructure().items[itemId];
+    if (!item || item.type !== 'file' || item.ext !== 'folder') { return false; }
+    const defaultUri = item.folderPath ? deps.uriFile(path.dirname(item.folderPath)) : undefined;
+    const uris = await deps.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        defaultUri,
+        openLabel: deps.t('folderLinkRelinkLabel') || 'Re-link Folder',
+    });
+    if (!uris || !uris[0]) { return false; }
+    const selected = uris[0].fsPath;
+    const guard = fileManager.guardFolderSelection(selected, itemId);
+    if (!guard.ok) {
+        notifyGuardReject(deps, guard.reason);
+        return false;
+    }
+    fileManager.setFolderLinkPath(itemId, selected);
+    broadcastFolderLinkChange(fileManager, sender);
+    sender.postMessage({ type: 'showFolderView', folderLinkId: itemId, title: item.title });
+    return true;
+}
+
+/** FR-FLV-06 (#3): Remove Link — 台帳のみ除去（fs 一切非接触 — TC-FLV-49 counterfactual）。 */
+export function folderLinkRemove(
+    fileManager: NotesFileManager,
+    itemId: string,
+    sender: NotesSender
+): boolean {
+    const removed = fileManager.removeFolderLink(itemId);
+    if (removed) { broadcastFolderLinkChange(fileManager, sender); }
+    return removed;
+}
+
+/** FR-FLV-06 (#4): Rename — title のみ変更（folderPath・実フォルダ名は不変）。 */
+export async function folderLinkRename(
+    fileManager: NotesFileManager,
+    itemId: string,
+    deps: FolderLinkDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const item = fileManager.getStructure().items[itemId];
+    if (!item || item.type !== 'file' || item.ext !== 'folder') { return false; }
+    const next = await deps.showInputBox({
+        value: item.title,
+        prompt: deps.t('folderLinkRenamePrompt') || 'Rename folder link (display name only)',
+    });
+    if (next === undefined || next === null || String(next).trim() === '') { return false; }
+    fileManager.setFolderLinkTitle(itemId, String(next).trim());
+    broadcastFolderLinkChange(fileManager, sender);
+    return true;
+}
+
+/** FR-FLV-06 (#5a): Reveal in Finder — リンク先実フォルダ。broken はエラー通知。 */
+export function folderLinkReveal(
+    fileManager: NotesFileManager,
+    itemId: string,
+    deps: FolderLinkDeps
+): void {
+    const root = fileManager.resolveFolderRoot(itemId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return;
+    }
+    deps.executeCommand('revealFileInOS', deps.uriFile(root));
+}
+
+/** FR-FLV-06 (#5b): Copy Path — folderPath を OS clipboard へ（webview へは返さない = INV-4）。 */
+export function folderLinkCopyPath(
+    fileManager: NotesFileManager,
+    itemId: string,
+    deps: FolderLinkDeps
+): void {
+    const item = fileManager.getStructure().items[itemId];
+    if (!item || item.type !== 'file' || item.ext !== 'folder' || !item.folderPath) { return; }
+    deps.clipboardWriteText(item.folderPath);
+}
+
+// ── FR-FLV: folder view fs 操作のロジック本体（bridge 台帳 #6-12） ──
+
+/**
+ * FR-FLV: folder view fs 操作の VS Code 依存注入（unit テストは明示 recorder）。
+ */
+export interface FolderViewDeps {
+    showInputBox(options: any): Promise<string | undefined>;
+    showErrorMessage(message: string): void;
+    t(key: string): string | undefined;
+    /** trash 削除（workspace.fs.delete {useTrash:true, recursive} — 恒久削除 API は使わない） */
+    trashDelete(absPath: string, recursive: boolean): Promise<void>;
+    /** md → md sidepanel（SidePanelManager.openFile） */
+    openMdInSidePanel(absPath: string): void | Promise<void>;
+    /** pdf/html → viewer sidepanel（tryOpenViewerPanel） */
+    openViewerPanel(absPath: string): void | Promise<void>;
+    /** その他 → OS 既定アプリ */
+    openExternal(absPath: string): void | Promise<void>;
+    /** folderRoot を webview localResourceRoots へ union（ensureResourceRootForFile precedent） */
+    ensureResourceRoot(rootAbs: string): void;
+    /** fs.rename の注入 seam（unit で EXDEV 等を再現するため。provider は fs.renameSync を渡す） */
+    renameFs(absSrc: string, absDst: string): void;
+    /** FR-FLV-15 (#17): エントリを OS ファイラで表示（revealFileInOS） */
+    revealInOS(absPath: string): void;
+    /** FR-FLV-15 (#18): エントリ絶対パスを OS clipboard へ（webview に返さない） */
+    clipboardWriteText(text: string): void;
+}
+
+const FOLDER_VIEW_SEARCH_VISIT_CAP = 10000;
+const FOLDER_VIEW_SEARCH_HIT_CAP = 500;
+const FOLDER_VIEW_SEARCH_CHUNK = 500;
+
+interface FolderViewEntry { name: string; relPath: string; isDir: boolean; }
+
+/** relPath は webview 向けに常に '/' 区切り。 */
+function joinRel(parentRel: string, name: string): string {
+    return parentRel ? `${parentRel}/${name}` : name;
+}
+
+/**
+ * FR-FLV-11: 1 階層の readdir（lstat 意味論 = withFileTypes の dirent flags。symlink 非追従・隠し除外・
+ * フォルダ先行名前昇順）。folderRoot 配下 clamp 済みの絶対 dir を受ける内部ヘルパ。
+ */
+function readFolderEntriesAt(absDir: string, parentRel: string): FolderViewEntry[] {
+    const entries: FolderViewEntry[] = [];
+    const dirents = fs.readdirSync(absDir, { withFileTypes: true });
+    for (const d of dirents) {
+        const name = String(d.name);
+        if (name.startsWith('.')) { continue; }               // 隠しエントリ非表示（FR-FLV-11）
+        if (d.isSymbolicLink()) { continue; }                  // symlink 非追従（NFR-FLV-01）
+        if (!d.isDirectory() && !d.isFile()) { continue; }     // socket/fifo 等は対象外
+        entries.push({ name, relPath: joinRel(parentRel, name), isDir: d.isDirectory() });
+    }
+    entries.sort((a, b) => {
+        if (a.isDir !== b.isDir) { return a.isDir ? -1 : 1; }  // フォルダ先行
+        return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0);
+    });
+    return entries;
+}
+
+/** 操作後のリフレッシュ用: 対象 dir の list 結果を送る（clamp 失敗・読めない場合は送らない）。 */
+function sendFolderViewList(fileManager: NotesFileManager, folderLinkId: string, relPath: string, sender: NotesSender): void {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) { return; }
+    const absDir = safeResolveUnderFolderRoot(root, relPath);
+    if (!absDir) { return; }
+    let entries: FolderViewEntry[] = [];
+    try { entries = readFolderEntriesAt(absDir, relPath); } catch { return; }
+    sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries });
+}
+
+/** FR-FLV-11 (#6): 1 階層 list。broken/clamp 違反は error 付き応答（entries 空）。 */
+export async function folderViewList(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries: [], error: 'broken' });
+        return false;
+    }
+    const absDir = safeResolveUnderFolderRoot(root, relPath);
+    if (!absDir) {
+        sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries: [], error: 'clamp' });
+        return false;
+    }
+    let entries: FolderViewEntry[] = [];
+    try {
+        entries = readFolderEntriesAt(absDir, relPath);
+    } catch {
+        sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries: [], error: 'read' });
+        return false;
+    }
+    // FR-FLV-26 (#6 改訂): root の list に開閉状態を同梱（現状 fs 優先 — 実在する dir のみ。
+    // 消滅分は sidecar からも prune 保存 = 「読み込んだときの食い違いは現状優先・無ければ隠しファイルからも削除」）
+    if (relPath === '') {
+        const saved = readFolderViewExpanded(root);
+        const alive = saved.filter((rel) => {
+            const abs = safeResolveUnderFolderRoot(root, rel);
+            try { return !!abs && fs.existsSync(abs) && fs.statSync(abs).isDirectory(); } catch { return false; }
+        });
+        if (alive.length !== saved.length) { saveFolderViewExpanded(root, alive); }
+        sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries, savedExpanded: alive });
+        return true;
+    }
+    sender.postMessage({ type: 'folderViewListResult', folderLinkId, relPath, entries });
+    return true;
+}
+
+/**
+ * FR-FLV-12 (#7): 名前部分一致検索（case-insensitive）。非同期チャンク走査 +
+ * 上限（累計 10,000 走査 or 500 ヒットで truncated 打ち切り — NFR-FLV-02）。
+ */
+export async function folderViewSearch(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    query: string,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        sender.postMessage({ type: 'folderViewSearchResult', folderLinkId, query, hits: [], truncated: false, error: 'broken' });
+        return false;
+    }
+    const q = String(query || '').toLowerCase();
+    const hits: FolderViewEntry[] = [];
+    let visited = 0;
+    let truncated = false;
+    // BFS（root から）。symlink 非追従・隠し除外は readFolderEntriesAt と同一規律。
+    const queue: string[] = [''];
+    outer: while (queue.length > 0) {
+        const rel = queue.shift() as string;
+        const absDir = safeResolveUnderFolderRoot(root, rel);
+        if (!absDir) { continue; }
+        let dirents: fs.Dirent[];
+        try { dirents = fs.readdirSync(absDir, { withFileTypes: true }); } catch { continue; }
+        for (const d of dirents) {
+            const name = String(d.name);
+            if (name.startsWith('.') || d.isSymbolicLink()) { continue; }
+            if (!d.isDirectory() && !d.isFile()) { continue; }
+            visited++;
+            if (q && name.toLowerCase().includes(q)) {
+                hits.push({ name, relPath: joinRel(rel, name), isDir: d.isDirectory() });
+                if (hits.length >= FOLDER_VIEW_SEARCH_HIT_CAP) { truncated = true; break outer; }
+            }
+            if (d.isDirectory()) { queue.push(joinRel(rel, name)); }
+            if (visited >= FOLDER_VIEW_SEARCH_VISIT_CAP) { truncated = true; break outer; }
+            if (visited % FOLDER_VIEW_SEARCH_CHUNK === 0) {
+                await new Promise<void>((resolve) => setImmediate(resolve)); // UI ブロック禁止（非同期チャンク）
+            }
+        }
+    }
+    sender.postMessage({ type: 'folderViewSearchResult', folderLinkId, query, hits, truncated });
+    return true;
+}
+
+/** FR-FLV-14/23 (#8): open 分岐 — md=sidepanel / viewer 対象=viewer sidepanel / 他=外部起動。 */
+export async function folderViewOpen(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    deps: FolderViewDeps
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const abs = safeResolveUnderFolderRoot(root, relPath);
+    if (!abs || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+        deps.showErrorMessage(deps.t('folderViewOpenFailed') || 'Cannot open the selected file.');
+        return false;
+    }
+    deps.ensureResourceRoot(root); // note 外パスの webview 到達（ensureResourceRootForFile precedent）
+    const base = path.basename(abs);
+    if (/\.md$/i.test(base)) {
+        await deps.openMdInSidePanel(abs);
+    } else if (isViewerTarget(base)) {
+        await deps.openViewerPanel(abs);
+    } else {
+        await deps.openExternal(abs);
+    }
+    return true;
+}
+
+/** FR-FLV-15 (#9): New Markdown / New Folder（showInputBox → 同名エラー中断）。 */
+export async function folderViewCreate(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    parentRelPath: string,
+    kind: 'md' | 'folder',
+    deps: FolderViewDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const name = await deps.showInputBox({
+        prompt: kind === 'md'
+            ? (deps.t('folderViewNewMarkdownPrompt') || 'New Markdown file name')
+            : (deps.t('folderViewNewFolderPrompt') || 'New folder name'),
+    });
+    if (name === undefined || name === null || String(name).trim() === '') { return false; } // キャンセル = 副作用ゼロ
+    let entryName = String(name).trim();
+    if (kind === 'md' && !/\.md$/i.test(entryName)) { entryName += '.md'; }
+    const abs = safeResolveUnderFolderRoot(root, joinRel(parentRelPath, entryName));
+    if (!abs) {
+        deps.showErrorMessage(deps.t('folderViewInvalidName') || 'Invalid name.');
+        return false;
+    }
+    if (fs.existsSync(abs)) {
+        deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
+        return false;
+    }
+    try {
+        if (kind === 'md') {
+            // FR-FLV-15 再オープン①: 入力名を H1 として初期内容に書く（空ファイル禁止）。stem = .md strip 後
+            const stem = entryName.replace(/\.md$/i, '');
+            fs.writeFileSync(abs, `# ${stem}\n`);
+        } else {
+            fs.mkdirSync(abs);
+        }
+    } catch (e) {
+        notifyOperationFailed(deps, e);
+        return false;
+    }
+    sendFolderViewList(fileManager, folderLinkId, parentRelPath, sender);
+    return true;
+}
+
+/** FR-FLV-15/28 (#10): rename（同名エラー中断・元名維持）。newName は webview インライン編集で確定済み
+ *（FR-FLV-28 再オープン① — showInputBox 方式は廃止。空・不変は no-op）。 */
+export async function folderViewRename(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    newName: string,
+    deps: FolderViewDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const absSrc = safeResolveUnderFolderRoot(root, relPath);
+    if (!absSrc || !fs.existsSync(absSrc)) { return false; }
+    const next = newName;
+    if (next === undefined || next === null || String(next).trim() === '') { return false; }
+    if (String(next).trim() === path.basename(absSrc)) { return false; } // 不変 = no-op
+    const parentRel = parentRelOf(relPath);
+    const absDst = safeResolveUnderFolderRoot(root, joinRel(parentRel, String(next).trim()));
+    if (!absDst) {
+        deps.showErrorMessage(deps.t('folderViewInvalidName') || 'Invalid name.');
+        return false;
+    }
+    if (fs.existsSync(absDst)) {
+        deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
+        return false;
+    }
+    try {
+        deps.renameFs(absSrc, absDst);
+    } catch (e) {
+        notifyOperationFailed(deps, e);
+        return false;
+    }
+    sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
+    return true;
+}
+
+/** FR-FLV-26 (#19): 開閉状態の保存。相対パス検証のみ（絶対 / `..` 開始は除外）— fs 実在チェックは
+ * 復元側（folderViewList('') — 同梱前フィルタ + prune）の一元責務。書込失敗は sidecar util が silent skip。 */
+export async function folderViewStateSave(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    expanded: string[],
+    _deps: FolderViewDeps,
+    _sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) { return false; }
+    const cleaned = (Array.isArray(expanded) ? expanded : [])
+        .filter((v) => typeof v === 'string' && v.trim() !== '')
+        .map((v) => String(v))
+        .filter((v) => !path.isAbsolute(v) && !v.split(/[\\/]/).some((seg) => seg === '..'));
+    saveFolderViewExpanded(root, cleaned);
+    return true;
+}
+
+/** FR-FLV-15 (#11): delete = 常に trash（恒久削除 API 不使用 — TC-FLV-13 番人）。 */
+export async function folderViewDelete(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    deps: FolderViewDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const abs = safeResolveUnderFolderRoot(root, relPath);
+    if (!abs || abs === path.resolve(root)) { return false; } // ルート自身は削除不可
+    let isDir = false;
+    try { isDir = fs.lstatSync(abs).isDirectory(); } catch { return false; }
+    try {
+        await deps.trashDelete(abs, isDir);
+    } catch (e) {
+        notifyOperationFailed(deps, e);
+        return false;
+    }
+    const parentRel = parentRelOf(relPath);
+    sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
+    return true;
+}
+
+/** FR-FLV-15 (#17): エントリの Reveal in Finder（clamp 経由・folderRoot 外は不発）。 */
+export function folderViewRevealEntry(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    deps: FolderViewDeps
+): boolean {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) { return false; }
+    const abs = safeResolveUnderFolderRoot(root, relPath);
+    if (!abs || !fs.existsSync(abs)) { return false; }
+    deps.revealInOS(abs);
+    return true;
+}
+
+/** FR-FLV-15 (#18): エントリの Copy Path（host→OS clipboard 直 — webview 応答なし = INV-4）。 */
+export function folderViewCopyEntryPath(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    relPath: string,
+    deps: FolderViewDeps
+): boolean {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) { return false; }
+    const abs = safeResolveUnderFolderRoot(root, relPath);
+    if (!abs) { return false; }
+    deps.clipboardWriteText(abs);
+    return true;
+}
+
+/** FR-FLV-16 (#12): ビュー内移動（fs.rename・同名/自己子孫/EXDEV はエラー中断 — 面間と違い copy 方式にしない）。 */
+export async function folderViewMove(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    srcRelPath: string,
+    dstDirRelPath: string,
+    deps: FolderViewDeps,
+    sender: NotesSender
+): Promise<boolean> {
+    const root = fileManager.resolveFolderRoot(folderLinkId);
+    if (!root) {
+        deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+        return false;
+    }
+    const absSrc = safeResolveUnderFolderRoot(root, srcRelPath);
+    const absDstDir = safeResolveUnderFolderRoot(root, dstDirRelPath);
+    if (!absSrc || !absDstDir || !fs.existsSync(absSrc)) { return false; }
+    let dstIsDir = false;
+    try { dstIsDir = fs.statSync(absDstDir).isDirectory(); } catch { return false; }
+    if (!dstIsDir) { return false; }
+    // フォルダを自分自身/自分の子孫へ → no-op エラー
+    if (absDstDir === absSrc || absDstDir.startsWith(absSrc + path.sep)) {
+        deps.showErrorMessage(deps.t('folderViewMoveIntoSelf') || 'Cannot move a folder into itself.');
+        return false;
+    }
+    const absDst = path.join(absDstDir, path.basename(absSrc));
+    if (absDst === absSrc) { return false; } // 同一位置 no-op
+    if (fs.existsSync(absDst)) {
+        deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
+        return false;
+    }
+    try {
+        deps.renameFs(absSrc, absDst);
+    } catch (e: any) {
+        // EXDEV 含めエラー中断（copy+delete フォールバック禁止 — 受容事項 5）
+        if (e && e.code === 'EXDEV') {
+            deps.showErrorMessage(deps.t('folderViewMoveExdev') || 'Cannot move across devices.');
+        } else {
+            notifyOperationFailed(deps, e);
+        }
+        return false;
+    }
+    const srcParentRel = parentRelOf(srcRelPath);
+    sendFolderViewList(fileManager, folderLinkId, srcParentRel, sender);
+    if (dstDirRelPath !== srcParentRel) {
+        sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+    }
+    return true;
+}
+
 /**
  * FR-TF-01 (§4a): 外部 D&D の 1 ファイルを tree file item として登録する。
  * bytes は base64。50MB 超は decode 前に長さから推定して skip + notify（巨大 Buffer alloc を避ける）。
@@ -2935,4 +4058,93 @@ export function registerExternalDroppedUris(
     if (registered > 0) {
         sendFileListWithStructure(fileManager, sender);
     }
+}
+
+/**
+ * FR-FTM-03 (sprint 20260818-183407): tree item（out/md/file）の Duplicate。
+ * 実体複製は DuplicationCore（paste-asset-handler の duplicate*Entity — ADRL-0078・uniquify 正典）。
+ * 台帳は元 item の直後に新 item を挿入（title は uniquify サフィックス追従 — 名前の発明なし）。
+ * 複製後の 2 item は資産を一切共有しない（1:1 所有維持）。folder link / 実フォルダは対象外
+ * （メニュー非表示 — requirement の裁定）。
+ */
+export function duplicateTreeItemCore(
+    fileManager: NotesFileManager,
+    itemId: string,
+    sender: NotesSender
+): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const dup = require('./paste-asset-handler');
+    const structure = fileManager.getStructure();
+    const item = structure.items[itemId];
+    if (!item || item.type !== 'file') { return false; }
+    const mainFolder = fileManager.getMainFolderPath();
+
+    /** siblings 配列（root or 親 folder の childIds）の元 item 直後に newId を挿入 */
+    const insertAfterOriginal = (newId: string): void => {
+        let siblings = structure.rootIds;
+        for (const id of Object.keys(structure.items)) {
+            const it = structure.items[id];
+            if (it?.type === 'folder' && (it as { childIds?: string[] }).childIds?.includes(itemId)) {
+                siblings = (it as { childIds: string[] }).childIds;
+                break;
+            }
+        }
+        const idx = siblings.indexOf(itemId);
+        siblings.splice(idx >= 0 ? idx + 1 : siblings.length, 0, newId);
+    };
+    /** uniquify で付いたサフィックス（'-1' 等）を title に追従させる */
+    const titleWithSuffix = (oldStem: string, newStem: string, title: string): string => {
+        if (newStem.startsWith(oldStem)) { return (title || newStem) + newStem.slice(oldStem.length); }
+        return title || newStem;
+    };
+
+    try {
+        const ext = (item as { ext?: string }).ext;
+        if (ext === 'file') {
+            const filename = (item as { filename?: string }).filename;
+            if (!filename) { return false; }
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { resolveMdFilesDir } = require('./flat-layout');
+            const filesDir = resolveMdFilesDir(mainFolder);
+            const newName = dup.duplicateFileEntity(filesDir, filename);
+            const newId = NotesFileManager.generateOutlineId();
+            const oldStem = path.basename(filename, path.extname(filename));
+            const newStem = path.basename(newName, path.extname(newName));
+            structure.items[newId] = {
+                type: 'file', id: newId,
+                title: titleWithSuffix(oldStem, newStem, item.title),
+                ext: 'file', filename: newName,
+            } as typeof item;
+            insertAfterOriginal(newId);
+            fileManager.saveStructure();
+        } else if (ext === 'md') {
+            const mdPath = fileManager.getMdFilePath(itemId);
+            if (!fs.existsSync(mdPath)) { return false; }
+            const r = dup.duplicateMdEntity(mdPath, mainFolder);
+            // 新 item id = 新 stem（getMdFilePath(id) = <note>/<id>.md の対応を保つ）
+            structure.items[r.newStem] = {
+                type: 'file', id: r.newStem,
+                title: titleWithSuffix(itemId, r.newStem, item.title),
+                ext: 'md',
+            } as typeof item;
+            insertAfterOriginal(r.newStem);
+            fileManager.saveStructure();
+        } else {
+            // .out item（ext なし）
+            const outPath = path.join(mainFolder, `${itemId}.out`);
+            if (!fs.existsSync(outPath)) { return false; }
+            const r = dup.duplicateOutEntity(outPath, mainFolder);
+            structure.items[r.newOutId] = {
+                type: 'file', id: r.newOutId,
+                title: titleWithSuffix(itemId, r.newOutId, item.title),
+            } as typeof item;
+            insertAfterOriginal(r.newOutId);
+            fileManager.saveStructure();
+        }
+    } catch (e) {
+        console.error('[Notes] duplicateTreeItemCore failed:', itemId, e);
+        return false;
+    }
+    sendFileListWithStructure(fileManager, sender);
+    return true;
 }

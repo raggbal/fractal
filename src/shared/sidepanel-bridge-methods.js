@@ -148,6 +148,29 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'sendToChat', startLine: startLine, endLine: endLine, selectedMarkdown: selectedMarkdown, sidePanelFilePath: sidePanelFilePath });
         },
 
+        // FR-MDM-01 (sprint 20260818-183407): リンクの Copy Path。
+        // kind = 'normal'（URL そのままコピー）| 'md' | 'file'（host が md dir 基準で絶対化 + clamp）。
+        // sidePanelFilePath 無し（standalone main md）は host が document へ fallback。
+        copyLinkPath: function(href, kind, sidePanelFilePath) {
+            postFn({ type: 'copyLinkPath', href: href, kind: kind, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-03 (sprint 20260818-183407): 選択範囲/リンクの md を、md/subpage/file リンクだけ
+        // 絶対フルパス化して clipboard へ（通常 URL・画像・平文は不変。変換は host 単一施行点）。
+        copyMdWithFullPaths: function(markdown, sidePanelFilePath) {
+            postFn({ type: 'copyMdWithFullPaths', markdown: markdown, sidePanelFilePath: sidePanelFilePath });
+        },
+        // FR-MDM-02 (sprint 20260818-183407): subpage/file リンクの Duplicate（実体複製）。
+        // 結果 duplicateLinkEntityResult の宛先札は pasteWithAssetCopy と同型。
+        duplicateLinkEntity: function(href, kind, sidePanelFilePath) {
+            postFn({
+                type: 'duplicateLinkEntity',
+                href: href,
+                kind: kind,
+                sidePanelFilePath: sidePanelFilePath,
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
+            });
+        },
+
         // MD paste asset copy (v9)
         // outliner node リスト paste の添付複製 (sprint 20260727-124904 / ADRL-0001)。
         // nodes は検知用。真実 (ソース dir 込み) は host の OutlinerClipboardStore が
@@ -157,7 +180,11 @@ window.__createSidePanelBridgeMethods = function(postFn) {
                 type: 'pasteOutlinerNodesWithAssets',
                 plainText: plainText,
                 nodes: nodes,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-01 (sprint 20260818-183407): 結果 (pasteWithAssetCopyResult) の宛先札。
+                // 無しだと md ペイン無条件処理 + outliner→sidepanel 転送の両方が挿入する二重貼付
+                // (下の pasteWithAssetCopy と同型・host は echo back するだけ)。
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
         pasteWithAssetCopy: function(markdown, sourceContext, sidePanelFilePath) {
@@ -178,7 +205,9 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({
                 type: 'extractDataUrlsInPastedMd',
                 markdown: markdown,
-                sidePanelFilePath: sidePanelFilePath
+                sidePanelFilePath: sidePanelFilePath,
+                // FR-PDB-02 (sprint 20260818-183407): 結果の宛先札（pasteOutlinerNodesWithAssets と同型）
+                destination: sidePanelFilePath ? 'sidepanel' : 'main-md'
             });
         },
 

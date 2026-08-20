@@ -102,6 +102,11 @@ export function getNotesWebviewContent(
     const inAppLinkUtilsScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'inapp-link-utils.js'), 'utf8');
 
+    // FR-MLG-02 (sprint 20260818-183407): wholeWord 検索の多言語境界（window.WholeWord）。
+    // notes-file-panel.js が消費するため、それより前に注入する（inapp-link-utils と同方式）。
+    const wholeWordScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'whole-word.js'), 'utf8');
+
     // Load shared markdown link parser (used by outliner.js and editor.js)
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
@@ -134,6 +139,16 @@ export function getNotesWebviewContent(
     // sprint 20260723-233506: webview 内マルチタブ Tab Manager
     const notesTabManagerScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'notes-tab-manager.js'), 'utf8');
+    // FR-FLV（sprint 20260817-053313）: フォルダビュー（folder link の第 4 面）。
+    // 本番 inline はここ + 埋め込みリストの両方に要登録（ハーネス build-standalone-notes.js と対 —
+    // 片方だけだと実機 silent no-op: generator_failures 2026-08-17 / TC-FLV-50 が番人）
+    const folderViewDispatcherScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'folder-view-dispatcher.js'), 'utf8');
+    const notesFolderViewScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-folder-view.js'), 'utf8');
+    // FR-FLV-29（再オープン①）: sidepanel md の 🔗 バッジ（outliner.js 非変更の独立モジュール）
+    const notesFolderSidepanelBadgeScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'notes-folder-sidepanel-badge.js'), 'utf8');
 
     // Load outliner scripts
     const outlinerCellScript = fs.readFileSync(
@@ -320,6 +335,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${inlineColorScript}</script>
     <script nonce="${nonce}">${inlineColorPickerScript}</script>
     <script nonce="${nonce}">${inAppLinkUtilsScript}</script>
+    <script nonce="${nonce}">${wholeWordScript}</script>
     <script nonce="${nonce}">${pdfExportScript}</script>
     <script nonce="${nonce}">${sidePanelOverflowScript}</script>
     <script nonce="${nonce}">${shortcutListScript}</script>
@@ -345,6 +361,9 @@ export function getNotesWebviewContent(
         standardFontDataUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/standard_fonts/'
     };${fileViewerScript}</script>
     <script nonce="${nonce}">${viewerDispatcherScript}</script>
+    <script nonce="${nonce}">${folderViewDispatcherScript}</script>
+    <script nonce="${nonce}">${notesFolderViewScript}</script>
+    <script nonce="${nonce}">${notesFolderSidepanelBadgeScript}</script>
     <script nonce="${nonce}">${viewerSidePanelScript}</script>
     <script nonce="${nonce}">${notesHistoryPanelScript}</script>
     <script nonce="${nonce}">${notesTabManagerScript}</script>
