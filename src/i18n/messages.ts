@@ -130,6 +130,7 @@ export interface WebviewMessages {
   folderViewOpenFailed: string;
   folderViewSearchPlaceholder: string;
   folderViewRefresh: string;
+  notesShowHiddenFiles: string;
   folderViewTruncated: string;
   folderViewNoMatch: string;
   folderViewEmpty: string;

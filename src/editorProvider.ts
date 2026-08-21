@@ -12,7 +12,7 @@ import {
     extractForceRelativeFilePath,
     removeAllDirectives
 } from './shared/markdown-directives';
-import { copyMdPasteAssets, resolvePasteWithAssetCopyDest } from './shared/paste-asset-handler';
+import { copyMdPasteAssets, resolvePasteWithAssetCopyDest, generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import {
     resolveSaveDirFromSidecar,
@@ -126,33 +126,6 @@ export function generateUniqueFileName(dir: string, extension: string): string {
         const newName = `${timestamp}-${counterStr}.${extension}`;
         const newPath = path.join(dir, newName);
         if (!fs.existsSync(newPath)) {
-            return newName;
-        }
-        counter++;
-    }
-}
-
-/**
- * Generate unique file name preserving the original name.
- * On collision: report.pdf → report-1.pdf → report-2.pdf
- * sprint 20260801-200307 (FR-DDX-02, TASK-04): basename 化 + 厳密名 `.`/`..` ガード。
- * global な `..` replace は正当な連続ドット名（archive..tar.gz）を破壊するため使わない
- * （path.basename がディレクトリ成分を除去済み。危険は厳密名 `.`/`..` のみ）。
- * 同じ防御が shared 版（paste-asset-handler.ts の export 版 = Notes md 面が使用）にもある。
- */
-function generateUniqueFileNamePreserving(dir: string, originalName: string): string {
-    originalName = path.basename(String(originalName || 'file'));
-    if (!originalName || originalName === '.' || originalName === '..') originalName = 'file';
-    const destPath = path.join(dir, originalName);
-    if (!fs.existsSync(destPath)) {
-        return originalName;
-    }
-    const ext = path.extname(originalName);
-    const base = path.basename(originalName, ext);
-    let counter = 1;
-    while (true) {
-        const newName = `${base}-${counter}${ext}`;
-        if (!fs.existsSync(path.join(dir, newName))) {
             return newName;
         }
         counter++;
@@ -1163,7 +1136,6 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     await this.handleReadAndInsertDrawio(drawDocUri, drawDocContent, webviewPanel.webview, message.filePath, sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined);
                     break;
                 }
-
 
                 case 'requestCreateDrawio': {
                     // MD-47: Cmd+/ → Insert Drawio Diagram → InputBox → fileDir/<name>.drawio.svg 生成 + 挿入

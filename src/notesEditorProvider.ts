@@ -10,8 +10,8 @@ import {
     attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
     FolderLinkDeps, folderLinkAdd, folderLinkRelink, folderLinkRemove, folderLinkRename,
     folderLinkReveal, folderLinkCopyPath,
-    FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewCreate,
-    folderViewRename, folderViewDelete, folderViewMove, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
+    FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewToggleHidden, folderViewCreate,
+    folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
     FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
@@ -29,8 +29,10 @@ import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHa
 import { DropStreamHost } from './shared/drop-stream-host';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
 import { safeResolveUnderDir } from './shared/path-safety';
+import { removeMdAnchorAndEcho } from './shared/md-anchor-remove';
+import { transferMdWithAssets, noteCoords, mdCoords, makeTransferCoords, copyMdPasteAssets, generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
+import { createFolderViewAutoReload } from './shared/folder-view-autoreload';
 import { runNotesCleanup } from './notesCleanupCommand';
-import { copyMdPasteAssets } from './shared/paste-asset-handler';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
 // FR-PDF-08 / TASK-11: md → PDF export の VS Code 依存 deps 生成は outlinerProvider に集約済み。
 // editorProvider が既に同 import を使う先例に倣う（outlinerProvider は notes/editor を import し返さないため新規循環なし）。
@@ -48,7 +50,6 @@ import {
     ensureDirectoryExists,
     generateUniqueFileName,
 } from './editorProvider';
-import { generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8, resolveSubpageTitle } from './shared/md-subpage-utils';
 
 /**
@@ -553,6 +554,13 @@ export class NotesEditorProvider {
             },
         };
 
+        // FR-FLV-33（ADRL-FVR-1）: fv 自動リロード — fs.watch(recursive)。
+        // VS Code FSW は workspace 外パスに fire しない（MD-48）ため使わない。縮退 = 契機リフレッシュ
+        const fvAutoReload = createFolderViewAutoReload({
+            fsNs: fs,
+            listDir: (id: string, rel: string) => { void folderViewList(fileManager, id, rel, sender); },
+        });
+
         // Notes-mode drop-import handler factory (DRY: dropFilesImport + dropVscodeUrisImport 共通骨格)
         // Close over fileManager / folderPath / panel / senderRef so the two dispatchers are one-liners
         const makeNotesDropHandler = <P>(
@@ -641,6 +649,10 @@ export class NotesEditorProvider {
             t: (key) => t(key as any),
             trashDelete: async (absPath, recursive) => {
                 await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: true, recursive });
+            },
+            // FR-FLV-34: 移動系の trash 失敗フォールバック専用（trashSourceBestEffort のみが使う）
+            deleteFile: async (absPath, recursive) => {
+                await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: false, recursive });
             },
             toDisplayUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
         };
@@ -1465,46 +1477,11 @@ export class NotesEditorProvider {
             // FR-B09 (TASK-08): ファイルツリー md → md editor D&D。ファイルは note 内に既存
             //（1:1 所有はツリー item が保持）なのでコピーせず、既存 md への subpage リンクのみ挿入
             linkMdAsSubpageForNotesMd: (filePath: string, mdFileId?: string | null) => {
-                const cur = fileManager.getCurrentFilePath();
-                if (!cur || !cur.endsWith('.md')) return;
-                if (!fs.existsSync(filePath)) return;
-                if (path.resolve(filePath) === path.resolve(cur)) return; // 自分自身へのリンクは無意味
-                try {
-                    const content = fs.readFileSync(filePath, 'utf8');
-                    // TASK-16 (US-09 cross-note): main pane は Recent 履歴経由で別 note / note 外の
-                    // md を開きうる。cur が this-note（mainFolder）外なら、リンク + ツリー除去でなく
-                    // **cur の隣へ複製**する（相手側に実体を渡す。this-note のツリーは触らない = 所有不変）
-                    const mainFolder = fileManager.getMainFolderPath();
-                    const curInThisNote = !path.relative(mainFolder, path.resolve(cur)).startsWith('..');
-                    if (!curInThisNote) {
-                        const r = saveDroppedMdAsSubpage(cur, content, path.basename(filePath));
-                        panel.webview.postMessage({
-                            type: 'insertSubpageLink',
-                            markdownPath: r.relPath,
-                            title: r.title,
-                        });
-                        return;
-                    }
-                    const relPath = path.relative(path.dirname(cur), filePath).replace(/\\/g, '/');
-                    panel.webview.postMessage({
-                        type: 'insertSubpageLink',
-                        markdownPath: relPath,
-                        title: resolveSubpageTitle(content, path.basename(filePath)),
-                    });
-                    // US-09: subpage 化したらツリーから md エントリを除去（ファイル実体・ファイル名は不変。
-                    // notesImportMdIntoOut の「画面のエントリは消す・物理は消さない」と同じ方針）
-                    if (mdFileId) {
-                        fileManager.unregisterMdFromStructureOnly(mdFileId);
-                        panel.webview.postMessage({
-                            type: 'notesFileListChanged',
-                            fileList: fileManager.listFiles(),
-                            structure: fileManager.getStructureForWebview(),
-                            currentFile: fileManager.getCurrentFilePath(),
-                        });
-                    }
-                } catch (e) {
-                    console.error('[Notes] linkMdAsSubpageForNotesMd error:', e);
-                }
+                linkMdAsSubpageForNotesMdCore(
+                    fileManager,
+                    { postMessage: (m: unknown) => panel.webview.postMessage(m) } as NotesSender,
+                    filePath, mdFileId ?? null
+                );
             },
             // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md への D&D。
             // sidepanel は別 note の md を開きうる（page link 遷移・Recent）ので同一 note 判定が必須:
@@ -2461,12 +2438,23 @@ export class NotesEditorProvider {
             // ── FR-FLV: folder view fs 操作（bridge 台帳 #6-12。VS Code 依存は folderViewDeps 注入） ──
             folderViewList: async (id: string, relPath: string, senderRef: NotesSender) => {
                 await folderViewList(fileManager, id, relPath, senderRef);
+                // fv 表示（root list）を監視開始の契機にする（FR-FLV-33。root 解決失敗 = broken は張らない）
+                if (relPath === '') {
+                    const fvRoot = fileManager.resolveFolderRoot(id);
+                    if (fvRoot) { fvAutoReload.ensure(id, fvRoot); }
+                }
             },
             folderViewSearch: async (id: string, query: string, senderRef: NotesSender) => {
                 await folderViewSearch(fileManager, id, query, senderRef);
             },
             folderViewOpen: async (id: string, relPath: string) => {
                 await folderViewOpen(fileManager, id, relPath, folderViewDeps);
+            },
+            folderViewToggleHidden: async (id: string, senderRef: NotesSender) => {
+                await folderViewToggleHidden(fileManager, id, senderRef);
+            },
+            folderViewClosed: (id: string) => {
+                fvAutoReload.close(id);
             },
             folderViewCreate: async (id: string, parentRelPath: string, kind: string, senderRef: NotesSender) => {
                 await folderViewCreate(fileManager, id, parentRelPath, kind === 'folder' ? 'folder' : 'md', folderViewDeps, senderRef);
@@ -2479,6 +2467,9 @@ export class NotesEditorProvider {
             },
             folderViewDelete: async (id: string, relPath: string, senderRef: NotesSender) => {
                 await folderViewDelete(fileManager, id, relPath, folderViewDeps, senderRef);
+            },
+            folderViewDuplicate: async (id: string, relPath: string, senderRef: NotesSender) => {
+                await folderViewDuplicate(fileManager, id, relPath, folderViewDeps, senderRef);
             },
             folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender) => {
                 await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef);
@@ -2503,46 +2494,15 @@ export class NotesEditorProvider {
                 await folderViewMoveFromMd(fileManager, id, dstDirRelPath, payload, folderMoveDeps, senderRef);
             },
 
-            // TASK-19 (sprint 20260804-145603): md editor 内 subpage リンク → Notes ツリー D&D。
-            // href を dirname(sourceMd) 基準で解決（本体リンク解決と同じ）。
+            // md editor 内 subpage リンク → Notes ツリー D&D（実処理 = registerSubpageFromMdCore、
+            // sprint 20260819-210558 TASK-01 で兄弟正典に合流）。
             //   同一 note（mainFolder 直下 flat）→ 既存ファイルをそのまま登録（コピー・リネームなし）
-            //   別 note / note 外 → mainFolder 直下へ複製登録（元ファイルは不変）
-            // 登録成功後、元 md のアンカーを除去（removeSubpageLink → webview が該当 <a> を削除
-            // して serialize。「所有」がツリーへ移る = 中途半端な二重参照を残さない）。
+            //   別 note（source note 境界内）→ mainFolder 直下へ複製登録（元ファイルは不変）
+            //   note 外・絶対パス抜け → safeResolveUnderDir clamp で拒否（登録も fs 書込もしない）
+            // 登録成功後、元 md のアンカー除去 = removeMdAnchorFromFile（fs 正典）+ removeSubpageLink
+            // エコーの 2 段（「所有」がツリーへ移る = 中途半端な二重参照を残さない）。
             notesRegisterSubpageFromMd: (payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
-                try {
-                    if (!payload || !payload.href || !payload.sourceMdPath) return;
-                    if (!/\.md$/i.test(payload.href)) return;
-                    // href は相対（dirname(sourceMd) 基準）または絶対
-                    const srcDir = path.dirname(payload.sourceMdPath);
-                    const abs = path.isAbsolute(payload.href)
-                        ? payload.href
-                        : path.resolve(srcDir, decodeURIComponent(payload.href));
-                    if (!fs.existsSync(abs)) return;
-                    const content = fs.readFileSync(abs, 'utf8');
-                    const title = resolveSubpageTitle(content, path.basename(abs));
-                    const mainFolder = fileManager.getMainFolderPath();
-                    const isFlatInNote = path.resolve(path.dirname(abs)) === path.resolve(mainFolder);
-                    if (isFlatInNote) {
-                        fileManager.registerExistingMdFile(path.basename(abs, '.md'), title, parentId, index);
-                    } else {
-                        fileManager.registerMarkdownFile(content, title, parentId, index);
-                    }
-                    senderRef.postMessage({
-                        type: 'notesFileListChanged',
-                        fileList: fileManager.listFiles(),
-                        structure: fileManager.getStructureForWebview(),
-                        currentFile: fileManager.getCurrentFilePath(),
-                    });
-                    // 元 md からアンカー除去（webview 側が sourceMdPath 一致の editor 内 <a> を削除して sync）
-                    senderRef.postMessage({
-                        type: 'removeSubpageLink',
-                        href: payload.href,
-                        sourceMdPath: payload.sourceMdPath,
-                    });
-                } catch (e) {
-                    console.error('[Notes] notesRegisterSubpageFromMd error:', e);
-                }
+                registerSubpageFromMdCore(fileManager, payload, parentId, index, senderRef);
             },
 
             // FR-T01 (sprint 20260805-124854): Finder / VS Code Explorer から .md をツリーに D&D。
@@ -2940,6 +2900,7 @@ export class NotesEditorProvider {
 
         // パネル破棄時のクリーンアップ
         panel.onDidDispose(() => {
+            fvAutoReload.disposeAll(); // FR-FLV-33: fs.watch の残置防止（one-shot 対配線）
             fileManager.dispose();
             sidePanel.disposeFileWatcher();
             mdMain.disposeFileWatcher();
@@ -3288,5 +3249,110 @@ export class NotesEditorProvider {
             return Array.from(this.openPanels.keys())[0];
         }
         return null;
+    }
+}
+
+/**
+ * md editor 内 subpage リンク → Notes ツリー D&D の host 実処理（sprint 20260819-210558 TASK-01 で seam 化）。
+ * platform メソッド notesRegisterSubpageFromMd から委譲される（unit spec が直接駆動できる export seam —
+ * inline closure は behavioral TC を書けない: designer_failures 2026-08-07 の教訓）。
+ */
+/**
+ * tree md item → main pane md への subpage リンク化（sprint 20260820-063902 TASK-02 で seam 化）。
+ * platform メソッド linkMdAsSubpageForNotesMd から委譲（inline closure は behavioral TC 不能）。
+ * cur が this-note 外（Recent 経由の別 note md）なら cur の隣へ**随伴転送**（FR-ACC-03）。
+ */
+export function linkMdAsSubpageForNotesMdCore(
+    fileManager: NotesFileManager,
+    senderRef: NotesSender,
+    filePath: string,
+    mdFileId: string | null
+): void {
+    const cur = fileManager.getCurrentFilePath();
+    if (!cur || !cur.endsWith('.md')) return;
+    if (!fs.existsSync(filePath)) return;
+    if (path.resolve(filePath) === path.resolve(cur)) return; // 自分自身へのリンクは無意味
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        // TASK-16 (US-09 cross-note): main pane は Recent 履歴経由で別 note / note 外の
+        // md を開きうる。cur が this-note（mainFolder）外なら、リンク + ツリー除去でなく
+        // **cur の隣へ随伴転送**する（相手側に実体を渡す。this-note のツリーは触らない = 所有不変）
+        const mainFolder = fileManager.getMainFolderPath();
+        const curInThisNote = !path.relative(mainFolder, path.resolve(cur)).startsWith('..');
+        if (!curInThisNote) {
+            const r = transferMdWithAssets(filePath, makeTransferCoords(mdCoords(filePath), mdCoords(cur)));
+            senderRef.postMessage({
+                type: 'insertSubpageLink',
+                markdownPath: r.newName,
+                title: resolveSubpageTitle(content, r.newName),
+            });
+            return;
+        }
+        const relPath = path.relative(path.dirname(cur), filePath).replace(/\\/g, '/');
+        senderRef.postMessage({
+            type: 'insertSubpageLink',
+            markdownPath: relPath,
+            title: resolveSubpageTitle(content, path.basename(filePath)),
+        });
+        // US-09: subpage 化したらツリーから md エントリを除去（ファイル実体・ファイル名は不変。
+        // notesImportMdIntoOut の「画面のエントリは消す・物理は消さない」と同じ方針）
+        if (mdFileId) {
+            fileManager.unregisterMdFromStructureOnly(mdFileId);
+            senderRef.postMessage({
+                type: 'notesFileListChanged',
+                fileList: fileManager.listFiles(),
+                structure: fileManager.getStructureForWebview(),
+                currentFile: fileManager.getCurrentFilePath(),
+            });
+        }
+    } catch (e) {
+        console.error('[Notes] linkMdAsSubpageForNotesMd error:', e);
+    }
+}
+
+export function registerSubpageFromMdCore(
+    fileManager: NotesFileManager,
+    payload: { href: string; sourceMdPath: string; title?: string },
+    parentId: string | null,
+    index: number,
+    senderRef: NotesSender
+): void {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) return;
+        if (!/\.md$/i.test(payload.href)) return;
+        // href の解決 + clamp は兄弟正典（importMdSubpageIntoOut / linkMdSubpageToMd）と同型:
+        // source md の note フォルダ（srcMainFolder）基準の safeResolveUnderDir で note 外・
+        // 絶対パス抜けを拒否する（decode 後 containment — 別 note 境界内の copy-in は従来どおり通る）。
+        let decoded: string;
+        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+        const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+        const abs = safeResolveUnderDir(
+            srcMainFolder,
+            path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded))
+        );
+        if (!abs || !fs.existsSync(abs)) return;
+        const content = fs.readFileSync(abs, 'utf8');
+        const title = resolveSubpageTitle(content, path.basename(abs));
+        const mainFolder = fileManager.getMainFolderPath();
+        const isFlatInNote = path.resolve(path.dirname(abs)) === path.resolve(mainFolder);
+        if (isFlatInNote) {
+            fileManager.registerExistingMdFile(path.basename(abs, '.md'), title, parentId, index);
+        } else {
+            // 随伴転送（FR-ACC-03 — dest note フラット座標へ画像/📎/subpage 再帰ごと複製。
+            // 台帳登録は新 md 1 件のみ = closure md は台帳外〔liveness は md-link closure〕）
+            const r = transferMdWithAssets(abs, makeTransferCoords(mdCoords(abs), noteCoords(mainFolder)));
+            fileManager.registerExistingMdFile(path.basename(r.newName, '.md'), title, parentId, index);
+        }
+        senderRef.postMessage({
+            type: 'notesFileListChanged',
+            fileList: fileManager.listFiles(),
+            structure: fileManager.getStructureForWebview(),
+            currentFile: fileManager.getCurrentFilePath(),
+        });
+        // 元 md からアンカー除去 = fs 正典 + webview エコーの 2 段（兄弟 3 経路と同型 —
+        // エコーのみだと source md の EditorInstance 非生存時にアンカーが残留する。TASK-03 集約）
+        removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, senderRef, 'subpage');
+    } catch (e) {
+        console.error('[Notes] notesRegisterSubpageFromMd error:', e);
     }
 }

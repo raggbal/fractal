@@ -5,6 +5,25 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-08-21
+
+### Added
+- **Asset-accompanied markdown transfer**: moving a markdown across notes or between the tree and a linked folder (drag & drop) now carries its images, 📎 attachments, and subpage markdowns (recursively), converting between the note's flat layout and folder-adjacent `images/`/`files/` automatically (FR-ACC-01/02/03)
+- **Folder view: Duplicate** for md/file entries (md duplicates with its assets and subpages) (FR-ACC-04)
+- **Folder view: hidden-files toggle** (👁 in the header, persisted per folder link; search follows the toggle; symlinks stay hidden) (FR-FLV-31)
+- **Folder view: single click on the 📄/📎 file icon opens the file** (same routing as double-click) (FR-FLV-32)
+- **Folder view: auto-reload** — external file changes (builds, AI edits) appear without pressing Refresh (`fs.watch` recursive, only while the view is open) (FR-FLV-33)
+
+### Changed
+- Cross-surface md moves and Duplicate read asset references only within the source's own territory (note asset folders / anywhere inside the linked folder): absolute-path and out-of-boundary `../` references are no longer copied — prevents a crafted markdown from smuggling arbitrary local files into a note (and its S3 sync). Plain clipboard paste is unaffected (NFR-ACC-02b)
+- Where the OS trash is unavailable (e.g. remote VS Code server), cross-surface moves now remove the verified-copied original directly instead of leaving it behind (folder-view Delete/Rename still always use the trash) (FR-FLV-34)
+
+### Fixed
+- **VS Code server: Explorer drag & drop works again** — `vscode-remote://` drop URIs are now accepted for note tree / outliner / markdown editor drops (FR-RMT-01)
+- Cross-note D&D from note A to note B could insert a forbidden cross-note relative link instead of copying (source-based cross detection)
+- Moving a subpage md link from a markdown into the note tree now removes the link from the source file on disk (fs-truth), and outliner paste refreshes correctly after cross-outliner asset paste
+- Toggling hidden files reloads the whole folder view (expanded subfolders included) instead of only the root level
+
 ## [1.3.2] - 2026-08-19
 
 ### Added

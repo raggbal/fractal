@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
-import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving } from './paste-asset-handler';
+import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving, copyEntityWithUniquify } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
@@ -1710,9 +1710,14 @@ export class NotesFileManager {
             const dstFilesDir = flatLayout.resolveMdFilesDir(dstFolderPath);
             fs.mkdirSync(dstFilesDir, { recursive: true });
             const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(srcEntityAbs));
-            const dstName = generateUniqueFileNamePreserving(dstFilesDir, sanitized);
-            fs.copyFileSync(srcEntityAbs, path.join(dstFilesDir, dstName));
-            return dstName;
+            // uniquify + copy は複製正典に委譲（TASK-01 集約 — sanitize/files 解決/返り値契約は不変）
+            const dstAbs = copyEntityWithUniquify(srcEntityAbs, dstFilesDir, sanitized);
+            if (!dstAbs) {
+                // 旧実装の外側 catch と同等の診断ログを復元（TASK-05 — canon は swallow 契約のまま）
+                console.error('[NotesFileManager] copyTreeFileEntityTo error: copy failed:', srcEntityAbs);
+                return null;
+            }
+            return path.basename(dstAbs);
         } catch (e) {
             console.error('[NotesFileManager] copyTreeFileEntityTo error:', e);
             return null;

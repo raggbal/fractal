@@ -10,6 +10,30 @@
  */
 import * as fs from 'fs';
 
+/**
+ * removeMdAnchorAndEcho — 移動系「source 除去」の 2 段（fs 正典 + webview エコー）を 1 関数に集約。
+ * (sprint 20260819-210558 TASK-03)
+ *
+ * 旧: removeMdAnchorFromFile 直呼び + 隣接 postMessage の裸ペアが 7 サイトに分散し、
+ * 片割れ漏れ（fs 除去なしのエコーのみ等）が経路追加のたびに再発した（2026-08-14 に 3 経路・
+ * 2026-08-19 に 4 匹目を実測）。以後、md アンカーの source 除去は必ず本関数を通す
+ * （TC-SRC-07 の grep 番人が裸ペア残存を検出する）。
+ * @param kind 'subpage' → removeSubpageLink エコー / 'file' → removeFileLink エコー
+ */
+export function removeMdAnchorAndEcho(
+    sourceMdPath: string,
+    href: string,
+    sender: { postMessage(msg: unknown): void },
+    kind: 'subpage' | 'file'
+): void {
+    removeMdAnchorFromFile(sourceMdPath, href);
+    sender.postMessage({
+        type: kind === 'subpage' ? 'removeSubpageLink' : 'removeFileLink',
+        href,
+        sourceMdPath,
+    });
+}
+
 export function removeMdAnchorFromFile(sourceMdPath: string, href: string): void {
     try {
         if (!sourceMdPath || !href || !fs.existsSync(sourceMdPath)) { return; }

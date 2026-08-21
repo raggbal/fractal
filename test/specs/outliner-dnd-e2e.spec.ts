@@ -939,7 +939,7 @@ test.describe.serial('DOD-12-E2E-17: Explorer .md drop with relative images', ()
     });
 });
 
-test.describe.serial('DOD-12-E2E-18: Remote URI rejection', () => {
+test.describe.serial('DOD-12-E2E-18: URI scheme gating', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/standalone-outliner.html');
         await page.waitForFunction(() => (window as any).__testApi?.ready);
@@ -954,7 +954,10 @@ test.describe.serial('DOD-12-E2E-18: Remote URI rejection', () => {
         });
     });
 
-    test('DOD-12-E2E-18: vscode-remote:// URI drop results in ok:false', async ({ page }) => {
+    // sprint 20260820-034017 (許可: test_update — FR-RMT-01): vscode-remote は受理対象化。
+    // このテストの本旨は「webview が ok:false 結果を skip する」（scheme 非依存）— fixture を
+    // 現仕様で実際に ok:false になる非対応 scheme（http）へ更新。
+    test('DOD-12-E2E-18: non-local scheme URI drop results in ok:false (webview skips)', async ({ page }) => {
         // Get initial node count
         const initialCount = await page.locator('.outliner-node').count();
 
@@ -965,8 +968,8 @@ test.describe.serial('DOD-12-E2E-18: Remote URI rejection', () => {
                 results: [{
                     kind: 'file',
                     ok: false,
-                    name: 'vscode-remote://ssh-remote/home/a.pdf',
-                    error: 'Unsupported URI scheme: vscode-remote: (only file:// is supported)'
+                    name: 'http://example.com/a.pdf',
+                    error: 'Unsupported URI scheme: http: (only file:// / vscode-remote:// are supported)'
                 }],
                 targetNodeId: 'n1',
                 position: 'after'
@@ -979,17 +982,21 @@ test.describe.serial('DOD-12-E2E-18: Remote URI rejection', () => {
         expect(finalCount).toBe(initialCount);
     });
 
-    test('DOD-12-E2E-18: processDropVscodeUrisImport rejects non-file:// URIs', async () => {
-        // Static analysis test - verify remote URI rejection in drop-import.ts
+    test('DOD-12-E2E-18: processDropVscodeUrisImport rejects non-local URIs', async () => {
+        // Static analysis test - verify URI scheme gating in drop-import.ts
+        // sprint 20260820-034017 (許可: test_update — FR-RMT-01): file:// 限定 → file:/vscode-remote:
+        // 受理の正典 droppedUriToFsPath 経由に改訂。他 scheme の明示エラー文言は維持。
         const fs = await import('fs');
         const path = await import('path');
 
         const srcPath = path.join(process.cwd(), 'src/shared/drop-import.ts');
         const src = fs.readFileSync(srcPath, 'utf-8');
 
-        // Verify the function checks for file:// protocol
-        expect(src).toMatch(/parsedUrl\.protocol\s*!==\s*['"]file:/);
-        // Verify it creates an error result for non-file schemes
+        // Verify scheme gating lives in the canon helper (file: accepted / vscode-remote: accepted / else null)
+        expect(src).toMatch(/protocol\s*===\s*['"]file:/);
+        expect(src).toMatch(/protocol\s*===\s*['"]vscode-remote:/);
+        // Verify the import path routes through the canon and keeps the explicit error for other schemes
+        expect(src).toMatch(/droppedUriToFsPath\(uri\)/);
         expect(src).toMatch(/Unsupported URI scheme/);
     });
 });

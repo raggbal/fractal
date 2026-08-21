@@ -111,6 +111,7 @@ export const webviewMessages = {
   folderViewOpenFailed: 'フォルダを読み取れません。',
   folderViewSearchPlaceholder: '名前で絞り込み...',
   folderViewRefresh: '再読み込み',
+  notesShowHiddenFiles: '隠しファイルを表示',
   folderViewTruncated: '結果が多すぎます — クエリを絞ってください。',
   folderViewNoMatch: '一致するものがありません。',
   folderViewEmpty: '（空のフォルダ）',

@@ -94,6 +94,7 @@ export const webviewMessages = {
   folderViewOpenFailed: '無法讀取資料夾。',
   folderViewSearchPlaceholder: '依名稱篩選...',
   folderViewRefresh: '重新整理',
+  notesShowHiddenFiles: '顯示隱藏檔案',
   folderViewTruncated: '結果太多 — 請縮小查詢範圍。',
   folderViewNoMatch: '沒有相符項目。',
   folderViewEmpty: '（空資料夾）',

@@ -39,6 +39,35 @@ export interface DropImportContext {
     getDisplayUri?: (filePath: string) => string;  // Optional: convert file path to webview URI
 }
 
+/**
+ * Explorer uri-list D&D の URI → extension host ローカル fs パス変換の正典（FR-RMT-01, sprint 20260820-034017）。
+ * - `file:` → url.fileURLToPath（従来経路と同一関数 — byte 不変）
+ * - `vscode-remote:` → URI の path 成分を percent-decode（authority は無視 — 前提: extension host と
+ *   Explorer 対象は同一マシン = vscode server / Remote-SSH の標準構成）。Windows ドライブレターの
+ *   先頭スラッシュ（`/C:/...`）は剥がす（editor.js の既存 Windows ガードと同規則）。
+ * - その他 scheme / parse 失敗 → null（呼び出し側が面別の拒否形 — tree = silent skip /
+ *   outliner = 明示の失敗通知 — を維持する）。
+ */
+export function droppedUriToFsPath(uri: string): string | null {
+    try {
+        const parsed = new URL(uri);
+        if (parsed.protocol === 'file:') {
+            return url.fileURLToPath(uri);
+        }
+        if (parsed.protocol === 'vscode-remote:') {
+            // encoded path separator（%2F/%5C）は拒否 — file: 側の url.fileURLToPath が
+            // 「File URL path must not include encoded / characters」で throw するのと対称（SEC-1）。
+            if (/%2F|%5C/i.test(parsed.pathname)) { return null; }
+            let p = decodeURIComponent(parsed.pathname);
+            if (/^\/[A-Za-z]:[\\/]/.test(p)) { p = p.substring(1); } // Windows drive letter
+            return p;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
 /** Image file extensions for classification */
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'];
 
@@ -216,9 +245,9 @@ export async function processDropFilesImport(
  * Key differences from Finder path:
  * - No 50MB limit (no webview memory involved)
  * - .md files get full relative image resolution (sourceDir from fsPath)
- * - Non-file:// schemes are rejected with error
+ *  - Non-local schemes (not file:/vscode-remote:) are rejected with error (FR-RMT-01)
  *
- * @param uris   Array of file:// URIs from dataTransfer.getData('application/vnd.code.uri-list')
+ * @param uris Array of file:// / vscode-remote:// URIs from dataTransfer.getData(...)
  * @param ctx    Context with directories for file placement
  * @returns Array of results maintaining original order
  */
@@ -240,22 +269,20 @@ export async function processDropVscodeUrisImport(
     for (let i = 0; i < uris.length; i++) {
         const uri = uris[i];
         try {
-            // Parse URI and validate scheme
-            const parsedUrl = new URL(uri);
-
-            if (parsedUrl.protocol !== 'file:') {
-                // Non-local scheme (e.g., vscode-remote://)
+            // URI → fs パス変換は正典 droppedUriToFsPath（file: / vscode-remote: 受理 — FR-RMT-01）。
+            // null = その他 scheme → 従来と同じ明示の失敗通知（文言維持）
+            const fsPath = droppedUriToFsPath(uri);
+            if (fsPath === null) {
+                let scheme = '';
+                try { scheme = new URL(uri).protocol; } catch { scheme = '(unparsable)'; }
                 results[i] = {
                     kind: 'file',
                     ok: false,
                     name: uri,
-                    error: `Unsupported URI scheme: ${parsedUrl.protocol} (only file:// is supported)`
+                    error: `Unsupported URI scheme: ${scheme} (only file:// / vscode-remote:// are supported)`
                 };
                 continue;
             }
-
-            // Convert to file system path
-            const fsPath = url.fileURLToPath(uri);
             const name = path.basename(fsPath);
             const ext = path.extname(name).toLowerCase().slice(1);
 

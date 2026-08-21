@@ -18,6 +18,16 @@
     // showFolderView が隠す直前の pane display 値（one-shot: show で保存 → hide で復元 + null 化。
     // 連続 show では最初の保存を保持 — 2 回目は既に 'none' なので上書きすると復元先が失われる）
     let savedPaneDisplay = null;
+    // FR-FLV-33: 表示中の folder link id（host の watcher dispose 契機 = folderViewClosed 通知に使う）
+    let shownLinkId = null;
+
+    function notifyClosed(linkId) {
+        try {
+            if (linkId && window.notesHostBridge && typeof window.notesHostBridge.folderViewClosed === 'function') {
+                window.notesHostBridge.folderViewClosed(linkId);
+            }
+        } catch (e) { /* bridge 不在（standalone 等）は正常 */ }
+    }
 
     function ensureContainer() {
         if (folderViewContainer && document.body.contains(folderViewContainer)) { return folderViewContainer; }
@@ -66,6 +76,9 @@
                 window.__viewerDispatcher.hideViewer();
             }
         } catch (e) { /* viewer dispatcher 不在は正常 */ }
+        // FR-FLV-33: 別 link への切替は旧 link の監視を止める（host へ closed 通知）
+        if (shownLinkId && shownLinkId !== folderLinkId) { notifyClosed(shownLinkId); }
+        shownLinkId = folderLinkId;
         const container = ensureContainer();
         // 表示前に必ず再構築（stale 防止 — 前回の内容を持ち越さない）
         container.textContent = '';
@@ -96,6 +109,8 @@
     /** フォルダビューを隠し DOM を破棄（showOutliner/showMarkdown/showViewer の hook から呼ばれる） */
     function hideFolderView() {
         if (!folderViewContainer) { return; }
+        // FR-FLV-33: fv を隠す = 監視停止（host が watcher を dispose。再表示時の root list で再 ensure される）
+        if (shownLinkId) { notifyClosed(shownLinkId); shownLinkId = null; }
         folderViewContainer.style.display = 'none';
         if (window.__folderView) { window.__folderView.destroy(); }
         folderViewContainer.textContent = '';

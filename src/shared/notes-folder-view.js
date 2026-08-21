@@ -20,6 +20,7 @@
     var currentLinkId = null;
     var currentTitle = '';
     var childrenByRel = {};   // relPath('' = root) → entries[]（host 応答キャッシュ。リフレッシュで上書き）
+    var hiddenToggleBtn = null; // FR-FLV-31 トグルボタン（listResult.showHidden で active 復元）
     var expanded = {};        // relPath → true
     var selectedRel = null;
     var visibleRows = [];     // keyboard ナビ用の描画順 relPath 配列
@@ -80,6 +81,10 @@
             '.fv-refresh { background:transparent; border:none; border-radius:4px; cursor:pointer;',
             '  color: var(--outliner-fg); padding:4px 5px; opacity:0.5; }',
             '.fv-refresh:hover { opacity:1; background: var(--outliner-hover-bg); }',
+            '.fv-hidden-toggle { background:transparent; border:none; border-radius:4px; cursor:pointer; opacity:0.55; }',
+            '.fv-hidden-toggle:hover { opacity:1; background: var(--outliner-hover-bg); }',
+            '.fv-hidden-toggle.active { opacity:1; color: var(--vscode-textLink-foreground); }',
+            '.fv-file-icon { cursor:pointer; }',
             '.fv-tree { flex:1 1 auto; overflow:auto; padding:6px 0; outline:none; }',
             '.fv-row { display:flex; align-items:center; gap:4px; padding:2px 8px; cursor:default;',
             '  line-height:20px; white-space:nowrap; }',
@@ -175,9 +180,28 @@
         // outliner ツールバーの他ボタンと同じ 13x13 lucide SVG（テキスト glyph は小さすぎた — 再修正 2026-08-18）
         refreshBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
         refreshBtn.addEventListener('click', function () { refresh(); });
+        // FR-FLV-31: 隠しファイル表示トグル（状態は host sidecar が真実 — listResult.showHidden で復元）
+        hiddenToggleBtn = document.createElement('button');
+        hiddenToggleBtn.className = 'fv-hidden-toggle';
+        hiddenToggleBtn.title = i18n().notesShowHiddenFiles || 'Show hidden files';
+        hiddenToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+        hiddenToggleBtn.addEventListener('click', function () {
+            if (!bridge().folderViewToggleHidden) { return; }
+            bridge().folderViewToggleHidden(currentLinkId);
+            // TC-FLV-73（ユーザー報告）: filter が変わる = 全キャッシュを破棄して全面 reload（ON/OFF 両方向）。
+            // host の toggle 応答は root のみなので、展開中 dir はここで再要求し、閉じ dir は
+            // キャッシュ破棄で「次の展開時に新 filter で再要求」させる。postMessage は直列なので
+            // toggle（sidecar 保存）→ 以下の list 要求の順で処理され、応答は全て新 filter になる
+            childrenByRel = {};
+            Object.keys(expanded).forEach(function (rel) {
+                if (expanded[rel]) { requestList(rel); }
+            });
+            if (searchQuery && bridge().folderViewSearch) { bridge().folderViewSearch(currentLinkId, searchQuery); }
+        });
         header.appendChild(titleEl);
         header.appendChild(searchInput);
         header.appendChild(refreshBtn);
+        header.appendChild(hiddenToggleBtn);
 
         treeEl = document.createElement('div');
         treeEl.className = 'fv-tree';
@@ -246,6 +270,10 @@
                 return;
             }
             childrenByRel[msg.relPath || ''] = msg.entries || [];
+            // FR-FLV-31: host sidecar の showHidden をボタン表示に反映
+            if (hiddenToggleBtn && typeof msg.showHidden === 'boolean') {
+                hiddenToggleBtn.classList.toggle('active', msg.showHidden);
+            }
             // FR-FLV-26: root 応答の savedExpanded を取り込み lazy 展開（現状 fs 優先は host 側でフィルタ済み）
             if ((msg.relPath || '') === '' && Array.isArray(msg.savedExpanded)) {
                 msg.savedExpanded.forEach(function (rel) {
@@ -312,6 +340,11 @@
             // e.target === chevron だと子要素（.fv-tri/.fv-dot）を踏んだとき外れる — closest 判定に修正（2026-08-18）
             var onChevron = e.target && e.target.closest && e.target.closest('.fv-chevron');
             if (entry.isDir && onChevron) { toggleDir(entry.relPath); }
+            // FR-FLV-32: ファイル行の 📄/📎 アイコン click = open（dblclick と同一経路。chevron と同型の closest 判定）
+            var onIcon = e.target && e.target.closest && e.target.closest('.fv-file-icon');
+            if (!entry.isDir && onIcon && bridge().folderViewOpen) {
+                bridge().folderViewOpen(currentLinkId, entry.relPath);
+            }
         });
         row.addEventListener('dblclick', function () {
             if (entry.isDir) {
@@ -755,6 +788,12 @@
             addMenuItem(m.copyPath || 'Copy Path', function () {
                 if (bridge().folderViewCopyEntryPath) { bridge().folderViewCopyEntryPath(currentLinkId, entry.relPath); }
             });
+            if (!entry.isDir) {
+                // FR-ACC-04: md/file エントリのみ（dir は非対応 — ADRL-ACC-3）。i18n は既存キー再利用
+                addMenuItem(m.notesDuplicateItem || 'Duplicate', function () {
+                    if (bridge().folderViewDuplicate) { bridge().folderViewDuplicate(currentLinkId, entry.relPath); }
+                });
+            }
             addMenuItem(m.notesDelete || 'Delete', function () {
                 if (bridge().folderViewDelete) { bridge().folderViewDelete(currentLinkId, entry.relPath); }
             }, true);

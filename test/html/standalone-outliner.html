@@ -29908,6 +29908,23 @@ class EditorInstance {
             return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
         }
 
+        // vscode-remote:// URI → fs パス（vscode server / Remote の Explorer drag — FR-RMT-01）。
+        // host 正典 droppedUriToFsPath（drop-import.ts）と同規則の最小ミラー: authority を除いた
+        // path 成分を decode + Windows ドライブ先頭スラッシュ剥がし（webview は host TS を import
+        // 不能のため。規則一致は TC-RMT-01/04 が両側から pin）。
+        function decodeVscodeRemoteUriToPath(uri) {
+            const rest = uri.substring('vscode-remote://'.length);
+            const slash = rest.indexOf('/');
+            if (slash < 0) return null;
+            // query/fragment は path 成分に含めない（URL.pathname 意味論）— host 正典と同規則
+            const rawPath = rest.substring(slash).split(/[?#]/)[0];
+            // encoded path separator（%2F/%5C）は拒否（host 正典 = SEC-1 ガードと同規則）
+            if (/%2F|%5C/i.test(rawPath)) return null;
+            let p = decodeURIComponent(rawPath);
+            if (/^\/[A-Za-z]:[\\/]/.test(p)) p = p.substring(1); // Windows drive letter
+            return p;
+        }
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
@@ -29917,6 +29934,14 @@ class EditorInstance {
                     filePath = decodedPath;
                     pathFileName = basenameOfPath(decodedPath);
                     break;
+                }
+                if (uri.startsWith('vscode-remote://')) {
+                    const decodedPath = decodeVscodeRemoteUriToPath(uri);
+                    if (decodedPath) {
+                        filePath = decodedPath;
+                        pathFileName = basenameOfPath(decodedPath);
+                        break;
+                    }
                 }
             }
         }

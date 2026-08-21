@@ -68,3 +68,45 @@ export function saveFolderViewExpanded(folderRoot: string, expanded: string[]): 
         /* silent skip（NFR: 書込不能フォルダでは復元されない縮退 — 受容事項 7） */
     }
 }
+
+/**
+ * 隠しファイル表示トグルの読み書き（FR-FLV-31 — sprint 20260821-015014）。
+ * 同じ sidecar に `showHidden: true` を upsert。false はキー削除（残骸ゼロ — expanded と同じ 4 性質）。
+ */
+export function readFolderViewShowHidden(folderRoot: string): boolean {
+    try {
+        const p = folderViewStatePath(folderRoot);
+        if (!fs.existsSync(p)) { return false; }
+        const obj = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        return !!(obj && typeof obj === 'object' && obj.showHidden === true);
+    } catch {
+        return false;
+    }
+}
+
+export function saveFolderViewShowHidden(folderRoot: string, value: boolean): void {
+    const p = folderViewStatePath(folderRoot);
+    try {
+        let base: { [k: string]: unknown } = {};
+        try {
+            if (fs.existsSync(p)) {
+                const obj = JSON.parse(fs.readFileSync(p, 'utf-8'));
+                if (obj && typeof obj === 'object') { base = obj; }
+            }
+        } catch { /* 壊れた既存 JSON は捨てて作り直す（best-effort） */ }
+        if (!value) {
+            delete base.showHidden;
+            const otherKeys = Object.keys(base).filter((k) => k !== 'version');
+            if (otherKeys.length === 0) {
+                if (fs.existsSync(p)) { fs.unlinkSync(p); }
+                return;
+            }
+        } else {
+            base.showHidden = true;
+        }
+        base.version = 1;
+        fs.writeFileSync(p, JSON.stringify(base, null, 2));
+    } catch {
+        /* silent skip（書込不能フォルダでは永続化されない縮退 — expanded と同じ受容） */
+    }
+}

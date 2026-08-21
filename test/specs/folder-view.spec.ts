@@ -113,17 +113,100 @@ test.describe('TASK-07 — folder view UI（notes-folder-view.js / folder-view-d
         expect((await calls(page)).some((x: any) => x.type === 'folderViewOpen' && x.args[1] === 'b.md')).toBe(true);
     });
 
+    test('TC-FLV-67: ファイル行アイコン click = folderViewOpen / アイコン外 = 選択のみ / dir 行アイコン無し + 👁 click = folderViewToggleHidden（FR-FLV-31/32 webview 端）', async ({ page }) => {
+        await loadViewInitKeepCalls(page);
+        await postList(page, '', [
+            { name: 'dirA', relPath: 'dirA', isDir: true },
+            { name: 'b.md', relPath: 'b.md', isDir: false },
+        ]);
+        const openCalls = async () => (await calls(page)).filter((x: any) => x.type === 'folderViewOpen');
+        // アイコン外（行の名前部分）click → 選択のみ・open は飛ばない
+        await page.click('.fv-row[data-rel="b.md"]');
+        expect(await selectedRel(page)).toBe('b.md');
+        expect((await openCalls()).length).toBe(0);
+        // 📄 アイコン click → folderViewOpen(id, relPath) 1 回（FR-FLV-32）
+        await page.click('.fv-row[data-rel="b.md"] .fv-file-icon');
+        const oc = await openCalls();
+        expect(oc.length).toBe(1);
+        expect(oc[0].args).toEqual(['fl1', 'b.md']);
+        // dir 行にはアイコンが無い（構造 pin — 展開トグルは chevron のみ）
+        expect(await page.locator('.fv-row[data-rel="dirA"] .fv-file-icon').count()).toBe(0);
+        // 👁 トグル click → folderViewToggleHidden(id) 送出（FR-FLV-31 webview 端）
+        await page.click('.fv-hidden-toggle');
+        const tc = (await calls(page)).filter((x: any) => x.type === 'folderViewToggleHidden');
+        expect(tc.length).toBe(1);
+        expect(tc[0].args).toEqual(['fl1']);
+        // showHidden:true の listResult でボタンが active 化（表示状態復元）
+        await page.evaluate(() => {
+            window.postMessage({ type: 'folderViewListResult', folderLinkId: 'fl1', relPath: '', entries: [], showHidden: true }, '*');
+        });
+        await page.waitForTimeout(50);
+        expect(await page.locator('.fv-hidden-toggle.active').count()).toBe(1);
+    });
+
+    test('TC-FLV-73: 👁 トグル click で全面 reload — 展開中 dir 再要求 + 閉じ dir キャッシュ破棄（ON/OFF 両方向）', async ({ page }) => {
+        await loadViewInitKeepCalls(page);
+        await postList(page, '', [
+            { name: 'dirA', relPath: 'dirA', isDir: true },
+            { name: 'dirB', relPath: 'dirB', isDir: true },
+        ]);
+        // dirA を展開（list 要求 + 応答でキャッシュ）→ dirB は展開して閉じる（キャッシュだけ残る）
+        await page.dblclick('.fv-row[data-rel="dirA"]');
+        await postList(page, 'dirA', [{ name: 'a.md', relPath: 'dirA/a.md', isDir: false }]);
+        await page.dblclick('.fv-row[data-rel="dirB"]');
+        await postList(page, 'dirB', [{ name: 'b.md', relPath: 'dirB/b.md', isDir: false }]);
+        await page.dblclick('.fv-row[data-rel="dirB"]'); // 折りたたみ（キャッシュ保持）
+        const listCallsFor = async (rel: string) =>
+            (await calls(page)).filter((x: any) => x.type === 'folderViewList' && x.args[1] === rel).length;
+        const beforeA = await listCallsFor('dirA');
+        const beforeB = await listCallsFor('dirB');
+        // トグル click → (a) toggle 送出 + 展開中 dirA の再要求（filter が変わるため stale 排除）
+        await page.click('.fv-hidden-toggle');
+        expect((await calls(page)).filter((x: any) => x.type === 'folderViewToggleHidden').length).toBe(1);
+        expect(await listCallsFor('dirA')).toBe(beforeA + 1);
+        // (b) 閉じている dirB はキャッシュ破棄 = トグル後の再展開でキャッシュ再利用せず再要求される
+        await postList(page, '', [
+            { name: 'dirA', relPath: 'dirA', isDir: true },
+            { name: 'dirB', relPath: 'dirB', isDir: true },
+        ]);
+        await postList(page, 'dirA', [{ name: 'a.md', relPath: 'dirA/a.md', isDir: false }]);
+        await page.dblclick('.fv-row[data-rel="dirB"]');
+        // 展開は toggleDir + render の 2 箇所が要求しうる（既存挙動）— pin は「キャッシュ再利用なし = 再要求が発生する」
+        //（counterfactual: キャッシュ破棄を外すと再要求 0 = beforeB のまま → RED）
+        expect(await listCallsFor('dirB')).toBeGreaterThanOrEqual(beforeB + 1);
+    });
+
+    test('TC-FLV-70: hide/switch で folderViewClosed 送出（FR-FLV-33 webview 端 — watcher dispose 契機）', async ({ page }) => {
+        await loadViewInitKeepCalls(page); // showFolderView('fl1')
+        const closedCalls = async () =>
+            (await calls(page)).filter((x: any) => x.type === 'folderViewClosed');
+        expect((await closedCalls()).length).toBe(0);
+        // 別 link への切替 → 旧 link の closed が 1 回飛ぶ
+        await page.evaluate(() => { (window as any).__folderViewDispatcher.showFolderView('fl2', 'Docs2'); });
+        let cc = await closedCalls();
+        expect(cc.length).toBe(1);
+        expect(cc[0].args).toEqual(['fl1']);
+        // hide → 表示中 link の closed
+        await page.evaluate(() => { (window as any).__folderViewDispatcher.hideFolderView(); });
+        cc = await closedCalls();
+        expect(cc.length).toBe(2);
+        expect(cc[1].args).toEqual(['fl2']);
+        // 二重 hide で重複送出しない
+        await page.evaluate(() => { (window as any).__folderViewDispatcher.hideFolderView(); });
+        expect((await closedCalls()).length).toBe(2);
+    });
+
     test('TC-FLV-37: context menu（エントリ 6 項目のみ / 空白 2 項目）+ bridge 送出 + Refresh の状態保持', async ({ page }) => {
         await loadViewInitKeepCalls(page);
         await postList(page, '', [
             { name: 'dirA', relPath: 'dirA', isDir: true },
             { name: 'b.md', relPath: 'b.md', isDir: false },
         ]);
-        // エントリ menu = 6 項目のみ（FR-FLV-15 全列挙 — note 系項目なし）
+        // エントリ menu = 7 項目（FR-FLV-15 全列挙 + FR-ACC-04 Duplicate — sprint 20260820-063902 許可: test_update）
         await page.click('.fv-row[data-rel="b.md"]', { button: 'right' });
         let items = await page.evaluate(() =>
             Array.from(document.querySelectorAll('.fv-menu .fv-menu-item')).map((el) => (el.textContent || '').trim()));
-        expect(items).toEqual(['New Markdown', 'New Folder', 'Rename', 'Reveal in Finder', 'Copy Path', 'Delete']);
+        expect(items).toEqual(['New Markdown', 'New Folder', 'Rename', 'Reveal in Finder', 'Copy Path', 'Duplicate', 'Delete']);
         // 各項目 → bridge（file 行: New 系の作成先は同階層 = ''）
         const clickItem = async (label: string, target = '.fv-row[data-rel="b.md"]') => {
             await page.click(target, { button: 'right' });
@@ -178,6 +261,27 @@ test.describe('TASK-07 — folder view UI（notes-folder-view.js / folder-view-d
             { name: 'b.md', relPath: 'b.md', isDir: false },
         ]);
         expect(await selectedRel(page)).toBe('b.md'); // 選択保持（再描画後も selectedRel 基準で復元）
+    });
+
+    test('TC-ACC-31: Duplicate は file 行のみ表示・click で folderViewDuplicate(id, relPath) 送出（FR-ACC-04）', async ({ page }) => {
+        await loadViewInitKeepCalls(page);
+        await postList(page, '', [
+            { name: 'dirA', relPath: 'dirA', isDir: true },
+            { name: 'b.md', relPath: 'b.md', isDir: false },
+        ]);
+        // file 行 → Duplicate あり + click で bridge 送出
+        await page.click('.fv-row[data-rel="b.md"]', { button: 'right' });
+        await page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll('.fv-menu .fv-menu-item'));
+            (els.find((e) => (e.textContent || '').trim() === 'Duplicate') as HTMLElement).click();
+        });
+        const c = await calls(page);
+        expect(c.some((x: any) => x.type === 'folderViewDuplicate' && JSON.stringify(x.args) === JSON.stringify(['fl1', 'b.md']))).toBe(true);
+        // dir 行 → Duplicate 非表示
+        await page.click('.fv-row[data-rel="dirA"]', { button: 'right' });
+        const dirItems = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.fv-menu .fv-menu-item')).map((el) => (el.textContent || '').trim()));
+        expect(dirItems).not.toContain('Duplicate');
     });
 
     test('TC-FLV-45: 大規模 fixture — 初期表示の list 要求はルート 1 回のみ（再帰 walk 不在の構造 assert）', async ({ page }) => {
@@ -464,12 +568,15 @@ async function loadViewInitKeepCalls(page: Page): Promise<void> {
             folderViewList: rec('folderViewList'),
             folderViewSearch: rec('folderViewSearch'),
             folderViewOpen: rec('folderViewOpen'),
+            folderViewToggleHidden: rec('folderViewToggleHidden'),
+            folderViewClosed: rec('folderViewClosed'),
             folderViewCreate: rec('folderViewCreate'),
             folderViewRename: rec('folderViewRename'),
             folderViewDelete: rec('folderViewDelete'),
             folderViewMove: rec('folderViewMove'),
             folderViewRevealEntry: rec('folderViewRevealEntry'),
             folderViewCopyEntryPath: rec('folderViewCopyEntryPath'),
+            folderViewDuplicate: rec('folderViewDuplicate'),
             folderViewMoveIn: rec('folderViewMoveIn'),
             folderViewMoveToTree: rec('folderViewMoveToTree'),
             folderViewMoveIntoMd: rec('folderViewMoveIntoMd'),

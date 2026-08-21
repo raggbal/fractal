@@ -94,6 +94,7 @@ export const webviewMessages = {
   folderViewOpenFailed: '无法读取文件夹。',
   folderViewSearchPlaceholder: '按名称筛选...',
   folderViewRefresh: '刷新',
+  notesShowHiddenFiles: '显示隐藏文件',
   folderViewTruncated: '结果太多 — 请细化查询。',
   folderViewNoMatch: '没有匹配项。',
   folderViewEmpty: '（空文件夹）',

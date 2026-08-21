@@ -1100,7 +1100,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
                             webviewPanel.webview.postMessage({
                                 type: 'pasteWithAssetCopyResult',
-                                markdown: result.rewrittenMarkdown
+                                markdown: result.rewrittenMarkdown,
+                                // destination echo back（解釈しない往復札 — FR-PDB 規律。他 provider と同型）
+                                destination: message.destination
                             });
                         }
                         break;

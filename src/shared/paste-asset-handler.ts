@@ -98,6 +98,16 @@ export function isUnderNoteDir(target: string, noteDir: string): boolean {
 }
 
 /**
+ * source containment（reviewer iter1 SEC-1）: 解決済み資産パスが許可 roots のいずれかの配下か。
+ * roots 未指定 = 制限なし（paste 直接経路の既存挙動 — 絶対パス import は spec pin 済みの仕様）。
+ * 指定時 = ディスク上の md 本文（非信頼入力）由来の絶対パス /../ escape 参照を複製対象から外す。
+ */
+function isRefUnderRoots(srcAbs: string, roots?: string[]): boolean {
+    if (!roots || roots.length === 0) return true;
+    return roots.some((r) => isUnderNoteDir(srcAbs, r));
+}
+
+/**
  * 起点 md（rootMdAbs）を出発点に md-to-md リンクを BFS で辿り、
  * 「自note内（sourceMdDir 配下）に実在する複製対象 md（起点除く）」の closure と、
  * 「自note外/解決不能を指したリンク先絶対パス」の external を返す。
@@ -230,6 +240,7 @@ function copyAssetsAndRewriteForMd(
     destFileDir: string,
     destMdAbs: string,
     imgCopier?: (srcAbs: string, desiredName: string) => string,
+    restrictSourceRoots?: string[],
 ): string {
     const destMdDir = path.dirname(destMdAbs);
     const refs = extractAllAssetRefs(body);
@@ -247,6 +258,7 @@ function copyAssetsAndRewriteForMd(
     for (const ref of refs.images.filter(p => !isDrawio(p))) {
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) continue;
+        if (!isRefUnderRoots(src, restrictSourceRoots)) continue; // SEC-1: roots 外は複製しない（書換なし温存）
         const destAbs = copyImg(path.resolve(src), `copy-${Date.now()}-${path.basename(ref)}`);
         renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
@@ -255,6 +267,7 @@ function copyAssetsAndRewriteForMd(
     for (const ref of fileLikeRefs) {
         const src = path.resolve(curDir, ref);
         if (!fs.existsSync(src)) continue;
+        if (!isRefUnderRoots(src, restrictSourceRoots)) continue; // SEC-1: roots 外は複製しない
         const originalName = path.basename(ref);
         const lower = originalName.toLowerCase();
         const isMultiExt = lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
@@ -461,44 +474,12 @@ export function handlePageAssets(opts: {
         const sourceMdDir = opts.srcPagesDir;
         const syntheticRoot = path.join(sourceMdDir, '__page_paste_root__.md');
         const { closure } = collectMdLinkClosure(syntheticRoot, sourceMdDir, mdContent);
-        if (closure.length > 0) ensureDir(opts.destPagesDir);
-        const closureNameMap = new Map<string, string>(); // srcAbs → destMdDir 基準 rel
-        const closureDestAbs = new Map<string, string>();  // srcAbs → destAbs
-        for (const srcAbs of closure) {
-            const uniqueName = generateUniqueFileNamePreserving(opts.destPagesDir, path.basename(srcAbs));
-            const destAbs = path.join(opts.destPagesDir, uniqueName);
-            try { fs.copyFileSync(srcAbs, destAbs); } catch { continue; }
-            closureNameMap.set(srcAbs, path.relative(opts.destPagesDir, destAbs).replace(/\\/g, '/'));
-            closureDestAbs.set(srcAbs, destAbs);
-        }
+        // closure 複製（uniquify 予約 → 複製 → 資産複製 + リンク書換）はエンジンに集約（TASK-04）。
+        const closureNameMap = replicateMdClosureToDest({
+            closure, destMdDir: opts.destPagesDir, destImageDir: destImagesDir, destFileDir: destFilesDir,
+        });
         // 起点(newMdContent) の md-link のみ書換（★LOW-1: 起点の画像/添付は scope2 で処理済み・二重処理しない）
         newMdContent = rewriteMdLinksInBody(newMdContent, sourceMdDir, opts.destPagesDir, closureNameMap);
-        // closure 各複製 md をフル処理（画像/添付複製 + 全リンク書換）。
-        // 起点 md に画像が無いケースでも closure md の画像を受けられるよう images/files を事前作成する
-        // （copyAssetsAndRewriteForMd は destImageDir を ensureDir しないため）。
-        if (closureDestAbs.size > 0) {
-            ensureDir(destImagesDir);
-            ensureDir(destFilesDir);
-        }
-        // closure md 群で 1 つの copier を共有: 別 closure md が同名の別画像を持つ時、
-        // 同じ used セット + srcAbs dedup で連番退避しないと衝突する（1:1 所有権保証）。
-        const closureImgCopier = makeUniqueImageCopier(destImagesDir);
-        for (const srcAbs of closure) {
-            const destAbs = closureDestAbs.get(srcAbs);
-            if (!destAbs) continue;
-            const curDir = path.dirname(srcAbs); // resolve 基準 = その md 自身の dir（= srcPagesDir）
-            let body = '';
-            try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
-            body = copyAssetsAndRewriteForMd(
-                body, curDir,
-                destImagesDir,
-                destFilesDir,
-                destAbs,
-                closureImgCopier,
-            );
-            body = rewriteMdLinksInBody(body, curDir, opts.destPagesDir, closureNameMap);
-            try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
-        }
     }
 
     try { fs.writeFileSync(destMdPath, newMdContent, 'utf8'); } catch { /* ignore */ }
@@ -823,6 +804,172 @@ export function generateUniqueFileNamePreserving(targetDir: string, originalName
 }
 
 /**
+ * md closure 複製エンジン（sprint 20260819-231621 TASK-03 — copyMdPasteAssets フェーズ B と
+ * handlePageAssets mdLinks ブロックの逐語重複 ~35 行 × 2 を集約）。
+ * closure 各 md を destMdDir へ uniquify 複製し、各複製 md の資産（画像/📎）を
+ * destImage/FileDir へ複製 + 全リンクを dest 相対で書換える。
+ * closure の収集（collectMdLinkClosure・syntheticRoot）と起点 md のリンク書換は
+ * 呼び出し側の責務（返り値 closureNameMap を rewriteMdLinksInBody に渡す）。
+ * @returns closureNameMap: srcAbs → destMdDir 基準の複製先相対パス（'/' 区切り）
+ */
+export function replicateMdClosureToDest(opts: {
+    closure: string[];
+    destMdDir: string;
+    destImageDir: string;
+    destFileDir: string;
+    restrictSourceRoots?: string[]; // SEC-1: closure member の資産参照にも source containment を通す
+}): Map<string, string> {
+    const { closure, destMdDir, destImageDir, destFileDir } = opts;
+    if (closure.length > 0) ensureDir(destMdDir);
+    const closureNameMap = new Map<string, string>(); // srcAbs → destRelFromDestMdDir ('/' 区切り)
+    const closureDestAbs = new Map<string, string>(); // srcAbs → destAbs
+    for (const srcAbs of closure) {
+        const uniqueName = generateUniqueFileNamePreserving(destMdDir, path.basename(srcAbs));
+        const destAbs = path.join(destMdDir, uniqueName);
+        try {
+            fs.copyFileSync(srcAbs, destAbs);
+        } catch {
+            continue;
+        }
+        closureNameMap.set(srcAbs, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
+        closureDestAbs.set(srcAbs, destAbs);
+    }
+    // 起点 md に画像/添付が無いケースでも closure md の資産を受けられるよう dest dir を事前作成
+    // （copyAssetsAndRewriteForMd / copier は destImageDir を ensureDir しないため）。
+    if (closureDestAbs.size > 0) {
+        ensureDir(destImageDir);
+        ensureDir(destFileDir);
+    }
+    // closure md 群で 1 つの copier を共有（別 md が同名別画像を持っても連番退避で別ファイル化 = 1:1 所有権保証）。
+    const closureImgCopier = makeUniqueImageCopier(destImageDir);
+    for (const srcAbs of closure) {
+        const destAbs = closureDestAbs.get(srcAbs);
+        if (!destAbs) continue; // 複製失敗はスキップ
+        const curSrcDir = path.dirname(srcAbs); // ★resolve 基準 = その md 自身の dir
+        let body = '';
+        try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
+        body = copyAssetsAndRewriteForMd(body, curSrcDir, destImageDir, destFileDir, destAbs, closureImgCopier, opts.restrictSourceRoots);
+        body = rewriteMdLinksInBody(body, curSrcDir, destMdDir, closureNameMap);
+        try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
+    }
+    return closureNameMap;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 随伴転送（sprint 20260820-063902 / ADRL-ACC-1）
+// md ファイルを資産（images / 📎files / subpage 再帰閉包）ごと dest 座標へ複製する adapter。
+// 実体は copyMdPasteAssets（正典・無改造）— 座標指定だけでフラット⇄隣接（fv）レイアウト変換が
+// 成立する。copy semantics（source 不触 — 移動の source 側処理は呼び出し面の責務 = 2 段構成）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TransferCoords {
+    sourceMdDir: string;
+    sourceImageDir: string;
+    sourceFileDir: string;
+    destMdDir: string;
+    destImageDir: string;
+    destFileDir: string;
+}
+
+/** 座標半組（source/dest どちらか片側）。noteCoords / adjacentCoords / mdCoords が返す共通形 */
+export interface CoordHalf { mdDir: string; imageDir: string; fileDir: string }
+
+/** note フラット座標（共有 images//files/ + note 直下）。flat-layout 正典 resolver の束ね */
+export function noteCoords(mainFolderAbs: string): CoordHalf {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const flatLayout = require('./flat-layout');
+    return {
+        mdDir: flatLayout.resolveMdRootDir(mainFolderAbs),
+        imageDir: flatLayout.resolveMdImagesDir(mainFolderAbs),
+        fileDir: flatLayout.resolveMdFilesDir(mainFolderAbs),
+    };
+}
+
+/** 隣接座標（fv / md 隣の images//files/ — resolveImagesDirForMd と同型の dirname ベース） */
+export function adjacentCoords(mdDirAbs: string): CoordHalf {
+    return {
+        mdDir: mdDirAbs,
+        imageDir: path.join(mdDirAbs, 'images'),
+        fileDir: path.join(mdDirAbs, 'files'),
+    };
+}
+
+/** md 自身の座標半組（resolve*ForMd 正典 — flat note では共有 dir・legacy pages/ でも親共有 dir に解決） */
+export function mdCoords(mdAbs: string): CoordHalf {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const flatLayout = require('./flat-layout');
+    return {
+        mdDir: path.dirname(mdAbs),
+        imageDir: flatLayout.resolveImagesDirForMd(mdAbs),
+        fileDir: flatLayout.resolveFilesDirForMd(mdAbs),
+    };
+}
+
+/** source/dest の座標半組から TransferCoords を組む（半組の生成は noteCoords / adjacentCoords / mdCoords に一本化 — reviewer iter1 QUAL-1/DESIGN-1） */
+export function makeTransferCoords(src: CoordHalf, dest: CoordHalf): TransferCoords {
+    return {
+        sourceMdDir: src.mdDir, sourceImageDir: src.imageDir, sourceFileDir: src.fileDir,
+        destMdDir: dest.mdDir, destImageDir: dest.imageDir, destFileDir: dest.fileDir,
+    };
+}
+
+/**
+ * md ファイルを資産随伴で dest へ複製（FR-ACC-01）。
+ * - 随伴内容・命名・closure 再帰は copyMdPasteAssets の既存挙動そのまま
+ *   （画像 = copy-<ts>- prefix / 📎・closure md = 元名維持 + -N uniquify・参照リンクは書換のみ）
+ * - dest の images//files/ は資産がある時のみ作成（正典挙動）
+ * - throw = source 不在 / 書込失敗（呼び出し側の既存 catch 経路に乗せる — 新 message を足さない）
+ */
+export function transferMdWithAssets(
+    srcMdAbs: string,
+    coords: TransferCoords,
+    preferredName?: string,
+    // NFR-ACC-02b rev2: fv 起点移動は linkedfd root を追加 root として許容（linkedfd 内共有フォルダ運用の随伴）
+    opts?: { extraSourceRoots?: string[] }
+): { destMdPath: string; newName: string } {
+    if (!fs.existsSync(srcMdAbs) || !fs.statSync(srcMdAbs).isFile()) {
+        throw new Error(`transferMdWithAssets: source not found: ${srcMdAbs}`);
+    }
+    const body = fs.readFileSync(srcMdAbs, 'utf8');
+    const { rewrittenMarkdown } = copyMdPasteAssets({
+        markdown: body,
+        sourceMdDir: coords.sourceMdDir,
+        sourceImageDir: coords.sourceImageDir,
+        sourceFileDir: coords.sourceFileDir,
+        destImageDir: coords.destImageDir,
+        destFileDir: coords.destFileDir,
+        destMdDir: coords.destMdDir,
+        // SEC-1: ディスク上の md 本文は非信頼入力 — 資産の読取は source 座標 3 dir（+ 呼び出し面が明示した追加 root）に contain する
+        restrictSourceRoots: [coords.sourceMdDir, coords.sourceImageDir, coords.sourceFileDir, ...(opts?.extraSourceRoots || [])],
+    });
+    ensureDir(coords.destMdDir);
+    const newName = generateUniqueFileNamePreserving(
+        coords.destMdDir,
+        path.basename(preferredName || path.basename(srcMdAbs))
+    );
+    const destMdPath = path.join(coords.destMdDir, newName);
+    fs.writeFileSync(destMdPath, rewrittenMarkdown, 'utf8');
+    return { destMdPath, newName };
+}
+
+/**
+ * file 実体コピーの正典（uniquify + copyFileSync — sprint 20260819-231621 TASK-01 で
+ * notes-message-handler の module-local から export 移設。uniquify 正典の隣が置き場）。
+ * 成功 = dst 絶対パス / 失敗 = null（元は無傷・例外は swallow — folder-view 系の既存契約を維持）。
+ */
+export function copyEntityWithUniquify(srcAbs: string, dstDirAbs: string, preferredName: string): string | null {
+    try {
+        const uniqueName = generateUniqueFileNamePreserving(dstDirAbs, preferredName);
+        const dstAbs = path.join(dstDirAbs, uniqueName);
+        fs.copyFileSync(srcAbs, dstAbs);
+        if (!fs.existsSync(dstAbs)) { return null; }
+        return dstAbs;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * MD paste asset copy: extract image/file links from markdown, copy assets to dest, rewrite paths.
  * Used by MD editor copy/paste (side panel cross-outliner paste).
  */
@@ -959,6 +1106,11 @@ export function copyMdPasteAssets(opts: {
     destImageDir: string;
     destFileDir: string;
     destMdDir: string;
+    /** SEC-1（reviewer iter1）: 指定時、解決済み資産参照が roots 配下でなければ複製しない（書換なし温存）。
+     *  未指定 = 制限なし — clipboard paste 直接経路の「絶対パス入力でも複製」pin（cross-outliner /
+     *  location-matrix spec）を壊さないための opt-in。ディスク上の md 本文を流す構造的操作
+     *  （transferMdWithAssets 経由の Duplicate / D&D / Move）だけが指定する。 */
+    restrictSourceRoots?: string[];
 }): MdPasteAssetResult {
     // Step 1: webview URL 接頭辞を strip して、後段が絶対パスとして扱えるようにする
     let rewrittenMarkdown = stripWebviewUrlPrefixes(opts.markdown);
@@ -997,6 +1149,7 @@ export function copyMdPasteAssets(opts: {
         if (!fs.existsSync(srcAbsolute)) {
             continue; // Skip missing files
         }
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
 
         const originalName = path.basename(imagePath);
         const destAbsolute = copyImg(path.resolve(srcAbsolute), `copy-${timestamp}-${originalName}`);
@@ -1011,6 +1164,7 @@ export function copyMdPasteAssets(opts: {
     for (const drawioPath of drawioImagePaths) {
         const srcAbsolute = path.resolve(opts.sourceMdDir, drawioPath);
         if (!fs.existsSync(srcAbsolute)) continue;
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
         const originalName = path.basename(drawioPath);
         const uniqueName = buildUniqueDrawioName(originalName, (n) =>
             fs.existsSync(path.join(opts.destFileDir, n))
@@ -1036,6 +1190,7 @@ export function copyMdPasteAssets(opts: {
         if (!fs.existsSync(srcAbsolute)) {
             continue; // Skip missing files
         }
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
 
         const originalName = path.basename(filePath);
         const uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
@@ -1063,55 +1218,17 @@ export function copyMdPasteAssets(opts: {
     const syntheticRootAbs = path.join(opts.sourceMdDir, '__paste_root__.md');
     const { closure } = collectMdLinkClosure(syntheticRootAbs, opts.sourceMdDir, opts.markdown);
 
-    // フェーズ B-0: closure 各 md を dest へ複製し、srcAbs → dest 相対パス(destMdDir 基準) を確定
-    if (closure.length > 0) ensureDir(opts.destMdDir);
-    const closureNameMap = new Map<string, string>(); // srcAbs → destRelFromDestMdDir ('/' 区切り)
-    const closureDestAbs = new Map<string, string>(); // srcAbs → destAbs
-    for (const srcAbs of closure) {
-        const originalName = path.basename(srcAbs);
-        const uniqueName = generateUniqueFileNamePreserving(opts.destMdDir, originalName);
-        const destAbs = path.join(opts.destMdDir, uniqueName);
-        try {
-            fs.copyFileSync(srcAbs, destAbs);
-        } catch {
-            continue;
-        }
-        closureNameMap.set(srcAbs, path.relative(opts.destMdDir, destAbs).replace(/\\/g, '/'));
-        closureDestAbs.set(srcAbs, destAbs);
-    }
+    // closure 複製（uniquify 予約 → 複製 → 資産複製 + リンク書換）はエンジンに集約（TASK-03）。
+    const closureNameMap = replicateMdClosureToDest({
+        closure, destMdDir: opts.destMdDir, destImageDir: opts.destImageDir, destFileDir: opts.destFileDir,
+        restrictSourceRoots: opts.restrictSourceRoots,
+    });
 
-    // フェーズ B-2: 起点 md（rewrittenMarkdown）+ closure 各複製 md の本文を per-md 書換。
-    //   - md-link(closure 内) → closureNameMap の dest 相対
-    //   - md-link(external / 自note外) → dest から元 md への相対パス（絶対パスにしない）
-    //   - 画像/添付 → dest の複製先（closure md 分も複製）
-    // 起点は sourceMdDir 基準（既に上で画像/添付/rewrittenMarkdown を処理済み）なので、
-    // ここでは起点の md-link 書換のみ行い、closure md はフル処理する。
+    // 起点 md（rewrittenMarkdown）の md-link 書換のみ呼び出し側で実施
+    //（起点の画像/添付は上で処理済み — closure 内→dest 相対 / external→dest からの相対）。
     rewrittenMarkdown = rewriteMdLinksInBody(
         rewrittenMarkdown, opts.sourceMdDir, opts.destMdDir, closureNameMap,
     );
-
-    // closure 各複製 md をフル処理（画像/添付複製 + 全リンク書換）
-    // 起点 md に画像/添付が無いケース（imagePaths/filePaths が空で上の ensureDir を通っていない）でも
-    // closure md の画像/添付を受けられるよう、dest image/file dir を事前作成する
-    // （copyAssetsAndRewriteForMd / copier は destImageDir を ensureDir しないため）。
-    if (closureDestAbs.size > 0) {
-        ensureDir(opts.destImageDir);
-        ensureDir(opts.destFileDir);
-    }
-    // closure md 群で 1 つの copier を共有（別 md が同名別画像を持っても連番退避で別ファイル化 = 1:1 所有権保証）。
-    const closureImgCopier = makeUniqueImageCopier(opts.destImageDir);
-    for (const srcAbs of closure) {
-        const destAbs = closureDestAbs.get(srcAbs);
-        if (!destAbs) continue; // 複製失敗はスキップ
-        const curSrcDir = path.dirname(srcAbs); // ★resolve 基準 = その md 自身の dir
-        let body = '';
-        try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
-        // 画像/添付を dest へ複製 + 本文書換（起点と同じ dest image/file dir を共有）
-        body = copyAssetsAndRewriteForMd(body, curSrcDir, opts.destImageDir, opts.destFileDir, destAbs, closureImgCopier);
-        // md-link を書換（closure→dest 相対 / external→dest からの相対）
-        body = rewriteMdLinksInBody(body, curSrcDir, opts.destMdDir, closureNameMap);
-        try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
-    }
 
     return { rewrittenMarkdown };
 }
@@ -1539,6 +1656,7 @@ export function duplicateMdEntity(mdPathAbs: string, noteDirAbs?: string): { new
             if (path.isAbsolute(rel)) continue; // 絶対パス参照は複製対象外（所有外）
             const srcAbs = path.resolve(dir, rel);
             if (!fs.existsSync(srcAbs)) continue; // 欠損参照は skip（既存の best-effort 流儀）
+            if (!isUnderNoteDir(srcAbs, noteDir)) continue; // SEC-1: `../` escape も所有外（境界 = noteDir。外部 dir への複製書込を遮断）
             const assetDir = path.dirname(srcAbs);
             const newName = generateUniqueFileNamePreserving(assetDir, path.basename(srcAbs));
             fs.copyFileSync(srcAbs, path.join(assetDir, newName));

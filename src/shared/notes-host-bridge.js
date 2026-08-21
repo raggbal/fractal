@@ -678,6 +678,12 @@
         folderViewList: function(id, relPath) {
             api.postMessage({ type: 'folderViewList', id: id, relPath: relPath || '' });
         },
+        folderViewClosed: function(id) {
+            api.postMessage({ type: 'folderViewClosed', id: id });
+        },
+        folderViewToggleHidden: function(id) {
+            api.postMessage({ type: 'folderViewToggleHidden', id: id });
+        },
         folderViewSearch: function(id, query) {
             api.postMessage({ type: 'folderViewSearch', id: id, query: query || '' });
         },
@@ -696,6 +702,9 @@
         },
         folderViewDelete: function(id, relPath) {
             api.postMessage({ type: 'folderViewDelete', id: id, relPath: relPath || '' });
+        },
+        folderViewDuplicate: function(id, relPath) {
+            api.postMessage({ type: 'folderViewDuplicate', id: id, relPath: relPath || '' });
         },
         folderViewMove: function(id, srcRelPath, dstDirRelPath) {
             api.postMessage({ type: 'folderViewMove', id: id, srcRelPath: srcRelPath || '', dstDirRelPath: dstDirRelPath || '' });

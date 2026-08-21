@@ -111,18 +111,23 @@ test.describe('uri-list チャネル（source-contract）', () => {
 // TC-DDX-06: md host の添付ファイル名 sanitize（FR-DDX-02・source-contract）
 // sprint 20260801-200307 (TASK-04, 許可: test_update): global `..` replace の廃止
 // （正当名破壊バグ）に伴い、期待を「basename + 厳密名ガード・global replace 不在」へ更新。
+// sprint 20260819-231621 (TASK-02, 許可: test_update — ユーザー裁定): editorProvider の
+// ローカル版は shared 正典へ統合され消滅（ADRL-0005 準拠化）。番人の対象を「shared 正典が
+// 防御を持つ + editorProvider にローカル版が存在しない（import 経由のみ）」へ更新。
 test.describe('md host sanitize（TC-DDX-06）', () => {
-    test('TC-DDX-06: local/shared 両版が basename + 厳密名ガードを持ち global .. replace が無い', () => {
+    test('TC-DDX-06: shared 正典が basename + 厳密名ガードを持ち global .. replace が無い（editorProvider はローカル版なし）', () => {
         const fs = require('fs');
-        for (const file of ['src/editorProvider.ts', 'src/shared/paste-asset-handler.ts']) {
-            const src = fs.readFileSync(path.join(ROOT, file), 'utf-8');
-            const fnIdx = src.indexOf('function generateUniqueFileNamePreserving');
-            expect(fnIdx, file).toBeGreaterThan(-1);
-            const block = src.slice(fnIdx, fnIdx + 900);
-            expect(block, file).toContain('path.basename');
-            expect(block, file).toContain("=== '..'"); // 厳密名ガード
-            expect(block.includes("replace(/\\.\\./g"), file).toBe(false); // 正当名破壊の global replace 不在
-        }
+        const src = fs.readFileSync(path.join(ROOT, 'src/shared/paste-asset-handler.ts'), 'utf-8');
+        const fnIdx = src.indexOf('function generateUniqueFileNamePreserving');
+        expect(fnIdx).toBeGreaterThan(-1);
+        const block = src.slice(fnIdx, fnIdx + 900);
+        expect(block).toContain('path.basename');
+        expect(block).toContain("=== '..'"); // 厳密名ガード
+        expect(block.includes("replace(/\\.\\./g")).toBe(false); // 正当名破壊の global replace 不在
+        // editorProvider はローカル再実装を持たず shared 正典を import する（重複防御の片落ちを構造排除）
+        const ep = fs.readFileSync(path.join(ROOT, 'src/editorProvider.ts'), 'utf-8');
+        expect(/\nfunction generateUniqueFileNamePreserving\(/.test(ep)).toBe(false);
+        expect(/import \{[^}]*generateUniqueFileNamePreserving[^}]*\} from '\.\/shared\/paste-asset-handler'/.test(ep)).toBe(true); // 位置非依存（QUAL-4）
     });
 });
 

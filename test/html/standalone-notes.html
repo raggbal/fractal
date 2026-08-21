@@ -31081,6 +31081,23 @@ class EditorInstance {
             return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
         }
 
+        // vscode-remote:// URI → fs パス（vscode server / Remote の Explorer drag — FR-RMT-01）。
+        // host 正典 droppedUriToFsPath（drop-import.ts）と同規則の最小ミラー: authority を除いた
+        // path 成分を decode + Windows ドライブ先頭スラッシュ剥がし（webview は host TS を import
+        // 不能のため。規則一致は TC-RMT-01/04 が両側から pin）。
+        function decodeVscodeRemoteUriToPath(uri) {
+            const rest = uri.substring('vscode-remote://'.length);
+            const slash = rest.indexOf('/');
+            if (slash < 0) return null;
+            // query/fragment は path 成分に含めない（URL.pathname 意味論）— host 正典と同規則
+            const rawPath = rest.substring(slash).split(/[?#]/)[0];
+            // encoded path separator（%2F/%5C）は拒否（host 正典 = SEC-1 ガードと同規則）
+            if (/%2F|%5C/i.test(rawPath)) return null;
+            let p = decodeURIComponent(rawPath);
+            if (/^\/[A-Za-z]:[\\/]/.test(p)) p = p.substring(1); // Windows drive letter
+            return p;
+        }
+
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
             const uris = uriList.split('\n').filter(u => u.trim());
@@ -31090,6 +31107,14 @@ class EditorInstance {
                     filePath = decodedPath;
                     pathFileName = basenameOfPath(decodedPath);
                     break;
+                }
+                if (uri.startsWith('vscode-remote://')) {
+                    const decodedPath = decodeVscodeRemoteUriToPath(uri);
+                    if (decodedPath) {
+                        filePath = decodedPath;
+                        pathFileName = basenameOfPath(decodedPath);
+                        break;
+                    }
                 }
             }
         }
@@ -57126,6 +57151,16 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     // showFolderView が隠す直前の pane display 値（one-shot: show で保存 → hide で復元 + null 化。
     // 連続 show では最初の保存を保持 — 2 回目は既に 'none' なので上書きすると復元先が失われる）
     let savedPaneDisplay = null;
+    // FR-FLV-33: 表示中の folder link id（host の watcher dispose 契機 = folderViewClosed 通知に使う）
+    let shownLinkId = null;
+
+    function notifyClosed(linkId) {
+        try {
+            if (linkId && window.notesHostBridge && typeof window.notesHostBridge.folderViewClosed === 'function') {
+                window.notesHostBridge.folderViewClosed(linkId);
+            }
+        } catch (e) { /* bridge 不在（standalone 等）は正常 */ }
+    }
 
     function ensureContainer() {
         if (folderViewContainer && document.body.contains(folderViewContainer)) { return folderViewContainer; }
@@ -57174,6 +57209,9 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 window.__viewerDispatcher.hideViewer();
             }
         } catch (e) { /* viewer dispatcher 不在は正常 */ }
+        // FR-FLV-33: 別 link への切替は旧 link の監視を止める（host へ closed 通知）
+        if (shownLinkId && shownLinkId !== folderLinkId) { notifyClosed(shownLinkId); }
+        shownLinkId = folderLinkId;
         const container = ensureContainer();
         // 表示前に必ず再構築（stale 防止 — 前回の内容を持ち越さない）
         container.textContent = '';
@@ -57204,6 +57242,8 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     /** フォルダビューを隠し DOM を破棄（showOutliner/showMarkdown/showViewer の hook から呼ばれる） */
     function hideFolderView() {
         if (!folderViewContainer) { return; }
+        // FR-FLV-33: fv を隠す = 監視停止（host が watcher を dispose。再表示時の root list で再 ensure される）
+        if (shownLinkId) { notifyClosed(shownLinkId); shownLinkId = null; }
         folderViewContainer.style.display = 'none';
         if (window.__folderView) { window.__folderView.destroy(); }
         folderViewContainer.textContent = '';
@@ -57285,6 +57325,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     var currentLinkId = null;
     var currentTitle = '';
     var childrenByRel = {};   // relPath('' = root) → entries[]（host 応答キャッシュ。リフレッシュで上書き）
+    var hiddenToggleBtn = null; // FR-FLV-31 トグルボタン（listResult.showHidden で active 復元）
     var expanded = {};        // relPath → true
     var selectedRel = null;
     var visibleRows = [];     // keyboard ナビ用の描画順 relPath 配列
@@ -57345,6 +57386,10 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             '.fv-refresh { background:transparent; border:none; border-radius:4px; cursor:pointer;',
             '  color: var(--outliner-fg); padding:4px 5px; opacity:0.5; }',
             '.fv-refresh:hover { opacity:1; background: var(--outliner-hover-bg); }',
+            '.fv-hidden-toggle { background:transparent; border:none; border-radius:4px; cursor:pointer; opacity:0.55; }',
+            '.fv-hidden-toggle:hover { opacity:1; background: var(--outliner-hover-bg); }',
+            '.fv-hidden-toggle.active { opacity:1; color: var(--vscode-textLink-foreground); }',
+            '.fv-file-icon { cursor:pointer; }',
             '.fv-tree { flex:1 1 auto; overflow:auto; padding:6px 0; outline:none; }',
             '.fv-row { display:flex; align-items:center; gap:4px; padding:2px 8px; cursor:default;',
             '  line-height:20px; white-space:nowrap; }',
@@ -57440,9 +57485,28 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         // outliner ツールバーの他ボタンと同じ 13x13 lucide SVG（テキスト glyph は小さすぎた — 再修正 2026-08-18）
         refreshBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>';
         refreshBtn.addEventListener('click', function () { refresh(); });
+        // FR-FLV-31: 隠しファイル表示トグル（状態は host sidecar が真実 — listResult.showHidden で復元）
+        hiddenToggleBtn = document.createElement('button');
+        hiddenToggleBtn.className = 'fv-hidden-toggle';
+        hiddenToggleBtn.title = i18n().notesShowHiddenFiles || 'Show hidden files';
+        hiddenToggleBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+        hiddenToggleBtn.addEventListener('click', function () {
+            if (!bridge().folderViewToggleHidden) { return; }
+            bridge().folderViewToggleHidden(currentLinkId);
+            // TC-FLV-73（ユーザー報告）: filter が変わる = 全キャッシュを破棄して全面 reload（ON/OFF 両方向）。
+            // host の toggle 応答は root のみなので、展開中 dir はここで再要求し、閉じ dir は
+            // キャッシュ破棄で「次の展開時に新 filter で再要求」させる。postMessage は直列なので
+            // toggle（sidecar 保存）→ 以下の list 要求の順で処理され、応答は全て新 filter になる
+            childrenByRel = {};
+            Object.keys(expanded).forEach(function (rel) {
+                if (expanded[rel]) { requestList(rel); }
+            });
+            if (searchQuery && bridge().folderViewSearch) { bridge().folderViewSearch(currentLinkId, searchQuery); }
+        });
         header.appendChild(titleEl);
         header.appendChild(searchInput);
         header.appendChild(refreshBtn);
+        header.appendChild(hiddenToggleBtn);
 
         treeEl = document.createElement('div');
         treeEl.className = 'fv-tree';
@@ -57511,6 +57575,10 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 return;
             }
             childrenByRel[msg.relPath || ''] = msg.entries || [];
+            // FR-FLV-31: host sidecar の showHidden をボタン表示に反映
+            if (hiddenToggleBtn && typeof msg.showHidden === 'boolean') {
+                hiddenToggleBtn.classList.toggle('active', msg.showHidden);
+            }
             // FR-FLV-26: root 応答の savedExpanded を取り込み lazy 展開（現状 fs 優先は host 側でフィルタ済み）
             if ((msg.relPath || '') === '' && Array.isArray(msg.savedExpanded)) {
                 msg.savedExpanded.forEach(function (rel) {
@@ -57577,6 +57645,11 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             // e.target === chevron だと子要素（.fv-tri/.fv-dot）を踏んだとき外れる — closest 判定に修正（2026-08-18）
             var onChevron = e.target && e.target.closest && e.target.closest('.fv-chevron');
             if (entry.isDir && onChevron) { toggleDir(entry.relPath); }
+            // FR-FLV-32: ファイル行の 📄/📎 アイコン click = open（dblclick と同一経路。chevron と同型の closest 判定）
+            var onIcon = e.target && e.target.closest && e.target.closest('.fv-file-icon');
+            if (!entry.isDir && onIcon && bridge().folderViewOpen) {
+                bridge().folderViewOpen(currentLinkId, entry.relPath);
+            }
         });
         row.addEventListener('dblclick', function () {
             if (entry.isDir) {
@@ -58020,6 +58093,12 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             addMenuItem(m.copyPath || 'Copy Path', function () {
                 if (bridge().folderViewCopyEntryPath) { bridge().folderViewCopyEntryPath(currentLinkId, entry.relPath); }
             });
+            if (!entry.isDir) {
+                // FR-ACC-04: md/file エントリのみ（dir は非対応 — ADRL-ACC-3）。i18n は既存キー再利用
+                addMenuItem(m.notesDuplicateItem || 'Duplicate', function () {
+                    if (bridge().folderViewDuplicate) { bridge().folderViewDuplicate(currentLinkId, entry.relPath); }
+                });
+            }
             addMenuItem(m.notesDelete || 'Delete', function () {
                 if (bridge().folderViewDelete) { bridge().folderViewDelete(currentLinkId, entry.relPath); }
             }, true);

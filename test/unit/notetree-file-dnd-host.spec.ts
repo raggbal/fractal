@@ -516,7 +516,7 @@ test.describe('tree file item host D&D 経路（seam）', () => {
             fm,
             [
                 toUri(mdSrc),                          // → registerMarkdownFile
-                'vscode-remote://wsl/etc/hosts',       // 非 file: scheme → skip
+                'http://example.com/skip.md',          // 非 file:/vscode-remote: scheme → skip（sprint 20260820-034017 許可: test_update — vscode-remote は FR-RMT-01 で受理対象化）
                 toUri(path.join(srcDir, 'missing.txt')), // 不存在 → skip
                 toUri(subDir),                         // ディレクトリ → skip
                 toUri(pdfSrc),                         // → registerTreeFile
@@ -818,4 +818,133 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         expect(msgs.find((m) => m.type === 'removeSubpageLink')).toBeTruthy();
     });
 
+});
+
+// ─── TC-SRC-01..04: registerSubpageFromMdCore の兄弟正典合流（sprint 20260819-210558 TASK-01） ───
+// md subpage リンク → tree D&D の host 実処理。clamp は importMdSubpageIntoOut / linkMdSubpageToMd と
+// 同型（srcMainFolder = dirname(resolveFilesDirForMd(sourceMd)) 基準の safeResolveUnderDir）、
+// 元アンカー除去は removeMdAnchorFromFile（fs 正典）+ removeSubpageLink エコーの 2 段。
+
+/** notesEditorProvider を対称 purge 付き vscode stub で require（2026-08-17 failures: 前後 purge 必須） */
+function requireNepWithStub(): any {
+    const SRC_PREFIX2 = path.join(__dirname, '..', '..', 'src') + path.sep;
+    const purge = () => {
+        for (const k of Object.keys(require.cache)) {
+            if (k.startsWith(SRC_PREFIX2)) delete require.cache[k];
+        }
+    };
+    const prevLoad = (Module as any)._load;
+    purge();
+    (Module as any)._load = function (request: string) {
+        if (request === 'vscode') {
+            return {
+                workspace: { getConfiguration: () => ({ get: () => undefined }), fs: { delete: async () => {} } },
+                Uri: { file: (p: string) => ({ fsPath: p }), joinPath: () => ({}) },
+                commands: { executeCommand: () => {} },
+                window: { showErrorMessage: () => {}, showInformationMessage: () => {}, showWarningMessage: () => {} },
+                env: {}, ViewColumn: {}, EventEmitter: class {},
+            };
+        }
+        // eslint-disable-next-line prefer-rest-params
+        return prevLoad.apply(this, arguments as any);
+    };
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require('../../src/notesEditorProvider');
+    } finally {
+        (Module as any)._load = prevLoad;
+        purge();
+    }
+}
+
+function mkSubpageFixture() {
+    const note = fs.mkdtempSync(path.join(os.tmpdir(), 'src-note-'));
+    const nep = requireNepWithStub();
+    // NotesFileManager は nep と同一モジュールツリーの実装を使う（purge 後の再ロードでも duck-typing で互換）
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { NotesFileManager: FM } = require('../../src/shared/notes-file-manager');
+    const fm = new FM(note);
+    fm.getStructure(); // 台帳初期化
+    const msgs: any[] = [];
+    const sender = { postMessage: (m: any) => { msgs.push(m); } } as any;
+    const mdCount = () => (Object.values(fm.getStructure().items) as any[]).filter((it) => it.ext === 'md').length;
+    return { note, nep, fm, msgs, sender, mdCount };
+}
+
+test('TC-SRC-01 clamp counterfactual: note 外の絶対パス href / encode 済み traversal は登録されない（副作用ゼロ）', () => {
+    const { note, nep, fm, msgs, sender, mdCount } = mkSubpageFixture();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'src-outside-'));
+    fs.writeFileSync(path.join(outside, 'secret.md'), '# Secret\n', 'utf8');
+    const srcMd = path.join(note, 'source.md');
+    fs.writeFileSync(srcMd, `[[Secret]](${path.join(outside, 'secret.md')})\n`, 'utf8');
+    const before = mdCount();
+
+    // (a) 絶対パス href（note 外）
+    nep.registerSubpageFromMdCore(fm, { href: path.join(outside, 'secret.md'), sourceMdPath: srcMd }, null, 0, sender);
+    expect(mdCount(), '絶対パス href が複製登録された（clamp 不在）').toBe(before);
+
+    // (b) encode 済み traversal（../ を %2F で偽装 — decode 後に note 外へ抜ける）
+    fs.writeFileSync(path.join(path.dirname(note), 'sibling-secret.md'), '# Sib\n', 'utf8');
+    nep.registerSubpageFromMdCore(fm, { href: '..%2Fsibling-secret.md', sourceMdPath: srcMd }, null, 0, sender);
+    expect(mdCount(), 'encode 済み traversal が通った').toBe(before);
+    // 拒否時は副作用ゼロ（登録系 message も飛ばない）
+    expect(msgs.filter((m) => m.type === 'notesFileListChanged').length).toBe(0);
+});
+
+test('TC-SRC-02 clamp: note 外相対は拒否・note 内サブ相対は従来どおり登録成功（pin）', () => {
+    const { note, nep, fm, msgs, sender, mdCount } = mkSubpageFixture();
+    const srcMd = path.join(note, 'source.md');
+    fs.writeFileSync(path.join(note, 'sub.md'), '# Sub Page\n', 'utf8');
+    fs.writeFileSync(srcMd, '[[Sub]](sub.md)\n[[X]](../outside-x.md)\n', 'utf8');
+    fs.writeFileSync(path.join(path.dirname(note), 'outside-x.md'), '# X\n', 'utf8');
+    const before = mdCount();
+
+    // note 外相対 → 拒否
+    nep.registerSubpageFromMdCore(fm, { href: '../outside-x.md', sourceMdPath: srcMd }, null, 0, sender);
+    expect(mdCount(), 'note 外相対 href が通った').toBe(before);
+
+    // note 内（flat 同一 note）→ 無コピー登録（既存挙動の pin）
+    nep.registerSubpageFromMdCore(fm, { href: 'sub.md', sourceMdPath: srcMd }, null, 0, sender);
+    expect(mdCount()).toBe(before + 1);
+    const item: any = (Object.values(fm.getStructure().items) as any[]).find((it) => it.ext === 'md' && it.id === 'sub');
+    expect(item, 'flat 同一 note は既存ファイルをそのまま登録（id=stem）').toBeTruthy();
+    expect(item.title).toBe('Sub Page');
+    expect(msgs.filter((m) => m.type === 'notesFileListChanged').length).toBe(1);
+});
+
+test('TC-SRC-03 別 note copy-in の維持: source note 境界内 href は mainFolder へ複製登録される（regression pin）', () => {
+    const { note, nep, fm, mdCount } = mkSubpageFixture();
+    const { sender } = { sender: { postMessage: () => {} } as any };
+    // source md は別 note（note2）内・href は note2 境界内
+    const note2 = fs.mkdtempSync(path.join(os.tmpdir(), 'src-note2-'));
+    fs.writeFileSync(path.join(note2, 'other-sub.md'), '# Other Sub\n', 'utf8');
+    const srcMd2 = path.join(note2, 'source2.md');
+    fs.writeFileSync(srcMd2, '[[Other Sub]](other-sub.md)\n', 'utf8');
+    const before = mdCount();
+
+    nep.registerSubpageFromMdCore(fm, { href: 'other-sub.md', sourceMdPath: srcMd2 }, null, 0, sender);
+    expect(mdCount(), '別 note copy-in が壊れた（clamp の過剰拒否）').toBe(before + 1);
+    const item: any = (Object.values(fm.getStructure().items) as any[]).find((it: any) => it.ext === 'md' && it.title === 'Other Sub');
+    expect(item).toBeTruthy();
+    // 複製登録（元ファイル不変）
+    expect(fs.readFileSync(path.join(note2, 'other-sub.md'), 'utf8')).toBe('# Other Sub\n');
+});
+
+test('TC-SRC-04 元アンカー除去の 2 段化: fs 実体から subpage アンカーが消える + removeSubpageLink エコー送出', () => {
+    const { note, nep, fm, msgs, sender } = mkSubpageFixture();
+    const srcMd = path.join(note, 'source.md');
+    fs.writeFileSync(path.join(note, 'sub.md'), '# Sub\n', 'utf8');
+    fs.writeFileSync(srcMd, 'before\n[[Sub]](sub.md)\nafter\n', 'utf8');
+
+    nep.registerSubpageFromMdCore(fm, { href: 'sub.md', sourceMdPath: srcMd }, null, 0, sender);
+    // fs が単一真実（source md のエディタ非生存でもアンカーが残らない — 兄弟 3 経路と同じ 2 段）
+    const after = fs.readFileSync(srcMd, 'utf8');
+    expect(after, 'fs 実体にアンカーが残留（webview エコーのみ = 取りこぼし 4 匹目）').not.toContain('(sub.md)');
+    expect(after).toContain('before');
+    expect(after).toContain('after');
+    // webview エコーも従来どおり
+    const echo = msgs.filter((m) => m.type === 'removeSubpageLink');
+    expect(echo.length).toBe(1);
+    expect(echo[0].href).toBe('sub.md');
+    expect(echo[0].sourceMdPath).toBe(srcMd);
 });

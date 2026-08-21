@@ -325,14 +325,16 @@ test.describe('DOD-12-29: processDropVscodeUrisImport uses existing importFiles/
         expect(pageFiles[0]).toMatch(/\.md$/);
     });
 
-    test('rejects non-file:// scheme URIs (e.g., vscode-remote://)', async () => {
-        const uris = ['vscode-remote://ssh-remote/home/user/file.pdf'];
+    test('rejects non-local scheme URIs (e.g., http://)', async () => {
+        // sprint 20260820-034017 (許可: test_update — FR-RMT-01): vscode-remote:// は受理対象化
+        // されたため、拒否 fixture を真の非対応 scheme（http://）へ差し替え（拒否形の assert は不変）。
+        const uris = ['http://example.com/file.pdf'];
         const results = await processDropVscodeUrisImport(uris, ctx);
 
         expect(results).toHaveLength(1);
         expect(results[0].ok).toBe(false);
         if (!results[0].ok) {
-            expect(results[0].error).toMatch(/remote|unsupported/i);
+            expect(results[0].error).toMatch(/unsupported/i);
         }
     });
 

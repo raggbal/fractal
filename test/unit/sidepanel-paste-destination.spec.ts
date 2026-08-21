@@ -156,3 +156,22 @@ test('TC-PDB-05d 後方互換: destination 無し message は undefined のま�
     expect(calls.length).toBe(1);
     expect(calls[0].destination).toBeUndefined();
 });
+
+// ─── TC-SRC-05: outlinerProvider の pasteWithAssetCopyResult destination echo（sprint 20260819-210558 TASK-02） ───
+// outlinerProvider の paste handler は resolveCustomTextEditor closure 内のため dispatch 手法
+// （TC-PDB-05 系）が届かない — 配線 grep 番人で pin する（TC-MDM-09p と同クラス。
+// echo パターンの behavioral 正しさは editorProvider/notesEditorProvider 側 TC が担保済み）。
+test('TC-SRC-05 outlinerProvider: pasteWithAssetCopy case の result postMessage に destination echo が実在', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs2 = require('fs');
+    const src: string = fs2.readFileSync(path.join(__dirname, '../../src/outlinerProvider.ts'), 'utf8');
+    const caseStart = src.indexOf("case 'pasteWithAssetCopy':");
+    expect(caseStart, "case 'pasteWithAssetCopy' 不在").toBeGreaterThan(-1);
+    const caseEnd = src.indexOf('case ', caseStart + 10);
+    const block = src.slice(caseStart, caseEnd);
+    // result postMessage が存在し、その中に destination echo がある
+    expect(block).toContain("type: 'pasteWithAssetCopyResult'");
+    // counterfactual: 現行実装は destination フィールド不在（editorProvider:1476 / notesEditorProvider:2038 は echo 済み）
+    expect(block.includes('destination: message.destination'),
+        'pasteWithAssetCopyResult に destination echo が無い（v1.3.2 FR-PDB クラスの取りこぼし）').toBe(true);
+});

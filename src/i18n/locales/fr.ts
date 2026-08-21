@@ -94,6 +94,7 @@ export const webviewMessages = {
   folderViewOpenFailed: 'Impossible de lire le dossier.',
   folderViewSearchPlaceholder: 'Filtrer par nom...',
   folderViewRefresh: 'Actualiser',
+  notesShowHiddenFiles: 'Afficher les fichiers cachés',
   folderViewTruncated: 'Trop de résultats — affinez votre requête.',
   folderViewNoMatch: 'Aucune correspondance.',
   folderViewEmpty: '(dossier vide)',

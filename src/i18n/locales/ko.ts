@@ -94,6 +94,7 @@ export const webviewMessages = {
   folderViewOpenFailed: '폴더를 읽을 수 없습니다.',
   folderViewSearchPlaceholder: '이름으로 필터링...',
   folderViewRefresh: '새로 고침',
+  notesShowHiddenFiles: '숨김 파일 표시',
   folderViewTruncated: '결과가 너무 많습니다 — 검색어를 좁히세요.',
   folderViewNoMatch: '일치 항목이 없습니다.',
   folderViewEmpty: '(빈 폴더)',
