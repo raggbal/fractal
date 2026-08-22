@@ -108,6 +108,19 @@ function isRefUnderRoots(srcAbs: string, roots?: string[]): boolean {
 }
 
 /**
+ * 複製結果報告（NFR-ACD-01 — sprint 20260822-051129）。opt-in の out-param:
+ * 呼び出し側が渡した場合のみ記録する（未指定 = 従来どおり無記録・挙動 byte 不変）。
+ * - copied: 複製に成功した source 絶対パス（画像/📎/drawio/closure md）
+ * - copyFailed: 複製を試みて失敗（削除フェーズの全成功判定はこれが空であること）
+ * - skipped: missing（元々 broken）/ containment-skip（境界外 = 複製対象外）— ブロックしない
+ */
+export interface MdPasteAssetReport {
+    copied: string[];
+    copyFailed: string[];
+    skipped: string[];
+}
+
+/**
  * 起点 md（rootMdAbs）を出発点に md-to-md リンクを BFS で辿り、
  * 「自note内（sourceMdDir 配下）に実在する複製対象 md（起点除く）」の closure と、
  * 「自note外/解決不能を指したリンク先絶対パス」の external を返す。
@@ -241,6 +254,7 @@ function copyAssetsAndRewriteForMd(
     destMdAbs: string,
     imgCopier?: (srcAbs: string, desiredName: string) => string,
     restrictSourceRoots?: string[],
+    report?: MdPasteAssetReport,
 ): string {
     const destMdDir = path.dirname(destMdAbs);
     const refs = extractAllAssetRefs(body);
@@ -257,17 +271,23 @@ function copyAssetsAndRewriteForMd(
     // 画像（drawio 以外）→ destImageDir
     for (const ref of refs.images.filter(p => !isDrawio(p))) {
         const src = path.resolve(curDir, ref);
-        if (!fs.existsSync(src)) continue;
-        if (!isRefUnderRoots(src, restrictSourceRoots)) continue; // SEC-1: roots 外は複製しない（書換なし温存）
+        if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
+        if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない（書換なし温存）
         const destAbs = copyImg(path.resolve(src), `copy-${Date.now()}-${path.basename(ref)}`);
+        // QUAL-1（reviewer iter1）: makeUniqueImageCopier は copy 失敗を握って destAbs を返す —
+        // report 指定時（= 削除フェーズの全成功判定に使う transfer 経路）のみ実在検証して copyFailed に落とす
+        if (report) {
+            if (!fs.existsSync(destAbs)) { report.copyFailed.push(src); continue; }
+            report.copied.push(src);
+        }
         renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
     // drawio 画像 + 添付（📎）→ destFileDir
     const fileLikeRefs = [...refs.images.filter(isDrawio), ...refs.files];
     for (const ref of fileLikeRefs) {
         const src = path.resolve(curDir, ref);
-        if (!fs.existsSync(src)) continue;
-        if (!isRefUnderRoots(src, restrictSourceRoots)) continue; // SEC-1: roots 外は複製しない
+        if (!fs.existsSync(src)) { report?.skipped.push(src); continue; }
+        if (!isRefUnderRoots(src, restrictSourceRoots)) { report?.skipped.push(src); continue; } // SEC-1: roots 外は複製しない
         const originalName = path.basename(ref);
         const lower = originalName.toLowerCase();
         const isMultiExt = lower.endsWith('.drawio.svg') || lower.endsWith('.drawio.png');
@@ -275,7 +295,8 @@ function copyAssetsAndRewriteForMd(
             ? buildUniqueDrawioName(originalName, (n) => fs.existsSync(path.join(destFileDir, n)))
             : generateUniqueFileNamePreserving(destFileDir, originalName);
         const destAbs = path.join(destFileDir, newName);
-        try { if (!fs.existsSync(destAbs)) fs.copyFileSync(src, destAbs); } catch { continue; }
+        try { if (!fs.existsSync(destAbs)) fs.copyFileSync(src, destAbs); } catch { report?.copyFailed.push(src); continue; }
+        report?.copied.push(src);
         renames.set(ref, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
     }
     return applyLinkUrlRewrites(body, renames);
@@ -818,6 +839,7 @@ export function replicateMdClosureToDest(opts: {
     destImageDir: string;
     destFileDir: string;
     restrictSourceRoots?: string[]; // SEC-1: closure member の資産参照にも source containment を通す
+    report?: MdPasteAssetReport;    // NFR-ACD-01: opt-in 複製結果報告
 }): Map<string, string> {
     const { closure, destMdDir, destImageDir, destFileDir } = opts;
     if (closure.length > 0) ensureDir(destMdDir);
@@ -829,8 +851,10 @@ export function replicateMdClosureToDest(opts: {
         try {
             fs.copyFileSync(srcAbs, destAbs);
         } catch {
+            opts.report?.copyFailed.push(srcAbs);
             continue;
         }
+        opts.report?.copied.push(srcAbs);
         closureNameMap.set(srcAbs, path.relative(destMdDir, destAbs).replace(/\\/g, '/'));
         closureDestAbs.set(srcAbs, destAbs);
     }
@@ -848,7 +872,7 @@ export function replicateMdClosureToDest(opts: {
         const curSrcDir = path.dirname(srcAbs); // ★resolve 基準 = その md 自身の dir
         let body = '';
         try { body = fs.readFileSync(destAbs, 'utf8'); } catch { continue; }
-        body = copyAssetsAndRewriteForMd(body, curSrcDir, destImageDir, destFileDir, destAbs, closureImgCopier, opts.restrictSourceRoots);
+        body = copyAssetsAndRewriteForMd(body, curSrcDir, destImageDir, destFileDir, destAbs, closureImgCopier, opts.restrictSourceRoots, opts.report);
         body = rewriteMdLinksInBody(body, curSrcDir, destMdDir, closureNameMap);
         try { fs.writeFileSync(destAbs, body, 'utf8'); } catch { /* ignore */ }
     }
@@ -925,7 +949,8 @@ export function transferMdWithAssets(
     coords: TransferCoords,
     preferredName?: string,
     // NFR-ACC-02b rev2: fv 起点移動は linkedfd root を追加 root として許容（linkedfd 内共有フォルダ運用の随伴）
-    opts?: { extraSourceRoots?: string[] }
+    // NFR-ACD-01: report = opt-in 複製結果報告（削除フェーズの全成功判定に使う）
+    opts?: { extraSourceRoots?: string[]; report?: MdPasteAssetReport }
 ): { destMdPath: string; newName: string } {
     if (!fs.existsSync(srcMdAbs) || !fs.statSync(srcMdAbs).isFile()) {
         throw new Error(`transferMdWithAssets: source not found: ${srcMdAbs}`);
@@ -941,6 +966,7 @@ export function transferMdWithAssets(
         destMdDir: coords.destMdDir,
         // SEC-1: ディスク上の md 本文は非信頼入力 — 資産の読取は source 座標 3 dir（+ 呼び出し面が明示した追加 root）に contain する
         restrictSourceRoots: [coords.sourceMdDir, coords.sourceImageDir, coords.sourceFileDir, ...(opts?.extraSourceRoots || [])],
+        report: opts?.report,
     });
     ensureDir(coords.destMdDir);
     const newName = generateUniqueFileNamePreserving(
@@ -1111,6 +1137,8 @@ export function copyMdPasteAssets(opts: {
      *  location-matrix spec）を壊さないための opt-in。ディスク上の md 本文を流す構造的操作
      *  （transferMdWithAssets 経由の Duplicate / D&D / Move）だけが指定する。 */
     restrictSourceRoots?: string[];
+    /** NFR-ACD-01: opt-in 複製結果報告（未指定 = 従来どおり無記録・挙動不変） */
+    report?: MdPasteAssetReport;
 }): MdPasteAssetResult {
     // Step 1: webview URL 接頭辞を strip して、後段が絶対パスとして扱えるようにする
     let rewrittenMarkdown = stripWebviewUrlPrefixes(opts.markdown);
@@ -1147,12 +1175,18 @@ export function copyMdPasteAssets(opts: {
     for (const imagePath of imagePaths) {
         const srcAbsolute = path.resolve(opts.sourceMdDir, imagePath);
         if (!fs.existsSync(srcAbsolute)) {
+            opts.report?.skipped.push(srcAbsolute);
             continue; // Skip missing files
         }
-        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
 
         const originalName = path.basename(imagePath);
         const destAbsolute = copyImg(path.resolve(srcAbsolute), `copy-${timestamp}-${originalName}`);
+        // QUAL-1（reviewer iter1）: 画像 copier は失敗 swallow — report 指定時のみ実在検証
+        if (opts.report) {
+            if (!fs.existsSync(destAbsolute)) { opts.report.copyFailed.push(srcAbsolute); continue; }
+            opts.report.copied.push(srcAbsolute);
+        }
 
         // Calculate new relative path from destMdDir
         const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
@@ -1163,8 +1197,8 @@ export function copyMdPasteAssets(opts: {
     // TC-03 / TC-15: 衝突 suffix は多重拡張子の前 (foo-1.drawio.svg) — buildUniqueDrawioName を使用
     for (const drawioPath of drawioImagePaths) {
         const srcAbsolute = path.resolve(opts.sourceMdDir, drawioPath);
-        if (!fs.existsSync(srcAbsolute)) continue;
-        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
+        if (!fs.existsSync(srcAbsolute)) { opts.report?.skipped.push(srcAbsolute); continue; }
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
         const originalName = path.basename(drawioPath);
         const uniqueName = buildUniqueDrawioName(originalName, (n) =>
             fs.existsSync(path.join(opts.destFileDir, n))
@@ -1173,8 +1207,10 @@ export function copyMdPasteAssets(opts: {
         try {
             fs.copyFileSync(srcAbsolute, destAbsolute);
         } catch {
+            opts.report?.copyFailed.push(srcAbsolute);
             continue;
         }
+        opts.report?.copied.push(srcAbsolute);
         const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
         imageRenameMap.set(drawioPath, newRelativePath);
     }
@@ -1188,9 +1224,10 @@ export function copyMdPasteAssets(opts: {
     for (const filePath of filePaths) {
         const srcAbsolute = path.resolve(opts.sourceMdDir, filePath);
         if (!fs.existsSync(srcAbsolute)) {
+            opts.report?.skipped.push(srcAbsolute);
             continue; // Skip missing files
         }
-        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) continue; // SEC-1
+        if (!isRefUnderRoots(srcAbsolute, opts.restrictSourceRoots)) { opts.report?.skipped.push(srcAbsolute); continue; } // SEC-1
 
         const originalName = path.basename(filePath);
         const uniqueName = generateUniqueFileNamePreserving(opts.destFileDir, originalName);
@@ -1200,8 +1237,10 @@ export function copyMdPasteAssets(opts: {
         try {
             fs.copyFileSync(srcAbsolute, destAbsolute);
         } catch {
+            opts.report?.copyFailed.push(srcAbsolute);
             continue; // Skip on error
         }
+        opts.report?.copied.push(srcAbsolute);
 
         // Calculate new relative path from destMdDir
         const newRelativePath = path.relative(opts.destMdDir, destAbsolute).replace(/\\/g, '/');
@@ -1222,6 +1261,7 @@ export function copyMdPasteAssets(opts: {
     const closureNameMap = replicateMdClosureToDest({
         closure, destMdDir: opts.destMdDir, destImageDir: opts.destImageDir, destFileDir: opts.destFileDir,
         restrictSourceRoots: opts.restrictSourceRoots,
+        report: opts.report,
     });
 
     // 起点 md（rewrittenMarkdown）の md-link 書換のみ呼び出し側で実施

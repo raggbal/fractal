@@ -587,8 +587,8 @@
         },
         // FR-DS-05 rev.2: 検索 Files セクションの click → files/ 相対パスで外部アプリ起動
         // （台帳未登録の添付 = node📎/md📎 も開けるよう path ベース。host 側で clamp）
-        openNoteFilesExternal: function(relPath) {
-            api.postMessage({ type: 'openNoteFilesExternal', relPath: relPath });
+        openNoteFilesExternal: function(relPath, findQuery, locHint) {
+            api.postMessage({ type: 'openNoteFilesExternal', relPath: relPath, findQuery: findQuery || '', locHint: locHint || '' });
         },
         // FR-TF-03 (§4b :82): ツリー file → .out item ドロップ（.out root 先頭に file node）
         notesImportFileIntoOut: function(dragItemId, targetOutId) {
@@ -680,6 +680,12 @@
         },
         folderViewClosed: function(id) {
             api.postMessage({ type: 'folderViewClosed', id: id });
+        },
+        folderViewOpened: function(id) {
+            api.postMessage({ type: 'folderViewOpened', id: id });
+        },
+        historyOpenFile: function(absPath) {
+            api.postMessage({ type: 'historyOpenFile', filePath: absPath });
         },
         folderViewToggleHidden: function(id) {
             api.postMessage({ type: 'folderViewToggleHidden', id: id });

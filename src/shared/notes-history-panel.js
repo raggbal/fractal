@@ -10,6 +10,9 @@
         'note-md': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>',
         'out': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
         // ★reopen 2026-07-23: page-md kind 廃止（page md も note-md で記録）。legacy page-md entry は note-md icon にフォールバック。
+        // FR-RCT（sprint 20260822-051129）: folder link（🔗 相当の link アイコン）/ file（📎 相当のクリップ）
+        'folder': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+        'file': '<svg class="side-panel-history-item-icon" xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
     };
 
     function escapeHtml(s) {
@@ -54,10 +57,19 @@
                         + '<span class="side-panel-history-item-title">' + escapeHtml(entry.title || entry.id) + '</span>';
                     el.title = entry.id;
                     el.addEventListener('click', function() {
-                        // ★reopen 2026-07-23: FR-HP-05 全メインペイン統一。kind によらず openFile（絶対パス）で
-                        //   メインペインに開く（page md も note-md・絶対パスで記録される）。
-                        //   legacy page-md entry（id=pageId・絶対パス absPath 持ち or 無し）は absPath 優先で開く
-                        //   （absPath 無し legacy は openFile(pageId) が host 側で silent no-op・HISTORY_MAX で流れる）。
+                        // FR-RCT: kind 分岐（folder = webview 内 dispatcher / file = host clamp 付き open）。
+                        if (entry.kind === 'folder') {
+                            if (window.__folderViewDispatcher && typeof window.__folderViewDispatcher.showFolderView === 'function') {
+                                window.__folderViewDispatcher.showFolderView(entry.id, entry.title || 'Folder');
+                            }
+                            return;
+                        }
+                        if (entry.kind === 'file') {
+                            if (typeof bridge.historyOpenFile === 'function') bridge.historyOpenFile(entry.id);
+                            return;
+                        }
+                        // ★reopen 2026-07-23: FR-HP-05 全メインペイン統一。md/out は openFile（絶対パス）で
+                        //   メインペインに開く（legacy page-md entry は absPath 優先 — HISTORY_MAX で流れる）。
                         if (typeof bridge.openFile === 'function') bridge.openFile(entry.absPath || entry.id);
                     });
                     listEl.appendChild(el);

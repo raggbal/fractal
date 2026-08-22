@@ -57160,6 +57160,38 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
     // 色は Fractal のテーマトークン（--fr-*）を第一に使い、無い面（standalone viewer webview）では
     // VS Code 変数 → ライト既定にフォールバック（実機検収 2026-08-15: --vscode-* 直参照だと
     // ダーク VS Code で viewer だけ真っ黒になり、ライト基調のアプリ UI と乖離した）
+    // TASK-12: 開いている viewer mount → find state（Cmd+F の一元先取り用。destroy で解除）
+    const findRegistry = new Map();
+    function activeFindState() {
+        const ae = document.activeElement;
+        // 優先 1: activeElement を含む mount（複数 viewer 共存時の一意化）
+        for (const [mount, st] of findRegistry) {
+            if (!mount.isConnected) { findRegistry.delete(mount); continue; }
+            if (ae && mount.contains(ae)) { return st; }
+        }
+        // 優先 2: viewer 外の**可視の**入力/編集面にフォーカスがある時は奪わない（md editor 等）。
+        // 注: note 面 viewer 表示中は隠れた md contenteditable に focus が残ることがある
+        //（display:none でも activeElement のまま — ユーザー実測 2026-08-23）→ 不可視ならガードしない
+        if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)
+            && ae.offsetParent !== null) { return null; }
+        // 優先 3: 可視の mount（フォーカスが body 等 = 開いた直後の Cmd+F）
+        for (const [mount, st] of findRegistry) {
+            if (mount.isConnected && mount.offsetParent !== null) { return st; }
+        }
+        return null;
+    }
+    if (!window.__fvFindKeyHooked) {
+        window.__fvFindKeyHooked = true;
+        window.addEventListener('keydown', (e) => {
+            if (!((e.metaKey || e.ctrlKey) && !e.altKey && String(e.key).toLowerCase() === 'f')) { return; }
+            const st = activeFindState();
+            if (!st || !st.findUi) { return; } // viewer 対象外 → 既存挙動（外部 find）に委ねる
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            st.findUi.open();
+        }, true);
+    }
+
     function ensureViewerStyle() {
         if (document.getElementById('file-viewer-style')) { return; }
         const style = document.createElement('style');
@@ -57188,6 +57220,15 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             '  display: flex; align-items: center; font-size: 12px; line-height: 1; }',
             '.viewer-toolbar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
             '.viewer-toolbar button svg { width: 14px; height: 14px; }',
+            '.viewer-find-bar { flex: 0 0 auto; display: flex; gap: 4px; align-items: center; padding: 2px 6px;',
+            '  background: var(--fv-bg, transparent); border-bottom: 1px solid var(--fv-border, rgba(128,128,128,0.25)); }',
+            '.viewer-find-bar input { flex: 0 1 220px; min-width: 80px; font-size: 12px; padding: 2px 6px;',
+            '  background: var(--vscode-input-background, #fff); color: var(--vscode-input-foreground, #333);',
+            '  border: 1px solid var(--vscode-input-border, rgba(128,128,128,0.4)); border-radius: 3px; outline: none; }',
+            '.viewer-find-count { font-size: 11px; opacity: 0.75; min-width: 40px; text-align: center; }',
+            '.viewer-find-bar button { background: none; border: none; cursor: pointer; opacity: 0.7; padding: 2px 4px;',
+            '  color: var(--fv-text); border-radius: 3px; }',
+            '.viewer-find-bar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
             '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fv-btn-hover); }',
             '.viewer-zoom-in, .viewer-zoom-out { min-width: 24px; font-weight: 600; font-size: 13px;',
             '  justify-content: center; }',
@@ -57434,6 +57475,59 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         (body || mount).appendChild(err);
     }
 
+    /** FR-VFB-03: 3 面共通 find bar（toolbar と body の間。既定非表示） */
+    function buildFindBar(mount, state) {
+        const bar = document.createElement('div');
+        bar.className = 'viewer-find-bar';
+        bar.style.display = 'none';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = label('viewerFind', 'Find');
+        input.setAttribute('aria-label', label('viewerFind', 'Find'));
+        const count = document.createElement('span');
+        count.className = 'viewer-find-count';
+        count.textContent = '0/0';
+        const prev = document.createElement('button');
+        prev.className = 'viewer-find-prev';
+        prev.title = label('viewerFind', 'Find') + ' ↑';
+        prev.textContent = '↑';
+        const next = document.createElement('button');
+        next.className = 'viewer-find-next';
+        next.title = label('viewerFind', 'Find') + ' ↓';
+        next.textContent = '↓';
+        const close = document.createElement('button');
+        close.className = 'viewer-find-close';
+        close.textContent = '✕';
+        bar.appendChild(input); bar.appendChild(count); bar.appendChild(prev); bar.appendChild(next); bar.appendChild(close);
+        let debounce = null;
+        input.addEventListener('input', () => {
+            if (debounce) { clearTimeout(debounce); }
+            debounce = setTimeout(() => { if (state.findExec) { state.findExec(input.value); } }, 200);
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); if (state.findStep) { state.findStep(e.shiftKey ? -1 : 1); } }
+        });
+        // Escape は bar 全体で拾う（prev/next ボタンにフォーカスがある時も閉じる）
+        bar.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); state.findUi.close(); }
+        });
+        prev.addEventListener('click', () => { if (state.findStep) { state.findStep(-1); } });
+        next.addEventListener('click', () => { if (state.findStep) { state.findStep(1); } });
+        close.addEventListener('click', () => { state.findUi.close(); });
+        state.findUi = {
+            open() { bar.style.display = 'flex'; try { input.focus(); input.select(); } catch (e) { /* noop */ } },
+            openWith(q) { input.value = String(q || ''); this.open(); if (state.findExec) { state.findExec(input.value); } },
+            close() {
+                bar.style.display = 'none';
+                count.textContent = '0/0';
+                if (state.findClear) { state.findClear(); }
+            },
+            onCount(c, t) { count.textContent = String(c) + '/' + String(t); },
+            query() { return input.value; },
+        };
+        mount.appendChild(bar);
+    }
+
     function buildBody(mount) {
         const body = document.createElement('div');
         body.className = 'viewer-body';
@@ -57491,6 +57585,45 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         return helper + html;
     }
 
+    /**
+     * FR-VFB-02: iframe 内検索ヘルパーの注入（injectCopyHelper 同型）。
+     * 親との通信は MessageChannel（fvFindInit で port を受け取る）— iframe → 親 window の
+     * postMessage は不変条件 7（origin 'null' capture 遮断）で届かないため、port 経由が唯一経路。
+     * ハイライトは span ラップ方式（テキストノード単位・case-insensitive・上限 1,000）。
+     */
+    function injectFindHelper(html, nonce) {
+        const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
+        const helper = `<script${nonceAttr}>(function(){`
+            + `var port=null,spans=[],cur=-1,LIMIT=1000;`
+            + `function clearHl(){for(var i=0;i<spans.length;i++){var sp=spans[i];if(!sp.parentNode){continue;}var t=document.createTextNode(sp.textContent);sp.parentNode.replaceChild(t,sp);}spans=[];cur=-1;}`
+            + `function rendered(el){try{return !!(el&&el.getClientRects&&el.getClientRects().length);}catch(e){return true;}}`
+            + `function collect(){var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null);var n,out=[];while((n=w.nextNode())){var pt=n.parentNode;if(!pt){continue;}var tag=pt.nodeName;if(tag==='SCRIPT'||tag==='STYLE'||tag==='NOSCRIPT'){continue;}if(!rendered(pt)){continue;}out.push(n);}return out;}`
+            + `function exec(q){clearHl();if(!q){send();return;}var lq=q.toLowerCase();var nodes=collect();`
+            + `for(var i=0;i<nodes.length&&spans.length<LIMIT;i++){var node=nodes[i];`
+            + `var idx=(node.nodeValue||'').toLowerCase().indexOf(lq);`
+            + `while(idx>=0&&spans.length<LIMIT){var match=node.splitText(idx);node=match.splitText(q.length);`
+            + `var sp=document.createElement('span');sp.setAttribute('data-fv-find','1');sp.style.backgroundColor='rgba(255,213,79,0.6)';`
+            + `match.parentNode.replaceChild(sp,match);sp.appendChild(match);spans.push(sp);`
+            + `idx=(node.nodeValue||'').toLowerCase().indexOf(lq);}}`
+            + `if(spans.length>0){cur=0;mark();}send();}`
+            + `function mark(){for(var i=0;i<spans.length;i++){spans[i].style.backgroundColor=(i===cur)?'rgba(255,150,50,0.95)':'rgba(255,213,79,0.6)';}`
+            + `if(cur>=0&&spans[cur]){try{spans[cur].scrollIntoView({block:'center'});}catch(e){}}}`
+            + `function step(dir){if(spans.length===0){send();return;}cur=(cur+dir+spans.length)%spans.length;mark();send();}`
+            + `function send(){if(port){port.postMessage({current:spans.length?cur+1:0,total:spans.length});}}`
+            + `function onCmd(e){var d=(e&&e.data)||{};if(d.type==='fvFind'){exec(String(d.query||''));}`
+            + `else if(d.type==='fvFindStep'){step(d.dir===-1?-1:1);}else if(d.type==='fvFindClear'){clearHl();send();}}`
+            + `window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='fvFindInit'&&e.ports&&e.ports[0]){port=e.ports[0];port.onmessage=onCmd;}});`
+            + `document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&!e.altKey&&String(e.key).toLowerCase()==='f'){e.preventDefault();if(port){port.postMessage({openFind:true});}}});`
+            + `})();</` + `script>`;
+        if (/<\/head\s*>/i.test(html)) { return html.replace(/<\/head\s*>/i, helper + '$&'); }
+        const baseIdx = html.search(/<base[^>]*>/i);
+        if (baseIdx >= 0) {
+            const end = html.indexOf('>', baseIdx) + 1;
+            return html.slice(0, end) + helper + html.slice(end);
+        }
+        return helper + html;
+    }
+
     /** オプトイン ON: ユーザー script に同じ nonce を与えて実行可能にする（FR-FV-11） */
     function allowUserScripts(html, nonce) {
         if (!nonce) { return html; }
@@ -57530,6 +57663,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             // （逆順だとヘルパーが二重 nonce になるうえ、ヘルパー自身が rewrite 対象になる）
             if (state && state.allowScripts) { html = allowUserScripts(html, nonce); }
             html = injectCopyHelper(html, nonce);
+            html = injectFindHelper(html, nonce); // FR-VFB-02（rerender 時も再注入 — 状態は親側 find bar が保持）
             const next = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
             const stale = currentBlobUrl;
             currentBlobUrl = next;
@@ -57539,6 +57673,36 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         }
         render();
         if (state) { state.rerenderHtml = render; }
+        // FR-VFB-02: 親 ⇄ iframe の find チャネル（MessageChannel — origin 'null' 遮断と非干渉）。
+        // rerender（src 差し替え）ごとに load で張り直す（one-shot の set/clear 対）
+        let findPort = null;
+        let pendingFindQuery = null; // チャネル init 前に findExec された query（one-shot — init 時に flush）
+        function initFindChannel() {
+            try {
+                if (findPort) { try { findPort.close(); } catch (e) { /* best-effort */ } }
+                const ch = new MessageChannel();
+                findPort = ch.port1;
+                findPort.onmessage = (ev) => {
+                    const d = (ev && ev.data) || {};
+                    if (d.openFind) { if (state && state.findUi) { state.findUi.open(); } return; }
+                    if (state && state.findUi) { state.findUi.onCount(d.current || 0, d.total || 0); }
+                };
+                iframe.contentWindow.postMessage({ type: 'fvFindInit' }, '*', [ch.port2]);
+                if (pendingFindQuery != null) {
+                    findPort.postMessage({ type: 'fvFind', query: pendingFindQuery });
+                    pendingFindQuery = null;
+                }
+            } catch (e) { /* 縮退: find 不能でも表示は継続 */ }
+        }
+        iframe.addEventListener('load', initFindChannel);
+        if (state) {
+            state.findExec = (q) => {
+                const query = String(q || '');
+                if (findPort) { findPort.postMessage({ type: 'fvFind', query }); } else { pendingFindQuery = query; }
+            };
+            state.findStep = (dir) => { if (findPort) { findPort.postMessage({ type: 'fvFindStep', dir: dir }); } };
+            state.findClear = () => { if (findPort) { findPort.postMessage({ type: 'fvFindClear' }); } else { pendingFindQuery = null; } };
+        }
         body.appendChild(iframe);
         // 最後の objectURL は destroy 時に revoke（one-shot の set/clear 対）
         const prev = cleanupRegistry.get(mount);
@@ -57551,7 +57715,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
 
     // ── PDF 面（FR-FV-03 — pdfjs browser バンドル + PDFViewer） ───────────────
     let workerBlobUrl = null;   // 全 open で共有（worker スクリプトは不変）
-    async function openPdf(mount, fileUri) {
+    async function openPdf(mount, fileUri, state) {
         const body = mount.querySelector('.viewer-body') || buildBody(mount);
         const lib = await import(config.pdfjsLibUri);
         const pdfjsLib = lib.pdfjsLib;
@@ -57609,7 +57773,9 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
 
         const eventBus = new pdfjsViewer.EventBus();
         const linkService = new pdfjsViewer.PDFLinkService({ eventBus });
-        const viewer = new pdfjsViewer.PDFViewer({ container, eventBus, linkService });
+        // FR-VFB-01: PDFFindController はバンドル済み（5.5.207 — 版更新なし = CVE pin 不変・配線のみ）
+        const findController = new pdfjsViewer.PDFFindController({ eventBus, linkService });
+        const viewer = new pdfjsViewer.PDFViewer({ container, eventBus, linkService, findController });
         linkService.setViewer(viewer);
         eventBus.on('pagesinit', () => { viewer.currentScaleValue = 'page-width'; });
         linkService.setDocument(pdf, null);
@@ -57636,6 +57802,51 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 sel.addRange(range);
             }
         });
+
+        // FR-VFB-01: find bar 連携（件数は pdfjs のイベント購読・実行は eventBus dispatch）
+        if (state) {
+            const onCount = (e) => {
+                const m = (e && e.matchesCount) || {};
+                if (state.findUi) { state.findUi.onCount(m.current || 0, m.total || 0); }
+            };
+            eventBus.on('updatefindmatchescount', onCount);
+            eventBus.on('updatefindcontrolstate', onCount);
+            state.findExec = (q) => {
+                eventBus.dispatch('find', {
+                    source: null, type: '', query: String(q || ''), caseSensitive: false,
+                    entireWord: false, highlightAll: true, findPrevious: false, matchDiacritics: false,
+                });
+            };
+            state.findStep = (dir) => {
+                eventBus.dispatch('find', {
+                    source: null, type: 'again', query: state.findUi ? state.findUi.query() : '', caseSensitive: false,
+                    entireWord: false, highlightAll: true, findPrevious: dir === -1, matchDiacritics: false,
+                });
+            };
+            state.findClear = () => { try { eventBus.dispatch('findbarclose', { source: null }); } catch (e) { /* noop */ } };
+            // FR-VFB-04 / TASK-12d: locHint（p.N）のページ移動 — pagesinit 前の指定は pending で保持。
+            // PDFFindController は**現在ページから**検索を開始するため、ページ移動 → find の順序が本質
+            //（find が先だと page 1 の最初のマッチに着地してヒントが無効化される — ユーザー報告）
+            let pendingFindPage = null;
+            let pagesReady = false;
+            const pagesReadyQueue = [];
+            state.findGotoPage = (n) => {
+                pendingFindPage = n;
+                // PDFViewer の setter は pages 初期化前だと **throw せず silent no-op** する（rc.7 の敗因）—
+                // 設定後に実値を読み戻して成功を実測検証し、未達なら pagesinit まで pending を保持する
+                try { viewer.currentPageNumber = n; } catch (e) { /* pagesinit 待ち */ }
+                if (viewer.currentPageNumber === n) { pendingFindPage = null; }
+            };
+            state.runWhenPagesReady = (fn) => { if (pagesReady) { fn(); } else { pagesReadyQueue.push(fn); } };
+            eventBus.on('pagesinit', () => {
+                if (pendingFindPage != null) {
+                    try { viewer.currentPageNumber = pendingFindPage; } catch (e) { /* noop */ }
+                    pendingFindPage = null;
+                }
+                pagesReady = true;
+                while (pagesReadyQueue.length) { try { pagesReadyQueue.shift()(); } catch (e) { /* noop */ } }
+            });
+        }
 
         const bar = mount.querySelector('.viewer-toolbar');
         if (bar) {
@@ -57667,10 +57878,34 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
             if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
         };
         buildToolbar(mount, fileUri, kind, filePath, state, opts);
+        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）
+        const tb = mount.querySelector('.viewer-toolbar');
+        if (tb) {
+            const fbtn = document.createElement('button');
+            fbtn.className = 'viewer-find-toggle';
+            fbtn.title = label('viewerFind', 'Find');
+            fbtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+            fbtn.setAttribute('aria-label', label('viewerFind', 'Find'));
+            fbtn.addEventListener('click', () => { if (state.findUi) { state.findUi.open(); } });
+            // 順序 contract（TC-FV-62 / FR-FV-12 改訂）: 表示系（script-toggle）の隣・アクション群（OS で開く〜）の前
+            tb.insertBefore(fbtn, tb.querySelector('.viewer-open-external'));
+        }
+        buildFindBar(mount, state);
         buildBody(mount);
+        // TASK-12（ユーザー報告 2026-08-23）: Cmd+F は window capture で一元先取り（下の
+        // __fvFindKeyHook）— フォーカスが webview body にあっても外部 find（VS Code/ブラウザ）に
+        // 奪われず当方の find bar が開く。mount は focus 可能にしておく（クリック後の操作性）
+        findRegistry.set(mount, state);
+        mount.tabIndex = -1;
+        mount.style.outline = 'none';
+        mount.addEventListener('mousedown', (e) => {
+            const t = e.target;
+            if (t && t.closest && (t.closest('.viewer-find-bar') || t.closest('input'))) { return; }
+            try { mount.focus({ preventScroll: true }); } catch (err) { /* noop */ }
+        });
         try {
             if (kind === 'pdf') {
-                const { pdf } = await openPdf(mount, fileUri);
+                const { pdf } = await openPdf(mount, fileUri, state);
                 // TASK-10: destroy(mount) で pdfDocument（worker / ArrayBuffer）も解放する
                 cleanupRegistry.set(mount, () => {
                     try { pdf.destroy(); window.__lastPdfDocDestroyed = true; } catch { /* best-effort */ }
@@ -57679,6 +57914,21 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
                 await openHtml(mount, fileUri, state);
             } else {
                 showError(mount, fileUri, `unsupported kind: ${kind}`);
+            }
+            // TASK-12: open 完了時に viewer へ focus（隠れた md editor に focus が残ったままだと
+            // Cmd+F の対象が曖昧になる — 開いた直後の Cmd+F を viewer に確定させる）
+            try { mount.focus({ preventScroll: true }); } catch (e2) { /* noop */ }
+            // FR-VFB-04 / TASK-12d: 検索ヒット経由の open は自動 find。pdf はページ移動 **完了後** に
+            // find を発行（FindController が現在ページ起点のため — ヒントページのマッチに着地する）
+            if (opts && opts.findQuery && state.findUi) {
+                const fq = String(opts.findQuery);
+                const pm = (kind === 'pdf' && opts.locHint) ? /p\.?\s*(\d+)/.exec(String(opts.locHint)) : null;
+                if (pm && state.findGotoPage && state.runWhenPagesReady) {
+                    state.findGotoPage(parseInt(pm[1], 10));
+                    state.runWhenPagesReady(() => { state.findUi.openWith(fq); });
+                } else {
+                    state.findUi.openWith(fq);
+                }
             }
         } catch (e) {
             showError(mount, fileUri, `このファイルを表示できませんでした（${e && e.message ? e.message : e}）`);
@@ -57691,6 +57941,7 @@ button.hasPopupMenu[aria-expanded="false"] + menu{
         if (!mount) { return; }
         const cleanup = cleanupRegistry.get(mount);
         if (cleanup) { cleanup(); cleanupRegistry.delete(mount); }
+        findRegistry.delete(mount); // TASK-12: Cmd+F 先取り対象から除外（one-shot 対配線）
         mount.textContent = '';
     }
 

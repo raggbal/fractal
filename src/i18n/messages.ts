@@ -33,6 +33,8 @@ export interface Messages {
   folderViewNoFolderDrop: string;
   folderViewMoveInUnsupported: string;
   folderViewTrashFailed: string;
+  folderViewMovePartialFail: string;
+  notesExternalDropFailed: string;
   openMarkdownFirst: string;
   numberOfRows: string;
   numberOfColumns: string;
@@ -318,6 +320,7 @@ export interface WebviewMessages {
   viewerCopyInAppLinkFailed: string;
   viewerAllowScripts: string;
   viewerOpenExternal: string;
+  viewerFind: string;
   viewerOpenInStandalone: string;
   viewerZoomIn: string;
   viewerZoomOut: string;

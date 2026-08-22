@@ -84,7 +84,7 @@ function setup(): any {
     return { mod, m, id, root, noteDir };
 }
 
-test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・台帳 +1 のみ・md 本体だけ trash（資産温存 = v1）', async () => {
+test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・台帳 +1 のみ・md + 随伴資産を trash（FR-ACD-01 v2 — 許可: test_update 20260822 sprint）', async () => {
     const { mod, m, id, root, noteDir } = setup();
     const { deps, calls } = makeMoveDeps();
     const { sender } = makeSender();
@@ -95,11 +95,13 @@ test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・�
     const mdItems: any[] = (Object.values(m.getStructure().items) as any[]).filter((it) => it.ext === 'md');
     expect(mdItems.length, '台帳は新 md 1 件のみ（closure は台帳外）').toBe(1);
     expect(mdItems[0].title).toBe('Main Title');
-    // source 側: md 本体のみ trash・資産/closure は fv 側温存（ADRL-ACC-2）
+    // source 側: FR-ACD-01（v2 — 旧 ADRL-0082 v1 温存を supersede）: md + 随伴資産（画像/📎/closure md）も trash
     expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'main.md'))).toBe(true);
-    expect(calls.trash.length).toBe(1);
-    expect(fs.existsSync(path.join(root, 'sub.md'))).toBe(true);
-    expect(fs.existsSync(path.join(root, 'images', 'pic.png'))).toBe(true);
+    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'sub.md')), 'closure md が削除されない').toBe(true);
+    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'images', 'pic.png')), '随伴画像が削除されない').toBe(true);
+    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'files', 'a.pdf')), '随伴 📎 が削除されない').toBe(true);
+    // 参照リンク（refdoc.md）は複製対象外 = 削除対象外
+    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'refdoc.md'))).toBe(false);
 });
 
 test('TC-ACC-21 folderViewMoveIn: note フラット → fv 隣接変換（images//files/ 作成）・md unregister + trash', async () => {

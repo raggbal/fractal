@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as flatLayout from './flat-layout';
 import * as assetMover from './notes-asset-mover';
-import { collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving, copyEntityWithUniquify } from './paste-asset-handler';
+import { isUnderNoteDir, collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving, copyEntityWithUniquify } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
 import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
@@ -804,7 +804,13 @@ export class NotesFileManager {
         return history.map((entry) => {
             let fresh: string | null = null;
             try {
-                if (entry.kind === 'out') {
+                if (entry.kind === 'folder') {
+                    // FR-RCT-01: folder link は items の現在 title（rename 追従）
+                    const it = this.getStructure().items?.[entry.id] as { title?: string } | undefined;
+                    if (it && it.title) { fresh = it.title; }
+                } else if (entry.kind === 'file') {
+                    // FR-RCT-02: file は保存 title（basename）のまま — 読み込み不要
+                } else if (entry.kind === 'out') {
                     // .out の disk data.title（listFiles と同じ）
                     if (fs.existsSync(entry.id)) {
                         const data = JSON.parse(fs.readFileSync(entry.id, 'utf8'));
@@ -866,6 +872,29 @@ export class NotesFileManager {
      * title は structure.items[id].title（human-readable）優先・無ければ basename。
      * 全 open 経路（ツリークリック / 検索ジャンプ / Today / アプリ内リンク等）から呼ぶ。
      */
+    /** FR-RCT-02/03: viewer 対象・外部起動 file の Recent 記録（kind='file'・title=basename）。 */
+    recordViewerFileHistory(absPath: string): void {
+        if (!absPath) return;
+        this.pushHistory({ kind: 'file', id: absPath, title: absPath.replace(/^.*[/\\]/, ''), ts: Date.now() });
+    }
+    /** FR-RCT-01: folder link の Recent 記録（id = folderLinkId — 絶対パス不含 = ADRL-0071）。 */
+    recordFolderLinkHistory(folderLinkId: string): void {
+        const item = this.getStructure().items?.[folderLinkId] as { title?: string } | undefined;
+        if (!item) return;
+        this.pushHistory({ kind: 'folder', id: folderLinkId, title: item.title || 'Folder', ts: Date.now() });
+    }
+    /** FR-RCT click clamp: 絶対パスが note フォルダ or 登録済み folder link root の配下か。 */
+    isUnderNoteOrFolderLinkRoots(absPath: string): boolean {
+        const p = path.resolve(absPath);
+        const under = (base: string) => isUnderNoteDir(p, base); // 正典再利用（QUAL-3 — 重複実装しない）
+        if (under(this.mainFolderPath)) { return true; }
+        const items = this.getStructure().items || {};
+        for (const key of Object.keys(items)) {
+            const it = items[key] as { type?: string; ext?: string; folderPath?: string };
+            if (it && it.type === 'file' && it.ext === 'folder' && it.folderPath && under(it.folderPath)) { return true; }
+        }
+        return false;
+    }
     recordFileHistory(filePath: string): void {
         if (!filePath) return;
         const isMd = /\.md$/i.test(filePath);

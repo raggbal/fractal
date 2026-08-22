@@ -19,6 +19,34 @@
  */
 var notesFilePanel = (function() {
     var bridge = null;
+
+    // TASK-14b: remote（vscode server）では OS アプリ起動が不能 → host からの triggerFileDownload で
+    // ブラウザダウンロードに縮退する。**<a download> は cross-origin（webview リソース URI）で無効 =
+    // ナビゲーションになり webview がブロック画面に潰れる**（ユーザー実測 2026-08-23）ため、
+    // fetch → blob → same-origin blob URL 経由でダウンロードする（viewer の fetch 経路と同じ到達性）
+    window.addEventListener('message', function (e) {
+        var m = e.data;
+        if (!m || m.type !== 'triggerFileDownload' || !m.fileUri) { return; }
+        fetch(m.fileUri).then(function (resp) {
+            if (!resp.ok) { throw new Error('fetch ' + resp.status); }
+            return resp.blob();
+        }).then(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = m.fileName || 'download';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function () { try { URL.revokeObjectURL(url); } catch (err) { /* noop */ } }, 10000);
+        }).catch(function (err) {
+            try {
+                if (bridge && typeof bridge.notifyError === 'function') {
+                    bridge.notifyError('Download failed: ' + (m.fileName || '') + ' (' + err + ')');
+                }
+            } catch (e2) { /* 縮退 */ }
+        });
+    });
     var fileList = [];
     var currentFile = null;
     var structure = null;
@@ -2217,7 +2245,8 @@ var notesFilePanel = (function() {
                     // （台帳未登録の node📎/md📎 添付も開けるよう openTreeFileExternal(id) から改訂）
                     if (bridge && typeof bridge.openNoteFilesExternal === 'function') {
                         var rel = String(fileResult.fileId || '').replace(/^files\//, '');
-                        bridge.openNoteFilesExternal(rel);
+                        // FR-VFB-04: 検索語 + 位置ヒント（loc = p.N 等）を viewer へ引き渡す（open + 自動 find）
+                        bridge.openNoteFilesExternal(rel, searchInputEl ? searchInputEl.value.trim() : '', match.loc || '');
                     }
                 } else if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);

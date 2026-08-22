@@ -653,6 +653,7 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
             Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
         const expected = [
             'viewer-script-toggle',        // html 面
+            'viewer-find-toggle',          // FR-VFB-03（v1.3.4 sprint 20260822-051129 — 許可: test_update）: 表示系グループ末尾
             'viewer-open-external',        // OS で開く = アクション群左端
             'viewer-open-in-standalone',
             'viewer-export-file',
@@ -687,7 +688,7 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         const pdfClasses = await page.evaluate(() =>
             Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
         expect(pdfClasses).toEqual([
-            'viewer-zoom-out', 'viewer-zoom-in',
+            'viewer-zoom-out', 'viewer-zoom-in', 'viewer-find-toggle',
             'viewer-open-external', 'viewer-open-in-standalone', 'viewer-export-file',
             'viewer-copy-path', 'viewer-copy-inapp-link', 'viewer-open-in-new-tab',
         ]);

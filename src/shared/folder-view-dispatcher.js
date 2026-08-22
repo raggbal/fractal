@@ -79,6 +79,12 @@
         // FR-FLV-33: 別 link への切替は旧 link の監視を止める（host へ closed 通知）
         if (shownLinkId && shownLinkId !== folderLinkId) { notifyClosed(shownLinkId); }
         shownLinkId = folderLinkId;
+        // FR-RCT-01: fv 表示を Recent に記録（host が folderLinkId で保存 — 絶対パス不含）
+        try {
+            if (window.notesHostBridge && typeof window.notesHostBridge.folderViewOpened === 'function') {
+                window.notesHostBridge.folderViewOpened(folderLinkId);
+            }
+        } catch (e) { /* bridge 不在（standalone 等）は正常 */ }
         const container = ensureContainer();
         // 表示前に必ず再構築（stale 防止 — 前回の内容を持ち越さない）
         container.textContent = '';

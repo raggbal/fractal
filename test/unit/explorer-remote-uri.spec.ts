@@ -139,3 +139,39 @@ test('TC-RMT-03 outliner host: vscode-remote URI が ok:true で分類・他 sch
     expect(results[1]?.ok).toBe(false);
     expect(String(results[1]?.error || '')).toContain('Unsupported URI scheme');
 });
+
+// ── TC-RMT-05（sprint 20260822-051129 TASK-10）: silent skip 撤廃 — 理由付き failed 返却 ──
+test('TC-RMT-05 registerExternalDroppedUris が失敗を理由付きで返す（scheme / not-found / folder / 部分成功）', () => {
+    const { NotesFileManager } = requireWithVscodeStub('../../src/shared/notes-file-manager');
+    const mod = requireWithVscodeStub('../../src/shared/notes-message-handler');
+    const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rmt5-note-'));
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), 'rmt5-src-'));
+    const m = new NotesFileManager(noteDir);
+    m.loadStructure();
+    const ok = path.join(src, 'good.html');
+    fs.writeFileSync(ok, '<html></html>', 'utf8');
+    fs.mkdirSync(path.join(src, 'adir'), { recursive: true });
+    const enc = (p: string) => 'vscode-remote://localhost:8801' + p.split(path.sep).map(encodeURIComponent).join('/');
+    const messages: any[] = [];
+    const sender = { postMessage: (x: any) => messages.push(x) };
+
+    const r = mod.registerExternalDroppedUris(m, [
+        enc(ok),                                     // 成功
+        'https://example.com/x.md',                  // scheme 不受理
+        enc(path.join(src, 'missing.pdf')),          // not-found
+        enc(path.join(src, 'adir')),                 // フォルダ
+    ], null, 0, sender as any);
+
+    expect(r && typeof r === 'object', '返り値が結果オブジェクトでない').toBe(true);
+    expect(r.registered).toBe(1);                    // 部分成功（good.html は登録される）
+    expect(Array.isArray(r.failed)).toBe(true);
+    expect(r.failed.length).toBe(3);
+    const joined = r.failed.join(' | ');
+    expect(joined).toContain('x.md');                                  // scheme 不受理も名前が出る
+    expect(joined).toContain('missing.pdf');
+    expect(joined).toContain(path.join(src, 'missing.pdf'));           // not-found は解決後パス込み（診断の核心）
+    expect(joined).toContain('adir');
+    // 登録成功分の一覧更新は従来どおり
+    expect(messages.some((x) => x.type === 'notesFileListChanged' || x.type === 'updateFileList')).toBe(true);
+    expect(Object.values(m.getStructure().items).some((it: any) => it.title === 'good.html')).toBe(true);
+});

@@ -5,6 +5,22 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-08-23
+
+### Added
+- **Find inside the file viewer** (HTML/PDF): Cmd/Ctrl+F or 🔍 — highlights, match count, next/prev; full-text-search hits open the file with the query pre-filled and jump to the hit (PDFs land on the hinted page); hidden HTML content (inactive dashboard tabs) is excluded like the browser's find (FR-VFB)
+- **Recent: linked folders (🔗) and viewer/attachment files (📎)** are recorded and reopenable (FR-RCT)
+- Folder view moves clean up accompanied assets from the source folder (only when every copy succeeded; assets still referenced by other markdowns are kept) (FR-ACD)
+
+### Changed
+- Note markdown 📎 pdf/html links now open in the **side-panel file viewer** (same as subpages); tree clicks and search hits keep the note-pane viewer (FR-VSP-01)
+- On a remote VS Code server, opening non-viewer files becomes a **browser download** (OS-app launch cannot work for server-side files); desktop unchanged (FR-DLF)
+- Explorer drag & drop failures are now reported with a reason (unsupported scheme / not found / folder / read error) instead of silently doing nothing; the 50MB toast now suggests the no-limit routes (Shift+drag from Explorer, +file button)
+
+### Fixed
+- HTML/PDF in-viewer search no longer loses Cmd+F to the markdown editor's search box (window-level capture; visible editors keep their own search)
+- Recent file entries were unclickable due to a missing bridge method in the history panel
+
 ## [1.3.3] - 2026-08-21
 
 ### Added

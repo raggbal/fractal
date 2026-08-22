@@ -7,11 +7,13 @@
 
 // ★reopen 2026-07-23: page-md kind を廃止（page md も note-md・絶対パスで記録し全メインペイン openFile に統一）。
 // 旧 page-md entry（legacy データ）は後方互換で読めるが型からは除外（描画は icon フォールバック、click は openFile で silent no-op）。
-export type HistoryKind = 'note-md' | 'out';
+// FR-RCT（sprint 20260822-051129）: folder = folder link（id = folderLinkId — 絶対パスを webview に出さない
+// ADRL-0071 規約）/ file = viewer 対象・外部起動 file（id = 絶対パス）。
+export type HistoryKind = 'note-md' | 'out' | 'folder' | 'file';
 
 export interface HistoryEntry {
     kind: HistoryKind;
-    /** note-md/out: filePath（絶対）。page md も note-md・絶対パスで記録する（pageId は使わない）。 */
+    /** note-md/out/file: filePath（絶対）。folder: folderLinkId。 */
     id: string;
     title: string;
     /** open 時刻（host が Date.now() で付与）。 */

@@ -83,8 +83,12 @@
         container.style.display = 'flex';
         if (window.__fileViewer) {
             // FR-FV-13: opts.inTab（file タブ経由の表示 — loadTab が渡す）を buildToolbar の
-            // 面別出し分けへ伝搬。overlay（showNoteViewer message / 既存呼び出し）は opts なし
-            window.__fileViewer.open(kind, fileUri, container, filePath, { inTab: !!(opts && opts.inTab) });
+            // 面別出し分けへ伝搬（findQuery/locHint = FR-VFB-04 の自動 find）
+            window.__fileViewer.open(kind, fileUri, container, filePath, {
+                inTab: !!(opts && opts.inTab),
+                findQuery: (opts && opts.findQuery) || '',
+                locHint: (opts && opts.locHint) || '',
+            });
             // open は toolbar を同期構築する（最初の await より前）— ≡ ボタンを先頭に追加
             const bar = container.querySelector('.viewer-toolbar');
             if (bar && !bar.querySelector('.notes-panel-toggle-btn')) {
@@ -116,7 +120,8 @@
     window.addEventListener('message', (event) => {
         const msg = event.data;
         if (msg && msg.type === 'showNoteViewer') {
-            showViewer(msg.kind, msg.fileUri, msg.fileName, msg.filePath);
+            // FR-VFB-04: findQuery/locHint を viewer へ透過（検索ヒット → 自動 find）
+            showViewer(msg.kind, msg.fileUri, msg.fileName, msg.filePath, { findQuery: msg.findQuery || '', locHint: msg.locHint || '' });
         } else if (msg && msg.type === 'hideNoteViewer') {
             hideViewer();
         }

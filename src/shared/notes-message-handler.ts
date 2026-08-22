@@ -5,7 +5,8 @@ import { resolveSubpageTitle, saveDroppedMdAsSubpage } from './md-subpage-utils'
 import { importMdFiles } from './markdown-import';
 import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
-import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving, copyEntityWithUniquify, transferMdWithAssets, noteCoords, adjacentCoords, mdCoords, makeTransferCoords, TransferCoords, duplicateMdEntity } from './paste-asset-handler';
+import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving, copyEntityWithUniquify, transferMdWithAssets, noteCoords, adjacentCoords, mdCoords, makeTransferCoords, TransferCoords, MdPasteAssetReport, duplicateMdEntity } from './paste-asset-handler';
+import { collectFvSurvivingAssetRefs } from './fv-residual-refs';
 import { safeResolveUnderDir, safeResolveUnderFolderRoot } from './path-safety';
 import { readFolderViewExpanded, saveFolderViewExpanded, readFolderViewShowHidden, saveFolderViewShowHidden } from './folderview-state';
 import { isViewerTarget } from './viewer-target';
@@ -294,7 +295,7 @@ export interface NotesPlatformActions {
     /** click: tree file を外部アプリで開く（getTreeFilePath → openExternal） */
     openTreeFileExternal?(id: string, sender: NotesSender): Promise<void> | void;
     /** FR-DS-05 rev.2: 検索 Files ヒット click — files/ 相対パスで外部起動（host 側 clamp 必須） */
-    openNoteFilesExternal?(relPath: string, sender: NotesSender): Promise<void> | void;
+    openNoteFilesExternal?(relPath: string, sender: NotesSender, findQuery?: string, locHint?: string): Promise<void> | void;
     /** FR-TF-03 (§4b): tree file を .out item にドロップ → 当該 .out root 先頭に file node 追加 + tree 除去 */
     notesImportFileIntoOut?(dragItemId: string, targetOutId: string, sender: NotesSender): Promise<void> | void;
     /** FR-TF-04 (§4c): tree file を md item にドロップ → 対象 md 末尾に 📎 リンク追記 + tree 除去 */
@@ -343,6 +344,7 @@ export interface NotesPlatformActions {
     folderViewOpen?(id: string, relPath: string, sender: NotesSender): Promise<void> | void;
     folderViewToggleHidden?(id: string, sender: NotesSender): Promise<void> | void;
     folderViewClosed?(id: string): void;
+    historyOpenFile?(absPath: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#9): New Markdown / New Folder */
     folderViewCreate?(id: string, parentRelPath: string, kind: string, sender: NotesSender): Promise<void> | void;
     /** FR-FLV-15 (#10): rename */
@@ -1542,7 +1544,8 @@ export async function handleNotesMessage(
         // FR-DS-05 rev.2: 検索 Files ヒットの click（files/ 相対パス — 台帳未登録の添付も開ける）
         case 'openNoteFilesExternal': {
             if (typeof platform.openNoteFilesExternal === 'function') {
-                await platform.openNoteFilesExternal(message.relPath, sender);
+                // FR-VFB-04: findQuery/locHint を透過（検索ヒット → viewer 自動 find）
+                await platform.openNoteFilesExternal(message.relPath, sender, String(message.findQuery ?? ''), String(message.locHint ?? ''));
             }
             break;
         }
@@ -1706,6 +1709,24 @@ export async function handleNotesMessage(
         }
         case 'folderViewClosed': {
             platform.folderViewClosed?.(String(message.id ?? ''));
+            break;
+        }
+        case 'folderViewOpened': {
+            // FR-RCT-01: fv 表示（dispatcher showFolderView）を Recent に記録（id = folderLinkId）
+            fileManager.recordFolderLinkHistory(String(message.id ?? ''));
+            sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+        case 'historyOpenFile': {
+            // FR-RCT-02/03: Recent click（kind='file'）。webview 由来の絶対パス = clamp 必須
+            //（note フォルダ or 登録済み folder link root の配下のみ許可）
+            const histAbs = String(message.filePath ?? '');
+            if (!histAbs || !fileManager.isUnderNoteOrFolderLinkRoots(histAbs) || !fs.existsSync(histAbs)) {
+                sendFileListWithStructure(fileManager, sender);
+                break;
+            }
+            fileManager.recordViewerFileHistory(histAbs);
+            await platform.historyOpenFile?.(histAbs, sender);
             break;
         }
         case 'folderViewOpen': {
@@ -3164,6 +3185,43 @@ async function trashSourceBestEffort(deps: FolderMoveDeps, absPath: string): Pro
 }
 
 /**
+ * FR-ACD-01（sprint 20260822-051129 — ユーザー裁定）: fv 起点 md 移動の source 側削除フェーズ。
+ * - 全成功条件: copyFailed が 1 件でもあれば **md 含め何も削除しない**（部分成功での削除はデータ不整合）
+ * - 削除対象 = 実際に複製された資産（report.copied）のみ。missing/containment-skip（skipped）は対象外
+ * - 残留参照チェック: linkedfd 内の残存 md がまだ参照する資産は温存（共有資産のリンク切れ防止）。
+ *   スキャナ上限超過（aborted）は資産温存・md のみ削除（安全側）
+ * - 削除は trashSourceBestEffort = trash → FR-FLV-34 フォールバック（複製成功確認済み — md と同一裁定）
+ * - note 起点（MoveIn/MoveFromMd）・cross-note は従来どおり温存（本関数を呼ばない）
+ */
+async function cleanupFvMoveSource(
+    deps: FolderMoveDeps,
+    rootAbs: string,
+    srcMdAbs: string,
+    report: MdPasteAssetReport
+): Promise<void> {
+    if (report.copyFailed.length > 0) {
+        console.error('[Notes] fv move: partial attachment copy failure — source untouched:', report.copyFailed);
+        deps.showErrorMessage(
+            (deps.t('folderViewMovePartialFail') || 'Moved copy created, but some attachments failed to copy — original files were kept: ')
+            + path.basename(srcMdAbs)
+        );
+        return;
+    }
+    const closureMds = report.copied.filter((p) => /\.md$/i.test(p)).map((p) => path.resolve(p));
+    const { refs, aborted } = collectFvSurvivingAssetRefs(rootAbs, new Set([path.resolve(srcMdAbs), ...closureMds]));
+    await trashSourceBestEffort(deps, srcMdAbs); // md 本体は従来どおり削除
+    if (aborted) {
+        console.warn('[Notes] fv move: residual-ref scan aborted (size limit) — accompanied assets kept (safe side)');
+        return;
+    }
+    for (const abs of report.copied) {
+        if (refs.has(path.resolve(abs))) { continue; } // 残留参照 → 温存
+        if (!fs.existsSync(abs)) { continue; }
+        await trashSourceBestEffort(deps, abs);
+    }
+}
+
+/**
  * FR-FLV-20 (#14): フォルダビュー → Note ツリー移動。
  * .md = registerMarkdownFile / 他 = registerTreeFile（sanitize+uniquify 合流）→ 登録成功後に元実体 trash。
  */
@@ -3188,14 +3246,17 @@ export async function folderViewMoveToTree(
         return false;
     }
     const base = path.basename(srcAbs);
+    let mdMoveReport: MdPasteAssetReport | null = null; // FR-ACD-01: md 分岐の複製結果（file 分岐は従来経路）
     try {
         if (/\.md$/i.test(base)) {
             const content = fs.readFileSync(srcAbs, 'utf8');
             const title = extractFirstH1(content) || base.replace(/\.md$/i, '');
             // 随伴転送（FR-ACC-02: fv 隣接座標 → note フラット座標へ変換）。台帳登録は新 md 1 件のみ
             //（closure md は台帳外 = liveness は md-link closure）。throw は外側 catch = 従来の失敗経路
-            const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), noteCoords(fileManager.getMainFolderPath())), undefined, { extraSourceRoots: [root] }); // NFR-ACC-02b rev2: linkedfd root 境界
+            const report: MdPasteAssetReport = { copied: [], copyFailed: [], skipped: [] };
+            const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), noteCoords(fileManager.getMainFolderPath())), undefined, { extraSourceRoots: [root], report }); // NFR-ACC-02b rev2: linkedfd root 境界
             fileManager.registerExistingMdFile(path.basename(r.newName, '.md'), title, parentId, index);
+            mdMoveReport = report;
         } else {
             const bytes = fs.readFileSync(srcAbs);
             fileManager.registerTreeFile(base, base, parentId, index, bytes);
@@ -3204,7 +3265,11 @@ export async function folderViewMoveToTree(
         notifyOperationFailed(deps, e);
         return false; // 登録失敗 → 元不変（INV-5）
     }
-    await trashSourceBestEffort(deps, srcAbs); // 移動 = 複製成功 → 元 trash
+    if (mdMoveReport) {
+        await cleanupFvMoveSource(deps, root, srcAbs, mdMoveReport); // FR-ACD-01: md + 随伴資産の削除フェーズ
+    } else {
+        await trashSourceBestEffort(deps, srcAbs); // file（非 md）= 従来どおり本体のみ trash
+    }
     sendFileListWithStructure(fileManager, sender);
     const parentRel = parentRelOf(relPath);
     sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
@@ -3320,15 +3385,16 @@ export async function folderViewMoveIntoMd(
             // reviewer iter3 QUAL-1: saveDroppedMdAsSubpage は fs 失敗（EACCES/ENOSPC）で throw する契約 —
             // 同関数の他 3 分岐と同じ「失敗検知 → 通知 + false」パターンで囲む（unhandled rejection 禁止）
             let newName: string;
+            const noteReport: MdPasteAssetReport = { copied: [], copyFailed: [], skipped: [] };
             try {
                 // 随伴転送（FR-ACC-02: fv 隣接 → target md の座標〔note md = 共有 dir〕へ変換）
-                const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), mdCoords(targetMdPath)), base, { extraSourceRoots: [root] }); // NFR-ACC-02b rev2
+                const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), mdCoords(targetMdPath)), base, { extraSourceRoots: [root], report: noteReport }); // NFR-ACC-02b rev2
                 newName = r.newName;
             } catch (e) {
                 notifyOperationFailed(deps, e);
                 return false; // 配置失敗 → 元実体・md 本文とも不変（INV-3/INV-5）
             }
-            await trashSourceBestEffort(deps, srcAbs);
+            await cleanupFvMoveSource(deps, root, srcAbs, noteReport); // FR-ACD-01
             sender.postMessage({ type: 'insertSubpageLink', markdownPath: newName, title: resolveSubpageTitle(content, newName), sidePanelFilePath: targetMdPath });
         } else {
             // linked-folder md 宛て（folderRoot 内で完結）: 従来どおり（同一 dir なら移動なし・相対リンク）
@@ -3337,8 +3403,9 @@ export async function folderViewMoveIntoMd(
             if (!sameDir) {
                 // 随伴転送（FR-ACC-02 fv→fv 変種: source md 隣接 → target md 隣接座標）
                 let copied: string | null = null;
+                const fvReport: MdPasteAssetReport = { copied: [], copyFailed: [], skipped: [] };
                 try {
-                    const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), adjacentCoords(targetDir)), base, { extraSourceRoots: [root] }); // NFR-ACC-02b rev2
+                    const r = transferMdWithAssets(srcAbs, makeTransferCoords(mdCoords(srcAbs), adjacentCoords(targetDir)), base, { extraSourceRoots: [root], report: fvReport }); // NFR-ACC-02b rev2
                     copied = r.destMdPath;
                 } catch (e) {
                     console.error('[fractal] transferMdWithAssets failed (folderViewMoveIntoMd fv):', e); // reviewer iter1 QUAL-2
@@ -3349,7 +3416,7 @@ export async function folderViewMoveIntoMd(
                     return false;
                 }
                 dstAbs = copied;
-                await trashSourceBestEffort(deps, srcAbs);
+                await cleanupFvMoveSource(deps, root, srcAbs, fvReport); // FR-ACD-01
             }
             let title = '';
             try { title = extractFirstH1(fs.readFileSync(dstAbs, 'utf8')) || ''; } catch { /* fallback */ }
@@ -3828,7 +3895,11 @@ export async function folderViewOpen(
     }
     deps.ensureResourceRoot(root); // note 外パスの webview 到達（ensureResourceRootForFile precedent）
     const base = path.basename(abs);
-    if (/\.md$/i.test(base)) {
+    const isMdOpen = /\.md$/i.test(base);
+    if (!isMdOpen) {
+        fileManager.recordViewerFileHistory(abs); // FR-RCT-02: fv からの file open を Recent に記録
+    }
+    if (isMdOpen) {
         await deps.openMdInSidePanel(abs);
     } else if (isViewerTarget(base)) {
         await deps.openViewerPanel(abs);
@@ -4147,16 +4218,23 @@ export function registerExternalDroppedUris(
     parentId: string | null,
     index: number,
     sender: NotesSender
-): void {
-    if (!Array.isArray(uris) || uris.length === 0) { return; }
+): { registered: number; failed: string[] } {
+    if (!Array.isArray(uris) || uris.length === 0) { return { registered: 0, failed: [] }; }
     let registered = 0;
+    // TASK-10（sprint 20260822-051129 — ユーザー報告）: silent skip 撤廃。「黙って弾くと反応しないに
+    // 見える」既存裁定と同型 — 失敗は理由付きで返し、呼び出し側（provider）が明示エラー表示する。
+    // not-found は**解決後パス**を含める（server 環境の URI decode 不一致をそのまま可視化する診断値）
+    const failed: string[] = [];
+    const uriName = (u: string) => {
+        try { return decodeURIComponent(String(u).split(/[?#]/)[0].split('/').pop() || u); } catch { return u; }
+    };
     for (const uri of uris) {
         try {
-            // URI → fs パス変換は正典 droppedUriToFsPath（file: / vscode-remote: 受理 — FR-RMT-01）。
-            // null = その他 scheme → 従来どおり silent skip
+            // URI → fs パス変換は正典 droppedUriToFsPath（file: / vscode-remote: 受理 — FR-RMT-01）
             const fsPath = droppedUriToFsPath(uri);
-            if (fsPath === null) { continue; }
-            if (!fs.existsSync(fsPath) || !fs.statSync(fsPath).isFile()) { continue; }
+            if (fsPath === null) { failed.push(`${uriName(uri)} (unsupported scheme)`); continue; }
+            if (!fs.existsSync(fsPath)) { failed.push(`${path.basename(fsPath)} (not found: ${fsPath})`); continue; }
+            if (!fs.statSync(fsPath).isFile()) { failed.push(`${path.basename(fsPath)} (folder — drop files only)`); continue; }
             const name = path.basename(fsPath);
             if (/\.md$/i.test(name)) {
                 const content = fs.readFileSync(fsPath, 'utf8');
@@ -4170,11 +4248,13 @@ export function registerExternalDroppedUris(
             }
         } catch (e) {
             console.error('[Notes] registerExternalDroppedUris skip:', uri, e);
+            failed.push(`${uriName(uri)} (read error)`);
         }
     }
     if (registered > 0) {
         sendFileListWithStructure(fileManager, sender);
     }
+    return { registered, failed };
 }
 
 /**

@@ -491,6 +491,9 @@ export function getNotesWebviewContent(
                 },
                 saveHistoryPanelCollapsed: function(c) { window.notesHostBridge.saveHistoryPanelCollapsed(c); },
                 saveHistoryPanelHeight: function(h) { window.notesHostBridge.saveHistoryPanelHeight(h); },
+                // FR-RCT-02/03（TASK-13）: kind='file' entry の click（手書き subset のため個別追加が必要 —
+                // generator_failures 2026-08-09 の SidePanelHostBridge クラスと同じ追加漏れが起きていた）
+                historyOpenFile: function(absPath) { window.notesHostBridge.historyOpenFile(absPath); },
             },
             initialHistory: ${JSON.stringify(initData.history || [])},
             initialHeight: ${JSON.stringify(initData.historyPanelHeight ?? null)},
