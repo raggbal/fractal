@@ -107,6 +107,11 @@ export function getNotesWebviewContent(
     const wholeWordScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'whole-word.js'), 'utf8');
 
+    // FR-SEF-01 (sprint 20260822-203347): ext: クエリ構文の正典 parse（window.SearchExtFilter）。
+    // notes-file-panel.js が消費するため、それより前に注入する（whole-word と同方式）。
+    const searchExtFilterScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'search-ext-filter.js'), 'utf8');
+
     // Load shared markdown link parser (used by outliner.js and editor.js)
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
@@ -336,6 +341,7 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${inlineColorPickerScript}</script>
     <script nonce="${nonce}">${inAppLinkUtilsScript}</script>
     <script nonce="${nonce}">${wholeWordScript}</script>
+    <script nonce="${nonce}">${searchExtFilterScript}</script>
     <script nonce="${nonce}">${pdfExportScript}</script>
     <script nonce="${nonce}">${sidePanelOverflowScript}</script>
     <script nonce="${nonce}">${shortcutListScript}</script>

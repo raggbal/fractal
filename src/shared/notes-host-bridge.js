@@ -775,6 +775,8 @@
                 caseSensitive: options.caseSensitive,
                 wholeWord: options.wholeWord,
                 useRegex: options.useRegex,
+                // FR-SEF-02 (sprint 20260822-203347): ext: フィルタ（正典 parse 済み）。未指定は null = 従来不変
+                exts: options.exts || null,
             });
         },
         jumpToNode: function(fileId, nodeId) {

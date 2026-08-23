@@ -1991,11 +1991,24 @@ var notesFilePanel = (function() {
         if (tabName === 'tools' && bridge.s3GetStatus) bridge.s3GetStatus();
     }
 
+    /**
+     * FR-SEF-01 (sprint 20260822-203347): ext: クエリ構文の stateless parse。
+     * input.value の pure 関数 — module 状態を持たない（executeSearch 非経由で
+     * 駆動される既存 spec を壊さないための裁定 = design-review iteration 1 TDD-1）。
+     * 正典（window.SearchExtFilter = search-ext-filter.js）不在時は従来挙動に縮退。
+     */
+    function currentSearch() {
+        var raw = searchInputEl ? searchInputEl.value : '';
+        return (window.SearchExtFilter && window.SearchExtFilter.parseExtQuery)
+            ? window.SearchExtFilter.parseExtQuery(raw)
+            : { body: String(raw).trim(), exts: null };
+    }
+
     function executeSearch() {
         if (!searchInputEl || !bridge.search) return;
-        var query = searchInputEl.value.trim();
-        if (!query) return;
-        bridge.search(query, searchOptions);
+        var q = currentSearch();
+        if (!q.body) return;   // ext: 単独（本文空）も既存の空クエリ挙動 = 検索非実行（FR-SEF-01）
+        bridge.search(q.body, Object.assign({}, searchOptions, { exts: q.exts }));
     }
 
     var searchSectionOut = null;
@@ -2070,7 +2083,9 @@ var notesFilePanel = (function() {
      *  the Explore section. Respects searchOptions (caseSensitive / wholeWord / useRegex). */
     function renderExploreResults() {
         if (!searchInputEl || !structure || !searchSectionExploreBody) return;
-        var query = searchInputEl.value.trim();
+        // FR-SEF-02: ext: を strip した本文で照合（stateless — currentSearch() を都度適用）
+        var q = currentSearch();
+        var query = q.body;
         if (!query) return;
 
         var matcher = buildNameMatcher(query);
@@ -2083,8 +2098,9 @@ var notesFilePanel = (function() {
             var item = structure.items[id];
             if (!item) return;
             if (item.type === 'folder') {
+                // FR-SEF-02: exts 指定時はフォルダ名マッチ非表示（フォルダに拡張子はない）
                 var t = item.title || '';
-                if (matcher(t)) {
+                if (!q.exts && matcher(t)) {
                     matches.push({ id: id, type: 'folder', title: t });
                 }
             } else if (item.type === 'file') {
@@ -2096,6 +2112,14 @@ var notesFilePanel = (function() {
                 // 添付 file はタイトルに加えファイル名（basename）部分一致でもヒットさせる。
                 var basename = fp ? fp.replace(/^.*[/\\]/, '') : '';
                 var hit = matcher(title) || (fkind === 'file' && basename && matcher(basename));
+                // FR-SEF-02: exts 指定時は kind 別拡張子で絞り込む（md→'md' / out→'out' /
+                // 添付 file→実 extname）。q.exts 非 null は正典存在を含意（currentSearch の縮退契約）
+                if (hit && q.exts) {
+                    var extKey = fkind === 'file'
+                        ? window.SearchExtFilter.extOfName(basename || title)
+                        : fkind;
+                    hit = window.SearchExtFilter.matchesExt(extKey, q.exts);
+                }
                 if (hit) {
                     matches.push({
                         id: id, type: 'file', title: title, filePath: fp,
@@ -2220,7 +2244,7 @@ var notesFilePanel = (function() {
         headerEl.textContent = fileResult.fileTitle + ' (' + fileResult.matches.length + ')';
         groupEl.appendChild(headerEl);
 
-        var query = searchInputEl.value.trim();
+        var query = currentSearch().body;   // FR-SEF-01: ハイライトは本文クエリ（ext: 非混入）
         fileResult.matches.forEach(function(match, matchIdx) {
             var matchEl = document.createElement('div');
             matchEl.className = 'file-panel-search-match';
@@ -2246,7 +2270,7 @@ var notesFilePanel = (function() {
                     if (bridge && typeof bridge.openNoteFilesExternal === 'function') {
                         var rel = String(fileResult.fileId || '').replace(/^files\//, '');
                         // FR-VFB-04: 検索語 + 位置ヒント（loc = p.N 等）を viewer へ引き渡す（open + 自動 find）
-                        bridge.openNoteFilesExternal(rel, searchInputEl ? searchInputEl.value.trim() : '', match.loc || '');
+                        bridge.openNoteFilesExternal(rel, currentSearch().body, match.loc || '');
                     }
                 } else if (fileResult.fileType === 'out' && match.nodeId && bridge.jumpToNode) {
                     bridge.jumpToNode(fileResult.fileId, match.nodeId);

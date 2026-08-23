@@ -205,3 +205,198 @@ test.describe('逆参照リンク + loc 表示（TASK-20 / FR-DS-10 / FR-DS-09�
         expect(r.openCalls[0][0]).toBe('/n/meeting.md');               // md → note md ダイレクト（openFile）
     });
 });
+
+// ── TC-SEF-03 / TC-SEF-05（panel 分）— ext: クエリ構文（sprint 20260822-203347 FR-SEF-02/04） ──
+// 正典（search-ext-filter.js）は本番 inline / ハーネス注入で panel より前にロードされる（TC-SEF-07 が配線番人）。
+// ここでは同じ順序を再現して withCanon を切り替える（TC-SEF-03(f) = 正典不在の縮退）。
+
+const CANON_JS = fs.readFileSync(
+    path.join(__dirname, '../../src/shared/search-ext-filter.js'), 'utf8');
+
+async function loadPanelForExt(page: Page, opts: { withCanon: boolean }): Promise<void> {
+    await page.goto('about:blank');
+    await page.setContent(
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<style>' + PANEL.css + '</style>' +
+        '</head><body>' + PANEL.html + '</body></html>');
+    await page.evaluate(() => {
+        const w = window as any;
+        w.__outlinerMessages = {};
+        w.__calls = [];
+        w.__makeExplicitBridge = function () {
+            const rec = (type: string) => function () {
+                const args = Array.prototype.slice.call(arguments);
+                w.__calls.push({ type, args });
+                if (type === 'onSearchStart') w.__onSearchStart = args[0];
+                if (type === 'onSearchPartial') w.__onSearchPartial = args[0];
+                if (type === 'onSearchEnd') w.__onSearchEnd = args[0];
+            };
+            return {
+                onSearchStart: rec('onSearchStart'),
+                onSearchPartial: rec('onSearchPartial'),
+                onSearchEnd: rec('onSearchEnd'),
+                openNoteFilesExternal: rec('openNoteFilesExternal'),
+                jumpToNode: rec('jumpToNode'),
+                jumpToMdPage: rec('jumpToMdPage'),
+                openFile: rec('openFile'),
+                search: rec('search'),
+            };
+        };
+    });
+    if (opts.withCanon) { await page.addScriptTag({ content: CANON_JS }); }
+    await page.addScriptTag({ content: PANEL_JS });
+    await page.evaluate(() => {
+        const w = window as any;
+        // 名前マッチ検証用: md / out / 添付 file / folder を「会議」で全ヒットする命名にする
+        w.notesFilePanel.init(
+            w.__makeExplicitBridge(),
+            [
+                { id: 'md1', filePath: '/n/会議めも.md', title: '会議めも', kind: 'md' },
+                { id: 'out1', filePath: '/n/会議計画.out', title: '会議計画', kind: 'out' },
+                { id: 'att1', filePath: '/n/files/会議資料.docx', title: '会議資料', kind: 'file' },
+            ],
+            null,
+            {
+                version: 1, rootIds: ['md1', 'out1', 'att1', 'fol1'],
+                items: {
+                    md1: { type: 'file', id: 'md1', title: '会議めも' },
+                    out1: { type: 'file', id: 'out1', title: '会議計画' },
+                    att1: { type: 'file', id: 'att1', title: '会議資料' },
+                    fol1: { type: 'folder', id: 'fol1', title: '会議フォルダ' },
+                },
+            },
+            null, 'MyNote');
+        w.__calls = [];
+    });
+}
+
+/** 検索欄に入力して Enter（executeSearch 経由） */
+async function typeAndEnter(page: Page, value: string): Promise<void> {
+    await page.evaluate((v) => {
+        const input = document.getElementById('notesSearchInput') as HTMLInputElement;
+        input.value = v;
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }, value);
+}
+
+test.describe('ext: クエリ構文（FR-SEF-02/04 — panel 分）', () => {
+
+    test('TC-SEF-05a/b + TC-SEF-03e: payload byte 不変 / 先頭以外リテラル / 本文空は検索非実行', async ({ page }) => {
+        await loadPanelForExt(page, { withCanon: true });
+        // (05a) ext: なし → query 生 trim・exts null
+        await typeAndEnter(page, ' 見積書 ');
+        // (05b) 先頭以外 → リテラル残存
+        await typeAndEnter(page, '見積 ext:pdf');
+        // (03e) 本文空 → 検索非実行
+        await typeAndEnter(page, 'ext:pdf');
+        // (ext あり) → strip 済み body + exts
+        await typeAndEnter(page, 'ext:docx 会議');
+        const calls = await page.evaluate(() => (window as any).__calls.filter((c: any) => c.type === 'search'));
+        expect(calls.length).toBe(3);   // 'ext:pdf' 単独は search を発行しない
+        expect(calls[0].args[0]).toBe('見積書');
+        expect(calls[0].args[1].exts ?? null).toBe(null);
+        expect(calls[1].args[0]).toBe('見積 ext:pdf');
+        expect(calls[1].args[1].exts ?? null).toBe(null);
+        expect(calls[2].args[0]).toBe('会議');
+        expect(calls[2].args[1].exts).toEqual(['docx']);
+    });
+
+    test('TC-SEF-03b/d: 名前マッチの ext 絞り込み（folder 非表示・kind 別）', async ({ page }) => {
+        await loadPanelForExt(page, { withCanon: true });
+        const collect = async (q: string) => {
+            await page.evaluate((v) => {
+                const w = window as any;
+                const input = document.getElementById('notesSearchInput') as HTMLInputElement;
+                input.value = v;
+                w.__onSearchStart(30);
+                w.__onSearchEnd(30);
+            }, q);
+            return page.evaluate(() => {
+                const sections = Array.from(document.querySelectorAll('#notesSearchResults .file-panel-search-section'));
+                const explore = sections.find((s) =>
+                    ((s.querySelector('.file-panel-search-section-title')?.textContent) || '').indexOf('Explore') !== -1);
+                return Array.from(explore ? explore.querySelectorAll('.file-panel-search-match') : [])
+                    .map((m) => (m.textContent || '').trim());
+            });
+        };
+        // exts=['docx'] → 添付 docx の名前マッチのみ（folder / md / out 非表示）
+        const docx = await collect('ext:docx 会議');
+        expect(docx.some((t) => t.indexOf('会議資料') !== -1), 'docx 名前マッチが出ない').toBe(true);
+        expect(docx.some((t) => t.indexOf('会議フォルダ') !== -1), 'folder 名マッチが出た（ext 指定時は非表示）').toBe(false);
+        expect(docx.some((t) => t.indexOf('会議めも') !== -1), 'md 名マッチが混入').toBe(false);
+        expect(docx.some((t) => t.indexOf('会議計画') !== -1), 'out 名マッチが混入').toBe(false);
+        // exts=['md'] → md のみ
+        const md = await collect('ext:md 会議');
+        expect(md.some((t) => t.indexOf('会議めも') !== -1)).toBe(true);
+        expect(md.some((t) => t.indexOf('会議資料') !== -1)).toBe(false);
+        expect(md.some((t) => t.indexOf('会議フォルダ') !== -1)).toBe(false);
+        // ext なし → 従来どおり全部（folder 含む）
+        const all = await collect('会議');
+        expect(all.some((t) => t.indexOf('会議フォルダ') !== -1)).toBe(true);
+        expect(all.some((t) => t.indexOf('会議めも') !== -1)).toBe(true);
+        expect(all.some((t) => t.indexOf('会議資料') !== -1)).toBe(true);
+    });
+
+    test('TC-SEF-03c: ハイライト / クリック引き渡しに ext: が混入しない', async ({ page }) => {
+        await loadPanelForExt(page, { withCanon: true });
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const input = document.getElementById('notesSearchInput') as HTMLInputElement;
+            input.value = 'ext:docx 吾輩';
+            w.__onSearchStart(31);
+            w.__onSearchPartial(31, {
+                fileId: 'files/meeting.docx', fileTitle: '会議資料', fileType: 'file',
+                matches: [{ field: 'content', lineText: '吾輩は猫である。', matchStart: 0, matchEnd: 2, lineNumber: 3 }],
+            });
+            w.__onSearchEnd(31);
+            const match = document.querySelector('#notesSearchResults [data-file-id] .file-panel-search-match')
+                || document.querySelector('#notesSearchResults .file-panel-search-match');
+            const marks = Array.from((match as HTMLElement).querySelectorAll('.file-panel-search-highlight')).map((m) => m.textContent);
+            (match as HTMLElement).click();
+            const open = w.__calls.filter((c: any) => c.type === 'openNoteFilesExternal');
+            return { marks, html: (match as HTMLElement).innerHTML, open: open.map((c: any) => c.args) };
+        });
+        expect(r.marks).toContain('吾輩');
+        expect(r.html.indexOf('ext:docx')).toBe(-1);
+        expect(r.open.length).toBe(1);
+        expect(r.open[0][1]).toBe('吾輩');   // findQuery = 本文クエリ（ext: 非混入）
+    });
+
+    test('TC-SEF-05d: stateless 番人 — executeSearch 非経由の直接駆動で従来同一（counterfactual: 状態保持化で RED）', async ({ page }) => {
+        await loadPanelForExt(page, { withCanon: true });
+        const r = await page.evaluate(() => {
+            const w = window as any;
+            const input = document.getElementById('notesSearchInput') as HTMLInputElement;
+            // executeSearch を一切通さない（doc-search-panel.spec 既存 8 TC と同一の駆動様式）
+            input.value = '会議';
+            w.__onSearchStart(40);
+            w.__onSearchPartial(40, {
+                fileId: 'o9', fileTitle: '会議アウトライン', fileType: 'out',
+                matches: [{ field: 'text', lineText: '会議メモ', matchStart: 0, matchEnd: 2, nodeId: 'n1' }],
+            });
+            w.__onSearchEnd(40);
+            const sections = Array.from(document.querySelectorAll('#notesSearchResults .file-panel-search-section'));
+            const explore = sections.find((s) =>
+                ((s.querySelector('.file-panel-search-section-title')?.textContent) || '').indexOf('Explore') !== -1);
+            const exploreTexts = Array.from(explore ? explore.querySelectorAll('.file-panel-search-match') : [])
+                .map((m) => (m.textContent || '').trim());
+            const outMatch = document.querySelector('#notesSearchResults [data-file-id="o9"] .file-panel-search-match')
+                || Array.from(document.querySelectorAll('#notesSearchResults .file-panel-search-match'))
+                    .find((m) => (m.textContent || '').indexOf('会議メモ') !== -1);
+            const marks = outMatch ? Array.from((outMatch as HTMLElement).querySelectorAll('.file-panel-search-highlight')).map((m) => m.textContent) : [];
+            return { exploreTexts, marks };
+        });
+        // 名前マッチ・ハイライトとも input.value を読めている（module 状態未初期化で空にならない）
+        expect(r.exploreTexts.some((t) => t.indexOf('会議フォルダ') !== -1)).toBe(true);
+        expect(r.marks).toContain('会議');
+    });
+
+    test('TC-SEF-03f: 正典不在の縮退 — ext: はリテラル検索語・落ちない', async ({ page }) => {
+        await loadPanelForExt(page, { withCanon: false });
+        await typeAndEnter(page, 'ext:pdf 吾輩');
+        const calls = await page.evaluate(() => (window as any).__calls.filter((c: any) => c.type === 'search'));
+        expect(calls.length).toBe(1);
+        expect(calls[0].args[0]).toBe('ext:pdf 吾輩');   // strip されずリテラル（従来挙動）
+        expect(calls[0].args[1].exts ?? null).toBe(null);
+    });
+});

@@ -98,6 +98,8 @@ const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/sha
 const inAppLinkUtilsScript = fs.readFileSync(path.join(__dirname, '../src/shared/inapp-link-utils.js'), 'utf-8');
 // FR-MLG-02 (sprint 20260818-183407): wholeWord 多言語境界（window.WholeWord）。notes-file-panel より前に注入。
 const wholeWordScript = fs.readFileSync(path.join(__dirname, '../src/shared/whole-word.js'), 'utf-8');
+// FR-SEF-01 (sprint 20260822-203347): ext: クエリ構文の正典（window.SearchExtFilter）。notes-file-panel より前に注入。
+const searchExtFilterScript = fs.readFileSync(path.join(__dirname, '../src/shared/search-ext-filter.js'), 'utf-8');
 // FR-B06b: cmd 長押しショートカット HUD（静的リスト + 表示ロジック。editor.js/outliner.js より前）
 const shortcutListScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-list.js'), 'utf-8');
 const shortcutHudScript = fs.readFileSync(path.join(__dirname, '../src/shared/shortcut-hud.js'), 'utf-8');
@@ -737,7 +739,7 @@ result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
-result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript + '\n' + wholeWordScript);
+result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript + '\n' + wholeWordScript + '\n' + searchExtFilterScript);
 result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);

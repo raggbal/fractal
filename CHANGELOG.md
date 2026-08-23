@@ -5,6 +5,15 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-08-23
+
+### Added
+- **Extension filter for cross-note search** (`ext:` query syntax): start the query with `ext:pdf` / `ext:pdf,docx` / `ext:md` / `ext:out` to narrow all five result kinds (outlines, note markdowns, outline pages, attachment contents, name matches; folder-name matches are hidden while filtering). Case / leading dot / full-width input are normalized; `ext:` anywhere else in the query is literal text (FR-SEF)
+- The same `ext:` syntax in the `fractal-search` CLI, ANDed with `--scope` (extension⇔CLI parity contract maintained)
+
+### Changed
+- Attachment content search skips extraction entirely for filtered-out file types (faster filtered searches, no cache pollution)
+
 ## [1.3.4] - 2026-08-23
 
 ### Added

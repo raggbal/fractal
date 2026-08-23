@@ -2112,6 +2112,11 @@ export async function handleNotesMessage(
                 caseSensitive: message.caseSensitive || false,
                 wholeWord: message.wholeWord || false,
                 useRegex: message.useRegex || false,
+                // FR-SEF-02: ext: フィルタ（webview が正典 parse 済み）。型検証のみ・再正規化しない
+                // （正規化は search-ext-filter.js の責務）。旧 webview の exts なし message でも null = 従来不変
+                exts: Array.isArray(message.exts)
+                    ? message.exts.filter((s: unknown): s is string => typeof s === 'string')
+                    : null,
             };
             const searchId = Date.now();
 

@@ -332,6 +332,32 @@ export function buildRegex(query, { regex, caseSensitive, wholeWord }) {
     }
 }
 
+// ─────────────── ext: クエリ構文 ───────────────
+
+// FR-SEF-01 (sprint 20260822-203347): ext: クエリ構文の parse — src/shared/search-ext-filter.js の
+// **ミラー**（CLI はゼロ install 配布のため import しない。extension⇄CLI 一致 TC = TC-SEF-06 が番人・
+// ADRL-0059 と同型の運用）。規則: 先頭トークンのみ / キーワードは大小文字 + 全角を文字クラスで許容 /
+// 値のみ NFKC + 小文字 + 先頭ドット strip / 有効値 0 個はリテラル縮退 / body は生のまま。
+export function parseExtQuery(raw) {
+    const q = String(raw == null ? '' : raw);
+    const m = q.match(/^\s*[eｅ][xｘ][tｔ][:：](\S+)(\s+|$)/iu);
+    if (!m) return { body: q.trim(), exts: null };
+    const exts = m[1].normalize('NFKC').toLowerCase()
+        .split(',')
+        .map((x) => x.replace(/^\./, '').trim())
+        .filter((x) => x.length > 0);
+    if (exts.length === 0) return { body: q.trim(), exts: null };
+    return { body: q.slice(m[0].length).trim(), exts };
+}
+
+/** 拡張子（. なし）が exts にマッチするか。exts == null は常に true（ミラー — 正典と同一規則） */
+function matchesExtMjs(ext, exts) {
+    if (exts == null) return true;
+    const e = String(ext == null ? '' : ext).toLowerCase();
+    if (e.length === 0) return false;
+    return exts.indexOf(e) !== -1;
+}
+
 // ─────────────── Match helpers ───────────────
 
 function findMatches(text, regex) {
@@ -644,6 +670,8 @@ async function searchTreeFileAttachments(folder, regex, args, state, cache, note
     }
     for (const abs of walkContentSearchFilesMjs(filesDir)) {
         if (state.results.length >= args.maxResults) return;
+        // FR-SEF-03: ext ゲートは抽出の前（extension 第 4 段と同型 — 不要な抽出/キャッシュ生成をしない）
+        if (!matchesExtMjs(path.extname(abs).slice(1), args.exts)) continue;
         const rel = path.relative(filesDir, abs);
         const relKey = path.join('files', rel);
         const hit = await extractAttachmentCached(cache, folder, relKey, abs, args.noCache);
@@ -727,7 +755,7 @@ async function searchFolder(folder, regex, args, state, cache) {
 
         // --- nodes ---
         // --h1 指定時は対象が md（page/root md）なので node 走査は skip（FR-SS-04 の階層）
-        if (!args.h1 && (!args.scope || args.scope.has('node') || args.scope.has('outline'))) {
+        if (!args.h1 && (!args.scope || args.scope.has('node') || args.scope.has('outline')) && matchesExtMjs('out', args.exts)) {
             let perFile = 0;
             for (const node of data.nodes) {
                 if (perFile >= args.maxPerFile && args.maxPerFile > 0) break;
@@ -772,7 +800,7 @@ async function searchFolder(folder, regex, args, state, cache) {
         // --- pages (only nodes with pageId) ---
         // pageDir 解決: フラット規約（hint 優先 → flat 直下 → legacy <basename>/ → legacy pages/。ADRL-0018 ミラー）
         // 対象: --query あり（本文検索）or --h1 あり（先頭 H1 フィルタ。FR-SS-03/04）
-        if ((regex || args.h1) && (!args.scope || args.scope.has('page'))) {
+        if ((regex || args.h1) && (!args.scope || args.scope.has('page')) && matchesExtMjs('md', args.exts)) {
             const pageDirAbs = resolvePagesDirForSearch(folder, outFile, data.pageDir);
             if (fs.existsSync(pageDirAbs)) {
                 let perFile = 0;
@@ -829,7 +857,7 @@ async function searchFolder(folder, regex, args, state, cache) {
 
     // --- root-level .md (not tied to any outline) ---
     // 対象: --query あり or --h1 あり（FR-SS-03。--outline-name 指定時は outliner 対象なので skip）
-    if ((regex || args.h1) && !args.outlineName && (!args.scope || args.scope.has('md'))) {
+    if ((regex || args.h1) && !args.outlineName && (!args.scope || args.scope.has('md')) && matchesExtMjs('md', args.exts)) {
         for (const md of rootMds) {
             if (state.results.length >= args.maxResults) break;
             // --h1 モードでは page md（flat 直下）を root md として二重ヒットさせない
@@ -1310,6 +1338,12 @@ async function main() {
         process.exit(1);
     }
 
+    // FR-SEF-03: --query の ext: トークンをミラー parse（--scope とは AND）。body 空 = 検索非実行（既存の空クエリ挙動）
+    if (args.query) {
+        const pq = parseExtQuery(args.query);
+        args.query = pq.body;
+        args.exts = pq.exts;
+    }
     const regex = args.query ? buildRegex(args.query, args) : null; // null = フィルタのみ列挙（FR-SRF-03）
     const state = {
         results: [],

@@ -411,3 +411,74 @@ test.describe('テキスト系ミラー + CLI E2E（sprint 20260815 / FR-DS-06 r
         }
     });
 });
+
+// ── TC-SEF-06 — ext: クエリ構文の extension⇔CLI 一致（sprint 20260822-203347 FR-SEF-03 / ADRL-0059 契約） ──
+test.describe('ext: クエリ構文（FR-SEF-03）', () => {
+    let tmpDirs: string[] = [];
+    const track = (d: string) => { tmpDirs.push(d); return d; };
+    const mkCacheDir = () => track(fs.mkdtempSync(path.join(os.tmpdir(), 'sef-cli-cache-')));
+    test.afterEach(() => {
+        for (const d of tmpDirs) { fs.rmSync(d, { recursive: true, force: true }); }
+        tmpDirs = [];
+    });
+
+    /** 全結果種 needle 入り fixture: 添付 docx + xlsx + .out ノード + note md */
+    function mkExtNote(): string {
+        const note = mkNoteWithAttachments([
+            { id: 'att1', filename: 'meeting.docx', title: '会議資料', bytesFrom: 'docx-pydocx.docx' },
+            { id: 'att2', filename: 'sheet.xlsx', title: '売上', bytesFrom: 'xlsx-openpyxl-inline.xlsx' },
+        ]);
+        fs.writeFileSync(path.join(note, 'o1.out'), JSON.stringify({
+            title: 'O', nodes: { n1: { text: '吾輩は猫である outline行' } },
+        }));
+        fs.writeFileSync(path.join(note, 'note.md'), '吾輩は猫である。名前はまだ無い。');
+        return note;
+    }
+
+    test('TC-SEF-06a: 同一クエリ（ext:docx）で extension と CLI の結果集合が一致', async () => {
+        const note = track(mkExtNote());
+        // CLI 側: --query に ext: 込みで渡す（CLI 内部でミラー parse）
+        const json = runCliJson(['--query', 'ext:docx 吾輩は猫である', '--folder', note], mkCacheDir());
+        const cliIds = json.results.map((r: any) => `${r.kind}:${r.fileId || r.outlineId || r.mdPath || ''}`).sort();
+        expect(json.results.every((r: any) => r.kind === 'file'), 'CLI に file 以外の結果種が混入').toBe(true);
+        expect(json.results.length).toBe(1);
+        expect(json.results[0].fileId).toBe('files/meeting.docx');   // xlsx は ext フィルタで除外
+        // extension 側: 正典 parse → searchFilesStreaming（同一 fixture・同一クエリ）
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { parseExtQuery } = require('../../src/shared/search-ext-filter');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { NotesFileManager } = require('../../src/shared/notes-file-manager');
+        const pq = parseExtQuery('ext:docx 吾輩は猫である');
+        const fm = new NotesFileManager(note);
+        const extResults: any[] = [];
+        await fm.searchFilesStreaming(pq.body,
+            { caseSensitive: false, wholeWord: false, useRegex: false, exts: pq.exts },
+            (r: any) => extResults.push(r));
+        expect(extResults.map((r) => `${r.fileType}:${r.fileId}`).sort())
+            .toEqual(['file:files/meeting.docx']);
+        expect(cliIds).toEqual(['file:files/meeting.docx']);         // 両者一致（ADRL-0059）
+    });
+
+    test('TC-SEF-06b: --scope outline + ext:pdf の矛盾指定は 0 件・正常終了', () => {
+        const note = track(mkExtNote());
+        const json = runCliJson(['--query', 'ext:pdf 吾輩は猫である', '--folder', note, '--scope', 'outline'], mkCacheDir());
+        expect(json.results.length).toBe(0);   // AND の自然な帰結（execFileSync が throw しない = exit 0）
+    });
+
+    test('TC-SEF-06c: 添付走査は非マッチ ext を抽出前 skip（fileCacheMiss で観測）', () => {
+        const note = track(mkExtNote());
+        const json = runCliJson(['--query', 'ext:docx 吾輩は猫である', '--folder', note], mkCacheDir());
+        // docx のみ抽出（xlsx は extname 判定で extract 前 continue → miss にカウントされない）
+        expect(json.cache.fileCacheMiss).toBe(1);
+        expect(json.cache.fileCacheHit).toBe(0);
+    });
+
+    test('TC-SEF-06d: ext: なしクエリは従来どおり全結果種（後方互換）', () => {
+        const note = track(mkExtNote());
+        const json = runCliJson(['--query', '吾輩は猫である', '--folder', note], mkCacheDir());
+        const kinds = new Set(json.results.map((r: any) => r.kind));
+        expect(kinds.has('file')).toBe(true);
+        expect(kinds.has('md')).toBe(true);
+        expect(kinds.has('outline-node')).toBe(true);
+    });
+});

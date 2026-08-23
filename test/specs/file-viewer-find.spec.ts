@@ -144,8 +144,10 @@ test('TC-VFB-05 横断検索ヒット連携: open opts.findQuery で自動 find 
     // (b) 経路の透過 contract（送出 → bridge → host case → provider message → dispatcher の 5 点）
     const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const panel = read('src/shared/notes-file-panel.js');
-    expect(/openNoteFilesExternal\(rel,\s*searchInputEl/.test(panel),
-        '検索ヒット click が検索語を渡していない').toBe(true);
+    // FR-SEF-01 (sprint 20260822-203347・TASK-05 許可: test_update): 検索語の引き渡しは
+    // 生 input 直読みから currentSearch().body（ext: strip 済み本文クエリ）に改訂 — 挙動契約は保持
+    expect(/openNoteFilesExternal\(rel,\s*currentSearch\(\)\.body/.test(panel),
+        '検索ヒット click が検索語（本文クエリ）を渡していない').toBe(true);
     const bridge = read('src/shared/notes-host-bridge.js');
     expect(bridge.includes("type: 'openNoteFilesExternal'") && bridge.match(/openNoteFilesExternal[\s\S]{0,220}findQuery/) !== null,
         'bridge が findQuery を送っていない').toBe(true);

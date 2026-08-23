@@ -86,6 +86,8 @@ export interface SearchOptions {
     caseSensitive: boolean;
     wholeWord: boolean;
     useRegex: boolean;
+    /** FR-SEF-02 (sprint 20260822-203347): ext: フィルタ（正典 parse 済みの小文字拡張子）。null/未指定 = フィルタなし */
+    exts?: string[] | null;
 }
 
 /**
@@ -2246,6 +2248,12 @@ export class NotesFileManager {
         } catch {
             return; // invalid regex
         }
+        // FR-SEF-02 (sprint 20260822-203347): ext: フィルタの 4 段ゲート。結果種→拡張子は
+        // 第1段='out' / 第2・3段='md' / 第4段=実 extname。matchesExt は正典（search-ext-filter.js）
+        // に統一（webview / CLI ミラーと同一規則 — inline 再実装禁止）。exts 未指定は全段素通し = 従来不変。
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { matchesExt } = require('./search-ext-filter');
+        const exts: string[] | null = options.exts ?? null;
 
         // 1. .out ファイルを検索
         let outFiles: string[];
@@ -2255,7 +2263,7 @@ export class NotesFileManager {
             outFiles = [];
         }
 
-        for (const outFile of outFiles) {
+        for (const outFile of matchesExt('out', exts) ? outFiles : []) {
             const filePath = path.join(this.mainFolderPath, outFile);
             try {
                 const content = fs.readFileSync(filePath, 'utf8');
@@ -2287,7 +2295,7 @@ export class NotesFileManager {
         // 2. v0.207.82: _notes_md/ 直下の .md (Notes-md エディタが管理するファイル, フラット化)
         try {
             const mdRoot = this.getMdRootDirPath();
-            if (fs.existsSync(mdRoot)) {
+            if (matchesExt('md', exts) && fs.existsSync(mdRoot)) {
                 const mdFiles = fs.readdirSync(mdRoot).filter(f => f.endsWith('.md'));
                 const structure = this.getStructure();
                 for (const mdFile of mdFiles) {
@@ -2310,7 +2318,7 @@ export class NotesFileManager {
         // 拾って「未リンクページ」や重複ヒットの原因になる。
         // よって outline の nodes を走査し、pageId を持つノードに対応する
         // .md だけを検索する。
-        for (const outFile of outFiles) {
+        for (const outFile of matchesExt('md', exts) ? outFiles : []) {
             try {
                 const outPath = path.join(this.mainFolderPath, outFile);
                 const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
@@ -2383,6 +2391,9 @@ export class NotesFileManager {
 
             for (const abs of NotesFileManager.walkContentSearchFiles(filesDir)) {
                 if (gen !== this.searchGeneration) { return; }           // 旧検索 abort
+                // FR-SEF-02: ext ゲートは抽出の**前**（不要な getOrExtract をスキップ = 副次高速化・
+                // キャッシュ状態を汚さない。TC-SEF-02e が counterfactual 番人）
+                if (!matchesExt(path.extname(abs).slice(1), exts)) { continue; }
                 const res = await this.docCache.getOrExtract(abs);       // await 単位で yield
                 if (gen !== this.searchGeneration) { return; }
                 if (res.skipReason) { continue; }                        // 記録済み・結果には出さない（FR-DS-08）
