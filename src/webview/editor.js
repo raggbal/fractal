@@ -2495,6 +2495,13 @@ class EditorInstance {
                         // 入らず、全選択 cut でアイコン残骸も出ない）。serialize が [📎 text](url) を復元。
                         // drag は ::before アイコンを掴む（subpage TASK-19 と同一機序）。
                         fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        // 拡張子別アイコン（表示のみ — CSS ::before が attr(data-file-icon) を描く。
+                        // glyph の写像は MarkdownLinkParser.fileIconGlyph が単一真実。📎 のときは属性を
+                        // 付けず従来クリップ SVG に縮退）
+                        if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                            var faGlyph = MarkdownLinkParser.fileIconGlyph(ln.url);
+                            if (faGlyph !== '📎') { fileAttachAttr += ' data-file-icon="' + faGlyph + '"'; }
+                        }
                         linkAltHtml = linkAltHtml.replace(/^\s*📎\s*/, '');
                         if (!linkAltHtml) { linkAltHtml = ln.alt; } // alt が 📎 のみの degenerate は原文維持
                     }
@@ -18646,6 +18653,10 @@ class EditorInstance {
                 dupA.textContent = newLabel;
                 dupA.setAttribute('data-is-file-attachment', 'true');
                 dupA.setAttribute('data-markdown-path', message.newHref);
+                if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                    var dupGlyph = MarkdownLinkParser.fileIconGlyph(message.newHref);
+                    if (dupGlyph !== '📎') { dupA.setAttribute('data-file-icon', dupGlyph); }
+                }
             } else {
                 // md/subpage: ラベルは元リンクと同一（複製 md の H1 = 元と同一）。
                 // serialize の [[]] 復元は data-subpage 属性が正（:2483 の往路フラグ）— 元リンクから引き継ぐ
@@ -19003,6 +19014,10 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                var insGlyph = MarkdownLinkParser.fileIconGlyph(message.markdownPath);
+                if (insGlyph !== '📎') { link.dataset.fileIcon = insGlyph; }
+            }
 
             editor.focus();
             const sel = window.getSelection();

@@ -708,6 +708,23 @@ body {
 }
 .editor a[data-is-file-attachment="true"]:active::before { cursor: grabbing; }
 .editor a[data-is-file-attachment="true"]:hover::before { opacity: 1; }
+/* 拡張子別アイコン（2026-08-23）: glyph は MarkdownLinkParser.fileIconGlyph が単一真実で、
+   renderer が data-file-icon 属性に焼く（📎 のときは属性なし = 上のクリップ SVG に縮退）。
+   emoji は自前彩色のためテーマ変種不要 — dark/auto では背景クリップの打ち消しだけ行う */
+.editor a[data-is-file-attachment="true"][data-file-icon]::before {
+    content: attr(data-file-icon);
+    background-image: none;
+    width: auto;
+    height: auto;
+    font-size: 0.95em;
+    line-height: 1;
+    top: 0.06em;
+    opacity: 0.9;
+}
+[data-fr-theme="dark"] .editor a[data-is-file-attachment="true"][data-file-icon]::before { background-image: none; }
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor a[data-is-file-attachment="true"][data-file-icon]::before { background-image: none; }
+}
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {

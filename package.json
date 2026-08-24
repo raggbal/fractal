@@ -2,7 +2,7 @@
   "name": "fractal",
   "displayName": "Fractal Note — Markdown, Outliner, Database, Mindmap & Files",
   "description": "WYSIWYG markdown editor + outliner with Database & Mindmap views, and all your files in one place — full-text search reaches inside attached PDF / Word / Excel / PowerPoint",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "publisher": "imaken",
   "author": "imaken",
   "icon": "media/icon.png",
@@ -225,6 +225,153 @@
           },
           {
             "filenamePattern": "*.htm"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "fractal.fileViewerOffice",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.docx"
+          },
+          {
+            "filenamePattern": "*.xlsx"
+          },
+          {
+            "filenamePattern": "*.pptx"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "fractal.fileViewerText",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.txt"
+          },
+          {
+            "filenamePattern": "*.log"
+          },
+          {
+            "filenamePattern": "*.json"
+          },
+          {
+            "filenamePattern": "*.jsonl"
+          },
+          {
+            "filenamePattern": "*.xml"
+          },
+          {
+            "filenamePattern": "*.yaml"
+          },
+          {
+            "filenamePattern": "*.yml"
+          },
+          {
+            "filenamePattern": "*.csv"
+          },
+          {
+            "filenamePattern": "*.tsv"
+          },
+          {
+            "filenamePattern": "*.js"
+          },
+          {
+            "filenamePattern": "*.mjs"
+          },
+          {
+            "filenamePattern": "*.cjs"
+          },
+          {
+            "filenamePattern": "*.ts"
+          },
+          {
+            "filenamePattern": "*.tsx"
+          },
+          {
+            "filenamePattern": "*.jsx"
+          },
+          {
+            "filenamePattern": "*.py"
+          },
+          {
+            "filenamePattern": "*.rb"
+          },
+          {
+            "filenamePattern": "*.go"
+          },
+          {
+            "filenamePattern": "*.rs"
+          },
+          {
+            "filenamePattern": "*.java"
+          },
+          {
+            "filenamePattern": "*.c"
+          },
+          {
+            "filenamePattern": "*.h"
+          },
+          {
+            "filenamePattern": "*.cpp"
+          },
+          {
+            "filenamePattern": "*.hpp"
+          },
+          {
+            "filenamePattern": "*.cs"
+          },
+          {
+            "filenamePattern": "*.sh"
+          },
+          {
+            "filenamePattern": "*.sql"
+          },
+          {
+            "filenamePattern": "*.ini"
+          },
+          {
+            "filenamePattern": "*.toml"
+          },
+          {
+            "filenamePattern": "*.conf"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "fractal.fileViewerImage",
+        "displayName": "Fractal File Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.png"
+          },
+          {
+            "filenamePattern": "*.jpg"
+          },
+          {
+            "filenamePattern": "*.jpeg"
+          },
+          {
+            "filenamePattern": "*.gif"
+          },
+          {
+            "filenamePattern": "*.webp"
+          },
+          {
+            "filenamePattern": "*.avif"
+          },
+          {
+            "filenamePattern": "*.bmp"
+          },
+          {
+            "filenamePattern": "*.ico"
+          },
+          {
+            "filenamePattern": "*.svg"
           }
         ],
         "priority": "option"
@@ -488,14 +635,14 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js && node scripts/build-pdfjs-viewer.js",
+    "compile": "tsc -p ./ --noEmit && tsc -p tsconfig.shared-emit.json && node esbuild.js && node build-locales.js && node scripts/copy-webview.js && node scripts/copy-vendor.js && node scripts/build-pdfjs-viewer.js && node scripts/build-viewer-modules.js",
     "build:pdfjs-vendor": "node scripts/build-pdfjs-vendor.js",
     "watch": "node esbuild.js --watch",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
     "test:build": "node test/build-standalone.js",
-    "test:build:all": "node test/build-standalone.js && node test/build-standalone-outliner.js && node test/build-standalone-notes.js && node scripts/build-pdfjs-viewer.js && node test/build-standalone-viewer.js",
+    "test:build:all": "node test/build-standalone.js && node test/build-standalone-outliner.js && node test/build-standalone-notes.js && node scripts/build-pdfjs-viewer.js && node scripts/build-viewer-modules.js && node test/build-standalone-viewer.js",
     "test:e2e": "npm run test:build && playwright test",
     "test:e2e:ui": "npm run test:build && playwright test --ui",
     "test:serve": "npx serve test/html -p 3000",

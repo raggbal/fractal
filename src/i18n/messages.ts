@@ -326,6 +326,18 @@ export interface WebviewMessages {
   viewerZoomOut: string;
   viewerExpand: string;
   viewerClose: string;
+  viewerFit: string;
+  viewerActualSize: string;
+  viewerProtectedFile: string;
+  viewerTooLargeToRender: string;
+  viewerBinaryFile: string;
+  viewerLayoutApprox: string;
+  viewerUnsupportedChart: string;
+  viewerUnsupportedSmartArt: string;
+  viewerUnsupportedImageFmt: string;
+  viewerUnsupportedMath: string;
+  viewerSheetHidden: string;
+  viewerVerticalTextApprox: string;
 }
 
 // Supported locales

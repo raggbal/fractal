@@ -32,6 +32,16 @@ function copyDir(src, dest) {
 }
 copyDir(PDFJS_SRC, PDFJS_DEST);
 
+// 新 viewer kind の ESM モジュール（build-viewer-modules.js の生成物）をテストサーバー配下へ供給
+// （sprint 20260823-165314 / FR-FV-17。未ビルド kind はスキップ — wave 実装中も動く）
+const VIEWER_MODULES_SRC = path.join(ROOT, 'out', 'webview');
+const VIEWER_MODULES_DEST = path.join(__dirname, 'html', 'viewer-modules');
+fs.mkdirSync(VIEWER_MODULES_DEST, { recursive: true });
+for (const kind of ['text', 'image', 'docx', 'xlsx', 'pptx']) {
+    const f = path.join(VIEWER_MODULES_SRC, `viewer-${kind}.mjs`);
+    if (fs.existsSync(f)) { fs.copyFileSync(f, path.join(VIEWER_MODULES_DEST, `viewer-${kind}.mjs`)); }
+}
+
 const viewerJsPath = path.join(ROOT, 'src', 'webview', 'file-viewer.js');
 const viewerJs = fs.existsSync(viewerJsPath) ? fs.readFileSync(viewerJsPath, 'utf-8') : '/* file-viewer.js not yet implemented (TASK-02) */';
 const viewerCss = fs.readFileSync(path.join(PDFJS_SRC, 'pdf_viewer.css'), 'utf-8');
@@ -44,12 +54,14 @@ const crypto = require('crypto');
 const nonce = crypto.randomBytes(16).toString('base64');
 const csp = [
     `default-src 'none'`,
-    `img-src 'self' data:`,
+    // sprint 20260823-165314 / FR-FV-18: 本番 fileViewerContent.ts と同期（blob: / font-src — TC-VEX-11 が番人）
+    `img-src 'self' data: blob:`,
     `style-src 'self' 'unsafe-inline'`,
     `script-src 'nonce-${nonce}' 'self'`,
     `frame-src 'self' blob:`,
     `worker-src 'self' blob:`,
     `connect-src 'self'`,
+    `font-src 'self' blob: data:`,
     `form-action 'none'`,
 ].join('; ');
 
@@ -95,6 +107,14 @@ window.__viewerConfig = {
     workerUri: './pdfjs-viewer/pdf.worker.min.mjs',
     cMapUrl: './pdfjs-viewer/cmaps/',
     standardFontDataUrl: './pdfjs-viewer/standard_fonts/',
+    // sprint 20260823-165314 / FR-FV-17: kind 別モジュール（build-viewer-modules.js → 本ビルドが供給）
+    viewerModuleUris: {
+        text: './viewer-modules/viewer-text.mjs',
+        image: './viewer-modules/viewer-image.mjs',
+        docx: './viewer-modules/viewer-docx.mjs',
+        xlsx: './viewer-modules/viewer-xlsx.mjs',
+        pptx: './viewer-modules/viewer-pptx.mjs',
+    },
     nonce: '${nonce}',
 };
 ${viewerJs}

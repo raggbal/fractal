@@ -128,6 +128,9 @@ var notesFilePanel = (function() {
 
     // SVG icons
     var ICON_FILE = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>';
+    // 2026-08-24 ユーザー選定: .out 専用アイコン = ドキュメント枠 + 箇条書き 3 行
+    //（md の「枠 + M」と同族の見た目でアウトライナーを表す。従来は無印 ICON_FILE と共用だった）
+    var ICON_FILE_OUT = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="11.5" y1="11" x2="16" y2="11"/><line x1="8" y1="14.5" x2="8.01" y2="14.5"/><line x1="11.5" y1="14.5" x2="16" y2="14.5"/><line x1="8" y1="18" x2="8.01" y2="18"/><line x1="11.5" y1="18" x2="16" y2="18"/></svg>';
     // ADR-008: Notes 内 .md ファイル識別用アイコン (file の右下に "M" ラベル)
     var ICON_FILE_MD = '<svg class="file-panel-item-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><text x="8" y="19" font-size="8" font-weight="700" stroke="none" fill="currentColor">M</text></svg>';
     // FR-TF-02 (sprint 20260809): tree に登録された添付ファイル (kind:'file') 識別用の専用アイコン (paperclip)。
@@ -320,7 +323,14 @@ var notesFilePanel = (function() {
         if (parentId) item.dataset.parentId = parentId;
         item.draggable = true;
 
-        var icon = isFolderLink ? ICON_FOLDER_LINK : (isAttach ? ICON_FILE_ATTACH : (isMd ? ICON_FILE_MD : ICON_FILE));
+        // 拡張子別アイコン（2026-08-23 — 表示のみ。office/pdf/html は emoji glyph、それ以外の添付は
+        // 従来クリップ SVG に縮退。写像は MarkdownLinkParser.fileIconGlyph が単一真実）
+        var attachGlyph = (isAttach && typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph)
+            ? MarkdownLinkParser.fileIconGlyph(f.filePath) : '📎';
+        var attachIcon = attachGlyph !== '📎'
+            ? '<span class="file-panel-item-icon file-panel-glyph-icon" style="font-size:12px;line-height:1;">' + attachGlyph + '</span>'
+            : ICON_FILE_ATTACH;
+        var icon = isFolderLink ? ICON_FOLDER_LINK : (isAttach ? attachIcon : (isMd ? ICON_FILE_MD : (kind === 'out' ? ICON_FILE_OUT : ICON_FILE)));
         item.innerHTML = icon + '<span class="file-panel-item-title">' + escapeHtml(f.title || 'Untitled') + '</span>';
 
         item.addEventListener('click', function(e) {

@@ -1462,6 +1462,23 @@ body {
 }
 .editor a[data-is-file-attachment="true"]:active::before { cursor: grabbing; }
 .editor a[data-is-file-attachment="true"]:hover::before { opacity: 1; }
+/* 拡張子別アイコン（2026-08-23）: glyph は MarkdownLinkParser.fileIconGlyph が単一真実で、
+   renderer が data-file-icon 属性に焼く（📎 のときは属性なし = 上のクリップ SVG に縮退）。
+   emoji は自前彩色のためテーマ変種不要 — dark/auto では背景クリップの打ち消しだけ行う */
+.editor a[data-is-file-attachment="true"][data-file-icon]::before {
+    content: attr(data-file-icon);
+    background-image: none;
+    width: auto;
+    height: auto;
+    font-size: 0.95em;
+    line-height: 1;
+    top: 0.06em;
+    opacity: 0.9;
+}
+[data-fr-theme="dark"] .editor a[data-is-file-attachment="true"][data-file-icon]::before { background-image: none; }
+@media (prefers-color-scheme: dark) {
+    [data-fr-theme="auto"] .editor a[data-is-file-attachment="true"][data-file-icon]::before { background-image: none; }
+}
 .editor a.link-subpage:hover::before { opacity: 1; }
 /* Dark theme link icons (sprint 20260509-185557: legacy [data-theme="night"|"dark"] → [data-fr-theme="dark"]) */
 [data-fr-theme="dark"] .editor a.link-fractal-node::before {
@@ -5378,12 +5395,33 @@ function articleToMarkdown(documentClone) {
         return { url: text.slice(startIndex, end), endIndex: end };
     }
 
+    // ── file 添付の表示アイコン（2026-08-23 ユーザー要望）───────────────────────
+    // 表示のみの写像（serialize の [📎 ...] マーカーは不変）。office/pdf/html は種別アイコン、
+    // text viewer 系（txt/js 等）は md の 📄 と紛らわしいため意図的にクリップ据え置き。
+    // 全消費面（editor ::before / outliner 添付 / mindmap / folder view / file panel）の単一真実。
+    var FILE_ICON_GLYPHS = {
+        pdf: '📕',
+        doc: '📘', docx: '📘',
+        xls: '📗', xlsx: '📗',
+        ppt: '📙', pptx: '📙',
+        html: '🌐', htm: '🌐'
+    };
+
+    /** ファイル名/パス/URL → 表示 glyph（該当なしは 📎 クリップ） */
+    function fileIconGlyph(nameOrPath) {
+        var base = String(nameOrPath || '').split(/[?#]/)[0]; // query/fragment を除去してから拡張子判定
+        var m = /\.([a-z0-9]+)$/i.exec(base);
+        var ext = m ? m[1].toLowerCase() : '';
+        return FILE_ICON_GLYPHS[ext] || '📎'; // 📎
+    }
+
     return {
         parseMarkdownLinks: parseMarkdownLinks,
         extractImagePaths: extractImagePaths,
         extractMarkdownFileLinks: extractMarkdownFileLinks,
         extractUrlWithBalancedParens: extractUrlWithBalancedParens,
-        findBalancedClose: findBalancedClose
+        findBalancedClose: findBalancedClose,
+        fileIconGlyph: fileIconGlyph
     };
 }));
 
@@ -10095,6 +10133,13 @@ class EditorInstance {
                         // 入らず、全選択 cut でアイコン残骸も出ない）。serialize が [📎 text](url) を復元。
                         // drag は ::before アイコンを掴む（subpage TASK-19 と同一機序）。
                         fileAttachAttr = ' data-is-file-attachment="true" data-markdown-path="' + ln.url + '" draggable="true"';
+                        // 拡張子別アイコン（表示のみ — CSS ::before が attr(data-file-icon) を描く。
+                        // glyph の写像は MarkdownLinkParser.fileIconGlyph が単一真実。📎 のときは属性を
+                        // 付けず従来クリップ SVG に縮退）
+                        if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                            var faGlyph = MarkdownLinkParser.fileIconGlyph(ln.url);
+                            if (faGlyph !== '📎') { fileAttachAttr += ' data-file-icon="' + faGlyph + '"'; }
+                        }
                         linkAltHtml = linkAltHtml.replace(/^\s*📎\s*/, '');
                         if (!linkAltHtml) { linkAltHtml = ln.alt; } // alt が 📎 のみの degenerate は原文維持
                     }
@@ -26246,6 +26291,10 @@ class EditorInstance {
                 dupA.textContent = newLabel;
                 dupA.setAttribute('data-is-file-attachment', 'true');
                 dupA.setAttribute('data-markdown-path', message.newHref);
+                if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                    var dupGlyph = MarkdownLinkParser.fileIconGlyph(message.newHref);
+                    if (dupGlyph !== '📎') { dupA.setAttribute('data-file-icon', dupGlyph); }
+                }
             } else {
                 // md/subpage: ラベルは元リンクと同一（複製 md の H1 = 元と同一）。
                 // serialize の [[]] 復元は data-subpage 属性が正（:2483 の往路フラグ）— 元リンクから引き継ぐ
@@ -26603,6 +26652,10 @@ class EditorInstance {
             link.dataset.markdownPath = message.markdownPath;
             link.dataset.isFileAttachment = 'true';
             link.draggable = true; // FR-TF-06b: 📎 file リンクを Notes ツリーへ D&D 可能にする
+            if (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph) {
+                var insGlyph = MarkdownLinkParser.fileIconGlyph(message.markdownPath);
+                if (insGlyph !== '📎') { link.dataset.fileIcon = insGlyph; }
+            }
 
             editor.focus();
             const sel = window.getSelection();

@@ -234,11 +234,32 @@
         return { url: text.slice(startIndex, end), endIndex: end };
     }
 
+    // ── file 添付の表示アイコン（2026-08-23 ユーザー要望）───────────────────────
+    // 表示のみの写像（serialize の [📎 ...] マーカーは不変）。office/pdf/html は種別アイコン、
+    // text viewer 系（txt/js 等）は md の 📄 と紛らわしいため意図的にクリップ据え置き。
+    // 全消費面（editor ::before / outliner 添付 / mindmap / folder view / file panel）の単一真実。
+    var FILE_ICON_GLYPHS = {
+        pdf: '📕',
+        doc: '📘', docx: '📘',
+        xls: '📗', xlsx: '📗',
+        ppt: '📙', pptx: '📙',
+        html: '🌐', htm: '🌐'
+    };
+
+    /** ファイル名/パス/URL → 表示 glyph（該当なしは 📎 クリップ） */
+    function fileIconGlyph(nameOrPath) {
+        var base = String(nameOrPath || '').split(/[?#]/)[0]; // query/fragment を除去してから拡張子判定
+        var m = /\.([a-z0-9]+)$/i.exec(base);
+        var ext = m ? m[1].toLowerCase() : '';
+        return FILE_ICON_GLYPHS[ext] || '📎'; // 📎
+    }
+
     return {
         parseMarkdownLinks: parseMarkdownLinks,
         extractImagePaths: extractImagePaths,
         extractMarkdownFileLinks: extractMarkdownFileLinks,
         extractUrlWithBalancedParens: extractUrlWithBalancedParens,
-        findBalancedClose: findBalancedClose
+        findBalancedClose: findBalancedClose,
+        fileIconGlyph: fileIconGlyph
     };
 }));

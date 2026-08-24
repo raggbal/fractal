@@ -342,17 +342,21 @@ test.describe('folder view fs 操作 host 端（TASK-04）', () => {
         fs.writeFileSync(path.join(root, 'a.md'), '# a');
         fs.writeFileSync(path.join(root, 'b.pdf'), 'pdf');
         fs.writeFileSync(path.join(root, 'c.HTML'), '<html></html>'); // case-insensitive
+        // 【許可: test_update】sprint 20260823-165314（FR-FV-01 改訂）: .txt は viewer 対象化。
+        // 「他 = 外部起動」の番人は .zip（引き続き対象外）で維持。
         fs.writeFileSync(path.join(root, 'd.txt'), 'x');
+        fs.writeFileSync(path.join(root, 'e.zip'), 'x');
 
         await mod.folderViewOpen(m, id, 'a.md', deps as any);
         await mod.folderViewOpen(m, id, 'b.pdf', deps as any);
         await mod.folderViewOpen(m, id, 'c.HTML', deps as any);
         await mod.folderViewOpen(m, id, 'd.txt', deps as any);
+        await mod.folderViewOpen(m, id, 'e.zip', deps as any);
         expect(calls.openMd).toEqual([path.join(root, 'a.md')]);
-        expect(calls.openViewer).toEqual([path.join(root, 'b.pdf'), path.join(root, 'c.HTML')]);
-        expect(calls.openExternal).toEqual([path.join(root, 'd.txt')]);
+        expect(calls.openViewer).toEqual([path.join(root, 'b.pdf'), path.join(root, 'c.HTML'), path.join(root, 'd.txt')]);
+        expect(calls.openExternal).toEqual([path.join(root, 'e.zip')]);
         // 各 open 前に folderRoot が resourceRoots へ union されている
-        expect(calls.resourceRoot.length).toBeGreaterThanOrEqual(4);
+        expect(calls.resourceRoot.length).toBeGreaterThanOrEqual(5);
         expect(calls.resourceRoot[0]).toBe(root);
         // broken link → エラー応答・open 系不発
         fs.rmSync(root, { recursive: true, force: true });

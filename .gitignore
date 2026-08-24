@@ -44,3 +44,5 @@ media/pdfjs-viewer/
 test/html/pdfjs-viewer/
 # spec 実行時に writeViewerFixtures() が生成する使い捨て fixture（file-viewer.spec.ts）
 test/html/viewer-fixtures/
+# build-standalone-viewer.js が out/webview から複製する viewer kind モジュール（生成物）
+test/html/viewer-modules/

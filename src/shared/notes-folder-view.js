@@ -325,9 +325,12 @@
         name.className = 'fv-name';
         if (!entry.isDir) {
             // ユーザー指定（2026-08-18）: md = 📄 / それ以外 = 📎
+            // + 2026-08-23: office/pdf/html は拡張子別 glyph（写像は MarkdownLinkParser.fileIconGlyph が単一真実）
             var iconSpan = document.createElement('span');
             iconSpan.className = 'fv-file-icon';
-            iconSpan.textContent = /\.md$/i.test(entry.name) ? '📄' : '📎';
+            iconSpan.textContent = /\.md$/i.test(entry.name) ? '📄'
+                : ((typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph)
+                    ? MarkdownLinkParser.fileIconGlyph(entry.name) : '📎');
             name.appendChild(iconSpan);
         }
         name.appendChild(document.createTextNode(entry.name));

@@ -6,6 +6,7 @@ node test/build-standalone.js
 node test/build-standalone-outliner.js
 node test/build-standalone-notes.js
 node scripts/build-pdfjs-viewer.js
+node scripts/build-viewer-modules.js
 node test/build-standalone-viewer.js
 
 if ! curl -s http://localhost:3000 > /dev/null 2>&1; then

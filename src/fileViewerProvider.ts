@@ -5,10 +5,13 @@
  * 本リポ初の CustomReadonlyEditorProvider（既存 2 provider = CustomTextEditorProvider は
  * .pdf バイナリを TextDocument にできない）。undo/save なしの read-only viewer。
  *
- * viewType は 2 つ（priority が per-editor のため）:
- *   fractal.fileViewer     — *.pdf（priority: default — VS Code 標準では開けない形式）
- *   fractal.fileViewerHtml — *.html/*.htm（priority: option — 標準のテキスト編集を奪わない）
- * どちらも本 provider の同一インスタンスを登録する。
+ * viewType は 5 つ（priority が per-editor のため — FR-FV-16 で 3 追加）:
+ *   fractal.fileViewer       — *.pdf（priority: default — VS Code 標準では開けない形式）
+ *   fractal.fileViewerHtml   — *.html/*.htm（priority: option — 標準のテキスト編集を奪わない）
+ *   fractal.fileViewerOffice — *.docx/*.xlsx/*.pptx（priority: default — 標準では開けない形式）
+ *   fractal.fileViewerText   — text 群（priority: option — 標準テキストエディタを奪わない）
+ *   fractal.fileViewerImage  — image 群（priority: option — 組込 Media Preview を奪わない）
+ * すべて本 provider の同一インスタンスを登録する。
  */
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -49,10 +52,17 @@ export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<F
             ],
         };
 
-        // 50MB 超はフォールバック（FR-FV-07）。viewer 対象外 kind（あり得ないが防御）も同様
+        // viewer 対象外 kind（あり得ないが防御）は openExternal のみ — 旧 `kind || 'html'` 既定は廃止
+        // （FR-FV-16 / ADRL-0093: 未知 kind を html 面に落とさない）
+        if (!kind) {
+            await vscode.env.openExternal(document.uri);
+            webviewPanel.webview.html = '<html><body>OS 既定アプリで開きました。</body></html>';
+            return;
+        }
+        // 50MB 超はフォールバック（FR-FV-07）
         try {
             const stat = await vscode.workspace.fs.stat(document.uri);
-            if (!kind || stat.size > VIEWER_SIZE_LIMIT) {
+            if (stat.size > VIEWER_SIZE_LIMIT) {
                 await vscode.env.openExternal(document.uri);
                 webviewPanel.webview.html = '<html><body>OS 既定アプリで開きました。</body></html>';
                 return;
@@ -60,7 +70,7 @@ export class FileViewerProvider implements vscode.CustomReadonlyEditorProvider<F
         } catch { /* stat 失敗は viewer 側の読み込み失敗 UI に委ねる */ }
 
         webviewPanel.webview.html = getFileViewerHtml(
-            webviewPanel.webview, this.context.extensionUri, document.uri, kind || 'html');
+            webviewPanel.webview, this.context.extensionUri, document.uri, kind);
 
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
             if (!message) { return; }
@@ -113,5 +123,9 @@ export function registerFileViewer(context: vscode.ExtensionContext, getFolders?
     context.subscriptions.push(
         vscode.window.registerCustomEditorProvider('fractal.fileViewer', provider, options),
         vscode.window.registerCustomEditorProvider('fractal.fileViewerHtml', provider, options),
+        // FR-FV-16: office=default / text,image=option（priority は per-viewType のため分離）
+        vscode.window.registerCustomEditorProvider('fractal.fileViewerOffice', provider, options),
+        vscode.window.registerCustomEditorProvider('fractal.fileViewerText', provider, options),
+        vscode.window.registerCustomEditorProvider('fractal.fileViewerImage', provider, options),
     );
 }

@@ -379,7 +379,9 @@ var MindmapRender = (function() {
         } else if (node.filePath) {
             var fi = document.createElementNS(XHTMLNS, 'span');
             fi.setAttribute('class', 'mindmap-node-icon');
-            fi.textContent = '📎'; // 📎
+            // 拡張子別アイコン（2026-08-23 — 表示のみ。写像は MarkdownLinkParser.fileIconGlyph が単一真実）
+            fi.textContent = (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph)
+                ? MarkdownLinkParser.fileIconGlyph(node.filePath) : '📎';
             // 再オープン①(1): icon click = 添付ファイルを開く(outliner の 📎 click と対称)
             (function(iconEl, nid) {
                 iconEl.style.cursor = 'pointer';

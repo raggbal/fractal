@@ -5,6 +5,24 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.6] - 2026-08-24
+
+### Added
+- **Office file viewer**: attached `.docx` / `.xlsx` / `.pptx` now open inside Fractal Note (all three surfaces — note pane / side panel / standalone tab), with zero new dependencies (FR-DXV / FR-XLV / FR-PPV)
+  - Word: page-width card layout with tables (merged cells), lists, images, ruby, styles/themes; unsupported parts (equations, EMF) degrade to clear placeholders
+  - Excel: virtualized spreadsheet grid (smooth at 100k rows × 500 cols), number formats (incl. Japanese dates / 1900-leap-year quirk), fills/borders/merges, sheet tabs, comments, hyperlinks, autofilter markers; formulas show their cached values
+  - PowerPoint: slide rendering with shapes, theme colors, tables, images and vertical Japanese text (parser ported file-by-file from MIT-licensed pptxtojson, with attribution; charts/SmartArt/animations degrade to placeholders)
+- **Text & image viewers**: 30+ text/code extensions (.txt/.json/.js/.py/…) open read-only with line numbers and chunked rendering for large files; images (incl. safe SVG display) pan & zoom with fit / 1:1 controls (FR-TXV / FR-IMV)
+- **Find & search-hit landing in every viewer**: Cmd/Ctrl+F works in all new viewers; full-text-search hits jump to the exact Excel sheet & cell (`Sheet!C5`) or PowerPoint slide, and pre-fill the find bar (FR-FV-21/22)
+- **File-type icons**: file links and attachments now show 📕 pdf / 📘 doc / 📗 xls / 📙 ppt / 🌐 html across the md editor, outliner, mindmap, tree and folder view (clip icon stays for text/other types); outlines in the notes tree got a dedicated bullet-list document icon
+
+### Changed
+- Markdown 📎 viewer-target links (all kinds) open in the side-panel viewer; tree clicks / search hits keep the note-pane viewer — extended from pdf/html to all viewer kinds
+- `.svg` attachments are now viewable (image viewer, `<img>`-only safe path); previously always opened externally
+
+### Fixed
+- Password-protected or oversized OOXML files show a clear localized message in all three Office viewers (zip parsing is hardened with triple size guards)
+
 ## [1.3.5] - 2026-08-23
 
 ### Added

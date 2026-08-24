@@ -634,6 +634,10 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         expect(viewerIcon('allowScripts')).toBe(lucideIcon('code'));
         // md analog 不在の新規最小は openExternal のみ（存在だけ確認 — 正典比較対象なし）
         expect(viewerIcon('openExternal')).toContain('<svg');
+        // 【許可: test_update】sprint 20260823-165314（FR-FV-19）: image viewer 用 fit/actualSize を追加
+        //（md analog 不在の新規最小 2 個 — requirement が新規決定として pin。存在のみ確認）
+        expect(viewerIcon('fit')).toContain('<svg');
+        expect(viewerIcon('actualSize')).toContain('<svg');
     });
 
     test('TC-FV-62: アイコン化 + DOM 全順序 contract（OS で開く が左端・Open in new tab が最右端）', async ({ page }) => {

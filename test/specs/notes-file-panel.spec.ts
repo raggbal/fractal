@@ -648,3 +648,37 @@ test.describe('Notes ファイルパネル', () => {
         await expect(setColorItem).toBeVisible();
     });
 });
+
+// ===== 2026-08-24 ユーザー選定（許可:test_add）: .out 専用アイコン =====
+
+test.describe('out アイコン（ドキュメント枠 + 箇条書き）', () => {
+    test('31. .out は箇条書き入りドキュメント枠・.md は M 文字 — 両者が別 glyph', async ({ page }) => {
+        await page.goto('/standalone-notes.html');
+        await page.waitForFunction(() => (window as any).__testApi?.ready);
+        await page.evaluate(() => {
+            (window as any).__testApi.initNotesPanel(
+                [
+                    { filePath: '/test/o1.out', title: 'Out1', id: 'o1', kind: 'out' },
+                    { filePath: '/test/m1.md', title: 'Md1', id: 'm1', kind: 'md' },
+                ],
+                '/test/o1.out',
+                { version: 1, rootIds: ['o1', 'm1'], items: {
+                    o1: { type: 'file', id: 'o1', title: 'Out1' },
+                    m1: { type: 'file', id: 'm1', title: 'Md1' },
+                } });
+        });
+        const res = await page.evaluate(() => {
+            const svg = (id: string) => document.querySelector(`.file-panel-item[data-item-id="${id}"] .file-panel-item-icon`)!;
+            return {
+                outLines: svg('o1').querySelectorAll('line').length,   // 箇条書き（dot+行 ×3 = 6 line）
+                outHasM: !!svg('o1').querySelector('text'),
+                mdText: (svg('m1').querySelector('text') || { textContent: '' }).textContent,
+                mdLines: svg('m1').querySelectorAll('line').length,
+            };
+        });
+        expect(res.outLines).toBe(6);
+        expect(res.outHasM).toBe(false);
+        expect(res.mdText).toBe('M');
+        expect(res.mdLines).toBe(0);
+    });
+});

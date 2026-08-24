@@ -134,9 +134,23 @@ test.describe('Outliner File Node Features', () => {
         const fileIcon = page.locator('.outliner-file-icon');
         expect(await fileIcon.count()).toBe(1);
 
-        // Verify icon content is 📎
+        // 2026-08-23 仕様変更（許可:test_update）: 拡張子別アイコン — pdf は 📕
+        //（写像の単一真実 = MarkdownLinkParser.fileIconGlyph。test/unit/file-icon-glyph.spec.ts が全写像を番人）
         const iconText = await fileIcon.textContent();
-        expect(iconText).toContain('\uD83D\uDCCE'); // 📎
+        expect(iconText).toContain('📕');
+
+        // text viewer 系はクリップ据え置き（md 📄 との混同回避 — ユーザー裁定）
+        await page.evaluate(() => {
+            (window as any).__testApi.initOutliner({
+                version: 1,
+                rootIds: ['n1'],
+                nodes: {
+                    n1: { id: 'n1', parentId: null, children: [], text: 'memo.txt', tags: [], filePath: 'files/memo.txt' }
+                }
+            });
+        });
+        await page.waitForTimeout(150);
+        expect(await page.locator('.outliner-file-icon').textContent()).toContain('\uD83D\uDCCE'); // 📎
     });
 
     test('DOD-4: Non-file node does not show 📎 icon', async ({ page }) => {

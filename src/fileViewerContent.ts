@@ -25,19 +25,31 @@ export function getFileViewerHtml(
     const nonce = getNonce();
     const csp = [
         `default-src 'none'`,
-        `img-src ${webview.cspSource} data:`,
+        // sprint 20260823-165314 / FR-FV-18: blob:（zip 内画像・image viewer の objectURL）を追加
+        `img-src ${webview.cspSource} data: blob:`,
         `style-src ${webview.cspSource} 'unsafe-inline'`,
         `script-src 'nonce-${nonce}' ${webview.cspSource}`,
         `frame-src ${webview.cspSource} blob:`,
         `worker-src ${webview.cspSource} blob:`,
         `connect-src ${webview.cspSource}`,
+        // FR-FV-18: docx 埋め込みフォント等（blob/data URL 化した @font-face）用に新設
+        `font-src ${webview.cspSource} blob: data:`,
         `form-action 'none'`,
     ].join('; ');
+    const modulesDir = vscode.Uri.joinPath(extensionUri, 'out', 'webview');
     const config = {
         pdfjsLibUri: asUri(vscode.Uri.joinPath(pdfjsDir, 'pdfjs-lib.mjs')),
         workerUri: asUri(vscode.Uri.joinPath(pdfjsDir, 'pdf.worker.min.mjs')),
         cMapUrl: `${asUri(pdfjsDir)}/cmaps/`,
         standardFontDataUrl: `${asUri(pdfjsDir)}/standard_fonts/`,
+        // sprint 20260823-165314 / FR-FV-17（ADRL-0092）: kind 別 ESM モジュール（lazy import）
+        viewerModuleUris: {
+            text: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-text.mjs')),
+            image: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-image.mjs')),
+            docx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-docx.mjs')),
+            xlsx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-xlsx.mjs')),
+            pptx: asUri(vscode.Uri.joinPath(modulesDir, 'viewer-pptx.mjs')),
+        },
         kind,
         fileUri: asUri(fileUri),
         // ADRL-0067: html 面の copy ヘルパー注入とオプトイン rewrite が使う nonce。

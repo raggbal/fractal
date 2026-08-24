@@ -294,3 +294,35 @@ test('TC-LM-07 リスト li 行選択 cut → paste 復元', async ({ page, cont
     expect(pasted.found).toBe(1);
     expect(pasted.md).toContain('[📎 report.pdf](files/report.pdf)');
 });
+
+// (8) 拡張子別表示アイコン（2026-08-23）: data-file-icon + ::before 実描画・serialize 不変
+test('TC-LM-08 file リンクの拡張子別アイコン — data-file-icon を ::before が描画・📎 マーカー serialize 不変', async ({ page }) => {
+    await boot(page, [
+        '[📎 report](files/report.pdf)',
+        '',
+        '[📎 план](files/plan.xlsx)',
+        '',
+        '[📎 note](files/memo.txt)',
+    ].join('\n'));
+    const res = await page.evaluate(() => {
+        const anchors = Array.from(document.querySelectorAll('a[data-is-file-attachment="true"]')) as HTMLElement[];
+        return anchors.map((a) => ({
+            href: a.getAttribute('href'),
+            icon: a.getAttribute('data-file-icon'),
+            beforeContent: getComputedStyle(a, '::before').content,
+            text: a.textContent,
+        }));
+    });
+    const byHref = (s: string) => res.find((r: any) => (r.href || '').indexOf(s) !== -1)!;
+    expect(byHref('report.pdf').icon).toBe('📕');
+    expect(byHref('report.pdf').beforeContent).toContain('📕');   // CSS attr() が実描画
+    expect(byHref('plan.xlsx').icon).toBe('📗');
+    // text viewer 系はクリップ縮退（属性なし → 従来 SVG。意図的 — md 📄 との混同回避）
+    expect(byHref('memo.txt').icon).toBeNull();
+    expect(byHref('memo.txt').beforeContent).not.toContain('📎'); // SVG background（content は ''）
+    // DOM テキストに glyph/📎 は混入しない（serialize 原資は textContent — マーカー不変の番人）
+    for (const r of res) { expect(r.text).not.toMatch(/📎|📕|📗/); }
+    const md = await page.evaluate(() => (window as any).__testApi.getMarkdown());
+    expect(md).toContain('[📎 report](files/report.pdf)');
+    expect(md).toContain('[📎 план](files/plan.xlsx)');
+});

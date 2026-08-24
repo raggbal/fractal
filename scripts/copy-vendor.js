@@ -78,4 +78,12 @@ for (const { pkg, dest } of licenses) {
 }
 console.log(`  ✓ LICENSE files (${licenseCount}/${licenses.length} packages)`);
 
+// pptxtojson は npm 依存でなくソース移植（ADR-0010）のため、LICENSE の正典は
+// src/webview/viewer-pptx/LICENSE-pptxtojson（git 管理）。vsix 同梱用に vendor/ へ複製する。
+const pptxLicSrc = path.join(__dirname, '..', 'src', 'webview', 'viewer-pptx', 'LICENSE-pptxtojson');
+if (fs.existsSync(pptxLicSrc)) {
+    fs.copyFileSync(pptxLicSrc, path.join(VENDOR, 'LICENSE-pptxtojson'));
+    console.log('  ✓ LICENSE-pptxtojson (from src/webview/viewer-pptx — ported source, not an npm dep)');
+}
+
 console.log('\nVendor copy complete.');

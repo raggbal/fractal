@@ -39,6 +39,50 @@
     // mount → cleanup（pdfDocument.destroy 等）の対応（TASK-10 — destroy でリソースも解放）
     const cleanupRegistry = new WeakMap();
 
+    // ── 新 viewer kind（sprint 20260823-165314 / FR-FV-17 = ADRL-0092） ─────────────────
+    // kind 別 ESM モジュールを初回 open 時に動的 import（pdfjs の import(config.pdfjsLibUri) precedent）。
+    // Promise キャッシュで単一飛行（同 kind 連続 open で二重 import しない）。失敗はキャッシュしない。
+    const VIEWER_MODULE_KINDS = ['text', 'image', 'docx', 'xlsx', 'pptx'];
+    const viewerModulePromises = new Map();
+    function loadViewerModule(kind) {
+        const cached = viewerModulePromises.get(kind);
+        if (cached) { return cached; }
+        const uri = (config.viewerModuleUris || {})[kind];
+        if (!uri) { return Promise.reject(new Error('viewer module uri not configured: ' + kind)); }
+        const p = import(uri);
+        viewerModulePromises.set(kind, p);
+        p.catch(() => { viewerModulePromises.delete(kind); });
+        return p;
+    }
+
+    /**
+     * locHint（添付中身検索の位置ヒント）の kind 別 parse（FR-FV-22）。
+     * 書式の正典 = doc-text-extract.ts（pdf=`p.N` / xlsx=`シート名!セル` / pptx=`slide N`。
+     * docx/text は loc なし = null → findQuery のみで着地）。
+     */
+    function parseLocHint(kind, locHint) {
+        if (!locHint) { return null; }
+        const s = String(locHint);
+        if (kind === 'pdf') {
+            const m = /p\.?\s*(\d+)/.exec(s);
+            return m ? { page: parseInt(m[1], 10) } : null;
+        }
+        if (kind === 'xlsx') {
+            // シート名に '!' を含みうるため最後の '!' で分割
+            const i = s.lastIndexOf('!');
+            if (i > 0) {
+                const cell = s.slice(i + 1);
+                if (/^[A-Za-z]+[0-9]+$/.test(cell)) { return { sheet: s.slice(0, i), cell: cell.toUpperCase() }; }
+            }
+            return null;
+        }
+        if (kind === 'pptx') {
+            const m = /slide\s*(\d+)/i.exec(s);
+            return m ? { slide: parseInt(m[1], 10) } : null;
+        }
+        return null;
+    }
+
     // viewer の見た目は 3 面（standalone/sidepanel/note）どこでも同一になるよう自己完結で注入する。
     // 色は Fractal のテーマトークン（--fr-*）を第一に使い、無い面（standalone viewer webview）では
     // VS Code 変数 → ライト既定にフォールバック（実機検収 2026-08-15: --vscode-* 直参照だと
@@ -163,6 +207,10 @@
         openInStandalone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z"/></svg>',
         allowScripts: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>',
         openExternal: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m17 8 5-5"/><path d="M17 3h5v5"/></svg>',
+        // image viewer 用（sprint 20260823-165314 / FR-FV-19。md analog 不在の新規最小 —
+        // fit = lucide maximize / actualSize = 数字 1:1 の最小表現。TC-FV-61 が字面 pin）
+        fit: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>',
+        actualSize: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8v8"/><path d="M5 10l2-2"/><path d="M17 8v8"/><path d="M15 10l2-2"/><line x1="11" y1="10" x2="11" y2="10.01"/><line x1="11" y1="14" x2="11" y2="14.01"/></svg>',
     };
 
     /**
@@ -245,7 +293,10 @@
             });
             bar.appendChild(scriptBtn);
         }
-        if (kind === 'pdf') {
+        // FR-FV-19（sprint 20260823-165314）: [−][+] は pdf / image / pptx。docx は非表示
+        //（SYS-1 裁定 = 縦スクロール + 狭幅自動 scale で足りる）。xlsx / text も非表示。
+        // click 配線は kind 側（openPdf / 各 kind モジュール）が querySelector で行う（DOM 生成のみここ）
+        if (kind === 'pdf' || kind === 'image' || kind === 'pptx') {
             const zoomOut = document.createElement('button');
             zoomOut.className = 'viewer-zoom-out';
             const zoomOutLabel = label('viewerZoomOut', 'Zoom out');
@@ -260,6 +311,23 @@
             zoomIn.textContent = '+';
             bar.appendChild(zoomOut);
             bar.appendChild(zoomIn);
+        }
+        // FR-FV-19: image のみ [フィット][等倍]（[+] の直後 — requirement 全順序表が正）
+        if (kind === 'image') {
+            const fit = document.createElement('button');
+            fit.className = 'viewer-fit';
+            const fitLabel = label('viewerFit', 'Fit');
+            fit.title = fitLabel;
+            fit.setAttribute('aria-label', fitLabel);
+            fit.innerHTML = VIEWER_ICONS.fit;
+            const actual = document.createElement('button');
+            actual.className = 'viewer-actual-size';
+            const actualLabel = label('viewerActualSize', 'Actual size');
+            actual.title = actualLabel;
+            actual.setAttribute('aria-label', actualLabel);
+            actual.innerHTML = VIEWER_ICONS.actualSize;
+            bar.appendChild(fit);
+            bar.appendChild(actual);
         }
         // FR-FV-08（ADRL-0068 / design §10）: message 形は openExternalFallback と同形
         // `{type, fileUri, filePath: filePath || null}`（host 側 case は filePath を fs パスとして使う）
@@ -761,8 +829,8 @@
             if (btn) { btn.setAttribute('aria-pressed', state.allowScripts ? 'true' : 'false'); }
         };
         buildToolbar(mount, fileUri, kind, filePath, state, opts);
-        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）
-        const tb = mount.querySelector('.viewer-toolbar');
+        // FR-VFB-03: ツールバー末尾に 🔍（find bar トグル）。image は find 対象外のため非表示（FR-FV-19/21）
+        const tb = kind === 'image' ? null : mount.querySelector('.viewer-toolbar');
         if (tb) {
             const fbtn = document.createElement('button');
             fbtn.className = 'viewer-find-toggle';
@@ -795,6 +863,30 @@
                 });
             } else if (kind === 'html') {
                 await openHtml(mount, fileUri, state);
+            } else if (VIEWER_MODULE_KINDS.indexOf(kind) !== -1) {
+                // sprint 20260823-165314 / FR-FV-17: kind 別 ESM モジュールへ委譲（汎用 mount 契約）。
+                // locHint/findQuery はモジュールが one-shot 消費する（open() 側の :findQuery 自動 find
+                // ブロックは pdf/html 専用のまま — 下の gate 参照）
+                const body = mount.querySelector('.viewer-body');
+                const loading = document.createElement('div');
+                loading.className = 'viewer-loading';
+                loading.textContent = '…';
+                body.appendChild(loading);
+                const mod = await loadViewerModule(kind);
+                const instance = await mod.default.mount({
+                    body, mount, state, config, postMessage, label,
+                    fileUri, filePath,
+                    locHint: parseLocHint(kind, opts && opts.locHint),
+                    findQuery: (opts && opts.findQuery) ? String(opts.findQuery) : null,
+                });
+                try { loading.remove(); } catch (eRm) { /* モジュールが body を作り直した場合 */ }
+                if (instance && typeof instance.destroy === 'function') {
+                    const prevCleanup = cleanupRegistry.get(mount);
+                    cleanupRegistry.set(mount, () => {
+                        if (prevCleanup) { try { prevCleanup(); } catch (e3) { /* best-effort */ } }
+                        try { instance.destroy(); } catch (e4) { /* best-effort */ }
+                    });
+                }
             } else {
                 showError(mount, fileUri, `unsupported kind: ${kind}`);
             }
@@ -803,11 +895,12 @@
             try { mount.focus({ preventScroll: true }); } catch (e2) { /* noop */ }
             // FR-VFB-04 / TASK-12d: 検索ヒット経由の open は自動 find。pdf はページ移動 **完了後** に
             // find を発行（FindController が現在ページ起点のため — ヒントページのマッチに着地する）
-            if (opts && opts.findQuery && state.findUi) {
+            // module kind（text/image/docx/xlsx/pptx）は mount ctx 経由でモジュール自身が消費するため除外
+            if (opts && opts.findQuery && state.findUi && VIEWER_MODULE_KINDS.indexOf(kind) === -1) {
                 const fq = String(opts.findQuery);
-                const pm = (kind === 'pdf' && opts.locHint) ? /p\.?\s*(\d+)/.exec(String(opts.locHint)) : null;
-                if (pm && state.findGotoPage && state.runWhenPagesReady) {
-                    state.findGotoPage(parseInt(pm[1], 10));
+                const pd = (kind === 'pdf') ? parseLocHint('pdf', opts.locHint) : null;
+                if (pd && state.findGotoPage && state.runWhenPagesReady) {
+                    state.findGotoPage(pd.page);
                     state.runWhenPagesReady(() => { state.findUi.openWith(fq); });
                 } else {
                     state.findUi.openWith(fq);
@@ -828,7 +921,7 @@
         mount.textContent = '';
     }
 
-    window.__fileViewer = { open, destroy };
+    window.__fileViewer = { open, destroy, parseLocHint };
 
     // standalone 面: config に kind/fileUri が来ていれば自動オープン
     if (config.kind && config.fileUri) {

@@ -3668,7 +3668,9 @@ var Outliner = (function() {
         if (node.filePath) {
             var fileIcon = document.createElement('div');
             fileIcon.className = 'outliner-file-icon';
-            fileIcon.textContent = '\uD83D\uDCCE'; // 📎
+            // 拡張子別アイコン（2026-08-23 — 表示のみ。写像は MarkdownLinkParser.fileIconGlyph が単一真実）
+            fileIcon.textContent = (typeof MarkdownLinkParser !== 'undefined' && MarkdownLinkParser.fileIconGlyph)
+                ? MarkdownLinkParser.fileIconGlyph(node.filePath) : '\uD83D\uDCCE'; // 📎
             fileIcon.addEventListener('click', function(e) {
                 e.stopPropagation();
                 host.openAttachedFile(node.id);

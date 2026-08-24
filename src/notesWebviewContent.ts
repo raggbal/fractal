@@ -227,7 +227,7 @@ export function getNotesWebviewContent(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data:; frame-src ${webview.cspSource} blob:; worker-src ${webview.cspSource} blob:; connect-src ${webview.cspSource}; form-action 'none';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https: http: data: file: blob:; font-src ${webview.cspSource} https: https://fonts.gstatic.com data: blob:; frame-src ${webview.cspSource} blob:; worker-src ${webview.cspSource} blob:; connect-src ${webview.cspSource}; form-action 'none';">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
@@ -364,7 +364,15 @@ export function getNotesWebviewContent(
         pdfjsLibUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdfjs-lib.mjs'))}',
         workerUri: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer', 'pdf.worker.min.mjs'))}',
         cMapUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/cmaps/',
-        standardFontDataUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/standard_fonts/'
+        standardFontDataUrl: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'pdfjs-viewer'))}/standard_fonts/',
+        // sprint 20260823-165314 / FR-FV-17（ADRL-0092）: kind 別 ESM モジュール（lazy import）
+        viewerModuleUris: {
+            text: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-text.mjs'))}',
+            image: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-image.mjs'))}',
+            docx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-docx.mjs'))}',
+            xlsx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-xlsx.mjs'))}',
+            pptx: '${webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'webview', 'viewer-pptx.mjs'))}'
+        }
     };${fileViewerScript}</script>
     <script nonce="${nonce}">${viewerDispatcherScript}</script>
     <script nonce="${nonce}">${folderViewDispatcherScript}</script>

@@ -18,14 +18,16 @@ test.describe('viewer-target（FR-FV-01 / TASK-01）', () => {
         // case-insensitive
         expect(isViewerTarget('REPORT.HTML')).toBe('html');
         expect(isViewerTarget('Doc.Pdf')).toBe('pdf');
-        // スコープ外の明示 pin（受容事項 4 — svg は script 脅威で html と同類）
-        expect(isViewerTarget('image.svg')).toBeNull();
+        // 【許可: test_update】sprint 20260823-165314（FR-FV-01 改訂）: .svg は image kind の
+        // `<img>` 経路限定で解禁（ADRL-0091）・.docx は office kind 化。mhtml/xhtml/md の
+        // スコープ外 pin は不変（マスタースコープ外行の .svg 削除は close で反映）
+        expect(isViewerTarget('image.svg')).toBe('image');
         expect(isViewerTarget('saved.mhtml')).toBeNull();
         expect(isViewerTarget('page.xhtml')).toBeNull();
         expect(isViewerTarget('note.md')).toBeNull();
         // 対象外一般
         expect(isViewerTarget('archive.zip')).toBeNull();
-        expect(isViewerTarget('doc.docx')).toBeNull();
+        expect(isViewerTarget('doc.docx')).toBe('docx');
         expect(isViewerTarget('LICENSE')).toBeNull();          // 拡張子なし
         expect(isViewerTarget('')).toBeNull();
         // パス付きでも filename 部で判定
