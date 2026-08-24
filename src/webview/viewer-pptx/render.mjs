@@ -7,7 +7,24 @@
  * 縦書き（FR-PPV-03）: eaVert/vert = writing-mode: vertical-rl / vert270 = vertical-rl + 180° 回転。
  */
 
+import { emfToSvgDataUrl, MAX_INPUT as EMF_MAX_INPUT } from '../viewer-common/emf.mjs';   // 再オープン④ TASK-27（ADRL-0097）
+
 export const PT_PX = 4 / 3;
+
+// data:image/(x-)emf の base64 を bytes に戻して EMF→SVG 変換（失敗は null = placeholder 縮退）
+function tryEmfToSvg(dataUrl) {
+    try {
+        const m = /^data:image\/(?:x-)?emf;base64,(.*)$/i.exec(dataUrl);
+        if (!m) { return null; }
+        // fractal fix (TASK-31 / reviewer iter8 SEC-1): atob 全展開の前に base64 長で事前 reject
+        //（エンジン側 MAX_INPUT と同じ上限を安価に先取り — docx 経路との増幅コスト対称性）
+        if (m[1].length > Math.ceil(EMF_MAX_INPUT * 4 / 3) + 8) { return null; }
+        const bin = atob(m[1]);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) { bytes[i] = bin.charCodeAt(i); }
+        return emfToSvgDataUrl(bytes);
+    } catch (e) { return null; }
+}
 
 function ensureStyle(doc) {
     if (doc.getElementById('fv-pptx-style')) { return; }
@@ -50,23 +67,57 @@ const normFill = (fill) => {
     return null;
 };
 
-function renderRuns(doc, host, content) {
+function renderRuns(doc, host, content, autoFit) {
     if (!content || !content.paragraphs) { return; }
+    // normAutofit（TASK-25 / TC-PPV-18）: PowerPoint が保存した自動縮小結果を再現する。
+    // fontScale = %（92.5 等）を run font-size に乗算 / lnSpcReduction = % を line-height に反映。
+    // autoFit が無い要素は従来経路（1 バイトも変えない）
+    const fontScale = (autoFit && autoFit.type === 'text' && autoFit.fontScale > 0) ? autoFit.fontScale : null;
+    const lnRed = (autoFit && autoFit.type === 'text' && autoFit.lnSpcReduction > 0) ? autoFit.lnSpcReduction : null;
+    // TASK-30（TC-PPV-21）: ol は同 listLevel の連続段落で連番（非リスト段落でリセット・下位レベルは上位出現でリセット）
+    const olCounters = new Map();
     for (const para of content.paragraphs) {
         const p = doc.createElement('p');
         try { p.style.cssText = para.css || ''; } catch (e) { /* 不正 css は無視 */ }
-        if (para.listType) { p.style.paddingLeft = `${(para.listLevel + 1) * 18}px`; }
+        if (lnRed) {
+            const lh = p.style.lineHeight;
+            const m = lh && /^([\d.]+)(pt|px|%)?$/.exec(lh);
+            // 既存 line-height（unitless/pt/px/%）は縮小率を乗算、未指定はブラウザ既定 normal≈1.2 を基準に設定
+            if (m) { p.style.lineHeight = `${Math.round(parseFloat(m[1]) * (1 - lnRed / 100) * 1000) / 1000}${m[2] || ''}`; }
+            else if (!lh) { p.style.lineHeight = String(Math.round(1.2 * (1 - lnRed / 100) * 1000) / 1000); }
+        }
+        if (!para.listType) { olCounters.clear(); }
+        // marL（margin-left）が来ていればそれがぶら下げの土台（TASK-30 — text.mjs が list 段落にも emit）。
+        // 無い場合のみ従来の人工 paddingLeft（listLevel 逓増）で近似
+        if (para.listType && !p.style.paddingLeft && !p.style.marginLeft) { p.style.paddingLeft = `${(para.listLevel + 1) * 18}px`; }
+        // 空のスペーサー段落は PowerPoint 同様マーカーを出さず ol 番号も消費しない（TC-PPV-21a）
+        const hasText = (para.runs || []).some((r) => r.text != null && String(r.text).trim() !== '');
         let bulletDone = false;
         for (const run of para.runs || []) {
-            if (para.listType && !bulletDone) {
+            if (para.listType && hasText && !bulletDone) {
                 const b = doc.createElement('span');
-                b.textContent = para.listType === 'ol' ? '· ' : '• ';
+                b.className = 'ppv-marker';
+                if (para.listType === 'ol') {
+                    const lvl = para.listLevel || 0;
+                    const n = (olCounters.get(lvl) || 0) + 1;
+                    olCounters.set(lvl, n);
+                    for (const k of [...olCounters.keys()]) { if (k > lvl) { olCounters.delete(k); } }
+                    b.textContent = `${n}. `;
+                } else {
+                    b.textContent = '• ';
+                }
+                // マーカーは先頭 run の書式（font-size/color）を継承（無スタイルだと極小ドット化 — TC-PPV-21b）
+                try { b.style.cssText = (para.runs[0] && para.runs[0].css) || ''; } catch (e) { /* noop */ }
                 p.appendChild(b);
                 bulletDone = true;
             }
             const span = doc.createElement(run.link ? 'a' : 'span');
             if (run.link) { span.className = 'ppv-link'; span.title = String(run.link); }
             try { span.style.cssText = run.css || ''; } catch (e) { /* noop */ }
+            if (fontScale) {
+                const fs = /^([\d.]+)(pt|px)$/.exec(span.style.fontSize);
+                if (fs) { span.style.fontSize = `${Math.round(parseFloat(fs[1]) * fontScale / 100 * 100) / 100}${fs[2]}`; }
+            }
             span.textContent = run.text != null ? String(run.text) : '';
             p.appendChild(span);
         }
@@ -127,9 +178,18 @@ function renderElement(doc, parent, el, ctx) {
                 img.style.width = '100%';
                 img.style.height = '100%';
                 // 移植パーサの image 要素は base64（imageMode:'base64' = data URL）/ blob フィールドで
-                // 画像を運ぶ（src ではない — pptxtojson の imageDataJson 契約。TC-PPV-13 が番人）
-                const src = [el.src, el.base64, el.blob].find(
-                    (s) => typeof s === 'string' && (s.startsWith('data:') || s.startsWith('blob:')));
+                // 画像を運ぶ（src ではない — pptxtojson の imageDataJson 契約。TC-PPV-13 が番人）。
+                // ただしブラウザが描画できない mime（EMF/WMF/TIFF）は data: があっても placeholder へ
+                // 縮退させる（TASK-23 / TC-PPV-16 — FR-PPV-04。data: 一律採用は壊れ <img> になる退行だった）
+                const UNRENDERABLE = /^data:image\/(x-emf|emf|x-wmf|wmf|tiff)[;,]/i;
+                let src = [el.src, el.base64, el.blob].find(
+                    (s) => typeof s === 'string' && ((s.startsWith('data:') && !UNRENDERABLE.test(s)) || s.startsWith('blob:')));
+                if (!src) {
+                    // 再オープン④（TASK-27 / TC-PPV-19）: ベクタ EMF は SVG 変換で実描画。
+                    // 変換不能（subset 外・壊れ）は null → 従来 placeholder（TC-PPV-16 の縮退契約）
+                    const emfSrc = [el.src, el.base64].find((s) => typeof s === 'string' && /^data:image\/(x-)?emf[;,]/i.test(s));
+                    if (emfSrc) { src = tryEmfToSvg(emfSrc); }
+                }
                 if (src) {
                     img.src = src;
                     if (el.isFlipH || el.isFlipV) {
@@ -203,8 +263,39 @@ function attachText(doc, wrap, el) {
     else if (el.vert === 'vert270') { tb.classList.add('ppv-vert270'); }
     if (el.vAlign === 'mid') { tb.classList.add('ppv-valign-mid'); }
     if (el.vAlign === 'down') { tb.classList.add('ppv-valign-down'); }
-    renderRuns(doc, tb, el.content);
+    // 再オープン④（TASK-29 / TC-PPV-20）: autofit 対象をマーク（実計算は autofitPass — 描画完了後）
+    if (el.autoFit && el.autoFit.type === 'text') { tb.dataset.ppvAutofit = '1'; }
+    renderRuns(doc, tb, el.content, el.autoFit);
     wrap.appendChild(tb);
+}
+
+// 再オープン④（TASK-29 / TC-PPV-20）: PowerPoint は縮小値未保存（空 normAutofit）でも表示時に
+// autofit を再計算する。DOM attach 後に高さ超過を実測し、収まるまで段階縮小する。
+// stored fontScale は renderRuns で適用済み = ここでの縮小はそこを起点に「下げる」だけ（上げない）。
+const AUTOFIT_FACTORS = [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25];
+function autofitPass(slideEl) {
+    const boxes = slideEl.querySelectorAll('.ppv-text[data-ppv-autofit="1"]');
+    for (const tb of boxes) {
+        if (!tb.clientHeight) { continue; }               // 未レイアウト（jsdom / display:none）は対象外
+        if (tb.scrollHeight <= tb.clientHeight + 1) { continue; }
+        // 基準サイズを記憶（p の line-height / run の font-size — 因子は常に基準からの乗算で累積誤差なし）
+        const targets = [];
+        for (const n of tb.querySelectorAll('p, span, a')) {
+            const fs = /^([\d.]+)(pt|px)$/.exec(n.style.fontSize || '');
+            const lh = /^([\d.]+)(pt|px|%)?$/.exec(n.style.lineHeight || '');
+            if (fs || lh) {
+                targets.push({ n, fs: fs ? [parseFloat(fs[1]), fs[2]] : null, lh: lh ? [parseFloat(lh[1]), lh[2] || ''] : null });
+            }
+        }
+        if (targets.length === 0) { continue; }
+        for (const f of AUTOFIT_FACTORS) {
+            for (const t of targets) {
+                if (t.fs) { t.n.style.fontSize = `${Math.round(t.fs[0] * f * 100) / 100}${t.fs[1]}`; }
+                if (t.lh) { t.n.style.lineHeight = `${Math.round(t.lh[0] * f * 1000) / 1000}${t.lh[1]}`; }
+            }
+            if (tb.scrollHeight <= tb.clientHeight + 1) { break; }
+        }
+    }
 }
 
 function placeholder(doc, wrap, text) {
@@ -223,6 +314,7 @@ export function renderSlideContent(doc, slideEl, slide, ctx) {
     }
     const all = [...(slide.layoutElements || []), ...(slide.elements || [])];
     for (const el of all) { renderElement(doc, slideEl, el, ctx); }
+    autofitPass(slideEl);                                 // TASK-29: attach 後の実測縮小
     slideEl.dataset.rendered = '1';
 }
 

@@ -5,6 +5,21 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.7] - 2026-08-25
+
+### Fixed
+- **PowerPoint viewer fidelity** (all found with a real-world deck):
+  - Slide backgrounds using theme background styles (`bgRef`) rendered white instead of the theme color — the resolved placeholder color is now inherited correctly (upstream pptxtojson bug, fixed in our port)
+  - Paragraph spacing (`spcPct`) was applied 100× too large, pushing text off the slide and hiding titles/bullets (upstream bug)
+  - SVG-only pictures (Microsoft `svgBlip` extension without a raster fallback) disappeared entirely — now rendered
+  - EMF/WMF/TIFF images showed as broken image icons — they degrade to a clean placeholder again (and vector EMF now renders, see Added)
+- **PDF viewer on older-Chromium VS Code forks (e.g. Kiro)**: every PDF failed with `getOrInsertComputed is not a function` — the bundled pdf.js now uses the legacy build (same pinned version 5.5.207), restoring support for webviews older than Chrome 140
+
+### Added
+- **Vector EMF images render for real** (PowerPoint & Word): a built-in, dependency-free EMF→SVG converter draws vector EMF images (the format PowerPoint often uses for logos). Unsupported EMF variants and WMF still degrade to a placeholder — never a wrong drawing. Hardened against malformed input (size/record/point/output caps)
+- **PowerPoint auto-fit, computed live**: text boxes with "shrink text on overflow" now shrink at display time exactly like PowerPoint does (even when the file doesn't store a scale), so long content fits its box
+- **PowerPoint list markers**: numbered lists show real numbers (1. 2. 3. — empty spacer paragraphs don't consume numbers), bullets match the text size, and hanging indents are reproduced
+
 ## [1.3.6] - 2026-08-24
 
 ### Added

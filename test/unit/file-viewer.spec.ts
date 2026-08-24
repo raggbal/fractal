@@ -574,10 +574,13 @@ test.describe('file-viewer: pdf 選択品質 + 版更新（FR-FV-15 / ADRL-0070�
         expect(pkg.dependencies['pdfjs-dist'] || pkg.devDependencies['pdfjs-dist']).toBe('4.10.38');
         const vendorSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-pdfjs-vendor.js'), 'utf8');
         expect(vendorSrc.includes('pdfjs-viewer-dist'), '検索 vendor は alias を参照しない').toBe(false);
-        // viewer build script は alias を参照する
+        // viewer build script は alias の **legacy ビルド**を参照する（TASK-21 / TC-FV-79 —
+        // modern は getOrInsertComputed 等 Chrome 140 API を polyfill なしで呼び Chromium<140 で全滅）
         const viewerBuildSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'build-pdfjs-viewer.js'), 'utf8');
         expect(viewerBuildSrc.includes("'pdfjs-viewer-dist'")).toBe(true);
-        expect(viewerBuildSrc.includes('pdfjs-viewer-dist/build/pdf.mjs')).toBe(true);
+        expect(viewerBuildSrc.includes('pdfjs-viewer-dist/legacy/build/pdf.mjs')).toBe(true);
+        expect(viewerBuildSrc.includes("'pdfjs-viewer-dist/build/pdf.mjs'"),
+            'modern ビルド参照への切り戻りを検出（legacy が正 — TC-FV-79）').toBe(false);
     });
 
     test("TC-FV-71: wasm CSP contract — スパイク実測 = 'wasm-unsafe-eval' 不要（3 面とも不在の対称 pin）", () => {
@@ -753,5 +756,36 @@ test.describe('file-viewer: cmd+A は PDF テキストに限定', () => {
         expect(res.anchorInside, '選択の始端が viewer 内').toBe(true);
         expect(res.focusInside, '選択の終端が viewer 内').toBe(true);
         expect(res.text.length, 'PDF テキストが選択されている').toBeGreaterThan(0);
+    });
+});
+
+// ── TC-FV-79: pdfjs バンドルの downlevel 互換 contract（sprint 20260823-165314 再オープン② TASK-21）──
+// Kiro 等 Chromium<140 の webview で「this[#e].getOrInsertComputed is not a function」全滅の番人。
+// modern ビルドは Map.prototype.getOrInsertComputed（Chrome 140 API）を polyfill なしで呼ぶため、
+// 生成元は legacy ビルド（core-js polyfill 同梱）でなければならない。
+// 検証方式: 決定論シグネチャ契約。`getOrInsertComputed:` は core-js の polyfill **定義**（object literal）
+// にのみ現れ、modern ビルドは呼び出し（`.getOrInsertComputed(`）だけで定義を持たない
+// （実測: legacy pdf.min.mjs = 2 / modern = 0。worker も同様）。Node への import 機能検証は
+// legacy がトップレベルで document 等を要求するため不採用 — 機能面の実証は既存ハーネス
+// TC-FV-70/70c（実 Chromium で本バンドルを実レンダ）が兼ねる。
+test.describe('file-viewer: pdfjs legacy 互換 contract（TC-FV-79）', () => {
+    const MEDIA = path.join(ROOT, 'media', 'pdfjs-viewer');
+
+    test('TC-FV-79: 生成バンドルが getOrInsertComputed polyfill を同梱（legacy ビルド）', () => {
+        // 生成物の存在（media/ は gitignore — compile が再生成する）
+        const lib = path.join(MEDIA, 'pdfjs-lib.mjs');
+        const worker = path.join(MEDIA, 'pdf.worker.min.mjs');
+        expect(fs.existsSync(lib), 'media/pdfjs-viewer/pdfjs-lib.mjs が存在（無ければ npm run compile を実行）').toBe(true);
+        expect(fs.existsSync(worker), 'media/pdfjs-viewer/pdf.worker.min.mjs が存在（無ければ npm run compile を実行）').toBe(true);
+
+        // polyfill 定義シグネチャ（counterfactual: modern ビルドに戻すと定義 0 件 = RED）
+        const defCount = (file: string) => (fs.readFileSync(file, 'utf8').match(/getOrInsertComputed:/g) || []).length;
+        expect(defCount(lib), 'pdfjs-lib.mjs に polyfill 定義（modern だと 0 = RED）').toBeGreaterThan(0);
+        expect(defCount(worker), 'worker に polyfill 定義（modern だと 0 = RED）').toBeGreaterThan(0);
+
+        // worker の生成元 = legacy（同一バイト。modern worker コピーだと RED）
+        const legacyWorker = path.join(ROOT, 'node_modules', 'pdfjs-viewer-dist', 'legacy', 'build', 'pdf.worker.min.mjs');
+        expect(fs.readFileSync(worker).equals(fs.readFileSync(legacyWorker)),
+            'worker の生成元 = legacy/build/pdf.worker.min.mjs（同一バイト）').toBe(true);
     });
 });

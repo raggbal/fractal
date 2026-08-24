@@ -17,7 +17,7 @@ import { getPosition, getSize } from './position.mjs'
 import { genTextBody, getTextNodeValue } from './text.mjs'
 import { getCustomShapePath, identifyShape, isStrokeOnlyCustomGeometry } from './shape.mjs'
 // Modified for fractal (ADR-0010): escapeHtml 全廃（構造化 runs 化 — HTML 文字列出力なし）
-import { extractFileExtension, getTextByPathList, angleToDegrees, isVideoLink, hasValidText, numberToFixed } from './utils.mjs'
+import { extractFileExtension, getTextByPathList, angleToDegrees, isVideoLink, hasValidText, numberToFixed, getBlipEmbedRid } from './utils.mjs'
 import { getShadow } from './shadow.mjs'
 import { getTableBorders, getTableCellParams, getTableRowParams } from './table.mjs'
 import { RATIO_EMUs_Points } from './constants.mjs'
@@ -950,7 +950,8 @@ async function processPicNode(node, warpObj, source) {
   const link = getHyperlinkFromCNvPr(cNvPr, warpObj)
   const order = node['attrs']['order']
   
-  const rid = node['p:blipFill']['a:blip']['attrs']['r:embed']
+  // fractal fix (TASK-24): SVG-only picture は blip に r:embed が無い — svgBlip へフォールバック（utils.getBlipEmbedRid）
+  const rid = getBlipEmbedRid(getTextByPathList(node, ['p:blipFill', 'a:blip']))
   
   if (!rid || !resObj[rid]) return null
 

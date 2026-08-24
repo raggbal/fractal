@@ -82,8 +82,11 @@ export function genTextBody(textBodyNode, spNode, slideLayoutSpNode, slideMaster
       if (spacing.spaceAfter) styleText += `margin-bottom: ${spacing.spaceAfter};`
     }
     if (indent) {
-      if (!listType && indent.marginLeft) styleText += `margin-left: ${indent.marginLeft};`
-      if (!listType && indent.textIndent) styleText += `text-indent: ${indent.textIndent};`
+      // fractal fix (TASK-30, sprint 20260823-165314 再オープン④): list 段落にも marL/indent を emit する
+      // （upstream は list で drop — PowerPoint のぶら下げインデント（marL + 負 indent）が消え、
+      //   マーカー位置と本文の折返しが理想レンダとずれていた。renderer はマーカーをインライン配置 — TC-PPV-21）
+      if (indent.marginLeft) styleText += `margin-left: ${indent.marginLeft};`
+      if (indent.textIndent) styleText += `text-indent: ${indent.textIndent};`
     }
 
     const runs = []

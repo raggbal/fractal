@@ -6,6 +6,7 @@
  * DOM は createElement + textContent のみ（INV-2）。画像は BlobRegistry（INV-3）。
  */
 import { dxaToPx, halfPtToPt, emuToPx } from '../viewer-common/units.mjs';
+import { emfToSvgDataUrl } from '../viewer-common/emf.mjs';   // 再オープン④ TASK-28（ADRL-0097）
 import { resolveRunColor, fontFamilyCss } from './theme.mjs';
 
 const HIGHLIGHT = new Map([
@@ -131,17 +132,38 @@ function renderRuns(doc, host, runs, ctx, paraShd) {
 
 const IMG_EXT_OK = /\.(png|jpe?g|gif|bmp|webp|svg)$/i;
 
-function renderImage(doc, host, run, ctx) {
+// 再オープン④（TASK-28 / TC-DXV-15・ADRL-0097）: renderImage は挙動テストの seam として export
+export function renderImage(doc, host, run, ctx) {
     const target = ctx.pkg.relTarget(run.relId) || '';
     const w = run.cx ? emuToPx(run.cx) : null;
     const h = run.cy ? emuToPx(run.cy) : null;
+    const toPlaceholder = (el) => {
+        el.className = 'dxv-unsupported-img';
+        if (w) { el.style.width = w + 'px'; }
+        if (h) { el.style.height = h + 'px'; }
+        el.textContent = ctx.label('viewerUnsupportedImageFmt', 'Image format not supported');
+    };
+    if (/\.emf$/i.test(target)) {
+        // 再オープン④: ベクタ EMF は viewer-common/emf.mjs で SVG 実描画（pptx 配線と対 — 片肺禁止）。
+        // 変換不能は従来の縮退枠。media 取得は非同期（初回表示をブロックしない — NFR-VEX-03）
+        const holder = doc.createElement('span');
+        host.appendChild(holder);
+        ctx.pkg.media(run.relId).then((bytes) => {
+            const url = bytes ? emfToSvgDataUrl(bytes) : null;
+            if (url) {
+                const img = doc.createElement('img');
+                if (w) { img.style.width = w + 'px'; }
+                if (h) { img.style.height = h + 'px'; }
+                img.src = url;
+                holder.replaceWith(img);
+            } else { toPlaceholder(holder); }
+        }).catch(() => { toPlaceholder(holder); });
+        return;
+    }
     if (!IMG_EXT_OK.test(target)) {
-        // EMF/WMF 等 — サイズ枠 + プレースホルダ（FR-DXV-06）
+        // WMF 等 — サイズ枠 + プレースホルダ（FR-DXV-06）
         const ph = doc.createElement('span');
-        ph.className = 'dxv-unsupported-img';
-        if (w) { ph.style.width = w + 'px'; }
-        if (h) { ph.style.height = h + 'px'; }
-        ph.textContent = ctx.label('viewerUnsupportedImageFmt', 'Image format not supported');
+        toPlaceholder(ph);
         host.appendChild(ph);
         return;
     }

@@ -30,10 +30,16 @@ const ROOT = path.join(__dirname, '..');
 const PDFJS = path.join(ROOT, 'node_modules', 'pdfjs-viewer-dist');
 const OUT_DIR = path.join(ROOT, 'media', 'pdfjs-viewer');
 
-// pdf.mjs（コア）と web/pdf_viewer.mjs（PDFViewer/EventBus）を 1 本の ESM に畳む
+// pdf.mjs（コア）と web/pdf_viewer.mjs（PDFViewer/EventBus）を 1 本の ESM に畳む。
+//
+// 再オープン②（sprint 20260823-165314 TASK-21 / TC-FV-79）: 生成元を **legacy ビルド**に切替。
+// modern ビルドは Map.prototype.getOrInsertComputed 等 Chrome 140 相当の API を polyfill なしで
+// 呼ぶため、Chromium<140 の webview（Kiro 等の VS Code フォーク）で全 PDF が
+// 「this[#e].getOrInsertComputed is not a function」で即死する。legacy は core-js polyfill 同梱。
+// 版は 5.5.207 のまま（CVE 範囲外 pin + 選択フリッカー修正 — ADRL-0070 / TC-FV-70b 不変）。
 const ENTRY_SOURCE = `
-export * as pdfjsLib from 'pdfjs-viewer-dist/build/pdf.mjs';
-export * as pdfjsViewer from 'pdfjs-viewer-dist/web/pdf_viewer.mjs';
+export * as pdfjsLib from 'pdfjs-viewer-dist/legacy/build/pdf.mjs';
+export * as pdfjsViewer from 'pdfjs-viewer-dist/legacy/web/pdf_viewer.mjs';
 `;
 
 function copyDir(src, dest) {
@@ -59,8 +65,9 @@ async function main() {
     });
     if (result.errors.length > 0) { process.exit(1); }
 
-    fs.copyFileSync(path.join(PDFJS, 'build', 'pdf.worker.min.mjs'), path.join(OUT_DIR, 'pdf.worker.min.mjs'));
-    fs.copyFileSync(path.join(PDFJS, 'web', 'pdf_viewer.css'), path.join(OUT_DIR, 'pdf_viewer.css'));
+    // worker / css も legacy 側から（TC-FV-79 が worker の生成元同一バイトを pin）
+    fs.copyFileSync(path.join(PDFJS, 'legacy', 'build', 'pdf.worker.min.mjs'), path.join(OUT_DIR, 'pdf.worker.min.mjs'));
+    fs.copyFileSync(path.join(PDFJS, 'legacy', 'web', 'pdf_viewer.css'), path.join(OUT_DIR, 'pdf_viewer.css'));
     copyDir(path.join(PDFJS, 'cmaps'), path.join(OUT_DIR, 'cmaps'));
     copyDir(path.join(PDFJS, 'standard_fonts'), path.join(OUT_DIR, 'standard_fonts'));
     // 5.x: JPX/JBIG2/ICC の wasm デコーダ + ICC プロファイル（file-viewer.js が

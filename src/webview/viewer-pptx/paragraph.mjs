@@ -94,17 +94,14 @@ export function getTextAutoFit(node, slideLayoutSpNode, slideMasterSpNode) {
     if (bodyPr['a:noAutofit']) return { result: null }
     else if (bodyPr['a:spAutoFit']) return { result: { type: 'shape' } }
     else if (bodyPr['a:normAutofit']) {
+      // fractal fix (TASK-25, sprint 20260823-165314 再オープン③): lnSpcReduction も抽出する
+      // （upstream は fontScale のみ。レンダラが両方を消費して PowerPoint の自動縮小結果を再現 — TC-PPV-18）
+      const result = { type: 'text' }
       const fontScale = getTextByPathList(bodyPr['a:normAutofit'], ['attrs', 'fontScale'])
-      if (fontScale) {
-        const scalePercent = parseInt(fontScale) / 1000
-        return {
-          result: {
-            type: 'text',
-            fontScale: scalePercent,
-          }
-        }
-      }
-      return { result: { type: 'text' } }
+      if (fontScale) result.fontScale = parseInt(fontScale) / 1000
+      const lnSpcReduction = getTextByPathList(bodyPr['a:normAutofit'], ['attrs', 'lnSpcReduction'])
+      if (lnSpcReduction) result.lnSpcReduction = parseInt(lnSpcReduction) / 1000
+      return { result }
     }
     return null
   }
@@ -198,7 +195,10 @@ function getParagraphSpacingValue(spacingNode) {
   const spcPct = getTextByPathList(spacingNode, ['a:spcPct', 'attrs', 'val'])
   const spcPts = getTextByPathList(spacingNode, ['a:spcPts', 'attrs', 'val'])
 
-  if (spcPct) return parseInt(spcPct) / 1000 + 'em'
+  // fractal fix (TASK-22, upstream bug 2b12fce src/paragraph.js:194): spcPct は 1/1000% 単位
+  // （20000 = 20%）。/1000 だけだと 100 倍の margin（20em）になり段落が画面外へ飛ぶ。
+  // 上の getLineSpacingValue と同じ除数（/1000/100）が正
+  if (spcPct) return parseInt(spcPct) / 1000 / 100 + 'em'
   if (spcPts) return parseInt(spcPts) / 100 + 'pt'
 
   return undefined

@@ -24,6 +24,7 @@ import {
   angleToDegrees,
   getMimeType,
   toHex,
+  getBlipEmbedRid,
 } from './utils.mjs'
 
 export function getFillType(node) {
@@ -159,7 +160,8 @@ export async function getAudioData(audioPath, warpObj) {
 export async function getPicFill(type, node, warpObj) {
   if (!node) return createImageData()
 
-  const rId = getTextByPathList(node, ['a:blip', 'attrs', 'r:embed'])
+  // fractal fix (TASK-24): SVG-only blipFill も svgBlip の r:embed へフォールバック（pic 経路と対 — 片肺配線回避）
+  const rId = getBlipEmbedRid(getTextByPathList(node, ['a:blip']))
   let imgPath
   if (type === 'slideBg' || type === 'slide') {
     imgPath = getTextByPathList(warpObj, ['slideResObj', rId, 'target'])
@@ -475,9 +477,11 @@ export async function getSlideBackgroundFill(warpObj) {
       const bgFillTyp = getFillType(bgFillLstIdx)
       if (bgFillTyp === 'SOLID_FILL') {
         const sldFill = bgFillLstIdx['a:solidFill']
-        const sldBgClr = getSolidFill(sldFill, clrMapOvr, undefined, warpObj)
+        // fractal fix (TASK-19, upstream bug 2b12fce src/fill.js:472): テーマ側 solidFill は
+        // schemeClr val="phClr" のため、bgRef から解決済みの phClr を渡さないと空文字（白）になる
+        const sldBgClr = getSolidFill(sldFill, clrMapOvr, phClr, warpObj)
         background = sldBgClr
-      } 
+      }
       else if (bgFillTyp === 'GRADIENT_FILL') {
         const gradientFill = getBgGradientFill(bgFillLstIdx, phClr, slideMasterContent, warpObj)
         if (typeof gradientFill === 'string') {
@@ -571,7 +575,8 @@ export async function getSlideBackgroundFill(warpObj) {
         const bgFillTyp = getFillType(bgFillLstIdx)
         if (bgFillTyp === 'SOLID_FILL') {
           const sldFill = bgFillLstIdx['a:solidFill']
-          const sldBgClr = getSolidFill(sldFill, clrMapOvr, undefined, warpObj)
+          // fractal fix (TASK-19, upstream bug 2b12fce src/fill.js:568): phClr 継承（上と同じ）
+          const sldBgClr = getSolidFill(sldFill, clrMapOvr, phClr, warpObj)
           background = sldBgClr
         }
         else if (bgFillTyp === 'GRADIENT_FILL') {
@@ -674,7 +679,8 @@ export async function getSlideBackgroundFill(warpObj) {
           const bgFillTyp = getFillType(bgFillLstIdx)
           if (bgFillTyp === 'SOLID_FILL') {
             const sldFill = bgFillLstIdx['a:solidFill']
-            const sldBgClr = getSolidFill(sldFill, clrMapOvr, undefined, warpObj)
+            // fractal fix (TASK-19, upstream bug 2b12fce src/fill.js:671): phClr 継承（上と同じ）
+            const sldBgClr = getSolidFill(sldFill, clrMapOvr, phClr, warpObj)
             background = sldBgClr
           }
           else if (bgFillTyp === 'GRADIENT_FILL') {

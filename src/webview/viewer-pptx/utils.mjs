@@ -42,6 +42,24 @@ export function base64ArrayBuffer(arrayBuffer) {
   return base64
 }
 
+// fractal addition (TASK-24, sprint 20260823-165314 再オープン③): SVG-only picture 対応。
+// PowerPoint は SVG を Microsoft 拡張 <asvg:svgBlip r:embed> で持ち、raster fallback が無い場合
+// <a:blip> 自体に r:embed が付かない（upstream 未対応 — pic が丸ごと欠落していた）。
+// blip の r:embed が無ければ extLst > ext（配列可）> asvg:svgBlip の r:embed へフォールバックする。
+export function getBlipEmbedRid(blipNode) {
+  if (!blipNode) return undefined
+  const direct = getTextByPathList(blipNode, ['attrs', 'r:embed'])
+  if (direct) return direct
+  let exts = getTextByPathList(blipNode, ['a:extLst', 'a:ext'])
+  if (!exts) return undefined
+  if (exts.constructor !== Array) exts = [exts]
+  for (const ext of exts) {
+    const rid = getTextByPathList(ext, ['asvg:svgBlip', 'attrs', 'r:embed'])
+    if (rid) return rid
+  }
+  return undefined
+}
+
 export function extractFileExtension(filename) {
   return filename.substr((~-filename.lastIndexOf('.') >>> 0) + 2)
 }
