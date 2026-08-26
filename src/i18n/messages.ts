@@ -323,6 +323,7 @@ export interface WebviewMessages {
   viewerFind: string;
   viewerOpenInStandalone: string;
   viewerZoomIn: string;
+  viewerZoomReset: string;
   viewerZoomOut: string;
   viewerExpand: string;
   viewerClose: string;

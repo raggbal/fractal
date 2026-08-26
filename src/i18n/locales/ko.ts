@@ -322,6 +322,7 @@ export const webviewMessages = {
   viewerFind: '찾기',
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: '확대',
+  viewerZoomReset: '확대/축소 재설정',
   viewerZoomOut: '축소',
   viewerFit: '맞춤',
   viewerActualSize: '실제 크기',

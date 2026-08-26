@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import { extractToc, TocItem } from './toc-utils';
 import { resolveResourceRoots, findOutOfRangeImages } from './resource-roots';
 import { createHybridFileWatcher, DrawioFileWatcher } from './drawioWatcher';
+import { recordSelfWrite, isRecentSelfWrite, clearSelfWrites } from './self-write-registry';
 import { isViewerTarget, VIEWER_SIZE_LIMIT } from './viewer-target';
 
 /** Webview への通信インターフェース */
@@ -174,6 +175,10 @@ export class SidePanelManager {
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
             if (this._watchedPath !== filePath) return;
             const newContent = new TextDecoder().decode(fileContent);
+            // FR-LV-06 (ADRL-0098): 自己保存の残響（自分が直近に書いた内容の遅延イベント）は no-op。
+            // doc との差分チェックより先に判定する — 編集中は doc が disk より先行するため、
+            // 差分チェックだけだと自己保存を外部編集と誤認して巻き戻す（lost-update）。
+            if (isRecentSelfWrite(filePath, newContent)) { return; }
             const currentContent = liveDoc.getText();
             if (newContent !== currentContent) {
                 this._isApplyingEdit = true;
@@ -184,6 +189,10 @@ export class SidePanelManager {
                 const edit = new vscode.WorkspaceEdit();
                 edit.replace(liveDoc.uri, fullRange, newContent);
                 await vscode.workspace.applyEdit(edit);
+                // FR-LV-06: 適用に成功した外部内容は直後に自分が save する = 残響イベントも自己書き込み扱い。
+                // applyEdit 成功「後」に記録する（throw 時に未適用内容が台帳に残ると、pending flush の
+                // 再照合まで no-op になり外部編集が反映されない — TC-LV-06 のエラー経路）。
+                recordSelfWrite(filePath, newContent);
                 this._isApplyingEdit = false;
                 this._flushPendingExternalCheck(filePath, fileUri, prefix);
                 // Final guard before save: confirm no navigation happened
@@ -217,6 +226,8 @@ export class SidePanelManager {
      * ファイル監視リソースを全て破棄する。
      */
     disposeFileWatcher(): void {
+        // FR-LV-06: 台帳のメモリ解放（再 open 時は空から — 初回イベントは差分チェックが吸収）
+        if (this._watchedPath) { clearSelfWrites(this._watchedPath); }
         this._docChangeSubscription?.dispose();
         this._docChangeSubscription = undefined;
         this._fileChangeSubscription?.dispose();
@@ -241,6 +252,8 @@ export class SidePanelManager {
     async handleSave(filePath: string, content: string): Promise<void> {
         const prefix = this.config.logPrefix;
         try {
+            // FR-LV-06: 自分が書く内容を台帳に記録（buffer 経路 / fs.writeFile fallback の両方に効く位置）
+            recordSelfWrite(filePath, content);
             // Pin the target by URI once. Never trust this._document mid-save —
             // navigation can swap it during await applyEdit, which previously
             // could redirect _document.save() at a different file.

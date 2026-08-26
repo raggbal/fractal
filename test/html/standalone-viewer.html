@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-GR2NUzEMVlP1VAohaqeoGA==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-0pQs16aYGnywGI2p1XkFZw==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="GR2NUzEMVlP1VAohaqeoGA==">
+<script nonce="0pQs16aYGnywGI2p1XkFZw==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="GR2NUzEMVlP1VAohaqeoGA==">
+<script type="module" nonce="0pQs16aYGnywGI2p1XkFZw==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7177,7 +7177,7 @@ window.__viewerConfig = {
         xlsx: './viewer-modules/viewer-xlsx.mjs',
         pptx: './viewer-modules/viewer-pptx.mjs',
     },
-    nonce: 'GR2NUzEMVlP1VAohaqeoGA==',
+    nonce: '0pQs16aYGnywGI2p1XkFZw==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）
@@ -7338,7 +7338,7 @@ window.__viewerConfig = {
             '  color: var(--fv-text); border-radius: 3px; }',
             '.viewer-find-bar button:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.15)); }',
             '.viewer-script-toggle[aria-pressed="true"] { opacity: 1; background: var(--fv-btn-hover); }',
-            '.viewer-zoom-in, .viewer-zoom-out { min-width: 24px; font-weight: 600; font-size: 13px;',
+            '.viewer-zoom-in, .viewer-zoom-out, .viewer-zoom-reset { min-width: 24px; font-weight: 600; font-size: 13px;',
             '  justify-content: center; }',
             '.viewer-body { flex: 1 1 auto; position: relative; overflow: auto; min-height: 0;',
             '  background: var(--fv-bg-body); }',
@@ -7346,6 +7346,10 @@ window.__viewerConfig = {
             '.viewer-html-frame { width: 100%; height: 100%; border: none; background: #fff; }',
             // pdf はページ紙面が浮くニュートラル背景 + pdf_viewer.css の page 影を活かす
             '.viewer-pdf-container { background: var(--fv-bg-body); }',
+            // FR-VZP-03: ドラッグパンのカーソル（text span 上は選択カーソルを維持）
+            '.viewer-pdf-container { cursor: grab; }',
+            '.viewer-pdf-container.fv-panning { cursor: grabbing; }',
+            '.viewer-pdf-container .textLayer span { cursor: text; }',
             '.viewer-pdf-container .pdfViewer { padding: 12px 0; }',
             // pdfjs は .page の width/height を「内容領域 = scale × ページ寸法」として算出する
             // （pdf.mjs setLayerDimensions）。だが .page は 9px の透明 border を持つため、
@@ -7474,10 +7478,10 @@ window.__viewerConfig = {
             });
             bar.appendChild(scriptBtn);
         }
-        // FR-FV-19（sprint 20260823-165314）: [−][+] は pdf / image / pptx。docx は非表示
-        //（SYS-1 裁定 = 縦スクロール + 狭幅自動 scale で足りる）。xlsx / text も非表示。
-        // click 配線は kind 側（openPdf / 各 kind モジュール）が querySelector で行う（DOM 生成のみここ）
-        if (kind === 'pdf' || kind === 'image' || kind === 'pptx') {
+        // FR-VZP-02（sprint 20260825-224210 / ADRL-0100 — FR-FV-19 の SYS-1 裁定を supersede）:
+        // [−][+] は全 kind に生成する。click 配線は従来どおり kind 側（openPdf / 各 kind モジュール）
+        // が querySelector で行う（ここは DOM 生成のみ）
+        {
             const zoomOut = document.createElement('button');
             zoomOut.className = 'viewer-zoom-out';
             const zoomOutLabel = label('viewerZoomOut', 'Zoom out');
@@ -7492,6 +7496,16 @@ window.__viewerConfig = {
             zoomIn.textContent = '+';
             bar.appendChild(zoomOut);
             bar.appendChild(zoomIn);
+            // FR-VZP-06（再オープン①）: ⟲ リセット（image は既存 [フィット] が同機能のため非表示）
+            if (kind !== 'image') {
+                const zoomReset = document.createElement('button');
+                zoomReset.className = 'viewer-zoom-reset';
+                const zoomResetLabel = label('viewerZoomReset', 'Reset zoom');
+                zoomReset.title = zoomResetLabel;
+                zoomReset.setAttribute('aria-label', zoomResetLabel);
+                zoomReset.textContent = '⟲';
+                bar.appendChild(zoomReset);
+            }
         }
         // FR-FV-19: image のみ [フィット][等倍]（[+] の直後 — requirement 全順序表が正）
         if (kind === 'image') {
@@ -7756,6 +7770,31 @@ window.__viewerConfig = {
         return helper + html;
     }
 
+    /**
+     * FR-VZP-01/02b (ADRL-0101 — v2): iframe 内ズームヘルパーの注入（injectFindHelper 同型）。
+     * (ctrl||meta)+wheel は iframe 内に閉じる（外側では取れない）ため、iframe 内では
+     * preventDefault（VS Code ズーム抑止の穴を塞ぐ — 役割不変）+ ピンチ係数の親への転送
+     * だけを行う。倍率の適用は親側 applyHtmlZoom（iframe width(100/z)% + scale(z)）が担い、
+     * iframe 内 CSS zoom は使わない（100vh レイアウトで余白が出る v1 機構の廃止）。
+     * 係数は viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — 3 箇所同時変更の対象）。
+     */
+    function injectZoomHelper(html, nonce) {
+        const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
+        const helper = `<script${nonceAttr}>(function(){`
+            + `var port=null;`
+            + `window.addEventListener('message',function(e){var d=e.data||{};if(d.type==='fvZoomInit'&&e.ports&&e.ports[0]){port=e.ports[0];}});`
+            + `window.addEventListener('wheel',function(e){if(!(e.ctrlKey||e.metaKey)){return;}e.preventDefault();e.stopPropagation();`
+            + `if(port){port.postMessage({pinch:Math.exp(-e.deltaY*0.003)});}},{passive:false});`
+            + `})();</` + `script>`;
+        if (/<\/head\s*>/i.test(html)) { return html.replace(/<\/head\s*>/i, helper + '$&'); }
+        const baseIdx = html.search(/<base[^>]*>/i);
+        if (baseIdx >= 0) {
+            const end = html.indexOf('>', baseIdx) + 1;
+            return html.slice(0, end) + helper + html.slice(end);
+        }
+        return helper + html;
+    }
+
     /** オプトイン ON: ユーザー script に同じ nonce を与えて実行可能にする（FR-FV-11） */
     function allowUserScripts(html, nonce) {
         if (!nonce) { return html; }
@@ -7796,6 +7835,7 @@ window.__viewerConfig = {
             if (state && state.allowScripts) { html = allowUserScripts(html, nonce); }
             html = injectCopyHelper(html, nonce);
             html = injectFindHelper(html, nonce); // FR-VFB-02（rerender 時も再注入 — 状態は親側 find bar が保持）
+            html = injectZoomHelper(html, nonce); // FR-VZP-01/02（倍率は親が保持し fvZoomSet で復元）
             const next = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
             const stale = currentBlobUrl;
             currentBlobUrl = next;
@@ -7827,6 +7867,52 @@ window.__viewerConfig = {
             } catch (e) { /* 縮退: find 不能でも表示は継続 */ }
         }
         iframe.addEventListener('load', initFindChannel);
+
+        // FR-VZP-02b (ADRL-0101 — v2): 倍率は完全に親（htmlZoom）が保持し、iframe 要素へ
+        // width/height=(100/z)% + transform scale(z) で適用する（ブラウザズーム同等 —
+        // iframe 内部ビューポートが CSS px で拡縮され 100vh レイアウトも reflow する）。
+        // rerenderHtml（script トグル）後は load 時の再適用で復元。
+        // fvZoomInit チャネルは iframe 内ピンチ（{pinch: 係数} 転送）の受信専用
+        let htmlZoom = 1;
+        function applyHtmlZoom(z) {
+            htmlZoom = Math.min(8, Math.max(0.25, z));
+            if (htmlZoom === 1) {
+                iframe.style.width = ''; iframe.style.height = '';
+                iframe.style.transform = ''; iframe.style.transformOrigin = '';
+            } else {
+                const pct = (100 / htmlZoom) + '%';
+                iframe.style.width = pct; iframe.style.height = pct;
+                iframe.style.transform = 'scale(' + htmlZoom + ')';
+                iframe.style.transformOrigin = '0 0';
+            }
+        }
+        let zoomPort = null;
+        function initZoomChannel() {
+            try {
+                // rerenderHtml ごとに再実行される — 旧 port は明示 close（findPort と対称 — reviewer iter3 SEC-1）
+                if (zoomPort) { try { zoomPort.close(); } catch (e) { /* best-effort */ } }
+                const ch = new MessageChannel();
+                zoomPort = ch.port1;
+                ch.port1.onmessage = (ev) => {
+                    const d = (ev && ev.data) || {};
+                    if (typeof d.pinch === 'number' && d.pinch > 0) { applyHtmlZoom(htmlZoom * d.pinch); }
+                };
+                iframe.contentWindow.postMessage({ type: 'fvZoomInit' }, '*', [ch.port2]);
+                applyHtmlZoom(htmlZoom);   // rerender 復元（z=1 なら no-op 相当の素戻し）
+            } catch (e) { /* 縮退: zoom 不能でも表示は継続 */ }
+        }
+        iframe.addEventListener('load', initZoomChannel);
+        {
+            const bar = mount.querySelector('.viewer-toolbar');
+            const wireZoom = (sel, mul) => {
+                const b = bar && bar.querySelector(sel);
+                if (b) { b.addEventListener('click', () => { applyHtmlZoom(htmlZoom * mul); }); }
+            };
+            wireZoom('.viewer-zoom-in', 1.25);
+            wireZoom('.viewer-zoom-out', 1 / 1.25);
+            const zr = bar && bar.querySelector('.viewer-zoom-reset');
+            if (zr) { zr.addEventListener('click', () => { applyHtmlZoom(1); }); }   // FR-VZP-06
+        }
         if (state) {
             state.findExec = (q) => {
                 const query = String(q || '');
@@ -7913,6 +7999,79 @@ window.__viewerConfig = {
         linkService.setDocument(pdf, null);
         viewer.setDocument(pdf);
 
+        // FR-FV-23 (ADRL-0099): コンテナ幅の変化（ペインリサイズ・レイアウト確定の遅れ・
+        // スクロールバー出現・非表示→表示）に page-width を追従させる。page-width は
+        // 「代入した瞬間の clientWidth」で決まるため、pagesinit 一度きりだと開いた瞬間だけ
+        // 幅が広い場合に PDF がはみ出したまま残る（初期表示はみ出しの間欠バグ）。
+        // preset（isNaN = 'page-width' 等）の間だけ再代入 — 手動ズーム（currentScale 数値代入）後は
+        // currentScaleValue が数値文字列になり isNaN=false → 追従が構造的に止まる（pdf.js の
+        // _updateScrollMode と同じ preset 判定イディオム）。幅 0（非表示中）はスキップ
+        // （pdfjs の #setScale は幅 0 の負スケールを未ガード — 表示復帰時の発火でフィットする）。
+        const refitObserver = new ResizeObserver(() => {
+            const v = viewer.currentScaleValue;
+            if (container.clientWidth > 0 && v && isNaN(v)) {
+                viewer.currentScaleValue = v;
+            }
+        });
+        refitObserver.observe(container);
+
+        // FR-VZP-01 (ADRL-0100): (ctrl||meta)+wheel = トラックパッドピンチをカーソル不動点ズームに。
+        // {passive:false}+preventDefault で viewer 上の VS Code 全体ズームを抑止。係数は
+        // viewer-common/pinch-zoom.mjs と同一（exp(-deltaY*0.003) — file-viewer.js は非 ESM のため
+        // 直書き複製。変更時は 3 箇所同時 = pinch-zoom.mjs / ここ / html 注入ヘルパ）。
+        // updateScale は数値 scale 化するため refit（上の RO）は手動ズーム後に停止（FR-FV-23 整合）。
+        // リスナーは mount 配下 DOM = destroy の DOM 破棄で消滅（NFR-VZP-04・cleanupRegistry 不使用）。
+        container.addEventListener('wheel', (e) => {
+            if (!(e.ctrlKey || e.metaKey)) { return; }
+            e.preventDefault();
+            e.stopPropagation();
+            viewer.updateScale({
+                scaleFactor: Math.exp(-e.deltaY * 0.003),
+                origin: [e.clientX, e.clientY],
+                drawingDelay: 400,
+            });
+        }, { passive: false });
+
+        // FR-VZP-03 (ADRL-0100): ドラッグパン。textLayer の text span / annotation 上からの
+        // 左ドラッグは従来どおり選択/リンクに委譲（closest('.textLayer') はページ全面を覆うため
+        // span 単位で判定 — research-risk 実測）。それ以外はパン。3px 閾値までは click 候補
+        //（リンク click を殺さない）。中ボタンはどこからでもパン。
+        const isSelectableStart = (t) => !!(t && t.closest && (
+            (t.closest('.textLayer') && t.tagName === 'SPAN' && t.textContent) ||
+            t.closest('.annotationLayer')));
+        container.addEventListener('pointerdown', (e) => {
+            if (e.button === 0 && isSelectableStart(e.target)) { return; }
+            if (e.button !== 0 && e.button !== 1) { return; }
+            if (e.button === 1) { e.preventDefault(); }   // 中ボタンの autoscroll を抑止
+            const start = { x: e.clientX, y: e.clientY, sl: container.scrollLeft, st: container.scrollTop };
+            let panning = false;
+            const move = (ev) => {
+                if (!panning && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) { return; }
+                if (!panning) {
+                    panning = true;
+                    try { container.setPointerCapture(e.pointerId); } catch (eCap) { /* best-effort */ }
+                    container.classList.add('fv-panning');
+                }
+                container.scrollLeft = start.sl - (ev.clientX - start.x);
+                container.scrollTop = start.st - (ev.clientY - start.y);
+            };
+            const up = () => {
+                container.removeEventListener('pointermove', move);
+                container.removeEventListener('pointerup', up);
+                container.removeEventListener('pointercancel', up);
+                container.classList.remove('fv-panning');
+            };
+            container.addEventListener('pointermove', move);
+            container.addEventListener('pointerup', up);
+            container.addEventListener('pointercancel', up);
+        });
+        const prevCleanup = cleanupRegistry.get(mount);
+        cleanupRegistry.set(mount, () => {
+            // QUAL-1: prev が throw しても後続の disconnect を必ず実行（他 2 サイトと同型の guard）
+            if (prevCleanup) { try { prevCleanup(); } catch (e6) { /* best-effort */ } }
+            try { refitObserver.disconnect(); } catch (e) { /* best-effort */ }
+        });
+
         // 第 8 ラウンド①: cmd/ctrl+A を viewer 内の PDF テキストに限定する。
         // note/sidepanel 面はアプリ UI と同一 document のため、素の select-all だと outliner や
         // ツリーまで選択がはみ出す。container を focus 可能（tabindex=-1）にして viewer 内クリックで
@@ -7984,8 +8143,15 @@ window.__viewerConfig = {
         if (bar) {
             const zi = bar.querySelector('.viewer-zoom-in');
             const zo = bar.querySelector('.viewer-zoom-out');
-            if (zi) { zi.addEventListener('click', () => { viewer.currentScale = Math.min(viewer.currentScale * 1.25, 8); }); }
-            if (zo) { zo.addEventListener('click', () => { viewer.currentScale = Math.max(viewer.currentScale / 1.25, 0.25); }); }
+            // FR-VZP-02 (ADRL-0100): pdf.js の increaseScale/decreaseScale へ（内部 clamp 0.1-10・
+            // 数値 scale 化で FR-FV-23 refit が停止する性質は currentScale 直接代入時代と同じ）。
+            // 旧 currentScale*1.25 直接代入は置換（master pdf-width-refit.md の「不変」宣言は
+            // ADRL-0100 で改訂 — close 時に master 側も訂正）
+            if (zi) { zi.addEventListener('click', () => { viewer.increaseScale(); }); }
+            if (zo) { zo.addEventListener('click', () => { viewer.decreaseScale(); }); }
+            // FR-VZP-06: ⟲ = 'page-width' preset 復帰（FR-FV-23 の幅追従 refit も再開する — 意図した挙動）
+            const zr = bar.querySelector('.viewer-zoom-reset');
+            if (zr) { zr.addEventListener('click', () => { try { viewer.currentScaleValue = 'page-width'; } catch (e) { /* noop */ } }); }
         }
         return { pdf, viewer };
     }
@@ -8038,8 +8204,12 @@ window.__viewerConfig = {
         try {
             if (kind === 'pdf') {
                 const { pdf } = await openPdf(mount, fileUri, state);
-                // TASK-10: destroy(mount) で pdfDocument（worker / ArrayBuffer）も解放する
+                // TASK-10: destroy(mount) で pdfDocument（worker / ArrayBuffer）も解放する。
+                // FR-FV-23 (DSN-1): openPdf が refitObserver.disconnect を登録済みのため、
+                // ここは prev 連鎖形（module-kind 分岐と同型）— 非連鎖 set は先行登録を破棄する
+                const prevPdfCleanup = cleanupRegistry.get(mount);
                 cleanupRegistry.set(mount, () => {
+                    if (prevPdfCleanup) { try { prevPdfCleanup(); } catch (e5) { /* best-effort */ } }
                     try { pdf.destroy(); window.__lastPdfDocDestroyed = true; } catch { /* best-effort */ }
                 });
             } else if (kind === 'html') {

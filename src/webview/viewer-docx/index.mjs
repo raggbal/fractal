@@ -12,6 +12,7 @@ import { parseTheme } from './theme.mjs';
 import { renderDoc } from './render.mjs';
 import { createBlobRegistry } from '../viewer-common/blob-registry.mjs';
 import { execFind, clearFind } from '../viewer-common/find-highlight.mjs';
+import { attachPinchZoom } from '../viewer-common/pinch-zoom.mjs';
 
 export default {
     async mount(ctx) {
@@ -47,6 +48,25 @@ export default {
         } catch (e) {
             blobRegistry.revokeAll(); // パース/描画途中の失敗でも登録済み + 遅延分を漏らさない（TC-VEX-13 / INV-3）
             throw e;
+        }
+
+        // FR-VZP-01/02 (ADRL-0100): [−][+] + ピンチ = userScale（clamp 0.25..8）。
+        // リスナー/配線は mount 配下 DOM = destroy で消滅（NFR-VZP-04）
+        {
+            const clampUser = (v) => Math.min(8, Math.max(0.25, v));
+            const bar = ctx.mount.querySelector('.viewer-toolbar');
+            const wireZoom = (sel, mul) => {
+                const b = bar && bar.querySelector(sel);
+                if (b) { b.addEventListener('click', () => view.setUserScale(clampUser(view.getUserScale() * mul))); }
+            };
+            wireZoom('.viewer-zoom-in', 1.25);
+            wireZoom('.viewer-zoom-out', 1 / 1.25);
+            const rb = bar && bar.querySelector('.viewer-zoom-reset');
+            if (rb) { rb.addEventListener('click', () => view.setUserScale(1)); }   // FR-VZP-06
+
+            attachPinchZoom(body, (factor) => {
+                view.setUserScale(clampUser(view.getUserScale() * factor));
+            });
         }
 
         // find（FR-FV-21 — DOM 走査 + span ラップ。docx は locHint なし = findQuery のみ）

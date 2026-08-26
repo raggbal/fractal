@@ -75,6 +75,9 @@ function indexAt(prefix, px) {
  * opts: { model: SheetModel, mdw, fillCell(el, row0, col0, cell) }
  */
 export function createGrid(host, opts) {
+    // FR-VZP-01/02 (ADRL-0100): ユーザーズーム倍率（geometry 再構築方式 — DISPLAY_SCALE の一般化）。
+    // 行高・列幅・フォントに倍率を織り込んで構築する（CSS zoom / 上位 transform は使わない — 却下理由は ADRL-0100）
+    const zoom = (opts && opts.zoom) || 1;
     const doc = host.ownerDocument;
     ensureStyle(doc);
     const model = opts.model;
@@ -84,15 +87,15 @@ export function createGrid(host, opts) {
     // ── geometry（累積 px） ──
     // DISPLAY_SCALE: 実測フィードバック（2026-08-24）「全体が拡大ぎみ」→ 行高・列幅を一律 0.9 倍で
     // 少し引いた表示にする（ECMA 換算式そのもの = styles.mjs は不変。倍率はここ 1 箇所）
-    const defRowPx = Math.round(rowHeightPx(model.defaultRowHeight != null ? model.defaultRowHeight : 15) * DISPLAY_SCALE);
-    const defColPx = Math.round(colWidthPx(model.defaultColWidth != null ? model.defaultColWidth : 8.43, opts.mdw) * DISPLAY_SCALE);
+    const defRowPx = Math.round(rowHeightPx(model.defaultRowHeight != null ? model.defaultRowHeight : 15) * DISPLAY_SCALE * zoom);
+    const defColPx = Math.round(colWidthPx(model.defaultColWidth != null ? model.defaultColWidth : 8.43, opts.mdw) * DISPLAY_SCALE * zoom);
     const rowPrefix = new Float64Array(nrows + 1);
     for (let r = 0; r < nrows; r++) {
         const row = model.rows.get(r);
         let h = defRowPx;
         if (row) {
             if (row.hidden) { h = 0; }
-            else if (row.ht != null) { h = Math.round(rowHeightPx(row.ht) * DISPLAY_SCALE); }
+            else if (row.ht != null) { h = Math.round(rowHeightPx(row.ht) * DISPLAY_SCALE * zoom); }
         }
         rowPrefix[r + 1] = rowPrefix[r] + h;
     }
@@ -101,7 +104,7 @@ export function createGrid(host, opts) {
         let w = defColPx;
         for (const range of model.cols) {
             if (c + 1 >= range.min && c + 1 <= range.max) {
-                w = range.hidden ? 0 : Math.round(colWidthPx(range.width != null ? range.width : (model.defaultColWidth != null ? model.defaultColWidth : 8.43), opts.mdw) * DISPLAY_SCALE);
+                w = range.hidden ? 0 : Math.round(colWidthPx(range.width != null ? range.width : (model.defaultColWidth != null ? model.defaultColWidth : 8.43), opts.mdw) * DISPLAY_SCALE * zoom);
                 break;
             }
         }
@@ -125,6 +128,7 @@ export function createGrid(host, opts) {
     // ── DOM 骨格 ──
     const root = doc.createElement('div');
     root.className = 'xlv-root';
+    if (zoom !== 1) { root.style.fontSize = (11 * zoom).toFixed(1) + 'px'; }   // 基本フォント 11px × zoom
     const corner = doc.createElement('div');
     corner.className = 'xlv-corner';
     const colHdr = doc.createElement('div');

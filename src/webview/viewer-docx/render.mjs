@@ -309,16 +309,23 @@ export function renderDoc(container, model, ctx) {
             }
         }
     }
-    // 狭幅 mount では scale（FR-DXV-07 — 調査 v2 §6）
+    // 狭幅 mount では scale（FR-DXV-07 — 調査 v2 §6）。
+    // FR-VZP-01/02 (ADRL-0100): ユーザー倍率 userScale を乗算（実効 = autoScale × userScale）。
+    // s>1（拡大）は transform-origin を top left にして container スクロールで全域可視
+    //（既定 origin のままだと左右へはみ出して左端に届かない）。s<1 の既存見た目（中央縮小）は不変。
+    let userScale = 1;
     const fit = () => {
         const avail = container.clientWidth - 24;
         for (const { el, width } of pages) {
-            if (avail > 0 && avail < width) {
-                const s = avail / width;
+            const auto = (avail > 0 && avail < width) ? avail / width : 1;
+            const s = auto * userScale;
+            if (s !== 1) {
                 el.style.transform = `scale(${s})`;
+                el.style.transformOrigin = s > 1 ? 'top left' : '';
                 el.style.marginBottom = (16 - (1 - s) * el.offsetHeight) + 'px';
             } else {
                 el.style.transform = '';
+                el.style.transformOrigin = '';
                 el.style.marginBottom = '';
             }
         }
@@ -330,5 +337,11 @@ export function renderDoc(container, model, ctx) {
         ro = new win.ResizeObserver(fit);
         ro.observe(container);
     }
-    return { root, destroy() { if (ro) { try { ro.disconnect(); } catch (e) { /* noop */ } } } };
+    return {
+        root,
+        // FR-VZP-02: userScale の設定口（clamp は呼び出し側 index.mjs — [0.25, 8]）
+        setUserScale(v) { userScale = v; fit(); },
+        getUserScale() { return userScale; },
+        destroy() { if (ro) { try { ro.disconnect(); } catch (e) { /* noop */ } } },
+    };
 }

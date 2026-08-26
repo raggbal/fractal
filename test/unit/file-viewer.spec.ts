@@ -660,6 +660,9 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
             Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
         const expected = [
             'viewer-script-toggle',        // html 面
+            'viewer-zoom-out',             // 【許可: test_update】sprint 20260825-224210（TC-VZP-10/ADRL-0100）: [−][+] の kind 制約撤廃 — html にも zoom
+            'viewer-zoom-in',
+            'viewer-zoom-reset',           // 【許可: test_update】再オープン①（FR-VZP-06・v3）: ⟲ リセット（image 以外）
             'viewer-find-toggle',          // FR-VFB-03（v1.3.4 sprint 20260822-051129 — 許可: test_update）: 表示系グループ末尾
             'viewer-open-external',        // OS で開く = アクション群左端
             'viewer-open-in-standalone',
@@ -679,9 +682,13 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
                 title: b.getAttribute('title') || '',
                 aria: b.getAttribute('aria-label') || '',
             })));
+        // zoom [−][+] は記号ボタン（svg ではなくテキスト記号 — 下の pdf 面の裁定と同一。title/aria は必須）
+        const symbolBtns = ['viewer-zoom-out', 'viewer-zoom-in', 'viewer-zoom-reset'];
         for (const b of info) {
-            expect(b.hasSvg, `${b.cls}: svg アイコンを持つ`).toBe(true);
-            expect(b.text, `${b.cls}: 可視テキストラベルなし`).toBe('');
+            if (symbolBtns.indexOf(b.cls) === -1) {
+                expect(b.hasSvg, `${b.cls}: svg アイコンを持つ`).toBe(true);
+                expect(b.text, `${b.cls}: 可視テキストラベルなし`).toBe('');
+            }
             expect(b.title.length, `${b.cls}: title(tooltip) あり`).toBeGreaterThan(0);
             expect(b.aria.length, `${b.cls}: aria-label あり`).toBeGreaterThan(0);
         }
@@ -695,7 +702,8 @@ test.describe('file-viewer: ツールバーのアイコン化（FR-FV-12）', ()
         const pdfClasses = await page.evaluate(() =>
             Array.from(document.querySelectorAll('.viewer-toolbar button')).map((b) => b.className));
         expect(pdfClasses).toEqual([
-            'viewer-zoom-out', 'viewer-zoom-in', 'viewer-find-toggle',
+            // 【許可: test_update】再オープン①（FR-VZP-06・v3）: ⟲ リセット追加
+            'viewer-zoom-out', 'viewer-zoom-in', 'viewer-zoom-reset', 'viewer-find-toggle',
             'viewer-open-external', 'viewer-open-in-standalone', 'viewer-export-file',
             'viewer-copy-path', 'viewer-copy-inapp-link', 'viewer-open-in-new-tab',
         ]);

@@ -367,6 +367,7 @@ export const webviewMessages = {
   viewerFind: 'Find',
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: 'Zoom in',
+  viewerZoomReset: 'Reset zoom',
   viewerZoomOut: 'Zoom out',
   viewerFit: 'Fit',
   viewerActualSize: 'Actual size',

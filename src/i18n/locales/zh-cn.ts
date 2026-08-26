@@ -322,6 +322,7 @@ export const webviewMessages = {
   viewerFind: '查找',
   viewerOpenInStandalone: 'Open in Standalone',
   viewerZoomIn: '放大',
+  viewerZoomReset: '重置缩放',
   viewerZoomOut: '缩小',
   viewerFit: '适应窗口',
   viewerActualSize: '实际大小',

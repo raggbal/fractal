@@ -8,6 +8,7 @@
 import { parse } from './pptxtojson.mjs';
 import { renderSlides } from './render.mjs';
 import { execFind, clearFind } from '../viewer-common/find-highlight.mjs';
+import { attachPinchZoom } from '../viewer-common/pinch-zoom.mjs';
 
 function collectSlideText(slide) {
     const texts = [];
@@ -53,10 +54,10 @@ export default {
         }
         if (!parsed || !parsed.slides || parsed.slides.length === 0) { throw new Error('no slides'); }
 
-        // 初期倍率 = mount 幅 fit（0.25..4 — FR-PPV-02）
+        // 初期倍率 = mount 幅 fit（0.25..4 — FR-PPV-02）。⟲ リセットと共有（式の複製禁止 — reviewer iter3 QUAL-1）
         const wPx = parsed.size.width * (4 / 3);
-        const fitScale = Math.min(1, Math.max(0.25, (body.clientWidth - 32) / wPx || 1));
-        const view = renderSlides(body, parsed, { label: ctx.label, initialScale: fitScale });
+        const fitScaleNow = () => Math.min(1, Math.max(0.25, (body.clientWidth - 32) / wPx || 1));
+        const view = renderSlides(body, parsed, { label: ctx.label, initialScale: fitScaleNow() });
 
         // toolbar [−][+]（DOM 生成は core・click 配線は kind 側の規約）
         const bar = ctx.mount.querySelector('.viewer-toolbar');
@@ -67,6 +68,28 @@ export default {
         };
         wire('.viewer-zoom-in', 1.25);
         wire('.viewer-zoom-out', 1 / 1.25);
+        // FR-VZP-06: ⟲ = mount 時と同式の fit 倍率を現在幅で再計算（初期倍率へ復帰）
+        {
+            const rb = bar && bar.querySelector('.viewer-zoom-reset');
+            if (rb) { rb.addEventListener('click', () => view.setScale(fitScaleNow())); }
+        }
+
+        // FR-VZP-01 (ADRL-0100): (ctrl||meta)+wheel ピンチ = カーソル不動点ズーム。
+        // setScale は box 幅も追随（layout ベース）のため、scale 前後で origin 点の
+        // コンテンツ座標を保存して scrollLeft/Top を補正する（image の zoomAt と同型）。
+        // リスナーは body（mount 配下 DOM）= destroy で消滅（NFR-VZP-04）。
+        attachPinchZoom(body, (factor, cx, cy) => {
+            const old = view.getScale();
+            const next = clampScale(old * factor);
+            if (next === old) { return; }
+            const r = body.getBoundingClientRect();
+            const ox = body.scrollLeft + (cx - r.left);
+            const oy = body.scrollTop + (cy - r.top);
+            view.setScale(next);
+            const k = next / old;
+            body.scrollLeft = ox * k - (cx - r.left);
+            body.scrollTop = oy * k - (cy - r.top);
+        });
 
         // ── find（FR-FV-21）: モデル走査で対象スライドを特定 → 先行描画 + DOM ハイライト ──
         const slideTexts = parsed.slides.map(collectSlideText);

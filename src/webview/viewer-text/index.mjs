@@ -6,6 +6,7 @@
  * なら該当行まで先行描画して着地する。DOM は createElement + textContent のみ（INV-2）。
  */
 import { sniffAndDecodeText } from '../viewer-common/text-sniff.mjs';
+import { attachPinchZoom } from '../viewer-common/pinch-zoom.mjs';
 
 export const CHUNK_LINES = 5000;
 const FIND_LIMIT = 1000;
@@ -80,6 +81,27 @@ export default {
         container.className = 'fv-text';
         body.appendChild(container);
         const lnWidth = String(totalLines).length + 1;
+
+        // FR-VZP-01/02 (ADRL-0100): [−][+] + ピンチ = root font-size 倍率（基準 13px 相当 × userScale・
+        // clamp 0.25..8）。チャンク追記は行単位でスケール非依存（research-source）。
+        // リスナーは mount 配下 DOM = destroy で消滅（NFR-VZP-04）
+        {
+            let userScale = 1;
+            const baseFs = parseFloat((doc.defaultView || window).getComputedStyle(container).fontSize) || 13;
+            const applyUserScale = () => { container.style.fontSize = (baseFs * userScale) + 'px'; };
+            const clampUser = (v) => Math.min(8, Math.max(0.25, v));
+            const bar = ctx.mount.querySelector('.viewer-toolbar');
+            const wireZoom = (sel, mul) => {
+                const b = bar && bar.querySelector(sel);
+                if (b) { b.addEventListener('click', () => { userScale = clampUser(userScale * mul); applyUserScale(); }); }
+            };
+            wireZoom('.viewer-zoom-in', 1.25);
+            wireZoom('.viewer-zoom-out', 1 / 1.25);
+            const rb = bar && bar.querySelector('.viewer-zoom-reset');
+            if (rb) { rb.addEventListener('click', () => { userScale = 1; applyUserScale(); }); }   // FR-VZP-06
+
+            attachPinchZoom(body, (factor) => { userScale = clampUser(userScale * factor); applyUserScale(); });
+        }
 
         let renderedLines = 0;
         function renderTo(target) {

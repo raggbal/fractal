@@ -28,7 +28,8 @@ import { runExportBundle } from './shared/export-bundle-host';
 import { resolveResourceRoots, findOutOfRangeImages } from './shared/resource-roots';
 import { translateText, TRANSLATE_LANGUAGES } from './shared/aws-translate';
 import { DrawioWatcherRegistry, extractDrawioReferences, createDrawioFileWatcher } from './shared/drawioWatcher';
-import { setupExternalMdWatcher } from './shared/external-md-watcher';
+import { setupExternalMdWatcher, reconcileStandaloneMd } from './shared/external-md-watcher';
+import { recordSelfWrite, clearSelfWrites } from './shared/self-write-registry';
 import { getCurrentTheme } from './shared/vscode-settings-provider';
 import { copyImageToClipboard, openImageInNewTab } from './shared/image-clipboard';
 import { buildPlaceholderDrawioSvg, buildUniqueDrawioName } from './shared/drawioTemplate';
@@ -816,39 +817,21 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             filePath: document.uri.fsPath,
             vscodeNs: vscode,
             fsNs: fs,
-            onFsEvent: async () => {
-                try {
-                    const fileContent = await vscode.workspace.fs.readFile(document.uri);
-                    const newContent = new TextDecoder().decode(fileContent);
-                    const currentContent = document.getText();
-
-                    if (newContent !== currentContent) {
-                        // Sync VS Code document with file content (triggers onDidChangeTextDocument)
-                        isApplyingOwnEdit = true;
-                        const fullRange = new vscode.Range(
-                            document.positionAt(0),
-                            document.positionAt(currentContent.length)
-                        );
-                        const edit = new vscode.WorkspaceEdit();
-                        edit.replace(document.uri, fullRange, newContent);
-                        await vscode.workspace.applyEdit(edit);
-                        isApplyingOwnEdit = false;
-
-                        // Save immediately to clear dirty state — file on disk is already up to date
-                        await document.save();
-
-                        // Notify webview directly (since isApplyingOwnEdit suppressed onDidChangeTextDocument)
-                        const content = convertImagePaths(newContent);
-                        webviewPanel.webview.postMessage({
-                            type: 'update',
-                            content: content
-                        });
-                    }
-                } catch (error) {
-                    isApplyingOwnEdit = false;
-                    console.error('[Any MD] Error reading file after external change:', error);
-                }
-            }
+            // FR-LV-06 (sprint 20260825-055613): 照合ボディは reconcileStandaloneMd（seam）へ抽出。
+            // 自己保存の残響（自分が直近に書いた内容の遅延イベント）は台帳照合で no-op になる。
+            onFsEvent: () => reconcileStandaloneMd({
+                filePath: document.uri.fsPath,
+                vscodeNs: vscode,
+                document,
+                setIsApplying: (b: boolean) => { isApplyingOwnEdit = b; },
+                convertContent: convertImagePaths,
+                postUpdate: (content: string) => {
+                    webviewPanel.webview.postMessage({
+                        type: 'update',
+                        content: content
+                    });
+                },
+            })
         });
 
         // --- サイドパネル管理 (SidePanelManager で共通化) ---
@@ -894,6 +877,10 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
 
                 applyEditQueue = applyEditQueue.then(async () => {
                     try {
+                        // FR-LV-06: 自分が document に書く内容を台帳に記録（この内容が autosave で disk に
+                        // 落ち、その残響イベントを reconcileStandaloneMd が no-op にする）。記録は冪等の
+                        // ため identical-content skip の前でよい（skip される内容も「自分の内容」）。
+                        recordSelfWrite(document.uri.fsPath, contentToApply);
                         // Skip if content is identical — prevents unnecessary dirty marking
                         const normalize = (s: string) => s.replace(/\r\n/g, '\n');
                         if (normalize(contentToApply) === normalize(document.getText())) return;
@@ -1788,6 +1775,8 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
             changeDocumentSubscription.dispose();
             changeConfigSubscription.dispose();
             externalWatcher.dispose();
+            // FR-LV-06: 台帳のメモリ解放（watcher dispose と同所）
+            clearSelfWrites(document.uri.fsPath);
             sidePanel.disposeFileWatcher();
             // MD-48: drawio watcher dispose
             drawioWatcher.disposeAll();

@@ -13,6 +13,7 @@ import { parseSheet, cellRef } from './sheet-parse.mjs';
 import { parseStyles, resolveCellStyle, effectiveStyleIdx, measureMdw } from './styles.mjs';
 import { formatCell } from './numfmt.mjs';
 import { createGrid, colLetter } from './grid.mjs';
+import { attachPinchZoom } from '../viewer-common/pinch-zoom.mjs';
 
 const LRU_MAX = 3;
 
@@ -219,7 +220,7 @@ export default {
                 if (deco.length) { el.style.textDecoration = deco.join(' '); }
                 // フォントは pt 値を px で描く（= 0.75 倍）— DISPLAY_SCALE の縮小表示と歩調を合わせる
                 // （基本フォント 11px = 11pt 相当。実測フィードバック 2026-08-24「フォントも大きく見える」）
-                if (st.font.sizePt && st.font.sizePt !== 11) { el.style.fontSize = Math.round(st.font.sizePt) + 'px'; }
+                if (st.font.sizePt && st.font.sizePt !== 11) { el.style.fontSize = Math.round(st.font.sizePt * zoom) + 'px'; }   // FR-VZP-01: 明示サイズも zoom 追随
                 if (st.font.name) { el.style.fontFamily = `"${st.font.name}", Calibri, sans-serif`; }
                 if (st.font.color) { el.style.color = st.font.color; }
                 if (st.fill) { el.style.backgroundColor = st.fill; }
@@ -291,13 +292,34 @@ export default {
             }
         }
 
+        // FR-VZP-01/02 (ADRL-0100): geometry 再構築ズーム。倍率変更 = 現シートを新 zoom で再構築し、
+        // スクロール位置を倍率比で復元（セル粒度アンカー — 厳密 px 不動点は要求しない = design §2）。
+        // clamp 0.25..8（FR-VZP-05・新設 kind 共通値）
+        let zoom = 1;
+        const clampZoom = (v) => Math.min(8, Math.max(0.25, v));
+        let zoomBusy = false;
+        async function setZoom(v) {
+            const next = clampZoom(v);
+            if (next === zoom || zoomBusy) { return; }
+            zoomBusy = true;
+            try {
+                const k = next / zoom;
+                const sl = grid ? grid.viewport.scrollLeft : 0;
+                const st2 = grid ? grid.viewport.scrollTop : 0;
+                zoom = next;
+                await switchSheet(currentName);
+                grid.viewport.scrollLeft = sl * k;
+                grid.viewport.scrollTop = st2 * k;
+            } finally { zoomBusy = false; }
+        }
+
         async function switchSheet(name) {
             const entry = await loadSheet(name);
             if (grid) { grid.destroy(); }
             currentEntry = entry;
             currentName = name;
             findState.hits = []; findState.current = -1; findState.currentKey = null; findState.set.clear();
-            grid = createGrid(body, { model: entry.sheet, mdw, fillCell });
+            grid = createGrid(body, { model: entry.sheet, mdw, fillCell, zoom });
             buildTabs();
         }
 
@@ -348,6 +370,22 @@ export default {
         if (loc && loc.sheet && model.sheets.some((s) => s.name === loc.sheet && s.state !== 'veryHidden')) {
             initial = loc.sheet;
         }
+        // FR-VZP-02: [−][+]（kind 側自力配線の規約）+ FR-VZP-01: ピンチ。
+        // リスナーは mount 配下 DOM = destroy で消滅（NFR-VZP-04）
+        {
+            const bar = ctx.mount.querySelector('.viewer-toolbar');
+            const wireZoom = (sel, mul) => {
+                const b = bar && bar.querySelector(sel);
+                if (b) { b.addEventListener('click', () => { setZoom(zoom * mul).catch(() => { /* 表示不能は無視 */ }); }); }
+            };
+            wireZoom('.viewer-zoom-in', 1.25);
+            wireZoom('.viewer-zoom-out', 1 / 1.25);
+            const rb = bar && bar.querySelector('.viewer-zoom-reset');
+            if (rb) { rb.addEventListener('click', () => { setZoom(1).catch(() => { /* 表示不能は無視 */ }); }); }   // FR-VZP-06
+
+            attachPinchZoom(body, (factor) => { setZoom(zoom * factor).catch(() => { /* 同上 */ }); });
+        }
+
         await switchSheet(initial);
         if (loc && loc.cell && initial === loc.sheet) {
             const pos = cellRef(loc.cell);

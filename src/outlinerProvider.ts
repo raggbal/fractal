@@ -6,6 +6,7 @@ import { getOutlinerWebviewContent } from './outlinerWebviewContent';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
+import { recordSelfWrite, isRecentSelfWrite, clearSelfWrites } from './shared/self-write-registry';
 import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
@@ -1589,6 +1590,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
 
                             // 6. document を WorkspaceEdit で更新
                             const newJson = JSON.stringify(outData, null, 2);
+                            // FR-LV-06: choke point（applyEdit メソッド）を経由しない直接書き込みサイト — 対で記録
+                            recordSelfWrite(document.uri.fsPath, newJson);
                             const edit = new vscode.WorkspaceEdit();
                             const fullRange = new vscode.Range(
                                 document.positionAt(0),
@@ -1649,40 +1652,12 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                 path.basename(document.uri.fsPath)
             )
         );
+        // FR-LV-06 (sprint 20260825-055613): 照合ボディは reconcileOutExternal（seam）へ抽出。
+        // 自己保存の残響（自分が直近に書いた内容の遅延イベント）は台帳照合で no-op になる。
         const fileChangeSubscription = fileWatcher.onDidChange(async (uri) => {
             if (uri.toString() === document.uri.toString()) {
-                setTimeout(async () => {
-                    try {
-                        const fileContent = await vscode.workspace.fs.readFile(uri);
-                        const newContent = new TextDecoder().decode(fileContent);
-                        const currentContent = document.getText();
-
-                        if (newContent !== currentContent) {
-                            isApplyingOwnEdit = true;
-                            const fullRange = new vscode.Range(
-                                document.positionAt(0),
-                                document.positionAt(currentContent.length)
-                            );
-                            const edit = new vscode.WorkspaceEdit();
-                            edit.replace(document.uri, fullRange, newContent);
-                            await vscode.workspace.applyEdit(edit);
-                            isApplyingOwnEdit = false;
-
-                            await document.save();
-
-                            try {
-                                const data = JSON.parse(newContent);
-                                webviewPanel.webview.postMessage({
-                                    type: 'updateData',
-                                    data: data,
-                                    outFileKey: document.uri.fsPath
-                                });
-                            } catch { /* JSON parse error ignored */ }
-                        }
-                    } catch (error) {
-                        isApplyingOwnEdit = false;
-                        console.error('[Outliner] Error reading file after external change:', error);
-                    }
+                setTimeout(() => {
+                    void this.reconcileOutExternal(document, webviewPanel, (b: boolean) => { isApplyingOwnEdit = b; });
                 }, 100);
             }
         });
@@ -1716,6 +1691,8 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             if (this.activeWebviewPanel === webviewPanel) {
                 this.activeWebviewPanel = undefined;
             }
+            // FR-LV-06: 台帳のメモリ解放（watcher dispose と同所）
+            clearSelfWrites(document.uri.fsPath);
             sidePanel.disposeFileWatcher();
             dropStreamHost.disposeAll();
             disposables.forEach(d => d.dispose());
@@ -1732,6 +1709,9 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
     // --- Edit 適用 ---
 
     private async applyEdit(document: vscode.TextDocument, jsonString: string): Promise<void> {
+        // FR-LV-06: 自分が document に書く内容を台帳に記録（choke point — syncData / pageDir 変更の
+        // 両呼び出し元を包含。save 後の残響イベントを reconcileOutExternal が no-op にする）
+        recordSelfWrite(document.uri.fsPath, jsonString);
         const edit = new vscode.WorkspaceEdit();
         edit.replace(
             document.uri,
@@ -1739,6 +1719,55 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             jsonString
         );
         await vscode.workspace.applyEdit(edit);
+    }
+
+    /**
+     * FR-LV-06 (sprint 20260825-055613 / ADRL-0098): .out の外部変更照合ボディ。
+     * FSW onDidChange の inline クロージャから 1:1 抽出した seam（unit 検証用 — instance 状態には
+     * 依存しない）。挙動差分は自己書き込み台帳の照合/記録の追加のみ:
+     * - disk 内容が台帳にあれば no-op（自己保存の残響 — doc 比較より先に判定。編集中は doc が
+     *   disk より先行するため、差分チェックだけだと自己保存を外部編集と誤認して巻き戻す）
+     * - 適用に成功した外部内容は記録（直後に自分が save する = 残響イベントも自己書き込み扱い）
+     */
+    private async reconcileOutExternal(
+        document: vscode.TextDocument,
+        webviewPanel: { webview: { postMessage(msg: any): Thenable<boolean> } },
+        setApplying: (b: boolean) => void
+    ): Promise<void> {
+        try {
+            const fileContent = await vscode.workspace.fs.readFile(document.uri);
+            const newContent = new TextDecoder().decode(fileContent);
+            if (isRecentSelfWrite(document.uri.fsPath, newContent)) { return; }
+            const currentContent = document.getText();
+
+            if (newContent !== currentContent) {
+                setApplying(true);
+                const fullRange = new vscode.Range(
+                    document.positionAt(0),
+                    document.positionAt(currentContent.length)
+                );
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(document.uri, fullRange, newContent);
+                await vscode.workspace.applyEdit(edit);
+                // applyEdit 成功「後」に記録（throw 時に未適用内容が台帳に残ると外部編集が反映されない）
+                recordSelfWrite(document.uri.fsPath, newContent);
+                setApplying(false);
+
+                await document.save();
+
+                try {
+                    const data = JSON.parse(newContent);
+                    webviewPanel.webview.postMessage({
+                        type: 'updateData',
+                        data: data,
+                        outFileKey: document.uri.fsPath
+                    });
+                } catch { /* JSON parse error ignored */ }
+            }
+        } catch (error) {
+            setApplying(false);
+            console.error('[Outliner] Error reading file after external change:', error);
+        }
     }
 
     // --- ページ管理 ---

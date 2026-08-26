@@ -5,7 +5,39 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.7] - 2026-08-25
+## [1.3.11] - 2026-08-26
+
+### Added
+- **Zoom reset button (⟲)** in every file viewer that has [−][+] — one click returns to the initial view: PDF goes back to page-width fit (and resumes auto-refit on pane resizes), PowerPoint refits to the pane, Word / Excel / text / HTML return to 100%. Images keep their existing [Fit] button, which does the same thing
+
+### Fixed
+- **HTML viewer zoom-out left blank space around app-style pages** (dashboards and other `100vh` layouts shrank into the top-left corner instead of refilling the pane). Zooming now works like the browser's own Cmd/Ctrl± — the page re-flows to fill the pane at any zoom level, in both directions
+
+## [1.3.10] - 2026-08-26
+
+### Added
+- **Pinch-to-zoom in every file viewer** (PDF / Word / Excel / PowerPoint / HTML / text / images): trackpad pinch (Ctrl/Cmd + scroll) now zooms the viewer content at the cursor position instead of zooming the whole VS Code window — the app-wide zoom no longer fires while the pointer is over a viewer. Plain scrolling is untouched
+- **Zoom buttons [−][+] on all viewer kinds** — previously only PDF / images / PowerPoint had them; Word, Excel, HTML and text now zoom too (Excel rebuilds the real grid geometry so it stays sharp and scrollable; HTML zooms inside its sandboxed frame and keeps the level across the script-permission toggle)
+- **Drag-to-pan in the PDF viewer** — when zoomed past the pane, drag anywhere on the page to pan. Text selection still works exactly as before (drags starting on text select; middle-button drag always pans; sub-3px drags count as clicks)
+
+### Fixed
+- Zoom level is clamped per kind (0.25×–8× for the new kinds; existing PDF / PowerPoint / image limits unchanged) and extreme zooming never breaks the Excel grid
+
+## [1.3.9] - 2026-08-25
+
+### Fixed
+- **PDF sometimes opened wider than the viewer pane** (intermittent): the page-width fit was computed only once, at the moment the PDF finished opening — if the pane was briefly wider at that instant (layout still settling, tree panel expanding, side-panel width restoring), the PDF stayed oversized. The viewer now re-fits automatically whenever the pane width changes (ResizeObserver), until you zoom manually — after a manual zoom your zoom level is respected and never reset by resizes
+- Internal: the PDF viewer's resize observer is now reliably disconnected when the viewer is closed (a cleanup-chain bug found by review made it leak)
+
+## [1.3.8] - 2026-08-25
+
+### Fixed
+- **Critical: characters deleted with Backspace could reappear while typing** (Markdown editor, outliner, notes and side-panel markdown). The live-reload file watcher could mistake the delayed event of the editor's *own* auto-save for an external edit and roll the document back to a previous state — silently undoing your most recent keystrokes (deletions were the most visible casualty). The reconciler now keeps a *self-write ledger* (content fingerprints of the last 16 writes it made itself) and ignores those echo events, while real external edits (Claude Code, other editors, in-place or atomic-rename saves) are still applied live exactly as before
+
+### Notes
+- Concurrent-edit semantics are unchanged: if an external tool writes the file *while you are actively typing*, your editor still wins (last-writer-wins; no 3-way merge)
+
+
 
 ### Fixed
 - **PowerPoint viewer fidelity** (all found with a real-world deck):
