@@ -5,7 +5,7 @@ import * as assetMover from './notes-asset-mover';
 import { isUnderNoteDir, collectMdLinkClosure, applyLinkUrlRewrites, extractAllAssetRefs, generateUniqueFileNamePreserving, copyEntityWithUniquify } from './paste-asset-handler';
 import { safeResolveUnderDir } from './path-safety';
 import { HistoryEntry, pushHistoryEntry } from './history-store';
-import { extractFirstH1, setFirstH1, writeFileIfChanged } from './md-h1-utils';
+import { extractFirstH1, parseAtxHeadingText, setFirstH1, writeFileIfChanged } from './md-h1-utils';
 import { DocExtractCache } from './doc-extract-cache';
 import { DocBacklinksResolver, BacklinkRef } from './doc-backlinks';
 const mdLinkParser = require('./markdown-link-parser');
@@ -2340,8 +2340,12 @@ export class NotesFileManager {
                         try {
                             const mdHead = fs.readFileSync(mdPath, 'utf8').split('\n').slice(0, 20);
                             for (const ln of mdHead) {
-                                const hm = ln.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
-                                if (hm) { label = hm[1].trim(); break; }
+                                // 見出し抽出は正典 parseAtxHeadingText に一本化する。
+                                // 独自実装は closing hash の**前置空白を要求しない**ため `## C#` から末尾の `#` を
+                                // 削っていた（実測: C# → C）。本ファイルは既に extractFirstH1 を 3 箇所で使っており、
+                                // **ここだけが独自実装のまま残っていた**（同型集合の取り残し = 失敗 DB 最大クラス）。
+                                const ht = parseAtxHeadingText(ln);
+                                if (ht) { label = ht; break; }
                             }
                         } catch { /* skip */ }
                     }

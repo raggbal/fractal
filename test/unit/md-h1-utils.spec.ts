@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { extractFirstH1, setFirstH1, writeFileIfChanged } from '../../src/shared/md-h1-utils';
+import { extractFirstH1, parseAtxHeadingText, setFirstH1, writeFileIfChanged } from '../../src/shared/md-h1-utils';
 
 test.describe('md-h1-utils — extractFirstH1', () => {
     // TC-TH-01: 最初の H1 を返す
@@ -102,5 +102,45 @@ test.describe('md-h1-utils — writeFileIfChanged (★HIGH-1)', () => {
         // (a) 差分 → 書いて true
         expect(writeFileIfChanged(p, '# Two\n')).toBe(true);
         expect(fs.readFileSync(p, 'utf8')).toBe('# Two\n');
+    });
+});
+
+/**
+ * TC-TH-20: closing hash の前置空白（C#/F# を壊さない）— **番人 TC**
+ *
+ * 番人: 正典 parseAtxH1Text / parseAtxHeadingText の closing hash 判定
+ *       `/^(.*?)[ \t]+#+$/` の **前置空白 `[ \t]+` を外すと落ちる**。
+ *
+ * 検証手段: unit
+ *
+ * 背景（失敗 DB に「3 度目の再発」として記録されていたクラス）:
+ *   独自実装の `\s*#*\s*$`（前置空白なし）が 2 箇所に残っており、
+ *   `# C#` のタイトルから末尾 `#` を削っていた。src 側は正典呼び出しに一本化したが、
+ *   **同じ字面がまた書かれても落ちるように**この TC を番人として置く。
+ */
+test.describe('md-h1-utils — closing hash の前置空白（番人 TC）', () => {
+    // TC-TH-20: 空白を挟まない末尾 # はタイトルの一部（CommonMark ATX）
+    test('TC-TH-20 C#/F# の末尾 # を削らない', () => {
+        expect(extractFirstH1('# C#')).toBe('C#');
+        expect(extractFirstH1('# F#')).toBe('F#');
+        expect(extractFirstH1('# 見出し#tag')).toBe('見出し#tag');
+        // 逆に「空白 + # 列」は closing hash なので落とす
+        expect(extractFirstH1('# foo ##')).toBe('foo');
+        expect(extractFirstH1('# foo   ###   ')).toBe('foo');
+    });
+
+    // TC-TH-20b: H1-H6 版も同一規則（H1 版と食い違うとタイトルがブレる）
+    test('TC-TH-20b parseAtxHeadingText は H1 版と同一の closing hash 規則', () => {
+        expect(parseAtxHeadingText('# C#')).toBe('C#');
+        expect(parseAtxHeadingText('## C#')).toBe('C#');
+        expect(parseAtxHeadingText('###### F#')).toBe('F#');
+        expect(parseAtxHeadingText('### foo ##')).toBe('foo');
+        expect(parseAtxHeadingText('#### bar#baz')).toBe('bar#baz');
+        // 見出しでないもの
+        expect(parseAtxHeadingText('##foo')).toBeNull();      // # の直後に空白なし
+        expect(parseAtxHeadingText('    # foo')).toBeNull();  // 4 スペースはコードブロック
+        expect(parseAtxHeadingText('####### foo')).toBeNull(); // H7 は存在しない
+        // 同一入力で H1 版と H1-H6 版が一致すること（双方向同期で値がブレないための不変条件）
+        expect(parseAtxHeadingText('# C#')).toBe(extractFirstH1('# C#'));
     });
 });

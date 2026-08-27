@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NotesFileManager } from './shared/notes-file-manager';
+import { extractFirstH1 } from './shared/md-h1-utils';
 import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
@@ -2642,8 +2643,11 @@ export class NotesEditorProvider {
 
                     // 3. 中身を読み、H1 を抽出 (空 → payload.title → 'Untitled')
                     const mdContent = fs.readFileSync(srcMdPath, 'utf8');
-                    const h1Match = mdContent.match(/^\s{0,3}#\s+(.+?)\s*#*\s*$/m);
-                    const h1 = h1Match ? h1Match[1].trim() : '';
+                    // H1 抽出は正典 md-h1-utils.extractFirstH1 に一本化する。
+                    // 独自実装は closing hash の**前置空白を要求しない**ため、`# C#` / `# F#` の
+                    // タイトルから末尾の `#` を削っていた（実測: C# → C）。
+                    // 併せて ``` フェンス内の見出しを誤検出する問題も正典側で解決される。
+                    const h1 = extractFirstH1(mdContent) || '';
                     const fallback = (payload.title || '').trim();
                     const title = h1 || fallback || 'Untitled';
 

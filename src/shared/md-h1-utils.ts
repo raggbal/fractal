@@ -35,6 +35,33 @@ export function parseAtxH1Text(line: string): string | null {
 }
 
 /**
+ * ATX 見出し行（`#` 〜 `######`）のテキストを返す。H1 限定の `parseAtxH1Text` の一般化。
+ * 見出しでなければ null。
+ *
+ * **なぜ H1 版と別に用意するか**: ページラベル用途では H1 が無く `##` から始まる md もあるため
+ * H1〜H6 を受ける必要がある。その一方で closing hash の規則は H1 版と**完全に同一**でなければ
+ * ならない（同じ md を H1 版と H1-H6 版で読んだときにタイトルが食い違うと双方向同期で値がブレる）。
+ * → 規則を 2 か所に書かず、ここに 1 本化する。
+ *
+ * CommonMark: 閉じ `#` 列は「**1 個以上の空白の後**の `#` 列 + 末尾空白」のみ。
+ * 空白を挟まない末尾 `#`（`C#`, `F#`）はタイトルの一部として保持する。
+ */
+export function parseAtxHeadingText(line: string): string | null {
+    // 末尾 CR を落としてからマッチ（`.` は \r にマッチしないため split('\n') 残留 \r を先に除去）。
+    const bare = line.replace(/\r$/, '');
+    // 行頭 0-3 スペース + `#`〜`######` + 1 個以上の空白
+    const m = bare.match(/^ {0,3}#{1,6}[ \t]+(.*)$/);
+    if (!m) { return null; }
+    let text = m[1];
+    // 末尾の trailing whitespace を落とす
+    text = text.replace(/[ \t]+$/, '');
+    // 閉じ `#` 列（**前置空白必須**。空白を省いた形にすると C#/F# のタイトルが壊れる）
+    const closing = text.match(/^(.*?)[ \t]+#+$/);
+    if (closing) { text = closing[1]; }
+    return text.replace(/[ \t]+$/, '').replace(/^[ \t]+/, '');
+}
+
+/**
  * 本文に最初に現れる H1（`# 見出し`）のテキストを返す。
  * コードブロック（``` フェンス）内の `#` は見出しとみなさない。
  * 見つからなければ null。
