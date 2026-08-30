@@ -27,7 +27,11 @@ async function openSidePanelWith(page: Page, markdown: string) {
             documentBaseUri: doc
         });
     }, { md: markdown, fp: FILE_PATH, doc: DOC_BASE_URI });
-    await page.waitForTimeout(400);
+    // 固定 400ms ではなく「side panel の editor に中身が入った」ことを待つ（負荷で 400ms は破れる）
+    await page.waitForFunction(() => {
+        const ed = document.querySelector('.side-panel .editor[contenteditable]');
+        return !!ed && (ed.innerHTML || '').trim().length > 0;
+    });
 }
 
 async function selectAllInSidePanelEditor(page: Page) {

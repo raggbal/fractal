@@ -236,6 +236,10 @@ const testNotesHostBridge = `
         importMdFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importMdFilesDialog', targetNodeId: targetNodeId });
         },
+        // FR-OIF-01: Import folder（Notes mode の ≡ メニューも同じ項目を出すため、outliner ハーネスと対で置く）
+        importFolderDialog: function(targetNodeId) {
+            window.__testApi.messages.push({ type: 'importFolderDialog', targetNodeId: targetNodeId });
+        },
         showConfirm: function(id, message) {
             window.__testApi.messages.push({ type: 'showConfirm', id: id, message: message });
         },

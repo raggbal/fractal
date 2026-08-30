@@ -72,6 +72,12 @@ window.__createSidePanelBridgeMethods = function(postFn) {
             postFn({ type: 'exportOutlinerNodesBundle', nodeId: nodeId, nodes: nodes });
         },
 
+        // FR-EXF-01: node 木をフォルダ＆ファイル構成で書き出す（Export folder）。
+        // tree = buildExportTree の戻り（children/images/subtext を持つ再帰形）。dialog/出力は host。
+        exportOutlinerFolder: function(tree) {
+            postFn({ type: 'exportOutlinerFolder', tree: tree });
+        },
+
         // 検索
         searchFiles: function(query) {
             postFn({ type: 'searchFiles', query: query });

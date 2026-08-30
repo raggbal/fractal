@@ -337,10 +337,9 @@ test.describe('Outliner インライン書式・タグ', () => {
             });
         });
 
-        const codeCount = await page.locator('.outliner-text code').count();
-        expect(codeCount).toBe(1);
-        const codeText = await page.locator('.outliner-text code').first().textContent();
-        expect(codeText).toBe('code text');
+        // render 完了を待つ retrying assertion（スナップショット比較は負荷時に render 前を見る）
+        await expect(page.locator('.outliner-text code')).toHaveCount(1);
+        await expect(page.locator('.outliner-text code').first()).toHaveText('code text');
     });
 
     test('混合書式: **bold** と *italic* が同じテキストで正しくレンダリング', async ({ page }) => {

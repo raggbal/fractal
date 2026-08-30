@@ -6582,7 +6582,7 @@ var Outliner = (function() {
         // .mdファイルインポート
         var importMdItem = document.createElement('button');
         importMdItem.className = 'menu-item';
-        importMdItem.textContent = 'Import .md files...';
+        importMdItem.textContent = i18n.importMdFilesMenu || 'Import .md files...';
         importMdItem.addEventListener('click', function() {
             dropdown.remove();
             host.importMdFilesDialog(focusedNodeId);
@@ -6592,12 +6592,38 @@ var Outliner = (function() {
         // 任意ファイルインポート
         var importFileItem = document.createElement('button');
         importFileItem.className = 'menu-item';
-        importFileItem.textContent = 'Import any files...';
+        importFileItem.textContent = i18n.importFilesMenu || 'Import any files...';
         importFileItem.addEventListener('click', function() {
             dropdown.remove();
             host.importFilesDialog(focusedNodeId);
         });
         dropdown.appendChild(importFileItem);
+
+        // FR-OIF-01: フォルダインポート（選んだフォルダの中身を階層 node で再現）
+        var importFolderItem = document.createElement('button');
+        importFolderItem.className = 'menu-item';
+        importFolderItem.textContent = i18n.importFolderMenu || 'Import folder...';
+        importFolderItem.addEventListener('click', function() {
+            dropdown.remove();
+            host.importFolderDialog(focusedNodeId);
+        });
+        dropdown.appendChild(importFolderItem);
+
+        // FR-EXF-01: フォルダ書き出し（node 木をフォルダ＆ファイル構成で出力）。
+        // 対象 = focus 中 node の subtree（focus 無しは outline 全体）
+        var exportFolderItem = document.createElement('button');
+        exportFolderItem.className = 'menu-item';
+        exportFolderItem.textContent = i18n.exportFolderMenu || 'Export folder...';
+        exportFolderItem.addEventListener('click', function() {
+            dropdown.remove();
+            if (typeof host.exportOutlinerFolder !== 'function') { return; }
+            // focus が無い / stale（updateData 後に消えた id）なら outline 全体にフォールバック。
+            // ここで node の実在を確認しないと payload に null が混ざる（TC-EXF-08 が番人）
+            var exTarget = (focusedNodeId && model && model.getNode(focusedNodeId)) ? focusedNodeId : null;
+            var tree = buildExportTree(exTarget);
+            host.exportOutlinerFolder(Array.isArray(tree) ? tree : [tree]);
+        });
+        dropdown.appendChild(exportFolderItem);
 
         // FR-B05: アプリ内リンクをコピー (Notes mode のみ)。
         // OUT link = fractal://note/{folder}/{outFileId}（nodeId なし・md/page セグメントなし）を
@@ -7259,6 +7285,43 @@ var Outliner = (function() {
         return forest;
     }
 
+    /** FR-EXF-01/02: Export folder の payload（DOM-ExportPayload）。
+     *  buildLlmsTxtTree（下）と同じ n.children 直接再帰（= collapsed 配下も含む）に、
+     *  Export folder が要る images / subtext を足した形。既存 buildLlmsTxtTree は llms.txt 用途で
+     *  消費側があるため改変せず、別関数として置く（design §C1-b）。
+     *  rootNodeId=null は outline 全体（root 群の配列）を返す。 */
+    function buildExportTree(rootNodeId) {
+        function build(id) {
+            var n = model.getNode(id);
+            if (!n) { return null; }
+            var children = [];
+            if (n.children) {
+                for (var i = 0; i < n.children.length; i++) {
+                    var c = build(n.children[i]);
+                    if (c) { children.push(c); }
+                }
+            }
+            return {
+                id: n.id,
+                text: n.text || '',
+                subtext: n.subtext || '',
+                pageId: (n.isPage && n.pageId) ? n.pageId : null,
+                filePath: n.filePath || null,
+                images: (n.images || []).slice(),
+                children: children
+            };
+        }
+        if (!rootNodeId) {
+            var roots = [];
+            for (var r = 0; r < model.rootIds.length; r++) {
+                var built = build(model.rootIds[r]);
+                if (built) { roots.push(built); }
+            }
+            return roots;
+        }
+        return build(rootNodeId);
+    }
+
     function buildLlmsTxtTree(rootNodeId) {
         function build(id) {
             var n = model.getNode(id);
@@ -7643,6 +7706,29 @@ var Outliner = (function() {
                 hideContextMenu();
             });
         }
+
+        // --- FR-NCM-01: Import / Export 系（≡ メニューと同じ 4 項目。対象は**右クリックした node**）---
+        // FR-NCM-02: focus / 選択集合は参照しない（既存 Export bundle 項目の「選択集合優先」とは
+        // 意図的に非対称 — design/system/outliner-node-context-menu.md §D3 の受容事項）。
+        addMenuSeparator(contextMenuEl);
+        addMenuItem(contextMenuEl, i18n.importMdFilesMenu || 'Import .md files...', function() {
+            hideContextMenu();
+            if (typeof host.importMdFilesDialog === 'function') { host.importMdFilesDialog(nodeId); }
+        });
+        addMenuItem(contextMenuEl, i18n.importFilesMenu || 'Import any files...', function() {
+            hideContextMenu();
+            if (typeof host.importFilesDialog === 'function') { host.importFilesDialog(nodeId); }
+        });
+        addMenuItem(contextMenuEl, i18n.importFolderMenu || 'Import folder...', function() {
+            hideContextMenu();
+            if (typeof host.importFolderDialog === 'function') { host.importFolderDialog(nodeId); }
+        });
+        addMenuItem(contextMenuEl, i18n.exportFolderMenu || 'Export folder...', function() {
+            hideContextMenu();
+            if (typeof host.exportOutlinerFolder !== 'function') { return; }
+            var ncmTree = buildExportTree(model.getNode(nodeId) ? nodeId : null);
+            host.exportOutlinerFolder(Array.isArray(ncmTree) ? ncmTree : [ncmTree]);
+        });
 
         document.body.appendChild(contextMenuEl);
 
@@ -8974,6 +9060,49 @@ var Outliner = (function() {
         }, SYNC_DEBOUNCE_MS);
     }
 
+    /** FR-OIF-02: importFolderResult の階層 entries を node 木として再現する（DOM-FolderImportNodes）。
+     *
+     *  entries = [{kind:'dir', name, children} | {kind:'md', name, pageId} | {kind:'file', name, filePath}]
+     *  - dir  → 通常 node（text = フォルダ名）+ children を再帰で子に積む
+     *  - md   → md 添付 node（isPage/pageId・text = 拡張子を落としたファイル名）
+     *  - file → ファイル添付 node（filePath・text = ファイル名）
+     *  挿入は「対象 node の子末尾」。addNode(parentId, null) が末尾 append（outliner-model.js:199）で、
+     *  parentId=null は root 末尾になるため targetNodeId 無しもそのまま扱える。
+     *  saveSnapshot は呼び出し側で 1 回だけ（undo 1 回で木ごと戻る — NFR-OIF-01）。
+     *  戻り値 = 最後に作った node の id（focus 用・1 つも作らなければ null）。 */
+    function applyFolderImportResult(targetNodeId, entries) {
+        var lastId = null;
+        var targetNode = targetNodeId ? model.getNode(targetNodeId) : null;
+        // 折りたたみ中の node に入れると取り込み結果が見えない（dropFilesResult の child 分岐と同方針）
+        if (targetNode && targetNode.collapsed) { targetNode.collapsed = false; }
+
+        var addEntries = function(parentId, list) {
+            for (var i = 0; i < list.length; i++) {
+                var e = list[i];
+                if (!e || !e.kind) { continue; }
+                if (e.kind === 'dir') {
+                    var dirNode = model.addNode(parentId, null, e.name || '');
+                    lastId = dirNode.id;
+                    addEntries(dirNode.id, e.children || []);
+                } else if (e.kind === 'md') {
+                    var mdNode = model.addNode(parentId, null, String(e.name || '').replace(/\.md$/i, ''));
+                    mdNode.isPage = true;
+                    mdNode.pageId = e.pageId;
+                    mdNode.filePath = null;   // isPage と filePath は相互排他
+                    lastId = mdNode.id;
+                } else {
+                    var fileNode = model.addNode(parentId, null, e.name || '');
+                    fileNode.isPage = false;
+                    fileNode.pageId = null;
+                    fileNode.filePath = e.filePath;
+                    lastId = fileNode.id;
+                }
+            }
+        };
+        addEntries(targetNode ? targetNode.id : null, entries);
+        return lastId;
+    }
+
     /** v0.207.40: 現状の model state + 環境設定を 1 つの JSON 文字列に serialize するヘルパー。
      *  syncToHostImmediate の送信内容と完全一致するので、flushSync の content-based skip 判定にも使える。 */
     function serializeForSave() {
@@ -9593,6 +9722,22 @@ var Outliner = (function() {
 
                     renderTree();
                     if (lastInsertedId) focusNode(lastInsertedId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
+                // FR-OIF-02: Import folder の結果（階層 entries）。dropFilesResult の flat 契約に対し
+                // こちらは children を持つ再帰形で、対象 node の子末尾に木ごと再現する。
+                case 'importFolderResult': {
+                    var fiEntries = msg.entries || [];
+                    // 全件 skip（entries 空）なら node も snapshot も作らない
+                    if (fiEntries.length === 0) break;
+
+                    saveSnapshot();  // 1 取り込み = 1 snapshot（undo 1 回で木ごと戻る — NFR-OIF-01）
+                    var fiLastId = applyFolderImportResult(msg.targetNodeId, fiEntries);
+
+                    renderTree();
+                    if (fiLastId) focusNode(fiLastId);
                     scheduleSyncToHost();
                     break;
                 }
@@ -10568,6 +10713,9 @@ var Outliner = (function() {
     return {
         init: init,
         getModel: function() { return model; },
+        // FR-EXF-01: Export folder の payload builder（spec が payload 形を直接検証するため公開）
+        buildExportTree: function(rootNodeId) { return buildExportTree(rootNodeId); },
+        getFocusedNodeId: function() { return focusedNodeId || null; },
         flushSync: function() {
             // v0.207.40: 実編集 (= 現 model state が「最後に送った state」と違う) の時だけ送る。
             // 旧実装は無条件で syncToHostImmediate を呼んでいたが、その結果 host が

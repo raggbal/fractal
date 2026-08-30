@@ -1,9 +1,33 @@
 /**
  * Outliner 基本テスト
  * 初期化、ノード追加、編集、キー操作の基盤テスト
+ *
+ * 待ち方の規約（2026-08-29 TASK-22）:
+ *   - init 後に操作する前に waitInitFocus() を挟む。outliner.js の init は `setTimeout(100)` で
+ *     focusFirstVisibleNode() を呼ぶ（同ファイル :317 のコメントが明言）ため、待たずにクリック/
+ *     キー操作すると **後からフォーカスを奪われて入力先が入れ替わる**（負荷時に顕在化する flake）。
+ *   - 操作結果は `await expect(locator).toXxx()` / `expect.poll()` の retrying assertion で見る。
+ *     `const x = await locator.count()` 形のスナップショットは render 前を見て落ちる。
+ *   - 固定 `waitForTimeout` は使わない（負荷でタイミングが伸びると破れる）。
  */
 
 import { test, expect } from '@playwright/test';
+
+/** init の自動フォーカス（setTimeout(100) focusFirstVisibleNode）が着地するのを待つ */
+async function waitInitFocus(page: any) {
+    await page.waitForFunction(() =>
+        (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
+}
+
+/** 指定 node にフォーカスを確定させる */
+async function focusNodeText(page: any, nth: number, expectId: string) {
+    await page.locator('.outliner-node .outliner-text').nth(nth).click();
+    await page.waitForFunction(
+        (id: string) => (document.activeElement as HTMLElement)?.dataset?.nodeId === id, expectId);
+}
+
+const nodeParentId = (page: any, id: string) =>
+    page.evaluate((n: string) => (window as any).__testApi.getModel().getNode(n).parentId, id);
 
 test.describe('Outliner 基本テスト', () => {
     test.beforeEach(async ({ page }) => {
@@ -14,8 +38,7 @@ test.describe('Outliner 基本テスト', () => {
     // --- 初期化 ---
 
     test('空データで初期化できる', async ({ page }) => {
-        const treeVisible = await page.locator('.outliner-tree').isVisible();
-        expect(treeVisible).toBe(true);
+        await expect(page.locator('.outliner-tree')).toBeVisible();
     });
 
     test('ノード付きデータで初期化できる', async ({ page }) => {
@@ -30,11 +53,9 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
-        const nodeCount = await page.locator('.outliner-node').count();
-        expect(nodeCount).toBe(2);
-
-        const firstText = await page.locator('.outliner-node').first().locator('.outliner-text').textContent();
-        expect(firstText).toContain('ノード1');
+        await expect(page.locator('.outliner-node')).toHaveCount(2);
+        await expect(page.locator('.outliner-node').first().locator('.outliner-text'))
+            .toContainText('ノード1');
     });
 
     // --- ノード編集 ---
@@ -50,15 +71,15 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
-        // テキスト要素をクリックしてフォーカス
-        const textEl = page.locator('.outliner-node .outliner-text').first();
-        await textEl.click();
+        await waitInitFocus(page);
+        await focusNodeText(page, 0, 'n1');
 
-        // テキストを追加入力
+        // 直前の sync を捨ててから入力し、**新しい** syncData の到着を待つ（固定 1500ms の置換。
+        // sync は debounce 実測 ~1000ms なので負荷時に 1500ms では足りないことがある）
+        await page.evaluate(() => { (window as any).__testApi.lastSyncData = null; });
         await page.keyboard.type('追加');
-
-        // syncData のデバウンスを待つ
-        await page.waitForTimeout(1500);
+        await page.waitForFunction(() => (window as any).__testApi.lastSyncData !== null,
+            undefined, { timeout: 20000 });
 
         const lastSync = await page.evaluate(() => (window as any).__testApi.lastSyncData);
         expect(lastSync).not.toBeNull();
@@ -80,17 +101,14 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
-        const textEl = page.locator('.outliner-node .outliner-text').first();
-        await textEl.click();
+        await waitInitFocus(page);
+        await focusNodeText(page, 0, 'n1');
 
         // テキスト末尾にカーソルを移動してEnter
         await page.keyboard.press('End');
         await page.keyboard.press('Enter');
 
-        await page.waitForTimeout(200);
-
-        const nodeCount = await page.locator('.outliner-node').count();
-        expect(nodeCount).toBe(2);
+        await expect(page.locator('.outliner-node')).toHaveCount(2);
     });
 
     // --- Backspace でノード削除 ---
@@ -107,15 +125,13 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         // 2番目の空ノードにフォーカス
-        const secondText = page.locator('.outliner-node .outliner-text').nth(1);
-        await secondText.click();
+        await focusNodeText(page, 1, 'n2');
 
         await page.keyboard.press('Backspace');
-        await page.waitForTimeout(200);
 
-        const nodeCount = await page.locator('.outliner-node').count();
-        expect(nodeCount).toBe(1);
+        await expect(page.locator('.outliner-node')).toHaveCount(1);
     });
 
     // --- Tab でインデント ---
@@ -132,18 +148,15 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         // 2番目のノードにフォーカス
-        const secondText = page.locator('.outliner-node .outliner-text').nth(1);
-        await secondText.click();
+        await focusNodeText(page, 1, 'n2');
 
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(200);
 
         // Phase F flat mode: n2 は data-depth=1 で indent される
-        const n2Depth = await page.locator('.outliner-node[data-id="n2"]').getAttribute('data-depth');
-        expect(n2Depth).toBe('1');
-        const n2Parent = await page.evaluate(() => (window as any).__testApi.getModel().getNode('n2').parentId);
-        expect(n2Parent).toBe('n1');
+        await expect(page.locator('.outliner-node[data-id="n2"]')).toHaveAttribute('data-depth', '1');
+        await expect.poll(() => nodeParentId(page, 'n2')).toBe('n1');
     });
 
     // --- Shift+Tab でアウトデント ---
@@ -160,22 +173,17 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         // Phase F flat mode: n2 (depth=1) のテキストにフォーカス
-        const nestedText = page.locator('.outliner-node[data-id="n2"] .outliner-text').first();
-        await nestedText.click();
+        await focusNodeText(page, 1, 'n2');
 
         await page.keyboard.press('Shift+Tab');
-        await page.waitForTimeout(200);
 
         // n2 がトップレベルに戻っている (depth=0、parentId=null)
-        const n2Depth = await page.locator('.outliner-node[data-id="n2"]').getAttribute('data-depth');
-        expect(n2Depth).toBe('0');
-        const n2Parent = await page.evaluate(() => (window as any).__testApi.getModel().getNode('n2').parentId);
-        expect(n2Parent).toBe(null);
-        // .outliner-tree の直接子として 2 つ並ぶ
-        // Phase F flat mode: data-depth=0 の node 数
-        const topLevelCount = await page.locator('.outliner-tree > .outliner-node[data-depth="0"]').count();
-        expect(topLevelCount).toBe(2);
+        await expect(page.locator('.outliner-node[data-id="n2"]')).toHaveAttribute('data-depth', '0');
+        await expect.poll(() => nodeParentId(page, 'n2')).toBe(null);
+        // Phase F flat mode: data-depth=0 の node が 2 つ並ぶ
+        await expect(page.locator('.outliner-tree > .outliner-node[data-depth="0"]')).toHaveCount(2);
     });
 
     // --- 折りたたみ ---
@@ -193,17 +201,14 @@ test.describe('Outliner 基本テスト', () => {
         });
 
         // Phase F flat mode: 子ノードが flat に並ぶ (n1 + n2 が同階層)
-        const childBefore = await page.locator('.outliner-node[data-id="n2"]').count();
-        expect(childBefore).toBe(1);
+        await expect(page.locator('.outliner-node[data-id="n2"]')).toHaveCount(1);
+        await waitInitFocus(page);
 
         // バレットをクリック (n1 の bullet)
-        const bullet = page.locator('.outliner-node[data-id="n1"] .outliner-bullet').first();
-        await bullet.click();
-        await page.waitForTimeout(300);
+        await page.locator('.outliner-node[data-id="n1"] .outliner-bullet').first().click();
 
         // 折りたたみ後: n2 row が DOM から消える (flat mode は collapsed parent の子を描画しない)
-        const n2Visible = await page.locator('.outliner-node[data-id="n2"]').count();
-        expect(n2Visible).toBe(0);
+        await expect(page.locator('.outliner-node[data-id="n2"]')).toHaveCount(0);
     });
 
     // --- タグ検出 ---
@@ -220,9 +225,7 @@ test.describe('Outliner 基本テスト', () => {
         });
 
         // タグがハイライト表示されている（blur状態ではrenderInlineTextでタグspan生成）
-        const tagSpan = page.locator('.outliner-tag');
-        const tagCount = await tagSpan.count();
-        expect(tagCount).toBeGreaterThanOrEqual(1);
+        await expect.poll(() => page.locator('.outliner-tag').count()).toBeGreaterThanOrEqual(1);
     });
 
     // --- ↑↓ ナビゲーション ---
@@ -240,22 +243,16 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         // 1行目にフォーカス
-        const firstText = page.locator('.outliner-node .outliner-text').first();
-        await firstText.click();
-        await page.waitForTimeout(100);
+        await focusNodeText(page, 0, 'n1');
 
-        // ↓ で2行目へ
+        // ↓ で2行目へ（n1 から n2 に移動しているはず）
         await page.keyboard.press('ArrowDown');
-        await page.waitForTimeout(300);
-
-        // フォーカスされたノードのテキストを確認
-        const focusedNodeId = await page.evaluate(() => {
+        await expect.poll(() => page.evaluate(() => {
             const focused = document.querySelector('.outliner-node.is-focused');
             return focused ? focused.getAttribute('data-id') : null;
-        });
-        // n1 から n2 に移動しているはず
-        expect(focusedNodeId).not.toBe('n1');
+        })).toBe('n2');
     });
 
     // --- Undo/Redo ---
@@ -271,18 +268,18 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         const textEl = page.locator('.outliner-node .outliner-text').first();
-        await textEl.click();
+        await focusNodeText(page, 0, 'n1');
         await page.keyboard.press('End');
         await page.keyboard.type('追加');
-        await page.waitForTimeout(200);
+        await expect(textEl).toContainText('追加');
 
-        // Undo
+        // Undo（このキーは Linux でも app 側 handler が metaKey||ctrlKey を見るため発火する。
+        // ここを Control+z にするとブラウザ標準の undo と競合しうるので変更しない）
         await page.keyboard.press('Meta+z');
-        await page.waitForTimeout(200);
 
-        const text = await textEl.textContent();
-        expect(text).not.toContain('追加');
+        await expect(textEl).not.toContainText('追加');
     });
 
     // --- 検索 ---
@@ -300,16 +297,13 @@ test.describe('Outliner 基本テスト', () => {
             });
         });
 
+        await waitInitFocus(page);
         // 検索バーに入力
         const searchInput = page.locator('.outliner-search-input');
         await searchInput.click();
         await searchInput.fill('りんご');
 
-        // 検索結果の反映を待つ
-        await page.waitForTimeout(500);
-
-        // マッチしないノードが非表示
-        const visibleNodes = await page.locator('.outliner-node:not([style*="display: none"])').count();
-        expect(visibleNodes).toBe(2);
+        // マッチしないノードが非表示（反映は非同期なので retrying assertion で待つ）
+        await expect(page.locator('.outliner-node:not([style*="display: none"])')).toHaveCount(2);
     });
 });

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { ExportNode } from './folder-export';
 import { NotesFileManager } from './notes-file-manager';
 import { resolveSubpageTitle, saveDroppedMdAsSubpage } from './md-subpage-utils';
 import { importMdFiles } from './markdown-import';
@@ -173,6 +174,16 @@ export interface NotesPlatformActions {
     importMdFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
     /** 任意ファイルインポートダイアログ表示 */
     importFilesDialog?(targetNodeId: string | null, sender: NotesSender): void;
+    /** FR-OIF-01: フォルダインポートダイアログ表示（階層 node で再現） */
+    importFolderDialog?(targetNodeId: string | null, sender: NotesSender): void;
+    /** FR-EXF-01: node 木をフォルダ＆ファイル構成で書き出す（出力先 dialog + 出力は host 側） */
+    exportOutlinerFolder?(args: {
+        tree: ExportNode[];
+        srcOutDir: string;
+        srcPagesDir: string;
+        srcFileDir: string;
+        srcImageDir: string;
+    }): void;
     /** ファイル添付を開く */
     openAttachedFile?(nodeId: string, outFilePath: string, sender: NotesSender): void;
     /** FR-NT-03: note タイトル変更後に Notes Folder ツリービューを更新する */
@@ -563,6 +574,29 @@ export async function handleNotesMessage(
         case 'importFilesDialog':
             platform.importFilesDialog?.(message.targetNodeId, sender);
             break;
+
+        // FR-OIF-01: Import folder（dialog + 列挙 + コピーは platform 側 = VS Code 依存）
+        case 'importFolderDialog':
+            platform.importFolderDialog?.(message.targetNodeId, sender);
+            break;
+
+        // FR-EXF-01: Export folder（node 木 → ディレクトリ木）。src 側のパス 4 本はここで解決して
+        // platform に渡す（host glue は解決済みパスを受け取るだけ — design §C5）。
+        case 'exportOutlinerFolder': {
+            if (!Array.isArray(message.tree)) { break; }
+            const exPagesDir = fileManager.getPagesDirPath();
+            const exCur = fileManager.getCurrentFilePath();
+            platform.exportOutlinerFolder?.({
+                // Array.isArray で検証済み。webview 由来の生 payload をここで 1 度だけ型付けする
+                // （interface は ExportNode[] を宣言 — reviewer iter4 QUAL-2）
+                tree: message.tree as ExportNode[],
+                srcOutDir: exCur ? path.dirname(exCur) : exPagesDir,
+                srcPagesDir: exPagesDir,
+                srcFileDir: fileManager.getOutlinerFileDirPath(),
+                srcImageDir: fileManager.getOutlinerImageDirPath(),
+            });
+            break;
+        }
 
         case 'dropFilesImport':
             platform.dropFilesImport?.(message.items, message.targetNodeId, message.position, sender);
@@ -4133,14 +4167,22 @@ export function folderViewCopyEntryPath(
     return true;
 }
 
-/** FR-FLV-16 (#12): ビュー内移動（fs.rename・同名/自己子孫/EXDEV はエラー中断 — 面間と違い copy 方式にしない）。 */
+/**
+ * FR-FLV-16 (#12, v1.3.12 改訂 = ADRL-0102): ビュー内移動。
+ * - md は随伴転送（transferMdWithAssets + cleanupFvMoveSource — fv 起点 MoveToTree/MoveIntoMd と
+ *   同型の第 3 適用先。copy→全成功検証→残留参照温存 trash・同名は uniquify 共存）
+ * - 非 md（ファイル/フォルダ）は従来どおり fs.rename（同名/自己子孫/EXDEV は中断・copy+delete 禁止 — 不変）
+ * moveDeps は必須（md 分岐の trash/通知に使う）。唯一の呼び出し元 notesEditorProvider.ts が常に
+ * folderMoveDeps を渡す（FR-FLV-34 の deleteFile フォールバック込み）。
+ */
 export async function folderViewMove(
     fileManager: NotesFileManager,
     folderLinkId: string,
     srcRelPath: string,
     dstDirRelPath: string,
     deps: FolderViewDeps,
-    sender: NotesSender
+    sender: NotesSender,
+    moveDeps: FolderMoveDeps   // md 分岐（ADRL-0102）の随伴転送で必須。呼び出し元は常に渡す
 ): Promise<boolean> {
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) {
@@ -4160,6 +4202,25 @@ export async function folderViewMove(
     }
     const absDst = path.join(absDstDir, path.basename(absSrc));
     if (absDst === absSrc) { return false; } // 同一位置 no-op
+
+    if (/\.md$/i.test(path.basename(absSrc)) && fs.statSync(absSrc).isFile()) {
+        // ── md 分岐（ADRL-0102）: 同名は engine の uniquify に委ねるため衝突チェックしない ──
+        const report: MdPasteAssetReport = { copied: [], copyFailed: [], skipped: [] };
+        try {
+            transferMdWithAssets(absSrc, makeTransferCoords(mdCoords(absSrc), adjacentCoords(absDstDir)), undefined, { extraSourceRoots: [root], report }); // NFR-ACC-02b rev2: linkedfd root 境界
+        } catch (e) {
+            notifyOperationFailed(deps, e);
+            return false; // 複製失敗 → 元不変（INV-5）
+        }
+        await cleanupFvMoveSource(moveDeps, root, absSrc, report); // 全成功時のみ削除・残留参照温存
+        const srcParentRelMd = parentRelOf(srcRelPath);
+        sendFolderViewList(fileManager, folderLinkId, srcParentRelMd, sender);
+        if (dstDirRelPath !== srcParentRelMd) {
+            sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
+        }
+        return true;
+    }
+
     if (fs.existsSync(absDst)) {
         deps.showErrorMessage(deps.t('folderViewNameConflict') || 'An entry with the same name already exists.');
         return false;

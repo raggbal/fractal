@@ -5,6 +5,16 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.12] - 2026-08-30
+
+### Added
+- **Import folder** — pick a folder from the outliner's ≡ header menu (or a node's right-click menu) and its contents come in as a node hierarchy: the picked folder itself becomes the top node, subfolders become nodes, `.md` files become page nodes, and everything else becomes a 📎 attachment. The files are **copied into the note**, so the outline is self-contained. Hidden entries (`.`) and symlinks are skipped; limits are 2,000 files / 20 levels deep, with a confirmation prompt past 200 entries. Failures (including directories that cannot be listed) are skipped and reported as a count
+- **Export folder** — the mirror image: write any subtree out as **real folders and files**. A node with children becomes a folder (its own attachments land directly inside it), a leaf node becomes `<node text>.md` or its attachment, and a node's inline images are written to `images/` with links from the generated markdown. Collapsed nodes are included. Start it from the ≡ menu (the focused node's subtree) or from a node's right-click menu (that node's subtree)
+- **Import / Export folder in the node right-click menu** — the four Import/Export actions are now available directly on a node, with the right-clicked node as the target. The existing `Import .md files` / `Import any files` labels are now localized in all 7 languages
+
+### Changed
+- **Moving a markdown file between folders inside a folder view now carries its assets** — images, 📎 attachments, and subpage markdowns travel with it (copy → verify → move original to trash), the same engine already used for note-to-note markdown moves. Non-markdown files and folders still move with a plain rename
+
 ## [1.3.11] - 2026-08-26
 
 ### Added

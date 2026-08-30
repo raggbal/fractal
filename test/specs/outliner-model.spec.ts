@@ -18,12 +18,13 @@ async function init(page: import('@playwright/test').Page, data: any) {
     await page.evaluate((d) => {
         (window as any).__testApi.initOutliner(d);
     }, data);
-}
-
-async function focusNode(page: import('@playwright/test').Page, nth: number) {
-    const el = page.locator('.outliner-text').nth(nth);
-    await el.click();
-    await page.waitForTimeout(200);
+    // init は setTimeout(100) で focusFirstVisibleNode() を呼ぶ（outliner.js:317 のコメント参照）。
+    // 着地を待たずに操作すると **操作列の途中でフォーカスを奪われ**、入力先が別 node に差し替わる
+    // （負荷時に顕在化する flake の真因）。
+    await page.waitForFunction(() =>
+        (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
+    // sync の基準点をリセットして、以降の waitForSync が「新しい sync」を待てるようにする
+    await page.evaluate(() => { (window as any).__testApi.lastSyncData = null; });
 }
 
 async function nodeCount(page: import('@playwright/test').Page): Promise<number> {
@@ -64,7 +65,10 @@ async function getLastSyncData(page: import('@playwright/test').Page): Promise<a
 }
 
 async function waitForSync(page: import('@playwright/test').Page) {
-    await page.waitForTimeout(1500);
+    // 固定 1500ms の置換: init で null にした lastSyncData に**新しい** sync が届くのを待つ。
+    // sync は debounce（実測 ~1000ms）なので、負荷でタイムラインが伸びると 1500ms では足りない。
+    await page.waitForFunction(() => (window as any).__testApi.lastSyncData !== null,
+        undefined, { timeout: 20000 });
 }
 
 async function clearMessages(page: import('@playwright/test').Page) {

@@ -11,6 +11,9 @@ import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import { importFiles } from './shared/file-import';
+import { runFolderImportWithDialog } from './shared/folder-import-host';
+import { runFolderExportWithDialog } from './shared/folder-export-host';
+import { ExportNode } from './shared/folder-export';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste } from './shared/paste-asset-handler';
@@ -397,6 +400,42 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                             results,
                             targetNodeId: message.targetNodeId,
                             position: 'after'
+                        });
+                        break;
+                    }
+
+                    // FR-EXF-01: Export folder（node 木 → ディレクトリ木）。standalone .out 面は
+                    // guardFolderSelection 相当の機構が無いため出力先ガードなし（面差は受容事項 — design §C5）
+                    case 'exportOutlinerFolder': {
+                        if (!Array.isArray(message.tree)) { break; }
+                        const exPageDir = this.getPagesDirPath(document);
+                        await runFolderExportWithDialog({
+                            tree: message.tree as ExportNode[],
+                            srcOutDir: path.dirname(document.uri.fsPath),
+                            srcPagesDir: exPageDir,
+                            srcFileDir: this.getFileDirPath(document),
+                            srcImageDir: this.getOutlinerImageDirPath(document),
+                        });
+                        break;
+                    }
+
+                    // FR-OIF-01/02: Import folder（フォルダ選択 → 階層 entries を 1 message で返す。
+                    // dialog/modal/通知は Notes mode 側と同一の runFolderImportWithDialog）
+                    case 'importFolderDialog': {
+                        const pageDir = this.getPagesDirPath(document);
+                        const outcome = await runFolderImportWithDialog({
+                            pageDir,
+                            imageDir: path.join(pageDir, 'images'),
+                            fileDir: this.getFileDirPath(document),
+                            outDir: path.dirname(document.uri.fsPath),
+                        });
+                        if (outcome.status !== 'imported') break;
+
+                        webviewPanel.webview.postMessage({
+                            type: 'importFolderResult',
+                            targetNodeId: message.targetNodeId,
+                            entries: outcome.entries,
+                            skipped: outcome.skipped
                         });
                         break;
                     }

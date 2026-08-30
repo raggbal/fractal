@@ -206,6 +206,11 @@ const testOutlinerHostBridge = `
         importFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },
+        // FR-OIF-01: Import folder（本番 provider の代わりに messages へ記録。無いと ≡ メニューの
+        //   click が undefined 呼び出しで hard error になる = 送信側 TC が書けない）
+        importFolderDialog: function(targetNodeId) {
+            window.__testApi.messages.push({ type: 'importFolderDialog', targetNodeId: targetNodeId });
+        },
         openAttachedFile: function(nodeId) {
             window.__testApi.messages.push({ type: 'openAttachedFile', nodeId: nodeId });
         },

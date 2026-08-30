@@ -16,6 +16,12 @@
  */
 import { test, expect, Page } from '@playwright/test';
 
+// macOS 前提のキーを OS 別に解決する（先例: test/specs/command-palette.spec.ts:26）。
+// Linux/CI の Chromium はネイティブの copy/cut/paste を **Control** に束ねているため、
+// 'Meta+c' を押しても発火せず navigator.clipboard が空になる（cut は「書けなければ消さない」ので
+// 残骸 assert まで連鎖して落ちる）。Mac 側の挙動は従来どおり Meta。
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
 async function boot(page: Page, md: string) {
     await page.goto('/standalone-editor.html');
     await page.waitForFunction(() => (window as any).__testApi?.setMarkdown);
@@ -35,7 +41,7 @@ test('TC-LM-01 段落 file リンク全選択 cut → clipboard [📎] + 殻ゼ�
         sel.removeAllRanges(); sel.addRange(r);
         (document.getElementById('editor') as HTMLElement).focus();
     });
-    await page.keyboard.press('Meta+x');
+    await page.keyboard.press(`${MOD}+x`);
     await page.waitForTimeout(300);
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     console.log('CLIP:', JSON.stringify(clip));
@@ -57,7 +63,7 @@ test('TC-LM-01 段落 file リンク全選択 cut → clipboard [📎] + 殻ゼ�
         sel.removeAllRanges(); sel.addRange(r);
         editor.focus();
     });
-    await page.keyboard.press('Meta+v');
+    await page.keyboard.press(`${MOD}+v`);
     await page.waitForTimeout(400);
     const pasted = await page.evaluate(() => {
         const a = document.querySelector('#editor a[data-is-file-attachment="true"]');
@@ -85,7 +91,7 @@ test('TC-LM-02 リスト subpage リンク全選択 copy → paste で [[]] 復�
         sel.removeAllRanges(); sel.addRange(r);
         (document.getElementById('editor') as HTMLElement).focus();
     });
-    await page.keyboard.press('Meta+c');
+    await page.keyboard.press(`${MOD}+c`);
     await page.waitForTimeout(200);
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     console.log('CLIP2:', JSON.stringify(clip));
@@ -104,7 +110,7 @@ test('TC-LM-02 リスト subpage リンク全選択 copy → paste で [[]] 復�
         sel.removeAllRanges(); sel.addRange(r);
         (document.getElementById('editor') as HTMLElement).focus();
     });
-    await page.keyboard.press('Meta+v');
+    await page.keyboard.press(`${MOD}+v`);
     await page.waitForTimeout(400);
     const state = await page.evaluate(() => ({
         subpages: document.querySelectorAll('#editor a[data-subpage="true"]').length,
@@ -127,12 +133,12 @@ test('TC-LM-03 md リンク全選択 cut → paste で []( .md) 復元', async (
         sel.removeAllRanges(); sel.addRange(r);
         (document.getElementById('editor') as HTMLElement).focus();
     });
-    await page.keyboard.press('Meta+x');
+    await page.keyboard.press(`${MOD}+x`);
     await page.waitForTimeout(300);
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     console.log('CLIP3:', JSON.stringify(clip));
     expect(clip).toContain('[msskpm2eyw57.md](msskpm2eyw57.md)');
-    await page.keyboard.press('Meta+v');
+    await page.keyboard.press(`${MOD}+v`);
     await page.waitForTimeout(400);
     const state = await page.evaluate(() => ({
         links: document.querySelectorAll('#editor a.link-internal-md').length,
@@ -219,7 +225,7 @@ test('TC-LM-06 段落行選択（端点アンカー外）cut → 残骸ゼロ + 
         sel.removeAllRanges(); sel.addRange(r);
         editor.focus();
     });
-    await page.keyboard.press('Meta+x');
+    await page.keyboard.press(`${MOD}+x`);
     await page.waitForTimeout(300);
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     console.log('CLIP:', JSON.stringify(clip));
@@ -240,7 +246,7 @@ test('TC-LM-06 段落行選択（端点アンカー外）cut → 残骸ゼロ + 
         sel.removeAllRanges(); sel.addRange(r);
         editor.focus();
     });
-    await page.keyboard.press('Meta+v');
+    await page.keyboard.press(`${MOD}+v`);
     await page.waitForTimeout(400);
     const pasted = await page.evaluate(() => ({
         found: document.querySelectorAll('#editor a[data-is-file-attachment="true"]').length,
@@ -264,7 +270,7 @@ test('TC-LM-07 リスト li 行選択 cut → paste 復元', async ({ page, cont
         sel.removeAllRanges(); sel.addRange(r);
         editor.focus();
     });
-    await page.keyboard.press('Meta+x');
+    await page.keyboard.press(`${MOD}+x`);
     await page.waitForTimeout(300);
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     console.log('CLIP-LI:', JSON.stringify(clip));
@@ -284,7 +290,7 @@ test('TC-LM-07 リスト li 行選択 cut → paste 復元', async ({ page, cont
         sel.removeAllRanges(); sel.addRange(r);
         editor.focus();
     });
-    await page.keyboard.press('Meta+v');
+    await page.keyboard.press(`${MOD}+v`);
     await page.waitForTimeout(400);
     const pasted = await page.evaluate(() => ({
         found: document.querySelectorAll('#editor a[data-is-file-attachment="true"]').length,

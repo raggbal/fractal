@@ -30,8 +30,15 @@ async function loadFixture(page: any) {
     await page.evaluate((data: any) => {
         (window as any).__testApi.initOutliner(data);
     }, FIXTURE);
+    // init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）が
+    // フォーカスを奪い終わるのを待ってから search input へ移す。順序を逆にすると、
+    // input にフォーカスした後でタイマーがノードへ奪い、roving（↓/→）が一切効かない
+    await page.waitForFunction(() =>
+        (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
     // suggest bar は search input focus で出る
     await page.locator('.outliner-search-input').focus();
+    await page.waitForFunction(() =>
+        document.activeElement === document.querySelector('.outliner-search-input'));
     // 3 個の item が描画されるまで待つ
     await page.waitForFunction(() => {
         const bar = document.querySelector('.outliner-tag-suggest-bar') as HTMLElement;
@@ -107,14 +114,15 @@ test.describe('FR-TK-01: tag suggest bar keyboard roving', () => {
         // ↓ → で 2 個目(#beta)を選択
         await input.press('ArrowDown'); // index 0 = #alpha
         await input.press('ArrowRight'); // index 1 = #beta
-        expect(await activeIndex(page)).toBe(1);
+        await expect.poll(() => activeIndex(page)).toBe(1);
 
         // Enter → box に反映
         await input.press('Enter');
 
-        expect(await searchValue(page)).toBe('#beta');
+        // 反映は非同期なので retry する（固定スナップショットは負荷時に反映前を見る）
+        await expect.poll(() => searchValue(page)).toBe('#beta');
         // ハイライトは解除
-        expect(await activeCount(page)).toBe(0);
+        await expect.poll(() => activeCount(page)).toBe(0);
     });
 
     test('TC-TK-03b: 既存値がある状態で Enter → 空白区切りで追記', async ({ page }) => {
@@ -132,8 +140,8 @@ test.describe('FR-TK-01: tag suggest bar keyboard roving', () => {
         await input.press('ArrowDown'); // index 0 = #alpha
         await input.press('Enter');
 
-        expect(await searchValue(page)).toBe('keyword #alpha');
-        expect(await activeCount(page)).toBe(0);
+        await expect.poll(() => searchValue(page)).toBe('keyword #alpha');
+        await expect.poll(() => activeCount(page)).toBe(0);
     });
 
     test('TC-TK-04: Esc / ↑ でハイライト解除・値不変。バー非表示時の ↓ は no-op', async ({ page }) => {

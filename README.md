@@ -152,6 +152,9 @@ Switch with the view toggle:
 - **Images** — Paste with `Cmd+V`. Thumbnails appear under the node; drag to reorder, double-click to zoom
 - **Files** — Attach any file type to a node. 📎 nodes open Office / PDF / HTML / images / text in the built-in viewer, everything else in the OS default app
 - `.md`** import** — Import Notion / Obsidian exports as page nodes. Images are copied automatically and paths rewritten
+- **Import a whole folder** — Pick any folder and its contents come in as a node hierarchy: subfolders become nodes, `.md` files become page nodes, everything else becomes 📎 attachments. The files are **copied into the note** (not referenced), so the outline is self-contained. Hidden entries and symlinks are skipped
+- **Export a folder** — The mirror image: write any subtree back out as **real folders and files**. Nodes with children become folders, leaf nodes become `<node text>.md` or their attachment, and a node's own attachments land directly in its folder. Existing files at the destination are never overwritten (a counter is appended instead)
+- **Right-click a node** for the Import / Export folder actions as well as the ≡ header menu — the right-clicked node is the target
 
 ### Tasks
 - `- [ ]` / `- [x]` checkboxes with rich keyboard support (`Cmd+Shift+X` to toggle)

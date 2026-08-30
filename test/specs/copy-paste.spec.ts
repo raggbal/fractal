@@ -5,6 +5,12 @@
 import { test, expect } from '@playwright/test';
 import { EditorTestHelper } from '../utils/editor-test-helper';
 
+// macOS 前提のキーを OS 別に解決する（先例: test/specs/command-palette.spec.ts:26）。
+// Linux/CI の Chromium はネイティブの copy/cut/paste を **Control** に束ねているため、
+// 'Meta+c' を押しても発火せず navigator.clipboard が空になる（cut は「書けなければ消さない」ので
+// 残骸 assert まで連鎖して落ちる）。Mac 側の挙動は従来どおり Meta。
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
 test.describe('コピー操作', () => {
     let editor: EditorTestHelper;
 
@@ -24,7 +30,7 @@ test.describe('コピー操作', () => {
         await page.waitForTimeout(100);
         
         // 全選択
-        await page.keyboard.press('Meta+a');
+        await page.keyboard.press(`${MOD}+a`);
         await page.waitForTimeout(100);
         
         // コピーしてクリップボードの内容を確認

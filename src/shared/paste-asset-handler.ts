@@ -600,6 +600,12 @@ export function handleFileAsset(opts: {
     filePath: string;
     useCollisionSuffix?: boolean;
     sameDirSkip?: boolean;
+    /**
+     * FR-EXF-03（Export folder）: dest 側の希望ファイル名（拡張子込み）。
+     * 未指定なら従来どおり `basename(src)`（既存呼び出し面の挙動は不変）。
+     * 衝突時は useCollisionSuffix に従って既存 uniquify 規則で連番になる。
+     */
+    destName?: string;
 }): { newFilePath: string | null } {
     // Same-dir check (only when sameDirSkip=true)
     if (opts.sameDirSkip && opts.srcFileDir === opts.destFileDir) {
@@ -616,7 +622,8 @@ export function handleFileAsset(opts: {
         return { newFilePath: null };
     }
 
-    const originalName = path.basename(srcFilePath);
+    // destName 指定時はそれを希望名にする（Export folder = node text 名。未指定は従来どおり src の basename）
+    const originalName = opts.destName ? path.basename(opts.destName) : path.basename(srcFilePath);
     // TC-03 仕様準拠: 多重拡張子 (.drawio.svg / .drawio.png) は suffix を多重拡張子の前に付ける
     // (foo.drawio.svg → foo-1.drawio.svg、generateUniqueFileNamePreserving だと foo.drawio-1.svg になる)
     const lowerName = originalName.toLowerCase();

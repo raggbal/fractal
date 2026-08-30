@@ -51,7 +51,11 @@ async function openSidePanelWithCtx(page: Page, markdown: string, ctx: typeof SO
             mdDir: ctx.mdDir
         });
     }, { md: markdown, fp: FILE_PATH, doc: DOC_BASE_URI, ctx });
-    await page.waitForTimeout(400);
+    // 固定 400ms ではなく「side panel の editor に中身が入った」ことを待つ（負荷で 400ms は破れる）
+    await page.waitForFunction(() => {
+        const ed = document.querySelector('.side-panel .editor[contenteditable]');
+        return !!ed && (ed.innerHTML || '').trim().length > 0;
+    });
 }
 
 async function selectAllInSidePanelEditor(page: Page) {

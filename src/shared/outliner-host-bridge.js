@@ -116,6 +116,11 @@
             api.postMessage({ type: 'importFilesDialog', targetNodeId: targetNodeId });
         },
 
+        // FR-OIF-01: フォルダインポート（フォルダピッカー → 階層 node で再現）
+        importFolderDialog: function(targetNodeId) {
+            api.postMessage({ type: 'importFolderDialog', targetNodeId: targetNodeId });
+        },
+
         // D&D ファイルインポート
         dropFilesImport: function(items, targetNodeId, position) {
             api.postMessage({ type: 'dropFilesImport', items: items, targetNodeId: targetNodeId, position: position });

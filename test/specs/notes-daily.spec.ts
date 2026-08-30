@@ -568,14 +568,16 @@ test.describe('Notes Daily Notes & パネルUI', () => {
             });
         });
 
+        // init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）が
+        // フォーカスを奪い終わるのを待つ。待たずに操作すると入力先/選択アンカーが入れ替わる
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
         const textEl = page.locator('.outliner-node .outliner-text').first();
         await textEl.click();
         await page.keyboard.press('End');
         await page.keyboard.type(' modified');
-        await page.waitForTimeout(200);
 
-        const text = await textEl.textContent();
-        expect(text).toContain('modified');
+        await expect(textEl).toContainText('modified');
     });
 
     test('Notes ビュー内で Enter でノードが追加される', async ({ page }) => {
@@ -611,14 +613,17 @@ test.describe('Notes Daily Notes & パネルUI', () => {
             });
         });
 
-        const secondText = page.locator('.outliner-node .outliner-text').nth(1);
-        await secondText.click();
+        // init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）が
+        // フォーカスを奪い終わるのを待つ。待たずに操作すると入力先が入れ替わる
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
+        await page.locator('.outliner-node .outliner-text').nth(1).click();
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.dataset?.nodeId === 'n2');
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(200);
 
-        // Phase F flat mode: depth=1 の node を集計
-        const nestedCount = await page.locator('.outliner-node[data-depth="1"]').count();
-        expect(nestedCount).toBe(1);
+        // Phase F flat mode: depth=1 の node を集計（retrying assertion で render を待つ）
+        await expect(page.locator('.outliner-node[data-depth="1"]')).toHaveCount(1);
     });
 
     test('Notes ビュー内で Backspace で空ノードが削除される', async ({ page }) => {
@@ -633,13 +638,17 @@ test.describe('Notes Daily Notes & パネルUI', () => {
             });
         });
 
+        // init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）が
+        // フォーカスを奪い終わるのを待つ。待たずに操作すると入力先/選択アンカーが入れ替わる
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
         const secondText = page.locator('.outliner-node .outliner-text').nth(1);
         await secondText.click();
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.dataset?.nodeId === 'n2');
         await page.keyboard.press('Backspace');
-        await page.waitForTimeout(200);
 
-        const nodeCount = await page.locator('.outliner-node').count();
-        expect(nodeCount).toBe(1);
+        await expect(page.locator('.outliner-node')).toHaveCount(1);
     });
 
     // --- updateData with scopeToNodeId ---

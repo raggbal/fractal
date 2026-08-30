@@ -2,10 +2,19 @@
  * md-list-cut-nav.spec.ts — md editor リストの cut 残骸 / リンク行カーソル移動 / Enter 分割アイコン複製
  *
  * sprint 20260813-210323-md-list-cut-nav-fixes / TC 定義 = goal.md（実装レベル sprint）。
- * ハーネス: standalone-editor.html + 実キー操作（Meta+x / Arrow / Enter — 合成イベント禁止 =
+ * ハーネス: standalone-editor.html + 実キー操作（MOD+x = OS 別解決 / Arrow / Enter — 合成イベント禁止 =
  * generator_failures 2026-08-12。cut/copy は実キー + clipboard 権限）。
  */
 import { test, expect, Page } from '@playwright/test';
+
+// macOS 前提のキーを OS 別に解決する（先例: test/specs/command-palette.spec.ts:26）。
+// Linux/CI の Chromium はネイティブの copy/cut/paste を **Control** に束ねているため、
+// 'Meta+c' を押しても発火せず navigator.clipboard が空になる（cut は「書けなければ消さない」ので
+// 残骸 assert まで連鎖して落ちる）。Mac 側の挙動は従来どおり Meta。
+const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+// 行頭へ移動: Mac は Cmd+←、Linux は Control+← が「単語単位」で意味が違うため Home を使う。
+const LINE_START = process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home';
 
 async function setup(page: Page, html: string): Promise<void> {
     await page.goto('/standalone-editor.html');
@@ -63,7 +72,7 @@ test.describe('TASK-01: リスト cut の残骸一掃', () => {
             sel.addRange(range);
             editor.focus();
         });
-        await page.keyboard.press('Meta+x');
+        await page.keyboard.press(`${MOD}+x`);
         await page.waitForTimeout(200);
 
         const state = await page.evaluate(() => {
@@ -115,7 +124,7 @@ test.describe('TASK-01: リスト cut の残骸一掃', () => {
             sel.addRange(range);
             editor.focus();
         });
-        await page.keyboard.press('Meta+x');
+        await page.keyboard.press(`${MOD}+x`);
         await page.waitForTimeout(200);
 
         const debris = await countShellDebris(page);
@@ -143,7 +152,7 @@ test.describe('TASK-01: リスト cut の残骸一掃', () => {
             sel.addRange(range);
             editor.focus();
         });
-        await page.keyboard.press('Meta+x');
+        await page.keyboard.press(`${MOD}+x`);
         await page.waitForTimeout(200);
 
         const state = await page.evaluate(() => {
@@ -188,7 +197,7 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         });
         await page.waitForTimeout(400);
         await page.locator('#editor li').first().click({ position: { x: 8, y: 8 } });
-        await page.keyboard.press('Meta+ArrowLeft');
+        await page.keyboard.press(LINE_START);
 
         await page.keyboard.press('ArrowDown');
         expect(await caretLi(page)).toContain('doc1');        // counterfactual: 補助なしだと P:tail に飛ぶ
@@ -267,7 +276,7 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
         // Shift+→ で選択して cmd+c（リンクテキストの部分コピー = ユーザーのユースケース）
         await page.keyboard.press('Shift+ArrowRight');
         await page.keyboard.press('Shift+ArrowRight');
-        await page.keyboard.press('Meta+c');
+        await page.keyboard.press(`${MOD}+c`);
         const clip = await page.evaluate(() => navigator.clipboard.readText());
         expect(clip.length).toBeGreaterThan(0);
         expect('mdlink').toContain(clip.trim());               // リンクテキストの一部が取れている
@@ -290,7 +299,7 @@ test.describe('TASK-02: 📎/md リンク行のカーソル移動', () => {
             fileLi.appendChild(document.createTextNode(' '));
         });
         await page.locator('#editor li').first().click({ position: { x: 8, y: 8 } });
-        await page.keyboard.press('Meta+ArrowLeft');
+        await page.keyboard.press(LINE_START);
         await page.keyboard.press('ArrowDown');
         const li = await caretLi(page);
         expect(li).toContain('doc1');                          // 空白 node 挟みでも入れる
@@ -445,7 +454,7 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
         await page.keyboard.press('Shift+ArrowRight');
         await page.keyboard.press('Shift+ArrowRight');
         await page.keyboard.press('Shift+ArrowRight');
-        await page.keyboard.press('Meta+c');
+        await page.keyboard.press(`${MOD}+c`);
         const clip = await page.evaluate(() => navigator.clipboard.readText());
         expect(clip.trim().length).toBeGreaterThan(0);
         expect('doc1.docx').toContain(clip.trim());            // アンカーテキストの一部が取れている
@@ -536,7 +545,7 @@ test.describe('TASK-05: 📎 file リンクの subpage 方式統一（テキス�
             sel.removeAllRanges(); sel.addRange(r);
             (document.getElementById('editor') as HTMLElement).focus();
         });
-        await page.keyboard.press('Meta+x');
+        await page.keyboard.press(`${MOD}+x`);
         await page.waitForTimeout(300);
         const after = await page.evaluate(() => {
             const editor = document.getElementById('editor') as HTMLElement;

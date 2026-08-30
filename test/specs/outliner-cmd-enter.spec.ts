@@ -54,6 +54,23 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
                 }
             });
         });
+        await settleInit(page);
+    }
+
+    /**
+     * init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）の着地を待ち、
+     * messages を空にする。着地を待たずにキー操作すると **途中でフォーカスを奪われて対象 node が
+     * 入れ替わる**（負荷時に顕在化する flake の真因）。
+     */
+    async function settleInit(page: any) {
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
+        await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
+    }
+
+    /** message が 1 件以上届くまで待つ（固定 50ms 待ちの置換） */
+    async function waitForAnyMessage(page: any) {
+        await page.waitForFunction(() => (window as any).__testApi.messages.length > 0);
     }
 
     function getMessages(page: any) {
@@ -72,7 +89,7 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
 
         // Meta+Enter 発火 (Mac 想定、Win/Linux でも ctrlKey で同等)
         await page.keyboard.press('Meta+Enter');
-        await page.waitForTimeout(50);
+        await waitForAnyMessage(page);
 
         const messages = await getMessages(page);
         const openMsgs = messages.filter((m: any) => m.type === 'openAttachedFile');
@@ -93,7 +110,7 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
         const pageText = page.locator('.outliner-node[data-id="n2"] .outliner-text');
         await pageText.click();
         await page.keyboard.press('Meta+Enter');
-        await page.waitForTimeout(50);
+        await waitForAnyMessage(page);
 
         const messages = await getMessages(page);
         const openMsgs = messages.filter((m: any) => m.type === 'openPageInSidePanel');
@@ -116,7 +133,7 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
         const plainText = page.locator('.outliner-node[data-id="n3"] .outliner-text');
         await plainText.click();
         await page.keyboard.press('Meta+Enter');
-        await page.waitForTimeout(50);
+        await waitForAnyMessage(page);
 
         const messages = await getMessages(page);
         const makeMsgs = messages.filter((m: any) => m.type === 'makePage');
@@ -147,10 +164,11 @@ test.describe('Outliner Cmd+Enter (FR-OL-CMDENTER-1)', () => {
                 },
             });
         });
+        await settleInit(page);
         const t = page.locator('.outliner-node[data-id="img1"] .outliner-text');
         await t.click();
         await page.keyboard.press('Meta+Enter');
-        await page.waitForTimeout(50);
+        await waitForAnyMessage(page);
         const messages = await getMessages(page);
         expect(messages.filter((m: any) => m.type === 'makePage')).toHaveLength(1);
         expect(messages.filter((m: any) => m.type === 'openPageInSidePanel')).toHaveLength(1);

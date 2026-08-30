@@ -15,6 +15,51 @@ async function pressTab(page: any, shiftKey = false) {
     }, shiftKey);
 }
 
+
+/**
+ * init の自動フォーカスが「終わった」ことを待つ。
+ *
+ * outliner.js の init は `setTimeout(100)` で focusFirstVisibleNode() を呼ぶ（同ファイル :317 の
+ * コメントが明言）。これを待たずにキー列を打つと、途中でフォーカスが先頭ノードへ奪われ、
+ * Shift+↓ の選択アンカーが差し替わって Tab の結果が変わる。**本 spec の flake の真因はこれ**で、
+ * 固定 sleep（50ms/200ms）はタイマーとの競走に勝つか負けるかを運任せにしていた
+ * （待ちを長くすると必ず負けるため「sleep を伸ばす」では直らない）。
+ */
+async function waitInitFocus(page: any, firstRootId: string) {
+    await page.waitForFunction(
+        (id: string) => (document.activeElement as HTMLElement)?.dataset?.nodeId === id, firstRootId);
+}
+
+/** 指定 node にフォーカスを確定させる（確定を条件待ちする） */
+async function focusNodeText(page: any, id: string) {
+    await page.locator(`.outliner-text[data-node-id="${id}"]`).click();
+    await page.waitForFunction(
+        (n: string) => (document.activeElement as HTMLElement)?.dataset?.nodeId === n, id);
+}
+
+/** その node に is-selected が付くまで待つ */
+async function waitSelected(page: any, id: string) {
+    await page.waitForFunction(
+        (n: string) => document.querySelector(`.outliner-node[data-id="${n}"]`)?.classList.contains('is-selected'), id);
+}
+
+/** フォーカスがその node へ移るまで待つ */
+async function waitFocused(page: any, id: string) {
+    await page.waitForFunction(
+        (n: string) => (document.activeElement as HTMLElement)?.dataset?.nodeId === n, id);
+}
+
+/**
+ * 直前の syncData を捨ててから操作し、**新しい** syncData の到着を待って返す。
+ * sync は debounce（実測 ~1000ms）なので固定 1500ms 待ちは負荷で破れる。
+ */
+async function actAndGetSync(page: any, act: () => Promise<void>) {
+    await page.evaluate(() => { (window as any).__testApi.lastSyncData = null; });
+    await act();
+    await page.waitForFunction(() => (window as any).__testApi.lastSyncData !== null, undefined, { timeout: 20000 });
+    return await page.evaluate(() => JSON.parse((window as any).__testApi.lastSyncData));
+}
+
 test.describe('Outliner multi-select indent/outdent', () => {
     test.beforeEach(async ({ page }) => {
         await page.goto('/standalone-outliner.html');
@@ -34,21 +79,16 @@ test.describe('Outliner multi-select indent/outdent', () => {
             });
         });
 
-        // n2にフォーカスしてShift+ArrowDownでn3まで選択
-        await page.locator('.outliner-text[data-node-id="n2"]').press('Shift+ArrowDown');
-        await page.waitForTimeout(50);
+        await waitInitFocus(page, 'n1');
+        await focusNodeText(page, 'n2');
+
+        // Shift+↓ ×2（1 回目 = 自行のみ選択・移動なし / 2 回目 = 次行まで拡張 + フォーカス移動）
         await page.keyboard.press('Shift+ArrowDown');
-        await page.waitForTimeout(200);
+        await waitSelected(page, 'n2');
+        await page.keyboard.press('Shift+ArrowDown');
+        await waitFocused(page, 'n3');
 
-        // Tab を押す
-        await page.keyboard.press('Tab');
-        await page.waitForTimeout(1500);
-
-        const syncData = await page.evaluate(() => {
-            return (window as any).__testApi.lastSyncData
-                ? JSON.parse((window as any).__testApi.lastSyncData)
-                : null;
-        });
+        const syncData = await actAndGetSync(page, () => page.keyboard.press('Tab'));
 
         expect(syncData).not.toBeNull();
         expect(syncData.rootIds).toHaveLength(1);
@@ -71,19 +111,15 @@ test.describe('Outliner multi-select indent/outdent', () => {
             });
         });
 
-        // n2クリック→Shift+ArrowDown→Shift+Tab (cross-paste testと同じパターン)
-        await page.locator('.outliner-text[data-node-id="n2"]').press('Shift+ArrowDown');
-        await page.waitForTimeout(50);
-        await page.keyboard.press('Shift+ArrowDown');
-        await page.waitForTimeout(200);
-        await page.keyboard.press('Shift+Tab');
-        await page.waitForTimeout(1500);
+        await waitInitFocus(page, 'n1');
+        await focusNodeText(page, 'n2');
 
-        const syncData = await page.evaluate(() => {
-            return (window as any).__testApi.lastSyncData
-                ? JSON.parse((window as any).__testApi.lastSyncData)
-                : null;
-        });
+        await page.keyboard.press('Shift+ArrowDown');
+        await waitSelected(page, 'n2');
+        await page.keyboard.press('Shift+ArrowDown');
+        await waitFocused(page, 'n3');
+
+        const syncData = await actAndGetSync(page, () => page.keyboard.press('Shift+Tab'));
 
         expect(syncData).not.toBeNull();
         expect(syncData.rootIds).toHaveLength(3);
@@ -104,18 +140,18 @@ test.describe('Outliner multi-select indent/outdent', () => {
             });
         });
 
-        const n2Text = page.locator('.outliner-text[data-node-id="n2"]');
-        await n2Text.click();
-        await page.waitForTimeout(200);
-        const n3Text = page.locator('.outliner-text[data-node-id="n3"]');
-        await n3Text.click({ modifiers: ['Shift'] });
-        await page.waitForTimeout(200);
+        await waitInitFocus(page, 'n1');
+        await focusNodeText(page, 'n2');
+        await page.locator('.outliner-text[data-node-id="n3"]').click({ modifiers: ['Shift'] });
 
-        const beforeCount = await page.locator('.outliner-node.is-selected').count();
-        expect(beforeCount).toBeGreaterThanOrEqual(2);
+        // 選択が 2 件以上になるまで待つ（固定 200ms 待ちの置換）
+        await expect.poll(() => page.locator('.outliner-node.is-selected').count())
+            .toBeGreaterThanOrEqual(2);
 
         await pressTab(page, false);
-        await page.waitForTimeout(300);
+        // Tab の適用（モデル上で n2 が誰かの子になる）を待ってから選択維持を見る
+        await page.waitForFunction(() =>
+            (window as any).__testApi.getModel().getNode('n2')?.parentId !== null);
 
         const afterCount = await page.locator('.outliner-node.is-selected').count();
         expect(afterCount).toBeGreaterThanOrEqual(2);
@@ -135,15 +171,19 @@ test.describe('Outliner multi-select indent/outdent', () => {
             });
         });
 
-        // n1, n2 を選択 (locator.press + keyboard.press パターン)
-        await page.locator('.outliner-text[data-node-id="n1"]').press('Shift+ArrowDown');
-        await page.waitForTimeout(50);
-        await page.keyboard.press('Shift+ArrowDown');
-        await page.waitForTimeout(200);
+        await waitInitFocus(page, 'n0');
+        await focusNodeText(page, 'n1');
 
-        // 1回目のTab: n1,n2 がn0の子になる
+        // n1, n2 を選択
+        await page.keyboard.press('Shift+ArrowDown');
+        await waitSelected(page, 'n1');
+        await page.keyboard.press('Shift+ArrowDown');
+        await waitFocused(page, 'n2');
+
+        // 1回目のTab: n1,n2 がn0の子になる（適用をモデルで待つ）
         await page.keyboard.press('Tab');
-        await page.waitForTimeout(300);
+        await page.waitForFunction(() =>
+            (window as any).__testApi.getModel().getNode('n1')?.parentId === 'n0');
 
         // フォーカスがまだ存在し、連続操作可能かテスト
         const focusedAfterFirst = await page.evaluate(() => {
@@ -156,14 +196,7 @@ test.describe('Outliner multi-select indent/outdent', () => {
         expect(selectedAfterFirst).toBeGreaterThanOrEqual(2);
 
         // 1回目のShift+Tab: n1,n2 がn0と同レベルに戻る
-        await page.keyboard.press('Shift+Tab');
-        await page.waitForTimeout(1500);
-
-        const syncData = await page.evaluate(() => {
-            return (window as any).__testApi.lastSyncData
-                ? JSON.parse((window as any).__testApi.lastSyncData)
-                : null;
-        });
+        const syncData = await actAndGetSync(page, () => page.keyboard.press('Shift+Tab'));
         expect(syncData).not.toBeNull();
         // n0, n1, n2 がルートレベルに戻っている
         expect(syncData.rootIds).toHaveLength(3);
@@ -181,9 +214,8 @@ test.describe('Outliner multi-select indent/outdent', () => {
             });
         });
 
-        const n2Text = page.locator('.outliner-text[data-node-id="n2"]');
-        await n2Text.click();
-        await page.waitForTimeout(200);
+        await waitInitFocus(page, 'n1');
+        await focusNodeText(page, 'n2');
 
         // 直接textElにTabイベントを発火
         await page.evaluate(() => {
@@ -195,7 +227,9 @@ test.describe('Outliner multi-select indent/outdent', () => {
                 }));
             }
         });
-        await page.waitForTimeout(300);
+        // 適用（parentId が null から変わる）を待つ。値そのものは下で assert する
+        await page.waitForFunction(() =>
+            (window as any).__testApi.getModel().getNode('n2')?.parentId !== null);
 
         // Phase F flat mode: モデル上で n2 の parentId が n1 になっていることを確認
         const n2Parent = await page.evaluate(() => {

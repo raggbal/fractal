@@ -242,16 +242,25 @@ test.describe('Export bundle multi-select (E2E)', () => {
             });
         });
         await page.waitForSelector('.outliner-node[data-id="n1"]');
+        // init の setTimeout(100) focusFirstVisibleNode（outliner.js:317 のコメント参照）が
+        // フォーカスを奪い終わるのを待つ。待たずに操作すると入力先/選択アンカーが入れ替わる
+        await page.waitForFunction(() =>
+            (document.activeElement as HTMLElement)?.classList?.contains('outliner-text'));
         await page.evaluate(() => { (window as any).__testApi.messages.length = 0; });
     }
 
     // click + Shift+ArrowDown で範囲選択（integration-outliner-cmd-cut-copy-children.spec の先例）
     async function selectRangeByKeys(page: import('@playwright/test').Page, fromId: string, downs: number) {
         await page.locator(`.outliner-node[data-id="${fromId}"] .outliner-text`).click();
+        await page.waitForFunction((id) =>
+            (document.activeElement as HTMLElement)?.dataset?.nodeId === id, fromId);
         for (let i = 0; i < downs; i++) {
             await page.keyboard.press('Shift+ArrowDown');
         }
-        await page.waitForTimeout(50);
+        // 選択が出揃うのを待つ（固定 50ms の置換）。フォーカス中の node には is-selected が
+        // 付かないため、k 回押下で可視の選択は k-1 件以上になる
+        await page.waitForFunction((n) =>
+            document.querySelectorAll('.outliner-node.is-selected').length >= Math.max(1, n - 1), downs);
     }
 
     async function clickExportOnNode(page: import('@playwright/test').Page, nodeId: string) {

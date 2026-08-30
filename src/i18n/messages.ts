@@ -34,6 +34,19 @@ export interface Messages {
   folderViewMoveInUnsupported: string;
   folderViewTrashFailed: string;
   folderViewMovePartialFail: string;
+  // FR-OIF (sprint 20260827-172802): outliner「Import folder...」の host 側 modal / 通知。
+  // 消費側は host の t() なので Messages 側に置く（webview label() が読む importFolderMenu は
+  // WebviewMessages 側 — generator_failures 2026-08-22 の interface 帰属ミスを避ける）。
+  importFolderConfirm: string;        // {count} プレース（modal 本文）
+  importFolderConfirmProceed: string; // modal の実行ボタン
+  importFolderTooMany: string;        // 上限超過（件数/深さ）— コピー 0 で中断
+  importFolderSkipped: string;        // {count} プレース（個別失敗の集計）
+  // FR-EXF (sprint 20260827-172802 第 2 ラウンド): Export folder の host 側 modal / 通知。
+  // 消費側は host の t() なので Messages 側（webview の label() が読む exportFolderMenu は WebviewMessages）。
+  exportFolderConfirm: string;        // {count} プレース（modal 本文）
+  exportFolderConfirmProceed: string; // modal の実行ボタン
+  exportFolderDone: string;           // {folders} {files} {skipped} プレース（完了通知）
+  exportFolderInvalidDest: string;    // 出力先が note 配下（Notes 面のガード）
   notesExternalDropFailed: string;
   openMarkdownFirst: string;
   numberOfRows: string;
@@ -132,6 +145,12 @@ export interface WebviewMessages {
   folderViewOpenFailed: string;
   folderViewSearchPlaceholder: string;
   folderViewRefresh: string;
+  // FR-OIF-01: outliner ヘッダー ≡ メニューの「Import folder...」（webview の i18n が読む）
+  importFolderMenu: string;
+  // FR-EXF-01 / FR-NCM-01（第 2 ラウンド）: ≡ と node 右クリックで共有するラベル（webview の i18n が読む）
+  exportFolderMenu: string;
+  importMdFilesMenu: string;
+  importFilesMenu: string;
   notesShowHiddenFiles: string;
   folderViewTruncated: string;
   folderViewNoMatch: string;
