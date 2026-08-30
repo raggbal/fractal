@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { NotesFileManager } from './shared/notes-file-manager';
 import { extractFirstH1 } from './shared/md-h1-utils';
+import { NotesFileManager } from './shared/notes-file-manager';
 import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
     treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
@@ -26,6 +26,8 @@ import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
+import { runFolderImportWithDialog } from './shared/folder-import-host';
+import { runFolderExportWithDialog } from './shared/folder-export-host';
 import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
 import { DropStreamHost } from './shared/drop-stream-host';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
@@ -808,6 +810,18 @@ export class NotesEditorProvider {
             exportOutlinerNodesBundle: (args) => {
                 void runExportOutlinerNodesBundle(args as Parameters<typeof runExportOutlinerNodesBundle>[0]);
             },
+            // FR-EXF-01: Export folder（node 木 → ディレクトリ木）。Notes 面は note 配下への出力を
+            // 既存 guardFolderSelection で拒否する（duplicate は通す — design §C5）。
+            exportOutlinerFolder: (args) => {
+                void runFolderExportWithDialog({
+                    tree: args.tree,
+                    srcOutDir: args.srcOutDir,
+                    srcPagesDir: args.srcPagesDir,
+                    srcFileDir: args.srcFileDir,
+                    srcImageDir: args.srcImageDir,
+                    guard: (destPath: string) => fileManager.guardFolderSelection(destPath),
+                });
+            },
             navigateInAppLink: (href: string) => {
                 vscode.commands.executeCommand('fractal.navigateInAppLink', href);
             },
@@ -1009,6 +1023,26 @@ export class NotesEditorProvider {
                     results,
                     targetNodeId,
                     position: 'after'
+                });
+            },
+            // FR-OIF-01/02: Import folder（階層 entries を 1 message で返す。dialog/modal/通知は
+            // runFolderImportWithDialog が持つ — standalone .out 側と同一実装を共有）
+            importFolderDialog: async (targetNodeId: string | null, senderRef: NotesSender) => {
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                const outcome = await runFolderImportWithDialog({
+                    pageDir: fileManager.getPagesDirPath(),
+                    imageDir: fileManager.getOutlinerImageDirPath(),
+                    fileDir: fileManager.getOutlinerFileDirPath(),
+                    outDir: path.dirname(currentOutFilePath),
+                });
+                if (outcome.status !== 'imported') return;
+
+                senderRef.postMessage({
+                    type: 'importFolderResult',
+                    targetNodeId,
+                    entries: outcome.entries,
+                    skipped: outcome.skipped
                 });
             },
             dropFilesImport: async (items: DropImportItem[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
@@ -2513,7 +2547,7 @@ export class NotesEditorProvider {
                 await folderViewDuplicate(fileManager, id, relPath, folderViewDeps, senderRef);
             },
             folderViewMove: async (id: string, srcRelPath: string, dstDirRelPath: string, senderRef: NotesSender) => {
-                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef);
+                await folderViewMove(fileManager, id, srcRelPath, dstDirRelPath, folderViewDeps, senderRef, folderMoveDeps); // ADRL-0102: md 分岐は随伴転送（FR-FLV-34 の deleteFile フォールバック込み）
             },
             folderViewRevealEntry: (id: string, relPath: string) => {
                 folderViewRevealEntry(fileManager, id, relPath, folderViewDeps);
