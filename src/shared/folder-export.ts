@@ -28,6 +28,16 @@ const DEFAULT_NAME = 'blank';
 /** UTF-8 の最大ファイル名長（NAME_MAX） */
 const MAX_NAME_BYTES = 255;
 
+/**
+ * 不可視の書式文字（幅ゼロで描画されず、ファイル名に入ると「名前が無い」ように見える）。
+ * U+00AD soft hyphen / U+200B-200F zero-width 群 / U+2028-202E 行・段落区切り + 双方向制御 /
+ * U+2060-2064 word joiner 群 / U+FEFF BOM。
+ */
+const INVISIBLE_FORMAT_CHARS = /[\u00AD\u200B-\u200F\u2028-\u202E\u2060-\u2064\uFEFF]/g;
+
+/** 末尾のドット・空白（Unicode 空白 `\s` = NBSP / 全角空白 / U+2000-200A を含む） */
+const TRAILING_DOT_SPACE = /[\s.]+$/;
+
 /** grapheme 単位に分割（結合文字・サロゲートペアを壊さないため。Intl.Segmenter 不在時は code point 単位） */
 function splitGraphemes(text: string): string[] {
     const seg = (Intl as any)?.Segmenter;
@@ -43,9 +53,10 @@ function splitGraphemes(text: string): string[] {
 /**
  * node text → FS 安全な 1 パス構成要素（FR-EXF-04 / design §C3）。
  *
- * 適用順（この順序が仕様 — TC-EXF-04 が pin する）:
+ * 適用順（この順序が仕様 — TC-EXF-04 / TC-EXF-04b が pin する）:
+ *   0. 不可視の書式文字（ZWSP / BOM / soft hyphen 等）を除去（2026-09-04 実機の「-1」名バグ）
  *   1. `/ \ : * ? " < > |` と制御文字（\x00-\x1f）→ `_`
- *   2. 末尾の `.` と空白を除去
+ *   2. 末尾の `.` と空白（Unicode 空白 = NBSP / 全角空白を含む）を除去
  *   3. 空 / `.` / `..` になったら DEFAULT_NAME
  *   4. Windows 予約名（拡張子を除いた base・大小無視）なら先頭に `_`
  *   5. UTF-8 で (255 - reserveBytes) バイトへクランプ（grapheme 境界を壊さない）
@@ -54,12 +65,19 @@ function splitGraphemes(text: string): string[] {
  *        クランプはこの分を空けて行う（§C3-b: クランプの実施点はこの関数だけ）。
  */
 export function sanitizeFsName(text: string, opts?: { reserveBytes?: number }): string {
+    // 0. 不可視の書式文字（ZWSP / ZWNJ / ZWJ / BOM / word joiner / soft hyphen 等）を落とす。
+    //    2026-09-04 実機: node text が U+3000（全角空白）や U+200B だけの「見た目は空」の node を
+    //    「linkedfd に送る」と、不可視文字 1 文字の名前が作られ、2 件目が `<不可視>-1` = 「-1」と
+    //    見える名前になった（TC-EXF-04b）。既定名 `blank` の判定は**見た目の空**で行う。
+    let name = String(text ?? '').replace(INVISIBLE_FORMAT_CHARS, '');
+
     // 1. 禁止文字・制御文字
     /* eslint-disable-next-line no-control-regex */
-    let name = String(text ?? '').replace(/[/\\:*?"<>|\x00-\x1f]/g, '_');
+    name = name.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_');
 
-    // 2. 末尾のドット・空白（Windows は末尾ドット/空白のファイルを作れない）
-    name = name.replace(/[. ]+$/, '');
+    // 2. 末尾のドット・空白（Windows は末尾ドット/空白のファイルを作れない）。
+    //    空白は Unicode 空白全般（NBSP U+00A0 / 全角空白 U+3000 / U+2000-200A 等 = `\s`）を含める
+    name = name.replace(TRAILING_DOT_SPACE, '');
 
     // 3. 空・`.`・`..`（2 で消えて空になるケースを含む）→ 既定名 `blank`
     if (name === '.' || name === '..') { name = ''; }
@@ -82,7 +100,7 @@ export function sanitizeFsName(text: string, opts?: { reserveBytes?: number }): 
             bytes += b;
         }
         // クランプで末尾ドット/空白が露出することがあるので 2 を再適用（3 の再判定も行う）
-        out = out.replace(/[. ]+$/, '');
+        out = out.replace(TRAILING_DOT_SPACE, '');
         name = out || DEFAULT_NAME;   // クランプで全部落ちたら既定名
     }
 

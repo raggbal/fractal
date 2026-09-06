@@ -54,7 +54,9 @@ test('TC-SRC-07 grep 番人: removeMdAnchorFromFile の裸直呼びが呼び出�
     expect(bare(nep), 'notesEditorProvider に裸直呼びが残存').toBe(0);
     // ヘルパ経由の呼び出しが実在する（消し忘れでなく置換であることの対の番人）
     const viaHelper = (src: string) => (src.match(/removeMdAnchorAndEcho\(/g) || []).length;
-    expect(viaHelper(nmh)).toBe(6);
+    // 2026-09-05 test_update（sprint 20260901-075849 TASK-69 / TASK-74）: 6 → 8。md リンク → tree md 行の
+    // リンク移動（linkMdLinkIntoMdItem）と linkedfd への md リンク移動（folderViewMoveFromMd）がヘルパ経由で加わった
+    expect(viaHelper(nmh)).toBe(8);
     expect(viaHelper(nep)).toBe(1);
 });
 

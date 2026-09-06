@@ -126,6 +126,10 @@ window.__createSidePanelBridgeMethods = function(postFn) {
         readAndInsertMdAsSubpage: function(filePath, sidePanelFilePath) {
             postFn({ type: 'readAndInsertMdAsSubpage', filePath: filePath, sidePanelFilePath: sidePanelFilePath });
         },
+        // 2026-09-05 FR-DFI-02: md 面へのフォルダ drop（Explorer）— host がディレクトリを展開して droppedPathsResolved で返す
+        resolveDroppedPaths: function(paths, requestId, sidePanelFilePath) {
+            postFn({ type: 'resolveDroppedPaths', paths: paths || [], requestId: requestId, sidePanelFilePath: sidePanelFilePath });
+        },
 
         // MD-45/46/47: drawio.svg / drawio.png / drawio (XML) 経路
         saveDrawioAndInsert: function(dataUrl, fileName, sidePanelFilePath) {

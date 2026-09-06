@@ -104,6 +104,13 @@ export class NotesFileManager {
     private lastJsonString: string | null = null;
     private structure: NoteStructure | null = null;
     private fileChangeId = 0;
+    /**
+     * 直近の openFile() 失敗理由（.out の JSON 破損など）。成功時は null に戻る。
+     * sprint 20260901-075849 TASK-77 / FR-OPF-01: openFile は失敗を null で返すだけで
+     * console にしか理由を出しておらず、tree を click しても無言で何も起きなかった。
+     * 呼び出し側がユーザーへ提示できるよう理由を保持する。
+     */
+    private lastOpenError: string | null = null;
     private isWriting = false;
     private isWritingTimer: ReturnType<typeof setTimeout> | null = null;
     private isWritingStructure = false;
@@ -1125,6 +1132,65 @@ export class NotesFileManager {
     }
 
     /**
+     * FR-MSEL-05 (TASK-87): ツリー**内**の複数選択移動を 1 回で適用する。
+     *
+     * `moveItem` を N 回呼ばない理由:
+     *   1. 1 回ごとに `saveStructure()` + postback が走り、webview 側の index 計算（呼び出し時点の
+     *      兄弟配列が前提）が 2 件目以降で崩れる
+     *   2. 「移動元を抜く」と挿入位置がずれるため、index を持ち回ると N 件目が 1 つずつずれる
+     *   → **挿入位置は index ではなく anchor（index の位置に居た非移動 item の id）で覚える**。
+     *      全件を抜いた後に anchor の現在位置へ順序を保って差し込む。index は「抜く前の兄弟配列上の
+     *      位置」で受ける（webview は単一移動用の -1 調整を掛けずに渡す）。
+     *
+     * 除外規則（`moveItem` と同じ意味論を id ごとに適用）:
+     *   - 存在しない id / 重複はスキップ
+     *   - 自分自身の中 / 自分の子孫の中へは動かさない（フォルダの循環）
+     *   - 呼び出し側（webview）が祖先も選択されている子孫を落としているので、ここでは順序のみ保つ
+     */
+    moveItems(itemIds: string[], targetParentId: string | null, index: number): NoteStructure {
+        const structure = this.getStructure();
+        const uniq = (itemIds || []).filter((id, i, arr) => !!structure.items[id] && arr.indexOf(id) === i);
+        const moving = uniq.filter(
+            id => !(targetParentId && (targetParentId === id || this.isDescendant(structure, id, targetParentId)))
+        );
+        if (moving.length === 0) return structure;
+
+        const movingSet = new Set(moving);
+        const dstIsFolder = !!(targetParentId && structure.items[targetParentId]?.type === 'folder');
+        const dstArray = (): string[] =>
+            dstIsFolder ? (structure.items[targetParentId!] as NoteTreeFolder).childIds : structure.rootIds;
+
+        // 挿入位置を anchor（= index 位置以降で最初の「移動しない」item）で覚える。
+        // 見つからなければ末尾追加。選択集合の上に落とされた場合もここで自然に後ろへ送られる。
+        const before = dstArray();
+        let anchor: string | null = null;
+        for (let i = Math.max(0, Math.min(index, before.length)); i < before.length; i++) {
+            if (!movingSet.has(before[i])) { anchor = before[i]; break; }
+        }
+
+        // 現在の親から全件を抜く（フォルダは子を連れたまま = `moveItem` と同じ）
+        for (const id of moving) {
+            const curParentId = this.findParentId(structure, id);
+            if (curParentId) {
+                const parent = structure.items[curParentId] as NoteTreeFolder;
+                const at = parent.childIds.indexOf(id);
+                if (at !== -1) parent.childIds.splice(at, 1);
+            } else {
+                const at = structure.rootIds.indexOf(id);
+                if (at !== -1) structure.rootIds.splice(at, 1);
+            }
+        }
+
+        const arr = dstArray();
+        let insertAt = anchor ? arr.indexOf(anchor) : arr.length;
+        if (insertAt < 0) insertAt = arr.length;
+        arr.splice(insertAt, 0, ...moving);
+
+        this.saveStructure();
+        return structure;
+    }
+
+    /**
      * itemId が targetId の子孫かどうか判定（循環参照防止）
      */
     private isDescendant(structure: NoteStructure, ancestorId: string, targetId: string): boolean {
@@ -1233,11 +1299,22 @@ export class NotesFileManager {
             this.isDirty = false;
             this.lastJsonString = content;
             this.fileChangeId++;
+            this.lastOpenError = null;
             return content;
         } catch (e) {
+            // TASK-77 / FR-OPF-01: 理由を保持して呼び出し側がユーザーへ提示できるようにする
+            this.lastOpenError = e instanceof Error ? e.message : String(e);
             console.error('[NotesFileManager] openFile error:', e);
             return null;
         }
+    }
+
+    /**
+     * 直近の openFile() 失敗理由を返す（成功後・未実行なら null）。
+     * TASK-77 / FR-OPF-01: 無言失敗をやめるための理由取得口。
+     */
+    getLastOpenError(): string | null {
+        return this.lastOpenError;
     }
 
     /**

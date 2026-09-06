@@ -117,6 +117,7 @@ var Outliner = (function() {
                 // 誤発動して選択残留 node の subtree が削除される(実測)。view を跨ぐ
                 // selection は意味を持たないためクリアする。
                 if (selectedNodeIds && selectedNodeIds.size > 0) {
+                    _selTracePush('clear', '(leave-mindmap-view) ids=' + selectedNodeIds.size);
                     selectedNodeIds.clear();
                 }
             }
@@ -1213,7 +1214,8 @@ var Outliner = (function() {
                 // FR-TF-20 (§4n): md 📎 file リンク / subpage リンクの drop も同じ位置解決経路で受ける。
                 var isMdFlDrop = isMdFileLinkDragEvent(e);
                 var isMdSpDrop = !isMdFlDrop && isMdSubpageDragEvent(e);
-                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop && !isMdFlDrop && !isMdSpDrop) { return; }
+                var isFvDrop = isFolderViewEntryDragEvent(e);   // 2026-09-05 R28: linkedfd の entry → outliner 面
+                if (!isAnyFilesDragEvent(e) && !isTreeFileDrop && !isTreeMdDrop && !isMdFlDrop && !isMdSpDrop && !isFvDrop) { return; }
                 e.preventDefault();
                 e.stopPropagation(); // bubble 段の既存 handler との重複処理を防ぐ（本 handler が一元処理点）
                 clearDropZoneHighlight();
@@ -1242,7 +1244,13 @@ var Outliner = (function() {
                     }
                 }
                 removeDropIndicator();
-                if (isTreeMdDrop) {
+                // §4-2 rev2（TASK-45）: md + file の**混在**は両 MIME を seq 順に結合して結合 bridge を 1 回
+                //（先勝ち分岐は file を無音で落とし、per-kind 2 回は件数ゲートが種別ごとに割れる）
+                if (isFvDrop) {
+                    handleFolderViewEntriesDrop(e, targetId, pos);
+                } else if (isTreeMdDrop && isTreeFileDrop) {
+                    handleTreeItemsMixedDrop(e, targetId, pos);
+                } else if (isTreeMdDrop) {
                     handleTreeMdDrop(e, targetId, pos);
                 } else if (isTreeFileDrop) {
                     handleTreeFileDrop(e, targetId, pos);
@@ -1279,7 +1287,7 @@ var Outliner = (function() {
                 return;
             }
             // FR-TF-20 (§4n): md 📎 file リンク / subpage リンクのドラッグも受理（同上）
-            if (isMdFileLinkDragEvent(e) || isMdSubpageDragEvent(e)) {
+            if (isMdFileLinkDragEvent(e) || isMdSubpageDragEvent(e) || isFolderViewEntryDragEvent(e)) {   // 2026-09-05 R28: linkedfd entry も受理
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 treeEl.classList.add('outliner-tree-drop-zone-active');
@@ -1298,6 +1306,14 @@ var Outliner = (function() {
         treeEl.addEventListener('drop', function(e) {
             // FR-MM-FD: mindmap では mindmap-interactions の drop リスナーが扱う（上記 dragover と同理由）。
             if (VIEW_MODE === 'mindmap') { return; }
+            // 2026-09-05 R28: linkedfd の entry → 余白 = root 末尾
+            if (isFolderViewEntryDragEvent(e)) {
+                e.preventDefault();
+                clearDropZoneHighlight();
+                removeDropIndicator();
+                handleFolderViewEntriesDrop(e, null, 'root-end');
+                return;
+            }
             // Files D&D: distinguish Finder (Files type) vs VSCode Explorer (uri-list type)
             if (isFilesDragEvent(e)) {
                 // Finder path
@@ -1339,6 +1355,119 @@ var Outliner = (function() {
                 clearDropZoneHighlight();
             }
         });
+
+        // ---------------------------------------------------------------------
+        // FR-MSC-01 (sprint 20260901-075849 / 裁定 R30): Cmd/Ctrl+Click の複数選択を
+        // **行のどこを掴んでも** 効かせる。
+        //
+        // 従来は `.outliner-text` の mousedown だけが toggleNodeSelection() を呼んでいたため、
+        // bullet / checkbox / subtext / scope ボタン / 画像サムネ / table の非 outline cell を
+        // cmd+click すると
+        //   - 選択トグルが走らない（選択色が付かない = ユーザー報告「色がつかない」）
+        //   - 代わりに widget 側の click が発火して focus が移り is-focused（水色）になる
+        //     （報告「青色になることもある」。checkbox なら値まで変わってしまう）
+        // という取りこぼしがあった。mousedown / click の **capture 段階**で先取りし、
+        // 行 widget に届く前に選択トグルへ振る（click も止めないと collapse / checkbox /
+        // scope が後追いで発火する）。
+        //
+        // 除外（cmd+click に既存の別意味があるもの・裁定 R30）:
+        //   - `.outliner-page-icon` … FR-CT-03「cmd+click = page md を新規タブで開く」
+        //   - `.outliner-file-icon` … 添付ファイルを外部アプリで開く
+        //   - `a[href]`            … リンクを開く（通常 click と同じ）
+        //   - mindmap view          … 独自の選択系（mindmap-interactions）が持つ
+        if (!treeEl.__fractalCmdSelectWired) {
+            treeEl.__fractalCmdSelectWired = true;
+            var _cmdSelectTargetId = function (e) {
+                if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) { return null; }
+                if (typeof e.button === 'number' && e.button !== 0) { return null; }
+                if (VIEW_MODE === 'mindmap') { return null; }
+                var t = e.target;
+                if (!t || t.nodeType !== 1 || !t.closest) { return null; }
+                if (t.closest('.outliner-page-icon, .outliner-file-icon, a[href]')) { return null; }
+                var nodeEl = t.closest('.outliner-node[data-id]');
+                if (nodeEl && nodeEl.dataset.id) { return nodeEl.dataset.id; }
+                var cellEl = t.closest('[data-node-id]');
+                if (cellEl && cellEl.dataset.nodeId) { return cellEl.dataset.nodeId; }
+                return null;
+            };
+            treeEl.addEventListener('mousedown', function (e) {
+                var id = _cmdSelectTargetId(e);
+                if (!id) { return; }
+                // preventDefault: caret / focus を動かさない（編集位置は cmd+click で移らない）
+                e.preventDefault();
+                e.stopPropagation();
+                toggleNodeSelection(id);
+            }, true);
+            treeEl.addEventListener('click', function (e) {
+                if (!_cmdSelectTargetId(e)) { return; }
+                // mousedown で選択トグル済み。後続の click（bullet=collapse / checkbox /
+                // scope ボタン等）を行 widget に渡さない。
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+            }, true);
+        }
+
+        // FR-MSC-02（裁定 R31）: 選択トレースの入力側 hook。**選択が非空のときだけ** keydown / keyup /
+        // mousedown を記録する（「cmd を離した瞬間に消える」の実機機序を webview 内で捕まえるため。
+        // 記録は document capture 段で、他リスナーの stopPropagation に負けない位置に置く）。
+        // オーバーレイ表示は Cmd/Ctrl+Shift+Alt+S でトグル（既定は非表示）。
+        if (!window.__fractalSelTraceWired) {
+            window.__fractalSelTraceWired = true;
+            var _mods = function (e) {
+                var m = [];
+                if (e.metaKey) { m.push('meta'); }
+                if (e.ctrlKey) { m.push('ctrl'); }
+                if (e.shiftKey) { m.push('shift'); }
+                if (e.altKey) { m.push('alt'); }
+                return m.length ? '[' + m.join('+') + ']' : '[]';
+            };
+            var _short = function (el) {
+                if (!el || el.nodeType !== 1) { return String(el); }
+                var cls = (el.className && String(el.className).split(/\s+/)[0]) || '';
+                return el.tagName.toLowerCase() + (cls ? '.' + cls : '');
+            };
+            document.addEventListener('keydown', function (e) {
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.altKey
+                    && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    _selTracePush('trace', _selTraceToggle() ? 'overlay ON' : 'overlay OFF');
+                    return;
+                }
+                if (selectedNodeIds.size > 0 || _selTraceEl) {
+                    _selTracePush('keydown', "'" + e.key + "' " + _mods(e) + ' on ' + _short(document.activeElement));
+                }
+            }, true);
+            document.addEventListener('keyup', function (e) {
+                if (selectedNodeIds.size > 0 || _selTraceEl) {
+                    _selTracePush('keyup', "'" + e.key + "' " + _mods(e));
+                }
+            }, true);
+            document.addEventListener('mousedown', function (e) {
+                if (selectedNodeIds.size > 0 || _selTraceEl) {
+                    _selTracePush('mousedown', 'btn=' + e.button + ' ' + _mods(e) + ' on ' + _short(e.target));
+                }
+            }, true);
+            window.addEventListener('blur', function () {
+                if (selectedNodeIds.size > 0 || _selTraceEl) { _selTracePush('window', 'blur'); }
+            });
+            window.addEventListener('focus', function () {
+                if (selectedNodeIds.size > 0 || _selTraceEl) { _selTracePush('window', 'focus'); }
+            });
+            document.addEventListener('visibilitychange', function () {
+                if (selectedNodeIds.size > 0 || _selTraceEl) {
+                    _selTracePush('document', document.hidden ? 'hidden' : 'visible');
+                }
+            });
+            // テスト / 実機調査用のフック（overlay を開かなくても中身が読める）
+            window.__fractalSelTrace = {
+                get: function () { return _selTrace.slice(); },
+                clear: function () { _selTrace.length = 0; _selTraceRender(); },
+                toggleOverlay: function () { return _selTraceToggle(); },
+                selectedIds: function () { var a = []; selectedNodeIds.forEach(function (i) { a.push(i); }); return a; }
+            };
+        }
 
         // v0.207.32: cursor 行 highlight - cell に focus 入った時に row 全体を is-focused にする
         // outline 列以外 (text / multiselect / date / datetime) からも setFocusedNode を呼ぶ
@@ -1401,10 +1530,38 @@ var Outliner = (function() {
         return isFilesDragEvent(e) || isVscodeUriDragEvent(e);
     }
 
+    /** 2026-09-05 R28: linkedfd（folder view）の entry drag（payload = linkedfd 面の dragstart が積む `x-fractal-folderview-entry`） */
+    function isFolderViewEntryDragEvent(e) {
+        return !!(e && e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('application/x-fractal-folderview-entry') >= 0);
+    }
+
+    /**
+     * 2026-09-05 R28: linkedfd の entry（file / dir・複数可）→ outliner 面の drop 位置へ。
+     * 「Outliner に送る」と同一経路（host `sendFolderViewToOutliner`。closure 抑止・件数ゲート・随伴転送）で、
+     * outFileId は null（= 開いている .out）、targetNodeId / position で drop 位置に入る（host は importFolderResult + position を返す）。
+     * bridge は同一 document の notesHostBridge（notes 面限定。standalone .out に linkedfd は無い）。
+     */
+    function handleFolderViewEntriesDrop(e, targetNodeId, position) {
+        var raw = '';
+        try { raw = e.dataTransfer.getData('application/x-fractal-folderview-entry') || ''; } catch (err) { raw = ''; }
+        if (!raw) { return; }
+        var payload = null;
+        try { payload = JSON.parse(raw); } catch (err) { return; }
+        var items = (window.__batchPayload && typeof window.__batchPayload.extractBatchItems === 'function')
+            ? window.__batchPayload.extractBatchItems(payload) : [payload];
+        var linkId = payload.folderLinkId || (items[0] && items[0].folderLinkId);
+        var rels = [];
+        for (var i = 0; i < items.length; i++) { if (items[i] && items[i].relPath !== undefined) { rels.push(items[i].relPath); } }
+        var nb = window.notesHostBridge;
+        if (!linkId || rels.length === 0 || !nb || typeof nb.sendFolderViewToOutliner !== 'function') { return; }
+        nb.sendFolderViewToOutliner(linkId, rels, null, targetNodeId, position);
+    }
+
     /** FR-B08 (sprint 20260804-145603): Notes ファイルツリーの md item ドラッグ
      *  （notes-file-panel.js dragstart が application/x-fractal-tree-md を setData）。
      *  drop 受理は notesImportMdIntoOut（既存 v0.207.77 経路 = h1→node text・page 添付・
      *  ツリーから md エントリ除去）へ委譲する。 */
+
     var TREE_MD_MIME = 'application/x-fractal-tree-md';
     function isTreeMdDragEvent(e) {
         return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf(TREE_MD_MIME) >= 0);
@@ -1415,15 +1572,29 @@ var Outliner = (function() {
         if (!raw) return;
         var payload = null;
         try { payload = JSON.parse(raw); } catch (err) { return; }
-        if (!payload || !payload.id) return;
+        // FR-MSEL-04 (§4-1): 複数選択（`{v:1,items:[…]}`）と単一（`{id}`）の両方を読む
+        var mdIds = window.__batchPayload.extractBatchIds(payload);
+        if (mdIds.length === 0) return;
         var notesBridgeForMd = window.notesHostBridge;
         var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
             ? notesFilePanel.getCurrentOutFileId() : null;
         if (!notesBridgeForMd || !notesBridgeForMd.notesImportMdIntoOut || !outFileId) return;
-        if (payload.id === outFileId) return; // 自分自身へは無意味
         // FR-TF-14 (§4i(3) 2026-08-10): drop 位置（補助線の位置）を渡す。省略時は host 側が
         // 従来どおり rootIds 先頭 unshift（後方互換 — tree 内 md→out item の中央 50% 経路）。
-        notesBridgeForMd.notesImportMdIntoOut(payload.id, outFileId, targetNodeId || null, position || null);
+        // 複数は **選択順に平らな兄弟 node ×N**（まとめ役 node を作らない = FR-MSEL-04 の裁定）。
+        //
+        // 🔴 NFR-MSEL-02 (TASK-35): 複数は **配列 bridge を 1 回**呼ぶ。ここで N 回ループすると
+        // host 側の件数ゲート（checkBatchLimit）を構造的に迂回する（reviewer iteration 2 SEC-3）。
+        // outliner 宛ては host が 1 件ごとに .out 全体を read→parse→write するので N 件で O(N²) I/O。
+        var mdTargets = mdIds.filter(function(id) { return id !== outFileId; }); // 自分自身へは無意味
+        if (mdTargets.length === 0) return;
+        if (mdTargets.length === 1) {
+            notesBridgeForMd.notesImportMdIntoOut(mdTargets[0], outFileId, targetNodeId || null, position || null);
+            return;
+        }
+        if (typeof notesBridgeForMd.notesImportMdIntoOutBatch === 'function') {
+            notesBridgeForMd.notesImportMdIntoOutBatch(mdTargets, outFileId, targetNodeId || null, position || null);
+        }
     }
 
     /** FR-TF-05a (sprint 20260809-031217, §4d :92): Notes ファイルツリーの file item ドラッグ
@@ -1441,13 +1612,51 @@ var Outliner = (function() {
         if (!raw) return;
         var payload = null;
         try { payload = JSON.parse(raw); } catch (err) { return; }
-        if (!payload || !payload.id) return;
+        // FR-MSEL-04 (§4-1): 複数選択と単一の両方を読む
+        var fileIds = window.__batchPayload.extractBatchIds(payload);
+        if (fileIds.length === 0) return;
         var notesBridgeForFile = window.notesHostBridge;
         var outFileId = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
             ? notesFilePanel.getCurrentOutFileId() : null;
         if (!notesBridgeForFile || !notesBridgeForFile.notesImportTreeFileAtPosition || !outFileId) return;
-        notesBridgeForFile.notesImportTreeFileAtPosition(
-            payload.id, outFileId, targetNodeId || null, position || null);
+        // 🔴 NFR-MSEL-02 (TASK-35): 複数は配列 bridge を 1 回（件数ゲートは host 側）
+        if (fileIds.length === 1) {
+            notesBridgeForFile.notesImportTreeFileAtPosition(
+                fileIds[0], outFileId, targetNodeId || null, position || null);
+            return;
+        }
+        if (typeof notesBridgeForFile.notesImportTreeFileAtPositionBatch === 'function') {
+            notesBridgeForFile.notesImportTreeFileAtPositionBatch(
+                fileIds, outFileId, targetNodeId || null, position || null);
+        }
+    }
+
+    /**
+     * §4-2 rev2（TASK-45 / FR-MSEL-04 rev2）: note ツリーの**種別混在**選択（tree-md + tree-file が同じ
+     * DataTransfer に載る）を受ける。両 payload を**同期で**読み（await を挟むと drag data store が
+     * read-only mode を失う = NFR-NDA-03）、送り手が付けた `seq` で 1 本に結合して
+     * **結合 bridge `notesImportTreeItemsBatch` を 1 回**呼ぶ。
+     *   - 件数ゲート（NFR-MSEL-02）が **合計**に対して 1 回効く（per-kind 2 回だと 150 + 150 が素通り）
+     *   - 選択順が種別を跨いで保たれる（md 群 → file 群 に分かれない）
+     * 単一種別の複数選択は従来の per-kind batch（handleTreeMdDrop / handleTreeFileDrop）のまま。
+     */
+    function handleTreeItemsMixedDrop(e, targetNodeId, position) {
+        var rawMd = '', rawFile = '';
+        try { rawMd = e.dataTransfer.getData(TREE_MD_MIME) || ''; } catch (err) { /* ignore */ }
+        try { rawFile = e.dataTransfer.getData(TREE_FILE_MIME) || ''; } catch (err) { /* ignore */ }
+        var pMd = null, pFile = null;
+        try { pMd = rawMd ? JSON.parse(rawMd) : null; } catch (err) { pMd = null; }
+        try { pFile = rawFile ? JSON.parse(rawFile) : null; } catch (err) { pFile = null; }
+        var notesBridgeMixed = window.notesHostBridge;
+        var outFileIdMixed = (typeof notesFilePanel !== 'undefined' && notesFilePanel.getCurrentOutFileId)
+            ? notesFilePanel.getCurrentOutFileId() : null;
+        if (!notesBridgeMixed || typeof notesBridgeMixed.notesImportTreeItemsBatch !== 'function' || !outFileIdMixed) return;
+        var items = window.__batchPayload.mergeTreeItemsBySeq(
+            window.__batchPayload.extractBatchItems(pMd),
+            window.__batchPayload.extractBatchItems(pFile)
+        ).filter(function(it) { return !(it.kind === 'md' && it.id === outFileIdMixed); }); // 自分自身へは無意味
+        if (items.length === 0) return;
+        notesBridgeMixed.notesImportTreeItemsBatch(items, outFileIdMixed, targetNodeId || null, position || null);
     }
 
     /** FR-TF-20 (§4n 2026-08-10 再オープン⑤): md editor 内の 📎 file リンク / subpage リンクの
@@ -1540,11 +1749,13 @@ var Outliner = (function() {
         var streamTotal = 0;
 
         // 1. Triage items
+        var dirEntries = [];      // 2026-09-05 FR-DFI-01: フォルダは Import folder 経路（中身を読んで host へ）
         for (var i = 0; i < dt.items.length; i++) {
             var item = dt.items[i];
             var entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
             if (entry && entry.isDirectory) {
-                rejectedFolders.push(entry.name);
+                if (typeof host.dropFolderEntriesImport === 'function') { dirEntries.push(entry); }
+                else { rejectedFolders.push(entry.name); }   // 旧 host（未対応）は従来どおり通知
                 continue;
             }
             var file = item.getAsFile();
@@ -1573,6 +1784,17 @@ var Outliner = (function() {
 
         if (rejectedFolders.length > 0) {
             host.notifyDropFolderRejected(rejectedFolders);
+        }
+        // 2026-09-05 FR-DFI-01: フォルダ → FileSystem API で再帰読み取り → host が tmp に実体化して Import folder 経路へ
+        //（closure 抑止 / 件数ゲート / 随伴転送は host 側の runSendToOutliner が担う）。フォルダごとに 1 message。
+        for (var di = 0; di < dirEntries.length; di++) {
+            try {
+                var folderPayload = await readDirectoryEntryFiles(dirEntries[di]);
+                if (folderPayload) { host.dropFolderEntriesImport(folderPayload, targetNodeId, position); }
+            } catch (dirErr) {
+                console.warn('Failed to read dropped folder:', dirEntries[di] && dirEntries[di].name, dirErr);
+                host.notifyDropFolderRejected([dirEntries[di] && dirEntries[di].name]);
+            }
         }
         if (bufferedItems.length === 0 && streamItems.length === 0) return;
 
@@ -1740,6 +1962,60 @@ var Outliner = (function() {
     }
 
     /**
+     * 2026-09-05 FR-DFI-01: Finder から drop されたフォルダ（DirectoryEntry）を FileSystem API で再帰読み取りし、
+     * host へ渡す payload `{ name, files: [{ relPath, kind, content | dataUrl | bytesBase64 }] }` を作る。
+     * webview sandbox では実パスが取れないため中身を運ぶ（host が tmp に実体化 → Import folder と同じ経路）。
+     * 50MB 超のファイルは skip して通知（既存 FR-T01 の buffered 境界と同じ）。
+     */
+    function readDirectoryEntryFiles(dirEntry) {
+        var FOLDER_FILE_CAP = 50 * 1024 * 1024;
+        var files = [];
+        function readAll(reader) {
+            return new Promise(function(resolve, reject) {
+                var acc = [];
+                (function step() {
+                    reader.readEntries(function(batch) {
+                        if (!batch || batch.length === 0) { resolve(acc); return; }
+                        acc = acc.concat(Array.prototype.slice.call(batch));
+                        step();   // readEntries は 100 件ずつ返るので空になるまで回す
+                    }, reject);
+                })();
+            });
+        }
+        function fileOf(fileEntry) {
+            return new Promise(function(resolve, reject) { fileEntry.file(resolve, reject); });
+        }
+        function walk(entry, rel) {
+            if (entry.isDirectory) {
+                return readAll(entry.createReader()).then(function(children) {
+                    var chain = Promise.resolve();
+                    children.forEach(function(c) {
+                        chain = chain.then(function() { return walk(c, rel ? rel + '/' + c.name : c.name); });
+                    });
+                    return chain;
+                });
+            }
+            return fileOf(entry).then(function(file) {
+                if (file.size > FOLDER_FILE_CAP) {
+                    if (typeof host.notifyDropFileTooLarge === 'function') { host.notifyDropFileTooLarge(rel + ' (>50MB, skipped in folder drop)'); }
+                    return;
+                }
+                var kind = classifyDroppedFile(file);
+                return readFileByKind(file, kind).then(function(content) {
+                    var rec = { relPath: rel, kind: kind };
+                    if (kind === 'md') { rec.content = content.content; }
+                    else if (kind === 'image') { rec.dataUrl = content.dataUrl; }
+                    else { rec.bytesBase64 = arrayBufferToBase64(content.bytes.buffer || content.bytes); }
+                    files.push(rec);
+                });
+            });
+        }
+        return walk(dirEntry, '').then(function() { return { name: dirEntry.name, files: files }; });
+    }
+    // テスト seam: 合成 DirectoryEntry を渡して payload を検証できるよう公開
+    window.__outlinerReadDirectoryEntry = readDirectoryEntryFiles;
+
+    /**
      * Handle VSCode Explorer D&D drop event (v12 拡張)
      * Unlike Finder path, this sends URIs directly to host without FileReader.
      * No 50MB limit (webview memory not involved).
@@ -1873,6 +2149,12 @@ var Outliner = (function() {
     // --- レンダリング ---
 
     function renderTree() {
+        // 消えた node の選択 id を落とす（再描画で `.is-selected` を付け直すため、stale id を残さない）
+        if (selectedNodeIds && selectedNodeIds.size > 0 && model) {
+            var _pruned = [];
+            selectedNodeIds.forEach(function (sid) { if (!model.getNode(sid)) { _pruned.push(sid); selectedNodeIds.delete(sid); } });
+            if (_pruned.length > 0) { _selTracePush('prune', '(renderTree: model に無い id) ' + _pruned.join(',')); }
+        }
         treeEl.innerHTML = '';
         // Phase F2.1: data-view-mode 属性を treeEl に反映 (CSS / 列ヘッダー描画判定で使用)
         treeEl.dataset.viewMode = VIEW_MODE;
@@ -1913,6 +2195,8 @@ var Outliner = (function() {
                     isMdSubpageDrag: function (e) { return isMdSubpageDragEvent(e); },
                     handleTreeMdDrop: function (e, targetNodeId, position) { return handleTreeMdDrop(e, targetNodeId, position); },
                     handleTreeFileDrop: function (e, targetNodeId, position) { return handleTreeFileDrop(e, targetNodeId, position); },
+                    // §4-2 rev2（TASK-45）: 種別混在の結合 drop（mindmap 面も同じ 1 回の結合 bridge へ）
+                    handleTreeItemsMixedDrop: function (e, targetNodeId, position) { return handleTreeItemsMixedDrop(e, targetNodeId, position); },
                     handleMdFileLinkDrop: function (e, targetNodeId, position) { return handleMdFileLinkDrop(e, targetNodeId, position); },
                     handleMdSubpageDrop: function (e, targetNodeId, position) { return handleMdSubpageDrop(e, targetNodeId, position); },
                     // FR-MMC (sprint 20260812-110538, ADRL-0056): mindmap の cmd+c/x/v は
@@ -3231,6 +3515,9 @@ var Outliner = (function() {
         }
 
         document.body.appendChild(menu);
+        // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+        // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+        window.__menuPlacement.place(menu, { x: e.clientX, y: e.clientY });
         function outside(ev) {
             if (!menu.contains(ev.target)) {
                 if (menu.parentNode) menu.parentNode.removeChild(menu);
@@ -3525,6 +3812,12 @@ var Outliner = (function() {
         if (focusedNodeId === node.id) {
             el.classList.add('is-focused');
         }
+        // 2026-09-04（ユーザー実機 rc.4）: 再描画で選択ハイライトを落とさない。selectedNodeIds は残るのに
+        // `.is-selected` は付け直されず、host の updateData 等で renderTree が走ると cmd+click の選択が
+        // 見えなくなっていた（table cell 側 :2506 は既に付け直していた = 面差）。
+        if (selectedNodeIds && selectedNodeIds.has(node.id)) {
+            el.classList.add('is-selected');
+        }
         // 直接マッチしたノードのみハイライト
         if (searchQuery && currentSearchResult && searchEngine._matches(node.id, searchQuery)) {
             el.classList.add('is-search-match');
@@ -3578,19 +3871,20 @@ var Outliner = (function() {
             // 'copyMove' にしないと dropEffect 不一致で drop がキャンセルされる
             e.dataTransfer.effectAllowed = 'copyMove';
             e.dataTransfer.setData('text/plain', node.id);
-            // 2026-08-05: page-node → Notes tree の MIME（Feature B）は bullet から
-            // 📄 ページアイコンの dragstart へ移動（md editor の subpage アイコン D&D と同 UX）。
-            // bullet はノード並べ替え + subtree 移動（下記）専用。
+            // 2026-08-05 の「bullet はノード並べ替え + subtree 移動専用」という分離は
+            // **ADRL-0107（sprint 20260901-075849）で撤廃した**（FR-NDA-01）。
+            // bullet drag でも node 自身の添付（md page / file / 直付き画像）を運ぶ:
+            // 小さなアイコンを狙わないと添付を動かせないのが不便というユーザー要望。
+            // 意味論は **drop 先で決まる**（note ツリー = 添付優先 / outliner 内 = subtree 優先）ので、
+            // 送り手は subtree payload と添付 payload の**両方を常に積む**。
             // node-move-to-other-outliner: notes モードなら全 node（page 有無問わず）で
             // サブツリー移動用 MIME を載せる。実体は host が src .out（flush 済み disk）から解決（案B）。
-            if (isNotesMode()) {
-                try {
-                    var subtreePayload = JSON.stringify({
-                        outFileKey: currentOutFileKey,
-                        nodeId: node.id,
-                    });
-                    e.dataTransfer.setData('application/x-fractal-out-node-subtree', subtreePayload);
-                } catch (err) { /* ignore */ }
+            // FR-MMD-01（裁定 R36）: subtree payload（複数選択なら nodeIds 併載）と
+            // 添付 payload（FR-NDA-01/03 / ADRL-0107: node 自身のみ・子孫は含めない）を
+            // mindmap の node box drag と**同じ関数**で作る。
+            var dragPayloads = buildNodeDragPayloads(node);
+            for (var dpi = 0; dpi < dragPayloads.length; dpi++) {
+                try { e.dataTransfer.setData(dragPayloads[dpi].mime, dragPayloads[dpi].data); } catch (err) { /* ignore */ }
             }
         });
         bulletEl.addEventListener('dragend', function() {
@@ -3656,6 +3950,8 @@ var Outliner = (function() {
                             title: node.text || '',
                         }));
                     } catch (err) { /* ignore */ }
+                    // 2026-09-04: 複数選択中の icon drag は選択集合全体の添付も運ぶ（受け手は添付 payload を最優先）
+                    setMultiSelectAssetsPayload(e, node);
                 });
                 pageIcon.addEventListener('dragend', function() {
                     removeDropIndicator();
@@ -3691,6 +3987,8 @@ var Outliner = (function() {
                             nodeId: node.id,
                         }));
                     } catch (err) { /* ignore */ }
+                    // 2026-09-04: 複数選択中の icon drag は選択集合全体の添付も運ぶ（受け手は添付 payload を最優先）
+                    setMultiSelectAssetsPayload(e, node);
                     // §4h: one-shot drag-session state（bullet の is-dragging と対称）。dragend で必ず clear。
                     fileIcon.classList.add('outliner-file-icon-dragging');
                 });
@@ -3749,6 +4047,16 @@ var Outliner = (function() {
                     return;
                 }
             }
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.button === 0) {
+                // Cmd/Ctrl+Click: 単品トグル選択（2026-09-04 ユーザー裁定 — note tree / linkedfd と同型・ADRL-0111）。
+                // 編集フォーカスは動かさない（preventDefault で caret 移動を止める）。anchor はトグルした node へ。
+                // 注: 通常はここへ来ない — FR-MSC-01 で treeEl の capture mousedown が先に
+                // 同じトグルを行い stopPropagation する（行のどこでも効かせるため）。
+                // ここは treeEl 経路を通らない場合（旧経路 / 単体テスト）の fallback。
+                e.preventDefault();
+                toggleNodeSelection(node.id);
+                return;
+            }
             if (e.shiftKey && focusedNodeId && focusedNodeId !== node.id) {
                 // Shift+Click: 範囲選択
                 e.preventDefault();
@@ -3757,7 +4065,7 @@ var Outliner = (function() {
             } else if (!e.shiftKey) {
                 // 通常クリック: 選択クリア（右クリック時は選択を維持）
                 if (e.button !== 2 || selectedNodeIds.size === 0) {
-                    clearSelection();
+                    clearSelection('plain-mousedown-on-text');
                 }
             }
         });
@@ -3906,7 +4214,7 @@ var Outliner = (function() {
                 return;
             }
             // Files D&D (Finder or VSCode Explorer) has priority
-            if (isAnyFilesDragEvent(e)) {
+            if (isAnyFilesDragEvent(e) || isFolderViewEntryDragEvent(e)) {   // 2026-09-05 R28: linkedfd entry も同じ位置 UX
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 var rect = el.getBoundingClientRect();
@@ -4269,10 +4577,83 @@ var Outliner = (function() {
         toggleRowCellsClass(nodeId, 'is-focused', true);
     }
 
+    // --- 選択トレース（FR-MSC-02 / 裁定 R31・sprint 20260901-075849）---
+    //
+    // 「cmd を離すと複数選択が解除される」というユーザー報告の**機序を実機で特定**するための
+    // 常時リング bufferとオーバーレイ。webview 内のどのコードが選択を落としたかを理由付きで残す。
+    // 表示トグルは Cmd/Ctrl+Shift+Alt+S（既定は非表示。通常運用では見えない）。
+    // 選択が空のときは keydown / keyup / mousedown を記録しない（常時 log の負荷を避ける）。
+    var _selTrace = [];
+    var _selTraceEl = null;
+    var SEL_TRACE_MAX = 60;
+
+    function _selTracePush(kind, detail) {
+        _selTrace.push({
+            t: Date.now(),
+            kind: kind,
+            detail: detail === undefined ? '' : String(detail),
+            n: selectedNodeIds ? selectedNodeIds.size : -1
+        });
+        if (_selTrace.length > SEL_TRACE_MAX) { _selTrace.splice(0, _selTrace.length - SEL_TRACE_MAX); }
+        _selTraceRender();
+    }
+
+    function _selTraceLine(rec) {
+        var d = new Date(rec.t);
+        var hh = String(d.getHours()).padStart(2, '0');
+        var mm = String(d.getMinutes()).padStart(2, '0');
+        var ss = String(d.getSeconds()).padStart(2, '0');
+        var ms = String(d.getMilliseconds()).padStart(3, '0');
+        return hh + ':' + mm + ':' + ss + '.' + ms + '  ' + rec.kind +
+            (rec.detail ? ' ' + rec.detail : '') + '  → n=' + rec.n;
+    }
+
+    function _selTraceRender() {
+        if (!_selTraceEl) { return; }
+        var lines = _selTrace.slice(-14).map(_selTraceLine);
+        _selTraceEl.textContent = 'selection trace (Cmd+Shift+Alt+S で閉じる)\n' + lines.join('\n');
+    }
+
+    function _selTraceToggle() {
+        if (_selTraceEl) {
+            if (_selTraceEl.parentNode) { _selTraceEl.parentNode.removeChild(_selTraceEl); }
+            _selTraceEl = null;
+            return false;
+        }
+        _selTraceEl = document.createElement('pre');
+        _selTraceEl.id = 'fr-sel-trace';
+        _selTraceEl.style.cssText = 'position:fixed;top:4px;right:4px;z-index:99999;margin:0;padding:6px 8px;' +
+            'max-width:52ch;max-height:60vh;overflow:hidden;pointer-events:none;' +
+            'font:10px/1.35 var(--vscode-editor-font-family, monospace);white-space:pre;' +
+            'background:rgba(0,0,0,0.78);color:#8ef;border:1px solid #8ef;border-radius:4px;';
+        (document.body || document.documentElement).appendChild(_selTraceEl);
+        _selTraceRender();
+        return true;
+    }
+
+    // 文字も移動も生まない key（修飾キー単独 / lock / IME モード切替 / dead key）。
+    // これらの keydown で複数選択を落とすと「cmd を離した / 英数キーを叩いた瞬間に選択が消える」に見える。
+    var NON_TEXT_KEYS = {
+        Meta: 1, Control: 1, Shift: 1, Alt: 1, AltGraph: 1, Super: 1, Hyper: 1, Symbol: 1, SymbolLock: 1,
+        CapsLock: 1, Fn: 1, FnLock: 1, NumLock: 1, ScrollLock: 1,
+        Dead: 1, Process: 1, Unidentified: 1,
+        Eisu: 1, Alphanumeric: 1, KanaMode: 1, Hiragana: 1, Katakana: 1, HiraganaKatakana: 1,
+        Romaji: 1, Convert: 1, NonConvert: 1, Zenkaku: 1, Hankaku: 1, ZenkakuHankaku: 1,
+        Accept: 1, ModeChange: 1, GroupNext: 1, GroupPrevious: 1
+    };
+
+    /** 修飾キー / IME モードキー / lock キーの keydown か（= 選択を落としてはいけない key） */
+    function isNonTextKeyEvent(e) {
+        if (!e) { return false; }
+        if (e.isComposing) { return true; }
+        return !!NON_TEXT_KEYS[e.key];
+    }
+
     // --- 複数ノード選択管理 ---
 
-    /** 選択をクリアしてDOM反映 */
-    function clearSelection() {
+    /** 選択をクリアしてDOM反映（reason = 選択トレースに残す契機のラベル） */
+    function clearSelection(reason) {
+        if (selectedNodeIds.size > 0) { _selTracePush('clear', '(' + (reason || 'unknown') + ') ids=' + selectedNodeIds.size); }
         selectedNodeIds.forEach(function(id) {
             var el = treeEl.querySelector('.outliner-node[data-id="' + id + '"]');
             if (el) { el.classList.remove('is-selected'); }
@@ -4283,7 +4664,8 @@ var Outliner = (function() {
     }
 
     /** DOMの選択ハイライトだけクリア (anchorはリセットしない) */
-    function clearSelectionVisual() {
+    function clearSelectionVisual(reason) {
+        if (selectedNodeIds.size > 0) { _selTracePush('clearVisual', '(' + (reason || 'unknown') + ') ids=' + selectedNodeIds.size); }
         selectedNodeIds.forEach(function(id) {
             var el = treeEl.querySelector('.outliner-node[data-id="' + id + '"]');
             if (el) { el.classList.remove('is-selected'); }
@@ -4292,9 +4674,32 @@ var Outliner = (function() {
         selectedNodeIds.clear();
     }
 
+    /**
+     * Cmd/Ctrl+Click の単品トグル（2026-09-04・ADRL-0111）。選択に無ければ加算 / あれば除外。
+     * anchor はこの node へ移す（直後の Shift+Click はここを起点に範囲を取る）。
+     * テキスト範囲選択は捨てる（selectRange と同じ理由 — 残ると cmd+c がブラウザ標準に奪われる）。
+     */
+    function toggleNodeSelection(nodeId) {
+        if (!nodeId || !model.getNode(nodeId)) { return; }
+        var winSel = window.getSelection();
+        if (winSel && winSel.rangeCount > 0 && !winSel.isCollapsed) { winSel.removeAllRanges(); }
+        var el = treeEl.querySelector('.outliner-node[data-id="' + nodeId + '"]');
+        if (selectedNodeIds.has(nodeId)) {
+            selectedNodeIds.delete(nodeId);
+            if (el) { el.classList.remove('is-selected'); }
+            toggleRowCellsClass(nodeId, 'is-selected', false);
+        } else {
+            selectedNodeIds.add(nodeId);
+            if (el) { el.classList.add('is-selected'); }
+            toggleRowCellsClass(nodeId, 'is-selected', true);
+        }
+        selectionAnchorId = nodeId;
+        _selTracePush('toggle', nodeId);
+    }
+
     /** 指定範囲のノードを選択 (fromId〜toId の表示順) */
     function selectRange(fromId, toId) {
-        clearSelectionVisual();  // anchorを維持したままビジュアルだけクリア
+        clearSelectionVisual('selectRange');  // anchorを維持したままビジュアルだけクリア
         // Bug 5 fix: 複数行選択モードに入る時点で contenteditable のテキスト範囲選択を解除する。
         // (テキスト範囲が残ったまま cmd+c するとブラウザ標準が走り選択テキストだけコピー
         // されてしまい、本来コピーされるべき複数ノードが clipboard に入らない症状を防ぐ)
@@ -4314,6 +4719,7 @@ var Outliner = (function() {
             if (el) { el.classList.add('is-selected'); }
             toggleRowCellsClass(flat[i], 'is-selected', true);
         }
+        _selTracePush('selectRange', fromId + '..' + toId);
     }
 
     /**
@@ -4520,7 +4926,7 @@ var Outliner = (function() {
                 model.removeNode(flat[j]);
             }
         }
-        clearSelection();
+        clearSelection('delete-selected-nodes');
         // スコープ対象ノードが削除された場合、ドキュメントスコープに戻す
         if (currentScope.type === 'subtree' && !model.getNode(currentScope.rootId)) {
             setScope({ type: 'document' });
@@ -4624,7 +5030,7 @@ var Outliner = (function() {
             for (var di = flat.length - 1; di >= 0; di--) {
                 if (selectedNodeIds.has(flat[di])) { model.removeNode(flat[di]); }
             }
-            clearSelection();
+            clearSelection('paste-replaces-selection');
             pasteNodesFromText(clipText, insertParentId, insertAfter, clipNodes, isCutPaste, clipSourceKey);
             return;
         }
@@ -5057,9 +5463,17 @@ var Outliner = (function() {
 
         // 選択状態でShift/Ctrl/Meta以外のキーが押されたら選択をクリア
         // (ただし Shift+Arrow, Cmd+C/X/V/A, Backspace/Delete は除く)
+        //
+        // FR-MSC-02（裁定 R31）: **修飾キー / IME モードキー / lock キーの keydown では落とさない**。
+        // 従来は `!e.metaKey` の判定だけだったため、修飾キー自身の keydown が「押下フラグ無し」で
+        // 届くケース（Electron/webview で focus 変化を挟むと Meta の keydown が metaKey=false で来る）
+        // や、Option / CapsLock / 英数・かな（IME モード切替）を叩いた瞬間に複数選択が消えていた。
+        // = ユーザー報告「cmd を離すと複数選択が解除される」の候補機序。文字も移動も生まない key は
+        // 選択に触らない（実際に文字が入るのは keydown 後の input で、そこは既存経路が扱う）。
         if (selectedNodeIds.size > 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey
+            && !isNonTextKeyEvent(e)
             && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') {
-            clearSelection();
+            clearSelection('keydown:' + e.key);
         }
 
         switch (e.key) {
@@ -5337,7 +5751,7 @@ var Outliner = (function() {
                     }
                 } else {
                     e.preventDefault();
-                    clearSelection();
+                    clearSelection('ArrowUp');
                     var prevEl2 = getDomPrevNodeEl(textEl);
                     if (prevEl2) { focusNodeEl(prevEl2); }
                 }
@@ -5372,7 +5786,7 @@ var Outliner = (function() {
                     }
                 } else {
                     e.preventDefault();
-                    clearSelection();
+                    clearSelection('ArrowDown');
                     var nextEl2 = getDomNextNodeEl(textEl);
                     if (nextEl2) { focusNodeEl(nextEl2); }
                 }
@@ -7290,6 +7704,112 @@ var Outliner = (function() {
      *  Export folder が要る images / subtext を足した形。既存 buildLlmsTxtTree は llms.txt 用途で
      *  消費側があるため改変せず、別関数として置く（design §C1-b）。
      *  rootNodeId=null は outline 全体（root 群の配列）を返す。 */
+    /**
+     * node **自身**が持つ添付集合を返す（FR-NDA-01 / ADRL-0107）。
+     *
+     * - md page 添付（isPage + pageId）/ file 添付（filePath）/ 直付き画像（images）を
+     *   **併持していれば全部**入れる
+     * - **子孫は含まない**（ユーザー裁定 2026-09-01）
+     * - 🔴 各 kind の有無は**独立に**判定する。`!hasMd && !hasFile` のような
+     *   「他属性の不在」を条件に混ぜない（generator_failures 2026-08-29 の無音欠落クラス）
+     * - パスは note 相対（絶対パスを webview から渡さない = ADRL-0071 と整合）
+     */
+    function collectNodeAssets(node) {
+        var out = [];
+        if (!node) { return out; }
+        if (node.isPage && node.pageId) { out.push({ kind: 'page', pageId: node.pageId }); }
+        if (node.filePath) { out.push({ kind: 'file', filePath: node.filePath }); }
+        // 2026-09-04（ユーザー裁定 R22）: **直付き画像は D&D の転送対象外**（node に残す）。
+        // 旧 FR-NDA-01/03 は画像も運び、tree 側は files/ へ複製していた（§2-5）— note 内の「移動」で
+        // 実体が 2 つになる唯一の経路だったため、仕様として画像を外した。
+        return out;
+    }
+
+    // 受け手（note ツリー）が使えるよう公開する（4 層配線の webview 側）
+    window.__outlinerCollectNodeAssets = collectNodeAssets;
+
+    /**
+     * バレット / page アイコン / file アイコンの dragstart が積む添付 payload（`application/x-fractal-out-node-assets`）。
+     *
+     * 2026-09-04（ユーザー実機 rc.4 / rc.6）: **複数選択中に選択内の node を drag したら選択集合全体**の添付を運ぶ
+     *（旧: drag した 1 node の添付だけ → note tree に 1 件しか移らなかった）。各 node の添付は node 自身のみ
+     *（子孫は含めない = ADRL-0107）。順序 = 表示順。payload は後方互換: `nodeId` / `assets` = drag した node、
+     * `items` = 選択集合。添付が 1 つも無ければ null（MIME を積まない）。
+     * 🔴 3 つの送り手で**同じ関数**を使う（バレットだけに実装して icon drag で 1 件しか移らなかった rc.5 の再発防止）。
+     */
+    function buildNodeAssetsPayload(node) {
+        if (!node) { return null; }
+        var assets = collectNodeAssets(node);
+        var multiItems = null;
+        if (selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)) {
+            multiItems = [];
+            var flatSel = model.getFlattenedIds(true);
+            for (var si = 0; si < flatSel.length; si++) {
+                if (!selectedNodeIds.has(flatSel[si])) { continue; }
+                var selAssets = collectNodeAssets(model.getNode(flatSel[si]));
+                if (selAssets.length > 0) { multiItems.push({ nodeId: flatSel[si], assets: selAssets }); }
+            }
+        }
+        if (assets.length === 0 && !(multiItems && multiItems.length > 0)) { return null; }
+        var payload = { v: 1, outFileKey: currentOutFileKey, nodeId: node.id, assets: assets };
+        if (multiItems && multiItems.length > 0) { payload.items = multiItems; }
+        return payload;
+    }
+
+    /**
+     * FR-MMD-01（2026-09-05 / 裁定 R36）: **node 1 個を掴んで note ツリーへ運ぶ D&D の payload 集合**を作る。
+     *
+     * バレット drag（outliner）と mindmap の node box drag が **この 1 関数**を共有する。
+     * 送り手を 2 実装に分けると「複数選択なのに 1 件しか移らない」面差が再発する
+     *（rc.5 = icon drag / rc.16 = 受け手条件 の 2 回やった。3 度目を構造的に防ぐ）。
+     *
+     * - `application/x-fractal-out-node-subtree`: subtree 移動用。複数選択中に選択内の node を掴んだら
+     *   `nodeIds` に選択集合の **root**（祖先包含の重複排除・表示順 = `selectionExportRoots()`）を載せる。
+     * - `application/x-fractal-out-node-assets`: node 自身の添付（md page / file）。無ければ積まない。
+     *
+     * notes モード以外は空配列（payload の `outFileKey` が cross 解決の前提）。
+     *
+     * @returns {Array<{mime:string, data:string}>}
+     */
+    function buildNodeDragPayloads(node) {
+        var out = [];
+        if (!node || !isNotesMode()) { return out; }
+        try {
+            var subtreeObj = { outFileKey: currentOutFileKey, nodeId: node.id };
+            if (selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)) {
+                var subtreeRoots = selectionExportRoots();
+                if (subtreeRoots.length > 1) { subtreeObj.nodeIds = subtreeRoots; }
+            }
+            out.push({ mime: 'application/x-fractal-out-node-subtree', data: JSON.stringify(subtreeObj) });
+        } catch (err) { /* ignore */ }
+        try {
+            var assetsPayload = buildNodeAssetsPayload(node);
+            if (assetsPayload) {
+                out.push({ mime: 'application/x-fractal-out-node-assets', data: JSON.stringify(assetsPayload) });
+            }
+        } catch (err2) { /* ignore */ }
+        return out;
+    }
+
+    // 受け手ではなく **もう 1 つの送り手**（mindmap-render.js）が使うため公開する
+    window.__outlinerBuildNodeDragPayloads = buildNodeDragPayloads;
+
+    // 裁定 R36 / FR-MMD-01: mindmap の node box を「外へ運ぶ」drag 用に draggable にするかの判定材料。
+    // mindmap の複数選択は outliner と同じ selectedNodeIds を共有しているので、判定はここに置く。
+    function isNodeMultiSelected(nodeId) {
+        return !!(nodeId && selectedNodeIds.size > 1 && selectedNodeIds.has(nodeId));
+    }
+    window.__outlinerIsNodeMultiSelected = isNodeMultiSelected;
+
+    /** icon drag（page / file）用: 複数選択中なら添付 payload も併載する（単一は従来の page/file MIME のみ）。 */
+    function setMultiSelectAssetsPayload(e, node) {
+        if (!(selectedNodeIds.size > 1 && selectedNodeIds.has(node.id))) { return; }
+        try {
+            var payload = buildNodeAssetsPayload(node);
+            if (payload) { e.dataTransfer.setData('application/x-fractal-out-node-assets', JSON.stringify(payload)); }
+        } catch (err) { /* ignore */ }
+    }
+
     function buildExportTree(rootNodeId) {
         function build(id) {
             var n = model.getNode(id);
@@ -7320,6 +7840,48 @@ var Outliner = (function() {
             return roots;
         }
         return build(rootNodeId);
+    }
+
+    /**
+     * FR-SND-03 (§6-2 段 1): 選択集合から **最上位の node のみ**を抽出する（祖先包含の重複排除）。
+     *
+     * 判定は既存パターン（`Tab` / `Shift+Tab` の選択ルート抽出）と同一:
+     * `!n.parentId || !selectedNodeIds.has(n.parentId)`。祖先と子孫を同時に選んだ場合、
+     * 子孫は祖先の subtree に含まれるので root から除く（= ADRL-0077 の重複排除規約）。
+     *
+     * 🔴 `expandSelectionWithDescendants()` は **逆方向**（子孫を足す）なので使わない。
+     *
+     * 順序は `model.getFlattenedIds(true)`（可視順）に従う — 新規の順序計算を書かない。
+     *
+     * @returns 最上位 node の id 配列（描画順）
+     */
+    function selectionExportRoots() {
+        var flat = model.getFlattenedIds(true);
+        var sorted = flat.filter(function(id) { return selectedNodeIds.has(id); });
+        var roots = [];
+        for (var i = 0; i < sorted.length; i++) {
+            var n = model.getNode(sorted[i]);
+            if (!n) { continue; }
+            if (!n.parentId || !selectedNodeIds.has(n.parentId)) { roots.push(sorted[i]); }
+        }
+        return roots;
+    }
+
+    /**
+     * FR-SND-03 (§6-2 段 2): 選択集合を `ExportNode[]` に変換する。
+     *
+     * 抽出した root **ごとに** `buildExportTree(rootId)` を呼んで配列化する
+     * （`buildExportTree(null)` は全 root を返すので選択を無視してしまう）。
+     * host 側の契約（`folder-export.ts` の `ExportNode[]`）は**変更なし**。
+     */
+    function buildExportTreeForSelection() {
+        var roots = selectionExportRoots();
+        var out = [];
+        for (var i = 0; i < roots.length; i++) {
+            var built = buildExportTree(roots[i]);
+            if (built) { out.push(built); }
+        }
+        return out;
     }
 
     function buildLlmsTxtTree(rootNodeId) {
@@ -7729,20 +8291,120 @@ var Outliner = (function() {
             var ncmTree = buildExportTree(model.getNode(nodeId) ? nodeId : null);
             host.exportOutlinerFolder(Array.isArray(ncmTree) ? ncmTree : [ncmTree]);
         });
+        // FR-SND-03/04 (§6-2/§6-3 / sprint 20260901-075849): 選択 node を linkedfd へ送る。
+        // 登録済み folder link をサブメニューで選ぶ（0 件 = disabled + 通知 / broken = 項目 disabled）。
+        addSendToLinkedfdItem(contextMenuEl, nodeId);
 
         document.body.appendChild(contextMenuEl);
 
-        var rect = contextMenuEl.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            contextMenuEl.style.left = (window.innerWidth - rect.width - 8) + 'px';
-        }
-        if (rect.bottom > window.innerHeight) {
-            contextMenuEl.style.top = (window.innerHeight - rect.height - 8) + 'px';
-        }
+        // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+        // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+        window.__menuPlacement.place(contextMenuEl, { x: x, y: y });
     }
 
     var isMacPlatform = navigator.platform.indexOf('Mac') !== -1;
     var modLabel = isMacPlatform ? 'Cmd' : 'Ctrl';
+
+    /** FR-SND-04: 開いているサブメニュー（body 直下・position:fixed）。one-shot で閉じる。 */
+    var sendToLinkedfdSubmenuEl = null;
+
+    function closeSendToLinkedfdSubmenu() {
+        if (sendToLinkedfdSubmenuEl && sendToLinkedfdSubmenuEl.parentNode) {
+            sendToLinkedfdSubmenuEl.parentNode.removeChild(sendToLinkedfdSubmenuEl);
+        }
+        sendToLinkedfdSubmenuEl = null;
+    }
+
+    /**
+     * FR-SND-03/04 (§6-2/§6-3): node 右クリック →「linkedfd に送る」+ folder link サブメニュー。
+     *
+     * 🔴 **サブメニューは親 menu の子孫 DOM に置かず `position:fixed` で body 直下に出す**
+     * （親の `overflow-y:auto`（FR-MFIT-03 の max-height）でクリップされるため — §6-3 の絶対条項）。
+     * 配置は本体メニューと同じ `__menuPlacement.place` に委譲する（viewport 収めを二重実装しない）。
+     *
+     * 対象 node は **選択集合の最上位のみ**（`selectionExportRoots`。祖先包含の重複排除）。
+     * 選択が無い / 右クリック node が選択外なら**その node 単体**を送る（ADRL-0029「選択集合優先」）。
+     */
+    function addSendToLinkedfdItem(parent, nodeId) {
+        // 一覧は同一 document の notesFilePanel が持つ structure から読む（bridge 往復を作らない）
+        var links = (typeof notesFilePanel !== 'undefined' && typeof notesFilePanel.getFolderLinks === 'function')
+            ? (notesFilePanel.getFolderLinks() || []) : [];
+        var label = i18n.sendToLinkedfdMenu || 'Send to linkedfd';
+
+        if (links.length === 0) {
+            // 0 件 = **見た目は disabled だが click で通知する**（無反応だと「壊れている」に見える）。
+            // ⚠️ addMenuItem(..., disabled=true) は handler を呼ばずに return するので使えない
+            // （`if (disabled) { e.stopPropagation(); return; }`）。disabled 引数は渡さず class だけ後付けする。
+            addMenuItem(parent, label, function() {
+                hideContextMenu();
+                var nb = window.notesHostBridge;
+                if (nb && typeof nb.notifyError === 'function') {
+                    nb.notifyError(i18n.sendToLinkedfdNoLinks || 'No linked folders. Add one from the notes tree first.');
+                }
+            }, '\u25B6');
+            var lastItem = parent.lastElementChild;
+            if (lastItem) { lastItem.classList.add('disabled'); }
+            return;
+        }
+
+        addMenuItem(parent, label, function(e) {
+            openSendToLinkedfdSubmenu(e, nodeId, links);
+        }, '\u25B6');
+    }
+
+    /** FR-SND-04: folder link サブメニューを開く（登録順・broken は disabled）。 */
+    function openSendToLinkedfdSubmenu(e, nodeId, links) {
+        closeSendToLinkedfdSubmenu();
+        var sub = document.createElement('div');
+        // 本体メニューと同じ class を使う（見た目・CSS・spec のセレクタを揃える）
+        sub.className = 'outliner-context-menu outliner-context-submenu';
+        sub.style.position = 'fixed';
+
+        for (var i = 0; i < links.length; i++) {
+            (function(link) {
+                var name = link.name || link.title || '';
+                addMenuItem(sub, '\uD83D\uDCC1 ' + name, function() {
+                    hideContextMenu();
+                    closeSendToLinkedfdSubmenu();
+                    sendSelectedNodesToFolderLink(nodeId, link.id);
+                }, null, !!link.broken);
+            })(links[i]);
+        }
+
+        // ★ 親 menu の子孫にせず body 直下（親の overflow でクリップされない）
+        document.body.appendChild(sub);
+        sendToLinkedfdSubmenuEl = sub;
+
+        // 親項目の右隣を起点に、viewport 収めは共有ヘルパへ委譲
+        var anchorRect = (e && e.currentTarget && e.currentTarget.getBoundingClientRect)
+            ? e.currentTarget.getBoundingClientRect() : null;
+        var at = anchorRect
+            ? { x: anchorRect.right, y: anchorRect.top }
+            : { x: (e && e.clientX) || 0, y: (e && e.clientY) || 0 };
+        window.__menuPlacement.place(sub, at);
+
+        setTimeout(function() {
+            document.addEventListener('click', closeSendToLinkedfdSubmenu, { once: true });
+        }, 0);
+    }
+
+    /**
+     * FR-SND-03 (§6-2): 選択集合（最上位のみ）を `ExportNode[]` にして folder link へ送る。
+     * 選択が無い / 右クリック node が選択外なら **その node 単体**（ADRL-0029）。
+     */
+    function sendSelectedNodesToFolderLink(nodeId, folderLinkId) {
+        var nb = window.notesHostBridge;
+        if (!nb || typeof nb.sendNodesToFolderLink !== 'function') { return; }
+        var trees;
+        if (selectedNodeIds.size > 0 && selectedNodeIds.has(nodeId)) {
+            trees = buildExportTreeForSelection();
+        } else {
+            var single = buildExportTree(model.getNode(nodeId) ? nodeId : null);
+            trees = Array.isArray(single) ? single : (single ? [single] : []);
+        }
+        if (trees.length === 0) { return; }
+        nb.sendNodesToFolderLink(trees, folderLinkId);
+    }
 
     function addMenuItem(parent, text, handler, shortcut, disabled) {
         var item = document.createElement('div');
@@ -7772,6 +8434,7 @@ var Outliner = (function() {
     }
 
     function hideContextMenu() {
+        closeSendToLinkedfdSubmenu();   // 片肺禁止: 本体を閉じたらサブメニューも閉じる
         if (contextMenuEl) {
             contextMenuEl.remove();
             contextMenuEl = null;
@@ -9070,36 +9733,139 @@ var Outliner = (function() {
      *  parentId=null は root 末尾になるため targetNodeId 無しもそのまま扱える。
      *  saveSnapshot は呼び出し側で 1 回だけ（undo 1 回で木ごと戻る — NFR-OIF-01）。
      *  戻り値 = 最後に作った node の id（focus 用・1 つも作らなければ null）。 */
+    /**
+     * FR-OIF-02 / FR-SND-01: import / send-to の entry から node の kind 属性を設定する。
+     *
+     * 🔴 **3 箇所で同じ 3 行を書かない**（reviewer iteration 2 QUAL2-1b）:
+     * `applyFolderImportResult` の `addEntries` / `applySendToOutlinerResult` の子再帰 /
+     * 同関数のトップレベルループが同一の代入をしていた（`diff` で byte 一致を実測）。
+     * 本 sprint は `menu-placement.js` / `batch-payload.js` の冒頭で「同型の字面コピーは
+     * 片方だけ fix が入って drift する」と 2 度警告しているので、その方針に揃える。
+     *
+     * `isPage` と `filePath` は**相互排他**（この関数が唯一の設定点なので破れない）。
+     */
+    function applyEntryKindToNode(node, entry) {
+        if (entry.kind === 'md') {
+            node.isPage = true;
+            node.pageId = entry.pageId;
+            node.filePath = null;
+        } else if (entry.kind === 'file') {
+            node.isPage = false;
+            node.pageId = null;
+            node.filePath = entry.filePath;
+        }
+        return node;
+    }
+
     function applyFolderImportResult(targetNodeId, entries) {
         var lastId = null;
         var targetNode = targetNodeId ? model.getNode(targetNodeId) : null;
         // 折りたたみ中の node に入れると取り込み結果が見えない（dropFilesResult の child 分岐と同方針）
         if (targetNode && targetNode.collapsed) { targetNode.collapsed = false; }
 
+        // 🔴 属性設定は共有 `applyEntryKindToNode` に寄せる（reviewer iteration 2 QUAL2-1b）
         var addEntries = function(parentId, list) {
             for (var i = 0; i < list.length; i++) {
                 var e = list[i];
                 if (!e || !e.kind) { continue; }
-                if (e.kind === 'dir') {
-                    var dirNode = model.addNode(parentId, null, e.name || '');
-                    lastId = dirNode.id;
-                    addEntries(dirNode.id, e.children || []);
-                } else if (e.kind === 'md') {
-                    var mdNode = model.addNode(parentId, null, String(e.name || '').replace(/\.md$/i, ''));
-                    mdNode.isPage = true;
-                    mdNode.pageId = e.pageId;
-                    mdNode.filePath = null;   // isPage と filePath は相互排他
-                    lastId = mdNode.id;
-                } else {
-                    var fileNode = model.addNode(parentId, null, e.name || '');
-                    fileNode.isPage = false;
-                    fileNode.pageId = null;
-                    fileNode.filePath = e.filePath;
-                    lastId = fileNode.id;
-                }
+                var text = (e.kind === 'md') ? String(e.name || '').replace(/\.md$/i, '') : (e.name || '');
+                var node = applyEntryKindToNode(model.addNode(parentId, null, text), e);
+                lastId = node.id;
+                if (e.kind === 'dir') { addEntries(node.id, e.children || []); }
             }
         };
         addEntries(targetNode ? targetNode.id : null, entries);
+        return lastId;
+    }
+
+    /**
+     * FR-SND-01/02 (§6-1 段 5/6): 「Outliner に送る」の結果を **root 先頭**へ挿入する。
+     *
+     * 🔴 **`addNodeAtStart` を N 回呼んではいけない**（呼ぶたび先頭に積まれるので**順序が反転する**）。
+     * 1 件目だけ `addNodeAtStart(null, text)` で先頭に作り、2 件目以降は
+     * `addNode(null, 直前に作った id)` で後ろへ繋ぐ（反転バグを構造的に排除）。
+     *
+     * 子（dir 配下）は従来の `applyFolderImportResult` と同じ「末尾 append」でよい
+     * （親を先頭に置いた時点で全体の位置は決まっている）。
+     *
+     * @returns 最後に作った node の id（focus 用）
+     */
+    /**
+     * 2026-09-05 FR-DFI-01: Import folder の entries を **drop 位置**へ挿入する（dropFilesResult と同じ位置規約）。
+     * - 'before' → target の直前 / 'after' → target の直後 / 'child' → target の子先頭 / 'root-end' or target 無し → root 末尾
+     * - 2 件目以降は直前に作った node の後ろ（順序反転を作らない = applySendToOutlinerResult と同型）
+     * - 子（dir 配下）は末尾 append（親の位置で全体が決まる）。属性設定は共有 applyEntryKindToNode
+     */
+    function applyFolderImportResultAt(targetNodeId, position, entries) {
+        var lastId = null;
+        var prevTopId = null;
+        var addChildren = function(parentId, list) {
+            for (var i = 0; i < list.length; i++) {
+                var e = list[i];
+                if (!e || !e.kind) { continue; }
+                var text = (e.kind === 'md') ? String(e.name || '').replace(/\.md$/i, '') : (e.name || '');
+                var node = applyEntryKindToNode(model.addNode(parentId, null, text), e);
+                lastId = node.id;
+                if (e.kind === 'dir') { addChildren(node.id, e.children || []); }
+            }
+        };
+        var target = targetNodeId ? model.getNode(targetNodeId) : null;
+        if (target && position === 'child' && target.collapsed) { target.collapsed = false; }
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            if (!e || !e.kind) { continue; }
+            var text = (e.kind === 'md') ? String(e.name || '').replace(/\.md$/i, '') : (e.name || '');
+            var top;
+            if (prevTopId !== null) {
+                top = model.addNode(model.getNode(prevTopId).parentId, prevTopId, text);
+            } else if (!target || position === 'root-end') {
+                var lastRoot = model.rootIds.length > 0 ? model.rootIds[model.rootIds.length - 1] : null;
+                top = model.addNode(null, lastRoot, text);
+            } else if (position === 'before') {
+                top = model.addNodeBefore(target.parentId, target.id, text);
+            } else if (position === 'child') {
+                top = model.addNodeAtStart(target.id, text);
+            } else {   // 'after'
+                top = model.addNode(target.parentId, target.id, text);
+            }
+            prevTopId = top.id;
+            lastId = top.id;
+            applyEntryKindToNode(top, e);
+            if (e.kind === 'dir') { addChildren(top.id, e.children || []); }
+        }
+        return lastId;
+    }
+
+    function applySendToOutlinerResult(entries) {
+        var lastId = null;
+        var prevTopId = null;   // 直前に作った **root 直下** node の id
+
+        // 🔴 `applyFolderImportResult` の子再帰と**同一の動作**なので同じ形で書く
+        //（属性設定は共有 `applyEntryKindToNode`。reviewer iteration 2 QUAL2-1b）
+        var addChildren = function(parentId, list) {
+            for (var i = 0; i < list.length; i++) {
+                var e = list[i];
+                if (!e || !e.kind) { continue; }
+                var text = (e.kind === 'md') ? String(e.name || '').replace(/\.md$/i, '') : (e.name || '');
+                var node = applyEntryKindToNode(model.addNode(parentId, null, text), e);
+                lastId = node.id;
+                if (e.kind === 'dir') { addChildren(node.id, e.children || []); }
+            }
+        };
+
+        for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            if (!e || !e.kind) { continue; }
+            var text = (e.kind === 'md') ? String(e.name || '').replace(/\.md$/i, '') : (e.name || '');
+            // ★ 1 件目 = 先頭 / 2 件目以降 = 直前の後ろ（addNodeAtStart の N 回呼びは順序反転）
+            var top = (prevTopId === null)
+                ? model.addNodeAtStart(null, text)
+                : model.addNode(null, prevTopId, text);
+            prevTopId = top.id;
+            lastId = top.id;
+            applyEntryKindToNode(top, e);   // 3 回目の複製を作らない（QUAL2-1b）
+            if (e.kind === 'dir') { addChildren(top.id, e.children || []); }
+        }
         return lastId;
     }
 
@@ -9734,10 +10500,26 @@ var Outliner = (function() {
                     if (fiEntries.length === 0) break;
 
                     saveSnapshot();  // 1 取り込み = 1 snapshot（undo 1 回で木ごと戻る — NFR-OIF-01）
-                    var fiLastId = applyFolderImportResult(msg.targetNodeId, fiEntries);
+                    // 2026-09-05 FR-DFI-01: D&D 由来は drop 位置（before / after / child / root-end）に入れる。
+                    // メニュー由来（position 無し）は従来どおり対象 node の子末尾。
+                    var fiLastId = msg.position
+                        ? applyFolderImportResultAt(msg.targetNodeId, msg.position, fiEntries)
+                        : applyFolderImportResult(msg.targetNodeId, fiEntries);
 
                     renderTree();
                     if (fiLastId) focusNode(fiLastId);
+                    scheduleSyncToHost();
+                    break;
+                }
+
+                // FR-SND-01/02 (§6-1): linkedfd →「Outliner に送る」の結果を root 先頭へ
+                case 'sendToOutlinerResult': {
+                    var stEntries = msg.entries || [];
+                    if (stEntries.length === 0) break;
+                    saveSnapshot();   // 全体で 1 回（undo 1 回で木ごと戻る — NFR-OIF-01）
+                    var stLastId = applySendToOutlinerResult(stEntries);
+                    renderTree();
+                    if (stLastId) focusNode(stLastId);
                     scheduleSyncToHost();
                     break;
                 }
@@ -10715,6 +11497,11 @@ var Outliner = (function() {
         getModel: function() { return model; },
         // FR-EXF-01: Export folder の payload builder（spec が payload 形を直接検証するため公開）
         buildExportTree: function(rootNodeId) { return buildExportTree(rootNodeId); },
+        // FR-SND-03 (TASK-25): 選択集合 → ExportNode[]（祖先包含の重複排除込み）
+        // FR-SND-01 (TASK-26): 送る系の結果適用（spec が順序を直接検証するため公開）
+        applySendToOutlinerResult: function(entries) { return applySendToOutlinerResult(entries); },
+        selectionExportRoots: function() { return selectionExportRoots(); },
+        buildExportTreeForSelection: function() { return buildExportTreeForSelection(); },
         getFocusedNodeId: function() { return focusedNodeId || null; },
         flushSync: function() {
             // v0.207.40: 実編集 (= 現 model state が「最後に送った state」と違う) の時だけ送る。

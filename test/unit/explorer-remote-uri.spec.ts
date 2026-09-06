@@ -141,7 +141,7 @@ test('TC-RMT-03 outliner host: vscode-remote URI が ok:true で分類・他 sch
 });
 
 // ── TC-RMT-05（sprint 20260822-051129 TASK-10）: silent skip 撤廃 — 理由付き failed 返却 ──
-test('TC-RMT-05 registerExternalDroppedUris が失敗を理由付きで返す（scheme / not-found / folder / 部分成功）', () => {
+test('TC-RMT-05 registerExternalDroppedUris が失敗を理由付きで返す（scheme / not-found / 部分成功。folder は R27 で登録対象）', () => {
     const { NotesFileManager } = requireWithVscodeStub('../../src/shared/notes-file-manager');
     const mod = requireWithVscodeStub('../../src/shared/notes-message-handler');
     const noteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rmt5-note-'));
@@ -163,14 +163,17 @@ test('TC-RMT-05 registerExternalDroppedUris が失敗を理由付きで返す（
     ], null, 0, sender as any);
 
     expect(r && typeof r === 'object', '返り値が結果オブジェクトでない').toBe(true);
-    expect(r.registered).toBe(1);                    // 部分成功（good.html は登録される）
+    // 2026-09-05 test_update（sprint 20260901-075849 TASK-75 / R27 / FR-RC-01）: フォルダは skip でなく
+    // tree フォルダとして登録される（TC-RC-07）。registered 1→2 / failed 3→2（scheme・not-found）
+    expect(r.registered).toBe(2);                    // 部分成功（good.html + フォルダ adir が登録される）
     expect(Array.isArray(r.failed)).toBe(true);
-    expect(r.failed.length).toBe(3);
+    expect(r.failed.length).toBe(2);
     const joined = r.failed.join(' | ');
     expect(joined).toContain('x.md');                                  // scheme 不受理も名前が出る
     expect(joined).toContain('missing.pdf');
     expect(joined).toContain(path.join(src, 'missing.pdf'));           // not-found は解決後パス込み（診断の核心）
-    expect(joined).toContain('adir');
+    expect(joined).not.toContain('adir');                              // フォルダは失敗ではなく登録（R27）
+    expect(Object.values(m.getStructure().items).some((it: any) => it.type === 'folder' && it.title === 'adir')).toBe(true);
     // 登録成功分の一覧更新は従来どおり
     expect(messages.some((x) => x.type === 'notesFileListChanged' || x.type === 'updateFileList')).toBe(true);
     expect(Object.values(m.getStructure().items).some((it: any) => it.title === 'good.html')).toBe(true);

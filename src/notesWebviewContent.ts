@@ -102,6 +102,17 @@ export function getNotesWebviewContent(
     const inAppLinkUtilsScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'inapp-link-utils.js'), 'utf8');
 
+    // FR-MFIT (sprint 20260901-075849 / ADRL-0109): 右クリックメニューの viewport 収め
+    // （window.__menuPlacement）。7 サイトが消費するため、それらより前に注入する。
+    // 本番 inline はここ + ハーネス build-standalone-notes.js の両方に要登録
+    // （片方だけだと実機 silent no-op: generator_failures 2026-08-17 / TC-MFIT-16 が番人）
+    const menuPlacementScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'menu-placement.js'), 'utf8');
+    // FR-MSEL-02/04 (sprint 20260901-075849 / TASK-30): 複数選択 payload の正規化を共有する
+    // （window.__batchPayload）。notes-file-panel / notes-folder-view / outliner が消費するため前に注入。
+    const batchPayloadScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'batch-payload.js'), 'utf8');
+
     // FR-MLG-02 (sprint 20260818-183407): wholeWord 検索の多言語境界（window.WholeWord）。
     // notes-file-panel.js が消費するため、それより前に注入する（inapp-link-utils と同方式）。
     const wholeWordScript = fs.readFileSync(
@@ -340,6 +351,8 @@ export function getNotesWebviewContent(
     <script nonce="${nonce}">${inlineColorScript}</script>
     <script nonce="${nonce}">${inlineColorPickerScript}</script>
     <script nonce="${nonce}">${inAppLinkUtilsScript}</script>
+    <script nonce="${nonce}">${menuPlacementScript}</script>
+    <script nonce="${nonce}">${batchPayloadScript}</script>
     <script nonce="${nonce}">${wholeWordScript}</script>
     <script nonce="${nonce}">${searchExtFilterScript}</script>
     <script nonce="${nonce}">${pdfExportScript}</script>

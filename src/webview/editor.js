@@ -71,10 +71,37 @@ class SidePanelHostBridge {
     }
     // TASK-17 (US-09 sidepanel): ツリー md → sidepanel md D&D。host が同一 note 判定
     //（同一 = リンク + ツリー除去 / 別 note = sidepanel md の隣へ複製）
+    // 2026-09-05 FR-DFI-02: フォルダ drop の展開要求（sidepanel の filePath を付けて main host へ）
+    resolveDroppedPaths(paths, requestId) {
+        if (this._mainHost && typeof this._mainHost.resolveDroppedPaths === 'function') { this._mainHost.resolveDroppedPaths(paths, requestId, this.filePath); }
+    }
     linkMdAsSubpage(filePath, mdFileId) {
         if (this._onImageRequest) this._onImageRequest();
         if (typeof this._mainHost.linkMdAsSubpageForSidePanel === 'function') {
             this._mainHost.linkMdAsSubpageForSidePanel(filePath, mdFileId, this.filePath);
+        }
+    }
+    // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): 複数選択は **1 回で items 配列**を渡す
+    // （N 回呼ぶと host 側の件数ゲートを迂回する — reviewer iteration 2 SEC-3）。
+    // 🔴 SidePanelHostBridge は共有 factory 非経由の**手書きクラス**なので個別追加が必要
+    //（generator_failures 2026-08-09: main では動くが sidepanel だけ silent no-op になる再発クラス）。
+    linkMdAsSubpageBatch(items) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.linkMdAsSubpageBatch === 'function') {
+            this._mainHost.linkMdAsSubpageBatch(items, this.filePath);
+        }
+    }
+    attachTreeFileToMdBatch(ids) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachTreeFileToMdBatch === 'function') {
+            this._mainHost.attachTreeFileToMdBatch(ids, this.filePath);
+        }
+    }
+    // §4-2 rev2（TASK-45）: 種別混在の結合 batch。宛先 md = this.filePath（sidepanel）
+    attachTreeItemsToMdBatch(items) {
+        if (this._onImageRequest) this._onImageRequest();
+        if (typeof this._mainHost.attachTreeItemsToMdBatch === 'function') {
+            this._mainHost.attachTreeItemsToMdBatch(items, this.filePath);
         }
     }
     // FR-MDM-01 (sprint 20260818-183407): リンクパスコピー。宛先 md = this.filePath（sidepanel）。
@@ -1076,13 +1103,9 @@ class EditorInstance {
         document.body.appendChild(editorContextMenuEl);
 
         // Auto-adjust position
-        var rect = editorContextMenuEl.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-            editorContextMenuEl.style.left = (window.innerWidth - rect.width - 8) + 'px';
-        }
-        if (rect.bottom > window.innerHeight) {
-            editorContextMenuEl.style.top = (window.innerHeight - rect.height - 8) + 'px';
-        }
+        // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+        // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+        window.__menuPlacement.place(editorContextMenuEl, { x: x, y: y });
 
         // Close on outside click
         setTimeout(function() {
@@ -10895,8 +10918,17 @@ class EditorInstance {
                                 (anc.getAttribute('data-subpage') === 'true' ||
                                  anc.getAttribute('data-is-file-attachment') === 'true' ||
                                  (anc.classList && anc.classList.contains('link-subpage')))) {
+                                // 2026-09-04（ユーザー実機 rc.3）: アイコンは CSS ::before なので、行頭で ← / Home を押すと
+                                // caret は「アンカー内 offset 0」に着地する（アイコンの左には DOM 上の位置が無い = 行頭と同じ）。
+                                // 旧実装はここでも分割点をアンカーの**後ろ**へ繰り上げていたため、行頭 Enter で
+                                // リンクが元行に残り後続テキストだけ次行へ落ちた。caret より前にアンカー内テキストが
+                                // 無ければ **前**へ繰り上げる（= リンクごと新 li へ。行頭 Enter の期待挙動）。途中 / 末尾は従来どおり後ろ。
+                                const beforeCaret = document.createRange();
+                                beforeCaret.setStart(anc, 0);
+                                beforeCaret.setEnd(splitContainer, splitOffset);
+                                const atAnchorStart = beforeCaret.toString().length === 0;
                                 const hoist = document.createRange();
-                                hoist.setStartAfter(anc);
+                                if (atAnchorStart) { hoist.setStartBefore(anc); } else { hoist.setStartAfter(anc); }
                                 splitContainer = hoist.startContainer;
                                 splitOffset = hoist.startOffset;
                                 break;
@@ -10932,6 +10964,17 @@ class EditorInstance {
                         }
                     }
                     
+                    // 行頭 Enter（リンクごと下へ）で元 li のテキスト部が空になったら <br> を置く（空バレット行として描画・caret 着地可）
+                    {
+                        const remaining = Array.from(listItem.childNodes).filter((c) =>
+                            !(c.nodeType === 1 && (c.tagName === 'UL' || c.tagName === 'OL' || c.tagName === 'INPUT')));
+                        if (remaining.length === 0) {
+                            const firstNested = listItem.querySelector(':scope > ul, :scope > ol');
+                            const ph = document.createElement('br');
+                            if (firstNested) { listItem.insertBefore(ph, firstNested); } else { listItem.appendChild(ph); }
+                        }
+                    }
+
                     // Create new list item
                     const newLi = document.createElement('li');
                     
@@ -10943,7 +10986,8 @@ class EditorInstance {
                     }
 
                     // Append the extracted content to new item
-                    if (afterContent.textContent.trim() !== '') {
+                    // （img / アイコン付きアンカーは textContent が空でも実内容 — 空判定は要素の有無も見る）
+                    if (afterContent.textContent.trim() !== '' || afterContent.querySelector('img, a, input')) {
                         newLi.appendChild(afterContent);
                     } else {
                         // If no content after cursor, add <br> for empty item
@@ -19177,6 +19221,14 @@ class EditorInstance {
             handleFileSearchResults(message.results, message.query);
         } else if (message.type === 'pageCreatedAtPath') {
             handlePageCreatedAtPath(message.relativePath);
+        } else if (message.type === 'droppedPathsResolved') {
+            // 2026-09-05 FR-DFI-02: host がフォルダを展開した結果 → 従来の 1 ファイル経路を順に呼ぶ（要求元 instance の host へ）
+            var pend = window.__pendingDroppedPathResolutions && window.__pendingDroppedPathResolutions[message.requestId];
+            if (pend) {
+                delete window.__pendingDroppedPathResolutions[message.requestId];
+                var resolvedFiles = Array.isArray(message.files) ? message.files : [];
+                for (var rfi = 0; rfi < resolvedFiles.length; rfi++) { pend.dispatch(String(resolvedFiles[rfi])); }
+            }
         } else if (message.type === 'externalChangeDetected') {
             // Show toast notification for external change
             showExternalChangeToast(message.message);
@@ -20582,71 +20634,10 @@ class EditorInstance {
             sel.addRange(dropRange);
         }
         
-        // Helper to read file and send via correct host
-        function readAndInsertImageViaHost(file, h) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                logger.log('FileReader onload called');
-                h.saveImageAndInsert(event.target.result, file.name);
-                logger.log('Image sent to extension for saving');
-            };
-            reader.onerror = function(err) {
-                logger.error('FileReader error:', err);
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // Helper to read non-image file and send via correct host
-        function readAndInsertFileViaHost(file, h) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                logger.log('FileReader onload called for file');
-                h.saveFileAndInsert(event.target.result, file.name);
-                logger.log('File sent to extension for saving');
-            };
-            reader.onerror = function(err) {
-                logger.error('FileReader error:', err);
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // MD-45: drawio.svg / drawio.png 専用経路 — fileDir に保存しつつ ![]() 挿入
-        function readAndInsertDrawioViaHost(file, h) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                logger.log('FileReader onload called for drawio');
-                if (typeof h.saveDrawioAndInsert === 'function') {
-                    h.saveDrawioAndInsert(event.target.result, file.name);
-                } else {
-                    // fallback: file 経路（host が saveDrawioAndInsert を持たない場合）
-                    h.saveFileAndInsert(event.target.result, file.name);
-                }
-            };
-            reader.onerror = function(err) {
-                logger.error('FileReader error (drawio):', err);
-            };
-            reader.readAsDataURL(file);
-        }
-
         // FR-B07 (sprint 20260804-145603): .md D&D は添付（files/）でなく subpage 登録。
         // host が md をエディタ md と同階層に一意名で保存し insertSubpageLink を返す。
         // host 未対応（旧 host / fallback）時は従来の添付挙動に落とす。
         function isMdDropName(name) { return /\.md$/i.test(String(name || '')); }
-        function saveMdAsSubpageViaHost(file, h) {
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                if (typeof h.saveMdAsSubpage === 'function') {
-                    h.saveMdAsSubpage(event.target.result, file.name);
-                } else {
-                    h.saveFileAndInsert(event.target.result, file.name);
-                }
-            };
-            reader.onerror = function(err) {
-                logger.error('FileReader error (md subpage):', err);
-            };
-            reader.readAsDataURL(file);
-        }
-
         // FR-FLV-22 (W4 受信 — sprint 20260817-053313): フォルダビューのエントリ drop → 実体移動 +
         // リンク挿入（host #15 folderViewMoveIntoMd が種別分岐: md=subpage / 画像 / 他=📎）。
         // notes bridge 直（host-api.md 発見 7 — SidePanelHostBridge 委譲層は経由しない。targetMdPath で
@@ -20676,6 +20667,27 @@ class EditorInstance {
             }
         } catch (err) { /* ignore */ }
 
+        // §4-2 rev2（TASK-45 / FR-MSEL-04 rev2）: note ツリーの**種別混在**選択（tree-md + tree-file が同時に載る）は
+        // 両 payload を同期で読んで seq 順に結合し、**結合 bridge attachTreeItemsToMdBatch を 1 回**呼ぶ。
+        // 旧実装は下の tree-file 分岐が先勝ち return して md 側を無音で落としていた。
+        // per-kind 2 回にしないのは件数ゲート（NFR-MSEL-02）を合計で 1 回効かせるため。
+        try {
+            var mixMdRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-tree-md') : '';
+            var mixFileRaw = e.dataTransfer ? e.dataTransfer.getData('application/x-fractal-tree-file') : '';
+            if (mixMdRaw && mixFileRaw) {
+                var mixMd = null, mixFile = null;
+                try { mixMd = JSON.parse(mixMdRaw); } catch (err) { mixMd = null; }
+                try { mixFile = JSON.parse(mixFileRaw); } catch (err) { mixFile = null; }
+                var mixedItems = window.__batchPayload.mergeTreeItemsBySeq(
+                    window.__batchPayload.extractBatchItems(mixMd).filter(function(x) { return x && x.id && x.filePath; }),
+                    window.__batchPayload.extractBatchItems(mixFile).filter(function(x) { return x && x.id; }));
+                if (mixedItems.length > 0 && typeof targetHost.attachTreeItemsToMdBatch === 'function') {
+                    targetHost.attachTreeItemsToMdBatch(mixedItems);
+                }
+                return; // 混在 drop はここで完結
+            }
+        } catch (err) { /* ignore */ }
+
         // FR-TF-06a (sprint 20260809-031217, §4f :101): Notes ファイルツリーの file item drop。
         // 開いている md 本文へ添付（コピーなし・リンクのみ）。ファイル実体は note 内にあるため
         // targetHost.attachTreeFileToMd(id) へ委譲（host が currentFile 宛てに解決・📎 リンク追記）。
@@ -20686,9 +20698,19 @@ class EditorInstance {
             if (treeFileRaw) {
                 var treeFilePayload = null;
                 try { treeFilePayload = JSON.parse(treeFileRaw); } catch (err) { /* ignore */ }
-                if (treeFilePayload && treeFilePayload.id &&
-                    typeof targetHost.attachTreeFileToMd === 'function') {
-                    targetHost.attachTreeFileToMd(treeFilePayload.id);
+                // FR-MSEL-04 (§4-1): 複数選択（`{v:1,items:[…]}`）は **N 行のリンク**として順に添付する
+                // （箇条書きにまとめない = FR-MSEL-04 の裁定）。旧形式は 1 件として処理。
+                //
+                // 🔴 NFR-MSEL-02 (TASK-35): 複数は **配列 bridge を 1 回**呼ぶ。ここで N 回ループすると
+                // host 側の件数ゲート（checkBatchLimit）を構造的に迂回する（reviewer iteration 2 SEC-3）。
+                var tfList = window.__batchPayload.extractBatchItems(treeFilePayload)
+                    .filter(function(x) { return x && x.id; });
+                if (tfList.length === 1) {
+                    if (typeof targetHost.attachTreeFileToMd === 'function') {
+                        targetHost.attachTreeFileToMd(tfList[0].id);
+                    }
+                } else if (tfList.length > 1 && typeof targetHost.attachTreeFileToMdBatch === 'function') {
+                    targetHost.attachTreeFileToMdBatch(tfList.map(function(x) { return x.id; }));
                 }
                 return; // file drop はここで完結（他経路 = md/添付 へ落とさない）
             }
@@ -20703,10 +20725,19 @@ class EditorInstance {
             if (treeMdRaw) {
                 var treeMdPayload = null;
                 try { treeMdPayload = JSON.parse(treeMdRaw); } catch (err) { /* ignore */ }
-                if (treeMdPayload && treeMdPayload.filePath &&
-                    typeof targetHost.linkMdAsSubpage === 'function') {
-                    // US-09: id も渡す（host がツリーから md エントリを除去して真の subpage 化する）
-                    targetHost.linkMdAsSubpage(treeMdPayload.filePath, treeMdPayload.id || null);
+                // FR-MSEL-04 (§4-1): 複数選択は N 行の subpage リンクとして順に挿入する。
+                // 🔴 NFR-MSEL-02 (TASK-35): 複数は配列 bridge を 1 回（件数ゲートは host 側）。
+                var tmList = window.__batchPayload.extractBatchItems(treeMdPayload)
+                    .filter(function(x) { return x && x.filePath; });
+                if (tmList.length === 1) {
+                    if (typeof targetHost.linkMdAsSubpage === 'function') {
+                        // US-09: id も渡す（host がツリーから md エントリを除去して真の subpage 化する）
+                        targetHost.linkMdAsSubpage(tmList[0].filePath, tmList[0].id || null);
+                    }
+                } else if (tmList.length > 1 && typeof targetHost.linkMdAsSubpageBatch === 'function') {
+                    targetHost.linkMdAsSubpageBatch(tmList.map(function(x) {
+                        return { filePath: x.filePath, id: x.id || null };
+                    }));
                 }
                 return;
             }
@@ -20801,65 +20832,127 @@ class EditorInstance {
             }
         } catch (err) { /* ignore */ }
 
-        // Try to get files first
-        const files = e.dataTransfer?.files;
-
-        if (files && files.length > 0) {
-            const file = files[0];
-            logger.log('Dropped file from files:', file.name, file.type, file.size);
-
+        // 2026-09-04（ユーザー実機 rc.3）: 複数ファイルの drop は**全件**を処理する（旧実装は files[0] だけ）。
+        // 1 ファイルの分類・経路（md=subpage / drawio / image / file）は従来どおり。順序保持のため FileReader を
+        // **直列**に回し、読み終わった順（= drop 順）に host へ送る（host は message 順に caret へ挿入する）。
+        function dispatchDroppedFileViaHost(file, h) {
             // MD-45/MD-13拡張: classifyDroppedFile による switch 分岐
             //（MD-46 の drawio-xml 棄却は sprint 20260801-200307 / ADRL-DDX-1 で廃止 — 'file' に落ちる）
             const cls = classifyDroppedFile(file.name);
-            if (isMdDropName(file.name)) {
-                // FR-B07: .md は subpage 登録（classify は md を 'file' に落とすため先に判定）
-                saveMdAsSubpageViaHost(file, targetHost);
-                return;
-            } else if (cls === 'drawio-file') {
-                readAndInsertDrawioViaHost(file, targetHost);
-                return;
-            } else if (cls === 'image' || file.type.startsWith('image/')) {
-                readAndInsertImageViaHost(file, targetHost);
-                return;
-            } else {
-                readAndInsertFileViaHost(file, targetHost);
-                return;
-            }
+            return new Promise(function(resolve) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const dataUrl = event.target.result;
+                    try {
+                        if (isMdDropName(file.name)) {
+                            // FR-B07: .md は subpage 登録（classify は md を 'file' に落とすため先に判定）
+                            if (typeof h.saveMdAsSubpage === 'function') { h.saveMdAsSubpage(dataUrl, file.name); }
+                            else { h.saveFileAndInsert(dataUrl, file.name); }
+                        } else if (cls === 'drawio-file') {
+                            if (typeof h.saveDrawioAndInsert === 'function') { h.saveDrawioAndInsert(dataUrl, file.name); }
+                            else { h.saveFileAndInsert(dataUrl, file.name); }
+                        } else if (cls === 'image' || (file.type || '').startsWith('image/')) {
+                            h.saveImageAndInsert(dataUrl, file.name);
+                        } else {
+                            h.saveFileAndInsert(dataUrl, file.name);
+                        }
+                    } catch (err) { logger.error('drop dispatch failed:', file.name, err); }
+                    resolve();
+                };
+                reader.onerror = function(err) { logger.error('FileReader error:', err); resolve(); };
+                reader.readAsDataURL(file);
+            });
+        }
+        function dispatchDroppedFilesInOrder(fileList, h) {
+            const list = Array.prototype.slice.call(fileList || []).filter(Boolean);
+            logger.log('Dropped files:', list.map((f) => f.name));
+            let chain = Promise.resolve();
+            list.forEach(function(file) { chain = chain.then(function() { return dispatchDroppedFileViaHost(file, h); }); });
+            return chain;
         }
 
-        // Fallback: try items
+        // 2026-09-05 FR-DFI-02: Finder からのフォルダ drop — items の DirectoryEntry を FileSystem API で再帰展開して File 列にし、
+        // 従来の 1 ファイル経路（dispatchDroppedFilesInOrder）に流す（md=subpage / 画像 / 📎 は従来どおり）。dotfile は除外。
+        function collectDroppedDirectoryFiles(dirEntry) {
+            function readAll(reader) {
+                return new Promise(function(resolve, reject) {
+                    var acc = [];
+                    (function step() {
+                        reader.readEntries(function(batch) {
+                            if (!batch || batch.length === 0) { resolve(acc); return; }
+                            acc = acc.concat(Array.prototype.slice.call(batch)); step();
+                        }, reject);
+                    })();
+                });
+            }
+            function walk(entry) {
+                if (entry.isDirectory) {
+                    return readAll(entry.createReader()).then(function(children) {
+                        var out = [];
+                        var chain = Promise.resolve();
+                        children.filter(function(c) { return c && c.name && c.name.charAt(0) !== '.'; }).forEach(function(c) {
+                            chain = chain.then(function() { return walk(c); }).then(function(fs) { out = out.concat(fs); });
+                        });
+                        return chain.then(function() { return out; });
+                    });
+                }
+                return new Promise(function(resolve) { entry.file(function(f) { resolve([f]); }, function() { resolve([]); }); });
+            }
+            return walk(dirEntry);
+        }
+        const dirEntriesOnDrop = [];
+        try {
+            const itemsForDirs = e.dataTransfer?.items;
+            if (itemsForDirs) {
+                for (let di = 0; di < itemsForDirs.length; di++) {
+                    const ent = itemsForDirs[di].webkitGetAsEntry && itemsForDirs[di].webkitGetAsEntry();
+                    if (ent && ent.isDirectory) { dirEntriesOnDrop.push(ent); }
+                }
+            }
+        } catch (err) { /* ignore */ }
+
+        // Try to get files first
+        const files = e.dataTransfer?.files;
+
+        if (dirEntriesOnDrop.length > 0) {
+            // フォルダあり: 通常ファイル（フォルダ以外）+ フォルダ展開分を drop 順に
+            const plainFiles = [];
+            const itemsAll = e.dataTransfer?.items;
+            if (itemsAll) {
+                for (let pi = 0; pi < itemsAll.length; pi++) {
+                    const ent = itemsAll[pi].webkitGetAsEntry && itemsAll[pi].webkitGetAsEntry();
+                    if (ent && ent.isDirectory) { continue; }
+                    if (itemsAll[pi].kind === 'file') { const pf = itemsAll[pi].getAsFile(); if (pf) { plainFiles.push(pf); } }
+                }
+            }
+            let chain = Promise.resolve(plainFiles);
+            dirEntriesOnDrop.forEach(function(de) {
+                chain = chain.then(function(acc) { return collectDroppedDirectoryFiles(de).then(function(fs) { return acc.concat(fs); }); });
+            });
+            chain.then(function(all) { dispatchDroppedFilesInOrder(all, targetHost); });
+            return;
+        }
+
+        if (files && files.length > 0) {
+            dispatchDroppedFilesInOrder(files, targetHost);
+            return;
+        }
+
+        // Fallback: try items（files が空で items だけ載る環境。sprint 20260801-200307 FR-DDX-01 で非画像も受理）
         const items = e.dataTransfer?.items;
         if (items && items.length > 0) {
+            const itemFiles = [];
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
                 logger.log('Item:', item.kind, item.type);
-
                 if (item.kind === 'file') {
                     const file = item.getAsFile();
-                    if (!file) continue;
-                    // MD-45: drawio classifier first
-                    const itemCls = classifyDroppedFile(file.name);
-                    if (isMdDropName(file.name)) {
-                        // FR-B07: items 経路でも .md → subpage（経路ごと handler 網羅）
-                        saveMdAsSubpageViaHost(file, targetHost);
-                        return;
-                    } else if (itemCls === 'drawio-file') {
-                        logger.log('Got drawio file from items:', file.name, file.size);
-                        readAndInsertDrawioViaHost(file, targetHost);
-                        return;
-                    } else if (item.type.startsWith('image/') || itemCls === 'image') {
-                        logger.log('Got image file from items:', file.name, file.size);
-                        readAndInsertImageViaHost(file, targetHost);
-                        return;
-                    } else {
-                        // sprint 20260801-200307 (FR-DDX-01): items 経路の file 添付 handler。
-                        // 従来は image/drawio しか捌かず非画像ファイルが素通りしていた
-                        //（classify が単一でも handler は経路ごと = designer_failures 2026-08-01）。
-                        logger.log('Got non-image file from items:', file.name, file.size);
-                        readAndInsertFileViaHost(file, targetHost);
-                        return;
-                    }
+                    if (file) { itemFiles.push(file); }
                 }
+            }
+            if (itemFiles.length > 0) {
+                dispatchDroppedFilesInOrder(itemFiles, targetHost);
+                return;
             }
         }
 
@@ -20872,6 +20965,8 @@ class EditorInstance {
         // Try to get file path from various sources
         let filePath = null;
         let pathFileName = '';
+        // 2026-09-04: uri-list は複数行（複数ファイル）を全件処理する（旧実装は先頭 1 件で break）
+        const uriPaths = [];
 
         // file:// URI → fs パス変換（cross-platform）。
         // mac/Linux: 従来どおり `file://` を strip して decode（挙動不変）。
@@ -20911,22 +21006,18 @@ class EditorInstance {
 
         if (uriList) {
             // Parse URI list (can contain multiple URIs, one per line)
-            const uris = uriList.split('\n').filter(u => u.trim());
+            const uris = uriList.split(/\r?\n/).map(u => u.trim()).filter(u => u && !u.startsWith('#'));
             for (const uri of uris) {
                 if (uri.startsWith('file://')) {
-                    const decodedPath = decodeFileUriToPath(uri);
-                    filePath = decodedPath;
-                    pathFileName = basenameOfPath(decodedPath);
-                    break;
-                }
-                if (uri.startsWith('vscode-remote://')) {
+                    uriPaths.push(decodeFileUriToPath(uri));
+                } else if (uri.startsWith('vscode-remote://')) {
                     const decodedPath = decodeVscodeRemoteUriToPath(uri);
-                    if (decodedPath) {
-                        filePath = decodedPath;
-                        pathFileName = basenameOfPath(decodedPath);
-                        break;
-                    }
+                    if (decodedPath) { uriPaths.push(decodedPath); }
                 }
+            }
+            if (uriPaths.length > 0) {
+                filePath = uriPaths[0];
+                pathFileName = basenameOfPath(filePath);
             }
         }
 
@@ -20944,31 +21035,49 @@ class EditorInstance {
         }
 
         if (filePath) {
-            // MD-45/MD-46/MD-13拡張: classifyDroppedFile で 4 経路に分岐
-            const pathCls = classifyDroppedFile(pathFileName);
-            if (isMdDropName(pathFileName)) {
-                // FR-B07: uri-list 経路の .md → subpage（host がファイルを読んで同階層コピー + リンク返信）
-                if (typeof targetHost.readAndInsertMdAsSubpage === 'function') {
-                    targetHost.readAndInsertMdAsSubpage(filePath);
+            // MD-45/MD-46/MD-13拡張: classifyDroppedFile で 4 経路に分岐。
+            // 2026-09-04: uri-list の複数パスは全件を順に host へ（host 側の読み込み・挿入は message 順 = drop 順）
+            const pathsToInsert = uriPaths.length > 0 ? uriPaths : [filePath];
+            const dispatchDroppedPath = function(onePath) {
+                const oneName = basenameOfPath(onePath);
+                const pathCls = classifyDroppedFile(oneName);
+                if (isMdDropName(oneName)) {
+                    // FR-B07: uri-list 経路の .md → subpage（host がファイルを読んで同階層コピー + リンク返信）
+                    if (typeof targetHost.readAndInsertMdAsSubpage === 'function') {
+                        targetHost.readAndInsertMdAsSubpage(onePath);
+                    } else {
+                        targetHost.readAndInsertFile(onePath);
+                    }
+                } else if (pathCls === 'drawio-file') {
+                    logger.log('Found drawio file path:', onePath);
+                    if (typeof targetHost.readAndInsertDrawio === 'function') {
+                        targetHost.readAndInsertDrawio(onePath);
+                    } else {
+                        // fallback to file path
+                        targetHost.readAndInsertFile(onePath);
+                    }
+                } else if (pathCls === 'image') {
+                    logger.log('Found image file path:', onePath);
+                    targetHost.readAndInsertImage(onePath);
                 } else {
-                    targetHost.readAndInsertFile(filePath);
+                    logger.log('Found non-image file path:', onePath);
+                    targetHost.readAndInsertFile(onePath);
                 }
-                return;
+            };
+            // 2026-09-05 FR-DFI-02: フォルダが混ざり得る（Explorer）。拡張子付きのパスは従来どおり即 dispatch、
+            // 拡張子の無いパス（= フォルダの可能性）だけ host にディレクトリ展開を頼み、返ってきたファイル列を順に dispatch。
+            // 旧 host（未対応）は従来どおりそのまま dispatch（フォルダは host 側で読めず skip）。
+            const hasExt = function(p) { return /\.[^./\\]{1,10}$/.test(basenameOfPath(p)); };
+            const maybeDirs = [];
+            for (const onePath of pathsToInsert) {
+                if (hasExt(onePath) || typeof targetHost.resolveDroppedPaths !== 'function') { dispatchDroppedPath(onePath); }
+                else { maybeDirs.push(onePath); }
             }
-            if (pathCls === 'drawio-file') {
-                logger.log('Found drawio file path:', filePath);
-                if (typeof targetHost.readAndInsertDrawio === 'function') {
-                    targetHost.readAndInsertDrawio(filePath);
-                } else {
-                    // fallback to file path
-                    targetHost.readAndInsertFile(filePath);
-                }
-            } else if (pathCls === 'image') {
-                logger.log('Found image file path:', filePath);
-                targetHost.readAndInsertImage(filePath);
-            } else {
-                logger.log('Found non-image file path:', filePath);
-                targetHost.readAndInsertFile(filePath);
+            if (maybeDirs.length > 0) {
+                window.__pendingDroppedPathResolutions = window.__pendingDroppedPathResolutions || {};
+                const reqId = 'dp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+                window.__pendingDroppedPathResolutions[reqId] = { dispatch: dispatchDroppedPath };
+                targetHost.resolveDroppedPaths(maybeDirs, reqId);
             }
             return;
         }
@@ -22137,10 +22246,28 @@ class EditorInstance {
         
         logger.log('Pasted markdown:', pastedMd.substring(0, 100));
         
+        // 2026-09-04（ユーザー裁定）: **リスト項目の中で 1 行を paste したら常に「普通のテキスト」**として
+        // caret 位置へ inline 挿入する。ソースが別リストの行（`- foo`）/ 見出し（`# foo`）/ 引用 / 番号付きでも
+        // 新規 li や h1 ブロックを作らない（先頭のブロックマーカーは剥がす）。
+        // 複数行は従来どおり（兄弟 li 化 / ブロック挿入）。段落（非リスト）への paste も従来どおり（`- foo` は list になる）。
+        // ⚠️ code block / blockquote / table cell の中は下の専用分岐が先に処理する（li の中に pre がある場合も pre 優先）。
+        let forceInlineInList = false;
+        if (pasteTargetLi) {
+            // setext 見出し（turndown の <h1> 既定出力 = 2 行）も「1 行」として扱う（toPlainSingleLine が吸収）
+            const single = window.__editorUtils.toPlainSingleLine(pastedMd);
+            if (single !== null && single !== '') {
+                if (single !== pastedMd) {
+                    logger.log('List single-line paste: to plain text:', JSON.stringify(pastedMd), '->', JSON.stringify(single));
+                }
+                pastedMd = single;
+                forceInlineInList = true;
+            }
+        }
+
         // Determine if pasted content is inline or block
         // Block patterns: starts with #, -, *, +, >, digit., \`\`\`, |, or contains newlines
         const blockPatterns = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s?|\`\`\`|\|)/;
-        const isBlockPaste = pastedMd.includes('\n') || blockPatterns.test(pastedMd.trim());
+        const isBlockPaste = !forceInlineInList && (pastedMd.includes('\n') || blockPatterns.test(pastedMd.trim()));
         const isInlinePaste = !isBlockPaste;
         logger.log('Is inline paste:', isInlinePaste, 'Block pattern match:', blockPatterns.test(pastedMd.trim()));
         

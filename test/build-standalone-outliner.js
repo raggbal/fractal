@@ -89,6 +89,10 @@ editorScript = editorScript
     .replace('__CONTENT__', `'(unused)'`);
 
 const sidePanelBridgeScript = fs.readFileSync(sidePanelBridgePath, 'utf-8');
+// FR-MFIT (sprint 20260901-075849 / ADRL-0109): menu-placement を本番 inline と対で登録する
+const menuPlacementScript = fs.readFileSync(path.join(__dirname, '../src/shared/menu-placement.js'), 'utf-8');
+// FR-MSEL-02/04 (TASK-30): 複数選択 payload の正規化（本番 inline と対で 6 点登録）
+const batchPayloadScript = fs.readFileSync(path.join(__dirname, '../src/shared/batch-payload.js'), 'utf-8');
 const linkParserScript = fs.readFileSync(linkParserPath, 'utf-8');
 const clipSelectScript = fs.readFileSync(clipSelectPath, 'utf-8');
 const outlinerCellScript = fs.readFileSync(outlinerCellJsPath, 'utf-8');
@@ -202,6 +206,16 @@ const testOutlinerHostBridge = `
         },
         dropVscodeUrisImport: function(uris, targetNodeId, position) {
             window.__testApi.messages.push({ type: 'dropVscodeUrisImport', uris: uris, targetNodeId: targetNodeId, position: position });
+        },
+        // 2026-09-05 FR-DFI-01: Finder フォルダ drop（webview が読んだ中身）
+        dropFolderEntriesImport: function(payload, targetNodeId, position) {
+            window.__testApi.messages.push({ type: 'dropFolderEntriesImport', payload: payload, targetNodeId: targetNodeId, position: position });
+        },
+        notifyDropFolderRejected: function(folders) {
+            window.__testApi.messages.push({ type: 'notifyDropFolderRejected', folders: folders });
+        },
+        notifyDropFileTooLarge: function(fileName) {
+            window.__testApi.messages.push({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },
         importFilesDialog: function(targetNodeId) {
             window.__testApi.messages.push({ type: 'importFilesDialog', targetNodeId: targetNodeId });
@@ -459,7 +473,7 @@ result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__SIDEPANEL_OVERFLOW_SCRIPT__', sidePanelOverflowScript);
 result = safeReplace(result, '__EDITOR_SCRIPT__', editorScript);
-result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
+result = safeReplace(result, '__LINK_PARSER_SCRIPT__', menuPlacementScript + '\n' + batchPayloadScript + '\n' + linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testOutlinerHostBridge);
 result = safeReplace(result, '__OUTLINER_CELL_SCRIPT__', outlinerCellScript);

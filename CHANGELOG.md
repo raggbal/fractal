@@ -5,6 +5,28 @@ All notable changes to the "Fractal" extension extension will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.13] - 2026-09-06
+
+### Added
+- **Multi-select in the note file tree and folder view** — shift+click / shift+arrow selects a contiguous range, cmd/ctrl+click toggles single rows, and Esc clears. Drag the selection and every item is handled at once: into the folder view, into the outliner, into a markdown editor, or to another place inside the tree itself. Mixed kinds (`.md` / files / folder links) travel in a single batch, and failures are reported per item with one summary notification. Folder rows stay out of the selection
+- **Cmd+A selects every node in the outliner** — the shortcut HUD had advertised it for a while without an implementation (GitHub issue #2). Selection highlighting is now persistent (it no longer disappears when focus moves) and uses the same water-blue across every view
+- **Dragging a node by its bullet carries the node's own attachments** — its markdown page and 📎 file attachment come along into the note file tree, so you no longer have to aim at the small 📎 / 📄 icons. Descendant nodes' attachments are not included. Works in mindmap mode too, and with a multi-node selection
+- **Send to Outliner** — right-click in the folder view and the selected files (or a whole folder) are imported at the **top of the outliner root**. It is the same engine as Import folder; only the starting point and the insert position differ
+- **Send to linkedfd** — right-click a node in the outliner and write the selected nodes out as a folder tree into one of your **registered folder links**, picked from a submenu. Same layout rules as Export folder
+- **Dropping a folder onto the outliner editor imports it** — from VS Code's Explorer or from Finder; same limits, confirmation prompt and asset handling as Import folder
+
+### Changed
+- **Dragging between the folder view and the note file tree now duplicates instead of moving** — the source side is left completely untouched (both the file on disk and its tree entry), and for markdown the accompanying images / 📎 / subpages stay on the source side as well. The cursor shows a copy badge. Moving markdown **between the folder view and the side-panel editor** is unchanged: that direction still moves (copy → verify → original to trash), as does moving inside a folder view
+- **Import folder no longer creates duplicate nodes for a markdown file's own assets** — images, attachments and subpage markdowns referenced by an imported `.md` are carried by the markdown itself instead of also appearing as separate nodes, and plain links to imported files are rewritten to their new location. A folder whose entire contents were absorbed this way no longer produces an empty node
+
+### Fixed
+- **Right-click menus no longer run off the screen** — every menu (outliner node, outliner column header, note tree, markdown editor, mindmap, folder view, tab) now flips at the edge, clamps into the viewport, and scrolls when it is taller than the window
+- **Redo (`Ctrl+Shift+Z` / `Ctrl+Y`) no longer fires outside Fractal editors** — its keybinding scope was almost always active; it is now limited to Fractal's custom editors like the other shortcuts (GitHub issue #2)
+- Dropping into the gap between two tree items now lands between them, and `.out` / markdown items in the tree accept drops onto their center band
+- Pasting a single line inside a list item stays plain text; pressing Enter at a list line that starts with an icon link no longer swallows the icon; dropping several files at once into a markdown editor attaches all of them
+- Mindmap: root nodes are stacked using their real measured height (no more overlap), and a `.out` with an empty title still radiates from a title center node
+- Broken `.out` files report the failure instead of opening silently as an empty outliner
+
 ## [1.3.12] - 2026-08-30
 
 ### Added

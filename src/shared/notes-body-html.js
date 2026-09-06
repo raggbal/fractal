@@ -131,6 +131,15 @@ function generateNotesFilePanelHtml(options) {
             background: transparent;
             font-weight: 500;
         }
+        /* FR-MSEL-03（sprint 20260901-075849）: 連続範囲選択のハイライト。
+         * .active（= 開いている 1 件）とは別概念なので別クラスにする（両方付くこともある）。
+         * hover と同系色の面塗りで「選ばれている集合」を示す。 */
+        .file-panel-item.file-panel-selected,
+        .file-panel-item.file-panel-selected:hover {
+            /* 2026-09-04 R16 rev2（ユーザー裁定）: note tree / linkedfd の複数選択は青系 --fr-color-selection-bg
+             *（黄色は「うざい」で却下。outliner の範囲選択だけ黄色 = 編集面の focus 行（青）と区別する役割差） */
+            background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
+        }
         .file-panel-item:hover,
         .file-panel-item.active:hover { background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8)); }
         .file-panel-item.active::before {

@@ -472,8 +472,52 @@
         return 0;
     }
 
+    // ===== List paste: single line → plain text (2026-09-04 ユーザー裁定) =====
+    /**
+     * 1 行の markdown から**先頭のブロックマーカー**を剥がして「普通のテキスト」にする。
+     * リスト項目内で 1 行を paste したときだけ使う（別リストの行 `- foo` / 見出し `# foo` / 引用 `> foo` /
+     * 番号付き `1. foo` / チェックボックス `- [ ] foo` を、新規 li や h1 ブロックにせず caret 位置へ inline 挿入するため）。
+     *
+     * - 先頭のインデント / 引用 `>`（多重可）/ 見出し `#…` / リスト `-*+` `1.` `1)` / チェックボックス `[ ]` `[x]` を順に剥がす
+     * - 見出しの閉じ `#`（` ## Title ##`）も落とす
+     * - 複数行はそのまま返す（呼び出し側が判定する契約だが、保険として無変更）
+     * - inline 記法（`**bold**` / `[link](url)` / `` `code` ``）は触らない
+     */
+    function stripLeadingBlockMarker(line) {
+        if (typeof line !== 'string' || line.indexOf('\n') >= 0) return line;
+        var s = line.replace(/^[ \t]+/, '');
+        var prev;
+        do {
+            prev = s;
+            s = s.replace(/^>[ \t]?/, '');                          // blockquote（多重）
+        } while (s !== prev);
+        s = s.replace(/^[ \t]+/, '');
+        s = s.replace(/^(?:[-*+]|\d+[.)])[ \t]+/, '');              // bullet / ordered
+        s = s.replace(/^\[(?: |x|X)\][ \t]+/, '');                  // task checkbox
+        var h = /^#{1,6}[ \t]+(.*)$/.exec(s);
+        if (h) { s = h[1].replace(/[ \t]+#+[ \t]*$/, ''); }         // ATX heading（閉じ # も落とす）
+        return s.trim();
+    }
+
+    /**
+     * paste された markdown が「実質 1 行」なら、ブロックマーカーを剥がした普通のテキストを返す。1 行でなければ null。
+     * - 前後の空行は無視する
+     * - setext 見出し（`Title\n=====` / `Title\n-----`）は turndown 既定の見出し形式なので 1 行として扱う
+     *   （`<h1>` を paste するとこの 2 行形になり、素朴な `\n` 判定ではブロック扱いになってしまう）
+     */
+    function toPlainSingleLine(md) {
+        if (typeof md !== 'string') return null;
+        var t = md.replace(/^\n+/, '').replace(/\n+$/, '');
+        var setext = /^([^\n]+)\n[ \t]*(?:=+|-+)[ \t]*$/.exec(t);
+        if (setext) { t = setext[1]; }
+        if (t.indexOf('\n') >= 0) return null;
+        return stripLeadingBlockMarker(t);
+    }
+
     // ===== Export =====
     window.__editorUtils = {
+        stripLeadingBlockMarker: stripLeadingBlockMarker,
+        toPlainSingleLine: toPlainSingleLine,
         computeCaretScrollDelta: computeCaretScrollDelta,
         LUCIDE_ICONS: LUCIDE_ICONS,
         SUPPORTED_LANGUAGES: SUPPORTED_LANGUAGES,

@@ -244,6 +244,13 @@
     border-color: var(--fr-color-primary, #7dc4df);
 }
 
+/* FR-MMT-01: title 未設定の中心ノード。placeholder (Untitled) は薄く出す
+   (編集開始で mindmap-interactions が textContent を空にしてクラスを外す) */
+.mindmap-title-box .mindmap-node-text.is-placeholder {
+    opacity: 0.6;
+    font-style: italic;
+}
+
 /* --- relationships --- */
 .mindmap-rel-path {
     stroke: var(--fr-color-accent, #d99a9a);

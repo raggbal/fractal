@@ -1,4 +1,5 @@
-// shortcut-hud.js — FR-B06b: cmd（mac meta / win ctrl）単独長押し 800ms でショートカット一覧 HUD を表示。
+// shortcut-hud.js — FR-B06b: ショートカット一覧 HUD。トリガーは **Cmd+Shift+/（Win: Ctrl+Shift+/）の表示トグル**
+// （2026-09-04 ユーザー裁定。旧: cmd 単独長押し 800ms — cmd+click 複数選択と干渉するため廃止）。
 //
 // editor.js / outliner.js の初期化から ShortcutHud.init(document, 'md' | 'outliner') で呼ぶ
 // （両ファイルに同型ロジックをコピペしない）。
@@ -15,7 +16,7 @@
 // Notes webview は editor.js + outliner.js の両方がロードされる → HUD は 1 個だけ
 // （window.__shortcutHudInitialized フラグで 2 回目の init を no-op）。
 //
-// テスト seam: window.__shortcutHudDelayMs で 800ms を上書き可（実時間待ちを短縮）。
+// テスト seam: window.__shortcutHudDelayMs は旧長押し方式の遺物（現在は未使用・互換のため残置）。
 //
 // UMD: CommonJS + window.ShortcutHud。
 
@@ -198,30 +199,39 @@ function init(doc, mode) {
         }
     }
 
+    // 2026-09-04（ユーザー裁定）: トリガーを **Cmd+Shift+/（= Cmd+?。Win: Ctrl+Shift+/）の表示トグル**に変更。
+    // 旧「cmd 単独長押し 800ms」は、cmd+click で複数選択（note tree / outliner / linkedfd）する間に cmd を押し続けると
+    // HUD が出てしまうため廃止。`Cmd+/` は md editor のアクションパレットが使用中なので Shift 付きにする。
+    // 消し方: もう一度同キー / Esc / 他のキー / どこかを click / window blur。
+    function _isHudToggleCombo(e) {
+        if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) { return false; }
+        return e.key === '?' || e.key === '/' || e.code === 'Slash';
+    }
+    function _isPureModifierKey(key) {
+        return key === 'Meta' || key === 'Control' || key === 'Shift' || key === 'Alt';
+    }
+
     function onKeyDown(e) {
         _hudDebugLog('keydown', e);
-        // トリガーキー単独押下 → タイマー開始。
-        if (_isTriggerKey(e.key)) {
+        if (_isHudToggleCombo(e)) {
             if (composing) { return; }
-            if (!_isSoleModifier(e)) { return; }
-            if (hudEl || timer !== null) { return; } // 既に表示中 or 計測中は多重発火しない
-            timer = setTimeout(function () {
-                timer = null;
-                if (!composing) { showHud(); }
-            }, _getDelayMs());
+            e.preventDefault();
+            e.stopPropagation();
+            if (hudEl) { hideHud(); } else { showHud(); }
             return;
         }
-        // トリガー以外のキーが押された（cmd+C 等）→ タイマーキャンセル & 表示中なら即消す。
-        hideHud();
+        // 表示中に修飾キー以外のキー（Esc・文字・cmd+C 等）が押されたら閉じる。修飾キー単独の押下では閉じない
+        //（Shift を先に押してから / を押す操作で消えないように）。
+        if (hudEl && !_isPureModifierKey(e.key)) { hideHud(); }
     }
 
     function onKeyUp(e) {
         _hudDebugLog('keyup', e);
-        // トリガーキーを離した → HUD 消去 + タイマーキャンセル。
-        if (_isTriggerKey(e.key)) {
-            hideHud();
-        }
+        // 旧長押し方式の keyup 消去は廃止（トグル方式ではキーを離しても表示を保つ）
     }
+
+    // どこかを click したら閉じる（capture。HUD 自体の click も閉じる = 明示的な dismiss）
+    doc.addEventListener('mousedown', function () { if (hudEl) { hideHud(); } }, true);
 
     // keydown/keyup は capture phase で拾い、他リスナーの stopPropagation に負けないようにする。
     doc.addEventListener('keydown', onKeyDown, true);
@@ -255,8 +265,8 @@ var _api = {
     DEFAULT_DELAY_MS: DEFAULT_DELAY_MS,
     isKiroEnv: isKiroEnv,
     // pure helper（テスト用に露出）
-    _isSoleModifier: _isSoleModifier,
-    _isTriggerKey: _isTriggerKey,
+    _isSoleModifier: _isSoleModifier,   // 旧長押し方式の遺物（互換のため残置・未使用）
+    _isTriggerKey: _isTriggerKey,       // 同上
 };
 
 if (typeof module !== 'undefined' && module.exports) {

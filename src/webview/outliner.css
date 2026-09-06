@@ -39,8 +39,8 @@
         --outliner-subtext-color: #888;
         --outliner-error-color: #d00;
         --outliner-accent-fg: #fff;
-        --outliner-selection-bg: rgba(255, 165, 0, 0.15);
-        --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
     }
 }
 
@@ -470,7 +470,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* hover での色反転は削除 (ユーザー要望: 強調しない)。
  * is-focused (keyboard / cursor active 行) は notes 右サイドパネルの hover と同じ淡 water-blue で全行ハイライト
  * (table mode は他 cell も同色、toggleRowCellsClass で同期)。
- * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
+ * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
+ * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
+ * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
 .outliner-node.is-focused {
     background: var(--fr-color-selection-bg, var(--outliner-active, #d8e8f8));
 }
@@ -1072,8 +1074,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
     --outliner-text: #d4d4d4;
     --outliner-hover: rgba(255,255,255,0.05);
     --outliner-active: rgba(0,120,212,0.2);
-    --outliner-selection-bg: rgba(255, 165, 0, 0.15);
-    --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+    --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
+    --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
     --outliner-subtext: #888;
     --outliner-subtext-color: #888;
     --outliner-error-color: #f44747;
@@ -1103,8 +1105,8 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
         --outliner-text: #d4d4d4;
         --outliner-hover: rgba(255,255,255,0.05);
         --outliner-active: rgba(0,120,212,0.2);
-        --outliner-selection-bg: rgba(255, 165, 0, 0.15);
-        --outliner-selection-text-bg: rgba(255, 165, 0, 0.25);
+        --outliner-selection-bg: var(--fr-bg-selection, rgba(125, 196, 223, 0.28));
+        --outliner-selection-text-bg: rgba(125, 196, 223, 0.38);
         --outliner-subtext: #888;
         --outliner-subtext-color: #888;
         --outliner-error-color: #f44747;
@@ -1703,7 +1705,9 @@ body.outliner-sync-locked .outliner-s3-sync-overlay {
 /* 行 state ハイライト (table mode の text / multiselect / date cell)。
  * is-focused (cursor 行) は notes 右サイドパネル hover と同じ淡 water-blue で全行ハイライト
  * — outline 列以外 (text / multiselect / date / datetime) も同色になり行が一目で分かる。
- * is-selected (範囲選択) は selection-bg (orange tint) で別色。 */
+ * is-selected (範囲選択) は同じ water-blue 系だが濃い tint (mindmap の複数選択と同色) で、
+ * focus (最薄) との濃度差で区別する。orange tint は撤廃 (2026-09-05 / 裁定 R35 / FR-OSC-01 —
+ * filetree / linkedfd / mindmap が全部 blue の中で outliner だけ黄色く浮いていた)。 */
 .outliner-cell-text.is-focused,
 .outliner-cell-multiselect.is-focused,
 .outliner-cell-date.is-focused {

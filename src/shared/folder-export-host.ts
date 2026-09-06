@@ -25,6 +25,8 @@ export interface FolderExportTarget {
      * standalone `.out` 面には同機構が無いため undefined（= ガードしない。面差は受容事項）。
      */
     guard?: (destPath: string) => { ok: boolean; reason?: string };
+    /** FR-SND-03: 宛先を確定済みにする（dialog を出さない）。folder link root を渡す */
+    pickDestinationOverride?: string;
 }
 
 /**
@@ -41,6 +43,22 @@ export function isExportDestinationRejected(guardResult?: { ok: boolean; reason?
  * 出力先選択 → 200 超確認 → 出力 → 件数通知。
  * キャンセルは core を呼ばない（fs 書き込み 0 = 副作用ゼロ）。
  */
+/**
+ * FR-SND-03 (§6-2): 「linkedfd に送る」— Export folder の**宛先を folder link root に固定**した版。
+ *
+ * 🔴 レイアウト / 名前 / 資産コピー / uniquify / 上限 modal は **Export folder と完全に同一**
+ * （`runFolderExport` をそのまま呼ぶ）。差分は `pickDestination` が dialog を出さずに
+ * folder link の root を返すことだけ = FR-EXF-02/03/04 の既存裁定をそのまま継承する。
+ */
+export async function runSendNodesToFolderLink(
+    target: FolderExportTarget & { destRoot: string }
+): Promise<FolderExportOutcome> {
+    return runFolderExportWithDialog(Object.assign({}, target, {
+        // dialog を出さない（宛先はサブメニューで確定している）。guard は Export folder と同じものを通す
+        pickDestinationOverride: target.destRoot,
+    }));
+}
+
 export async function runFolderExportWithDialog(target: FolderExportTarget): Promise<FolderExportOutcome> {
     return runFolderExport(target.tree, {
         srcOutDir: target.srcOutDir,
@@ -48,6 +66,18 @@ export async function runFolderExportWithDialog(target: FolderExportTarget): Pro
         srcFileDir: target.srcFileDir,
         srcImageDir: target.srcImageDir,
         pickDestination: async () => {
+            // FR-SND-03: 宛先が確定済み（folder link root）なら dialog を出さず guard だけ通す
+            if (target.pickDestinationOverride) {
+                const dest0 = target.pickDestinationOverride;
+                if (target.guard) {
+                    const g0 = target.guard(dest0);
+                    if (isExportDestinationRejected(g0)) {
+                        vscode.window.showErrorMessage(t('exportFolderInvalidDest') || 'Cannot export into the note folder.');
+                        return undefined;
+                    }
+                }
+                return dest0;
+            }
             const picked = await vscode.window.showOpenDialog({
                 canSelectFolders: true,
                 canSelectFiles: false,

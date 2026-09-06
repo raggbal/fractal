@@ -76,8 +76,9 @@ test.describe('Mindmap Mode — toggle & render', () => {
         await setup(page);
         await init(page, sampleTree());
         await toMindmap(page);
-        // 3 nodes
-        await expect(page.locator('.mindmap-layer-nodes foreignObject.mindmap-node')).toHaveCount(3);
+        // 3 nodes + title 中心ノード 1 個 (裁定 R34 / FR-MMT-01: title が空でも中心ノードを出す)
+        await expect(page.locator('.mindmap-layer-nodes foreignObject.mindmap-node')).toHaveCount(4);
+        await expect(page.locator('.mindmap-layer-nodes foreignObject.mindmap-title-node')).toHaveCount(1);
         // texts present
         const texts = await page.locator('.mindmap-node-text').allTextContents();
         expect(texts.join(' ')).toContain('Root');
@@ -88,8 +89,8 @@ test.describe('Mindmap Mode — toggle & render', () => {
         await setup(page);
         await init(page, sampleTree());
         await toMindmap(page);
-        // 2 links (root->A, root->B)
-        await expect(page.locator('.mindmap-layer-links path.mindmap-link')).toHaveCount(2);
+        // 2 links (root->A, root->B) + title→root 1 本 (裁定 R34 / FR-MMT-01)
+        await expect(page.locator('.mindmap-layer-links path.mindmap-link')).toHaveCount(3);
     });
 
     test('TC-155 Page node shows icon', async ({ page }) => {

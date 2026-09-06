@@ -214,7 +214,15 @@ var MindmapLayout = (function() {
         // layout → sideMode: right=全子右 / left=全子左 / balanced,radial=両側 (#3 TASK-28)
         var sideMode = (layout === 'right') ? 'right' : (layout === 'left') ? 'left' : 'both';
 
-        var hasTitle = titleText != null && String(titleText).trim() !== '';
+        // ★2026-09-05 / 裁定 R34 / FR-MMT-01: title が**空でも**中心ノードを出す。
+        //   旧実装は trim() が空なら中心ノード無し = rootIds を縦に積む経路へ落ちていた。
+        //   .out の title 未設定 (Untitled) は珍しくないのに、その状態だと「放射状にならず
+        //   root がバラバラに縦積みされる」= ユーザーには「root に所属しない node が沢山ある」
+        //   ように見える (実機 doc/ggg/mt0wj1x7eaua.out。title を入れた瞬間に放射になった)。
+        //   title が空かどうかは**表示上の差** (render 側が placeholder を薄く出す) に留め、
+        //   構造 (中心 1 個 + rootIds が子) は常に同じにする。
+        //   null / undefined は「title という概念を持たない呼び出し」(unit test 等) なので従来どおり縦積み。
+        var hasTitle = titleText != null;
         if (d3 && hasTitle && rootIds.length) {
             // title 中心ノードでも settings.layout を尊重 (#3)。両側固定を廃止。
             var wrapModel = makeTitleWrapModel(model, rootIds, titleText);
@@ -239,20 +247,45 @@ var MindmapLayout = (function() {
                 var gTop = (groupIdx && groupIdx.subtreeHasGroup(rid)) ? (GROUP_PAD + GROUP_LABEL_H) : 0;
                 var gBottom = (groupIdx && groupIdx.subtreeHasGroup(rid)) ? GROUP_PAD : 0;
                 stackY += gTop;
+                // ★root 間の縦積みは「実 measure 高さを含む Y 範囲」で行う (2026-09-05 / 裁定 R33 / FR-MMS-01)。
+                //   旧実装は root subtree の高さを次の 2 通りの**概算**で求めていて、どちらも
+                //   「背の高いノード (長文の折り返し・画像・複数行) を含む root」の実高さを取り落としていた:
+                //     - right/left : subtreeSpan()   = node **中心座標**の範囲のみ (= ノード高さ 0 扱い)。
+                //                    単一ノード root なら常に 0 → 次の root を 60px 後ろに置く。
+                //     - balanced/radial: subtreeHeight() = leaf 数 × root 自身の高さ (子の高さを見ない)
+                //   さらに配置基準が「最上ノードの**中心**を stackY に合わせる」だったため、高いノードは
+                //   自分の高さの半分ぶん上の root 側へはみ出していた。
+                //   実機 (doc/ggg/mt0wj1x7eaua.out): 141px の長文 root が上下の空 root の box に
+                //   27px / 26px 食い込み、間の root が長文 box の裏に隠れて「訳が分からない」表示になった。
+                //   修正: 一旦テンポラリへ emit して実 Y 範囲 (中心 ± measure 高さ/2) を測り、その **上端**を
+                //   stackY に合わせて平行移動してから本体へ merge し、stackY を実高さ + 60 だけ進める。
+                //   link は絶対座標 (sy/ty) を持つので同じ dy で平行移動する。
+                var tmpP = {}, tmpL = [];
                 if (layout === 'radial' || layout === 'balanced') {
                     // radial/balanced は「左右両側」。ブロック分割で安定化 (#2)。
                     // 視覚差 (radial=曲線/中心強調, balanced=直線寄り) は描画層 (linkStyle) で表現。
-                    emitBalanced(d3, model, rid, settings, measure, positions, links, 0, stackY, 'both', hidden, groupIdx);
-                    stackY += subtreeHeight(model, rid, measure, settings, hidden) + gBottom + 60;
+                    emitBalanced(d3, model, rid, settings, measure, tmpP, tmpL, 0, 0, 'both', hidden, groupIdx);
                 } else {
                     var dir = (layout === 'left') ? -1 : 1;
                     var rootL = computeSubtree(d3, model, rid, settings, measure, hidden, groupIdx);
-                    // 各 root サブツリーの縦オフセット (重ならないよう積む)
-                    var minX = Infinity;
-                    rootL.each(function(n) { if (n.x < minX) { minX = n.x; } });
-                    emitLinear(rootL, positions, links, dir, 0, stackY - (isFinite(minX) ? minX : 0), measure);
-                    stackY += subtreeSpan(rootL) + gBottom + 60;
+                    emitLinear(rootL, tmpP, tmpL, dir, 0, 0, measure);
                 }
+                var ex = positionsYExtent(tmpP, measure);
+                if (ex.count === 0) { continue; }   // 何も出なかった root は空間も消費しない
+                var dy = stackY - ex.min;
+                for (var pid in tmpP) {
+                    if (!tmpP.hasOwnProperty(pid)) { continue; }
+                    var src = tmpP[pid], cp = {};
+                    for (var pk in src) { if (src.hasOwnProperty(pk)) { cp[pk] = src[pk]; } }
+                    cp.y = src.y + dy;
+                    positions[pid] = cp;
+                }
+                for (var li = 0; li < tmpL.length; li++) {
+                    var lk = tmpL[li];
+                    lk.sy += dy; lk.ty += dy;
+                    links.push(lk);
+                }
+                stackY += ex.height + gBottom + 60;
             }
         }
 
@@ -397,26 +430,23 @@ var MindmapLayout = (function() {
         return { min: min, max: max, height: max - min };
     }
 
-    function subtreeSpan(root) {
-        var minX = Infinity, maxX = -Infinity;
-        root.each(function(n) { if (n.x < minX) { minX = n.x; } if (n.x > maxX) { maxX = n.x; } });
-        if (!isFinite(minX)) { return 0; }
-        return maxX - minX;
-    }
-
-    function subtreeHeight(model, rootId, measure, settings, hidden) {
-        hidden = normalizeHidden(hidden);
-        // 概算: leaf 数 × (nodeH + spacing)。hidden subtree は数えない (FR-MT-04)
-        var count = 0;
-        (function walk(id) {
-            if (hidden(id)) { return; }
-            var n = model.nodes[id];
-            if (!n) { return; }
-            var kids = n.collapsed ? [] : (n.children || []).filter(function(c) { return !hidden(c); });
-            if (!kids.length) { count++; return; }
-            kids.forEach(walk);
-        })(rootId);
-        return Math.max(count, 1) * (measure(rootId).height + settings.siblingSpacing);
+    /**
+     * emit 済み positions (id -> {x,y}) の screen-Y 範囲を実 measure 高さ込みで算出。
+     * subtreeYExtent の positions 版 (emitBalanced は hierarchy を返さないので座標から測る)。
+     * 戻り値 count は「対象が 0 件」を呼び側が判別するため (0 件 = 空間を消費しない)。
+     */
+    function positionsYExtent(pos, measure) {
+        var min = Infinity, max = -Infinity, count = 0;
+        for (var id in pos) {
+            if (!pos.hasOwnProperty(id)) { continue; }
+            var h = ((typeof measure === 'function' ? measure(id) : null) || {}).height || 0;
+            var top = pos[id].y - h / 2, bot = pos[id].y + h / 2;
+            if (top < min) { min = top; }
+            if (bot > max) { max = bot; }
+            count++;
+        }
+        if (!count) { return { min: 0, max: 0, height: 0, count: 0 }; }
+        return { min: min, max: max, height: max - min, count: count };
     }
 
     function computeBounds(positions, measure) {

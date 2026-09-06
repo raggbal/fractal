@@ -49,6 +49,10 @@ const stylesContent = fs.readFileSync(stylesPath, 'utf-8')
     .replace('__FONT_SIZE__', '14');
 
 // editor-utils.js を読み込み（editor.jsより前にロードされる）
+// FR-MFIT (sprint 20260901-075849 / ADRL-0109): menu-placement を本番 inline と対で登録する
+const menuPlacementScript = fs.readFileSync(path.join(__dirname, '../src/shared/menu-placement.js'), 'utf-8');
+// FR-MSEL-02/04 (TASK-30): 複数選択 payload の正規化（本番 inline と対で 6 点登録）
+const batchPayloadScript = fs.readFileSync(path.join(__dirname, '../src/shared/batch-payload.js'), 'utf-8');
 const editorUtilsScript = fs.readFileSync(editorUtilsJsPath, 'utf-8');
 // harness gap fix (sprint 20260727-102631): production (webviewContent.ts:121-124) と同じく
 // html-md-converter bundle (turndown + GFM + Fractal rule) を inline。旧 vendor/turndown*.js は
@@ -299,7 +303,7 @@ result = safeReplace(result, '__HTML_MD_CONVERTER_SCRIPT__', htmlMdConverterScri
 result = safeReplace(result, '__LINK_PARSER_SCRIPT__', linkParserScript);
 result = safeReplace(result, '__SIDEPANEL_BRIDGE__', sidePanelBridgeScript);
 result = safeReplace(result, '__TEST_HOST_BRIDGE__', testHostBridgeScript);
-result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', editorUtilsScript);
+result = safeReplace(result, '__EDITOR_UTILS_SCRIPT__', menuPlacementScript + '\n' + batchPayloadScript + '\n' + editorUtilsScript);
 result = safeReplace(result, '__COLOR_PALETTE_SCRIPT__', colorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);

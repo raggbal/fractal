@@ -25,6 +25,23 @@ export interface ImportMdOptions {
     title?: string;
     /** true の場合、相対画像パスの解決をスキップする（D&D 用） */
     skipRelativeImages?: boolean;
+    /**
+     * 📎 file リンクの複製先（note の `files/`）。
+     *
+     * **指定すると随伴転送の正典 `copyMdPasteAssets` に切り替わる**（FR-OIF-06 / sprint 20260901-075849）:
+     * 画像だけでなく **📎 file リンクと subpage md リンクも複製 + リンク書換**され、
+     * `restrictSourceRoots` による containment が効く。
+     *
+     * 未指定 = 従来の `processImages`（画像のみ・containment なし）で **byte 不変**。
+     * 既存呼び出し面（drop-import）の挙動を変えないための opt-in。
+     */
+    fileDir?: string;
+    /**
+     * 資産の読取を許す root 集合（NFR-DCP-01）。`fileDir` 指定時のみ効く。
+     * md 本文はディスク上の**非信頼入力**なので、絶対パス・境界外 `../` の参照は複製しない
+     * （リンクは原文のまま温存）。
+     */
+    restrictSourceRoots?: string[];
 }
 
 export interface ImportMdItem {
@@ -136,9 +153,30 @@ export function importMdFilesCore(
         // Normalize markdown
         let content = normalizeMarkdownPlainText(item.content);
 
-        // Process images if sourceDir is provided and not skipping relative images
+        // 資産の随伴。fileDir 指定時は随伴転送の正典へ、未指定時は従来の画像のみ処理へ。
         if (item.sourceDir && !options?.skipRelativeImages) {
-            content = processImages(content, item.sourceDir, imageDir, pageDir);
+            if (options?.fileDir) {
+                // FR-OIF-06: 画像 / 📎 file / subpage md をまとめて複製 + リンク書換 + containment。
+                // 旧 processImages は kind==='image' だけを処理し 📎/subpage を素通ししていたため、
+                // md が pages/<uuid>.md に置かれると本文が元フォルダ基準を指してリンク切れになっていた。
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const pah = require('./paste-asset-handler');
+                const res = pah.copyMdPasteAssets({
+                    markdown: content,
+                    sourceMdDir: item.sourceDir,
+                    sourceImageDir: item.sourceDir,
+                    sourceFileDir: item.sourceDir,
+                    destImageDir: imageDir,
+                    destFileDir: options.fileDir,
+                    destMdDir: pageDir,
+                    restrictSourceRoots: options.restrictSourceRoots,
+                    // 起点 md の実パス: subpage の戻りリンク（循環）で起点自身を再複製しない（ADRL-0110 / TC-OIF-21）
+                    sourceMdAbs: path.join(item.sourceDir, item.name),
+                });
+                content = res.rewrittenMarkdown;
+            } else {
+                content = processImages(content, item.sourceDir, imageDir, pageDir);
+            }
         }
         // If skipRelativeImages is true or sourceDir is empty, leave relative paths as-is
 

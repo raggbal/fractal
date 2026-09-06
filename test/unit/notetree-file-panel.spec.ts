@@ -401,8 +401,10 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
     // ── TC-WV-12: drop x-fractal-out-node-file → notesRegisterFileFromOutNode ──
     test('TC-WV-12 drop x-fractal-out-node-file → notesRegisterFileFromOutNode（subpage 経路へ誤流入しない）', async ({ page }) => {
         await loadPanel(page, {
-            fileList: [{ id: 'o1', filePath: '/n/plan.out', title: 'Plan', kind: 'out' }],
-            structure: { version: 1, rootIds: ['o1'], items: { o1: { type: 'file', id: 'o1', title: 'Plan' } } },
+            // 2026-09-05 test_update（sprint 20260901-075849 TASK-67..69 / R20 / FR-TGT-01）: `.out` 行は全帯が
+            // node 取込経路（TC-TGT-02 / 04）になったため、従来の兄弟登録経路は file item を target に踏む
+            fileList: [{ id: 'o1', filePath: '/n/a.pdf', title: 'A', kind: 'file' }],
+            structure: { version: 1, rootIds: ['o1'], items: { o1: { type: 'file', id: 'o1', title: 'A', ext: 'file', filename: 'a.pdf' } } },
         });
 
         const r = await page.evaluate(() => {
@@ -447,7 +449,7 @@ test.describe('TASK-04 — Notes tree file panel (notes-file-panel.js)', () => {
             const rr = dst.getBoundingClientRect();
             dst.dispatchEvent(new DragEvent('drop', {
                 bubbles: true, cancelable: true, dataTransfer: dt,
-                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.5,
+                clientX: rr.left + rr.width / 2, clientY: rr.top + rr.height * 0.1, // 上帯。2026-09-05 test_update（sprint 20260901-075849 TASK-67..69 / R19–R21）: .out 中央帯は node / リンクの取込経路（TC-TGT-02 / 06）
             }));
             return {
                 fromMdLink: w.__calls.filter((c: any) => c.type === 'notesRegisterFileFromMdLink'),

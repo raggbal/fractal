@@ -33,6 +33,20 @@
         // main md = notesMarkdownHostBridge ブロック）のため、md editor 系委譲メソッドは
         // **両ブロックに対で定義する**（片方だけだと SidePanelHostBridge の typeof ガードで
         // silent no-op — 追報①の根本原因。TC-RG-02 がブロック単位で番人）。
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): 複数選択は **1 回の呼び出しで items 配列**を渡す
+        // （N 回呼ぶと host 側の件数ゲートを構造的に迂回する — reviewer iteration 2 SEC-3）。
+        // 🔴 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に**対で定義**する
+        //（片方だけだと SidePanelHostBridge の typeof ガードで silent no-op — TC-RG-02 が番人）。
+        linkMdAsSubpageBatch: function(items, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdAsSubpageBatch', items: items || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
+        attachTreeFileToMdBatch: function(ids, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeFileToMdBatch', ids: ids || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // §4-2 rev2（TASK-45）: 種別混在（md + file）の結合 batch — 件数ゲートを合計で 1 回効かせる
+        attachTreeItemsToMdBatch: function(items, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeItemsToMdBatch', items: items || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
         attachTreeFileToMd: function(id, sidePanelFilePath) {
             api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
         },
@@ -124,6 +138,10 @@
         },
         notifyDropFolderRejected: function(folders) {
             api.postMessage({ type: 'notifyDropFolderRejected', folders: folders });
+        },
+        // 2026-09-05 FR-DFI-01: Finder からのフォルダ drop（webview が FileSystem API で読んだ中身）→ Import folder 経路で drop 位置へ
+        dropFolderEntriesImport: function(payload, targetNodeId, position) {
+            api.postMessage({ type: 'dropFolderEntriesImport', payload: payload, targetNodeId: targetNodeId, position: position });
         },
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
@@ -412,6 +430,10 @@
         readAndInsertMdAsSubpage: function(filePath) {
             api.postMessage({ type: 'notesMdReadMdAsSubpage', filePath: filePath });
         },
+        // 2026-09-05 FR-DFI-02: md 面へのフォルダ drop（Explorer）— host がディレクトリを展開して droppedPathsResolved で返す
+        resolveDroppedPaths: function(paths, requestId) {
+            api.postMessage({ type: 'resolveDroppedPaths', paths: paths || [], requestId: requestId });
+        },
         // FR-B09 (TASK-08): ファイルツリー md item → md editor D&D。既存 md へコピーせずリンクのみ。
         // US-09: mdFileId も渡し、host がツリーから md エントリを除去（真の subpage 化・ファイル実体不変）
         linkMdAsSubpage: function(filePath, mdFileId) {
@@ -421,6 +443,20 @@
         // editor.js の tree-file drop 分岐が targetHost.attachTreeFileToMd(id) で呼ぶ。
         // main md 経路は sidePanelFilePath 省略 → host は currentFile 宛てに解決。
         // sidepanel 経路は SidePanelHostBridge の委譲が第 2 引数に this.filePath を渡す。
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): 複数選択は **1 回の呼び出しで items 配列**を渡す
+        // （N 回呼ぶと host 側の件数ゲートを構造的に迂回する — reviewer iteration 2 SEC-3）。
+        // 🔴 両ブロック（outlinerHostBridge / notesMarkdownHostBridge）に**対で定義**する
+        //（片方だけだと SidePanelHostBridge の typeof ガードで silent no-op — TC-RG-02 が番人）。
+        linkMdAsSubpageBatch: function(items, sidePanelFilePath) {
+            api.postMessage({ type: 'linkMdAsSubpageBatch', items: items || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
+        attachTreeFileToMdBatch: function(ids, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeFileToMdBatch', ids: ids || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // §4-2 rev2（TASK-45）: 種別混在（md + file）の結合 batch — 件数ゲートを合計で 1 回効かせる
+        attachTreeItemsToMdBatch: function(items, sidePanelFilePath) {
+            api.postMessage({ type: 'attachTreeItemsToMdBatch', items: items || [], sidePanelFilePath: sidePanelFilePath || null });
+        },
         attachTreeFileToMd: function(id, sidePanelFilePath) {
             api.postMessage({ type: 'attachTreeFileToMd', id: id, sidePanelFilePath: sidePanelFilePath || null });
         },
@@ -530,6 +566,11 @@
             api.postMessage({ type: 'notesMoveItem', itemId: itemId, targetParentId: targetParentId, index: index });
         },
 
+        // FR-TMV-01 (TASK-87): 複数選択の一括移動（1 メッセージ = 1 保存）
+        moveItems: function(itemIds, targetParentId, index) {
+            api.postMessage({ type: 'notesMoveItems', itemIds: itemIds, targetParentId: targetParentId, index: index });
+        },
+
         // v11: アイテム色設定
         setItemColor: function(itemId, color) {
             api.postMessage({ type: 'notesSetItemColor', itemId: itemId, color: color });
@@ -541,6 +582,20 @@
         },
 
         // v0.207.77: D&D — Notes 内 .md を .out item にドロップして import
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): 複数選択は配列 1 回（host 側で件数ゲート）
+        notesImportMdIntoOutBatch: function(mdFileIds, targetOutId, targetNodeId, position) {
+            api.postMessage({
+                type: 'notesImportMdIntoOutBatch', mdFileIds: mdFileIds || [], targetOutId: targetOutId,
+                targetNodeId: targetNodeId || null, position: position || null,
+            });
+        },
+        // §4-2 rev2（TASK-45）: 種別混在（md + file）の結合 batch — items = [{kind, id, filePath}]（seq 順）
+        notesImportTreeItemsBatch: function(items, outFileId, targetNodeId, position) {
+            api.postMessage({
+                type: 'notesImportTreeItemsBatch', items: items || [], outFileId: outFileId,
+                targetNodeId: targetNodeId || null, position: position || null,
+            });
+        },
         notesImportMdIntoOut: function(mdFileId, targetOutId, targetNodeId, position) {
             // FR-TF-14 (2026-08-10): targetNodeId/position は任意（省略時 = 従来の rootIds 先頭 unshift）
             api.postMessage({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId, targetNodeId: targetNodeId ?? null, position: position ?? null });
@@ -584,6 +639,24 @@
                 targetOutFilePath: targetOutFilePath,
             });
         },
+        // 2026-09-04（rc.7 手動テスト）: note tree の `.out` / md item を drop 先にする新経路
+        // tree md item → tree md item（中央帯）: subpage リンク（disk 直書き）+ tree 除去
+        notesLinkMdIntoMd: function(dragItemId, targetMdId) {
+            api.postMessage({ type: 'notesLinkMdIntoMd', dragItemId: dragItemId, targetMdId: targetMdId });
+        },
+        // outliner node（複数可）→ tree md item（中央帯）: 添付を対象 md へリンク化 + node から外す
+        notesAttachOutNodeAssetsToMdItem: function(payload, targetMdId) {
+            flushOutlinerSync();
+            api.postMessage({ type: 'notesAttachOutNodeAssetsToMdItem', payload: payload, targetMdId: targetMdId });
+        },
+        // md editor の subpage / 📎 リンク → tree `.out` item（中央帯）: page / file node を root 先頭へ
+        notesImportMdLinkIntoOutItem: function(payload, kind, targetOutId) {
+            api.postMessage({ type: 'notesImportMdLinkIntoOutItem', payload: payload, kind: kind, targetOutId: targetOutId });
+        },
+        // md editor の subpage / 📎 リンク → tree md item（中央帯）: 対象 md へリンクを移す
+        notesLinkMdLinkIntoMdItem: function(payload, kind, targetMdId) {
+            api.postMessage({ type: 'notesLinkMdLinkIntoMdItem', payload: payload, kind: kind, targetMdId: targetMdId });
+        },
 
         // ── FR-TF: tree file item（ext:'file'）D&D 経路（host 側 4 層配線。§8 の 11 個中 panel 側 10 個） ──
         // FR-TF click（§4 :59）: kind==='file' の click → 外部アプリで開く
@@ -603,7 +676,23 @@
         notesAttachFileIntoMd: function(dragItemId, targetMdId) {
             api.postMessage({ type: 'notesAttachFileIntoMd', dragItemId: dragItemId, targetMdId: targetMdId });
         },
+        // FR-MSEL-04 rev3（2026-09-04 手動テスト (1)）: ツリー複数選択 → ツリー内 `.out` item の中央帯。
+        // md → page node / file → file node を **結合 batch 1 回**（対象 .out は未オープンでも host が JSON を直接更新）。
+        notesImportTreeItemsIntoOutItemBatch: function(items, targetOutId) {
+            api.postMessage({ type: 'notesImportTreeItemsIntoOutItemBatch', items: items || [], targetOutId: targetOutId });
+        },
+        // FR-MSEL-04 rev3: ツリー複数選択 → ツリー内 md item の中央帯。md → subpage リンク / file → 📎 リンクを
+        // 対象 md 末尾へ追記（結合 batch 1 回・対象 md は未オープンでも disk へ直接追記 = FR-TF-04 と同じ契約）。
+        attachTreeItemsIntoMdItemBatch: function(items, targetMdId) {
+            api.postMessage({ type: 'attachTreeItemsIntoMdItemBatch', items: items || [], targetMdId: targetMdId });
+        },
         // FR-TF-05a (§4d :92): ツリー file → outliner の node 位置に D&D（dropFilesResult 互換 postback）
+        notesImportTreeFileAtPositionBatch: function(ids, outFileId, targetNodeId, position) {
+            api.postMessage({
+                type: 'notesImportTreeFileAtPositionBatch', ids: ids || [], outFileId: outFileId,
+                targetNodeId: targetNodeId || null, position: position || null,
+            });
+        },
         notesImportTreeFileAtPosition: function(id, outFileId, targetNodeId, position) {
             api.postMessage({
                 type: 'notesImportTreeFileAtPosition',
@@ -626,6 +715,56 @@
             flushOutlinerSync();
             api.postMessage({
                 type: 'notesRegisterFileFromOutNode',
+                payload: payload,
+                parentId: parentId || null,
+                index: index || 0,
+            });
+        },
+        // FR-SND-03 (§6-2 / sprint 20260901-075849): outliner の選択 node を linkedfd へ送る。
+        // レイアウト / 名前 / 資産コピーは Export folder と同一（host が runFolderExport を通す）。
+        sendNodesToFolderLink: function(exportNodes, folderLinkId) {
+            flushOutlinerSync();
+            api.postMessage({
+                type: 'sendNodesToFolderLink',
+                tree: exportNodes || [],
+                folderLinkId: folderLinkId,
+            });
+        },
+        // FR-SND-01 (§6-1 / sprint 20260901-075849): linkedfd の選択（ファイル / フォルダ）を
+        // Outliner の root 先頭へ送る。closure 抑止・随伴転送は Import folder と同一経路（host 側）。
+        // FR-SND-02 rev2（2026-09-04 手動テスト (2)）: `outFileId` = サブメニューで選んだ送り先 `.out`（ツリー item id）。
+        // 省略時は従来どおりメインペインで開いている `.out`（後方互換）。
+        // 2026-09-05 R28: `targetNodeId` / `position` = outliner 面へ直接 drop したときの位置（省略 = root 先頭）
+        sendFolderViewToOutliner: function(folderLinkId, relPaths, outFileId, targetNodeId, position) {
+            api.postMessage({
+                type: 'sendFolderViewToOutliner',
+                folderLinkId: folderLinkId,
+                relPaths: relPaths || [],
+                outFileId: outFileId || null,
+                targetNodeId: targetNodeId || null,
+                position: position || null,
+            });
+        },
+        // 2026-09-05 R24: linkedfd の entry（file）→ tree の md 行（対象 md へ移す・disk 直書き）
+        folderViewMoveIntoMdItem: function(folderLinkId, relPaths, targetMdId) {
+            api.postMessage({ type: 'folderViewMoveIntoMdItem', folderLinkId: folderLinkId, relPaths: relPaths || [], targetMdId: targetMdId });
+        },
+        // 2026-09-05 R25/R26: outliner node（複数可）→ linkedfd（tree の行 / 面）
+        sendOutNodesToFolderLinkFromDrop: function(payload, folderLinkId, dstDirRelPath) {
+            flushOutlinerSync();
+            api.postMessage({ type: 'sendOutNodesToFolderLinkFromDrop', payload: payload, folderLinkId: folderLinkId, dstDirRelPath: dstDirRelPath || '' });
+        },
+        // 2026-09-05 R27: 外部フォルダ（Finder）→ note tree
+        notesRegisterExternalFolder: function(payload, parentId, index) {
+            api.postMessage({ type: 'notesRegisterExternalFolder', payload: payload, parentId: parentId || null, index: index || 0 });
+        },
+        // FR-NDA-02 (§2-4 / sprint 20260901-075849): outliner node の添付集合 → ツリーへ D&D。
+        // node.images / filePath / pageId を disk から読むため flushOutlinerSync で src .out を最新化する
+        // （notesRegisterFileFromOutNode と同一規約 — 忘れると 1 操作前の状態を読む）。
+        notesRegisterNodeAssets: function(payload, parentId, index) {
+            flushOutlinerSync();
+            api.postMessage({
+                type: 'notesRegisterNodeAssets',
                 payload: payload,
                 parentId: parentId || null,
                 index: index || 0,
@@ -732,6 +871,22 @@
         },
         folderViewMoveToTree: function(id, relPath, parentId, index) {
             api.postMessage({ type: 'folderViewMoveToTree', id: id, relPath: relPath || '', parentId: parentId || null, index: index || 0 });
+        },
+        // FR-MSEL-02/04 / NFR-MSEL-02 (§4-3b / sprint 20260901-075849 TASK-29):
+        // 複数選択は **1 回の呼び出しで items 配列を渡す**（webview が N 回呼ぶと host 側の
+        // 件数ゲート checkBatchLimit を構造的に迂回する — reviewer iteration 1 SEC-1）。
+        // 単一版（上の 2 本）は既存 TC のため温存する。
+        folderViewMoveToTreeBatch: function(id, items, parentId, index) {
+            api.postMessage({
+                type: 'folderViewMoveToTreeBatch', id: id,
+                items: items || [], parentId: parentId || null, index: index || 0,
+            });
+        },
+        folderViewMoveInBatch: function(id, dstDirRelPath, items) {
+            api.postMessage({
+                type: 'folderViewMoveInBatch', id: id,
+                dstDirRelPath: dstDirRelPath || '', items: items || [],
+            });
         },
         folderViewMoveIntoMd: function(id, relPath, targetMdPath) {
             api.postMessage({ type: 'folderViewMoveIntoMd', id: id, relPath: relPath || '', targetMdPath: targetMdPath || '' });

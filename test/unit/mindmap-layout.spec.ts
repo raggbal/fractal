@@ -84,9 +84,20 @@ test.describe('MindmapLayout.compute', () => {
         expect(oneRight && oneLeft).toBe(true);
     });
 
-    test('TC-133b-empty: empty title → no center node', () => {
+    // 2026-09-05 / 裁定 R34 / FR-MMT-01 で**仕様反転**: title が空文字でも中心ノードを出す
+    // (旧: 空 title → 中心ノード無しで root を縦積み → 実機で「root に属さない node が散在」に見えた)。
+    // null / undefined は「title の概念を持たない呼び出し」= 従来の縦積み (下の TC-133b-null)。
+    test('TC-133b-empty: empty title → center node still exists (radial)', () => {
         const m = tree({ n1: { id: 'n1', parentId: null, children: [], text: 'R1' } }, ['n1']);
         const r = ML.compute(m, { layout: 'radial' }, measure, '');
+        expect(r.positions['__title__']).toBeTruthy();
+        expect(r.positions.n1).toBeTruthy();
+        expect(r.links.some((l: any) => l.sourceId === '__title__' && l.targetId === 'n1')).toBe(true);
+    });
+
+    test('TC-133b-null: titleText 未指定 (null/undefined) は中心ノードを作らない', () => {
+        const m = tree({ n1: { id: 'n1', parentId: null, children: [], text: 'R1' } }, ['n1']);
+        const r = ML.compute(m, { layout: 'radial' }, measure);
         expect(r.positions['__title__']).toBeUndefined();
         expect(r.positions.n1).toBeTruthy();
     });

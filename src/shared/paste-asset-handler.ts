@@ -209,6 +209,9 @@ function rewriteMdLinksInBody(
  * `parseMarkdownLinks` の {start,end,url} で url 位置を特定し、右→左で splice するので
  * `note.md` の書換が `mynote.md` を巻き込む部分文字列誤置換が起きない（HIGH バグ修正）。
  * renames のキーは「本文に現れる生の url 文字列」（extractAllAssetRefs / extract*Paths が返す値）。
+ * 加えて `normalizeMdLinkKeys(url)` の正規化キー（title strip 済み）でも照合する（TASK-51 / reviewer iteration 6 QUAL6-1）:
+ * raw 正規化 `norm`（title を含む）で外れたときだけ候補を試すので、raw キーで渡す既存 caller の挙動は不変。
+ * title 付き `[x](y.md "t")` は url 部（`y.md`）だけが置換され title は温存される。
  */
 export function applyLinkUrlRewrites(body: string, renames: Map<string, string>): string {
     if (renames.size === 0) return body;
@@ -221,18 +224,27 @@ export function applyLinkUrlRewrites(body: string, renames: Map<string, string>)
         // parseMarkdownLinks の url は raw（trim/クエリ除去前）。extractAllAssetRefs 側は
         // trim + <>除去 + ?# 分割後の値なので、raw url を同じ正規化して renames と突き合わせる。
         const norm = (lk.url || '').trim().replace(/^<|>$/g, '').split(/[?#]/)[0];
-        const repl = renames.get(norm);
-        if (repl == null || repl === norm) continue;
+        let key = norm;
+        let repl = renames.get(norm);
+        if (repl == null) {
+            // raw 正規化で外れたら、title strip 込みの正規化キー（normalizeMdLinkKeys）で再照合する（TASK-51）。
+            // decoded 候補は raw 内に現れないので下の indexOf で自然に skip される。
+            for (const k of normalizeMdLinkKeys(lk.url || '')) {
+                const r = renames.get(k);
+                if (r != null) { key = k; repl = r; break; }
+            }
+        }
+        if (repl == null || repl === key) continue;
         // token 内の url 実体位置: token = body.slice(lk.start, lk.end)、url は `(` の次〜`)` の前。
         const token = body.slice(lk.start, lk.end);
         const urlIdxInToken = token.lastIndexOf(lk.url);
         if (urlIdxInToken < 0) continue;
-        // norm と raw が違う（<> や ?# 付き）場合は raw 内の norm 位置に限定して置換
+        // key と raw が違う（<> / ?# / title 付き）場合は raw 内の key 位置に限定して置換
         const rawUrl = lk.url;
-        const normIdxInRaw = rawUrl.indexOf(norm);
-        if (normIdxInRaw < 0) continue;
-        const at = lk.start + urlIdxInToken + normIdxInRaw;
-        edits.push({ at, len: norm.length, repl });
+        const keyIdxInRaw = rawUrl.indexOf(key);
+        if (keyIdxInRaw < 0) continue;
+        const at = lk.start + urlIdxInToken + keyIdxInRaw;
+        edits.push({ at, len: key.length, repl });
     }
     // 右→左で適用（index を保つ）
     edits.sort((a, b) => b.at - a.at);
@@ -1146,6 +1158,14 @@ export function copyMdPasteAssets(opts: {
     restrictSourceRoots?: string[];
     /** NFR-ACD-01: opt-in 複製結果報告（未指定 = 従来どおり無記録・挙動不変） */
     report?: MdPasteAssetReport;
+    /**
+     * 起点 md の実パス（opt-in・sprint 20260901-075849 再オープン TASK-43 / ADRL-0110）。
+     * 指定すると subpage closure の収集がこのパスを **visited の起点**にするため、subpage 側の
+     * 「戻りリンク」（`b.md` → `[[a]](a.md)`）で**起点 md 自身を subpage として再複製しない**
+     * （未指定 = 従来の synthetic root `__paste_root__.md` で byte 不変。paste 経路は起点がディスク上に無い）。
+     * Import folder（`markdown-import.ts`）だけが渡す。
+     */
+    sourceMdAbs?: string;
 }): MdPasteAssetResult {
     // Step 1: webview URL 接頭辞を strip して、後段が絶対パスとして扱えるようにする
     let rewrittenMarkdown = stripWebviewUrlPrefixes(opts.markdown);
@@ -1261,8 +1281,9 @@ export function copyMdPasteAssets(opts: {
     // md-link-recursive-copy (2026-07-07): 収集フェーズ（closure）→ 複製フェーズ（per-md 書換）の 2 パス。
     // 起点は webview 文字列（opts.markdown = rewrittenMarkdown の元）なので、
     // synthetic root abs（sourceMdDir 直下）を使い rootBody を渡して closure を収集する。
-    const syntheticRootAbs = path.join(opts.sourceMdDir, '__paste_root__.md');
-    const { closure } = collectMdLinkClosure(syntheticRootAbs, opts.sourceMdDir, opts.markdown);
+    // 起点の実パスが分かる呼び出し面（Import folder）は実パスを visited 起点にする（循環の戻りリンクで起点を再複製しない）。
+    const rootAbsForClosure = opts.sourceMdAbs ? path.resolve(opts.sourceMdAbs) : path.join(opts.sourceMdDir, '__paste_root__.md');
+    const { closure } = collectMdLinkClosure(rootAbsForClosure, opts.sourceMdDir, opts.markdown);
 
     // closure 複製（uniquify 予約 → 複製 → 資産複製 + リンク書換）はエンジンに集約（TASK-03）。
     const closureNameMap = replicateMdClosureToDest({

@@ -11,10 +11,12 @@
  *   - TC-WV-08 (FR-TF-05a 受信側): outliner に x-fractal-tree-file の drop（DataTransfer 合成）で
  *       notesHostBridge.notesImportTreeFileAtPosition(id, outFileId, targetNodeId, position) が呼ばれる。
  *       tree-md drop（既存）と相互不干渉。
- *   - TC-WV-09 (FR-TF-06a 受信側): editor に x-fractal-tree-file の drop で targetHost.attachTreeFileToMd(id)。
- *       main / sidepanel の targetHost 選択を両方踏む + 既存 tree-md 分岐（linkMdAsSubpage）に流入しない
- *       （counterfactual: 同 DataTransfer に poison な x-fractal-tree-md を積み、tree-file 分岐を外すと
- *        linkMdAsSubpage へ誤流入 = RED）。
+ *   - TC-WV-09 (FR-TF-06a 受信側 + FR-MSEL-04 rev2): editor に x-fractal-tree-file **単独**の drop で
+ *       targetHost.attachTreeFileToMd(id)（main / sidepanel の targetHost 選択を両方踏む）。
+ *       tree-file と tree-md が**同載**の drop は種別混在の複数選択（design §4-2 rev2 / TASK-45）なので
+ *       結合 bridge attachTreeItemsToMdBatch を **1 回**呼び、単一 attachTreeFileToMd / linkMdAsSubpage は呼ばない
+ *       （TASK-50 test_update: 旧 counterfactual「poison な tree-md を同載しても tree-file 分岐が先行」は
+ *        rev2 の契約と衝突するため撤回。「tree-md 単独 drop が attachTreeFileToMd を呼ばない」は TC-WV-08 系が担保）。
  *   - TC-WV-10 (§4h one-shot 掃除): outliner 📎 dragstart / editor file アンカー dragstart の新 state が
  *       dragend で clear される（per-file counterfactual: dragend clear を外すと stale = RED）。
  *
@@ -32,6 +34,12 @@ const r = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
 // build-standalone-notes.js と同じ「editor.js より前」スクリプト群
 const SCRIPTS_BEFORE_EDITOR = [
+    // 🔴 共有ヘルパは **outliner.js / notes-file-panel.js より前**に登録する（drop 経路で必ず呼ばれる）。
+    // この spec は build-standalone-* を使わず独自の script リストで組むため、
+    // 本番 3 面 + standalone ハーネス 3 本の「6 点登録」では届かない 7 点目にあたる
+    // （TASK-30 で batch-payload を入れたとき TC-WV-08 / TC-MX-04 が RED になって判明）。
+    r('shared/menu-placement.js'),
+    r('shared/batch-payload.js'),
     r('webview/html-md-converter.js'),
     r('shared/markdown-link-parser.js'),
     r('shared/sidepanel-bridge-methods.js'),
@@ -537,8 +545,11 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
         expect(afterFiles.indexOf('n2')).toBe(afterFiles.length - 1);
     });
 
-    // ---- TC-WV-09: editor x-fractal-tree-file drop -> attachTreeFileToMd; main/sidepanel both; not linkMdAsSubpage ----
-    test('TC-WV-09 editor の x-fractal-tree-file drop が targetHost.attachTreeFileToMd(id) を呼ぶ・main/sidepanel 両方・linkMdAsSubpage へ流入しない', async ({ page }) => {
+    // ---- TC-WV-09: editor x-fractal-tree-file drop -> attachTreeFileToMd (file 単独); 両 MIME 同載 -> attachTreeItemsToMdBatch 1 回 ----
+    // TASK-50（reviewer iteration 5 gate・test_update）: §4-2 rev2 で「tree-md + tree-file 同載 = 種別混在の複数選択 →
+    // 結合 batch 1 回」が仕様になったため、旧「poison な tree-md を同載しても tree-file 分岐が先行する」counterfactual を撤回。
+    // 「tree-md だけの drop が attachTreeFileToMd を呼ばない」ことは TC-WV-08 系（tree-md drop は linkMdAsSubpage 経路）が担保する。
+    test('TC-WV-09 editor の x-fractal-tree-file drop: file 単独は targetHost.attachTreeFileToMd(id)（main/sidepanel 両方）・tree-md 同載は attachTreeItemsToMdBatch 1 回で単一 bridge は呼ばない', async ({ page }) => {
         await loadEnv(page);
         await initEditorListeners(page); // document listener を登録
 
@@ -560,25 +571,45 @@ test.describe('TASK-05 — notetree file D&D (outliner / md editor webview)', ()
             EI.instances.push({ container: s.c, host: (window as any).__rec((window as any).__sideCalls, {}), options: { filePath: '/notes/side.md' } });
         });
 
-        // main editor へ drop（同 DataTransfer に poison な tree-md を積む = counterfactual）
-        const main = await page.evaluate(() => {
+        // (a) main editor へ file 単独 drop → FR-TF-06a の契約（attachTreeFileToMd(id)）
+        const mainSingle = await page.evaluate(() => {
             (window as any).__mainCalls.length = 0;
             (window as any).__sideCalls.length = 0;
             const dt = new DataTransfer();
             dt.setData('application/x-fractal-tree-file', JSON.stringify({ id: 'F1' }));
-            dt.setData('application/x-fractal-tree-md', JSON.stringify({ filePath: '/poison/x.md', id: 'PM1' }));
             (window as any).__mainEd.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 5, clientY: 5 }));
             return { main: (window as any).__mainCalls.slice(), side: (window as any).__sideCalls.slice() };
         });
-        const mainAttach = main.main.filter((c: any) => c.type === 'attachTreeFileToMd');
+        const mainAttach = mainSingle.main.filter((c: any) => c.type === 'attachTreeFileToMd');
         expect(mainAttach.length).toBe(1);
         expect(mainAttach[0].args[0]).toBe('F1');
-        // counterfactual: tree-file 分岐が正しく先行し return するので linkMdAsSubpage は呼ばれない
-        expect(main.main.filter((c: any) => c.type === 'linkMdAsSubpage').length).toBe(0);
+        expect(mainSingle.main.filter((c: any) => c.type === 'linkMdAsSubpage').length).toBe(0);
+        expect(mainSingle.main.filter((c: any) => c.type === 'attachTreeItemsToMdBatch').length).toBe(0);
         // sidepanel host は呼ばれない
-        expect(main.side.length).toBe(0);
+        expect(mainSingle.side.length).toBe(0);
 
-        // sidepanel editor へ drop
+        // (b) main editor へ tree-file + tree-md **同載** drop → 種別混在 = 結合 batch 1 回（§4-2 rev2）
+        const mainMixed = await page.evaluate(() => {
+            (window as any).__mainCalls.length = 0;
+            (window as any).__sideCalls.length = 0;
+            const dt = new DataTransfer();
+            dt.setData('application/x-fractal-tree-file', JSON.stringify({ id: 'F1', seq: 1 }));
+            dt.setData('application/x-fractal-tree-md', JSON.stringify({ filePath: '/notes/x.md', id: 'PM1', seq: 0 }));
+            (window as any).__mainEd.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: 5, clientY: 5 }));
+            return { main: (window as any).__mainCalls.slice(), side: (window as any).__sideCalls.slice() };
+        });
+        const mixedBatch = mainMixed.main.filter((c: any) => c.type === 'attachTreeItemsToMdBatch');
+        expect(mixedBatch.length, 'attachTreeItemsToMdBatch は 1 回').toBe(1);
+        const items = mixedBatch[0].args[0] as Array<{ kind: string; id: string }>;
+        expect(items.map((it) => `${it.kind}:${it.id}`).sort()).toEqual(['file:F1', 'md:PM1']);
+        // seq 順（md seq0 → file seq1）で結合される
+        expect(items.map((it) => it.id)).toEqual(['PM1', 'F1']);
+        // 単一 bridge は呼ばれない（結合 batch に一本化）
+        expect(mainMixed.main.filter((c: any) => c.type === 'attachTreeFileToMd').length).toBe(0);
+        expect(mainMixed.main.filter((c: any) => c.type === 'linkMdAsSubpage').length).toBe(0);
+        expect(mainMixed.side.length).toBe(0);
+
+        // (c) sidepanel editor へ file 単独 drop → sidepanel host の attachTreeFileToMd
         const side = await page.evaluate(() => {
             (window as any).__mainCalls.length = 0;
             (window as any).__sideCalls.length = 0;

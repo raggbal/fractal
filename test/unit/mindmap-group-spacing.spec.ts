@@ -65,20 +65,45 @@ function twoGroupModel() {
 const G1 = { id: 'g1', nodeIds: ['r1', 'c1a', 'c1b'], label: 'aaa', color: null };
 const G2 = { id: 'g2', nodeIds: ['r2', 'c2a', 'c2b'], label: 'bbb', color: null };
 
+/**
+ * 同一 root 配下の**隣接兄弟 subtree** を group にした形（2026-09-05 / 裁定 R33 で追加）。
+ * root 間の縦積みが実 measure 高さ基準になった（TASK-81 / FR-MMS-01）ため、root どうしの間隔は
+ * 常に 60px 空く → group 枠が要求する余白（下辺 PAD 14 + 上辺 PAD+LABEL 32 = 46）を上回り、
+ * **root レベルでは groups を渡さなくても枠が交差しなくなった**（旧 counterfactual が成立しない）。
+ * group 余白が今も load-bearing なのは「同じ root の中で兄弟 subtree が siblingSpacing(16) で
+ * 詰まる」経路（flextree の ft.spacing に GROUP_EXTRA を足す）なので、退化検出はそこで行う。
+ */
+function siblingGroupModel() {
+    return tree({
+        root: { id: 'root', parentId: null, children: ['s1', 's2'], text: 'root' },
+        s1: { id: 's1', parentId: 'root', children: ['s1a'], text: 'Q1' },
+        s1a: { id: 's1a', parentId: 's1', children: [], text: 'kickoff' },
+        s2: { id: 's2', parentId: 'root', children: ['s2a'], text: 'Q2' },
+        s2a: { id: 's2a', parentId: 's2', children: [], text: 'core api' },
+    }, ['root']);
+}
+const SG1 = { id: 'g1', nodeIds: ['s1', 's1a'], label: 'aaa', color: null };
+const SG2 = { id: 'g2', nodeIds: ['s2', 's2a'], label: 'bbb', color: null };
+
 test.describe('MindmapLayout group spacing (TC-GO)', () => {
 
-    test('TC-GO-01 ★load-bearing: 隣接 group 同士が重ならない（counterfactual: groups 未指定なら交差）', () => {
+    test('TC-GO-01 ★load-bearing: 隣接 group 同士が重ならない（counterfactual: 兄弟 subtree で groups 未指定なら交差）', () => {
+        // counterfactual は「同じ root 配下の兄弟 subtree」で取る（siblingGroupModel の注記参照。
+        // root レベルは裁定 R33 で 60px 空くようになり、groups 無しでも交差しなくなった）。
+        const sm = siblingGroupModel();
+        const sbase = ML.compute(sm, { ...SET }, measure);
+        expect(intersects(groupRect(sbase.positions, SG1.nodeIds, true), groupRect(sbase.positions, SG2.nodeIds, true)),
+            'pre-fix: 兄弟 subtree の枠が交差しているはず').toBe(true);
+        const sr = ML.compute(sm, { ...SET }, measure, undefined, undefined, [SG1, SG2]);
+        expect(intersects(groupRect(sr.positions, SG1.nodeIds, true), groupRect(sr.positions, SG2.nodeIds, true)),
+            'post-fix: 兄弟 subtree の枠が離れる').toBe(false);
+
+        // root レベル（別 root の group 同士）も交差しない。groups 有無いずれでも成立する
+        // （R33 以降は root 間 60px が group 枠の要求余白 46px を上回るため）。
         const m = twoGroupModel();
-        // counterfactual: groups を渡さない従来 compute では枠が交差する（= バグの実証）
-        const base = ML.compute(m, { ...SET }, measure);
-        const bg1 = groupRect(base.positions, G1.nodeIds, true);
-        const bg2 = groupRect(base.positions, G2.nodeIds, true);
-        expect(intersects(bg1, bg2), 'pre-fix: 枠が交差しているはず').toBe(true);
-        // fix: groups を渡すと交差しない
         const r = ML.compute(m, { ...SET }, measure, undefined, undefined, [G1, G2]);
-        const g1 = groupRect(r.positions, G1.nodeIds, true);
-        const g2 = groupRect(r.positions, G2.nodeIds, true);
-        expect(intersects(g1, g2), 'post-fix: 枠が離れる').toBe(false);
+        expect(intersects(groupRect(r.positions, G1.nodeIds, true), groupRect(r.positions, G2.nodeIds, true)),
+            'post-fix: root レベルの枠が離れる').toBe(false);
     });
 
     test('TC-GO-02 group と非メンバー node が重ならない', () => {

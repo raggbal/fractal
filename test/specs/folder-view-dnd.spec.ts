@@ -50,6 +50,7 @@ async function setup(page: Page, opts?: { showFolderView?: boolean }): Promise<v
         w.__dndCalls = [];
         ['folderViewList', 'folderViewSearch', 'folderViewOpen', 'folderViewMove',
          'folderViewMoveIn', 'folderViewMoveToTree', 'folderViewMoveIntoMd', 'folderViewMoveFromMd',
+         'sendOutNodesToFolderLinkFromDrop',   // 2026-09-05 R25
          'notifyError'].forEach((k) => {
             w.notesHostBridge[k] = (...args: any[]) => { w.__dndCalls.push({ type: k, args }); };
         });
@@ -343,13 +344,28 @@ test.describe('TC-FLV-48 — W6 受信端: md アンカー → フォルダビ�
         expect(fm[0].args).toEqual(['fl1', '', 'sub.md', '/x/src.md', true]);
     });
 
-    test('他 MIME（outliner node 系）→ 不受理通知 + bridge 不発', async ({ page }) => {
+    test('outliner node 系 MIME → 2026-09-05 R25: 「linkedfd に送る」経路（sendOutNodesToFolderLinkFromDrop）。通知なし', async ({ page }) => {
         await setup(page);
         await makeDragSource(page, 'application/x-fractal-out-node-file', { outFileKey: '/x/a.out', nodeId: 'n1' });
         await resetCalls(page);
         await realDrag(page, '#testDragSrc', '.fv-row[data-rel="dirA"]');
         expect((await calls(page, 'folderViewMoveFromMd')).length).toBe(0);
         expect((await calls(page, 'folderViewMoveIn')).length).toBe(0);
+        const snd = await calls(page, 'sendOutNodesToFolderLinkFromDrop');
+        expect(snd.length, 'outliner node → linkedfd 面が送る経路に乗らない（旧: 不受理通知）').toBe(1);
+        expect(snd[0].args[0]).toMatchObject({ outFileKey: '/x/a.out', nodeId: 'n1' });
+        expect(snd[0].args[2], 'dir 行への drop = その dir').toBe('dirA');
+        expect((await calls(page, 'notifyError')).length).toBe(0);
+        await expectNoFvVisualResidue(page);
+    });
+
+    test('未知の x-fractal MIME → 不受理通知 + bridge 不発（不受理の明示裁定は維持）', async ({ page }) => {
+        await setup(page);
+        await makeDragSource(page, 'application/x-fractal-unknown-thing', { any: 1 });
+        await resetCalls(page);
+        await realDrag(page, '#testDragSrc', '.fv-row[data-rel="dirA"]');
+        expect((await calls(page, 'folderViewMoveIn')).length).toBe(0);
+        expect((await calls(page, 'sendOutNodesToFolderLinkFromDrop')).length).toBe(0);
         expect((await calls(page, 'notifyError')).length).toBe(1);
         await expectNoFvVisualResidue(page);
     });
@@ -382,5 +398,83 @@ test.describe('TC-FLV-46 — W5: tree 内 folder item 並べ替え（regression�
         expect(types).not.toContain('application/x-fractal-tree-file');
         expect(types).not.toContain('application/x-fractal-tree-md');
         expect(types).not.toContain('application/x-fractal-folderview-entry');
+    });
+});
+
+/**
+ * TC-DCP-11 (sprint 20260901-075849 / FR-DCP-04 / TASK-18) — dropEffect が意味論と一致する。
+ *
+ * ADRL-0106 で note ツリー ⇄ fv の 2 方向が**複製**になったため、`dropEffect='move'` 固定のままだと
+ * カーソルが嘘をつく（元が消えるように見える）。`dragover` では payload の中身が読めないので
+ * **`types` の判定だけ**で決まる（HTML5 protected mode）。
+ *
+ * ⚠️ **合成 `DataTransfer` では `dropEffect` / `effectAllowed` が `'none'` 固定で読めない**
+ * （Chromium 実測: setter が no-op）。したがって **real mouse drag** で本物の DataTransfer を作り、
+ * 本番ハンドラが設定した後の値を document 段のリスナで拾う（要素 → document のバブル順を利用）。
+ *
+ * 🔴 counterfactual: `notes-folder-view.js` の `resolveDropEffect(e)` を `'move'` 固定に戻すと
+ * 「note ツリー item → fv」が RED。
+ */
+test.describe('TC-DCP-11 dropEffect の意味論一致（FR-DCP-04）', () => {
+    /** document 段で dropEffect を記録する recorder を仕込む（本番ハンドラの設定後の値を見る）。 */
+    async function installRecorder(page: Page): Promise<void> {
+        await page.evaluate(() => {
+            const w = window as any;
+            w.__dropEffects = [];
+            document.addEventListener('dragover', (e: any) => {
+                if (!e.dataTransfer) { return; }
+                w.__dropEffects.push({
+                    types: Array.from(e.dataTransfer.types || []),
+                    dropEffect: e.dataTransfer.dropEffect,
+                    prevented: e.defaultPrevented,
+                    target: (e.target as HTMLElement)?.className || '',
+                });
+            }, false);
+        });
+    }
+    /** 記録のうち指定 MIME を含む最後のものを返す。 */
+    async function lastEffectFor(page: Page, mime: string): Promise<{ dropEffect: string; prevented: boolean } | null> {
+        return page.evaluate((m) => {
+            const list = ((window as any).__dropEffects || []).filter((r: any) => r.types.indexOf(m) !== -1);
+            return list.length ? { dropEffect: list[list.length - 1].dropEffect, prevented: list[list.length - 1].prevented } : null;
+        }, mime);
+    }
+
+    test('① note ツリー item（md）→ linkedfd 上は copy（複製方向）', async ({ page }) => {
+        await setup(page);
+        await installRecorder(page);
+        await realDrag(page, '.file-panel-item[data-item-id="mdDoc"]', '.fv-row[data-rel="dirA"]', 0.5);
+        const r = await lastEffectFor(page, 'application/x-fractal-tree-md');
+        expect(r, 'note ツリー発の dragover が fv 上で記録されていない（drag が始まっていない）').toBeTruthy();
+        expect(r!.prevented, 'dragover が preventDefault されていない = drop 不発').toBe(true);
+        expect(r!.dropEffect,
+            'note ツリー → linkedfd が copy でない（複製なのに move カーソル = 嘘をつく）').toBe('copy');
+    });
+
+    test('② note ツリー item（file）→ linkedfd 上も copy', async ({ page }) => {
+        await setup(page);
+        await installRecorder(page);
+        await realDrag(page, '.file-panel-item[data-item-id="fileF"]', '.fv-row[data-rel="dirA"]', 0.5);
+        const r = await lastEffectFor(page, 'application/x-fractal-tree-file');
+        expect(r, 'tree-file payload の dragover が記録されていない').toBeTruthy();
+        expect(r!.dropEffect, 'tree file item → linkedfd が copy でない').toBe('copy');
+    });
+
+    test('③ fv 内 D&D は move のまま（ADRL-0102 不変）', async ({ page }) => {
+        await setup(page);
+        await installRecorder(page);
+        await realDrag(page, '.fv-row[data-rel="a.txt"]', '.fv-row[data-rel="dirA"]', 0.5);
+        const r = await lastEffectFor(page, FV_MIME);
+        expect(r, 'fv 内 drag の dragover が記録されていない').toBeTruthy();
+        expect(r!.dropEffect, 'fv 内 D&D が copy になった（ADRL-0102 違反）').toBe('move');
+    });
+
+    test('④ linkedfd エントリ → note ツリー上は copy（既存挙動の維持）', async ({ page }) => {
+        await setup(page);
+        await installRecorder(page);
+        await realDrag(page, '.fv-row[data-rel="b.md"]', '.file-panel-item[data-item-id="mdDoc"]', 0.5);
+        const r = await lastEffectFor(page, FV_MIME);
+        expect(r, 'fv → note ツリーの dragover が記録されていない').toBeTruthy();
+        expect(r!.dropEffect, 'fv → note ツリーが copy でない').toBe('copy');
     });
 });

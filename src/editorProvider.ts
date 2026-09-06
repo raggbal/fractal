@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { expandDroppedPathsToFiles } from './shared/drop-import';
 import { getWebviewContent, getNonce } from './webviewContent';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { OutlinerProvider, buildPdfExportDeps } from './outlinerProvider';
@@ -1045,6 +1046,20 @@ export class AnyMarkdownEditorProvider implements vscode.CustomTextEditorProvide
                     // FR: sidepanel が実際にこの md を開いている（watchedPath 一致）ときだけ sidepanel 宛に載せる
                     const saveImgSp = sidePanel.watchedPath === message.sidePanelFilePath ? message.sidePanelFilePath : undefined;
                     await this.handleSaveImage(saveDocUri, saveDocContent, webviewPanel.webview, message.dataUrl, message.fileName, saveImgSp);
+                    break;
+                }
+
+                case 'resolveDroppedPaths': {
+                    // 2026-09-05 FR-DFI-02: md 面へのフォルダ drop（Explorer）— dir を展開して webview に返す（webview は 1 ファイル経路を順に呼ぶ）
+                    // 裁定 R37: 上限（2000 件 / 深さ 20）に当たったら黙って切り捨てず警告 1 回（Import folder と同じ文言を再利用）
+                    const expandLimit: { truncated?: boolean; tooDeep?: boolean } = {};
+                    const files = expandDroppedPathsToFiles(
+                        Array.isArray(message.paths) ? (message.paths as unknown[]).map(String) : [],
+                        undefined, undefined, expandLimit);
+                    if (expandLimit.truncated || expandLimit.tooDeep) {
+                        vscode.window.showWarningMessage(t('importFolderTooMany'));
+                    }
+                    webviewPanel.webview.postMessage({ type: 'droppedPathsResolved', requestId: message.requestId ?? null, files, sidePanelFilePath: message.sidePanelFilePath ?? null });
                     break;
                 }
 

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { getOutlinerWebviewContent } from './outlinerWebviewContent';
+import { getOutlinerWebviewContent, getBrokenOutlinerHtml, classifyOutlinerContent } from './outlinerWebviewContent';
 import { runExportBundle, runExportOutlinerNodesBundle } from './shared/export-bundle-host';
 import { t, getWebviewMessages, initLocale } from './i18n/messages';
 import { SidePanelManager } from './shared/sidePanelManager';
@@ -11,10 +11,10 @@ import { resolveResourceRoots } from './shared/resource-roots';
 import { importMdFiles } from './shared/markdown-import';
 import { saveDroppedMdAsSubpage, dataUrlToUtf8 } from './shared/md-subpage-utils';
 import { importFiles } from './shared/file-import';
-import { runFolderImportWithDialog } from './shared/folder-import-host';
+import { runFolderImportWithDialog, importDroppedFoldersIntoOut } from './shared/folder-import-host';
 import { runFolderExportWithDialog } from './shared/folder-export-host';
 import { ExportNode } from './shared/folder-export';
-import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem, partitionDroppedUris, materializeDroppedFolder, DroppedFolderPayload } from './shared/drop-import';
 import { OutlinerClipboardStore } from './shared/outliner-clipboard-store';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, copyMdPasteAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste } from './shared/paste-asset-handler';
 import { setFirstH1, writeFileIfChanged } from './shared/md-h1-utils';
@@ -191,6 +191,17 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
             try {
                 const config = vscode.workspace.getConfiguration('fractal');
                 const content = document.getText();
+                // sprint 20260901-075849 TASK-77 / FR-OPF-02: 壊れた .out を「空の outliner」として開かない。
+                // 従来は webview 側 catch で init({version:1,rootIds:[],nodes:{}}) に縮退しており、
+                // 画面は空・以後の 1 編集で salvage 可能な原本が空データで上書きされる恐れがあった。
+                // 空ファイル（新規作成直後）は従来どおり既定 JSON で開く — 非空かつ parse 不能のときだけ止める。
+                const verdict = classifyOutlinerContent(content);
+                if (verdict.kind === 'broken') {
+                    const base = path.basename(document.uri.fsPath);
+                    vscode.window.showErrorMessage(`${t('noteOpenFailed')}: ${base} — ${verdict.error}`);
+                    webviewPanel.webview.html = getBrokenOutlinerHtml(base, verdict.error || '');
+                    return;
+                }
                 const docBaseUri = webviewPanel.webview.asWebviewUri(documentDir).toString();
                 webviewPanel.webview.html = getOutlinerWebviewContent(
                     webviewPanel.webview,
@@ -452,10 +463,42 @@ export class OutlinerProvider implements vscode.CustomTextEditorProvider {
                         await handleFinderDrop(message.items as DropImportItem[], message.targetNodeId, message.position);
                         break;
 
-                    case 'dropVscodeUrisImport':
+                    case 'dropVscodeUrisImport': {
                         // v12 拡張: VSCode Explorer D&D
-                        await handleExplorerDrop(message.uris as string[], message.targetNodeId, message.position);
+                        // 2026-09-05 FR-DFI-01: フォルダは Import folder 経路（drop 位置へ dir node 木）、ファイルは従来どおり
+                        const { dirs, others } = partitionDroppedUris(message.uris as string[]);
+                        if (others.length > 0) {
+                            await handleExplorerDrop(others, message.targetNodeId, message.position);
+                        }
+                        if (dirs.length > 0) {
+                            const pageDirD = this.getPagesDirPath(document);
+                            await importDroppedFoldersIntoOut({
+                                pageDir: pageDirD,
+                                imageDir: path.join(pageDirD, 'images'),
+                                fileDir: this.getFileDirPath(document),
+                                outDir: path.dirname(document.uri.fsPath),
+                            }, dirs, { postMessage: (m: unknown) => webviewPanel.webview.postMessage(m) }, message.targetNodeId ?? null, message.position ?? null);
+                        }
                         break;
+                    }
+
+                    case 'dropFolderEntriesImport': {
+                        // 2026-09-05 FR-DFI-01: Finder フォルダ drop → tmp に実体化 → Import folder 経路
+                        const mat = materializeDroppedFolder(message.payload as DroppedFolderPayload);
+                        if (!mat) break;
+                        try {
+                            const pageDirF = this.getPagesDirPath(document);
+                            await importDroppedFoldersIntoOut({
+                                pageDir: pageDirF,
+                                imageDir: path.join(pageDirF, 'images'),
+                                fileDir: this.getFileDirPath(document),
+                                outDir: path.dirname(document.uri.fsPath),
+                            }, [mat.root], { postMessage: (m: unknown) => webviewPanel.webview.postMessage(m) }, message.targetNodeId ?? null, message.position ?? null);
+                        } finally {
+                            try { fs.rmSync(mat.tmpBase, { recursive: true, force: true }); } catch { /* best effort */ }
+                        }
+                        break;
+                    }
 
                     case 'notifyDropFolderRejected': {
                         vscode.window.showWarningMessage(t('dropFolderRejected'));

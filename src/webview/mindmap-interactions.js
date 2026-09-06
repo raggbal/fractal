@@ -134,6 +134,16 @@ var MindmapInteractions = (function() {
         //   既定 (falsy) では **active node の移動時に複数選択をクリア**する (iteration 25 / TASK-68)。
         //   これで「click で太枠になったノードが、矢印/Enter/Tab で active が移った後も太枠のまま
         //   残る」問題を解消する。active(=is-focused) が唯一の太枠になり、移動で古い太枠が消える。
+        // FR-MMT-01 / 裁定 R34: 空 title の中心ノードは placeholder (Untitled) を描いているので、
+        // 編集開始時に必ず捨てる。捨てないと commitEdit が placeholder 文字列を読んで
+        // model.title = 'Untitled' として保存してしまう (ユーザーは 1 文字も打っていない)。
+        function dropTitlePlaceholder(textEl, raw) {
+            if (!textEl || !textEl.classList) { return; }
+            if (!textEl.classList.contains('is-placeholder')) { return; }
+            textEl.classList.remove('is-placeholder');
+            textEl.textContent = raw || '';
+        }
+
         function focusNode(nodeId, startEdit, keepSelection) {
             setFocused(nodeId);
             // active 移動時は複数選択(selected)をクリアし、active ノードのみを選択集合にする。
@@ -157,6 +167,7 @@ var MindmapInteractions = (function() {
                     var node = (nodeId === '__title__')
                         ? { text: (ctx.titleText || '') } : model.getNode(nodeId);
                     var raw = (node && node.text) || '';
+                    dropTitlePlaceholder(textEl, raw);
                     if (raw.indexOf('\n') >= 0) {
                         textEl.textContent = '';
                         var parts = raw.split('\n');
@@ -242,6 +253,12 @@ var MindmapInteractions = (function() {
                 var sel = !!(selected && selected.has && id && selected.has(id));
                 if (sel) { boxes[i].classList.add('is-selected'); }
                 else { boxes[i].classList.remove('is-selected'); }
+            }
+            // 裁定 R36 / FR-MMD-01: 複数選択の一部になった node box だけを「外へ運ぶ」drag 用に
+            // draggable にする (常時 draggable は mindmap 内付け替え D&D を食う)。選択トグルは
+            // rerender しないので、ここで属性を貼り直す。
+            if (typeof MindmapRender !== 'undefined' && MindmapRender.refreshNodeDragOut) {
+                MindmapRender.refreshNodeDragOut();
             }
         }
 
@@ -378,6 +395,13 @@ var MindmapInteractions = (function() {
                     pushUndo();
                     ctx.setTitle(newText);
                     scheduleSync();
+                    rerender();
+                } else if (newText === '') {
+                    // 裁定 R34 / FR-MMT-01: 空タイトルのまま編集を抜けた場合。編集開始時に
+                    // placeholder (Untitled) を捨てているので、そのままだと中心ノードが**空 box**で
+                    // 残る (title 不変なので上の rerender 経路に入らない)。placeholder の文言は
+                    // mindmap-render の titleDisplay が単一の出所なので、ここでは rerender して
+                    // 描き直させる (文言をこちらで持つと 2 箇所定義になりドリフトする)。
                     rerender();
                 }
                 return;
@@ -994,6 +1018,7 @@ var MindmapInteractions = (function() {
             // 編集開始: 改行を含む生テキストを <br> 付きで編集用に流し込む (focusNode(true) と同じ)。
             var node = (nid === '__title__') ? { text: (ctx.titleText || '') } : model.getNode(nid);
             var raw = (node && node.text) || '';
+            dropTitlePlaceholder(t, raw);
             if (raw.indexOf('\n') >= 0) {
                 t.textContent = '';
                 var parts = raw.split('\n');
@@ -1381,7 +1406,10 @@ var MindmapInteractions = (function() {
             var pos = fileDropPositionAt(e.clientY, nodeEl.getBoundingClientRect());
             // FR-MDD-02/04: custom MIME を Files より先に dispatch(outliner capture drop
             // :1237-1250 と同順。Excel 等が Files と custom を同時に積むケースの排他)
-            if (isTreeMd(e) && ctx.handleTreeMdDrop) {
+            // §4-2 rev2（TASK-45）: md + file 混在は結合 drop（outliner 面と同じ 1 回の結合 bridge）
+            if (isTreeMd(e) && isTreeFile(e) && ctx.handleTreeItemsMixedDrop) {
+                ctx.handleTreeItemsMixedDrop(e, targetId, pos);
+            } else if (isTreeMd(e) && ctx.handleTreeMdDrop) {
                 ctx.handleTreeMdDrop(e, targetId, pos);
             } else if (isTreeFile(e) && ctx.handleTreeFileDrop) {
                 ctx.handleTreeFileDrop(e, targetId, pos);
@@ -1736,6 +1764,9 @@ var MindmapInteractions = (function() {
                         if (_selectedGroupId !== ctxGid) { markGroupSelected(ctxGid); rerender(); }
                         var gMenu = buildGroupContextMenu(ctxGid, e.clientX, e.clientY);
                         document.body.appendChild(gMenu);
+                        // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+                        // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+                        window.__menuPlacement.place(gMenu, { x: e.clientX, y: e.clientY });
                         if (typeof MindmapRender !== 'undefined' && MindmapRender._trackBodyEl) {
                             MindmapRender._trackBodyEl(gMenu);
                         }
@@ -1746,6 +1777,9 @@ var MindmapInteractions = (function() {
             }
             var menu = buildContextMenu(nodeEl ? nodeEl.getAttribute('data-node-id') : null, e.clientX, e.clientY);
             document.body.appendChild(menu);
+            // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+            // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+            window.__menuPlacement.place(menu, { x: e.clientX, y: e.clientY });
             if (typeof MindmapRender !== 'undefined' && MindmapRender._trackBodyEl) {
                 MindmapRender._trackBodyEl(menu);
             }

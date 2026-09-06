@@ -122,7 +122,9 @@ test.describe('TASK-19: md editor 内 subpage → ツリー D&D (standalone-note
             const dt = new DataTransfer();
             a.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
             const r = target.getBoundingClientRect();
-            const x = r.left + r.width / 2, y = r.top + r.height * 0.5;
+            // 2026-09-04（TC-TGT-05）: .out item の**中央帯**は「その outliner へ page node として取込」に変わったため、
+            // tree item 登録の契約は**上帯（ratio 0.1）**で見る
+            const x = r.left + r.width / 2, y = r.top + r.height * 0.1;
             target.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt, clientX: x, clientY: y }));
             target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
             a.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));

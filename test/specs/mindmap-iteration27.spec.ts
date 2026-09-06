@@ -64,6 +64,31 @@ function viewport(page: import('@playwright/test').Page) {
     });
 }
 
+/**
+ * ★2026-09-05 / 裁定 R34 (FR-MMT-01): title が空でも中心ノード (__title__) が出るようになり、
+ *   mindmap を開いた直後の open-centering が全マップで走る。中心から遠いノードは可視領域の外に
+ *   出るため、Playwright の click が親コンテナに intercept されて操作できない (mindmap の
+ *   transform 内なので Playwright の自動 scrollIntoView も効かない)。click 前に対象ノードを
+ *   可視領域中央へ pan してから操作する (検証対象は click 後の挙動なので前提整えに影響はない)。
+ */
+async function panNodeIntoView(page: import('@playwright/test').Page, id: string) {
+    await page.evaluate((nid) => {
+        const MR = (window as any).MindmapRender;
+        const fo = document.querySelector('.mindmap-node[data-node-id="' + nid + '"]') as any;
+        const tree = document.querySelector('.outliner-tree') as HTMLElement;
+        if (!fo || !tree) { return; }
+        const nr = fo.getBoundingClientRect();
+        const tr = tree.getBoundingClientRect();
+        // ★ getViewport() の**同一オブジェクト**を書き換えて渡す (新リテラルだと
+        //   mindmap-interactions が掴んだ参照と別物になり pan/zoom 保存復元がずれる)。
+        const v = MR.getViewport();
+        v.translateX += (tr.left + tr.right) / 2 - (nr.left + nr.right) / 2;
+        v.translateY += (tr.top + tr.bottom) / 2 - (nr.top + nr.bottom) / 2;
+        MR.updateViewport(v);
+    }, id);
+    await page.waitForTimeout(80);
+}
+
 // P(子 c1,c2) + 8 root で削除に伴う reLayout を起こす
 function wideModel() {
     const nodes: any = {}; const roots: string[] = [];
@@ -82,6 +107,9 @@ test('TC-M18 Delete で viewport(pan/zoom) が動かない', async ({ page }) =>
     // zoom して scale≠1 + translate≠0 にする
     await page.locator('.mindmap-toolbar [data-mm-action="zoom-in"]').click();
     await page.waitForTimeout(120);
+    // R34 の open-centering 後は c1 が可視領域外になり click が intercept されるため、
+    // 計測開始前に c1 を可視領域へ pan しておく (pan 自体は before の計測前に完了)。
+    await panNodeIntoView(page, 'c1');
     const before = await viewport(page);
 
     // 子ノード c1 を選択して Delete

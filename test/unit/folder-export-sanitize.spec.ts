@@ -42,6 +42,23 @@ test.describe('DOM-FsNameSanitize（FR-EXF-04）', () => {
         }
     });
 
+    test("TC-EXF-04b: 見た目が空（全角空白 / NBSP / ゼロ幅文字だけ）の text も 'blank' になる（2026-09-04 実機の「-1」名）", () => {
+        // 実機: 空に見える node（U+3000 全角空白 or U+200B）を「linkedfd に送る」と、不可視文字 1 文字の名前が
+        // 作られ、同名衝突の 2 件目が `<不可視>-1` = 目には「-1」というフォルダ / ファイルに見えた。
+        // 既定名 `blank` の判定は**見た目の空**で行う（ユーザー裁定 2026-08-30「空なら blank」の本来の意図）。
+        for (const input of ['\u3000', '\u3000\u3000', '\u00a0', ' \u00a0 ', '\u200b', '\u200b\u200b', '\ufeff', '\u2060', '\u00ad', '\u200b \u3000.']) {
+            expect(sanitizeFsName(input), `input=${JSON.stringify(input)}`).toBe('blank');
+        }
+        // 不可視文字は名前の途中にあっても落とす（`na\u200bme` → `name`）。末尾の全角空白も落とす
+        expect(sanitizeFsName('na\u200bme')).toBe('name');
+        expect(sanitizeFsName('name\u3000')).toBe('name');
+        expect(sanitizeFsName('name\u00a0.')).toBe('name');
+        // 先頭の全角空白は（半角と同じく）FS 上有効なので保持する
+        expect(sanitizeFsName('\u3000name')).toBe('\u3000name');
+        // counterfactual: 旧実装は `[. ]+$` しか見ないので U+3000 が残り、'\u3000' を返していた
+        expect(sanitizeFsName('\u3000')).not.toBe('\u3000');
+    });
+
     test('TC-EXF-04: Windows 予約名は `_` 前置（拡張子を除いた base で大小無視判定）', () => {
         expect(sanitizeFsName('CON')).toBe('_CON');
         expect(sanitizeFsName('con.md')).toBe('_con.md');

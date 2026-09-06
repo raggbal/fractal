@@ -41,6 +41,22 @@ export interface Messages {
   importFolderConfirmProceed: string; // modal の実行ボタン
   importFolderTooMany: string;        // 上限超過（件数/深さ）— コピー 0 で中断
   importFolderSkipped: string;        // {count} プレース（個別失敗の集計）
+  // FR-SND / NFR-MSEL-03 (sprint 20260901-075849): 送る系の完了通知 + batch 集計（すべて host t()）
+  sendToOutlinerDone: string;         // {count} / {skipped} プレース
+  sendToOutlinerNoOutline: string;    // TASK-46: `.out` 未オープンで「Outliner に送る」を押した時の通知（取り込み 0）
+  sendToLinkedfdDone: string;         // {count} / {name} / {skipped} プレース
+  batchDndSummary: string;            // {count} / {skipped} / {failed} プレース
+  // TASK-38 (NFR-MSEL-03): md → outliner 取込の単一経路の失敗通知。
+  // batch 経路では出さない（集計 1 回に一本化）。旧実装は非 localize の英語ハードコードだった。
+  notesImportMdIntoOutFailed: string;
+  // TASK-39 (FR-MSEL-04 / reviewer iteration 3 QUAL3-4): note ツリー複数選択 D&D の modal / 上限通知。
+  // Import folder 用の importFolder* とは**文言だけ**分ける（フォルダも階層深度も無い操作なので
+  // "from this folder" / "20 levels deep" が事実に反する）。閾値定数は共有のまま
+  //（第 3 の上限実装を作らない = checkBatchLimit が FOLDER_IMPORT_* を使い続ける）。
+  batchTransferConfirm: string;       // {count} プレース（modal 本文）
+  batchTransferConfirmProceed: string; // modal の実行ボタン（TASK-41 = DSN-15。
+                                       // 本文だけ差し替えて Import ボタンを残すと操作と不一致になる）
+  batchTransferTooMany: string;       // 上限超過 — 0 件処理で中断
   // FR-EXF (sprint 20260827-172802 第 2 ラウンド): Export folder の host 側 modal / 通知。
   // 消費側は host の t() なので Messages 側（webview の label() が読む exportFolderMenu は WebviewMessages）。
   exportFolderConfirm: string;        // {count} プレース（modal 本文）
@@ -81,6 +97,8 @@ export interface Messages {
   migrationDoneUnresolved: string;
   translateSaveFailedPagesDir: string;
   translateSaveFailedParse: string;
+  /** TASK-77 / FR-OPF-01: 壊れた .out を無言で開かないためのエラー文言 */
+  noteOpenFailed: string;
   translateSaveFailed: string;
   translateSaveNoOutFile: string;
   translateSaved: string;
@@ -159,6 +177,19 @@ export interface WebviewMessages {
   folderViewNewFolder: string;
   folderViewNoFolderDrop: string;
   folderViewMoveInUnsupported: string;
+  // FR-SND / FR-MSEL-05 (sprint 20260901-075849): 送る系メニュー + 複数選択の除外通知。
+  // 🔴 消費側が webview（label() = window.__outlinerMessages）なので **WebviewMessages** に置く
+  //（Messages に置くと全 locale で英語固定になる — generator_failures 2026-08-22 の同一失敗クラス）
+  sendToOutlinerMenu: string;
+  sendToLinkedfdMenu: string;
+  sendToLinkedfdNoLinks: string;
+  // FR-SND-02 rev2（2026-09-04）: 「Outliner に送る」の送り先サブメニューで `.out` が 0 件のときの通知（webview が出す）
+  sendToOutlinerNoOutlines: string;
+  // count プレースを持つ。⚠️ このブロックのコメントに閉じ波括弧を書かないこと —
+  // 既存 TC-VFB-04 が最初の閉じ波括弧で WebviewMessages ブロックの終端を判定するため
+  batchDndFoldersSkipped: string;
+  // FR-MSEL-04 R3（TASK-45）: 複数選択から除外した .out の件数通知（note ツリー = webview が dragend で出す）
+  batchDndOutSkipped: string;
   closeOutline: string;
   openOutline: string;
   openInTextEditor: string;

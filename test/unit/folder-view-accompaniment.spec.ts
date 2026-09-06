@@ -84,7 +84,14 @@ function setup(): any {
     return { mod, m, id, root, noteDir };
 }
 
-test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・台帳 +1 のみ・md + 随伴資産を trash（FR-ACD-01 v2 — 許可: test_update 20260822 sprint）', async () => {
+/**
+ * ⚠️ **期待値反転（sprint 20260901-075849 / TASK-19 / 許可: test_update）**:
+ * ADRL-0106 / FR-DCP-01 で fv→note ツリーが**複製**になったため source 側 trash の期待を反転。
+ * この TC の主眼は**座標変換**（fv 隣接 → note フラット）なのでそこは不変。
+ * FR-ACD-01 の削除ロジック（共有温存 / 非共有削除 / fallback）の番人は
+ * `fv-accompanied-cleanup.spec.ts` の TC-ACD-03..08 が `MoveIntoMd` 経路で保持している。
+ */
+test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・台帳 +1 のみ・md + 随伴資産は source に残る（複製）', async () => {
     const { mod, m, id, root, noteDir } = setup();
     const { deps, calls } = makeMoveDeps();
     const { sender } = makeSender();
@@ -95,16 +102,19 @@ test('TC-ACC-20 folderViewMoveToTree: fv 隣接 → note フラット変換・�
     const mdItems: any[] = (Object.values(m.getStructure().items) as any[]).filter((it) => it.ext === 'md');
     expect(mdItems.length, '台帳は新 md 1 件のみ（closure は台帳外）').toBe(1);
     expect(mdItems[0].title).toBe('Main Title');
-    // source 側: FR-ACD-01（v2 — 旧 ADRL-0082 v1 温存を supersede）: md + 随伴資産（画像/📎/closure md）も trash
-    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'main.md'))).toBe(true);
-    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'sub.md')), 'closure md が削除されない').toBe(true);
-    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'images', 'pic.png')), '随伴画像が削除されない').toBe(true);
-    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'files', 'a.pdf')), '随伴 📎 が削除されない').toBe(true);
-    // 参照リンク（refdoc.md）は複製対象外 = 削除対象外
-    expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'refdoc.md'))).toBe(false);
+    // source 側: FR-DCP-01（ADRL-0106）: md + 随伴資産（画像/📎/closure md）は**すべて残る**
+    expect(calls.trash.length, `fv→tree で trash が走った: ${calls.trash.map((t: any) => t.absPath).join(', ')}`).toBe(0);
+    for (const rel of ['main.md', 'sub.md', 'images/pic.png', 'files/a.pdf', 'refdoc.md']) {
+        expect(fs.existsSync(path.join(root, rel)), `linkedfd の ${rel} が消えた`).toBe(true);
+    }
 });
 
-test('TC-ACC-21 folderViewMoveIn: note フラット → fv 隣接変換（images//files/ 作成）・md unregister + trash', async () => {
+/**
+ * ⚠️ **期待値反転（sprint 20260901-075849 / TASK-19 / 許可: test_update）**:
+ * ADRL-0106 / FR-DCP-02 で note ツリー→fv が**複製**になったため「unregister + trash」を反転。
+ * 主眼の**座標変換**（note フラット → fv 隣接 `images/` `files/` 作成）は不変。
+ */
+test('TC-ACC-21 folderViewMoveIn: note フラット → fv 隣接変換（images//files/ 作成）・note 側は台帳 item と実体が残る', async () => {
     const { mod, m, id, root, noteDir } = setup();
     const { deps, calls } = makeMoveDeps();
     const { sender } = makeSender();
@@ -122,9 +132,11 @@ test('TC-ACC-21 folderViewMoveIn: note フラット → fv 隣接変換（images
     expect(body).toContain(`images/${pic}`);
     expect(fs.existsSync(path.join(root, 'files', 'a.pdf'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'sub.md'))).toBe(true);
-    // 台帳除去 + md 本体のみ trash・note 側資産は温存
-    expect((Object.values(m.getStructure().items) as any[]).filter((it) => it.ext === 'md').length).toBe(0);
-    expect(calls.trash.length).toBe(1);
+    // FR-DCP-02: 台帳 item も md 本体も note 側資産もすべて残る
+    expect((Object.values(m.getStructure().items) as any[]).filter((it) => it.ext === 'md').length,
+        'note 台帳の md item が除去された（複製化していない）').toBe(1);
+    expect(calls.trash.length, `note→fv で trash が走った: ${calls.trash.map((t: any) => t.absPath).join(', ')}`).toBe(0);
+    expect(fs.existsSync(path.join(noteDir, 'main.md')), 'note 側の md 本体が消えた').toBe(true);
     expect(fs.existsSync(path.join(noteDir, 'images', 'pic.png'))).toBe(true);
 });
 
@@ -291,8 +303,11 @@ test('TC-ACC-24 厳密 pin 維持: 同一 dir no-op / 失敗時 source 不変 + 
         expect(await mod.folderViewMoveToTree(m, id, 'main.md', null, 0, deps as any, sender as any)).toBe(false);
     } finally { fs.chmodSync(noteDir, 0o755); }
     expect(fs.existsSync(path.join(root, 'main.md'))).toBe(true);
+    // ⚠️ この行は複製化（ADRL-0106）で**成功時も 0** になったため失敗経路の弁別力を失った。
+    // 弁別力を持つのは下の「通知が出る」（登録失敗の検知）。fv→tree が常に trash 0 であることの
+    // 番人は TC-DCP-03（実行の実測）が持つ。
     expect(calls.trash.length).toBe(0);
-    expect(calls.errors.length).toBeGreaterThanOrEqual(1);
+    expect(calls.errors.length, '登録失敗が通知されない').toBeGreaterThanOrEqual(1);
     // (c) file（非 md）は従来どおり単体移動（随伴対象なし・images//files/ を作らない）
     fs.mkdirSync(path.join(noteDir, 'files'), { recursive: true });
     fs.writeFileSync(path.join(noteDir, 'files', 'solo.bin'), 'BIN', 'utf8');

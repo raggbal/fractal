@@ -1,4 +1,4 @@
-// shortcut-list.js — FR-B06b: cmd 長押しショートカット HUD の静的コンテンツ。
+// shortcut-list.js — FR-B06b: ショートカット HUD（Cmd+Shift+/ トグル）の静的コンテンツ。
 //
 // README.md「⌨️ Key shortcuts」章 + 実コードのキーバインドを典拠に、
 // md editor 用 / outliner 用の 2 リストを静的に定数化する（動的収集しない）。
@@ -68,6 +68,7 @@ var SHORTCUTS_MD = [
     ] },
     { category: 'other', items: [
         { keys: 'Cmd+/', desc: 'Action palette' },
+        { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Cmd+L', desc: 'Send selection to AI chat' },
         { keys: 'Cmd+S', desc: 'Save' },
         { keys: 'Cmd+Z / Cmd+Shift+Z', desc: 'Undo / redo' },
@@ -113,6 +114,7 @@ var SHORTCUTS_OUTLINER = [
     ] },
     { category: 'other', items: [
         { keys: 'Cmd+Z / Cmd+Shift+Z', desc: 'Undo / redo' },
+        { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
     ] },
 ];
 
@@ -153,6 +155,7 @@ var SHORTCUTS_MINDMAP = [
     ] },
     { category: 'other', items: [
         { keys: 'Cmd+A / Cmd+Z', desc: 'Select all / undo' },
+        { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
         { keys: 'Right-click', desc: 'Color, shape, group, relation line, checkbox' },
     ] },
 ];
@@ -170,6 +173,7 @@ var SHORTCUTS_TABLE = [
     ] },
     { category: 'other', items: [
         { keys: '(Outliner column)', desc: 'All outliner shortcuts work as-is' },
+        { keys: 'Cmd+Shift+/', desc: 'Show / hide this shortcut list' },
     ] },
 ];
 

@@ -279,9 +279,55 @@ var MindmapRender = (function() {
         return 'M' + sx + ',' + sy + ' C' + cx1 + ',' + sy + ' ' + cx2 + ',' + ty + ' ' + tx + ',' + ty;
     }
 
+    // 空 title の中心ノードに出す placeholder (FR-MMT-01 / 裁定 R34)。
+    // title が空でも放射構造は保つ (mindmap-layout の hasTitle = titleText != null) ので、
+    // 「空 box」ではなく outliner の title input と同じ Untitled を薄く出して
+    // 「ここが中心 = クリックで title を付けられる」ことを見せる。
+    // ★placeholder は装飾でしかないので、編集開始時は必ず捨てる (is-placeholder クラスを
+    //   mindmap-interactions が見て textContent を実 title に差し替える)。
+    // 戻り値の text は measure (pass1/pass2 とも) にも使う = 実描画と計測を必ず揃える。
+    function titleDisplay(ctx, titleText) {
+        var t = String(titleText == null ? '' : titleText);
+        if (t.trim() !== '') { return { text: t, placeholder: false }; }
+        var i = (ctx && ctx.i18n) || {};
+        return { text: i.notesUntitled || i.tabUntitled || 'Untitled', placeholder: true };
+    }
+
+    // --- node box の「外へ運ぶ」drag 可否 (裁定 R36 / FR-MMD-01) ---
+    // draggable=true は native drag を起動し、mouse ベースの mindmap 内付け替え D&D を食う。
+    // そのため「添付を持つ node」か「複数選択の一部」だけ draggable にする (詳細は buildNodeEl の
+    // コメント)。判定材料は DOM に焼いておく (data-mm-has-assets) ので、選択トグル時の再判定は
+    // model を参照せず DOM だけで完結する。
+    function hasNodeAssets(node) {
+        if (typeof window.__outlinerCollectNodeAssets !== 'function') { return false; }
+        try { return (window.__outlinerCollectNodeAssets(node) || []).length > 0; }
+        catch (e) { return false; }
+    }
+    function isMultiSelected(nodeId) {
+        if (typeof window.__outlinerIsNodeMultiSelected !== 'function') { return false; }
+        try { return !!window.__outlinerIsNodeMultiSelected(nodeId); }
+        catch (e) { return false; }
+    }
+    function applyDragOutAttr(box, nodeId) {
+        var on = box.getAttribute('data-mm-has-assets') === '1' || isMultiSelected(nodeId);
+        if (on) { box.setAttribute('draggable', 'true'); }
+        else { box.removeAttribute('draggable'); }
+    }
+    // 複数選択のトグル後に draggable を貼り直す (mindmap-interactions.paintSelection から呼ばれる)。
+    function refreshNodeDragOut() {
+        if (!_lastCtx || !_lastCtx.treeEl) { return; }
+        var boxes = _lastCtx.treeEl.querySelectorAll('.mindmap-node-box[data-mm-drag-out]');
+        for (var i = 0; i < boxes.length; i++) {
+            var fo = boxes[i].closest ? boxes[i].closest('.mindmap-node') : null;
+            var id = fo ? fo.getAttribute('data-node-id') : null;
+            if (id) { applyDragOutAttr(boxes[i], id); }
+        }
+    }
+
     // --- ノード要素 (foreignObject) ---
     function buildTitleNodeEl(pos, measure, ctx) {
-        var titleText = (ctx.titleText != null) ? ctx.titleText : '';
+        var disp = titleDisplay(ctx, ctx.titleText);
+        var titleText = disp.text;
         var m = measure('__title__');
         // FR-021-A8: title 中心ノードは両側に子を出すハブなので、従来どおり「中心合わせ」を維持する
         // (子ノードのみ内側エッジ合わせ)。
@@ -299,6 +345,7 @@ var MindmapRender = (function() {
         textDiv.setAttribute('class', 'mindmap-node-text');
         textDiv.setAttribute('data-node-id', '__title__');
         textDiv.setAttribute('tabindex', '0');
+        if (disp.placeholder) { textDiv.classList.add('is-placeholder'); }
         textDiv.textContent = titleText;
         box.appendChild(textDiv);
         fo.appendChild(box);
@@ -335,6 +382,54 @@ var MindmapRender = (function() {
             box.classList.add('is-selected');
         }
         if (ctx.focusedNodeId === nodeId) { box.classList.add('is-focused'); }
+
+        // FR-NDA-04（sprint 20260901-075849 / ADRL-0107）: node box の drag でも
+        // その node **自身**の添付（md page / file / 直付き画像）を note ツリーへ運ぶ。
+        //
+        // 🔴 「受け手の優先順位改訂だけで自動的に効く」わけではない（設計初版の誤り）:
+        //    mindmap は :364/:399 の **アイコン** dragstart しか持たず node box は draggable でさえ
+        //    なかった（実測）。送り手側の draggable 化 + setData 追記が必須。
+        // foreignObject 内の XHTML 子要素は dragstart が発火する（既存アイコン D&D と同じ前提）。
+        // mindmap 内部 D&D（mouse ベース）との競合は、アイコンと同様に box 上の
+        // mousedown を止めない（内部 D&D はそのまま生かし、HTML5 drag は dragstart のみ使う）。
+        // ★2026-09-05 / 裁定 R36 / FR-MMD-01: node box drag を **outliner バレット drag と同格**にした。
+        //   旧実装の穴（実機で「mindmap の複数選択 D&D が効かない」の原因）:
+        //     1) `nodeAssets.length > 0` でしか draggable にしていなかった → 素の text node は
+        //        そもそも drag が起動しない（= note ツリーへ 1 個も運べない）。
+        //     2) 積む MIME が assets だけで **subtree payload を積んでいなかった** → filetree /
+        //        md / .out / linkedfd への「node を移す」意味論が受け手に届かない。
+        //     3) payload を mindmap 内で手組みしていたため、outliner 側の複数選択対応
+        //        （nodeIds / items）が反映されなかった。
+        //   → payload は outliner の `window.__outlinerBuildNodeDragPayloads`（唯一の送り手実装）
+        //      に委譲する（①②③ を一箇所で解消）。
+        //   ★ただし draggable を **常時 true** にはできない（実測 2026-09-05 / TC-MMD-04）:
+        //      HTML5 native drag が起動すると mouse ベースの **mindmap 内付け替え D&D** が
+        //      食われて reparent が一切起きなくなる（probe: draggable=true → parentId 不変、
+        //      属性を外すと reparent 成功）。native drag を programmatic に開始する手段は無く、
+        //      「外へ運ぶ / 中で付け替える」を mousedown 時点で判別する術も無い。
+        //      → **外へ運ぶ意図が明確なときだけ** draggable にする:
+        //        (a) 添付を持つ node（従来からの挙動を維持）
+        //        (b) **複数選択の一部**（複数選択して掴む = 外へ運ぶ操作。実機要望の本体）
+        //      複数選択のトグルは rerender しない（paintSelection が class だけ塗る）ので、
+        //      属性の更新は refreshNodeDragOut() を paintSelection から呼んで追随させる。
+        if (ctx.isNotesMode && ctx.isNotesMode()
+            && typeof window.__outlinerBuildNodeDragPayloads === 'function') {
+            box.setAttribute('data-mm-drag-out', '1');
+            if (hasNodeAssets(node)) { box.setAttribute('data-mm-has-assets', '1'); }
+            applyDragOutAttr(box, node.id);
+            (function (boxEl, dragNode) {
+                boxEl.addEventListener('dragstart', function (ev) {
+                    ev.stopPropagation();
+                    // 忘れると受け手の dropEffect='copy' と交差せず drop が silent 不発火になる
+                    ev.dataTransfer.effectAllowed = 'copyMove';
+                    try { ev.dataTransfer.setData('text/plain', dragNode.id); } catch (e0) { /* ignore */ }
+                    var payloads = window.__outlinerBuildNodeDragPayloads(dragNode) || [];
+                    for (var pi2 = 0; pi2 < payloads.length; pi2++) {
+                        try { ev.dataTransfer.setData(payloads[pi2].mime, payloads[pi2].data); } catch (err) { /* ignore */ }
+                    }
+                });
+            })(box, node);
+        }
 
         // アイコン (Page / File)
         // FR-MDD-01/03 (sprint 20260812-110538): 📄/📎 アイコンを HTML5 draggable にし、
@@ -629,12 +724,14 @@ var MindmapRender = (function() {
 
         // title 中心ノード (FR-021-B6): ctx.titleText か model.title を使う
         var titleText = (ctx.titleText != null) ? ctx.titleText : (model.title || '');
+        // pass1/pass2 の title 計測は「実際に描く文字列」で行う (空 title は placeholder 幅)
+        var titleMeasureText = titleDisplay(ctx, titleText).text;
         var realDims = ctx._realDims || null;
         var measure = function(nodeId) {
             // 2 パス目: 実 DOM 計測値があればそれを使う (FR-021-A6)
             if (realDims && realDims[nodeId]) { return realDims[nodeId]; }
             if (nodeId === '__title__') {
-                return estimateMeasure({ text: titleText }, ctx.fontSize);
+                return estimateMeasure({ text: titleMeasureText }, ctx.fontSize);
             }
             return estimateMeasure(model.nodes[nodeId], ctx.fontSize);
         };
@@ -781,7 +878,7 @@ var MindmapRender = (function() {
                     // 従来 undefined = 空テキスト扱いで実測幅ゼロ → 下限 80px に潰れていた
                     // (「Product Roadmap 2026」が 80px で縦折り返し)。title は titleText で測る
                     // (measure() の pass-1 と同じ扱い :556-558)。
-                    var nodeForMeasure = (nid === '__title__') ? { text: titleText } : model.nodes[nid];
+                    var nodeForMeasure = (nid === '__title__') ? { text: titleMeasureText } : model.nodes[nid];
                     var realW = measureRealWidth(boxes[bi], nodeForMeasure, ctx.fontSize);
                     // fallback は従来どおり pass-1 幅での高さ (realW リフローが測れない場合の保険)。
                     measured.push({ nid: nid, box: boxes[bi], fo: host2, realW: realW, fallbackH: r.height / viewport.scale });
@@ -1090,6 +1187,7 @@ var MindmapRender = (function() {
     return {
         render: render,
         updateViewport: updateViewport,
+        refreshNodeDragOut: refreshNodeDragOut,
         getViewport: getViewport,
         setViewport: setViewport,
         destroy: destroy,

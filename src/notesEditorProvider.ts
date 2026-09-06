@@ -5,8 +5,11 @@ import { extractFirstH1 } from './shared/md-h1-utils';
 import { NotesFileManager } from './shared/notes-file-manager';
 import {
     handleNotesMessage, NotesSender, NotesPlatformActions,
-    treeFileImportIntoOut, treeFileAttachIntoMd, treeFileAttachToMdEditor,
+    treeFileImportIntoOut, treeFileAttachIntoMd, treeMdLinkIntoMd, treeFileAttachToMdEditor,
+    outNodeAssetsAttachToMdItem, importMdFileLinkIntoOutFile, linkMdLinkIntoMdItem, importMdSubpageIntoOut,
+    registerExternalDroppedFolder, buildExportNodesFromOutData, sendFolderViewList,
     treeFileImportAtPosition, treeFileRegisterFromOutNode, treeFileRegisterFromMdLink, insertNodeAtDropPosition,
+    treeNodeAssetsRegister, OutNodeAsset, OutNodeAssetsPayload,
     registerExternalDroppedFileItem, registerExternalDroppedUris, linkMdAsSubpageForSidePanelCore,
     attachOutNodeFileToMd, importOutPageNodeToMd, attachMdFileLinkToMd, linkMdSubpageToMd,
     FolderLinkDeps, folderLinkAdd, folderLinkRelink, folderLinkRemove, folderLinkRename,
@@ -14,6 +17,7 @@ import {
     FolderViewDeps, folderViewList, folderViewSearch, folderViewOpen, folderViewToggleHidden, folderViewCreate,
     folderViewRename, folderViewDelete, folderViewDuplicate, folderViewMove, folderViewRevealEntry, folderViewCopyEntryPath, folderViewStateSave,
     FolderMoveDeps, folderViewMoveIn, folderViewMoveToTree, folderViewMoveIntoMd, folderViewMoveFromMd,
+    folderViewMoveToTreeBatch, folderViewMoveInBatch, runPlatformBatch, BatchOutcome, TreeBatchItem,
 } from './shared/notes-message-handler';
 import { getNotesWebviewContent } from './notesWebviewContent';
 import { getNotesMigrationGateContent } from './notesMigrationGate';
@@ -26,12 +30,14 @@ import { buildInAppFileLinkForFolder } from './shared/viewer-inapp-link';
 import { s3Sync, s3RemoteDeleteAndUpload, s3LocalDeleteAndDownload, S3SyncConfig } from './notes-s3-sync';
 import { importMdFiles } from './shared/markdown-import';
 import { importFiles } from './shared/file-import';
-import { runFolderImportWithDialog } from './shared/folder-import-host';
-import { runFolderExportWithDialog } from './shared/folder-export-host';
-import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem } from './shared/drop-import';
+import { runFolderImportWithDialog, runSendToOutlinerWithDialogs, notifyBatchOutcome, resolveSendToOutlinerTarget, importDroppedFoldersIntoOut } from './shared/folder-import-host';
+import { prependImportEntriesToOutData } from './shared/folder-import';
+import { runFolderExportWithDialog, runSendNodesToFolderLink } from './shared/folder-export-host';
+import { ExportNode } from './shared/folder-export';
+import { processDropFilesImport, processDropVscodeUrisImport, createDropImportHandler, DropImportItem, partitionDroppedUris, materializeDroppedFolder, DroppedFolderPayload } from './shared/drop-import';
 import { DropStreamHost } from './shared/drop-stream-host';
 import { parseDataUrl, mimeToExt } from './shared/data-url-image-extractor';
-import { safeResolveUnderDir } from './shared/path-safety';
+import { safeResolveUnderDir, safeResolveUnderFolderRoot } from './shared/path-safety';
 import { removeMdAnchorAndEcho } from './shared/md-anchor-remove';
 import { transferMdWithAssets, noteCoords, mdCoords, makeTransferCoords, copyMdPasteAssets, generateUniqueFileNamePreserving } from './shared/paste-asset-handler';
 import { createFolderViewAutoReload } from './shared/folder-view-autoreload';
@@ -293,6 +299,13 @@ export class NotesEditorProvider {
             }
 
             // 構造のツリー順で最初のファイルを開く
+            // TASK-77 / FR-OPF-01: 初回表示で開く 1 本目が壊れていた場合も無言にしない
+            const reportOpenFailure = (fp: string) => {
+                const reason = fileManager.getLastOpenError() || '';
+                vscode.window.showErrorMessage(
+                    `${t('noteOpenFailed')}: ${path.basename(fp)}${reason ? ' — ' + reason : ''}`
+                );
+            };
             const firstFileId = fileManager.findFirstFileId();
             if (firstFileId) {
                 const fp = fileManager.getFilePathById(firstFileId);
@@ -300,12 +313,16 @@ export class NotesEditorProvider {
                 if (content !== null) {
                     currentFilePath = fp;
                     if (fp.endsWith('.md')) { initialMdContent = content; } else { jsonContent = content; }
+                } else {
+                    reportOpenFailure(fp);
                 }
             } else if (fileList.length > 0) {
                 const content = fileManager.openFile(fileList[0].filePath);
                 if (content !== null) {
                     currentFilePath = fileList[0].filePath;
                     if (currentFilePath.endsWith('.md')) { initialMdContent = content; } else { jsonContent = content; }
+                } else {
+                    reportOpenFailure(fileList[0].filePath);
                 }
             }
         }
@@ -677,6 +694,32 @@ export class NotesEditorProvider {
             clipboardWriteText: (text) => { vscode.env.clipboard.writeText(text); },
         };
 
+        // 🔴 件数確認 modal の**唯一の実装**（TASK-39 = reviewer iteration 3 QUAL3-3）。
+        // 以前は `folderMoveDeps` と `platformBatchDeps` に byte 一致の 7 行が複製されていた。
+        //
+        // 🔴 **ユーザーが読む文字列は全スロットを可変にする**（TASK-41 = reviewer iteration 4 DSN-15）:
+        // TASK-39 は本文（bodyKey）だけを引数化し実行ボタンの key を Import 側に固定したため、
+        // 「Transfer 201 items?」の modal に「取り込む」ボタンが出る非対称が残った
+        // （= QUAL3-4「文言が操作と一致しない」の、対象を本文からボタンへ移した再発）。
+        // 共有してよいのは **modal オプションと戻り値の一致判定だけ**で、
+        // 本文・ボタンのラベルは操作ごとに変える。既存規約も
+        // 「<action>Confirm と <action>ConfirmProceed を対で足す」形（importFolder / exportFolder とも）。
+        //
+        // ⚠️ この直下の 2 行に i18n key の字面を書かないこと: TC-MSEL-27 / 27b は
+        // provider 全体の**出現回数**で重複を数えるため、コメント中の字面も 1 件として拾う
+        // （iteration 5 で実際にこれで RED になった）。
+        const confirmLargeWith = (
+            bodyKey: 'importFolderConfirm' | 'batchTransferConfirm',
+            proceedKey: 'importFolderConfirmProceed' | 'batchTransferConfirmProceed'
+        ) =>
+            async (totalCount: number): Promise<boolean> => {
+                const proceed = t(proceedKey);
+                const answer = await vscode.window.showWarningMessage(
+                    t(bodyKey).replace('{count}', String(totalCount)),
+                    { modal: true }, proceed);
+                return answer === proceed;
+            };
+
         // FR-FLV: 面間 D&D（複製成功 → 元 trash = INV-5）の VS Code 依存注入
         const folderMoveDeps: FolderMoveDeps = {
             showErrorMessage: (message) => { vscode.window.showErrorMessage(message); },
@@ -689,6 +732,33 @@ export class NotesEditorProvider {
                 await vscode.workspace.fs.delete(vscode.Uri.file(absPath), { useTrash: false, recursive });
             },
             toDisplayUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
+            // FR-MSEL-02/04 / NFR-MSEL-02/03 (§4-3b / §4-4 / TASK-29): 複数選択 D&D の batch。
+            // 🔴 文言・閾値は Import folder（FR-OIF-03）と**同一のものを共有**する
+            //（第 3 の上限実装を書かない = checkBatchLimit が FOLDER_IMPORT_* 定数を使う）。
+            // fv⇄tree は実際に linkedfd のフォルダが絡む経路なので Import 系の文言が正しい
+            confirmLarge: confirmLargeWith('importFolderConfirm', 'importFolderConfirmProceed'),
+            notifyLimitExceeded: () => { vscode.window.showWarningMessage(t('importFolderTooMany')); },
+            // NFR-MSEL-03: 集計通知は 1 回だけ（batchDndSummary を消費）
+            notifyOutcome: (outcome) => { notifyBatchOutcome(outcome); },
+        };
+
+        // FR-MSEL-04 / NFR-MSEL-02/03 (TASK-35 / TASK-39): note tree → outliner / md の batch 用 deps。
+        //
+        // 🔴 **`folderMoveDeps` から導出する**（TASK-39 = reviewer iteration 3 QUAL3-3）:
+        // 元は独立リテラルで 3 プロパティを byte 一致で複製していた。本 sprint 自身が
+        // `menu-placement.js` / `batch-payload.js` の冒頭で「同型の字面コピーは片方だけ fix が
+        // 入って drift する」と警告している失敗クラスの 3 回目だったため導出に寄せた。
+        //
+        // 🔴 **閾値は共有のまま・文言だけ差し替える**（TASK-39 = QUAL3-4）:
+        // この 4 経路は note ツリー内の既存 item をフラットに複数選択して D&D する操作で、
+        // ディスク上のフォルダ走査も階層深度も無い。Import folder 文言の
+        // "from this folder" / "20 levels deep" は事実に反するので `batchTransfer*` を使う。
+        // 閾値定数（FOLDER_IMPORT_*）は `checkBatchLimit` 経由で共有し続ける
+        //（第 3 の上限実装を書かない = 既存方針）。
+        const platformBatchDeps = {
+            ...folderMoveDeps,
+            confirmLarge: confirmLargeWith('batchTransferConfirm', 'batchTransferConfirmProceed'),
+            notifyLimitExceeded: () => { vscode.window.showWarningMessage(t('batchTransferTooMany')); },
         };
 
         // Platform Actions (全てローカル変数 panel / fileManager / folderPath をキャプチャ)
@@ -1051,8 +1121,39 @@ export class NotesEditorProvider {
             },
             dropVscodeUrisImport: async (uris: string[], targetNodeId: string | null, position: string, senderRef: NotesSender) => {
                 // v12 拡張: VSCode Explorer D&D (Notes mode)
-                if (!fileManager.getCurrentFilePath()) return;
-                await makeNotesDropHandler(senderRef, processDropVscodeUrisImport)(uris, targetNodeId, position);
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                // 2026-09-05 FR-DFI-01: Explorer からの**フォルダ** drop は Import folder 経路（closure 抑止・件数ゲート）へ。
+                // ファイルは従来どおり。混在は両方（フォルダ = drop 位置に dir node 木 / ファイル = 同位置に flat）。
+                const { dirs, others } = partitionDroppedUris(uris);
+                if (others.length > 0) {
+                    await makeNotesDropHandler(senderRef, processDropVscodeUrisImport)(others, targetNodeId, position);
+                }
+                if (dirs.length > 0) {
+                    await importDroppedFoldersIntoOut({
+                        pageDir: fileManager.getPagesDirPath(),
+                        imageDir: fileManager.getOutlinerImageDirPath(),
+                        fileDir: fileManager.getOutlinerFileDirPath(),
+                        outDir: path.dirname(currentOutFilePath),
+                    }, dirs, senderRef, targetNodeId, position);
+                }
+            },
+            // 2026-09-05 FR-DFI-01: Finder からのフォルダ drop（webview が中身を読んで送る）→ tmp に実体化 → Import folder 経路
+            dropFolderEntriesImport: async (payload: DroppedFolderPayload, targetNodeId: string | null, position: string, senderRef: NotesSender) => {
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath) return;
+                const mat = materializeDroppedFolder(payload);
+                if (!mat) return;
+                try {
+                    await importDroppedFoldersIntoOut({
+                        pageDir: fileManager.getPagesDirPath(),
+                        imageDir: fileManager.getOutlinerImageDirPath(),
+                        fileDir: fileManager.getOutlinerFileDirPath(),
+                        outDir: path.dirname(currentOutFilePath),
+                    }, [mat.root], senderRef, targetNodeId, position);
+                } finally {
+                    try { fs.rmSync(mat.tmpBase, { recursive: true, force: true }); } catch { /* best effort */ }
+                }
             },
             notifyDropFolderRejected: () => {
                 vscode.window.showWarningMessage(t('dropFolderRejected'));
@@ -1554,6 +1655,18 @@ export class NotesEditorProvider {
             //   同一 note → コピーせずリンク + ツリー除去 / 別 note → sidepanel md の隣へ複製 +
             //   ツリー除去（FR-TF-18 = cmd+x source orphan 契約への統一。元 md 実体は温存 = orphan 化し
             //   元 note の Clean Notes が回収。旧挙動「元 tree item 温存」は 2026-08-10 再オープン⑤で変更）
+            // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): md 本文への複数 subpage リンク挿入。
+            // sidePanelFilePath が null なら main md（host が currentFile 宛てに解決する既存経路へ委譲）。
+            // 🔴 TASK-38: 委譲先の返り値を `return` する（捨てると集計通知が発火しない）。
+            linkMdAsSubpageBatch: async (items: { filePath: string; id?: string | null }[], sidePanelFilePath: string | null, _senderRef: NotesSender) => {
+                await runPlatformBatch(items, (item) =>
+                    linkMdAsSubpageForSidePanelCore(
+                        fileManager,
+                        { postMessage: (m: unknown) => panel.webview.postMessage(m) },
+                        item.filePath, item.id ?? null, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? ''
+                    ),
+                platformBatchDeps);
+            },
             linkMdAsSubpageForSidePanel: (filePath: string, mdFileId: string | null, sidePanelFilePath: string) => {
                 linkMdAsSubpageForSidePanelCore(
                     fileManager,
@@ -2271,13 +2384,23 @@ export class NotesEditorProvider {
 
             // v0.207.77 (D&D Feature A): Notes 内 .md ファイルを別の .out item にドロップ →
             // 当該 .out の rootIds 先頭に page-node として追加 (md は .out の pageDir にコピーする)
-            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null) => {
+            // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): 複数選択は件数ゲート + 集計通知 1 回を通す。
+            // 1 件の処理は**既存の単一 platform をそのまま呼ぶ**（意味論を二重実装しない）。
+            // 🔴 TASK-38 (NFR-MSEL-03): 委譲先の**返り値を捨てない**（`return` する）。
+            // 捨てると runPlatformBatch が常に成功扱いになり集計通知が発火しない
+            // （reviewer iteration 3 QUAL3-1 / SEC-5）。`suppressToast=true` で個別 popup も抑止する。
+            notesImportMdIntoOutBatch: async (mdFileIds: string[], targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null) => {
+                await runPlatformBatch(mdFileIds, async (id) =>
+                    await platform.notesImportMdIntoOut?.(id, targetOutId, senderRef, targetNodeId ?? null, position ?? null, true),
+                platformBatchDeps);
+            },
+            notesImportMdIntoOut: async (mdFileId: string, targetOutId: string, senderRef: NotesSender, targetNodeId?: string | null, position?: string | null, suppressToast?: boolean) => {
                 try {
                     const mdSourcePath = fileManager.getFilePathById(mdFileId);
                     const outFilePath = fileManager.getFilePathById(targetOutId);
-                    if (!mdSourcePath || !outFilePath) return;
-                    if (!fs.existsSync(mdSourcePath) || !fs.existsSync(outFilePath)) return;
-                    if (!outFilePath.endsWith('.out')) return;
+                    if (!mdSourcePath || !outFilePath) return false;
+                    if (!fs.existsSync(mdSourcePath) || !fs.existsSync(outFilePath)) return false;
+                    if (!outFilePath.endsWith('.out')) return false;
 
                     // 1. 対象 .out の json 読込 + pageDir 解決 (target が currentFile でなくても解決できる)
                     // US-08 (sprint 20260804-145603): 自前計算（legacy <outDir>/<stem>/ default）を
@@ -2306,7 +2429,7 @@ export class NotesEditorProvider {
                         };
                     } else {
                         const imported = importMdFiles([mdSourcePath], pagesDir, imagesDir);
-                        if (!imported || imported.length === 0) return;
+                        if (!imported || imported.length === 0) return false;
                         r = imported[0];
                     }
 
@@ -2359,9 +2482,13 @@ export class NotesEditorProvider {
                         structure: fileManager.getStructureForWebview(),
                         currentFile: fileManager.getCurrentFilePath(),
                     });
+                    return true;
                 } catch (e) {
                     console.error('[Notes] notesImportMdIntoOut error:', e);
-                    vscode.window.showErrorMessage('Failed to import .md into outliner');
+                    // NFR-MSEL-03: batch 経路（suppressToast）では個別 popup を出さない
+                    // — 通知は runPlatformBatch の集計 1 回に一本化する（N 回のトースト洪水を作らない）。
+                    if (!suppressToast) { vscode.window.showErrorMessage(t('notesImportMdIntoOutFailed')); }
+                    return false;
                 }
             },
 
@@ -2406,9 +2533,44 @@ export class NotesEditorProvider {
             notesAttachFileIntoMd: (dragItemId: string, targetMdId: string, senderRef: NotesSender) => {
                 treeFileAttachIntoMd(fileManager, senderRef, dragItemId, targetMdId);
             },
+            // FR-MSEL-04 rev3（2026-09-04 手動テスト (1)）: ツリー複数選択 → ツリー内 `.out` item（中央帯）。
+            // md → notesImportMdIntoOut（.out JSON 直接更新・suppressToast）/ file → treeFileImportIntoOut。
+            // runPlatformBatch を **1 回**（件数ゲートが合計で効く）。返り値を捨てない（TASK-38）。
+            notesImportTreeItemsIntoOutItemBatch: async (items: TreeBatchItem[], targetOutId: string, senderRef: NotesSender) => {
+                await runPlatformBatch(items, async (it) => it.kind === 'md'
+                    ? await platform.notesImportMdIntoOut?.(it.id, targetOutId, senderRef, null, null, true)
+                    : treeFileImportIntoOut(fileManager, senderRef, it.id, targetOutId),
+                platformBatchDeps);
+            },
+            // FR-MSEL-04 rev3: ツリー複数選択 → ツリー内 md item（中央帯）。md → subpage リンク / file → 📎 リンクを
+            // 対象 md 末尾へ disk 直書き（FR-TF-04 と同じ契約 = 対象 md が未オープンでも届く）。
+            attachTreeItemsIntoMdItemBatch: async (items: TreeBatchItem[], targetMdId: string, senderRef: NotesSender) => {
+                await runPlatformBatch(items, (it) => it.kind === 'md'
+                    ? treeMdLinkIntoMd(fileManager, senderRef, it.id, targetMdId)
+                    : treeFileAttachIntoMd(fileManager, senderRef, it.id, targetMdId),
+                platformBatchDeps);
+            },
             // FR-TF-06a (§4f): tree file → 開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）
+            // 🔴 TASK-38: 委譲先の返り値を `return` する（捨てると集計通知が発火しない）。
+            attachTreeFileToMdBatch: async (ids: string[], sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                await runPlatformBatch(ids, (id) =>
+                    treeFileAttachToMdEditor(fileManager, senderRef, id, sidePanelFilePath),
+                platformBatchDeps);
+            },
             attachTreeFileToMd: (id: string, sidePanelFilePath: string | null | undefined, senderRef: NotesSender) => {
                 treeFileAttachToMdEditor(fileManager, senderRef, id, sidePanelFilePath);
+            },
+            // §4-2 rev2（TASK-45 / FR-MSEL-04 rev2）: 種別混在（md + file）の**結合 batch**（md 本文）。
+            // webview が seq 順に結合した 1 本の配列を受け、runPlatformBatch を **1 回**通す（件数ゲートが合計で効く）。
+            // transferOne は kind で既存の単一関数へ分岐し、返り値（boolean）をそのまま返す（TASK-38 契約）。
+            attachTreeItemsToMdBatch: async (items: TreeBatchItem[], sidePanelFilePath: string | null, senderRef: NotesSender) => {
+                await runPlatformBatch(items, (it) => it.kind === 'md'
+                    ? linkMdAsSubpageForSidePanelCore(
+                        fileManager,
+                        { postMessage: (m: unknown) => panel.webview.postMessage(m) },
+                        it.filePath || '', it.id, sidePanelFilePath ?? fileManager.getCurrentFilePath() ?? '')
+                    : treeFileAttachToMdEditor(fileManager, senderRef, it.id, sidePanelFilePath),
+                platformBatchDeps);
             },
             // FR-TF-19 (§4m): md editor drop 受け 4 経路（seam は notes-message-handler の pure-fs 関数）
             attachOutNodeFileToMd: (payload: { outFileKey: string; nodeId: string }, sidePanelFilePath: string | null, senderRef: NotesSender) => {
@@ -2424,12 +2586,181 @@ export class NotesEditorProvider {
                 linkMdSubpageToMd(fileManager, senderRef, payload, sidePanelFilePath);
             },
             // FR-TF-05a (§4d): tree file → outliner の node 位置（dropFilesResult 互換 postback）
-            notesImportTreeFileAtPosition: (id: string, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
-                treeFileImportAtPosition(fileManager, senderRef, id, outFileId, targetNodeId, position);
+            // 🔴 TASK-38: 委譲先の返り値を `return` する（捨てると集計通知が発火しない）。
+            notesImportTreeFileAtPositionBatch: async (ids: string[], outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
+                await runPlatformBatch(ids, (id) =>
+                    platform.notesImportTreeFileAtPosition?.(id, outFileId, targetNodeId, position, senderRef),
+                platformBatchDeps);
+            },
+            notesImportTreeFileAtPosition: (id: string, outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) =>
+                treeFileImportAtPosition(fileManager, senderRef, id, outFileId, targetNodeId, position),
+            // §4-2 rev2（TASK-45 / FR-MSEL-04 rev2）: 種別混在（md + file）の**結合 batch**（outliner）。
+            // runPlatformBatch を **1 回**通し（件数ゲートが合計で効く）、transferOne は kind で既存の単一 platform へ分岐。
+            // 返り値を捨てない（TASK-38）。md は suppressToast=true（集計通知 1 回に一本化）。
+            notesImportTreeItemsBatch: async (items: TreeBatchItem[], outFileId: string, targetNodeId: string | null, position: string | null, senderRef: NotesSender) => {
+                await runPlatformBatch(items, async (it) => it.kind === 'md'
+                    ? await platform.notesImportMdIntoOut?.(it.id, outFileId, senderRef, targetNodeId ?? null, position ?? null, true)
+                    : await platform.notesImportTreeFileAtPosition?.(it.id, outFileId, targetNodeId, position, senderRef),
+                platformBatchDeps);
             },
             // FR-TF-05b (§4e): outliner の file 添付 node → tree（所有移し替え）
             notesRegisterFileFromOutNode: (payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
                 treeFileRegisterFromOutNode(fileManager, senderRef, payload, parentId, index);
+            },
+            // FR-SND-03 (§6-2): outliner の選択 node → linkedfd（Export folder と**同一経路**）。
+            // 宛先だけ folder link root に固定し、レイアウト / 名前 / 資産コピー / uniquify / 上限 modal は
+            // FR-EXF-02/03/04 の既存実装をそのまま使う（二重実装しない）。
+            sendNodesToFolderLink: async (tree: ExportNode[], folderLinkId: string, _senderRef: NotesSender) => {
+                const currentOutFilePath = fileManager.getCurrentFilePath();
+                if (!currentOutFilePath || !currentOutFilePath.endsWith('.out')) { return; }
+                const root = fileManager.resolveFolderRoot(folderLinkId);
+                if (!root) {
+                    vscode.window.showErrorMessage(t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+                    return;
+                }
+                const outcome = await runSendNodesToFolderLink({
+                    tree,
+                    srcOutDir: path.dirname(currentOutFilePath),
+                    srcPagesDir: fileManager.getPagesDirPath(),
+                    srcFileDir: fileManager.getOutlinerFileDirPath(),
+                    srcImageDir: fileManager.getOutlinerImageDirPath(),
+                    guard: (destPath: string) => fileManager.guardFolderSelection(destPath),
+                    destRoot: root,
+                });
+                // NFR-I18N-01 / NFR-MSEL-03: 完了通知は 1 回だけ（アイテム毎に出さない）
+                if (outcome.status === 'exported') {
+                    vscode.window.showInformationMessage(
+                        t('sendToLinkedfdDone')
+                            .replace('{count}', String(outcome.files))
+                            .replace('{name}', path.basename(root))
+                            .replace('{skipped}', String(outcome.skipped)));
+                }
+            },
+            // FR-SND-01 (§6-1): linkedfd の選択（ファイル / フォルダ）→ Outliner root 先頭へ送る。
+            // closure 抑止・随伴転送・件数ゲートは Import folder と**同一経路**（runSendToOutliner が
+            // 内部で runFolderImport を呼ぶ）。webview へは importFolderResult と同形の payload を返す。
+            sendFolderViewToOutliner: async (folderLinkId: string, relPaths: string[], senderRef: NotesSender, outFileId?: string | null, targetNodeId?: string | null, position?: string | null) => {
+                // FR-SND-02 rev2（2026-09-04 手動テスト (2)）: 送り先はサブメニューで選んだ `.out`（ツリー item id）。
+                // 未指定（旧 webview / 後方互換）は従来どおりメインペインの `.out`。
+                // FR-SND-01 段 0（TASK-46）: `.out` が無いときは**無反応にしない** — 通知 1 回・取り込み 0
+                //（判定は vscode 非依存 helper。初版の無通知 early return は「壊れている」に見えた）
+                const chosen = outFileId ? fileManager.getFilePathById(outFileId) : null;
+                const target = resolveSendToOutlinerTarget(
+                    chosen && fs.existsSync(chosen) ? chosen : (outFileId ? null : fileManager.getCurrentFilePath()));
+                if (!target.ok) {
+                    vscode.window.showWarningMessage(t('sendToOutlinerNoOutline'));
+                    return;
+                }
+                const currentOutFilePath = target.outPath;
+                const root = fileManager.resolveFolderRoot(folderLinkId);
+                if (!root) {
+                    vscode.window.showErrorMessage(t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+                    return;
+                }
+                // linkedfd root 配下に clamp（relPath は webview 由来なので必ず検証する）
+                const roots: string[] = [];
+                for (const rel of relPaths) {
+                    const abs = safeResolveUnderFolderRoot(root, rel);
+                    if (abs && fs.existsSync(abs)) { roots.push(abs); }
+                }
+                if (roots.length === 0) { return; }
+                // page dir は対象 .out の正典解決（notesImportMdIntoOut と同じ resolvePagesDir。flat note = note 直下）
+                let targetOutData: Record<string, unknown> | null = null;
+                let pageDir = fileManager.getPagesDirPath();
+                try {
+                    targetOutData = JSON.parse(fs.readFileSync(currentOutFilePath, 'utf8'));
+                    pageDir = resolvePagesDir(currentOutFilePath, fileManager.getMainFolderPath(), {
+                        pageDir: targetOutData?.pageDir as string | undefined,
+                        imageDir: targetOutData?.imageDir as string | undefined,
+                        fileDir: targetOutData?.fileDir as string | undefined,
+                    });
+                } catch { targetOutData = null; }
+                const outcome = await runSendToOutlinerWithDialogs({
+                    pageDir,
+                    imageDir: fileManager.getOutlinerImageDirPath(),
+                    fileDir: fileManager.getOutlinerFileDirPath(),
+                    outDir: path.dirname(currentOutFilePath),
+                }, roots);
+                if (outcome.status !== 'imported') { return; }
+                if (position && fileManager.getCurrentFilePath() === currentOutFilePath) {
+                    // 2026-09-05 R28: outliner 面への直接 drop = drop 位置へ（importFolderResult + position。FR-DFI-01 と同じ受け口）
+                    senderRef.postMessage({
+                        type: 'importFolderResult',
+                        targetNodeId: targetNodeId ?? null,
+                        position,
+                        entries: outcome.entries,
+                        skipped: outcome.skipped,
+                    });
+                } else if (fileManager.getCurrentFilePath() === currentOutFilePath || !targetOutData) {
+                    // 開いている .out = webview の model に積む（undo snapshot 1 回・従来経路）
+                    senderRef.postMessage({
+                        type: 'sendToOutlinerResult',
+                        entries: outcome.entries,
+                        skipped: outcome.skipped,
+                    });
+                } else {
+                    // 開いていない .out = host が JSON を直接更新（notesImportMdIntoOut / treeFileImportIntoOut と同じ契約）
+                    prependImportEntriesToOutData(targetOutData as any, outcome.entries);
+                    fs.writeFileSync(currentOutFilePath, JSON.stringify(targetOutData, null, 2), 'utf8');
+                }
+                // NFR-I18N-01 / NFR-MSEL-03: 完了通知は 1 回だけ
+                vscode.window.showInformationMessage(
+                    t('sendToOutlinerDone')
+                        .replace('{count}', String(outcome.entries.length))
+                        .replace('{skipped}', String(outcome.skipped)));
+            },
+            // 2026-09-05 R24: linkedfd の entry（file）→ tree の md 行 = 対象 md へ移す（disk 直書き）
+            folderViewMoveIntoMdItem: async (folderLinkId: string, relPaths: string[], targetMdId: string, senderRef: NotesSender) => {
+                const targetMdPath = fileManager.getFilePathById(targetMdId);
+                if (!targetMdPath || !targetMdPath.endsWith('.md') || !fs.existsSync(targetMdPath)) return;
+                for (const rel of relPaths) {
+                    await folderViewMoveIntoMd(fileManager, folderLinkId, rel, targetMdPath, folderMoveDeps, senderRef, { writeToDisk: true });
+                }
+            },
+            // 2026-09-05 R25/R26: outliner node（複数可）→ linkedfd（tree の行 = root / 面 = drop 先 dir）。「linkedfd に送る」と同一経路
+            sendOutNodesToFolderLinkFromDrop: async (payload: { outFileKey: string; nodeId: string; nodeIds?: string[] }, folderLinkId: string, dstDirRelPath: string, senderRef: NotesSender) => {
+                if (!payload || !payload.outFileKey || !payload.nodeId) return;
+                const outPath = payload.outFileKey.endsWith('.out') && fs.existsSync(payload.outFileKey) ? payload.outFileKey : fileManager.getFilePathById(payload.outFileKey);
+                if (!outPath || !fs.existsSync(outPath)) return;
+                const root = fileManager.resolveFolderRoot(folderLinkId);
+                if (!root) {
+                    vscode.window.showErrorMessage(t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
+                    return;
+                }
+                const dest = dstDirRelPath ? safeResolveUnderFolderRoot(root, dstDirRelPath) : root;
+                if (!dest || !fs.existsSync(dest) || !fs.statSync(dest).isDirectory()) return;
+                const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+                const ids = Array.isArray(payload.nodeIds) && payload.nodeIds.length > 0 ? payload.nodeIds : [payload.nodeId];
+                const tree = buildExportNodesFromOutData(outData, ids);
+                if (tree.length === 0) return;
+                const outcome = await runSendNodesToFolderLink({
+                    tree,
+                    srcOutDir: path.dirname(outPath),
+                    srcPagesDir: fileManager.getPagesDirPath(),
+                    srcFileDir: fileManager.getOutlinerFileDirPath(),
+                    srcImageDir: fileManager.getOutlinerImageDirPath(),
+                    guard: (destPath: string) => fileManager.guardFolderSelection(destPath),
+                    destRoot: dest,
+                });
+                if (outcome.status === 'exported') {
+                    sendFolderViewList(fileManager, folderLinkId, dstDirRelPath || '', senderRef);
+                    vscode.window.showInformationMessage(
+                        t('sendToLinkedfdDone')
+                            .replace('{count}', String(outcome.files))
+                            .replace('{name}', path.basename(root))
+                            .replace('{skipped}', String(outcome.skipped)));
+                }
+            },
+            // 2026-09-05 R27: 外部フォルダ（Finder）→ note tree
+            notesRegisterExternalFolder: (payload: DroppedFolderPayload, parentId: string | null, index: number, senderRef: NotesSender) => {
+                // 裁定 R37: 上限超過（2000 件 / 深さ 20）は 0 件で中断 → 黙って何も起きないに見せず警告 1 回
+                const outcome: { limit?: 'too_many' | 'too_deep' } = {};
+                registerExternalDroppedFolder(fileManager, payload, parentId, index, senderRef, outcome);
+                if (outcome.limit) { vscode.window.showWarningMessage(t('importFolderTooMany')); }
+            },
+            // FR-NDA-02 (§2-4): outliner node の添付集合 → tree（page / file / 直付き画像を一括）
+            notesRegisterNodeAssets: (payload: OutNodeAssetsPayload, parentId: string | null, index: number, senderRef: NotesSender) => {
+                treeNodeAssetsRegister(fileManager, senderRef, payload, parentId, index);
             },
             // FR-TF-06b (§4g): md editor 内 📎 file リンク → tree（元 md から removeFileLink）
             notesRegisterFileFromMdLink: (payload: { href: string; sourceMdPath: string }, parentId: string | null, index: number, senderRef: NotesSender) => {
@@ -2558,6 +2889,14 @@ export class NotesEditorProvider {
             // ── FR-FLV: 面間 D&D（bridge 台帳 #13-16） ──
             folderViewMoveIn: async (id: string, dstDirRelPath: string, srcKind: string, srcItemId: string, senderRef: NotesSender) => {
                 await folderViewMoveIn(fileManager, id, dstDirRelPath, srcKind, srcItemId, folderMoveDeps, senderRef);
+            },
+            // FR-MSEL-02 / NFR-MSEL-02 (§4-3b / TASK-29): 複数選択は batch 経路（件数ゲート + 集計通知 1 回）
+            folderViewMoveToTreeBatch: async (id: string, items: { folderLinkId?: string; relPath: string }[], parentId: string | null, index: number, senderRef: NotesSender) => {
+                await folderViewMoveToTreeBatch(fileManager, id, items, parentId, index, folderMoveDeps, senderRef);
+            },
+            // FR-MSEL-04 / NFR-MSEL-02 (§4-3b / TASK-29)
+            folderViewMoveInBatch: async (id: string, dstDirRelPath: string, items: { srcKind: string; srcItemId: string }[], senderRef: NotesSender) => {
+                await folderViewMoveInBatch(fileManager, id, dstDirRelPath, items, folderMoveDeps, senderRef);
             },
             folderViewMoveToTree: async (id: string, relPath: string, parentId: string | null, index: number, senderRef: NotesSender) => {
                 await folderViewMoveToTree(fileManager, id, relPath, parentId, index, folderMoveDeps, senderRef);
@@ -2739,8 +3078,25 @@ export class NotesEditorProvider {
             },
 
             // node-move-to-other-outliner: outliner node（サブツリー）を右パネルの別 .out に move（root 先頭挿入）
+            // 2026-09-04（rc.7 手動テスト）: note tree の `.out` / md item を drop 先にする新経路 4 本
+            notesLinkMdIntoMd: (dragItemId: string, targetMdId: string, senderRef: NotesSender) => {
+                treeMdLinkIntoMd(fileManager, senderRef, dragItemId, targetMdId);
+            },
+            notesAttachOutNodeAssetsToMdItem: (payload: OutNodeAssetsPayload, targetMdId: string, senderRef: NotesSender) => {
+                outNodeAssetsAttachToMdItem(fileManager, senderRef, payload, targetMdId);
+            },
+            notesImportMdLinkIntoOutItem: (payload: { href: string; sourceMdPath: string; title?: string }, kind: 'subpage' | 'file', targetOutId: string, senderRef: NotesSender) => {
+                if (kind === 'subpage') {
+                    importMdSubpageIntoOut(fileManager, senderRef, payload, targetOutId, null, null);   // 既存の disk 直書き経路（root 先頭）
+                } else {
+                    importMdFileLinkIntoOutFile(fileManager, senderRef, payload, targetOutId);
+                }
+            },
+            notesLinkMdLinkIntoMdItem: (payload: { href: string; sourceMdPath: string; title?: string }, kind: 'subpage' | 'file', targetMdId: string, senderRef: NotesSender) => {
+                linkMdLinkIntoMdItem(fileManager, senderRef, payload, kind, targetMdId);
+            },
             notesMoveOutNodeSubtreeIntoOut: async (
-                payload: { outFileKey: string; nodeId: string },
+                payload: { outFileKey: string; nodeId: string; nodeIds?: string[] },
                 targetOutFilePath: string,
                 senderRef: NotesSender
             ) => {
@@ -2755,7 +3111,10 @@ export class NotesEditorProvider {
                     // 1. src / target の .out json を読む（どちらも currentFile でなくても自前で読む）
                     const srcData = JSON.parse(fs.readFileSync(srcOutPath, 'utf8')) as OutDoc;
                     const targetData = JSON.parse(fs.readFileSync(targetOutFilePath, 'utf8')) as OutDoc;
-                    if (!srcData.nodes || !srcData.nodes[payload.nodeId]) return;
+                    // 2026-09-04: 複数選択（nodeIds = 選択集合の root・表示順）。無ければ従来の 1 node
+                    const moveIds = (Array.isArray(payload.nodeIds) && payload.nodeIds.length > 0 ? payload.nodeIds : [payload.nodeId])
+                        .filter((id) => !!(srcData.nodes && srcData.nodes[id]));
+                    if (moveIds.length === 0) return;
 
                     // 1.5 HIGH-2 安全ガード: 参照引き継ぎ（物理移動なし）は「src と target が同じ pages/images/files dir を
                     //     共有する」flat レイアウト前提でのみ成立する。legacy per-id .out 混在等で dir が異なると、
@@ -2778,8 +3137,13 @@ export class NotesEditorProvider {
                     //    dirsShared=true を確認済みなので、pageId/images/filePath の参照文字列を
                     //    そのまま引き継ぐ（物理移動不要・1:1 所有の付替え）。src 削除でアセット物理ファイルは消さない。
                     const idSeed = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-                    const res = moveSubtreeToOtherOut(srcData, targetData, payload.nodeId, idSeed);
-                    if (!res) return;
+                    // moveSubtreeToOtherOut は target root 先頭へ unshift する → 表示順を保つため**逆順**に回す
+                    let moved = 0;
+                    for (let mi = moveIds.length - 1; mi >= 0; mi--) {
+                        const res = moveSubtreeToOtherOut(srcData, targetData, moveIds[mi], idSeed + mi.toString(36));
+                        if (res) moved++;
+                    }
+                    if (moved === 0) return;
 
                     // 3. 両 .out を保存
                     fs.writeFileSync(targetOutFilePath, JSON.stringify(targetData, null, 2), 'utf8');

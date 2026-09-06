@@ -14,6 +14,53 @@ interface OutlinerConfig {
     showOpenInTextEditor?: boolean;
 }
 
+/**
+ * .out 本文を「空 / 正常 / 破損」に分類する。sprint 20260901-075849 TASK-77 / FR-OPF-02。
+ *
+ * 空（新規作成直後・0 byte）は破損ではない — 従来どおり既定 JSON で開く。
+ * 非空なのに JSON parse できないときだけ broken とし、呼び出し側は
+ * Outliner.init を呼ばずに getBrokenOutlinerHtml() を表示する。
+ */
+export function classifyOutlinerContent(
+    content: string
+): { kind: 'empty' | 'ok' | 'broken'; error?: string } {
+    if (!content || !content.trim()) { return { kind: 'empty' }; }
+    try {
+        JSON.parse(content);
+        return { kind: 'ok' };
+    } catch (e) {
+        return { kind: 'broken', error: e instanceof Error ? e.message : String(e) };
+    }
+}
+
+/**
+ * 壊れた .out（非空だが JSON parse 不能）を開いたときの表示。
+ * sprint 20260901-075849 TASK-77 / FR-OPF-02。
+ *
+ * 要点は「Outliner.init を一切呼ばない」こと — 空 model で init すると webview から
+ * syncData が飛び、salvage 可能な原本が {rootIds:[],nodes:{}} で上書きされ得る。
+ * この HTML は script を一切含まないので、ファイルは読まれるだけで書かれない。
+ */
+export function getBrokenOutlinerHtml(fileName: string, detail: string): string {
+    const esc = (v: string) => String(v)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+<title>Broken outliner</title></head>
+<body style="padding:24px;font-family:sans-serif;line-height:1.7;">
+<h2 style="margin-top:0;">Cannot open this outliner</h2>
+<p><code>${esc(fileName)}</code> is not valid JSON, so it was <b>not</b> loaded.</p>
+<p>Editing is disabled to protect what is left: <b>this file has not been modified</b>.
+Make a copy first, then open it with the plain text editor to inspect or repair it.</p>
+<details><summary>Parse error</summary><pre style="white-space:pre-wrap;">${esc(detail)}</pre></details>
+</body></html>`;
+}
+
 export function getOutlinerWebviewContent(
     webview: vscode.Webview,
     extensionUri: vscode.Uri,
@@ -45,6 +92,18 @@ export function getOutlinerWebviewContent(
         .replace('__FONT_SIZE__', String(config.fontSize));
 
     // Load shared markdown link parser (used by both outliner.js and editor.js)
+    // FR-MFIT (sprint 20260901-075849 / ADRL-0109): 右クリックメニューの viewport 収め
+    // （window.__menuPlacement）。outliner.js / editor.js / mindmap-interactions.js が
+    // 消費するため、それらより前に注入する。
+    // 本番 inline はここ + ハーネス build-standalone-outliner.js の両方に要登録
+    // （片方だけだと実機 silent no-op: generator_failures 2026-08-17 / TC-MFIT-16 が番人）
+    const menuPlacementScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'menu-placement.js'), 'utf8');
+    // FR-MSEL-02/04 (sprint 20260901-075849 / TASK-30): 複数選択 payload の正規化を共有する
+    // （window.__batchPayload）。notes-file-panel / notes-folder-view / outliner が消費するため前に注入。
+    const batchPayloadScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'batch-payload.js'), 'utf8');
+
     const linkParserScript = fs.readFileSync(
         path.join(__dirname, 'shared', 'markdown-link-parser.js'), 'utf8');
 
@@ -208,6 +267,8 @@ export function getOutlinerWebviewContent(
         }, true);
         window.__webviewNonce = "${nonce}";
     </script>
+    <script nonce="${nonce}">${menuPlacementScript}</script>
+    <script nonce="${nonce}">${batchPayloadScript}</script>
     <script nonce="${nonce}">${htmlMdConverterScript}</script>
     <script src="${mermaidUri}"></script>
     <script src="${katexJsUri}"></script>

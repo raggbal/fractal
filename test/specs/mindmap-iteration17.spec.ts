@@ -46,6 +46,27 @@ function node(id: string, text: string, children: string[] = [], parentId: strin
     return { id, parentId, children, text, collapsed: false, subtext: '', images: [], isPage: false, pageId: null, checked: null, filePath: null, tags: [] };
 }
 
+/**
+ * ★2026-09-05 / 裁定 R34 (FR-MMT-01): title が空でも中心ノードが出るため open-centering が
+ *   全マップで走る。この spec は「上端の子 c0 を実クリックする」ところから始まるので、
+ *   centering 後のフレーム (縦長ツリーの中央) では c0 が可視領域の上に外れて click できない。
+ *   既定フレーム (translate 0,0 = 内容左上が可視左上) へ戻して従来の前提を再現する。
+ *   検証対象は scroll 軸 (scrollTop/native focus scroll) なので、初期 translate を固定しても
+ *   測っているものは変わらない。
+ */
+async function resetFrameToOrigin(page: import('@playwright/test').Page) {
+    await page.evaluate(() => {
+        const MR = (window as any).MindmapRender;
+        // ★ getViewport() が返す**同一オブジェクト**を書き換えて渡す。新しいリテラルを渡すと
+        //   MindmapRender の module 変数だけが差し替わり、mindmap-interactions が attach 時に
+        //   掴んだ参照 (pan/zoom の保存復元に使う) と別物になって挙動がずれる。
+        const v = MR.getViewport();
+        v.translateX = 0; v.translateY = 0;
+        MR.updateViewport(v);
+    });
+    await page.waitForTimeout(80);
+}
+
 // 縦に大きいツリー: root r に子 count 個。span が可視領域を超える。
 function tallTree(count: number, layout: string = 'right') {
     const children: string[] = [];
@@ -134,6 +155,7 @@ function focusedNodeCenter(page: import('@playwright/test').Page) {
 test('TC-V6 本番同等の genuinely-scrollable 3 段 DOM で矢印移動が native focus scroll しない', async ({ page }) => {
     await setup(page);
     await toMindmapScrollable(page, tallTree(24, 'right'));
+    await resetFrameToOrigin(page);
 
     // --- 前提: scroll container が本番同等で genuinely scrollable であること ---
     const s0 = await scrollState(page);
@@ -189,6 +211,7 @@ test('TC-V6 本番同等の genuinely-scrollable 3 段 DOM で矢印移動が na
 test('TC-V6 load-bearing (a): mindmap の focus が preventScroll:true 付きで呼ばれている', async ({ page }) => {
     await setup(page);
     await toMindmapScrollable(page, tallTree(24, 'right'));
+    await resetFrameToOrigin(page);
 
     // .mindmap-node-text の focus をラップして、最後の呼び出しの preventScroll 引数を記録する。
     // (これは検証用の spy であり、el.focus() の「プログラム的直呼び」ではない。実際の focus は

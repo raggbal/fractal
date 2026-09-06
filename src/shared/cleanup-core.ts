@@ -287,7 +287,22 @@ export async function buildPass2LiveFiles(
  *   単括弧 `[a](x)` と 二重括弧 `[[a]](x)` の両方にマッチ。
  * http/https/data/file/fractal プロトコル・純アンカー（`#...`）は除外。query/fragment は除去。
  */
-const CLEANUP_MD_LINK_RE = /(!?)\[\[?[^\]]*\]\]?\(([^)\s]+)\)/g;
+/**
+ * md 本文のリンク / 画像参照を拾う正典 regex。
+ *
+ * `[label](url)` と `[[label]](url)` の**両形式**を拾い、先頭 `!` の有無を capture 1 で返す
+ * （`!` あり = 画像 / なし = リンク）。
+ *
+ * **用途は cleanup（orphan 検出 = 「どこからも参照されない実体」の判定）専用**。
+ * Import folder の closure（node を作らない集合）の正典は**ここではない** — ADRL-0110（sprint 20260901-075849
+ * 再オープン）で `extractAllAssetRefs`（paste-asset-handler）に pin した。本 regex は全 `[..](..)` を拾うため
+ * 随伴転送エンジンの複製集合（画像 / 📎 / `[[ ]]` subpage）より広く、closure に使うと差分（プレーンリンク先）が
+ * 「node を作らない かつ 複製もされない」でデータロスになる（実行再現済み）。export は cleanup 系の呼び出し面のために残す。
+ *
+ * ⚠️ `g` フラグ付きの共有インスタンスなので、使う側は必ず `lastIndex = 0` にリセットするか
+ * `new RegExp(CLEANUP_MD_LINK_RE.source, 'g')` で自前インスタンスを作ること。
+ */
+export const CLEANUP_MD_LINK_RE = /(!?)\[\[?[^\]]*\]\]?\(([^)\s]+)\)/g;
 
 function extractMdLinkTargets(body: string): string[] {
     const results: string[] = [];

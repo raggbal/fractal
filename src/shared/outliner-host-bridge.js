@@ -132,6 +132,10 @@
         notifyDropFolderRejected: function(folders) {
             api.postMessage({ type: 'notifyDropFolderRejected', folders: folders });
         },
+        // 2026-09-05 FR-DFI-01: Finder からのフォルダ drop（webview が FileSystem API で読んだ中身）→ Import folder 経路で drop 位置へ
+        dropFolderEntriesImport: function(payload, targetNodeId, position) {
+            api.postMessage({ type: 'dropFolderEntriesImport', payload: payload, targetNodeId: targetNodeId, position: position });
+        },
         notifyDropFileTooLarge: function(fileName) {
             api.postMessage({ type: 'notifyDropFileTooLarge', fileName: fileName });
         },

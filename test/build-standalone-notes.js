@@ -97,6 +97,12 @@ const inlineColorPickerScript = fs.readFileSync(path.join(__dirname, '../src/sha
 // FR-B04 / FR-B06: In-App link 生成の共有純関数（window.InAppLinkUtils）。notes-file-panel / editor / outliner が消費するため前に注入。
 const inAppLinkUtilsScript = fs.readFileSync(path.join(__dirname, '../src/shared/inapp-link-utils.js'), 'utf-8');
 // FR-MLG-02 (sprint 20260818-183407): wholeWord 多言語境界（window.WholeWord）。notes-file-panel より前に注入。
+// FR-MFIT (sprint 20260901-075849 / ADRL-0109): menu-placement を本番 inline と対で登録する
+// （4 点登録: 本番 notesWebviewContent.ts / 本番 outlinerWebviewContent.ts / 本ハーネス /
+//  build-standalone-outliner.js。片方だけだと面単位で silent no-op）
+const menuPlacementScript = fs.readFileSync(path.join(__dirname, '../src/shared/menu-placement.js'), 'utf-8');
+// FR-MSEL-02/04 (TASK-30): 複数選択 payload の正規化（本番 inline と対で 6 点登録）
+const batchPayloadScript = fs.readFileSync(path.join(__dirname, '../src/shared/batch-payload.js'), 'utf-8');
 const wholeWordScript = fs.readFileSync(path.join(__dirname, '../src/shared/whole-word.js'), 'utf-8');
 // FR-SEF-01 (sprint 20260822-203347): ext: クエリ構文の正典（window.SearchExtFilter）。notes-file-panel より前に注入。
 const searchExtFilterScript = fs.readFileSync(path.join(__dirname, '../src/shared/search-ext-filter.js'), 'utf-8');
@@ -308,12 +314,19 @@ const testNotesHostBridge = `
         moveItem: function(itemId, targetParentId, index) {
             window.__testApi.notesMessages.push({ type: 'moveItem', itemId: itemId, targetParentId: targetParentId, index: index });
         },
+        moveItems: function(itemIds, targetParentId, index) {
+            window.__testApi.notesMessages.push({ type: 'moveItems', itemIds: itemIds, targetParentId: targetParentId, index: index });
+        },
         // node-move-to-other-outliner: E2E 用モック（file-panel drop が呼ぶ）
         notesImportOutPageNodeAsMd: function(payload, parentId, index) {
             window.__testApi.notesMessages.push({ type: 'notesImportOutPageNodeAsMd', payload: payload, parentId: parentId, index: index });
         },
-        notesImportMdIntoOut: function(mdFileId, targetOutId) {
-            window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId });
+        notesImportMdIntoOut: function(mdFileId, targetOutId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOut', mdFileId: mdFileId, targetOutId: targetOutId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        // FR-TF-05a / FR-MSEL-04: ツリー file item → outliner node 位置（複数選択では N 回）
+        notesImportTreeFileAtPosition: function(id, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'notesImportTreeFileAtPosition', id: id, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
         },
         // TASK-19: md editor 内 subpage リンク → ツリー D&D
         notesRegisterSubpageFromMd: function(payload, parentId, index) {
@@ -323,8 +336,102 @@ const testNotesHostBridge = `
         notesRegisterExternalMd: function(items, parentId, index) {
             window.__testApi.notesMessages.push({ type: 'notesRegisterExternalMd', items: items, parentId: parentId, index: index });
         },
+        // FR-TF-05b: Outliner file node → ツリー D&D（既存経路。回帰番人 TC-NDA-10c が観測する）
+        notesRegisterFileFromOutNode: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterFileFromOutNode', payload: payload, parentId: parentId, index: index });
+        },
+        // FR-TF-06b: md editor 内 📎 file リンク → ツリー D&D（既存経路）
+        notesRegisterFileFromMdLink: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterFileFromMdLink', payload: payload, parentId: parentId, index: index });
+        },
+        // FR-SND-03 (§6-2): outliner の選択 node → linkedfd（Export folder と同一経路）
+        sendNodesToFolderLink: function(tree, folderLinkId) {
+            window.__testApi.notesMessages.push({ type: 'sendNodesToFolderLink', tree: tree, folderLinkId: folderLinkId });
+        },
+        // FR-EXF-01: Export folder（回帰番人 TC-SND-13 が観測する）
+        exportOutlinerFolder: function(tree) {
+            window.__testApi.notesMessages.push({ type: 'exportOutlinerFolder', tree: tree });
+        },
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → outliner（配列 1 回）
+        notesImportMdIntoOutBatch: function(mdFileIds, targetOutId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'notesImportMdIntoOutBatch', mdFileIds: mdFileIds, targetOutId: targetOutId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        notesImportTreeFileAtPositionBatch: function(ids, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'notesImportTreeFileAtPositionBatch', ids: ids, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        // §4-2 rev2（TASK-45）: 種別混在の結合 batch（本番 notes-host-bridge.js のミラー）
+        notesImportTreeItemsBatch: function(items, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'notesImportTreeItemsBatch', items: items, outFileId: outFileId, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        // FR-MSEL-02 / NFR-MSEL-02 (TASK-29): 複数選択は配列 bridge を 1 回（件数ゲートは host 側）
+        folderViewMoveToTreeBatch: function(id, items, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveToTreeBatch', id: id, items: items, parentId: parentId, index: index });
+        },
+        folderViewMoveInBatch: function(id, dstDirRelPath, items) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveInBatch', id: id, dstDirRelPath: dstDirRelPath, items: items });
+        },
+        // FR-MSEL-04 rev3（2026-09-04）: ツリー内 .out / md item 宛ての結合 batch（本番 notes-host-bridge.js のミラー）
+        notesImportTreeItemsIntoOutItemBatch: function(items, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'notesImportTreeItemsIntoOutItemBatch', items: items, targetOutId: targetOutId });
+        },
+        attachTreeItemsIntoMdItemBatch: function(items, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'attachTreeItemsIntoMdItemBatch', items: items, targetMdId: targetMdId });
+        },
+        // FR-TF-03 / FR-TF-04: 単一 tree item → .out / md item（既存経路の単一 bridge）
+        notesImportFileIntoOut: function(dragItemId, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'notesImportFileIntoOut', dragItemId: dragItemId, targetOutId: targetOutId });
+        },
+        notesAttachFileIntoMd: function(dragItemId, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'notesAttachFileIntoMd', dragItemId: dragItemId, targetMdId: targetMdId });
+        },
+        // FR-SND-01/02 rev2: linkedfd →「Outliner に送る」（outFileId = サブメニューで選んだ送り先）
+        sendFolderViewToOutliner: function(folderLinkId, relPaths, outFileId, targetNodeId, position) {
+            window.__testApi.notesMessages.push({ type: 'sendFolderViewToOutliner', folderLinkId: folderLinkId, relPaths: relPaths, outFileId: outFileId || null, targetNodeId: targetNodeId || null, position: position || null });
+        },
+        // 2026-09-05 R24..R27
+        folderViewMoveIntoMdItem: function(folderLinkId, relPaths, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveIntoMdItem', folderLinkId: folderLinkId, relPaths: relPaths, targetMdId: targetMdId });
+        },
+        sendOutNodesToFolderLinkFromDrop: function(payload, folderLinkId, dstDirRelPath) {
+            window.__testApi.notesMessages.push({ type: 'sendOutNodesToFolderLinkFromDrop', payload: payload, folderLinkId: folderLinkId, dstDirRelPath: dstDirRelPath });
+        },
+        notesRegisterExternalFolder: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterExternalFolder', payload: payload, parentId: parentId, index: index });
+        },
+        folderViewMoveFromMd: function(id, dstDirRelPath, href, sourceMdPath, isSubpage) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveFromMd', id: id, dstDirRelPath: dstDirRelPath, href: href, sourceMdPath: sourceMdPath, isSubpage: !!isSubpage });
+        },
+        // FR-FLV-21 / FR-MSEL-04: note ツリー item → フォルダビュー（複数選択も同経路）
+        folderViewMoveIn: function(folderLinkId, dstDirRelPath, srcKind, srcItemId) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveIn', folderLinkId: folderLinkId, dstDirRelPath: dstDirRelPath, srcKind: srcKind, srcItemId: srcItemId });
+        },
+        // FR-FLV-20 / FR-MSEL-02: フォルダビューのエントリ → note ツリー（複数選択も同経路）
+        folderViewMoveToTree: function(folderLinkId, relPath, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'folderViewMoveToTree', folderLinkId: folderLinkId, relPath: relPath, parentId: parentId, index: index });
+        },
+        // FR-MSEL-05: 除外通知（集計 1 回）
+        notifyError: function(message) {
+            window.__testApi.notesMessages.push({ type: 'notifyError', message: message });
+        },
+        // FR-NDA-02 (sprint 20260901-075849): outliner node の添付集合 → ツリー D&D
+        notesRegisterNodeAssets: function(payload, parentId, index) {
+            window.__testApi.notesMessages.push({ type: 'notesRegisterNodeAssets', payload: payload, parentId: parentId, index: index });
+        },
         notesMoveOutNodeSubtreeIntoOut: function(payload, targetOutFilePath) {
             window.__testApi.notesMessages.push({ type: 'notesMoveOutNodeSubtreeIntoOut', payload: payload, targetOutFilePath: targetOutFilePath });
+        },
+        // 2026-09-04: note tree の .out / md item を drop 先にする新経路（本番 notes-host-bridge.js のミラー）
+        notesLinkMdIntoMd: function(dragItemId, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'notesLinkMdIntoMd', dragItemId: dragItemId, targetMdId: targetMdId });
+        },
+        notesAttachOutNodeAssetsToMdItem: function(payload, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'notesAttachOutNodeAssetsToMdItem', payload: payload, targetMdId: targetMdId });
+        },
+        notesImportMdLinkIntoOutItem: function(payload, kind, targetOutId) {
+            window.__testApi.notesMessages.push({ type: 'notesImportMdLinkIntoOutItem', payload: payload, kind: kind, targetOutId: targetOutId });
+        },
+        notesLinkMdLinkIntoMdItem: function(payload, kind, targetMdId) {
+            window.__testApi.notesMessages.push({ type: 'notesLinkMdLinkIntoMdItem', payload: payload, kind: kind, targetMdId: targetMdId });
         },
         openDailyNotes: function() {
             window.__testApi.notesMessages.push({ type: 'openDailyNotes' });
@@ -629,8 +736,24 @@ const html = `<!DOCTYPE html>
             window.__testApi.messages.push({ type: 'editingStateChanged', editing: editing });
         },
         // FR-B09 (TASK-08): ツリー md → md editor D&D（本番 notes-host-bridge.js と同名メソッド）
-        linkMdAsSubpage: function(filePath) {
-            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath });
+        // FR-MSEL-04: 複数選択では N 回呼ばれる（mdFileId も記録して枚数対応を数えられるようにする）
+        linkMdAsSubpage: function(filePath, mdFileId) {
+            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpage', filePath: filePath, mdFileId: mdFileId || null });
+        },
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): md 本文への複数リンク挿入（配列 1 回）
+        linkMdAsSubpageBatch: function(items, sidePanelFilePath) {
+            window.__testApi.messages.push({ type: 'notesMdLinkMdAsSubpageBatch', items: items, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        attachTreeFileToMdBatch: function(ids, sidePanelFilePath) {
+            window.__testApi.messages.push({ type: 'attachTreeFileToMdBatch', ids: ids, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // §4-2 rev2（TASK-45）: 種別混在の結合 batch（本番 notes-host-bridge.js のミラー）
+        attachTreeItemsToMdBatch: function(items, sidePanelFilePath) {
+            window.__testApi.messages.push({ type: 'attachTreeItemsToMdBatch', items: items, sidePanelFilePath: sidePanelFilePath || null });
+        },
+        // FR-TF-06a / FR-MSEL-04: ツリー file item → md 本文へ 📎 添付（複数選択では N 回）
+        attachTreeFileToMd: function(id) {
+            window.__testApi.messages.push({ type: 'attachTreeFileToMd', id: id });
         },
         // FR-XP-01 (sprint 20260808-000219): 本番 notes-host-bridge.js の pasteWithAssetCopy
         // override をミラー（自 filePath を宛先として畳む + destination='main-md'）。
@@ -743,7 +866,7 @@ result = safeReplace(result, '__OUTLINER_SCRIPT__', outlinerScript);
 result = safeReplace(result, '__NOTES_COLOR_PALETTE_SCRIPT__', notesColorPaletteScript);
 result = safeReplace(result, '__INLINE_COLOR_SCRIPT__', inlineColorScript);
 result = safeReplace(result, '__INLINE_COLOR_PICKER_SCRIPT__', inlineColorPickerScript);
-result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', inAppLinkUtilsScript + '\n' + wholeWordScript + '\n' + searchExtFilterScript);
+result = safeReplace(result, '__INAPP_LINK_UTILS_SCRIPT__', menuPlacementScript + '\n' + batchPayloadScript + '\n' + inAppLinkUtilsScript + '\n' + wholeWordScript + '\n' + searchExtFilterScript);
 result = safeReplace(result, '__SHORTCUT_LIST_SCRIPT__', shortcutListScript);
 result = safeReplace(result, '__SHORTCUT_HUD_SCRIPT__', shortcutHudScript);
 result = safeReplace(result, '__NOTES_FILE_PANEL_SCRIPT__', notesFilePanelScript);

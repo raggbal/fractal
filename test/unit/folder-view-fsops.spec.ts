@@ -382,7 +382,13 @@ function makeMoveDeps() {
 
 test.describe('面間 D&D host 端（TASK-05）', () => {
 
-    test('TC-FLV-15: moveToTree — md/file 登録 + 元実体 trash・登録失敗/traversal/isDir は元不変', async () => {
+    /**
+     * ⚠️ **期待値反転（sprint 20260901-075849 / TASK-19 / 許可: test_update）**:
+     * ADRL-0106 / FR-DCP-01 で fv→note ツリーが**複製**になったため
+     * 「元実体 trash」→「元実体が残る」に反転。登録失敗 / traversal / isDir の
+     * 「元不変」pin は**そのまま維持**（複製でも failure path の番人として有効）。
+     */
+    test('TC-FLV-15: moveToTree — md/file 登録 + 元実体が残る（複製）・登録失敗/traversal/isDir は元不変', async () => {
         const { mod, m, id, root, noteDir } = setupLinked();
         const { deps, calls } = makeMoveDeps();
         const { sender, messages } = makeSender();
@@ -395,9 +401,10 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         const items: any = Object.values(m.getStructure().items).filter((it: any) => it.ext === 'md');
         expect(items).toHaveLength(1);
         expect(items[0].title).toBe('My Title');
-        // 登録成功 → 元実体が trash recorder に積まれる（実体はまだ disk 上 = 直接削除経路なし）
-        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'doc.md'))).toBe(true);
-        expect(fs.existsSync(path.join(root, 'doc.md'))).toBe(true);
+        // FR-DCP-01: 登録成功でも **元実体は trash されない**（複製）
+        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'doc.md')),
+            'fv→tree で trash が走った（複製化していない）').toBe(false);
+        expect(fs.existsSync(path.join(root, 'doc.md')), 'linkedfd の md が消えた').toBe(true);
         // broadcast（tree 再送）
         expect(messages.some((x) => x.type === 'notesFileListChanged')).toBe(true);
 
@@ -406,7 +413,9 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         const fileItems: any = Object.values(m.getStructure().items).filter((it: any) => it.ext === 'file');
         expect(fileItems).toHaveLength(1);
         expect(fs.readFileSync(path.join(noteDir, 'files', fileItems[0].filename), 'utf8')).toBe('bin');
-        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'photo.bin'))).toBe(true);
+        expect(calls.trash.some((t: any) => t.absPath === path.join(root, 'photo.bin')),
+            'fv→tree（非 md）で trash が走った').toBe(false);
+        expect(fs.existsSync(path.join(root, 'photo.bin')), 'linkedfd の非 md が消えた').toBe(true);
 
         // traversal → reject（counterfactual: clamp 外しで folderRoot 外読み = RED）・trash 不発
         const trashCount = calls.trash.length;
@@ -425,7 +434,13 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         expect(calls.trash.length).toBe(trashCount);
     });
 
-    test('TC-FLV-16: moveIn — note item を dst へ複製 + 台帳除去 + note 側実体 trash・失敗時 note 不変・.out/folder reject', async () => {
+    /**
+     * ⚠️ **期待値反転（sprint 20260901-075849 / TASK-19 / 許可: test_update）**:
+     * ADRL-0106 / FR-DCP-02 で note ツリー→fv が**複製**になったため
+     * 「台帳除去 + note 側実体 trash」→「台帳 item と実体が残る」に反転。
+     * uniquify / 失敗時不変 / .out・folder reject の pin は**そのまま維持**。
+     */
+    test('TC-FLV-16: moveIn — note item を dst へ複製 + 台帳 item と実体が残る・失敗時 note 不変・.out/folder reject', async () => {
         const { mod, m, id, root, noteDir } = setupLinked();
         const { deps, calls } = makeMoveDeps();
         const { sender, messages } = makeSender();
@@ -437,16 +452,19 @@ test.describe('面間 D&D host 端（TASK-05）', () => {
         // md item → dst へ複製（title ベース名）+ 台帳除去 + 実体 trash（recorder）
         expect(await mod.folderViewMoveIn(m, id, 'dstd', 'md', mdId, deps as any, sender as any)).toBe(true);
         expect(fs.readFileSync(path.join(root, 'dstd', 'Doc.md'), 'utf8')).toContain('# Doc');
-        expect(m.getStructure().items[mdId]).toBeFalsy();
-        expect(calls.trash.some((t: any) => t.absPath.endsWith(`${mdId}.md`))).toBe(true);
+        // FR-DCP-02: 台帳 item も note 側実体も残る（複製）
+        expect(m.getStructure().items[mdId], 'note 台帳の md item が除去された（複製化していない）').toBeTruthy();
+        expect(calls.trash.some((t: any) => t.absPath.endsWith(`${mdId}.md`)),
+            'note 側 md の trash が走った').toBe(false);
+        expect(fs.existsSync(m.getMdFilePath(mdId)), 'note 側の md 実体が消えた').toBe(true);
         expect(messages.some((x) => x.type === 'notesFileListChanged')).toBe(true);
 
         // file item → 複製 + 台帳除去 + trash
         expect(await mod.folderViewMoveIn(m, id, 'dstd', 'file', fileId, deps as any, sender as any)).toBe(true);
         expect(fs.readFileSync(path.join(root, 'dstd', 'a.txt'), 'utf8')).toBe('xx');
-        expect(m.getStructure().items[fileId]).toBeFalsy();
-        expect(calls.trash.some((t: any) => t.absPath === fileEntity)).toBe(true);
-        expect(fs.existsSync(fileEntity)).toBe(true); // recorder no-op = 直接削除経路なし
+        expect(m.getStructure().items[fileId], 'note 台帳の file item が除去された').toBeTruthy();
+        expect(calls.trash.some((t: any) => t.absPath === fileEntity), 'note 側 file の trash が走った').toBe(false);
+        expect(fs.existsSync(fileEntity), 'note 側の file 実体が消えた').toBe(true);
 
         // 同名 uniquify
         const mdId2 = m.registerMarkdownFile('# Doc2\n', 'Doc', null, 0);
@@ -754,6 +772,12 @@ test.describe('TC-FLV-55 — rename newName 引数（host 面 / FR-FLV-28）', (
 
 // ── 再オープン①（TASK-17）: W2 trash 可視化 / W4 precedent 合流 / W6 通知 ──
 
+/**
+ * ⚠️ **経路付け替え（sprint 20260901-075849 / TASK-19 / 許可: test_update）**:
+ * 元は `folderViewMoveToTree` で検証していたが、ADRL-0106 / FR-DCP-01 でこの方向が**複製**に
+ * なり trash 経路そのものが消えた。**削除すると trash 失敗の可視化が無検証になる**ため、
+ * 移動のまま残る `folderViewMoveIntoMd`（FR-DCP-03）へ移設した。
+ */
 test.describe('TC-FLV-60 — trash 失敗の可視化（W2 / D&D 統一原則改訂）', () => {
 
     test('trash throw → folderViewTrashFailed 通知・元残存・複製とリフレッシュは反映（counterfactual: silent catch では通知 0 で RED）', async () => {
@@ -761,20 +785,28 @@ test.describe('TC-FLV-60 — trash 失敗の可視化（W2 / D&D 統一原則改
         const { calls } = makeMoveDeps();
         const { sender, messages } = makeSender();
         fs.writeFileSync(path.join(root, 'x.txt'), 'data');
+        // 移設先経路（fv → sidepanel md）の drop 先
+        const targetMd = path.join(noteDir, 'target.md');
+        fs.writeFileSync(targetMd, '# Target\n', 'utf8');
+        m.openFile(targetMd);
         // trash が throw する deps（クラウドドライブ / 権限エラーの再現）
         const throwingDeps = {
             showErrorMessage: (msg: string) => { calls.errors.push(msg); },
             t: (key: string) => (key === 'folderViewTrashFailed' ? 'TRASH_FAILED: ' : undefined) as any,
             trashDelete: async () => { throw new Error('EPERM cloud'); },
+            toDisplayUri: (p2: string) => p2,
         };
-        expect(await mod.folderViewMoveToTree(m, id, 'x.txt', null, 0, throwingDeps as any, sender as any)).toBe(true);
+        expect(await mod.folderViewMoveIntoMd(m, id, 'x.txt', targetMd, throwingDeps as any, sender as any)).toBe(true);
         // ① 通知（folderViewTrashFailed キー経由の文言）
         expect(calls.errors.length, 'trash 失敗が通知される').toBeGreaterThan(0);
         expect(calls.errors.some((e: string) => e.startsWith('TRASH_FAILED')), '専用キーで通知').toBe(true);
         // ② 元は残る（完全削除フォールバックが無い）
         expect(fs.readFileSync(path.join(root, 'x.txt'), 'utf8')).toBe('data');
-        // ③ 複製先（note 登録）は存在し、tree/list リフレッシュは送られる
-        expect(messages.some((x) => x.type === 'notesFileListChanged' || x.type === 'fileListWithStructure' || x.type === 'notesFileList')).toBeTruthy();
+        // ③ 複製先（md への添付）は成立し、fv list リフレッシュは送られる
+        //   移設先経路は tree 登録をしないので notesFileListChanged ではなく
+        //   リンク挿入指示（insertFileLink / insertSubpageLink / insertImage のいずれか）が正しい信号
+        expect(messages.some((x) => /^insert/.test(String(x.type))),
+            'リンク挿入指示が送られていない（複製が成立していない）').toBe(true);
         expect(messages.some((x) => x.type === 'folderViewListResult')).toBe(true);
     });
 });

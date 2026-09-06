@@ -5,7 +5,7 @@
 <!-- 本番 fileViewerContent.ts の CSP を忠実に再現（cspSource → 'self'）。blob iframe はこの CSP を
      policy container 継承する — ユーザー script 抑止の実体（script-src nonce）・外部送信遮断
      （connect-src）・外部 URL への iframe 遷移抑止（frame-src — TC-FV-03）が全てここに依存する -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-0pQs16aYGnywGI2p1XkFZw==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'nonce-qzLhmhvgZsRITfspAQt6ew==' 'self'; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self'; font-src 'self' blob: data:; form-action 'none'">
 <title>Standalone File Viewer Test</title>
 <style>
 /* Copyright 2014 Mozilla Foundation
@@ -7147,14 +7147,14 @@ html, body { margin: 0; height: 100%; }
 </head>
 <body>
 <div id="viewer-root"></div>
-<script nonce="0pQs16aYGnywGI2p1XkFZw==">
+<script nonce="qzLhmhvgZsRITfspAQt6ew==">
 // TASK-13（不変条件7）: 本番 fileViewerContent.ts と同じ "null" origin capture 遮断を
 // bootstrap 最初期（全 message listener 登録より前）に再現 — TC-FV-47/48 の検証対象
 window.addEventListener('message', function (e) {
     if (e.origin === 'null') { e.stopImmediatePropagation(); }
 }, true);
 </script>
-<script type="module" nonce="0pQs16aYGnywGI2p1XkFZw==">
+<script type="module" nonce="qzLhmhvgZsRITfspAQt6ew==">
 // テストハーネス: vscode webview API のスタブ + postMessage 記録
 // （ハーネス bootstrap 自身も nonce 必須 — script-src に 'self'/'unsafe-inline' だけでは inline module が動かない）
 window.__postedMessages = [];
@@ -7177,7 +7177,7 @@ window.__viewerConfig = {
         xlsx: './viewer-modules/viewer-xlsx.mjs',
         pptx: './viewer-modules/viewer-pptx.mjs',
     },
-    nonce: '0pQs16aYGnywGI2p1XkFZw==',
+    nonce: 'qzLhmhvgZsRITfspAQt6ew==',
 };
 /**
  * file-viewer.js — file viewer webview 本体（PDF レンダ + HTML sandbox 表示 + 読み込み失敗 UI）

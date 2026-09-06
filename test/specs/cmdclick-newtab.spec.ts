@@ -4,6 +4,9 @@
  *
  * FR-CT-01/02: file tree item の cmd/ctrl+click → bridge.openFileInTab（webview 内タブ経路）。
  *              通常 click は従来どおり bridge.openFile。
+ *   ★ rev2（2026-09-04 ユーザー裁定・手動テスト (1)）: cmd/ctrl+click は **note ツリーの単品トグル選択**に
+ *     割り当て直した（FR-MSEL-03 rev2）。webview 内タブは右クリック「Open in new tab」（TC-OT-01/02）が担う。
+ *     TC-CT-01/03 はその契約へ test_update。TC-CT-02（通常 click = openFile）は不変。
  * FR-CT-03: outliner page アイコンの cmd/ctrl+click → openPageInTab {pageId}（パス解決は host）。
  *           通常 click は従来どおり openPageInSidePanel。
  *
@@ -51,12 +54,15 @@ test.describe('file tree cmd+click (FR-CT-01/02)', () => {
         return page.evaluate(() => JSON.parse(JSON.stringify((window as any).__testApi.notesMessages)));
     }
 
-    test('TC-CT-01 ★load-bearing: md item cmd+click → openFileInTab 発火・openFile 非発火', async ({ page }) => {
+    test('TC-CT-01 (rev2 2026-09-04): md item cmd+click → **選択トグル**（openFileInTab も openFile も非発火）', async ({ page }) => {
+        // ユーザー裁定 2026-09-04（手動テスト (1)）: cmd/ctrl+click は note ツリーの不連続選択に割り当て直す。
+        // webview 内タブで開く経路は右クリック「Open in new tab」（TC-OT-01/02）に一本化。
         const msgs = await clickItem(page, 'mdDoc', { metaKey: true });
-        // counterfactual: 実装前は openFile 1 件 / openFileInTab 0 件 = RED
-        expect(msgs.filter((m: any) => m.type === 'openFileInTab').length).toBe(1);
-        expect(msgs.filter((m: any) => m.type === 'openFileInTab')[0].filePath).toBe('/test/note.md');
+        expect(msgs.filter((m: any) => m.type === 'openFileInTab').length, '旧 FR-CT-01（cmd+click でタブ）が残っている').toBe(0);
         expect(msgs.filter((m: any) => m.type === 'openFile').length).toBe(0);
+        const selected = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.file-panel-item.file-panel-selected')).map((el) => (el as HTMLElement).dataset.fileId));
+        expect(selected).toEqual(['mdDoc']);
     });
 
     test('TC-CT-02 regression: 通常 click → openFile（従来どおり）・openFileInTab 非発火', async ({ page }) => {
@@ -65,12 +71,13 @@ test.describe('file tree cmd+click (FR-CT-01/02)', () => {
         expect(msgs.filter((m: any) => m.type === 'openFileInTab').length).toBe(0);
     });
 
-    test('TC-CT-03 ctrlKey (win/linux) でも openFileInTab。.out も対象', async ({ page }) => {
-        // .out は currentFile と同一だが cmd+click は currentFile ガードを通らず発火する
+    test('TC-CT-03 (rev2): ctrlKey (win/linux) も同じくトグル。.out も対象（開かない）', async ({ page }) => {
         const msgs = await clickItem(page, 'outPlan', { ctrlKey: true });
-        expect(msgs.filter((m: any) => m.type === 'openFileInTab').length).toBe(1);
-        expect(msgs.filter((m: any) => m.type === 'openFileInTab')[0].filePath).toBe('/test/plan.out');
+        expect(msgs.filter((m: any) => m.type === 'openFileInTab').length).toBe(0);
         expect(msgs.filter((m: any) => m.type === 'openFile').length).toBe(0);
+        const selected = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('.file-panel-item.file-panel-selected')).map((el) => (el as HTMLElement).dataset.fileId));
+        expect(selected).toEqual(['outPlan']);
     });
 });
 

@@ -8,16 +8,18 @@ import { OutlinerClipboardStore } from './outliner-clipboard-store';
 import * as crypto from 'crypto';
 import { handlePageAssets, handleImageAssets, handleFileAsset, copyImageAssets, moveImageAssets, resolveCrossPasteCut, runMdIntoOutlinerPaste, generateUniqueFileNamePreserving, copyEntityWithUniquify, transferMdWithAssets, noteCoords, adjacentCoords, mdCoords, makeTransferCoords, TransferCoords, MdPasteAssetReport, duplicateMdEntity } from './paste-asset-handler';
 import { collectFvSurvivingAssetRefs } from './fv-residual-refs';
+import { checkBatchLimit, BatchLimitVerdict, FOLDER_IMPORT_MAX_FILES, FOLDER_IMPORT_MAX_DEPTH } from './folder-import';
 import { safeResolveUnderDir, safeResolveUnderFolderRoot } from './path-safety';
 import { readFolderViewExpanded, saveFolderViewExpanded, readFolderViewShowHidden, saveFolderViewShowHidden } from './folderview-state';
 import { isViewerTarget } from './viewer-target';
-import { resolveFilesDir, resolveFilesDirForMd, resolveImagesDirForMd, resolvePagesDir } from './flat-layout';
+import { resolveFilesDir, resolveFilesDirForMd, resolveImagesDir, resolveImagesDirForMd, resolvePagesDir } from './flat-layout';
 import { handleExportMindmap } from './mindmap-export-host';
 import { translateText, TRANSLATE_LANGUAGES } from './aws-translate';
-import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, droppedUriToFsPath } from './drop-import';
+import { processDropFilesImport, processDropVscodeUrisImport, DropImportItem, droppedUriToFsPath, DroppedFolderPayload, materializeDroppedFolder, expandDroppedPathsToFiles } from './drop-import';
 import { setFirstH1, writeFileIfChanged, extractFirstH1 } from './md-h1-utils';
 import { removeMdAnchorAndEcho } from './md-anchor-remove';
 import { ExportOptions } from './md-export-core';
+import { t } from '../i18n/messages';
 
 /**
  * Webview へのメッセージ送信インターフェース
@@ -31,6 +33,14 @@ export interface NotesSender {
 /**
  * プラットフォーム固有アクションのインターフェース
  */
+/** §4-2 rev2（TASK-45）: 種別混在の結合 batch の 1 item（webview が `seq` 順に結合済み）。 */
+export interface TreeBatchItem {
+    kind: 'md' | 'file';
+    id: string;
+    /** md のみ（subpage リンク挿入に必要）。file は null */
+    filePath?: string | null;
+}
+
 export interface NotesPlatformActions {
     /** 外部リンクをブラウザで開く */
     openExternalLink(href: string): void;
@@ -250,6 +260,8 @@ export interface NotesPlatformActions {
     dropVscodeUrisImport?(uris: string[], targetNodeId: string | null, position: string, sender: NotesSender): void;
     /** v12: フォルダ D&D 拒否通知 */
     notifyDropFolderRejected?(folders: string[]): void;
+    /** 2026-09-05 FR-DFI-01: Finder からのフォルダ drop（webview が中身を読んだ payload）→ Import folder 経路で drop 位置へ */
+    dropFolderEntriesImport?(payload: DroppedFolderPayload, targetNodeId: string | null, position: string, sender: NotesSender): Promise<void> | void;
     /** v12: ファイルサイズ超過通知 */
     notifyDropFileTooLarge?(fileName: string): void;
     /** v0.207.96: Streaming D&D pipeline (files > 50MB). Routes all 5 dropStream* messages
@@ -259,8 +271,13 @@ export interface NotesPlatformActions {
     showInformationMessage?(text: string): void;
     /** タスクモード archive: エラーメッセージ表示 */
     showErrorMessage?(text: string): void;
-    /** v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加 */
-    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender, targetNodeId?: string | null, position?: string | null): Promise<void> | void;
+    /**
+     * v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加。
+     *
+     * 🔴 TASK-38（NFR-MSEL-03）: **成否を `boolean` で返す**（batch から呼ばれた時に失敗を集計へ届けるため）。
+     * `suppressToast` = true なら失敗時の個別 popup を出さない（batch 経路は集計通知 1 回に一本化する）。
+     */
+    notesImportMdIntoOut?(mdFileId: string, targetOutId: string, sender: NotesSender, targetNodeId?: string | null, position?: string | null, suppressToast?: boolean): Promise<boolean> | boolean;
     /** TASK-19: md editor 内 subpage リンク → ツリー D&D（同一 note = 既存登録+アンカー除去 / 別 note = 複製登録） */
     notesRegisterSubpageFromMd?(payload: { href: string; sourceMdPath: string; title?: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /**
@@ -297,10 +314,19 @@ export interface NotesPlatformActions {
     ): Promise<void> | void;
     /** node-move-to-other-outliner: outliner node（サブツリー）を右パネルの別 .out に move（root 先頭挿入） */
     notesMoveOutNodeSubtreeIntoOut?(
-        payload: { outFileKey: string; nodeId: string },
+        payload: { outFileKey: string; nodeId: string; nodeIds?: string[] },   // nodeIds = 複数選択の root（2026-09-04）
         targetOutFilePath: string,
         sender: NotesSender
     ): Promise<void> | void;
+    // 2026-09-04（rc.7 手動テスト）: note tree の `.out` / md item を drop 先にする新経路
+    /** tree md item → tree md item（中央帯）: subpage リンクを対象 md 末尾へ（disk 直書き）+ tree 除去 */
+    notesLinkMdIntoMd?(dragItemId: string, targetMdId: string, sender: NotesSender): Promise<void> | void;
+    /** outliner node（複数可）→ tree md item（中央帯）: page → subpage リンク / file → 📎 / 画像 → ![]() を対象 md 末尾へ + node から添付を外す */
+    notesAttachOutNodeAssetsToMdItem?(payload: OutNodeAssetsPayload, targetMdId: string, sender: NotesSender): Promise<void> | void;
+    /** md editor の subpage / 📎 リンク → tree `.out` item（中央帯）: page node / file node を root 先頭へ + 元 md からリンク除去 */
+    notesImportMdLinkIntoOutItem?(payload: { href: string; sourceMdPath: string; title?: string }, kind: 'subpage' | 'file', targetOutId: string, sender: NotesSender): Promise<void> | void;
+    /** md editor の subpage / 📎 リンク → tree md item（中央帯）: 対象 md 末尾へリンクを移す（元 md からは除去） */
+    notesLinkMdLinkIntoMdItem?(payload: { href: string; sourceMdPath: string; title?: string }, kind: 'subpage' | 'file', targetMdId: string, sender: NotesSender): Promise<void> | void;
 
     // ── FR-TF: tree file item（ext:'file'）D&D 経路（8 経路 + menu/click）——————————
     /** click: tree file を外部アプリで開く（getTreeFilePath → openExternal） */
@@ -314,9 +340,41 @@ export interface NotesPlatformActions {
     /** FR-TF-06a (§4f): tree file を開いている md editor（main=currentFile / sidepanel=sidePanelFilePath）へ添付 */
     attachTreeFileToMd?(id: string, sidePanelFilePath: string | null | undefined, sender: NotesSender): Promise<void> | void;
     /** FR-TF-05a (§4d): tree file を outliner の node 位置に D&D → dropFilesResult 互換 postback + tree 除去 */
-    notesImportTreeFileAtPosition?(id: string, outFileId: string, targetNodeId: string | null, position: string | null, sender: NotesSender): Promise<void> | void;
+    /** 🔴 TASK-38 (NFR-MSEL-03): 成否を `boolean` で返す（batch から呼ばれた時に失敗を集計へ届けるため）。 */
+    notesImportTreeFileAtPosition?(id: string, outFileId: string, targetNodeId: string | null, position: string | null, sender: NotesSender): Promise<boolean> | boolean;
     /** FR-TF-05b (§4e): outliner の file 添付 node をツリーへ D&D → files/ 登録（共有配下は無コピー）+ node.filePath null 化 */
+    // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → outliner / md の batch
+    notesImportMdIntoOutBatch?(mdFileIds: string[], targetOutId: string, sender: NotesSender, targetNodeId?: string | null, position?: string | null): Promise<void> | void;
+    notesImportTreeFileAtPositionBatch?(ids: string[], outFileId: string, targetNodeId: string | null, position: string | null, sender: NotesSender): Promise<void> | void;
+    attachTreeFileToMdBatch?(ids: string[], sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    linkMdAsSubpageBatch?(items: { filePath: string; id?: string | null }[], sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    // §4-2 rev2（TASK-45 / FR-MSEL-04 rev2）: 種別混在（md + file）の**結合 batch**。webview が seq 順に結合した
+    // 1 本の配列を 1 回で渡す → 件数ゲート（NFR-MSEL-02）が**合計**に対して 1 回効く。1 件の意味論は既存の単一関数。
+    notesImportTreeItemsBatch?(items: TreeBatchItem[], outFileId: string, targetNodeId: string | null, position: string | null, sender: NotesSender): Promise<void> | void;
+    attachTreeItemsToMdBatch?(items: TreeBatchItem[], sidePanelFilePath: string | null, sender: NotesSender): Promise<void> | void;
+    // FR-MSEL-04 rev3（2026-09-04 手動テスト (1)）: ツリー**内**の受け手 item への結合 batch。
+    // `.out` item 宛て = md → page node / file → file node（対象 .out が未オープンでも JSON を直接更新）。
+    // md item 宛て = md → subpage リンク / file → 📎 リンクを対象 md 末尾へ追記（disk 直書き = FR-TF-04 契約）。
+    notesImportTreeItemsIntoOutItemBatch?(items: TreeBatchItem[], targetOutId: string, sender: NotesSender): Promise<void> | void;
+    attachTreeItemsIntoMdItemBatch?(items: TreeBatchItem[], targetMdId: string, sender: NotesSender): Promise<void> | void;
+    // FR-MSEL-02/04 / NFR-MSEL-02 (§4-3b): 複数選択 D&D の batch（件数ゲートは host 側にしか置けない）
+    folderViewMoveToTreeBatch?(folderLinkId: string, items: { folderLinkId?: string; relPath: string }[], parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    folderViewMoveInBatch?(folderLinkId: string, dstDirRelPath: string, items: { srcKind: string; srcItemId: string }[], sender: NotesSender): Promise<void> | void;
     notesRegisterFileFromOutNode?(payload: { outFileKey: string; nodeId: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    // FR-SND-03 (§6-2): outliner の選択 node → linkedfd へ送る（Export folder と同一経路）
+    sendNodesToFolderLink?(tree: ExportNode[], folderLinkId: string, sender: NotesSender): Promise<void> | void;
+    // FR-SND-01 (§6-1): linkedfd の選択 → Outliner root 先頭へ送る。
+    // FR-SND-02 rev2（2026-09-04）: `outFileId` = サブメニューで選んだ送り先 `.out`（省略 = メインペインの .out）
+    sendFolderViewToOutliner?(folderLinkId: string, relPaths: string[], sender: NotesSender, outFileId?: string | null, targetNodeId?: string | null, position?: string | null): Promise<void> | void;
+    // 2026-09-05（移動系の残セル R24..R28）
+    /** linkedfd の entry（file のみ）→ tree の md 行: 対象 md へ移す（disk 直書き = 開いていなくてよい） */
+    folderViewMoveIntoMdItem?(folderLinkId: string, relPaths: string[], targetMdId: string, sender: NotesSender): Promise<void> | void;
+    /** outliner node（複数可）→ linkedfd（tree の行 = root / 面 = drop 先 dir）: 「linkedfd に送る」と同一経路 */
+    sendOutNodesToFolderLinkFromDrop?(payload: { outFileKey: string; nodeId: string; nodeIds?: string[] }, folderLinkId: string, dstDirRelPath: string, sender: NotesSender): Promise<void> | void;
+    /** 外部フォルダ（Finder）→ note tree: tree フォルダ + md / file item として登録 */
+    notesRegisterExternalFolder?(payload: DroppedFolderPayload, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
+    // FR-NDA-02 (§2-4): outliner node の添付集合 → note ツリー登録
+    notesRegisterNodeAssets?(payload: OutNodeAssetsPayload, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /** FR-TF-06b (§4g): md editor 内の 📎 file リンクをツリーへ D&D → files/ 登録 + 元 md からアンカー除去 */
     notesRegisterFileFromMdLink?(payload: { href: string; sourceMdPath: string }, parentId: string | null, index: number, sender: NotesSender): Promise<void> | void;
     /** FR-TF-10 menu: Reveal in Finder（getTreeFilePath → revealFileInOS command） */
@@ -606,6 +664,9 @@ export async function handleNotesMessage(
             platform.dropVscodeUrisImport?.(message.uris, message.targetNodeId, message.position, sender);
             break;
 
+        case 'dropFolderEntriesImport':
+            await platform.dropFolderEntriesImport?.(message.payload, message.targetNodeId ?? null, String(message.position ?? 'root-end'), sender);
+            break;
         case 'notifyDropFolderRejected':
             platform.notifyDropFolderRejected?.(message.folders);
             break;
@@ -1156,6 +1217,15 @@ export async function handleNotesMessage(
             break;
 
         // TASK-17: ファイルツリー md → sidepanel md D&D（同一 note 判定は host 側）
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → md 本文（subpage リンク）
+        case 'linkMdAsSubpageBatch': {
+            if (typeof platform.linkMdAsSubpageBatch === 'function') {
+                await platform.linkMdAsSubpageBatch(
+                    Array.isArray(message.items) ? message.items : [],
+                    message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
         case 'linkMdAsSubpage':
             if (message.filePath && message.sidePanelFilePath && platform.linkMdAsSubpageForSidePanel) {
                 platform.linkMdAsSubpageForSidePanel(message.filePath, message.mdFileId || null, message.sidePanelFilePath);
@@ -1362,6 +1432,16 @@ export async function handleNotesMessage(
                 }
             } else {
                 // ファイル読み込み失敗: 元のファイルリストを再送信してUI状態を復元
+                // sprint 20260901-075849 TASK-77 / FR-OPF-01: 失敗を無言にしない。
+                // .out の JSON が壊れていると openFile が null を返すだけで、
+                // tree の item を click しても「何も起きない = 開かない」状態になっていた
+                // （実例: 転送事故で 2 世代が byte 単位で混ざった .out）。理由を添えて提示する。
+                const reason = fileManager.getLastOpenError() || '';
+                const label = path.basename(String(message.filePath || ''));
+                platform.showErrorMessage?.(
+                    (t('noteOpenFailed') || 'Failed to open this file')
+                    + ': ' + label + (reason ? ' — ' + reason : '')
+                );
                 sendFileListWithStructure(fileManager, sender);
             }
             break;
@@ -1513,6 +1593,15 @@ export async function handleNotesMessage(
             break;
         }
 
+        // FR-TMV-01 (TASK-87): ツリー内の複数選択移動。moveItem を N 回呼ぶと
+        // 1 件ごとに保存 + postback が走り webview 側の index が崩れるため 1 メッセージで受ける。
+        case 'notesMoveItems': {
+            const ids: string[] = Array.isArray(message.itemIds) ? message.itemIds : [];
+            fileManager.moveItems(ids, message.targetParentId, message.index);
+            sendFileListWithStructure(fileManager, sender);
+            break;
+        }
+
         // v0.207.77 (D&D Feature A): Notes 内 .md を別の .out item にドロップ → 当該 .out のトップに page-node を追加
         // TASK-19: md editor 内 subpage リンク → ツリー D&D
         case 'notesRegisterSubpageFromMd':
@@ -1535,6 +1624,15 @@ export async function handleNotesMessage(
             }
             break;
 
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → outliner（md）
+        case 'notesImportMdIntoOutBatch': {
+            if (typeof platform.notesImportMdIntoOutBatch === 'function') {
+                await platform.notesImportMdIntoOutBatch(
+                    Array.isArray(message.mdFileIds) ? message.mdFileIds.map(String) : [],
+                    message.targetOutId, sender, message.targetNodeId ?? null, message.position ?? null);
+            }
+            break;
+        }
         case 'notesImportMdIntoOut': {
             if (typeof platform.notesImportMdIntoOut === 'function') {
                 // FR-TF-14: targetNodeId/position は任意（旧 webview からは undefined = 従来挙動）
@@ -1564,6 +1662,31 @@ export async function handleNotesMessage(
                     message.targetOutFilePath,
                     sender
                 );
+            }
+            break;
+        }
+        // 2026-09-04: note tree の `.out` / md item を drop 先にする新経路
+        case 'notesLinkMdIntoMd': {
+            if (typeof platform.notesLinkMdIntoMd === 'function') {
+                await platform.notesLinkMdIntoMd(String(message.dragItemId ?? ''), String(message.targetMdId ?? ''), sender);
+            }
+            break;
+        }
+        case 'notesAttachOutNodeAssetsToMdItem': {
+            if (typeof platform.notesAttachOutNodeAssetsToMdItem === 'function') {
+                await platform.notesAttachOutNodeAssetsToMdItem(message.payload, String(message.targetMdId ?? ''), sender);
+            }
+            break;
+        }
+        case 'notesImportMdLinkIntoOutItem': {
+            if (typeof platform.notesImportMdLinkIntoOutItem === 'function') {
+                await platform.notesImportMdLinkIntoOutItem(message.payload, message.kind === 'subpage' ? 'subpage' : 'file', String(message.targetOutId ?? ''), sender);
+            }
+            break;
+        }
+        case 'notesLinkMdLinkIntoMdItem': {
+            if (typeof platform.notesLinkMdLinkIntoMdItem === 'function') {
+                await platform.notesLinkMdLinkIntoMdItem(message.payload, message.kind === 'subpage' ? 'subpage' : 'file', String(message.targetMdId ?? ''), sender);
             }
             break;
         }
@@ -1598,6 +1721,23 @@ export async function handleNotesMessage(
             break;
         }
         // FR-TF-06a (§4f)
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → md 本文（📎 添付）
+        case 'attachTreeFileToMdBatch': {
+            if (typeof platform.attachTreeFileToMdBatch === 'function') {
+                await platform.attachTreeFileToMdBatch(
+                    Array.isArray(message.ids) ? message.ids.map(String) : [],
+                    message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
+        // §4-2 rev2（TASK-45）: 種別混在の結合 batch（md 本文）
+        case 'attachTreeItemsToMdBatch': {
+            if (typeof platform.attachTreeItemsToMdBatch === 'function') {
+                await platform.attachTreeItemsToMdBatch(
+                    normalizeTreeBatchItems(message.items), message.sidePanelFilePath ?? null, sender);
+            }
+            break;
+        }
         case 'attachTreeFileToMd': {
             if (typeof platform.attachTreeFileToMd === 'function') {
                 await platform.attachTreeFileToMd(message.id, message.sidePanelFilePath ?? null, sender);
@@ -1640,6 +1780,24 @@ export async function handleNotesMessage(
             importMdSubpageIntoOut(fileManager, sender, message.payload, message.outFileId, message.targetNodeId ?? null, message.position ?? null);
             break;
         }
+        // FR-MSEL-04 / NFR-MSEL-02 (TASK-35): note tree 複数選択 → outliner（file）
+        case 'notesImportTreeFileAtPositionBatch': {
+            if (typeof platform.notesImportTreeFileAtPositionBatch === 'function') {
+                await platform.notesImportTreeFileAtPositionBatch(
+                    Array.isArray(message.ids) ? message.ids.map(String) : [],
+                    message.outFileId, message.targetNodeId ?? null, message.position ?? null, sender);
+            }
+            break;
+        }
+        // §4-2 rev2（TASK-45）: 種別混在の結合 batch（outliner）
+        case 'notesImportTreeItemsBatch': {
+            if (typeof platform.notesImportTreeItemsBatch === 'function') {
+                await platform.notesImportTreeItemsBatch(
+                    normalizeTreeBatchItems(message.items), String(message.outFileId ?? ''),
+                    message.targetNodeId ?? null, message.position ?? null, sender);
+            }
+            break;
+        }
         case 'notesImportTreeFileAtPosition': {
             if (typeof platform.notesImportTreeFileAtPosition === 'function') {
                 await platform.notesImportTreeFileAtPosition(
@@ -1656,6 +1814,83 @@ export async function handleNotesMessage(
         case 'notesRegisterFileFromOutNode': {
             if (typeof platform.notesRegisterFileFromOutNode === 'function') {
                 await platform.notesRegisterFileFromOutNode(message.payload, message.parentId ?? null, message.index ?? 0, sender);
+            }
+            break;
+        }
+        // FR-SND-03 (§6-2): outliner の選択 node → linkedfd
+        case 'sendNodesToFolderLink': {
+            if (typeof platform.sendNodesToFolderLink === 'function') {
+                await platform.sendNodesToFolderLink(
+                    (message.tree as ExportNode[]) ?? [],
+                    String(message.folderLinkId ?? ''),
+                    sender);
+            }
+            break;
+        }
+        // FR-SND-01 (§6-1): linkedfd の選択 → Outliner root 先頭
+        case 'sendFolderViewToOutliner': {
+            if (typeof platform.sendFolderViewToOutliner === 'function') {
+                await platform.sendFolderViewToOutliner(
+                    String(message.folderLinkId ?? ''),
+                    Array.isArray(message.relPaths) ? message.relPaths.map(String) : [],
+                    sender,
+                    message.outFileId ? String(message.outFileId) : null,
+                    message.targetNodeId ? String(message.targetNodeId) : null,
+                    message.position ? String(message.position) : null);
+            }
+            break;
+        }
+        // 2026-09-05 移動系の残セル（R24..R28）
+        case 'folderViewMoveIntoMdItem': {
+            if (typeof platform.folderViewMoveIntoMdItem === 'function') {
+                await platform.folderViewMoveIntoMdItem(String(message.folderLinkId ?? ''),
+                    Array.isArray(message.relPaths) ? message.relPaths.map(String) : [], String(message.targetMdId ?? ''), sender);
+            }
+            break;
+        }
+        case 'sendOutNodesToFolderLinkFromDrop': {
+            if (typeof platform.sendOutNodesToFolderLinkFromDrop === 'function') {
+                await platform.sendOutNodesToFolderLinkFromDrop(message.payload, String(message.folderLinkId ?? ''), String(message.dstDirRelPath ?? ''), sender);
+            }
+            break;
+        }
+        case 'notesRegisterExternalFolder': {
+            if (typeof platform.notesRegisterExternalFolder === 'function') {
+                await platform.notesRegisterExternalFolder(message.payload, message.parentId ?? null, Number(message.index ?? 0), sender);
+            }
+            break;
+        }
+        // md 面へのフォルダ drop（Explorer）: host がディレクトリを展開して返す（platform 不要の純 fs）
+        case 'resolveDroppedPaths': {
+            // 裁定 R37: 上限に当たったら理由を出す（旧実装は 2000 件目以降を無告知で落としていた）
+            const expandLimit: { truncated?: boolean; tooDeep?: boolean } = {};
+            const files = expandDroppedPathsToFiles(
+                Array.isArray(message.paths) ? message.paths.map(String) : [], undefined, undefined, expandLimit);
+            if (expandLimit.truncated || expandLimit.tooDeep) {
+                platform.showErrorMessage?.(t('importFolderTooMany'));
+            }
+            sender.postMessage({ type: 'droppedPathsResolved', requestId: message.requestId ?? null, files, sidePanelFilePath: message.sidePanelFilePath ?? null });
+            break;
+        }
+        // FR-MSEL-04 rev3: ツリー内 `.out` / md item 宛ての結合 batch
+        case 'notesImportTreeItemsIntoOutItemBatch': {
+            if (typeof platform.notesImportTreeItemsIntoOutItemBatch === 'function') {
+                await platform.notesImportTreeItemsIntoOutItemBatch(
+                    normalizeTreeBatchItems(message.items), String(message.targetOutId ?? ''), sender);
+            }
+            break;
+        }
+        case 'attachTreeItemsIntoMdItemBatch': {
+            if (typeof platform.attachTreeItemsIntoMdItemBatch === 'function') {
+                await platform.attachTreeItemsIntoMdItemBatch(
+                    normalizeTreeBatchItems(message.items), String(message.targetMdId ?? ''), sender);
+            }
+            break;
+        }
+        // FR-NDA-02 (§2-4): node 添付の一括転送
+        case 'notesRegisterNodeAssets': {
+            if (typeof platform.notesRegisterNodeAssets === 'function') {
+                await platform.notesRegisterNodeAssets(message.payload, message.parentId ?? null, message.index ?? 0, sender);
             }
             break;
         }
@@ -1807,6 +2042,21 @@ export async function handleNotesMessage(
         }
         case 'folderViewMoveToTree': {
             await platform.folderViewMoveToTree?.(String(message.id ?? ''), String(message.relPath ?? ''), message.parentId ?? null, Number(message.index ?? 0), sender);
+            break;
+        }
+        // FR-MSEL-02 / NFR-MSEL-02 (§4-3b): 複数選択 D&D（件数ゲート + 集計通知 1 回）
+        case 'folderViewMoveToTreeBatch': {
+            await platform.folderViewMoveToTreeBatch?.(
+                String(message.id ?? ''),
+                Array.isArray(message.items) ? message.items : [],
+                message.parentId ?? null, Number(message.index ?? 0), sender);
+            break;
+        }
+        // FR-MSEL-04 / NFR-MSEL-02 (§4-3b)
+        case 'folderViewMoveInBatch': {
+            await platform.folderViewMoveInBatch?.(
+                String(message.id ?? ''), String(message.dstDirRelPath ?? ''),
+                Array.isArray(message.items) ? message.items : [], sender);
             break;
         }
         case 'folderViewMoveIntoMd': {
@@ -2519,15 +2769,17 @@ export function treeFileImportIntoOut(
     sender: NotesSender,
     dragItemId: string,
     targetOutId: string
-): void {
+): boolean {
+    // 🔴 成否を返す（NFR-MSEL-03）: FR-MSEL-04 rev3 の結合 batch から呼ばれた時に失敗を集計へ届けるため。
+    // 単一経路の既存呼び出し元は返り値を無視するだけなので後方互換。
     try {
         const item: any = fileManager.getStructure().items[dragItemId];
-        if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return false; }
         const title = String(item.title || item.filename || 'file');
         const outPath = resolveOutPathRef(fileManager, targetOutId);
-        if (!outPath) { return; }
+        if (!outPath) { return false; }
         const fileAbs = fileManager.getTreeFilePath(dragItemId);
-        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return false; }
         const relPath = path.relative(path.dirname(outPath), fileAbs).replace(/\\/g, '/');
 
         const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
@@ -2547,8 +2799,10 @@ export function treeFileImportIntoOut(
         }
         fileManager.unregisterTreeFileFromStructureOnly(dragItemId);
         sendFileListWithStructure(fileManager, sender);
+        return true;
     } catch (e) {
         console.error('[Notes] treeFileImportIntoOut error:', e);
+        return false;
     }
 }
 
@@ -2561,25 +2815,66 @@ export function treeFileAttachIntoMd(
     sender: NotesSender,
     dragItemId: string,
     targetMdId: string
-): void {
+): boolean {
+    // 🔴 成否を返す（NFR-MSEL-03）: FR-MSEL-04 rev3 の結合 batch から呼ばれた時に失敗を集計へ届けるため。
     try {
         const safeName = ensureSafeTreeFileName(fileManager, dragItemId);
-        if (!safeName) { return; }
+        if (!safeName) { return false; }
         const fileAbs = fileManager.getTreeFilePath(dragItemId);
-        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return false; }
         const mdPath = fileManager.getFilePathById(targetMdId);
-        if (!mdPath || !mdPath.endsWith('.md') || !fs.existsSync(mdPath)) { return; }
+        if (!mdPath || !mdPath.endsWith('.md') || !fs.existsSync(mdPath)) { return false; }
         const item: any = fileManager.getStructure().items[dragItemId];
         const title = String((item && item.title) || safeName);
         const relPath = path.relative(path.dirname(mdPath), fileAbs).replace(/\\/g, '/');
         const link = buildFileLinkMarkdown(title, relPath);
-        const cur = fs.readFileSync(mdPath, 'utf8');
-        const newContent = cur + (cur.endsWith('\n') ? '' : '\n') + link + '\n';
-        writeFileIfChanged(mdPath, newContent);
+        appendLineToMd(mdPath, link);
         fileManager.unregisterTreeFileFromStructureOnly(dragItemId);
         sendFileListWithStructure(fileManager, sender);
+        return true;
     } catch (e) {
         console.error('[Notes] treeFileAttachIntoMd error:', e);
+        return false;
+    }
+}
+
+/** 対象 md の末尾に 1 行を追記する（末尾改行の有無を吸収。FR-TF-04 / FR-MSEL-04 rev3 共通） */
+function appendLineToMd(mdPath: string, line: string): void {
+    const cur = fs.readFileSync(mdPath, 'utf8');
+    writeFileIfChanged(mdPath, cur + (cur.endsWith('\n') ? '' : '\n') + line + '\n');
+}
+
+/**
+ * FR-MSEL-04 rev3（2026-09-04 手動テスト (1)）: tree md item を**ツリー内の md item** にドロップ →
+ * 対象 md 末尾に subpage リンク `[[title]](rel.md)` を追記し、元 md を tree から除去（実体不動 = 所有の移し替え）。
+ *
+ * `linkMdAsSubpageForSidePanelCore` は **開いている editor** に `insertSubpageLink` を post する経路で、
+ * 対象 md が開いていないと届かない。本関数は `treeFileAttachIntoMd`（FR-TF-04）と同じく **disk へ直接追記**する。
+ * 同一 note 内なので随伴転送（cross-note）は起きない（tree item は必ず note 内）。
+ * 自分自身へのリンク（同一ファイル）は false。
+ */
+export function treeMdLinkIntoMd(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    mdItemId: string,
+    targetMdId: string
+): boolean {
+    try {
+        const srcMd = fileManager.getMdFilePath(mdItemId);
+        const dstMd = fileManager.getFilePathById(targetMdId);
+        if (!srcMd || !fs.existsSync(srcMd)) { return false; }
+        if (!dstMd || !dstMd.endsWith('.md') || !fs.existsSync(dstMd)) { return false; }
+        if (path.resolve(srcMd) === path.resolve(dstMd)) { return false; }
+        const content = fs.readFileSync(srcMd, 'utf8');
+        const title = resolveSubpageTitle(content, path.basename(srcMd));
+        const rel = path.relative(path.dirname(dstMd), srcMd).replace(/\\/g, '/');
+        appendLineToMd(dstMd, `[[${title}]](${rel})`);
+        fileManager.unregisterMdFromStructureOnly(mdItemId);
+        sendFileListWithStructure(fileManager, sender);
+        return true;
+    } catch (e) {
+        console.error('[Notes] treeMdLinkIntoMd error:', e);
+        return false;
     }
 }
 
@@ -2638,10 +2933,12 @@ export function linkMdAsSubpageForSidePanelCore(
     filePath: string,
     mdFileId: string | null,
     sidePanelFilePath: string
-): void {
-    if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) { return; }
-    if (!fs.existsSync(filePath)) { return; }
-    if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) { return; }
+): boolean {
+    // 🔴 成否を返す（TASK-38 = NFR-MSEL-03）: batch から呼ばれた時に失敗を集計へ届けるため。
+    // 単一経路の既存呼び出し元は返り値を無視するだけなので後方互換。
+    if (!sidePanelFilePath || !sidePanelFilePath.endsWith('.md')) { return false; }
+    if (!fs.existsSync(filePath)) { return false; }
+    if (path.resolve(filePath) === path.resolve(sidePanelFilePath)) { return false; }
     try {
         const content = fs.readFileSync(filePath, 'utf8');
         // cross 判定は source md の note 基準（FR-ACC-03 — target/source どちらが外でも随伴転送に倒す）
@@ -2663,8 +2960,10 @@ export function linkMdAsSubpageForSidePanelCore(
             fileManager.unregisterMdFromStructureOnly(mdFileId);
             sendFileListWithStructure(fileManager, sender);
         }
+        return true;
     } catch (e) {
         console.error('[Notes] linkMdAsSubpageForSidePanelCore error:', e);
+        return false;
     }
 }
 
@@ -2862,26 +3161,29 @@ export function treeFileAttachToMdEditor(
     sender: NotesSender,
     id: string,
     sidePanelFilePath?: string | null
-): void {
+): boolean {
+    // 🔴 成否を返す（TASK-38 = NFR-MSEL-03）: batch から呼ばれた時に失敗を集計へ届けるため。
     try {
         const safeName = ensureSafeTreeFileName(fileManager, id);
-        if (!safeName) { return; }
+        if (!safeName) { return false; }
         const fileAbs = fileManager.getTreeFilePath(id);
-        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return false; }
         const target = sidePanelFilePath ? sidePanelFilePath : fileManager.getCurrentFilePath();
-        if (!target) { return; }
+        if (!target) { return false; }
         const item: any = fileManager.getStructure().items[id];
         const title = String((item && item.title) || safeName);
         // FR-TF-18: cross-note は dest note へ実体コピー（元実体は温存 = source orphan 契約）
         const markdownPath = resolveAttachTargetPath(fileManager, fileAbs, target);
-        if (markdownPath === null) { return; } // コピー失敗 — 台帳を触らず中断
+        if (markdownPath === null) { return false; } // コピー失敗 — 台帳を触らず中断
         const msg: Record<string, unknown> = { type: 'insertFileLink', markdownPath, fileName: title };
         if (sidePanelFilePath) { msg.sidePanelFilePath = sidePanelFilePath; }
         sender.postMessage(msg);
         fileManager.unregisterTreeFileFromStructureOnly(id);
         sendFileListWithStructure(fileManager, sender);
+        return true;
     } catch (e) {
         console.error('[Notes] treeFileAttachToMdEditor error:', e);
+        return false;
     }
 }
 
@@ -2929,13 +3231,14 @@ export function treeFileImportAtPosition(
     outFileId: string,
     targetNodeId: string | null,
     position: string | null
-): void {
+): boolean {
+    // 🔴 成否を返す（TASK-38 = NFR-MSEL-03）: batch から呼ばれた時に失敗を集計へ届けるため。
     try {
         const item: any = fileManager.getStructure().items[id];
-        if (!item || item.type !== 'file' || item.ext !== 'file') { return; }
+        if (!item || item.type !== 'file' || item.ext !== 'file') { return false; }
         const title = String(item.title || item.filename || 'file');
         const fileAbs = fileManager.getTreeFilePath(id);
-        if (!fileAbs || !fs.existsSync(fileAbs)) { return; }
+        if (!fileAbs || !fs.existsSync(fileAbs)) { return false; }
         const outPath = resolveOutPathRef(fileManager, outFileId);
         const baseDir = outPath ? path.dirname(outPath) : fileManager.getMainFolderPath();
         const relPath = path.relative(baseDir, fileAbs).replace(/\\/g, '/');
@@ -2947,8 +3250,10 @@ export function treeFileImportAtPosition(
         });
         fileManager.unregisterTreeFileFromStructureOnly(id);
         sendFileListWithStructure(fileManager, sender);
+        return true;
     } catch (e) {
         console.error('[Notes] treeFileImportAtPosition error:', e);
+        return false;
     }
 }
 
@@ -2957,6 +3262,32 @@ export function treeFileImportAtPosition(
  * href を source md 基準 clamp → cross-note なら dest note（.out の note = fileManager）の files/ へコピー（§4l）→
  * dropFilesResult 互換 postback（webview 既存処理が node 化）→ 元 md からアンカー除去。元実体温存。
  */
+/**
+ * md 📎 file リンク（href / sourceMdPath）→ この note 内の実体 abs を解決する（FR-TF-20 の共通部）。
+ * source md の files/ 配下に限る（clamp）。cross-note なら dest note の files/ へコピーして dest 側 abs を返す。
+ */
+export function resolveMdFileLinkEntityForNote(
+    fileManager: NotesFileManager,
+    payload: { href: string; sourceMdPath: string }
+): string | null {
+    if (!payload || !payload.href || !payload.sourceMdPath) { return null; }
+    const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
+    let decoded: string;
+    try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+    const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
+    const rel = path.relative(filesDir, abs);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return null; }
+    if (!fs.existsSync(abs)) { return null; }
+    const srcMainFolder = path.dirname(filesDir);
+    // cross-note（drop 先 .out / md の note ≠ src md の note）なら dest note の files/ へコピー
+    if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), '__dest__.md'))) {
+        const dstName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
+        if (!dstName) { return null; }
+        return path.join(fileManager.getMdFilesDirPath(), dstName);
+    }
+    return abs;
+}
+
 export function importMdFileLinkIntoOut(
     fileManager: NotesFileManager,
     sender: NotesSender,
@@ -2966,24 +3297,8 @@ export function importMdFileLinkIntoOut(
     position: string | null
 ): void {
     try {
-        if (!payload || !payload.href || !payload.sourceMdPath) { return; }
-        const filesDir = resolveFilesDirForMd(payload.sourceMdPath);
-        let decoded: string;
-        try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
-        const abs = path.resolve(path.dirname(payload.sourceMdPath), decoded);
-        const rel = path.relative(filesDir, abs);
-        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { return; }
-        if (!fs.existsSync(abs)) { return; }
-        const srcMainFolder = path.dirname(filesDir);
-        let entityAbs = abs;
-        // isCrossNoteDrop の第 2 引数は「dest 側の note 内の任意パス」でよい（比較は note フォルダのみ・
-        // ファイル名は不使用）。drop 先は .out で md パスが無いため mainFolder 直下のダミー名で判定する。
-        if (isCrossNoteDrop(srcMainFolder, path.join(fileManager.getMainFolderPath(), '__dest__.md'))) {
-            // drop 先 .out の note（= fileManager の note）が src md の note と別 → dest files/ へコピー
-            const dstName = NotesFileManager.copyTreeFileEntityTo(abs, fileManager.getMainFolderPath());
-            if (!dstName) { return; }
-            entityAbs = path.join(fileManager.getMdFilesDirPath(), dstName);
-        }
+        const entityAbs = resolveMdFileLinkEntityForNote(fileManager, payload);
+        if (!entityAbs) { return; }
         const outPath = resolveOutPathRef(fileManager, outFileId);
         const baseDir = outPath ? path.dirname(outPath) : fileManager.getMainFolderPath();
         const relPath = path.relative(baseDir, entityAbs).replace(/\\/g, '/');
@@ -3059,6 +3374,167 @@ export function importMdSubpageIntoOut(
  * node」の残留防止 = FR-TF-05b 改訂 2026-08-10）/ 子あり node = filePath null 化のみ（子の喪失防止）。
  * fs 書込は呼び出し側の責務（データ変異のみ — unit 直駆動可能な pure 関数）。
  */
+/**
+ * 2026-09-04（rc.7 手動テスト (3)）: md editor の 📎 file リンク → note tree の `.out` item（**開いていなくてよい**）。
+ * `importMdFileLinkIntoOut` は開いている outliner へ `dropFilesResult` を post する経路なので、ここでは
+ * `.out` JSON に file node を root 先頭へ直接書く（`treeFileImportIntoOut` と同じ契約）。元 md からリンクを除去。
+ */
+export function importMdFileLinkIntoOutFile(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string },
+    outFileId: string
+): boolean {
+    try {
+        const entityAbs = resolveMdFileLinkEntityForNote(fileManager, payload);
+        if (!entityAbs) { return false; }
+        const outPath = resolveOutPathRef(fileManager, outFileId);
+        if (!outPath) { return false; }
+        const relPath = path.relative(path.dirname(outPath), entityAbs).replace(/\\/g, '/');
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        outData.nodes = outData.nodes || {};
+        outData.rootIds = outData.rootIds || [];
+        const newNodeId = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        outData.nodes[newNodeId] = {
+            id: newNodeId, parentId: null, children: [], text: path.basename(entityAbs), tags: [],
+            isPage: false, pageId: null, collapsed: false, checked: null, subtext: '', images: [], filePath: relPath,
+        };
+        outData.rootIds.unshift(newNodeId);
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, 'file');
+        return true;
+    } catch (e) {
+        console.error('[Notes] importMdFileLinkIntoOutFile error:', e);
+        return false;
+    }
+}
+
+/**
+ * 2026-09-04（rc.7 手動テスト (3)）: md editor の subpage / 📎 リンク → note tree の md item（**開いていなくてよい**）。
+ * 対象 md 末尾へリンク行を追記（disk 直書き = FR-TF-04 契約）し、元 md からリンクを除去（移動意味論）。
+ * 自分自身（source === target / リンク先 === target）は no-op。
+ */
+export function linkMdLinkIntoMdItem(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: { href: string; sourceMdPath: string; title?: string },
+    kind: 'subpage' | 'file',
+    targetMdId: string
+): boolean {
+    try {
+        if (!payload || !payload.href || !payload.sourceMdPath) { return false; }
+        const dstMd = fileManager.getFilePathById(targetMdId);
+        if (!dstMd || !dstMd.endsWith('.md') || !fs.existsSync(dstMd)) { return false; }
+        if (path.resolve(dstMd) === path.resolve(payload.sourceMdPath)) { return false; }
+        let line: string;
+        if (kind === 'subpage') {
+            let decoded: string;
+            try { decoded = decodeURIComponent(payload.href); } catch { decoded = payload.href; }
+            const srcMainFolder = path.dirname(resolveFilesDirForMd(payload.sourceMdPath));
+            const abs = safeResolveUnderDir(srcMainFolder, path.relative(srcMainFolder, path.resolve(path.dirname(payload.sourceMdPath), decoded)));
+            if (!abs || !abs.endsWith('.md') || !fs.existsSync(abs)) { return false; }
+            if (path.resolve(abs) === path.resolve(dstMd)) { return false; }
+            let pageAbs = abs;
+            if (isCrossNoteDrop(srcMainFolder, dstMd)) {
+                const r = transferMdWithAssets(abs, transferCoordsForMd(abs, dstMd));
+                pageAbs = path.join(path.dirname(dstMd), r.newName);
+            }
+            const title = resolveSubpageTitle(fs.readFileSync(pageAbs, 'utf8'), path.basename(pageAbs));
+            line = `[[${title}]](${path.relative(path.dirname(dstMd), pageAbs).replace(/\\/g, '/')})`;
+        } else {
+            const entityAbs = resolveMdFileLinkEntityForNote(fileManager, payload);
+            if (!entityAbs) { return false; }
+            line = buildFileLinkMarkdown(path.basename(entityAbs), path.relative(path.dirname(dstMd), entityAbs).replace(/\\/g, '/'));
+        }
+        appendLineToMd(dstMd, line);
+        removeMdAnchorAndEcho(payload.sourceMdPath, payload.href, sender, kind);
+        return true;
+    } catch (e) {
+        console.error('[Notes] linkMdLinkIntoMdItem error:', e);
+        return false;
+    }
+}
+
+/**
+ * 2026-09-04（rc.7 手動テスト (2)）: outliner node（複数可）の添付 → note tree の md item（**開いていなくてよい**）。
+ * page → `[[title]](rel.md)` / file → `[📎 name](rel)` / 直付き画像 → `![](rel)` を対象 md 末尾へ追記し、
+ * node から添付を外す（`treeNodeAssetsRegister` と同じ所有の移し替え。添付ゼロになった子なし node は削除）。
+ * `items` が無く `assets` も空なら node の添付を disk（.out）から集める（page / file アイコンの単一 drag 用）。
+ */
+export function outNodeAssetsAttachToMdItem(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: OutNodeAssetsPayload,
+    targetMdId: string
+): boolean {
+    try {
+        if (!payload || !payload.outFileKey || !payload.nodeId) { return false; }
+        const dstMd = fileManager.getFilePathById(targetMdId);
+        if (!dstMd || !dstMd.endsWith('.md') || !fs.existsSync(dstMd)) { return false; }
+        const outPath = resolveOutPathRef(fileManager, payload.outFileKey);
+        if (!outPath) { return false; }
+        const outDir = path.dirname(outPath);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const mainFolder = fileManager.getMainFolderPath();
+        const hints = { pageDir: outData.pageDir, imageDir: outData.imageDir, fileDir: outData.fileDir };
+        // 直付き画像は転送対象外（R22。node に残す）
+        const collect = (node: any): OutNodeAsset[] => {
+            const out: OutNodeAsset[] = [];
+            if (node.isPage && node.pageId) { out.push({ kind: 'page', pageId: String(node.pageId) }); }
+            if (node.filePath) { out.push({ kind: 'file', filePath: String(node.filePath) }); }
+            return out;
+        };
+        const items: { nodeId: string; assets: OutNodeAsset[] }[] =
+            (Array.isArray(payload.items) && payload.items.length > 0)
+                ? payload.items
+                : [{ nodeId: payload.nodeId, assets: Array.isArray(payload.assets) ? payload.assets : [] }];
+        const lines: string[] = [];
+        let touched = 0;
+        for (const item of items) {
+            const node = outData.nodes && outData.nodes[item.nodeId];
+            if (!node) { continue; }
+            const assets = item.assets && item.assets.length > 0 ? item.assets : collect(node);
+            for (const asset of assets) {
+                if (!asset || !asset.kind) { continue; }
+                if (asset.kind === 'page' && asset.pageId) {
+                    const pagesDir = resolvePagesDir(outPath, mainFolder, hints);
+                    const src = safeResolveUnderDir(pagesDir, `${asset.pageId}.md`);
+                    if (!src || !fs.existsSync(src) || path.resolve(src) === path.resolve(dstMd)) { continue; }
+                    const title = resolveSubpageTitle(fs.readFileSync(src, 'utf8'), path.basename(src));
+                    lines.push(`[[${title}]](${path.relative(path.dirname(dstMd), src).replace(/\\/g, '/')})`);
+                    node.isPage = false; node.pageId = null; touched++;
+                    continue;
+                }
+                if (asset.kind === 'file' && asset.filePath) {
+                    const abs = safeResolveUnderDir(outDir, asset.filePath);
+                    if (!abs || !fs.existsSync(abs)) { continue; }
+                    lines.push(buildFileLinkMarkdown(String(node.text || path.basename(abs)), path.relative(path.dirname(dstMd), abs).replace(/\\/g, '/')));
+                    node.filePath = null; touched++;
+                    continue;
+                }
+                // image は対象外（R22）— 旧 payload が届いても無視
+
+            }
+            detachOutNodeAssetsOwnership(outData, item.nodeId);
+        }
+        if (touched === 0) { return false; }
+        appendLineToMd(dstMd, lines.join('\n'));
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        return true;
+    } catch (e) {
+        console.error('[Notes] outNodeAssetsAttachToMdItem error:', e);
+        return false;
+    }
+}
+
 export function detachOutNodeFileOwnership(
     outData: { rootIds?: string[]; nodes: Record<string, { parentId?: string | null; children?: string[]; filePath?: string | null } | undefined> },
     nodeId: string
@@ -3133,6 +3609,160 @@ export function treeFileRegisterFromOutNode(
     }
 }
 
+/** FR-NDA-01: node が持つ添付 1 件。kind ごとに独立（他 kind の有無に依存しない）。 */
+export type OutNodeAsset =
+    | { kind: 'page'; pageId: string }
+    | { kind: 'file'; filePath: string }
+    | { kind: 'image'; src: string };
+
+/**
+ * outliner バレット drag の添付 payload（`application/x-fractal-out-node-assets`）。
+ * `nodeId` / `assets` = drag した node（後方互換）。`items` = 複数選択時の**選択集合全体**（表示順・2026-09-04）。
+ * items があれば host はそれを正とし、無ければ `{ nodeId, assets }` 1 件として扱う。
+ */
+export interface OutNodeAssetsPayload {
+    v?: number;
+    outFileKey: string;
+    nodeId: string;
+    assets: OutNodeAsset[];
+    items?: { nodeId: string; assets: OutNodeAsset[] }[];
+}
+
+/**
+ * FR-NDA-01/03 (§2-2 / §2-5): node の添付集合をまとめてツリーへ移し替える。
+ *
+ * 分岐は **「その属性を持つこと」だけ**で書く（`!hasMd && !hasFile` 型を書かない = ADRL-0107）。
+ * kind ごとの precedent:
+ *   - `page`  → `notesImportOutPageNodeAsMd`（notesEditorProvider.ts:2651）と同型
+ *   - `file`  → `treeFileRegisterFromOutNode`（:3087）と同型
+ *   - `image` → **`files/` へ複製**してから `rawInsertTreeFileEntry`（§2-5 分岐 B）。
+ *     tree file item は `resolveTreeFileEntity` が必ず `files/` 配下へ clamp するため
+ *     `images/` を指す item は構造的に作れない。**`images/` の元実体は削除しない**
+ *     （note の他の md が同じ画像を参照している可能性がある = データロス経路を作らない）。
+ *
+ * node 自体の後処理は全 kind 共通で `detachOutNodeAssetsOwnership`。
+ */
+export function treeNodeAssetsRegister(
+    fileManager: NotesFileManager,
+    sender: NotesSender,
+    payload: OutNodeAssetsPayload,
+    parentId: string | null,
+    index: number
+): void {
+    try {
+        if (!payload || !payload.outFileKey || !payload.nodeId) { return; }
+        // 2026-09-04: 複数選択（items）は選択集合の各 node を順に処理する。無ければ従来の 1 node
+        const items: { nodeId: string; assets: OutNodeAsset[] }[] =
+            (Array.isArray(payload.items) && payload.items.length > 0)
+                ? payload.items.filter((it) => it && it.nodeId && Array.isArray(it.assets) && it.assets.length > 0)
+                : (Array.isArray(payload.assets) && payload.assets.length > 0 ? [{ nodeId: payload.nodeId, assets: payload.assets }] : []);
+        if (items.length === 0) { return; }
+        const outPath = resolveOutPathRef(fileManager, payload.outFileKey);
+        if (!outPath) { return; }
+        const outDir = path.dirname(outPath);
+        const outData = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+
+        const mainFolder = fileManager.getMainFolderPath();
+        const hints = { pageDir: outData.pageDir, imageDir: outData.imageDir, fileDir: outData.fileDir };
+        const filesDir = fileManager.getMdFilesDirPath();
+        let cursor = index;
+        let touched = 0;
+
+        for (const item of items) {
+        const node = outData.nodes && outData.nodes[item.nodeId];
+        if (!node) { continue; }
+        touched += 1;
+
+        for (const asset of item.assets) {
+            if (!asset || !asset.kind) { continue; }
+
+            // ── page 添付 → md item（notesImportOutPageNodeAsMd と同型） ──
+            if (asset.kind === 'page' && asset.pageId) {
+                const pagesDir = resolvePagesDir(outPath, mainFolder, hints);
+                const srcMd = safeResolveUnderDir(pagesDir, `${asset.pageId}.md`);
+                if (!srcMd || !fs.existsSync(srcMd)) { continue; }
+                const content = fs.readFileSync(srcMd, 'utf8');
+                const title = extractFirstH1(content) || String(node.text || '').trim() || 'Untitled';
+                const isFlatInNote = path.resolve(path.dirname(srcMd)) === path.resolve(mainFolder);
+                if (isFlatInNote) {
+                    fileManager.registerExistingMdFile(asset.pageId, title, parentId, cursor);
+                } else {
+                    fileManager.registerMarkdownFile(content, title, parentId, cursor);
+                }
+                node.isPage = false;
+                node.pageId = null;
+                cursor += 1;
+                continue;
+            }
+
+            // ── file 添付 → file item（treeFileRegisterFromOutNode と同型） ──
+            if (asset.kind === 'file' && asset.filePath) {
+                const abs = safeResolveUnderDir(outDir, asset.filePath);
+                if (!abs || !fs.existsSync(abs)) { continue; }
+                const relToFiles = path.relative(filesDir, abs);
+                const underFiles = !!relToFiles && !relToFiles.startsWith('..') && !path.isAbsolute(relToFiles);
+                let filename: string;
+                if (underFiles) {
+                    filename = path.basename(abs);
+                } else {
+                    try { fs.mkdirSync(filesDir, { recursive: true }); } catch { /* ignore */ }
+                    const sanitized = NotesFileManager.sanitizeTreeFileName(path.basename(abs));
+                    filename = generateUniqueFileNamePreserving(filesDir, sanitized);
+                    fs.copyFileSync(abs, path.join(filesDir, filename));
+                }
+                rawInsertTreeFileEntry(fileManager, filename, String(node.text || filename), parentId, cursor);
+                node.filePath = null;
+                cursor += 1;
+                continue;
+            }
+
+            // ── 直付き画像 → files/ へ複製して file item（§2-5 分岐 B） ──
+            // 2026-09-04（ユーザー裁定 R22）: 直付き画像は tree へ移さない（node に残す）。旧 payload（v1 の image asset）が
+            // 届いても無視する。旧 §2-5「files/ へ複製」は note 内移動で実体が 2 つになる唯一の経路だったため撤回。
+            if (asset.kind === 'image') { continue; }
+        }
+        detachOutNodeAssetsOwnership(outData, item.nodeId);
+        }   // for items
+
+        if (touched === 0) { return; }
+        // .out の保存・UI 反映・ツリー再描画は**全 node 処理後に 1 回**（N 回の updateData / 通知を作らない）
+        fs.writeFileSync(outPath, JSON.stringify(outData, null, 2), 'utf8');
+        if (fileManager.getCurrentFilePath() === outPath) {
+            fileManager.openFile(outPath);
+            sender.postMessage({ type: 'updateData', kind: 'out', data: outData, fileChangeId: fileManager.getFileChangeId(), outFileKey: outPath });
+        }
+        sendFileListWithStructure(fileManager, sender);
+    } catch (e) {
+        console.error('[Notes] treeNodeAssetsRegister error:', e);
+    }
+}
+
+/**
+ * FR-NDA-01 (§2-2 末尾): 全添付を失った node の後始末。
+ * 子なし → node ごと削除 / 子あり → text だけ残して温存（`detachOutNodeFileOwnership` と同一規約）。
+ * **添付がまだ残っているなら何もしない**（部分的に失敗した asset を silent に捨てない）。
+ */
+export function detachOutNodeAssetsOwnership(
+    outData: { rootIds?: string[]; nodes: Record<string, { parentId?: string | null; children?: string[]; filePath?: string | null; isPage?: boolean; pageId?: string | null; images?: string[] } | undefined> },
+    nodeId: string
+): void {
+    const node = outData.nodes ? outData.nodes[nodeId] : undefined;
+    if (!node) { return; }
+    const stillHasAsset = !!(node.isPage && node.pageId) || !!node.filePath
+        || (Array.isArray(node.images) && node.images.length > 0);
+    if (stillHasAsset) { return; }
+    if (!node.children || node.children.length === 0) {
+        delete outData.nodes[nodeId];
+        if (Array.isArray(outData.rootIds)) {
+            outData.rootIds = outData.rootIds.filter((id: string) => id !== nodeId);
+        }
+        const parentNode = node.parentId ? outData.nodes[node.parentId] : null;
+        if (parentNode && Array.isArray(parentNode.children)) {
+            parentNode.children = parentNode.children.filter((id: string) => id !== nodeId);
+        }
+    }
+}
+
 /**
  * FR-TF-06b (§4g): md editor 内の 📎 file リンクをツリーへ D&D。
  * href を resolveFilesDirForMd(sourceMdPath) 基準で clamp（traversal は登録も removeFileLink もせず中断）→
@@ -3177,6 +3807,15 @@ export interface FolderMoveDeps {
     deleteFile?(absPath: string, recursive: boolean): Promise<void>;
     /** 画像 insert 用の表示 URI（asWebviewUri） */
     toDisplayUri(absPath: string): string;
+    // ── FR-MSEL-02/04 / NFR-MSEL-02/03 (§4-3b / §4-4): 複数選択 D&D の batch 実行 ──
+    // 🔴 optional にしているのは既存の単一経路の呼び出しを壊さないため。**batch 経路では必須**
+    //（未注入なら `runBatchTransfer` の既定に落ちず ゲートを迂回するので、batch 関数の冒頭で検査する）
+    /** 201〜2000 件の確認 modal（false = 取り込まない） */
+    confirmLarge?(totalCount: number): Promise<boolean> | boolean;
+    /** 2000 件超の上限通知（1 回だけ） */
+    notifyLimitExceeded?(error: 'too_many' | 'too_deep'): void;
+    /** 集計通知（**1 回だけ**。全成功なら呼ばれない） */
+    notifyOutcome?(outcome: BatchOutcome): void;
 }
 
 const FOLDER_VIEW_IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp)$/i;
@@ -3260,10 +3899,266 @@ async function cleanupFvMoveSource(
     }
 }
 
+// ── FR-MSEL: 複数選択 D&D の batch 基盤（§4-1 / §4-3b / §4-4） ──
+
+/** FR-MSEL-02 (§4-1): batch payload。旧形式（単一オブジェクト）も 1 件として読む。 */
+export interface BatchPayload<T> {
+    v?: number;
+    items?: T[];
+}
+
 /**
- * FR-FLV-20 (#14): フォルダビュー → Note ツリー移動。
- * .md = registerMarkdownFile / 他 = registerTreeFile（sanitize+uniquify 合流）→ 登録成功後に元実体 trash。
+ * FR-MSEL-02 / NFR-NDA-03 (§4-1): batch payload を後方互換で読む。
+ *
+ * `{ v:1, items:[…] }`（新）と `{ id:'abc' }`（旧・単一）の両方を受ける。
+ * これにより**既存の単一 drop の TC が無変更で green のまま**になる（破壊半径の最小化）。
+ *
+ * ⚠️ 呼び出し側は `getData` + `JSON.parse` を **`await` の前に同期で終える**こと
+ * （drag data store が read-only mode を失い getData が空になる — NFR-NDA-03）。
  */
+export function readBatchItems<T>(parsed: BatchPayload<T> | T | null | undefined): T[] {
+    if (!parsed) { return []; }
+    const p = parsed as BatchPayload<T>;
+    if (Array.isArray(p.items)) { return p.items.filter((x) => !!x); }
+    return [parsed as T];
+}
+
+/** FR-MSEL-04 / NFR-MSEL-03 (§4-4): batch 実行の集計結果（通知は 1 回だけ）。 */
+export interface BatchOutcome {
+    succeeded: number;
+    failed: number;
+    skipped: number;
+    /** skip / fail の理由ごとの件数（通知文の材料）。 */
+    reasons: Record<string, number>;
+}
+
+/**
+ * FR-MSEL-04 / NFR-MSEL-02 / NFR-MSEL-03 (§4-3b / §4-4): batch を **アイテム毎独立**に実行する。
+ *
+ * - 件数ゲート（`checkBatchLimit`）を**実行前**に通す。`'abort'` / `'cancel'` は **0 件処理**
+ * - 1 件の失敗は他に波及しない（**rollback なし**）。`transferOne` 内の全成功ゲート
+ *   （FR-ACD-01 の md 1 本単位）は**そのまま維持**する
+ * - 通知は最後に **1 回だけ**（`notifyOutcome`）
+ *
+ * 🔴 **禁止パターンを実装していない**（generator_failures 2026-08-22）:
+ * ```
+ * let allOk = true;
+ * for (…) { if (!copy(item)) allOk = false; }
+ * for (…) { if (allOk) del(item); }    // ← #2 の copy 失敗で #2 が消える
+ * ```
+ * 本実装は copy と delete を **同じ 1 件のイテレーション内**で完結させるので、
+ * ある item の失敗が別の item の source を消すことは構造的に起こらない。
+ */
+export async function runBatchTransfer<T>(
+    items: T[],
+    transferOne: (item: T) => Promise<{ ok: boolean; reason?: string }>,
+    deps: {
+        confirmLarge(totalCount: number): Promise<boolean> | boolean;
+        notifyLimitExceeded(error: 'too_many' | 'too_deep'): void;
+        /** 集計通知（**1 回だけ**呼ばれる。succeeded === items.length なら呼ばない実装でもよい） */
+        notifyOutcome(outcome: BatchOutcome): void;
+        limits?: { maxFiles?: number; confirmThreshold?: number };
+    }
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    const outcome: BatchOutcome = { succeeded: 0, failed: 0, skipped: 0, reasons: {} };
+    if (items.length === 0) { return { verdict: 'ok', outcome }; }
+
+    const verdict = await checkBatchLimit(items.length, deps);
+    // 'abort' / 'cancel' = **1 件も処理しない**（部分実行しない = FR-MSEL-04 の受け入れ条件）
+    if (verdict !== 'ok') { return { verdict, outcome }; }
+
+    for (const item of items) {
+        try {
+            const r = await transferOne(item);
+            if (r.ok) {
+                outcome.succeeded += 1;
+            } else {
+                outcome.skipped += 1;
+                const key = r.reason || 'unknown';
+                outcome.reasons[key] = (outcome.reasons[key] || 0) + 1;
+            }
+        } catch (e) {
+            outcome.failed += 1;
+            const key = e instanceof Error ? e.message : 'error';
+            outcome.reasons[key] = (outcome.reasons[key] || 0) + 1;
+            console.warn('[Notes] batch transfer item failed:', e);
+        }
+    }
+    // NFR-MSEL-03: 通知は 1 回だけ（アイテム毎に通知を出さない）
+    if (outcome.failed > 0 || outcome.skipped > 0) { deps.notifyOutcome(outcome); }
+    return { verdict, outcome };
+}
+
+/**
+ * FR-DCP-01/02/03 (§1-2 / ADRL-0106): 面間転送の source 側後処理を**唯一の分岐点**に集める。
+ *
+ * `mode` は**呼び出し面のリテラルで固定**する（設定・引数で可変にしない）。可変にすると
+ * どの方向が複製かが実行時にしか分からず、番人 TC が意味論を pin できなくなる。
+ *
+ * - `'duplicate'` … 何もしない（fv⇄note ツリーの 2 方向。両面に実体が残る）
+ * - `'move'`      … 複製成功後に source を trash（fv 内 / fv⇄sidepanel md。ADRL-0102 / FR-DCP-03）
+ *
+ * @returns `removed` = source 側から取り除いた実体の件数（0 = 複製）
+ */
+async function finalizeSourceSide(
+    mode: 'duplicate' | 'move',
+    ctx: {
+        deps: FolderMoveDeps;
+        /** fv 側 source（fv→tree / fv 内 / fv→md）。md なら随伴資産も対象 */
+        fvSource?: { root: string; srcAbs: string; mdReport: MdPasteAssetReport | null };
+        /** note 側 source（tree→fv）。台帳除去 + 実体 trash */
+        noteSource?: { fileManager: NotesFileManager; srcItemId: string; srcKind: string; srcAbs: string };
+    }
+): Promise<{ removed: number }> {
+    if (mode === 'duplicate') { return { removed: 0 }; }   // ← 唯一の分岐点
+
+    let removed = 0;
+    if (ctx.fvSource) {
+        if (ctx.fvSource.mdReport) {
+            // FR-ACD-01: md 本体 + 随伴資産の削除フェーズ
+            await cleanupFvMoveSource(ctx.deps, ctx.fvSource.root, ctx.fvSource.srcAbs, ctx.fvSource.mdReport);
+        } else {
+            await trashSourceBestEffort(ctx.deps, ctx.fvSource.srcAbs);   // 非 md = 本体のみ
+        }
+        removed += 1;
+    }
+    if (ctx.noteSource) {
+        const { fileManager, srcItemId, srcKind, srcAbs } = ctx.noteSource;
+        if (srcKind === 'md') {
+            fileManager.unregisterMdFromStructureOnly(srcItemId);
+        } else {
+            fileManager.unregisterTreeFileFromStructureOnly(srcItemId);
+        }
+        await trashSourceBestEffort(ctx.deps, srcAbs);
+        removed += 1;
+    }
+    return { removed };
+}
+
+/**
+ * FR-FLV-20 (#14) / FR-DCP-01 (ADRL-0106): フォルダビュー → Note ツリーへの**複製**。
+ * .md = registerMarkdownFile / 他 = registerTreeFile（sanitize+uniquify 合流）。
+ * linkedfd 側の実体・随伴資産はそのまま残る（`finalizeSourceSide('duplicate')`）。
+ */
+/**
+ * FR-MSEL-02 / NFR-MSEL-02/03 (§4-3b / §4-4): **linkedfd 複数選択 → note ツリー**の batch 実行。
+ *
+ * 🔴 **webview は 1 回だけこれを呼ぶ**（N 回ループしない）。件数ゲートは host 側にしか置けないので
+ * webview が N 回呼ぶ形だとゲートを構造的に迂回する（reviewer iteration 1 SEC-1 の実害）。
+ *
+ * 1 件の意味論は既存 `folderViewMoveToTree` と**完全に同一**（複製 = FR-DCP-01）。
+ * batch は「上限ゲート → アイテム毎独立実行 → 集計通知 1 回」だけを足す。
+ */
+export async function folderViewMoveToTreeBatch(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    items: { folderLinkId?: string; relPath: string }[],
+    parentId: string | null,
+    index: number,
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    const list = Array.isArray(items) ? items.filter((x) => x && x.relPath !== undefined) : [];
+    let cursor = index;
+    return runBatchTransfer(list, async (item) => {
+        const lid = item.folderLinkId || folderLinkId;
+        // ★ 1 件の処理は既存の単一経路をそのまま呼ぶ（意味論を二重実装しない）
+        const ok = await folderViewMoveToTree(fileManager, lid, item.relPath, parentId, cursor, deps, sender);
+        if (ok) { cursor += 1; }
+        return { ok, reason: ok ? undefined : 'transfer_failed' };
+    }, batchDepsOf(deps));
+}
+
+/**
+ * FR-MSEL-04 / NFR-MSEL-02/03 (§4-3b / §4-4): **note ツリー複数選択 → linkedfd**の batch 実行。
+ * 1 件の意味論は既存 `folderViewMoveIn` と同一（複製 = FR-DCP-02）。
+ */
+export async function folderViewMoveInBatch(
+    fileManager: NotesFileManager,
+    folderLinkId: string,
+    dstDirRelPath: string,
+    items: { srcKind: string; srcItemId: string }[],
+    deps: FolderMoveDeps,
+    sender: NotesSender
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    const list = Array.isArray(items) ? items.filter((x) => x && x.srcItemId) : [];
+    return runBatchTransfer(list, async (item) => {
+        const ok = await folderViewMoveIn(fileManager, folderLinkId, dstDirRelPath, item.srcKind, item.srcItemId, deps, sender);
+        return { ok, reason: ok ? undefined : 'transfer_failed' };
+    }, batchDepsOf(deps));
+}
+
+/**
+ * §4-3b: `FolderMoveDeps` から batch 用 deps を取り出す。
+ *
+ * 🔴 未注入なら**そのまま throw させず、安全側（= 上限で中断）に倒す**:
+ * `confirmLarge` が無いと 201 件超が無確認で走ってしまうため、`false` を返す実装で埋める
+ * （= キャンセル扱い = 0 件処理）。`notifyLimitExceeded` / `notifyOutcome` は no-op で埋める。
+ * provider 側は 3 つとも注入するので、この既定に落ちるのは配線漏れのサイン。
+ */
+/**
+ * FR-MSEL-04 / NFR-MSEL-02/03 (§4-3b / §4-4 / TASK-35): **note tree → outliner / md** の batch 実行。
+ *
+ * 🔴 TASK-29 は fv⇄tree の 2 方向しか直さず、FR-MSEL-04 が定義する残り 2 面
+ * （outliner / md）は N 回ループのままだった（reviewer iteration 2 SEC-3）。
+ * この runner を通すことで **3 面すべて**が同じ「上限ゲート → アイテム毎独立 → 集計通知 1 回」に揃う。
+ *
+ * `transferOne` には**既存の単一経路の platform 呼び出しをそのまま**渡す（意味論を二重実装しない）。
+ *
+ * 🔴 **`transferOne` は成否（`boolean`）を返さなければ集計が成立しない**
+ * （reviewer iteration 3 QUAL3-1 / SEC-5 = TASK-38）。委譲先が `void` 返し + 内部 try/catch で
+ * 失敗を握り潰す実装だと、ここで例外を観測できず常に成功扱いになり `outcome.failed` が
+ * 恒久的に 0 になる → 通知条件（`runBatchTransfer` の `failed > 0 || skipped > 0`）が
+ * 構造的に真にならず **NFR-MSEL-03 の集計通知が 1 度も発火しない**。
+ * `false` を返した item は失敗として数える（`undefined` = 旧 void 契約は成功扱い = 後方互換）。
+ *
+ * ⚠️ outliner 宛ての `notesImportMdIntoOut` は 1 回ごとに `.out` 全体を read → parse → write するため
+ * N 件で **O(N²) の I/O** になる。上限ゲートはここで特に重要。
+ */
+/** §4-2 rev2（TASK-45）: webview 由来の結合 batch items を検証・正規化する（kind は md/file のみ・id 必須）。 */
+export function normalizeTreeBatchItems(raw: unknown): TreeBatchItem[] {
+    if (!Array.isArray(raw)) { return []; }
+    const out: TreeBatchItem[] = [];
+    for (const x of raw as Array<Record<string, unknown>>) {
+        if (!x || (x.kind !== 'md' && x.kind !== 'file') || !x.id) { continue; }
+        out.push({ kind: x.kind, id: String(x.id), filePath: typeof x.filePath === 'string' ? x.filePath : null });
+    }
+    return out;
+}
+
+export async function runPlatformBatch<T>(
+    items: T[],
+    transferOne: (item: T) => Promise<void | boolean> | void | boolean,
+    deps: {
+        confirmLarge?(totalCount: number): Promise<boolean> | boolean;
+        notifyLimitExceeded?(error: 'too_many' | 'too_deep'): void;
+        notifyOutcome?(outcome: BatchOutcome): void;
+    }
+): Promise<{ verdict: BatchLimitVerdict; outcome: BatchOutcome }> {
+    return runBatchTransfer(items, async (item) => {
+        const r = await transferOne(item);
+        // 委譲先が明示的に false を返したら失敗として集計する（throw しない握り潰し型への対応）
+        return r === false ? { ok: false, reason: 'transfer_failed' } : { ok: true };
+    }, {
+        // 未注入なら安全側（= 上限で中断）に倒す（batchDepsOf と同じ方針）
+        confirmLarge: (n: number) => (typeof deps.confirmLarge === 'function' ? deps.confirmLarge(n) : false),
+        notifyLimitExceeded: (e) => { deps.notifyLimitExceeded?.(e); },
+        notifyOutcome: (o) => { deps.notifyOutcome?.(o); },
+    });
+}
+
+function batchDepsOf(deps: FolderMoveDeps): {
+    confirmLarge(totalCount: number): Promise<boolean> | boolean;
+    notifyLimitExceeded(error: 'too_many' | 'too_deep'): void;
+    notifyOutcome(outcome: BatchOutcome): void;
+} {
+    return {
+        confirmLarge: (n: number) => (typeof deps.confirmLarge === 'function' ? deps.confirmLarge(n) : false),
+        notifyLimitExceeded: (e) => { deps.notifyLimitExceeded?.(e); },
+        notifyOutcome: (o) => { deps.notifyOutcome?.(o); },
+    };
+}
+
 export async function folderViewMoveToTree(
     fileManager: NotesFileManager,
     folderLinkId: string,
@@ -3304,11 +4199,8 @@ export async function folderViewMoveToTree(
         notifyOperationFailed(deps, e);
         return false; // 登録失敗 → 元不変（INV-5）
     }
-    if (mdMoveReport) {
-        await cleanupFvMoveSource(deps, root, srcAbs, mdMoveReport); // FR-ACD-01: md + 随伴資産の削除フェーズ
-    } else {
-        await trashSourceBestEffort(deps, srcAbs); // file（非 md）= 従来どおり本体のみ trash
-    }
+    // FR-DCP-01: linkedfd 側は残す（'duplicate'）。分岐は finalizeSourceSide の 1 箇所だけ
+    await finalizeSourceSide('duplicate', { deps, fvSource: { root, srcAbs, mdReport: mdMoveReport } });
     sendFileListWithStructure(fileManager, sender);
     const parentRel = parentRelOf(relPath);
     sendFolderViewList(fileManager, folderLinkId, parentRel, sender);
@@ -3316,8 +4208,9 @@ export async function folderViewMoveToTree(
 }
 
 /**
- * FR-FLV-21 (#13): Note ツリー item → フォルダビュー移動。
- * note 実体を dst へ複製（uniquify）→ 成功後に台帳除去 + note 側実体 trash。失敗時は note 側不変。
+ * FR-FLV-21 (#13) / FR-DCP-02 (ADRL-0106): Note ツリー item → フォルダビューへの**複製**。
+ * note 実体を dst へ複製（uniquify）。note 側の台帳 item と実体はそのまま残る
+ * （`finalizeSourceSide('duplicate')`）。複製が失敗したら note 側は完全に不変（INV-5）。
  */
 export async function folderViewMoveIn(
     fileManager: NotesFileManager,
@@ -3373,13 +4266,8 @@ export async function folderViewMoveIn(
         deps.showErrorMessage(deps.t('folderViewOperationFailed') || 'Move failed.');
         return false; // 複製失敗 → note 側不変（INV-5）
     }
-    // 複製成功 → 台帳除去 + note 側実体 trash
-    if (srcKind === 'md') {
-        fileManager.unregisterMdFromStructureOnly(srcItemId);
-    } else {
-        fileManager.unregisterTreeFileFromStructureOnly(srcItemId);
-    }
-    await trashSourceBestEffort(deps, srcAbs);
+    // FR-DCP-02: note 側は台帳 item も実体も残す（'duplicate'）
+    await finalizeSourceSide('duplicate', { deps, noteSource: { fileManager, srcItemId, srcKind, srcAbs } });
     sendFileListWithStructure(fileManager, sender);
     sendFolderViewList(fileManager, folderLinkId, dstDirRelPath, sender);
     return true;
@@ -3397,8 +4285,13 @@ export async function folderViewMoveIntoMd(
     relPath: string,
     targetMdPath: string,
     deps: FolderMoveDeps,
-    sender: NotesSender
+    sender: NotesSender,
+    opts?: { writeToDisk?: boolean }   // 2026-09-05 R24: 対象 md が開いていない（tree の md 行）→ editor へ post せず末尾へ追記
 ): Promise<boolean> {
+    const emit = (line: string, msg: Record<string, unknown>): void => {
+        if (opts && opts.writeToDisk) { appendLineToMd(targetMdPath, line); }
+        else { sender.postMessage(msg); }
+    };
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) {
         deps.showErrorMessage(deps.t('folderLinkBroken') || 'Linked folder not found. Re-link it first.');
@@ -3434,7 +4327,8 @@ export async function folderViewMoveIntoMd(
                 return false; // 配置失敗 → 元実体・md 本文とも不変（INV-3/INV-5）
             }
             await cleanupFvMoveSource(deps, root, srcAbs, noteReport); // FR-ACD-01
-            sender.postMessage({ type: 'insertSubpageLink', markdownPath: newName, title: resolveSubpageTitle(content, newName), sidePanelFilePath: targetMdPath });
+            const spTitle = resolveSubpageTitle(content, newName);
+            emit(`[[${spTitle}]](${newName})`, { type: 'insertSubpageLink', markdownPath: newName, title: spTitle, sidePanelFilePath: targetMdPath });
         } else {
             // linked-folder md 宛て（folderRoot 内で完結）: 従来どおり（同一 dir なら移動なし・相対リンク）
             let dstAbs = srcAbs;
@@ -3461,7 +4355,7 @@ export async function folderViewMoveIntoMd(
             try { title = extractFirstH1(fs.readFileSync(dstAbs, 'utf8')) || ''; } catch { /* fallback */ }
             if (!title) { title = path.basename(dstAbs).replace(/\.md$/i, ''); }
             const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
-            sender.postMessage({ type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath: targetMdPath });
+            emit(`[[${title}]](${markdownPath})`, { type: 'insertSubpageLink', markdownPath, title, sidePanelFilePath: targetMdPath });
         }
     } else if (FOLDER_VIEW_IMAGE_EXT.test(base)) {
         // 画像 → 対象 md の保存先 images/（正典 resolver — note md = 共有 / 外 md = 隣）
@@ -3474,7 +4368,7 @@ export async function folderViewMoveIntoMd(
         }
         await trashSourceBestEffort(deps, srcAbs);
         const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
-        sender.postMessage({
+        emit(`![](${markdownPath})`, {
             type: 'insertImageHtml',
             markdownPath,
             displayUri: deps.toDisplayUri(dstAbs),
@@ -3491,7 +4385,7 @@ export async function folderViewMoveIntoMd(
         }
         await trashSourceBestEffort(deps, srcAbs);
         const markdownPath = path.relative(targetDir, dstAbs).replace(/\\/g, '/');
-        sender.postMessage({
+        emit(buildFileLinkMarkdown(path.basename(dstAbs), markdownPath), {
             type: 'insertFileLink',
             markdownPath,
             fileName: path.basename(dstAbs),
@@ -3814,7 +4708,7 @@ function readFolderEntriesAt(absDir: string, parentRel: string, showHidden?: boo
 }
 
 /** 操作後のリフレッシュ用: 対象 dir の list 結果を送る（clamp 失敗・読めない場合は送らない）。 */
-function sendFolderViewList(fileManager: NotesFileManager, folderLinkId: string, relPath: string, sender: NotesSender): void {
+export function sendFolderViewList(fileManager: NotesFileManager, folderLinkId: string, relPath: string, sender: NotesSender): void {
     const root = fileManager.resolveFolderRoot(folderLinkId);
     if (!root) { return; }
     const absDir = safeResolveUnderFolderRoot(root, relPath);
@@ -4278,6 +5172,176 @@ export function registerExternalDroppedFileItem(
  * - その他 → registerTreeFile（sanitize §4y + uniquify §4z は registerTreeFile 内蔵に合流）
  * - 挿入は uri 列挙順に index 連番（skip は index を消費しない）・postback は登録 ≥1 件で 1 回
  */
+/**
+ * 2026-09-05 裁定 R37（reviewer iteration 8 / SEC-9）: 登録前の**上限プリフライト**。
+ * `registerFolderIntoTree` の再帰は `fs.statSync`（= symlink 追従）で降りるため、
+ * **祖先を指す symlink** を含むフォルダで無限再帰になり得た。また件数上限が無いため、
+ * 数万ファイルのフォルダ 1 個の drop で extension host が同期 read/write で固まり得た。
+ * ここで **register walk と同じ意味論（statSync 追従・dotfile 除外）**で先に数え、
+ * `'too_many'`（ファイル > maxFiles）/ `'too_deep'`（深さ > maxDepth）なら**1 件も作らずに中断**する
+ * （NFR-MSEL-02 / NFR-OIF-03 の「列挙段階で中断 = コピー 0」と同じ契約）。symlink 循環は
+ * 深さが単調増加するので必ず `'too_deep'` で有限停止する。
+ *
+ * `walkFolderForImport`（outliner 側）は `withFileTypes` で symlink を**除外**するため、
+ * あちらの結果でこちらの walk を縛ることはできない（意味論が違う = 別実装が必要な理由）。
+ */
+export function checkFolderRegisterLimits(
+    dirAbs: string,
+    limits?: { maxFiles?: number; maxDepth?: number }
+): 'ok' | 'too_many' | 'too_deep' {
+    const maxFiles = limits?.maxFiles ?? FOLDER_IMPORT_MAX_FILES;
+    const maxDepth = limits?.maxDepth ?? FOLDER_IMPORT_MAX_DEPTH;
+    let files = 0;
+    const walk = (abs: string, depth: number): 'ok' | 'too_many' | 'too_deep' => {
+        if (depth > maxDepth) { return 'too_deep'; }
+        let names: string[] = [];
+        try { names = fs.readdirSync(abs).filter((n) => !n.startsWith('.')).sort(); } catch { return 'ok'; }
+        for (const n of names) {
+            const child = path.join(abs, n);
+            let s: fs.Stats;
+            try { s = fs.statSync(child); } catch { continue; }
+            if (s.isDirectory()) {
+                const r = walk(child, depth + 1);
+                if (r !== 'ok') { return r; }
+            } else if (s.isFile()) {
+                files++;
+                if (files > maxFiles) { return 'too_many'; }
+            }
+        }
+        return 'ok';
+    };
+    return walk(dirAbs, 1);
+}
+
+/**
+ * 2026-09-05 R27: 外部フォルダ → note tree。tree に**フォルダ item**を作り、中身を md item（内容コピー）/ file item（実体コピー）として
+ * 再帰登録する（サブフォルダは tree フォルダ）。dotfile は除外。戻り値 = 登録した item 数（フォルダ含む・0 = 何も作らず）。
+ * `createFolder(title, parentId, afterId)` は afterId 無しで先頭 unshift するため、index 位置に置くには前兄弟を afterId に渡す。
+ *
+ * 裁定 R37: 呼び出し（トップレベル）で `checkFolderRegisterLimits` を通し、上限超過なら **0 件で中断**して
+ * `out.limit` に理由を立てる（呼び出し側が通知 1 回）。プリフライト後も内側に深さ上限を残すのは
+ * TOCTOU（プリフライトと登録の間に symlink が張られる）に対する二重防御。
+ */
+export function registerFolderIntoTree(
+    fileManager: NotesFileManager,
+    dirAbs: string,
+    parentId: string | null,
+    index: number,
+    out?: FolderRegisterOutcome
+): number {
+    const verdict = checkFolderRegisterLimits(dirAbs);
+    if (verdict !== 'ok') {
+        if (out) { out.limit = verdict; }
+        console.warn('[Notes] registerFolderIntoTree aborted (%s): %s', verdict, dirAbs);
+        return 0;
+    }
+    return registerFolderIntoTreeAt(fileManager, dirAbs, parentId, index, 1, out);
+}
+
+/** 裁定 R37: 上限超過の理由チャネル（i18n key は Import folder と共用 = `importFolderTooMany`） */
+export type FolderRegisterOutcome = { limit?: 'too_many' | 'too_deep' };
+
+function registerFolderIntoTreeAt(
+    fileManager: NotesFileManager,
+    dirAbs: string,
+    parentId: string | null,
+    index: number,
+    depth: number,
+    out?: FolderRegisterOutcome
+): number {
+    if (depth > FOLDER_IMPORT_MAX_DEPTH) {
+        if (out) { out.limit = 'too_deep'; }
+        console.warn('[Notes] registerFolderIntoTree depth cap:', dirAbs);
+        return 0;
+    }
+    let names: string[] = [];
+    try { names = fs.readdirSync(dirAbs).filter((n) => !n.startsWith('.')).sort(); } catch { return 0; }
+    const st = fileManager.getStructure();
+    const siblings = parentId && st.items[parentId] && (st.items[parentId] as any).type === 'folder'
+        ? ((st.items[parentId] as any).childIds as string[]) : st.rootIds;
+    const safeIndex = Math.max(0, Math.min(index, siblings.length));
+    const afterId = safeIndex > 0 ? siblings[safeIndex - 1] : null;
+    const before = new Set(Object.keys(st.items));
+    const after = fileManager.createFolder(path.basename(dirAbs) || 'folder', parentId, afterId);
+    const folderId = Object.keys(after.items).find((id) => !before.has(id) && (after.items[id] as any).type === 'folder');
+    if (!folderId) { return 0; }
+    let made = 1;
+    let cursor = 0;
+    for (const n of names) {
+        const abs = path.join(dirAbs, n);
+        let s: fs.Stats;
+        try { s = fs.statSync(abs); } catch { continue; }
+        if (s.isDirectory()) {
+            const sub = registerFolderIntoTreeAt(fileManager, abs, folderId, cursor, depth + 1, out);
+            if (sub > 0) { made += sub; cursor++; }
+            continue;
+        }
+        if (!s.isFile()) { continue; }
+        try {
+            if (/\.md$/i.test(n)) {
+                const content = fs.readFileSync(abs, 'utf8');
+                fileManager.registerMarkdownFile(content, resolveSubpageTitle(content, n), folderId, cursor);
+            } else {
+                fileManager.registerTreeFile(n, n, folderId, cursor, fs.readFileSync(abs));
+            }
+            made++; cursor++;
+        } catch (e) {
+            console.error('[Notes] registerFolderIntoTree skip:', abs, e);
+        }
+    }
+    return made;
+}
+
+/**
+ * 2026-09-05 R27（Finder 経路）: webview が FileSystem API で読んだフォルダ payload → tmp に実体化 → registerFolderIntoTree。
+ */
+export function registerExternalDroppedFolder(
+    fileManager: NotesFileManager,
+    payload: DroppedFolderPayload,
+    parentId: string | null,
+    index: number,
+    sender: NotesSender,
+    out?: FolderRegisterOutcome
+): number {
+    const mat = materializeDroppedFolder(payload);
+    if (!mat) { return 0; }
+    try {
+        // 裁定 R37: 上限超過は 0 件で中断し、理由を out 経由で呼び出し側（provider）へ返す
+        const made = registerFolderIntoTree(fileManager, mat.root, parentId, index, out);
+        if (made > 0) { sendFileListWithStructure(fileManager, sender); }
+        return made;
+    } finally {
+        try { fs.rmSync(mat.tmpBase, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+}
+
+/**
+ * 2026-09-05 R25: outliner node 群（.out JSON から）→ Export folder の `ExportNode[]`（webview `buildExportTree` と同じ写像）。
+ * `nodeIds` は選択集合の root（無ければ `nodeId` 1 件）。存在しない id は落とす。
+ */
+export function buildExportNodesFromOutData(
+    outData: { nodes?: Record<string, any> },
+    nodeIds: string[]
+): ExportNode[] {
+    const nodes = outData.nodes || {};
+    const build = (id: string): ExportNode | null => {
+        const n = nodes[id];
+        if (!n) { return null; }
+        const children: ExportNode[] = [];
+        for (const c of (Array.isArray(n.children) ? n.children : [])) { const b = build(c); if (b) { children.push(b); } }
+        return {
+            id: n.id, text: String(n.text || ''), subtext: String(n.subtext || ''),
+            pageId: (n.isPage && n.pageId) ? String(n.pageId) : null,
+            filePath: n.filePath ? String(n.filePath) : null,
+            images: Array.isArray(n.images) ? n.images.slice() : [],
+            children,
+        };
+    };
+    const out: ExportNode[] = [];
+    for (const id of nodeIds) { const b = build(id); if (b) { out.push(b); } }
+    return out;
+}
+
 export function registerExternalDroppedUris(
     fileManager: NotesFileManager,
     uris: string[],
@@ -4300,7 +5364,19 @@ export function registerExternalDroppedUris(
             const fsPath = droppedUriToFsPath(uri);
             if (fsPath === null) { failed.push(`${uriName(uri)} (unsupported scheme)`); continue; }
             if (!fs.existsSync(fsPath)) { failed.push(`${path.basename(fsPath)} (not found: ${fsPath})`); continue; }
-            if (!fs.statSync(fsPath).isFile()) { failed.push(`${path.basename(fsPath)} (folder — drop files only)`); continue; }
+            if (fs.statSync(fsPath).isDirectory()) {
+                // 2026-09-05 R27: フォルダ → tree フォルダ + 中身（md / file）を再帰登録
+                // 裁定 R37: 上限超過（2000 件 / 深さ 20）は 0 件中断 → 理由を failed[] に載せる（provider が表示）
+                const outcome: FolderRegisterOutcome = {};
+                const made = registerFolderIntoTree(fileManager, fsPath, parentId, index + registered, outcome);
+                if (made > 0) { registered++; } else if (outcome.limit === 'too_many') {
+                    failed.push(`${path.basename(fsPath)} (too many files: limit ${FOLDER_IMPORT_MAX_FILES})`);
+                } else if (outcome.limit === 'too_deep') {
+                    failed.push(`${path.basename(fsPath)} (too deep: limit ${FOLDER_IMPORT_MAX_DEPTH})`);
+                } else { failed.push(`${path.basename(fsPath)} (empty folder)`); }
+                continue;
+            }
+            if (!fs.statSync(fsPath).isFile()) { failed.push(`${path.basename(fsPath)} (unsupported entry)`); continue; }
             const name = path.basename(fsPath);
             if (/\.md$/i.test(name)) {
                 const content = fs.readFileSync(fsPath, 'utf8');

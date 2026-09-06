@@ -11,10 +11,12 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as url from 'url';
 import { importFiles, importFilesCore } from './file-import';
 import { importMdFiles, importMdFilesCore } from './markdown-import';
+import { FOLDER_IMPORT_MAX_FILES, FOLDER_IMPORT_MAX_DEPTH } from './folder-import';
 
 // ────────────────────────────────────────────
 // Types
@@ -426,4 +428,114 @@ export function createDropImportHandler<P>(
         }
         deps.postMessage({ type: 'dropFilesResult', results, targetNodeId, position });
     };
+}
+
+// ────────────────────────────────────────────
+// 2026-09-05（ユーザー依頼）: フォルダの D&D → Import folder 経路（FR-DFI-01）
+// ────────────────────────────────────────────
+
+/**
+ * Explorer（uri-list）drop の URI を **ディレクトリ / それ以外**に分ける。
+ * ディレクトリは Import folder と同じ経路（`runSendToOutliner` = closure 抑止・件数ゲート・随伴転送）へ、
+ * それ以外は従来の `processDropVscodeUrisImport` へ渡す。解決できない URI は others に残す（従来どおりエラー報告）。
+ */
+export function partitionDroppedUris(uris: string[]): { dirs: string[]; others: string[] } {
+    const dirs: string[] = [];
+    const others: string[] = [];
+    for (const u of uris) {
+        const p = droppedUriToFsPath(u);
+        if (p) {
+            try { if (fs.statSync(p).isDirectory()) { dirs.push(p); continue; } } catch { /* fall through */ }
+        }
+        others.push(u);
+    }
+    return { dirs, others };
+}
+
+/** Finder からフォルダを drop したとき webview が FileSystem API で読み取った 1 ファイル（フォルダ相対） */
+export interface DroppedFolderFile {
+    relPath: string;                    // フォルダ root 相対（'/' 区切り。`..` / 絶対は拒否）
+    kind: 'md' | 'image' | 'file';
+    content?: string;                   // md（text）
+    dataUrl?: string;                   // image（data:...;base64,）
+    bytesBase64?: string;               // file（base64）
+}
+export interface DroppedFolderPayload { name: string; files: DroppedFolderFile[] }
+
+/**
+ * Finder フォルダ drop の中身を一時ディレクトリに実体化し、Import folder と同じ経路に渡せる root を返す。
+ * webview からは実パスが取れない（sandbox）ため、中身を運んで host 側で「フォルダ」に戻す。呼び出し側は
+ * 取り込み後に `tmpBase` を削除する（取り込みはコピーなので tmp は捨ててよい）。
+ * 不正な relPath（`..` / 絶対）は捨てる（NFR: webview 由来の値は必ず clamp）。
+ */
+export function materializeDroppedFolder(payload: DroppedFolderPayload): { tmpBase: string; root: string; written: number } | null {
+    if (!payload || !Array.isArray(payload.files)) { return null; }
+    const safeName = String(payload.name || 'folder').replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+$/, '_') || 'folder';
+    const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'fractal-drop-'));
+    const root = path.join(tmpBase, safeName);
+    fs.mkdirSync(root, { recursive: true });
+    let written = 0;
+    for (const f of payload.files) {
+        if (!f || typeof f.relPath !== 'string') { continue; }
+        const segs = f.relPath.split(/[\\/]+/).filter((x) => x.length > 0);
+        if (segs.length === 0 || segs.some((x) => x === '..' || x === '.')) { continue; }
+        if (path.isAbsolute(f.relPath)) { continue; }
+        const abs = path.join(root, ...segs);
+        const rel = path.relative(root, abs);
+        if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) { continue; }
+        try {
+            fs.mkdirSync(path.dirname(abs), { recursive: true });
+            if (f.kind === 'md' && typeof f.content === 'string') {
+                fs.writeFileSync(abs, f.content, 'utf8');
+            } else if (f.kind === 'image' && typeof f.dataUrl === 'string') {
+                const comma = f.dataUrl.indexOf(',');
+                fs.writeFileSync(abs, Buffer.from(comma >= 0 ? f.dataUrl.slice(comma + 1) : f.dataUrl, 'base64'));
+            } else if (typeof f.bytesBase64 === 'string') {
+                fs.writeFileSync(abs, Buffer.from(f.bytesBase64, 'base64'));
+            } else {
+                continue;
+            }
+            written++;
+        } catch (e) {
+            console.warn('[Outliner] dropped folder: file skipped:', f.relPath, e);
+        }
+    }
+    return { tmpBase, root, written };
+}
+
+/**
+ * 2026-09-05（FR-DFI-02）: drop された fs パス群のうちディレクトリを**再帰展開**してファイルの絶対パス列にする
+ *（順序 = 入力順・ディレクトリ内は名前順）。md 面へのフォルダ drop（Explorer 経由）で、webview は dir を列挙できないため
+ * host がここで展開し、webview は従来の 1 ファイル経路（readAndInsert*）を順に呼ぶ。dotfile は除外。
+ *
+ * 2026-09-05 裁定 R37（reviewer iteration 8 / SEC-10）: **上限に当たったことを呼び出し側に返す**。
+ * 旧実装は `limit` に達すると黙って打ち切り、2001 件目以降が本文に入らないまま「成功したように見える」
+ * partial silent data loss だった。加えて `maxDepth` を持たなかったため、**祖先を指す symlink**（statSync は
+ * symlink を追う）を含むフォルダで無限再帰 → スタックオーバーフローになり得た。
+ * `out.truncated` / `out.tooDeep` に理由を立て、呼び出し側（provider / message handler）が通知 1 回を出す。
+ * 定数は Import folder と共有（`FOLDER_IMPORT_MAX_FILES` / `FOLDER_IMPORT_MAX_DEPTH` — 第 3 の上限実装を書かない）。
+ */
+export function expandDroppedPathsToFiles(
+    paths: string[],
+    limit = FOLDER_IMPORT_MAX_FILES,
+    maxDepth = FOLDER_IMPORT_MAX_DEPTH,
+    out_?: { truncated?: boolean; tooDeep?: boolean }
+): string[] {
+    const out: string[] = [];
+    const walk = (p: string, depth: number): void => {
+        if (out.length >= limit) { if (out_) { out_.truncated = true; } return; }
+        if (depth > maxDepth) { if (out_) { out_.tooDeep = true; } return; }
+        let st: fs.Stats;
+        try { st = fs.statSync(p); } catch { return; }
+        if (st.isFile()) { out.push(p); return; }
+        if (!st.isDirectory()) { return; }
+        let names: string[] = [];
+        try { names = fs.readdirSync(p).filter((n) => !n.startsWith('.')).sort(); } catch { return; }
+        for (const n of names) {
+            walk(path.join(p, n), depth + 1);
+            if (out.length >= limit) { if (out_) { out_.truncated = true; } return; }
+        }
+    };
+    for (const p of paths || []) { walk(p, 0); }
+    return out;
 }

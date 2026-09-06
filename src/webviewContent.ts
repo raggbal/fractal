@@ -90,6 +90,16 @@ export function getWebviewContent(
 
     // Load external CSS and JS files
     const stylesPath = path.join(__dirname, 'webview', 'styles.css');
+    // FR-MFIT (sprint 20260901-075849 / ADRL-0109): 右クリックメニューの viewport 収め
+    // （window.__menuPlacement）。editor.js が消費するため、それより前に注入する。
+    // 本番 inline はここ + ハーネス build-standalone.js の両方に要登録
+    // （片方だけだと実機 silent no-op: generator_failures 2026-08-17 / TC-MFIT-03 が番人）
+    const menuPlacementScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'menu-placement.js'), 'utf8');
+    // FR-MSEL-02/04 (sprint 20260901-075849 / TASK-30): 複数選択 payload の正規化を共有する
+    // （window.__batchPayload）。notes-file-panel / notes-folder-view / outliner が消費するため前に注入。
+    const batchPayloadScript = fs.readFileSync(
+        path.join(__dirname, 'shared', 'batch-payload.js'), 'utf8');
     const editorScriptPath = path.join(__dirname, 'webview', 'editor.js');
 
     const styles = fs.readFileSync(stylesPath, 'utf8')
@@ -177,6 +187,10 @@ export function getWebviewContent(
     </script>
     <script nonce="${nonce}">
         ${hostBridgeScript}
+    </script>
+    <script nonce="${nonce}">
+        ${menuPlacementScript}
+        ${batchPayloadScript}
     </script>
     <script nonce="${nonce}">
         ${editorUtilsScript}

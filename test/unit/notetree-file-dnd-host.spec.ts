@@ -495,7 +495,7 @@ test.describe('tree file item host D&D 経路（seam）', () => {
     // 再オープン③ (2026-08-10): FR-TF-17 VS Code Explorer uri-list（TC-UL-03/04）
     // ═══════════════════════════════════════════════════════════════════
 
-    test('TC-UL-03: registerExternalDroppedUris — md/file 振り分け・非 file: scheme/不存在/ディレクトリ skip・index 連番・postback 1 回', () => {
+    test('TC-UL-03: registerExternalDroppedUris — md/file 振り分け・非 file: scheme/不存在 skip・ディレクトリ = tree フォルダ登録（R27）・index 連番・postback 1 回', () => {
         const { registerExternalDroppedUris } = mh;
         expect(typeof registerExternalDroppedUris).toBe('function'); // 未実装なら即 RED
 
@@ -518,7 +518,7 @@ test.describe('tree file item host D&D 経路（seam）', () => {
                 toUri(mdSrc),                          // → registerMarkdownFile
                 'http://example.com/skip.md',          // 非 file:/vscode-remote: scheme → skip（sprint 20260820-034017 許可: test_update — vscode-remote は FR-RMT-01 で受理対象化）
                 toUri(path.join(srcDir, 'missing.txt')), // 不存在 → skip
-                toUri(subDir),                         // ディレクトリ → skip
+                toUri(subDir),                         // ディレクトリ → tree フォルダ登録（2026-09-05 test_update: sprint 20260901-075849 TASK-75 / R27。旧 = skip）
                 toUri(pdfSrc),                         // → registerTreeFile
             ],
             null, 0, sender
@@ -535,9 +535,13 @@ test.describe('tree file item host D&D 経路（seam）', () => {
         // 実体 = files/ に byte 一致で保存（binary safe）
         const entity = fm.getTreeFilePath(fileItem.id) as string;
         expect(Buffer.compare(fs.readFileSync(entity), Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]))).toBe(0);
-        // 挿入順 = uri 列挙順（md が index0・pdf が index1。skip 3 件は index を消費しない）
+        // 挿入順 = uri 列挙順（md が index0・ディレクトリ = tree フォルダが index1・pdf が index2。skip 2 件は index を消費しない）
+        const folderItem = items.find((it) => it.type === 'folder');
+        expect(folderItem).toBeTruthy();
+        expect(folderItem.title).toBe('a-directory');
         expect(structure.rootIds.indexOf(mdItem.id)).toBe(0);
-        expect(structure.rootIds.indexOf(fileItem.id)).toBe(1);
+        expect(structure.rootIds.indexOf(folderItem.id)).toBe(1);
+        expect(structure.rootIds.indexOf(fileItem.id)).toBe(2);
         // postback は 1 回（notesFileListChanged）
         expect(msgs.filter((m) => m.type === 'notesFileListChanged').length).toBe(1);
         // 元ファイルは不変（OS 側）

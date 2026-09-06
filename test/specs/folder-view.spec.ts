@@ -202,11 +202,13 @@ test.describe('TASK-07 — folder view UI（notes-folder-view.js / folder-view-d
             { name: 'dirA', relPath: 'dirA', isDir: true },
             { name: 'b.md', relPath: 'b.md', isDir: false },
         ]);
-        // エントリ menu = 7 項目（FR-FLV-15 全列挙 + FR-ACC-04 Duplicate — sprint 20260820-063902 許可: test_update）
+        // エントリ menu = 8 項目（FR-FLV-15 全列挙 + FR-ACC-04 Duplicate + FR-SND-01「Outliner に送る」）
+        // ⚠️ 期待値更新（sprint 20260901-075849 / TASK-26 / 許可: test_update）:
+        // Delete の直前に「Send to Outliner」が入る（フォルダも対象にできる唯一の経路 = FR-MSEL-05 の受け皿）
         await page.click('.fv-row[data-rel="b.md"]', { button: 'right' });
         let items = await page.evaluate(() =>
             Array.from(document.querySelectorAll('.fv-menu .fv-menu-item')).map((el) => (el.textContent || '').trim()));
-        expect(items).toEqual(['New Markdown', 'New Folder', 'Rename', 'Reveal in Finder', 'Copy Path', 'Duplicate', 'Delete']);
+        expect(items).toEqual(['New Markdown', 'New Folder', 'Rename', 'Reveal in Finder', 'Copy Path', 'Duplicate', 'Send to Outliner', 'Delete']);
         // 各項目 → bridge（file 行: New 系の作成先は同階層 = ''）
         const clickItem = async (label: string, target = '.fv-row[data-rel="b.md"]') => {
             await page.click(target, { button: 'right' });
@@ -799,7 +801,7 @@ test.describe('TC-FLV-57 — デザイン統一（NFR-FLV-08 / standalone-notes�
                 contBg: getComputedStyle(cont).backgroundColor,
                 outlinerBg: probe('var(--outliner-bg)'),
                 selBg: getComputedStyle(sel).backgroundColor,
-                selectionToken: probe('var(--fr-color-selection-bg)'),
+                selectionToken: probe('var(--fr-color-selection-bg)'),   // 2026-09-04 R16 rev2: linkedfd / note tree は青系（outliner の黄色は却下）
                 searchBg: getComputedStyle(search).backgroundColor,
                 searchToken: probe('var(--outliner-search-bg)'),
                 searchFont: getComputedStyle(search).fontSize,
@@ -808,7 +810,7 @@ test.describe('TC-FLV-57 — デザイン統一（NFR-FLV-08 / standalone-notes�
         });
         // ① 背景 = outliner 面と同一トークン
         expect(styles.contBg, '背景がトークン解決値と同一（白直書きでない）').toBe(styles.outlinerBg);
-        // ② 選択行 = outliner 選択色トークン
+        // ② 選択行 = 選択色トークン（--fr-color-selection-bg = 青系。2026-09-04 R16 rev2）
         expect(styles.selBg).toBe(styles.selectionToken);
         // ③ Search box = outliner 検索ボックスと同トークン・同メトリクス
         expect(styles.searchBg).toBe(styles.searchToken);

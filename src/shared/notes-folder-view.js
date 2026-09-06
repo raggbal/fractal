@@ -22,7 +22,12 @@
     var childrenByRel = {};   // relPath('' = root) → entries[]（host 応答キャッシュ。リフレッシュで上書き）
     var hiddenToggleBtn = null; // FR-FLV-31 トグルボタン（listResult.showHidden で active 復元）
     var expanded = {};        // relPath → true
-    var selectedRel = null;
+    var selectedRel = null;          // focus（キーボードの現在位置）。既存の全消費サイトはこの意味で使う
+    // FR-MSEL-01/05（sprint 20260901-075849 / ADRL-0108）: 連続範囲選択。
+    // selection = 選択集合 / anchorRel = 範囲の起点。selectedRel は focus として温存する
+    // （既存 20 箇所の消費サイトはすべて「focus の 1 件」の意味なので破壊せずに済む）。
+    var selection = [];              // relPath の配列（描画順に正規化して持つ）
+    var anchorRel = null;
     var visibleRows = [];     // keyboard ナビ用の描画順 relPath 配列
     var searchQuery = '';
     var searchHits = null;    // 検索モード中の hits（null = 通常表示）
@@ -91,6 +96,9 @@
             // hover は背景色を変えない（= folder view 背景と同じ）— ユーザー裁定 2026-08-18
             //（白 = --outliner-hover-bg も水色 = selection トークンも却下。選択行のみ色が付く）
             '.fv-row:hover { background: var(--outliner-bg); }',
+            // 2026-09-04 R16 rev2（ユーザー裁定）: linkedfd / note tree の複数選択は **青系 --fr-color-selection-bg**
+            //（outliner の黄色系に一度揃えたが「ツリーで黄色はうざい」→ 青へ戻す。outliner は編集面で focus 行が青のため
+            // 範囲選択は黄色のまま = 面の役割差として受容）。色の直書き fallback は NFR-FLV-08 = TC-FLV-57 ⑤ で禁止
             '.fv-row.fv-selected { background: var(--fr-color-selection-bg); }',
             // 開閉 = outliner bullet と同一（折りたたみ = CSS 三角 5px/4px・展開 = 5px dot。テキスト矢印廃止）
             // click 領域を拡大（18px + 行全高）し三角/dot を中心配置（クリック点ズレの再修正 2026-08-18）
@@ -110,6 +118,9 @@
             '.fv-menu-item { padding:5px 14px; font-size:12.5px; cursor:pointer; }',
             '.fv-menu-item:hover { background: var(--outliner-hover-bg); }',
             '.fv-menu-item.danger { color: var(--fr-color-danger); }',
+            // FR-SND-02 rev2: サブメニュー起点（▶ は ::after で描く）/ disabled 表示（click は通知のため生かす）
+            '.fv-menu-item-submenu::after { content:"\\25B6"; float:right; margin-left:12px; opacity:0.6; font-size:10px; }',
+            '.fv-menu-item.disabled { opacity:0.5; }',
             // D&D 視覚 2 系統（TASK-09 — highlight + root 強調。トークンのみ）
             '.fv-row.fv-drop-into { background: var(--fr-color-selection-bg); }',
             '.fv-tree.fv-drop-root { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }',
@@ -126,6 +137,8 @@
         childrenByRel = {};
         expanded = {};
         selectedRel = null;
+        selection = [];
+        anchorRel = null;
         visibleRows = [];
         searchQuery = '';
         searchHits = null;
@@ -146,6 +159,8 @@
         childrenByRel = {};
         expanded = {};
         selectedRel = null;
+        selection = [];
+        anchorRel = null;
         visibleRows = [];
         searchHits = null;
     }
@@ -307,7 +322,7 @@
     function makeRow(entry, depth) {
         var row = document.createElement('div');
         row.className = 'fv-row ' + (entry.isDir ? 'fv-dir' : 'fv-file')
-            + (entry.relPath === selectedRel ? ' fv-selected' : '');
+            + (selection.indexOf(entry.relPath) >= 0 ? ' fv-selected' : '');
         row.dataset.rel = entry.relPath;
         row.dataset.isdir = entry.isDir ? '1' : '0';
         row.style.paddingLeft = (8 + depth * 16) + 'px';
@@ -338,7 +353,15 @@
         row.appendChild(name);
 
         row.addEventListener('click', function (e) {
-            selectRow(entry.relPath);
+            // FR-MSEL-01 rev2（2026-09-04 ユーザー裁定・ADRL-0111）: cmd/ctrl+click = 単品トグル（不連続選択）。
+            // chevron / アイコンの副作用は付けない（選択操作だけ）。
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+                e.preventDefault();
+                toggleRow(entry.relPath);
+                return;
+            }
+            // FR-MSEL-01: shift+click = anchor..target の連続範囲。
+            if (e.shiftKey) { selectRange(entry.relPath); } else { selectRow(entry.relPath); }
             // chevron click は展開トグルも行う（行 click 自体は選択のみ — FR-FLV-14）。
             // e.target === chevron だと子要素（.fv-tri/.fv-dot）を踏んだとき外れる — closest 判定に修正（2026-08-18）
             var onChevron = e.target && e.target.closest && e.target.closest('.fv-chevron');
@@ -359,23 +382,55 @@
         row.addEventListener('contextmenu', function (e) {
             e.preventDefault();
             e.stopPropagation();
-            selectRow(entry.relPath);
+            // FR-MSEL-01: 選択内の右クリックは選択を維持（outliner precedent と同型）。
+            // 選択外ならその行のみに切り替える。
+            if (selection.indexOf(entry.relPath) < 0) { selectRow(entry.relPath); }
+            else { selectedRel = entry.relPath; }
             showMenu(e, entry);
         });
         // W1/W2/W4 送信端（dragstart 1 本 — MIME payload に絶対パス不含 = INV-4）。
         // エントリ行は contenteditable 外の独立 DOM なので draggable=true で足りる（dnd-wiring §1）
         row.addEventListener('dragstart', function (e) {
             if (!e.dataTransfer) { return; }
+            // FR-MSEL-02/05 (§4-1/§4-2): **複数選択中に選択内の行を drag したときだけ**選択全体を運ぶ。
+            //
+            // ⚠️ 単一 drag（選択外の行 / 選択が 1 件）は **従来の payload をそのまま積む**。
+            // フォルダ行も含めて不変にするのは、**fv 内のフォルダ移動が既存機能**だから
+            // （ADRL-0102 / `onTreeDrop` の `fv.isDir` no-op ガードが受けている。本 sprint のスコープ外）。
+            // FR-MSEL-05 の「フォルダは D&D 対象外」は **複数選択 payload** の話で、
+            // note ツリーへ落ちたときの拒否は受け手（`dispatchFolderViewEntryDrop`）が担う。
+            var inSelection = selection.indexOf(entry.relPath) >= 0;
+            var multi = inSelection && selection.length > 1;
+            var files = multi ? selectedFilesForDnd() : [];
+            var dirCount = multi ? selectedDirCount() : 0;
+
+            // FR-MSEL-05: 複数選択がフォルダだけ → 運ぶものが無いので
+            // **無反応にしない**（preventDefault + 通知 1 回）
+            if (multi && files.length === 0) {
+                e.preventDefault();
+                notifyFolderOnlyDrag(dirCount);
+                return;
+            }
             try {
-                e.dataTransfer.setData(FV_ENTRY_MIME, JSON.stringify({
-                    folderLinkId: currentLinkId,
-                    relPath: entry.relPath,
-                    isDir: !!entry.isDir,
-                }));
-                e.dataTransfer.setData('text/plain', entry.relPath);
+                var payload = multi
+                    ? {
+                        v: 1,
+                        folderLinkId: currentLinkId,
+                        items: files.map(function (rel) {
+                            return { folderLinkId: currentLinkId, relPath: rel, isDir: false };
+                        }),
+                        // FR-MSEL-05: 除外したフォルダ件数を受け手の集計通知に載せる
+                        excludedDirs: dirCount,
+                    }
+                    // 単一 = 従来形式（既存の受け手 TC を 1 本も壊さない = §4-1 後方互換）
+                    : { folderLinkId: currentLinkId, relPath: entry.relPath, isDir: !!entry.isDir };
+                e.dataTransfer.setData(FV_ENTRY_MIME, JSON.stringify(payload));
+                e.dataTransfer.setData('text/plain', multi ? files.join('\n') : entry.relPath);
+                // 🔴 NFR-NDA-02: これが無いと drop が silent 不発火になる
                 e.dataTransfer.effectAllowed = 'copyMove';
             } catch (err) { /* ignore */ }
-            fvDragSrc = { relPath: entry.relPath, isDir: !!entry.isDir }; // one-shot: 下記 clear 群と対
+            // one-shot: 下記 clear 群と対。複数のときは代表 1 件 + 全件を持つ
+            fvDragSrc = { relPath: entry.relPath, isDir: !!entry.isDir, relPaths: multi ? files : [entry.relPath] };
         });
         row.addEventListener('dragend', function () {
             fvDragSrc = null;
@@ -413,6 +468,38 @@
         return false;
     }
 
+    /**
+     * FR-DCP-04 (§1-4): dragover のカーソル（dropEffect）を **意味論と一致**させる。
+     *
+     * `dragover` では payload の**中身は読めない**（HTML5 protected mode）が `types` は読めるので、
+     * MIME 種別だけで決まる。ADRL-0106 で note ツリー ⇄ fv の 2 方向が複製になったため、
+     * `'move'` 固定のままだとカーソルが嘘をつく（元が消えるように見える）。
+     *
+     * | payload | dropEffect |
+     * |---|---|
+     * | `x-fractal-tree-file` / `x-fractal-tree-md`（note ツリー発 = 複製方向） | `'copy'` |
+     * | `x-fractal-md-filelink` / `x-fractal-md-subpage`（md 発 = 移動方向） | `'move'` |
+     * | `x-fractal-folderview-entry`（fv 内 = 移動） | `'move'` |
+     * | 外部 `Files` | `'copy'` |
+     */
+    function resolveDropEffect(e) {
+        if (!e || !e.dataTransfer) { return 'move'; }
+        var types = Array.prototype.slice.call(e.dataTransfer.types || []);
+        var has = function (t) { return types.indexOf(t) !== -1; };
+        // note ツリー発 = 複製（FR-DCP-02）
+        if (has('application/x-fractal-tree-md') || has('application/x-fractal-tree-file')) { return 'copy'; }
+        // md 発 = 移動（FR-DCP-03 不変）
+        if (has('application/x-fractal-md-filelink') || has('application/x-fractal-md-subpage')) { return 'move'; }
+        // fv 内 = 移動（ADRL-0102 不変）
+        if (has('application/x-fractal-folderview-entry')) { return 'move'; }
+        // 外部 = 複製（元のファイルシステムからは消えない）
+        if (has('Files') || has('application/vnd.code.uri-list')) { return 'copy'; }
+        // note ツリーの .out / folder item は text/plain しか積まない（MIME で判別できない）→
+        // one-shot グローバルで note ツリー発と分かるので複製扱い
+        if (window.__notesTreeDragKind) { return 'copy'; }
+        return 'move';
+    }
+
     /** drop 先ディレクトリ解決: dir 行 = その中 / file 行 = その親 / 余白 = ルート */
     function resolveDropDst(e) {
         var row = e.target && e.target.closest ? e.target.closest('.fv-row') : null;
@@ -424,7 +511,7 @@
     function onTreeDragOver(e) {
         if (!isAcceptableDrag(e)) { return; }
         e.preventDefault();
-        if (e.dataTransfer) { e.dataTransfer.dropEffect = 'move'; }
+        if (e.dataTransfer) { e.dataTransfer.dropEffect = resolveDropEffect(e); }
         clearDropVisuals();
         var r = resolveDropDst(e);
         if (r.row && r.row.dataset.isdir === '1') {
@@ -472,16 +559,24 @@
             return;
         }
         // W3: tree md / file item（既存 MIME）→ #13 folderViewMoveIn
+        // FR-MSEL-04 (§4-1): `{v:1, items:[…]}`（複数）と `{id}`（単一・旧）の両方を読む。
+        // 複数は **既存の単一 drop の意味論を N 回適用**（1 件ずつ独立に host へ渡す）。
         var treeMd = readJson(e, TREE_MD_MIME);
-        if (treeMd && treeMd.id) {
-            if (typeof b.folderViewMoveIn === 'function') { b.folderViewMoveIn(currentLinkId, dst, 'md', treeMd.id); }
-            return;
-        }
         var treeFile = readJson(e, TREE_FILE_MIME);
-        if (treeFile && treeFile.id) {
-            if (typeof b.folderViewMoveIn === 'function') { b.folderViewMoveIn(currentLinkId, dst, 'file', treeFile.id); }
+        var mdIds = window.__batchPayload.extractBatchIds(treeMd);
+        var fileIds = window.__batchPayload.extractBatchIds(treeFile);
+        // §4-2 rev2（TASK-45）: md + file の混在は seq 順に結合して **folderViewMoveInBatch を 1 回**
+        //（既存 batch は per-item に srcKind を持つので新 bridge 不要。件数ゲートが合計で 1 回効く）
+        if (mdIds.length > 0 && fileIds.length > 0) {
+            var mixed = window.__batchPayload.mergeTreeItemsBySeq(
+                window.__batchPayload.extractBatchItems(treeMd), window.__batchPayload.extractBatchItems(treeFile));
+            if (typeof b.folderViewMoveInBatch === 'function') {
+                b.folderViewMoveInBatch(currentLinkId, dst, mixed.map(function (it) { return { srcKind: it.kind, srcItemId: it.id }; }));
+            }
             return;
         }
+        if (mdIds.length > 0) { dispatchTreeItemsIn(b, dst, 'md', mdIds); return; }
+        if (fileIds.length > 0) { dispatchTreeItemsIn(b, dst, 'file', fileIds); return; }
         // W6: md アンカー既存 2 MIME → #16 folderViewMoveFromMd
         var mfl = readJson(e, MD_FILELINK_MIME);
         if (mfl && mfl.href) {
@@ -497,8 +592,22 @@
             }
             return;
         }
-        // それ以外（.out item / folder item / outliner node 系 / 外部 files / uri-list）= 不受理通知
-        //（受理 MIME は 3 群のみ — dnd-wiring §1 の明示裁定。src は W1 の one-shot なのでここでは不使用）
+        // 2026-09-05 R25: outliner node（subtree / page / file アイコン / 添付 payload・複数可）→ この dir へ「linkedfd に送る」
+        var onSub = readJson(e, 'application/x-fractal-out-node-subtree');
+        var onPage = readJson(e, 'application/x-fractal-out-node-page');
+        var onFile = readJson(e, 'application/x-fractal-out-node-file');
+        var onAssets = readJson(e, 'application/x-fractal-out-node-assets');
+        var onRef = onSub || onPage || onFile;
+        if (onRef && onRef.outFileKey && onRef.nodeId) {
+            var mvP = { outFileKey: onRef.outFileKey, nodeId: onRef.nodeId };
+            var idsP = (onSub && Array.isArray(onSub.nodeIds)) ? onSub.nodeIds
+                : (onAssets && Array.isArray(onAssets.items) ? onAssets.items.map(function (it) { return it.nodeId; }) : null);
+            if (idsP && idsP.length > 1) { mvP.nodeIds = idsP; }
+            if (typeof b.sendOutNodesToFolderLinkFromDrop === 'function') { b.sendOutNodesToFolderLinkFromDrop(mvP, currentLinkId, dst); }
+            return;
+        }
+        // それ以外（.out item / folder item / 外部 files / uri-list）= 不受理通知
+        //（受理 MIME は 4 群 — dnd-wiring §1 の明示裁定 + 2026-09-05 R25。src は W1 の one-shot なのでここでは不使用）
         void src;
         notifyDropUnsupported();
     }
@@ -650,12 +759,130 @@
         input.select();
     }
 
-    function selectRow(rel) {
-        selectedRel = rel;
+    /** 選択のハイライトを集合から塗り直す。 */
+    function paintSelection() {
         if (!treeEl) { return; }
         Array.prototype.forEach.call(treeEl.querySelectorAll('.fv-row'), function (el) {
-            el.classList.toggle('fv-selected', el.dataset.rel === rel);
+            el.classList.toggle('fv-selected', selection.indexOf(el.dataset.rel) >= 0);
         });
+    }
+
+    /**
+     * Hard MUST（NFR-MSEL-01）: 範囲確定のたびにテキスト範囲を捨てる。
+     * 残すと clipboard / D&D をブラウザ標準に奪われる（過去の Bug 5 fix の再発防止）。
+     */
+    function dropTextSelection() {
+        try {
+            var sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) { sel.removeAllRanges(); }
+        } catch (e) { /* 一部環境で throw する — 選択動作は継続させる */ }
+    }
+
+    /** 単一選択（修飾なし click / 矢印移動）。anchor も focus もこの行へ。 */
+    function selectRow(rel) {
+        selectedRel = rel;
+        anchorRel = rel;
+        selection = rel ? [rel] : [];
+        dropTextSelection();
+        paintSelection();
+    }
+
+    /**
+     * anchorRel..rel の連続範囲を選択する（FR-MSEL-01）。
+     * 順序の単一真実は既存 `visibleRows`（描画順 relPath 配列）— 新規の順序計算は書かない。
+     * anchor を跨いだ場合は反対側へ伸びる（伸長と収縮の両方が自然に成立する）。
+     */
+    function selectRange(rel) {
+        if (!anchorRel) { selectRow(rel); return; }
+        var a = visibleRows.indexOf(anchorRel);
+        var b = visibleRows.indexOf(rel);
+        if (a < 0 || b < 0) { selectRow(rel); return; }
+        var lo = Math.min(a, b);
+        var hi = Math.max(a, b);
+        selection = visibleRows.slice(lo, hi + 1);
+        selectedRel = rel;                     // focus は移るが anchor は動かさない
+        dropTextSelection();
+        paintSelection();
+    }
+
+    /**
+     * cmd/ctrl+click の単品トグル（FR-MSEL-01 rev2 / ADRL-0111）。
+     * 集合は `visibleRows` 順に正規化して持つ（D&D payload の順序 = 描画順を崩さない）。anchor / focus はこの行へ。
+     */
+    function toggleRow(rel) {
+        if (!rel) { return; }
+        var at = selection.indexOf(rel);
+        if (at >= 0) { selection.splice(at, 1); } else { selection.push(rel); }
+        selection = visibleRows.filter(function (r) { return selection.indexOf(r) >= 0; });
+        anchorRel = rel;
+        selectedRel = rel;
+        dropTextSelection();
+        paintSelection();
+    }
+
+    /** 選択をクリアする（Esc）。 */
+    function clearSelection() {
+        selection = [];
+        anchorRel = null;
+        selectedRel = null;
+        paintSelection();
+    }
+
+    /** D&D payload に載せる選択（FR-MSEL-05: フォルダは集合に入るが payload からは除く）。 */
+    function selectedFilesForDnd() {
+        var out = [];
+        for (var i = 0; i < selection.length; i++) {
+            var e = findEntry(selection[i]);
+            if (e && !e.isDir) { out.push(selection[i]); }
+        }
+        return out;
+    }
+
+    /**
+     * FR-MSEL-04 / NFR-MSEL-02 (§4-3b / TASK-29): note ツリー item を fv へ受け入れる dispatch。
+     *
+     * 🔴 **複数は配列 bridge を 1 回**呼ぶ。ここで N 回ループすると host 側の件数ゲート
+     * （checkBatchLimit）を構造的に迂回する（reviewer iteration 1 SEC-1）。
+     * 単一は従来の単一 bridge のまま（既存 TC を壊さない）。
+     */
+    function dispatchTreeItemsIn(b, dst, srcKind, ids) {
+        if (!b || ids.length === 0) { return; }
+        if (ids.length === 1) {
+            if (typeof b.folderViewMoveIn === 'function') { b.folderViewMoveIn(currentLinkId, dst, srcKind, ids[0]); }
+            return;
+        }
+        if (typeof b.folderViewMoveInBatch === 'function') {
+            b.folderViewMoveInBatch(currentLinkId, dst, ids.map(function (id) {
+                return { srcKind: srcKind, srcItemId: id };
+            }));
+        }
+    }
+
+    /**
+     * FR-MSEL-05: 「フォルダのみ選択して drag」を**無反応にしない**ための通知（1 回だけ）。
+     * フォルダの D&D はスコープ外（フォルダ構造の転送は右クリックの「Outliner に送る」が担う）。
+     */
+
+    function notifyFolderOnlyDrag(dirCount) {
+        var b = bridge();
+        if (!b || typeof b.notifyError !== 'function') { return; }
+        // 複数件は専用キー（{count} プレース）— 1 件は既存キーのまま（文言の後方互換）
+        if (dirCount > 1) {
+            var tpl = i18n().batchDndFoldersSkipped || '{count} folders skipped (use "Send to Outliner")';
+            b.notifyError(String(tpl).replace('{count}', String(dirCount)));
+            return;
+        }
+        b.notifyError(i18n().folderViewNoFolderDrop || 'Folders cannot be dropped here.');
+    }
+
+    /** 選択に含まれるフォルダの件数（集計通知に出す）。 */
+    function selectedDirCount() {
+        var n = 0;
+        for (var i = 0; i < selection.length; i++) {
+            var e = findEntry(selection[i]);
+            if (e && e.isDir) { n++; }
+        }
+        return n;
     }
 
     /** FR-FLV-26: 開閉状態の debounce 保存（Search debounce と同型の setTimeout パターン） */
@@ -685,12 +912,17 @@
     function onKeyDown(e) {
         if (searchHits === null && visibleRows.length === 0) { return; }
         var idx = selectedRel ? visibleRows.indexOf(selectedRel) : -1;
-        if (e.key === 'ArrowDown') {
+        if (e.key === 'Escape' && !renaming) {
+            // FR-MSEL-01: Esc で選択クリア
+            if (selection.length > 0) { e.preventDefault(); clearSelection(); }
+        } else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            selectRow(visibleRows[Math.min(idx + 1, visibleRows.length - 1)] || visibleRows[0]);
+            var next = visibleRows[Math.min(idx + 1, visibleRows.length - 1)] || visibleRows[0];
+            if (e.shiftKey) { selectRange(next); } else { selectRow(next); }
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            selectRow(visibleRows[Math.max(idx - 1, 0)] || visibleRows[0]);
+            var prev = visibleRows[Math.max(idx - 1, 0)] || visibleRows[0];
+            if (e.shiftKey) { selectRange(prev); } else { selectRow(prev); }
         } else if (e.key === 'ArrowRight') {
             if (!selectedRel) { return; }
             e.preventDefault();
@@ -751,8 +983,93 @@
 
     var menuEl = null;
     function closeMenu() {
+        closeSendToOutlinerSubmenu();
         if (menuEl && menuEl.parentElement) { menuEl.parentElement.removeChild(menuEl); }
         menuEl = null;
+    }
+
+    // ── FR-SND-02 rev2: 「Outliner に送る」の送り先サブメニュー ──
+    var sendToOutlinerSubmenuEl = null;
+    function closeSendToOutlinerSubmenu() {
+        if (sendToOutlinerSubmenuEl && sendToOutlinerSubmenuEl.parentElement) {
+            sendToOutlinerSubmenuEl.parentElement.removeChild(sendToOutlinerSubmenuEl);
+        }
+        sendToOutlinerSubmenuEl = null;
+    }
+
+    /** ツリー内の `.out` 一覧（同一 document の notesFilePanel から読む — bridge 往復を作らない）。 */
+    function listOutFiles() {
+        var nfp = window.notesFilePanel;
+        if (!nfp || typeof nfp.getOutFiles !== 'function') { return []; }
+        return nfp.getOutFiles() || [];
+    }
+
+    /** 送る対象 relPath 群（選択内の右クリック = 選択集合 / 選択外 = その行のみ — ADRL-0029）。 */
+    function sendTargetsFor(entry) {
+        return (selection.indexOf(entry.relPath) >= 0 && selection.length > 0) ? selection.slice() : [entry.relPath];
+    }
+
+    /**
+     * 「Outliner に送る ▶」項目。`.out` が 0 件なら**見た目は disabled だが click で通知**する
+     *（無反応だと「壊れている」に見える — outliner.js の addSendToLinkedfdItem と同じ方針）。
+     * 既存 addMenuItem は click で closeMenu() してしまうのでサブメニュー起点は自前で作る。
+     */
+    function addSendToOutlinerItem(m, entry) {
+        var label = m.sendToOutlinerMenu || 'Send to Outliner';
+        var outs = listOutFiles();
+        var item = document.createElement('div');
+        item.className = 'fv-menu-item fv-menu-item-submenu';
+        item.textContent = label;   // ▶ は CSS ::after（textContent を汚さない = 既存 TC-FLV-37 のラベル照合を保つ）
+        if (outs.length === 0) {
+            item.classList.add('disabled');
+            item.addEventListener('click', function () {
+                closeMenu();
+                var b = bridge();
+                if (b && typeof b.notifyError === 'function') {
+                    b.notifyError(m.sendToOutlinerNoOutlines || 'No outline (.out) in this note. Create one first.');
+                }
+            });
+            menuEl.appendChild(item);
+            return;
+        }
+        item.addEventListener('click', function (ev) {
+            ev.stopPropagation();   // 親 menu の one-shot close（document click）を発火させない
+            openSendToOutlinerSubmenu(item, sendTargetsFor(entry), outs);
+        });
+        menuEl.appendChild(item);
+    }
+
+    /**
+     * 送り先サブメニュー。🔴 親 menu の子孫にせず `position:fixed` で body 直下（親の overflow でクリップされない
+     * — outliner.js openSendToLinkedfdSubmenu と同じ絶対条項）。配置は共有ヘルパ __menuPlacement.place に委譲。
+     */
+    function openSendToOutlinerSubmenu(anchorEl, targets, outs) {
+        closeSendToOutlinerSubmenu();
+        var sub = document.createElement('div');
+        sub.className = 'fv-menu fv-submenu';
+        sub.style.position = 'fixed';
+        for (var i = 0; i < outs.length; i++) {
+            (function (o) {
+                var it = document.createElement('div');
+                it.className = 'fv-menu-item';
+                it.dataset.outId = o.id;
+                it.textContent = o.name || o.id;
+                it.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    closeMenu();
+                    var b = bridge();
+                    if (b && typeof b.sendFolderViewToOutliner === 'function') {
+                        b.sendFolderViewToOutliner(currentLinkId, targets, o.id);
+                    }
+                });
+                sub.appendChild(it);
+            })(outs[i]);
+        }
+        document.body.appendChild(sub);
+        sendToOutlinerSubmenuEl = sub;
+        var r = anchorEl.getBoundingClientRect();
+        window.__menuPlacement.place(sub, { x: r.right, y: r.top });
+        setTimeout(function () { document.addEventListener('click', closeMenu, { once: true }); }, 0);
     }
 
     function addMenuItem(label, handler, danger) {
@@ -797,11 +1114,20 @@
                     if (bridge().folderViewDuplicate) { bridge().folderViewDuplicate(currentLinkId, entry.relPath); }
                 });
             }
+            // FR-SND-01/02 (§6-1 / sprint 20260901-075849): 選択（複数可）を Outliner root 先頭へ送る。
+            // 対象は **選択内の右クリック = 選択集合 / 選択外 = その行のみ**（ADRL-0029「選択集合優先」）。
+            // フォルダも対象（フォルダ構造を node で再現 = Import folder と同一経路）。
+            // FR-SND-02 rev2（2026-09-04 手動テスト (2)）: 送り先 `.out` は**サブメニューで選ぶ**
+            //（「linkedfd に送る」の folder link サブメニューと対称。開いている .out に依存しない）。
+            addSendToOutlinerItem(m, entry);
             addMenuItem(m.notesDelete || 'Delete', function () {
                 if (bridge().folderViewDelete) { bridge().folderViewDelete(currentLinkId, entry.relPath); }
             }, true);
         }
         document.body.appendChild(menuEl);
+        // FR-MFIT-01/02/03: viewport 収め（flip → clamp → max-height）を共有ヘルパへ委譲。
+        // typeof ガードは登録漏れ時に silent no-op になるため使わず、未登録は即座に分かる形にする。
+        window.__menuPlacement.place(menuEl, { x: e.clientX, y: e.clientY });
         setTimeout(function () { document.addEventListener('click', closeMenu, { once: true }); }, 0);
     }
 

@@ -59,6 +59,27 @@ function treeRect(page: import('@playwright/test').Page) {
     });
 }
 
+/**
+ * ★2026-09-05 / 裁定 R34 (FR-MMT-01): title が空でも中心ノード (__title__) を出すようになり、
+ *   mindmap を開いた直後の open-centering (mindmap-interactions.js) が**全マップで**走るように
+ *   なった (以前は title 付きマップ限定)。この spec 群は「translate(0,0) = 内容左上が可視左上」
+ *   という既定フレームを前提に「末尾の子が画面外」という初期状態を作るので、centering 後に
+ *   明示的にフレームを原点へ戻して従来の前提を再現する。測るのは centering ではなく
+ *   ensureNodeVisible の最小追従なので、開いた直後のフレームを固定しても検証内容は変わらない。
+ */
+async function resetFrameToOrigin(page: import('@playwright/test').Page) {
+    await page.evaluate(() => {
+        const MR = (window as any).MindmapRender;
+        // ★ getViewport() が返す**同一オブジェクト**を書き換えて渡す。新しいリテラルを渡すと
+        //   MindmapRender の module 変数だけが差し替わり、mindmap-interactions が attach 時に
+        //   掴んだ参照 (pan/zoom の保存復元に使う) と別物になって挙動がずれる。
+        const v = MR.getViewport();
+        v.translateX = 0; v.translateY = 0;
+        MR.updateViewport(v);
+    });
+    await page.waitForTimeout(80);
+}
+
 // 縦に大きいツリー (root r + 多数の子)。端の子は初期または pan で画面外にできる。
 function tallTree(childCount: number, layout: string = 'right') {
     const children: string[] = [];
@@ -116,6 +137,7 @@ test('TC-V3 移動先ノードが画面外なら最小パンで可視化・中�
     await setup(page);
     // 縦に多数の子 → span が可視領域を超え、末尾の子は下方の画面外にある。
     await toMindmap(page, tallTree(TALL, 'right'));
+    await resetFrameToOrigin(page);
     await page.waitForTimeout(150);
 
     const tr = await treeRect(page);
@@ -152,6 +174,7 @@ test('TC-V3 移動先ノードが画面外なら最小パンで可視化・中�
 test('TC-V3 load-bearing: ensureNodeVisible を「中央寄せ」に差し替えると中央 assert が red', async ({ page }) => {
     await setup(page);
     await toMindmap(page, tallTree(TALL, 'right'));
+    await resetFrameToOrigin(page);
     await page.waitForTimeout(150);
     const lastId = 'c' + (TALL - 1);
 
@@ -201,7 +224,18 @@ test('TC-V3 load-bearing: ensureNodeVisible を「中央寄せ」に差し替え
     });
 });
 
-test('TC-V4a 追加ノードが画面内なら Enter/Tab/Shift+Enter で viewport 不変', async ({ page }) => {
+/**
+ * ★2026-09-05 / 裁定 R34 (FR-MMT-01) で assert を組み替えた test_update:
+ *   title 空でも中心ノードが出る = 子ブロックは中心ノードの周りに**中央揃え**で置かれるため、
+ *   兄弟を 1 つ足すとブロック全体が半行分ずれる。フレーム安定化はこのレイアウトずれを打ち消して
+ *   「固定点の画面位置」を保つので、translate の生値は逆に (- 半行分) 動く。
+ *   本 TC が守りたい保証はファイル冒頭に書かれた「rerender で固定ノードの画面位置は不変」=
+ *   追加操作でビューが飛ばないことなので、translate の生値ではなく**固定ノード
+ *   (中心ノード __title__ と root r) の screen rect 不変**で検証する (実測: 追加前後で完全一致、
+ *   追従パンが入ると数十〜数百 px ずれて red)。translate 比較のままだと centered レイアウトの
+ *   正常な再配置を「ビューが飛んだ」と誤検出するため。
+ */
+test('TC-V4a 追加ノードが画面内なら Enter/Tab/Shift+Enter で追従パンしない (固定ノードの画面位置が不変)', async ({ page }) => {
     await setup(page);
     // 画面内に余裕のある小さいツリー。
     await toMindmap(page, {
@@ -214,32 +248,46 @@ test('TC-V4a 追加ノードが画面内なら Enter/Tab/Shift+Enter で viewpor
     });
     await page.waitForTimeout(150);
 
-    // Enter (弟追加) → viewport 不変
-    let v0 = await getViewport(page);
+    // 固定ノード = 追加操作でレイアウト位置が変わらないノード (中心ノードと root)。
+    const anchors = ['__title__', 'r'];
+    async function anchorRects() {
+        const out: any = {};
+        for (const id of anchors) { out[id] = await nodeRect(page, id); }
+        return out;
+    }
+    function expectAnchorsFixed(before: any, after: any) {
+        for (const id of anchors) {
+            expect(before[id], 'anchor ' + id + ' exists').not.toBeNull();
+            expect(after[id], 'anchor ' + id + ' exists').not.toBeNull();
+            expect(Math.abs(after[id].left - before[id].left)).toBeLessThanOrEqual(2);
+            expect(Math.abs(after[id].top - before[id].top)).toBeLessThanOrEqual(2);
+        }
+    }
+
+    // Enter (弟追加) → 固定ノードの画面位置不変 (= 追従パンなし)
+    let a0 = await anchorRects();
     await page.locator('.mindmap-node[data-node-id="a"] .mindmap-node-box').click();
     await page.keyboard.press('Enter');
     await page.waitForTimeout(150);
-    let v1 = await getViewport(page);
-    expect(Math.abs(v1.translateX - v0.translateX)).toBeLessThanOrEqual(2);
-    expect(Math.abs(v1.translateY - v0.translateY)).toBeLessThanOrEqual(2);
+    expectAnchorsFixed(a0, await anchorRects());
 
-    // Tab (子追加) → viewport 不変
-    v0 = await getViewport(page);
+    // Tab (子追加) → 固定ノードの画面位置不変
+    a0 = await anchorRects();
     await page.locator('.mindmap-node[data-node-id="a"] .mindmap-node-box').click();
     await page.keyboard.press('Tab');
     await page.waitForTimeout(150);
-    v1 = await getViewport(page);
-    expect(Math.abs(v1.translateX - v0.translateX)).toBeLessThanOrEqual(2);
-    expect(Math.abs(v1.translateY - v0.translateY)).toBeLessThanOrEqual(2);
+    expectAnchorsFixed(a0, await anchorRects());
 
-    // Shift+Enter (兄追加) → viewport 不変 (Shift+Enter の理想「動かない」維持)
-    v0 = await getViewport(page);
+    // Shift+Enter (兄追加) → 固定ノードの画面位置不変 (Shift+Enter の理想「動かない」維持)
+    a0 = await anchorRects();
     await page.locator('.mindmap-node[data-node-id="a"] .mindmap-node-box').click();
     await page.keyboard.press('Shift+Enter');
     await page.waitForTimeout(150);
-    v1 = await getViewport(page);
-    expect(Math.abs(v1.translateX - v0.translateX)).toBeLessThanOrEqual(2);
-    expect(Math.abs(v1.translateY - v0.translateY)).toBeLessThanOrEqual(2);
+    expectAnchorsFixed(a0, await anchorRects());
+
+    // scale は追加操作で変化しない (zoom が勝手に動かない)。
+    const vp = await getViewport(page);
+    expect(vp.scale).toBeCloseTo(1, 3);
 });
 
 test('TC-V4b 端で追加して新ノードが画面外なら最小パンで可視化・中央でない', async ({ page }) => {
@@ -247,6 +295,7 @@ test('TC-V4b 端で追加して新ノードが画面外なら最小パンで可�
     // 縦に多数の子。画面内の最下段付近の子を選択して Enter (弟追加) すると、
     // 新ノードはその下 = 画面外に生成される。
     await toMindmap(page, tallTree(TALL, 'right'));
+    await resetFrameToOrigin(page);
     await page.waitForTimeout(150);
 
     const tr = await treeRect(page);

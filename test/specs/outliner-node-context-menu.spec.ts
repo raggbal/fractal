@@ -50,7 +50,14 @@ const messages = (page: Page, type: string) => page.evaluate((t) =>
 
 test.describe('FR-NCM-01/02: node 右クリックメニューの Import/Export 系', () => {
 
-    test('TC-NCM-01: 4 項目が既存項目の後に separator 付きでこの順で並ぶ', async ({ page }) => {
+    /**
+     * ⚠️ **期待値更新（sprint 20260901-075849 / TASK-27 / 許可: test_update）**:
+     * FR-SND-03/04 で「linkedfd に送る」が Export folder の**後ろ**に追加された
+     * （tasks.md TASK-27「現行 4 項目 → 5 項目 = FR-NCM-01 改訂」）。
+     * Import/Export 4 項目の**相対順序**と「既存項目の後ろに固まっている」ことは不変なので、
+     * 末尾 pin を「Export folder が 4 項目の最後」+「その直後が送る系」に張り替える。
+     */
+    test('TC-NCM-01: Import/Export 4 項目 + 送る系がこの順で末尾に並ぶ', async ({ page }) => {
         await initOutliner(page);
         await rightClickNode(page, 'Alpha');
 
@@ -71,12 +78,17 @@ test.describe('FR-NCM-01/02: node 右クリックメニューの Import/Export �
         expect(idx.importFiles, 'any files → folder').toBeLessThan(idx.importFolder);
         expect(idx.importFolder, 'folder → export').toBeLessThan(idx.exportFolder);
 
-        // 4 項目は末尾に固まっている（既存項目の後）
-        expect(idx.exportFolder, '最後の項目が Export folder').toBe(texts.length - 1);
-        expect(idx.importMd, '4 項目が連続している').toBe(texts.length - 4);
+        // FR-SND-04: Export folder の直後に「linkedfd に送る」が来る（5 項目目）
+        const idxSend = texts.findIndex((t) => /Send to linkedfd|linkedfd に送る/.test(t));
+        expect(idxSend, '「linkedfd に送る」が存在').toBeGreaterThanOrEqual(0);
+        expect(idxSend, 'Export folder の直後に来る').toBe(idx.exportFolder + 1);
+
+        // 5 項目は末尾に固まっている（既存項目の後）
+        expect(idxSend, '最後の項目が「linkedfd に送る」').toBe(texts.length - 1);
+        expect(idx.importMd, '5 項目が連続している').toBe(texts.length - 5);
 
         // 既存項目の回帰（削除・並び替えしていない）
-        const existing = texts.slice(0, texts.length - 4).join('|');
+        const existing = texts.slice(0, texts.length - 5).join('|');
         for (const re of [/Add Child Node|子ノード/i, /Move Up|上へ/i, /Delete Node|ノードを削除/i]) {
             expect(existing, `既存項目が残る: ${re}`).toMatch(re);
         }
